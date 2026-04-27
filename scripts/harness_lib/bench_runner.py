@@ -19,10 +19,14 @@ def run_benchmarks(
     runs: int = 3,
     output_dir: str | None = None,
     tier: str = "all",
+    quality_source: str = "self-test",
+    quality_modes: str = "CustomVoice,VoiceDesign",
+    allow_model_load: bool = False,
+    clone_reference: str | None = None,
+    clone_transcript: str | None = None,
 ) -> list[dict[str, Any]]:
     """Run selected benchmark categories."""
     _ = runs
-    _ = output_dir
     _ = tier
     suites: list[dict[str, Any]] = []
 
@@ -36,7 +40,19 @@ def run_benchmarks(
 
     if category in ("all", "quality"):
         eprint("==> Running generated audio quality checks...")
-        suites.append(_run_audio_quality_self_test(output_dir=output_dir))
+        if quality_source == "self-test":
+            suites.append(_run_audio_quality_self_test(output_dir=output_dir))
+        else:
+            suites.append(
+                _run_audio_quality_workflow(
+                    output_dir=output_dir,
+                    quality_source=quality_source,
+                    quality_modes=quality_modes,
+                    allow_model_load=allow_model_load,
+                    clone_reference=clone_reference,
+                    clone_transcript=clone_transcript,
+                )
+            )
 
     if category in ("all", "tts_roundtrip"):
         eprint("==> Running TTS round-trip intelligibility benchmark...")
@@ -99,6 +115,73 @@ def _run_audio_quality_self_test(output_dir: str | None) -> dict[str, Any]:
         details=details,
     )
     return build_suite_result("audio_quality", [result], duration_ms)
+
+
+def _run_audio_quality_workflow(
+    *,
+    output_dir: str | None,
+    quality_source: str,
+    quality_modes: str,
+    allow_model_load: bool,
+    clone_reference: str | None,
+    clone_transcript: str | None,
+) -> dict[str, Any]:
+    start = time.perf_counter()
+    destination = Path(output_dir) if output_dir else BUILD_ROOT / "audio-qc" / quality_source
+    ensure_directory(destination)
+    command = [
+        sys.executable,
+        str(PROJECT_DIR / "scripts" / "run_generation_quality_audit.py"),
+        "--source",
+        quality_source,
+        "--modes",
+        quality_modes,
+        "--output-dir",
+        str(destination),
+    ]
+    if allow_model_load:
+        command.append("--allow-model-load")
+    if clone_reference:
+        command.extend(["--clone-reference", clone_reference])
+    if clone_transcript:
+        command.extend(["--clone-transcript", clone_transcript])
+
+    proc = subprocess.run(
+        command,
+        cwd=str(PROJECT_DIR),
+        capture_output=True,
+        text=True,
+        timeout=resolve_audio_quality_timeout_seconds(quality_source),
+    )
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    summary_path = destination / "summary.json"
+    details: dict[str, Any] = {
+        "command": command,
+        "summary_json": str(summary_path),
+        "summary_markdown": str(destination / "summary.md"),
+        "stdout_tail": proc.stdout.splitlines()[-20:],
+        "stderr_tail": proc.stderr.splitlines()[-20:],
+    }
+    if summary_path.exists():
+        try:
+            details["summary"] = json.loads(summary_path.read_text(encoding="utf-8"))
+        except Exception as exc:  # pragma: no cover - diagnostic only
+            details["summary_parse_error"] = str(exc)
+
+    result = build_test_result(
+        f"audio_qc_{quality_source}",
+        passed=proc.returncode == 0,
+        error=None if proc.returncode == 0 else f"audio quality workflow exited {proc.returncode}",
+        duration_ms=duration_ms,
+        details=details,
+    )
+    return build_suite_result("audio_quality", [result], duration_ms)
+
+
+def resolve_audio_quality_timeout_seconds(quality_source: str) -> int:
+    if quality_source == "live-xpc":
+        return 3600
+    return 300
 
 
 def _run_packaged_app_launch_benchmark(runs: int) -> dict[str, Any]:

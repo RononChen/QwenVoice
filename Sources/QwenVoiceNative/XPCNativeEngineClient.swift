@@ -611,6 +611,12 @@ public final class XPCNativeEngineClient: MacTTSEngine, @unchecked Sendable {
     private let coordinator: XPCNativeEngineCoordinator
 
     public convenience init() {
+        self.init(onChunk: { event in
+            GenerationChunkBroker.publish(event)
+        })
+    }
+
+    convenience init(onChunk: @escaping @Sendable (GenerationEvent) -> Void) {
         self.init(
             transportFactory: { handlers in
                 XPCServiceTransport(handlers: handlers)
@@ -618,9 +624,7 @@ public final class XPCNativeEngineClient: MacTTSEngine, @unchecked Sendable {
             timeoutResolver: { command in
                 command.transportTimeout
             },
-            onChunk: { event in
-                GenerationChunkBroker.publish(event)
-            }
+            onChunk: onChunk
         )
     }
 

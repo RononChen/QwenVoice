@@ -50,6 +50,11 @@ def _run_bench(args: argparse.Namespace) -> None:
             runs=args.runs,
             output_dir=args.output_dir,
             tier=getattr(args, "tier", "all"),
+            quality_source=getattr(args, "quality_source", "self-test"),
+            quality_modes=getattr(args, "quality_modes", "CustomVoice,VoiceDesign"),
+            allow_model_load=getattr(args, "allow_model_load", False),
+            clone_reference=getattr(args, "clone_reference", None),
+            clone_transcript=getattr(args, "clone_transcript", None),
         )
         duration_ms = int((time.perf_counter() - start) * 1000)
     envelope = build_envelope("bench", suites, duration_ms)
@@ -107,6 +112,24 @@ def main() -> None:
     )
     p_bench.add_argument("--runs", type=int, default=3, help="Runs per benchmark")
     p_bench.add_argument("--output-dir", default=None, help="Output directory for artifacts")
+    p_bench.add_argument(
+        "--quality-source",
+        choices=["self-test", "latest", "live-xpc"],
+        default="self-test",
+        help="Audio quality source for --category quality.",
+    )
+    p_bench.add_argument(
+        "--quality-modes",
+        default="CustomVoice,VoiceDesign",
+        help="Comma-separated modes for --category quality.",
+    )
+    p_bench.add_argument(
+        "--allow-model-load",
+        action="store_true",
+        help="Allow live quality benchmarks to load MLX models.",
+    )
+    p_bench.add_argument("--clone-reference", default=None, help="Reference audio path for Clones quality runs.")
+    p_bench.add_argument("--clone-transcript", default=None, help="Optional transcript for Clones quality runs.")
     p_bench.set_defaults(func=_run_bench)
 
     p_diag = sub.add_parser("diagnose", help="Run diagnostic checks")
