@@ -55,13 +55,44 @@ final class XPCNativeEngineClientTests: XCTestCase {
     }
 
     func testClientReinitializesAfterConnectionInvalidation() async throws {
+        let firstTransport = ClientTestXPCTransport()
+        let secondTransport = ClientTestXPCTransport()
+        let factory = ClientTestTransportFactory([firstTransport, secondTransport])
+        let client = XPCNativeEngineClient(
+            transportFactory: { handlers in
+                factory.makeTransport(handlers: handlers)
+            }
+        )
         let root = try NativeRuntimeTestSupport.makeTemporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let client = XPCNativeEngineClient()
-        try await client.initialize(appSupportDirectory: root)
-        let initialPing = try await client.ping()
-        XCTAssertTrue(initialPing)
+        async let initialize: Void = client.initialize(appSupportDirectory: root)
+        try await waitForPerformCallCount(1, transport: firstTransport)
+        firstTransport.reply(
+            with: EngineReplyEnvelope(
+                id: try XCTUnwrap(firstTransport.lastRequestID),
+                reply: .snapshot(
+                    TTSEngineSnapshot(
+                        isReady: true,
+                        loadState: .idle,
+                        clonePreparationState: .idle,
+                        visibleErrorMessage: nil
+                    )
+                )
+            )
+        )
+        try await initialize
+
+        async let initialPing: Bool = client.ping()
+        try await waitForPerformCallCount(2, transport: firstTransport)
+        firstTransport.reply(
+            with: EngineReplyEnvelope(
+                id: try XCTUnwrap(firstTransport.lastRequestID),
+                reply: .capabilities(.macOSXPCDefault)
+            )
+        )
+        let initialPingResult = try await initialPing
+        XCTAssertTrue(initialPingResult)
 
         await client.debugInvalidateConnectionForTesting()
 
@@ -74,8 +105,35 @@ final class XPCNativeEngineClientTests: XCTestCase {
         XCTAssertFalse(client.snapshot.isReady)
         XCTAssertNotNil(client.snapshot.visibleErrorMessage)
 
-        let reconnectPing = try await client.ping()
-        XCTAssertTrue(reconnectPing)
+        async let reconnectPing: Bool = client.ping()
+        try await waitForPerformCallCount(1, transport: secondTransport)
+        XCTAssertEqual(
+            secondTransport.performedCommands.first,
+            .initialize(appSupportDirectoryPath: root.path)
+        )
+        secondTransport.reply(
+            with: EngineReplyEnvelope(
+                id: try XCTUnwrap(secondTransport.lastRequestID),
+                reply: .snapshot(
+                    TTSEngineSnapshot(
+                        isReady: true,
+                        loadState: .idle,
+                        clonePreparationState: .idle,
+                        visibleErrorMessage: nil
+                    )
+                )
+            )
+        )
+
+        try await waitForPerformCallCount(2, transport: secondTransport)
+        secondTransport.reply(
+            with: EngineReplyEnvelope(
+                id: try XCTUnwrap(secondTransport.lastRequestID),
+                reply: .capabilities(.macOSXPCDefault)
+            )
+        )
+        let reconnectPingResult = try await reconnectPing
+        XCTAssertTrue(reconnectPingResult)
         _ = await waitUntil(
             timeoutSeconds: 0.5,
             description: "client becomes ready after reconnect"
