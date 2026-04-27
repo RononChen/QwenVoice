@@ -161,13 +161,16 @@ struct SidebarStatusView: View {
 
     private func crashedView(message: String) -> some View {
         let detail = message.isEmpty ? "Restart the app to continue" : message
+        let title = detail.localizedCaseInsensitiveContains("unavailable")
+            ? "Engine unavailable"
+            : "Engine Stopped"
 
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Image(systemName: "bolt.fill")
                     .font(.caption)
                     .foregroundStyle(.red)
-                Text("Engine Stopped")
+                Text(title)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.primary)
             }

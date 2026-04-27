@@ -321,6 +321,104 @@ final class XPCNativeEngineCoordinatorTests: XCTestCase {
         }
         XCTAssertTrue(result)
     }
+
+    func testCoordinatorSchedulesReconnectAfterInterruption() async throws {
+        let firstTransport = TestXPCTransport()
+        let secondTransport = TestXPCTransport()
+        let factory = TestTransportFactory([firstTransport, secondTransport])
+        let snapshotRecorder = SnapshotRecorder()
+        let coordinator = XPCNativeEngineCoordinator(
+            onSnapshot: { snapshot in
+                Task {
+                    await snapshotRecorder.append(snapshot)
+                }
+            },
+            onChunk: { _ in },
+            transportFactory: { handlers in
+                factory.makeTransport(handlers: handlers)
+            },
+            timeoutResolver: { _ in nil },
+            reconnectDelays: [.milliseconds(1)]
+        )
+        let appSupportDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+
+        async let initialize: Void = coordinator.initialize(appSupportDirectory: appSupportDirectory)
+        try await Task.sleep(for: .milliseconds(10))
+        firstTransport.reply(
+            with: EngineReplyEnvelope(
+                id: try XCTUnwrap(firstTransport.lastRequestID),
+                reply: .snapshot(
+                    TTSEngineSnapshot(
+                        isReady: true,
+                        loadState: .idle,
+                        clonePreparationState: .idle,
+                        visibleErrorMessage: nil
+                    )
+                )
+            )
+        )
+        try await initialize
+
+        firstTransport.interruptFromTest()
+        var sawRecoveringSnapshot = false
+        for _ in 0..<25 {
+            if await snapshotRecorder.last()?.visibleErrorMessage == "Reconnecting engine…" {
+                sawRecoveringSnapshot = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(sawRecoveringSnapshot)
+        XCTAssertEqual(firstTransport.invalidateCallCount, 1)
+
+        _ = await waitUntil(
+            timeoutSeconds: 0.5,
+            description: "reconnect initializes a replacement transport"
+        ) {
+            secondTransport.performCallCount >= 1
+        }
+        XCTAssertEqual(
+            secondTransport.performedCommands.first,
+            .initialize(appSupportDirectoryPath: appSupportDirectory.path)
+        )
+        secondTransport.reply(
+            with: EngineReplyEnvelope(
+                id: try XCTUnwrap(secondTransport.lastRequestID),
+                reply: .snapshot(
+                    TTSEngineSnapshot(
+                        isReady: true,
+                        loadState: .idle,
+                        clonePreparationState: .idle,
+                        visibleErrorMessage: nil
+                    )
+                )
+            )
+        )
+
+        _ = await waitUntil(
+            timeoutSeconds: 0.5,
+            description: "reconnect performs health ping"
+        ) {
+            secondTransport.performCallCount >= 2
+        }
+        secondTransport.reply(
+            with: EngineReplyEnvelope(
+                id: try XCTUnwrap(secondTransport.lastRequestID),
+                reply: .capabilities(.macOSXPCDefault)
+            )
+        )
+
+        var sawReadySnapshot = false
+        for _ in 0..<25 {
+            if await snapshotRecorder.last()?.isReady == true {
+                sawReadySnapshot = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(sawReadySnapshot)
+    }
 }
 
 private final class TestXPCTransport: XPCNativeEngineTransporting, @unchecked Sendable {
@@ -328,6 +426,7 @@ private final class TestXPCTransport: XPCNativeEngineTransporting, @unchecked Se
     private(set) var performCallCount = 0
     private(set) var lastRequestID: UUID?
     private(set) var performedCommands: [EngineCommand] = []
+    private(set) var invalidateCallCount = 0
     private var replyHandlers: [(@Sendable (Data) -> Void)] = []
 
     func install(handlers: XPCNativeEngineTransportHandlers) {
@@ -336,7 +435,9 @@ private final class TestXPCTransport: XPCNativeEngineTransporting, @unchecked Se
 
     func resume() {}
 
-    func invalidate() {}
+    func invalidate() {
+        invalidateCallCount += 1
+    }
 
     func perform(_ payload: Data, reply: @escaping @Sendable (Data) -> Void) {
         performCallCount += 1
@@ -349,6 +450,10 @@ private final class TestXPCTransport: XPCNativeEngineTransporting, @unchecked Se
 
     func invalidateFromTest() {
         handlers?.onInvalidated()
+    }
+
+    func interruptFromTest() {
+        handlers?.onInterrupted()
     }
 
     func reply(with envelope: EngineReplyEnvelope) {

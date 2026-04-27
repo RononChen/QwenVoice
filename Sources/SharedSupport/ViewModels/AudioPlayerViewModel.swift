@@ -79,6 +79,11 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         case finalizing
     }
 
+    struct FinalPlaybackHandoff: Equatable, Sendable {
+        let preserveCurrentTime: TimeInterval
+        let shouldAutoPlay: Bool
+    }
+
     private struct LivePreviewConfiguration {
         let prebufferThreshold: Int
 
@@ -104,8 +109,11 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     private var pendingFirstChunkInterval: AppPerformanceSignposts.Interval?
     private var pendingAutoplaySignpost = false
     private var livePlaybackStarted = false
+    private var livePreviewDuration: TimeInterval = 0
     private var livePlaybackTimeOffset: TimeInterval = 0
     private var liveUnderrunCount = 0
+    private var completedLiveSessionIDs: Set<String> = []
+    private var completedLiveSessionOrder: [String] = []
     private let livePreviewConfiguration: LivePreviewConfiguration
     private var chunkObserver: NSObjectProtocol?
     private var chunkCancellable: AnyCancellable?
@@ -310,6 +318,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         pendingFirstChunkInterval = AppPerformanceSignposts.begin("Preview To First Chunk")
         liveScheduledCount = 0
         livePlaybackStarted = false
+        livePreviewDuration = 0
         livePlaybackTimeOffset = 0
         liveUnderrunCount = 0
         liveFormat = nil
@@ -343,6 +352,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         currentTitle = title
         currentFilePath = result.audioPath
         liveFinalFilePath = result.audioPath
+        recordCompletedLiveSessionID(liveSessionID)
         if let streamSessionDirectory = result.streamSessionDirectory {
             liveSessionDirectory = streamSessionDirectory
         }
@@ -350,12 +360,19 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
 
         // Only transition immediately if live playback never started or all
         // buffers have already drained. Otherwise the existing buffer-drain
-        // mechanism (handleLiveBufferPlaybackCompletion → finishLivePlaybackAfterDrainingBuffers)
-        // handles the transition to avoid replaying audio that was already heard.
+        // mechanism (handleLiveBufferPlaybackCompletion -> finishLivePlaybackAfterDrainingBuffers)
+        // keeps playback moving from the heard preview position into the final file.
         if !livePlaybackStarted || liveScheduledCount == 0 {
+            let handoff = Self.finalPlaybackHandoff(
+                heardLivePreview: livePlaybackStarted,
+                currentTime: currentTime,
+                previewDuration: livePreviewDuration,
+                duration: duration,
+                autoPlayEnabled: shouldAutoPlay
+            )
             switchToFinalFilePlayback(
-                preserveCurrentTime: 0,
-                autoPlay: shouldAutoPlay
+                preserveCurrentTime: handoff.preserveCurrentTime,
+                autoPlay: handoff.shouldAutoPlay
             )
         }
     }
@@ -423,6 +440,8 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
 
     private func handleGenerationChunk(_ chunk: ChunkInfo) {
         let sessionID = String(chunk.requestID)
+        guard !completedLiveSessionIDs.contains(sessionID) else { return }
+
         let sessionDirectory = chunk.sessionDirectory
         let cumulativeDuration = chunk.cumulativeDuration
 
@@ -450,6 +469,18 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
 
     // MARK: - Live Playback
 
+    private func recordCompletedLiveSessionID(_ sessionID: String?) {
+        guard let sessionID, !sessionID.hasPrefix("pending-") else { return }
+        guard completedLiveSessionIDs.insert(sessionID).inserted else { return }
+        completedLiveSessionOrder.append(sessionID)
+
+        let maximumRetainedSessionIDs = 16
+        while completedLiveSessionOrder.count > maximumRetainedSessionIDs {
+            let expiredID = completedLiveSessionOrder.removeFirst()
+            completedLiveSessionIDs.remove(expiredID)
+        }
+    }
+
     private func startLiveSession(id: String, title: String, sessionDirectory: String?, autoPlay: Bool) {
         teardownLivePlayback(clearSession: true)
         stopFilePlayback(clearPlayer: true)
@@ -461,6 +492,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         liveAutoplayEnabled = autoPlay
         liveScheduledCount = 0
         livePlaybackStarted = false
+        livePreviewDuration = 0
         livePlaybackTimeOffset = 0
         liveUnderrunCount = 0
         liveFormat = nil
@@ -502,7 +534,9 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         livePreviewQueueDepth = liveScheduledCount
         scheduleLiveBuffer(buffer)
 
-        duration = cumulativeDuration ?? (duration + TimeInterval(buffer.frameLength) / fileFormat.sampleRate)
+        livePreviewDuration = cumulativeDuration
+            ?? (livePreviewDuration + TimeInterval(buffer.frameLength) / fileFormat.sampleRate)
+        duration = max(duration, livePreviewDuration)
         markGeneratePreviewReadyIfNeeded()
         if let pendingFirstChunkInterval {
             AppPerformanceSignposts.end(pendingFirstChunkInterval)
@@ -544,7 +578,9 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         livePreviewQueueDepth = liveScheduledCount
         scheduleLiveBuffer(buffer)
 
-        duration = cumulativeDuration ?? (duration + TimeInterval(buffer.frameLength) / format.sampleRate)
+        livePreviewDuration = cumulativeDuration
+            ?? (livePreviewDuration + TimeInterval(buffer.frameLength) / format.sampleRate)
+        duration = max(duration, livePreviewDuration)
         markGeneratePreviewReadyIfNeeded()
         if let pendingFirstChunkInterval {
             AppPerformanceSignposts.end(pendingFirstChunkInterval)
@@ -566,7 +602,17 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
 
     private func attemptLivePlay() {
         if liveFinalFilePath != nil, !isPlaying {
-            switchToFinalFilePlayback(preserveCurrentTime: currentTime, autoPlay: true)
+            let handoff = Self.finalPlaybackHandoff(
+                heardLivePreview: livePlaybackStarted,
+                currentTime: currentTime,
+                previewDuration: livePreviewDuration,
+                duration: duration,
+                autoPlayEnabled: liveAutoplayEnabled
+            )
+            switchToFinalFilePlayback(
+                preserveCurrentTime: handoff.preserveCurrentTime,
+                autoPlay: handoff.shouldAutoPlay
+            )
             return
         }
 
@@ -643,15 +689,21 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     }
 
     private func finishLivePlaybackAfterDrainingBuffers() {
+        let heardTime = max(currentTime, livePreviewDuration)
         stopLivePlayback(resetCurrentTime: false)
-        currentTime = 0
+        currentTime = heardTime
 
         if liveFinalFilePath != nil {
-            // Don't autoplay — the user already heard the audio via live chunks.
-            // Just load the final file so the player supports seek/replay.
+            let handoff = Self.finalPlaybackHandoff(
+                heardLivePreview: livePlaybackStarted,
+                currentTime: currentTime,
+                previewDuration: livePreviewDuration,
+                duration: duration,
+                autoPlayEnabled: liveAutoplayEnabled
+            )
             switchToFinalFilePlayback(
-                preserveCurrentTime: 0,
-                autoPlay: false
+                preserveCurrentTime: handoff.preserveCurrentTime,
+                autoPlay: handoff.shouldAutoPlay
             )
         }
     }
@@ -678,6 +730,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         stopLivePlayback(resetCurrentTime: true)
         liveScheduledCount = 0
         livePlaybackStarted = false
+        livePreviewDuration = 0
         livePlaybackTimeOffset = 0
         liveUnderrunCount = 0
         liveFormat = nil
@@ -808,6 +861,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             stopLivePlayback(resetCurrentTime: false)
             liveScheduledCount = 0
             livePlaybackStarted = false
+            livePreviewDuration = 0
             livePlaybackTimeOffset = 0
             liveUnderrunCount = 0
             liveFormat = nil
@@ -927,6 +981,45 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         generatePreviewVisibilityState = .hidden
     }
 
+    static func finalPlaybackHandoff(
+        heardLivePreview: Bool,
+        currentTime: TimeInterval,
+        previewDuration: TimeInterval = 0,
+        duration: TimeInterval,
+        autoPlayEnabled: Bool
+    ) -> FinalPlaybackHandoff {
+        guard heardLivePreview else {
+            return FinalPlaybackHandoff(
+                preserveCurrentTime: 0,
+                shouldAutoPlay: autoPlayEnabled
+            )
+        }
+
+        guard autoPlayEnabled else {
+            return FinalPlaybackHandoff(
+                preserveCurrentTime: 0,
+                shouldAutoPlay: false
+            )
+        }
+
+        let safeDuration = max(duration, 0)
+        let heardTime = max(currentTime, previewDuration)
+        let safeCurrentTime = min(max(heardTime, 0), safeDuration)
+        let replayThreshold: TimeInterval = 0.12
+        guard safeDuration > replayThreshold,
+              safeCurrentTime < safeDuration - replayThreshold else {
+            return FinalPlaybackHandoff(
+                preserveCurrentTime: 0,
+                shouldAutoPlay: false
+            )
+        }
+
+        return FinalPlaybackHandoff(
+            preserveCurrentTime: safeCurrentTime,
+            shouldAutoPlay: true
+        )
+    }
+
     // MARK: - Timer
 
     private func startTimer() {
@@ -965,7 +1058,17 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             if !livePlayerNode.isPlaying, liveFinalFilePath != nil {
                 isPlaying = false
                 stopTimer()
-                switchToFinalFilePlayback(preserveCurrentTime: 0, autoPlay: liveAutoplayEnabled)
+                let handoff = Self.finalPlaybackHandoff(
+                    heardLivePreview: livePlaybackStarted,
+                    currentTime: currentTime,
+                    previewDuration: livePreviewDuration,
+                    duration: duration,
+                    autoPlayEnabled: liveAutoplayEnabled
+                )
+                switchToFinalFilePlayback(
+                    preserveCurrentTime: handoff.preserveCurrentTime,
+                    autoPlay: handoff.shouldAutoPlay
+                )
             }
         case .none:
             stopTimer()

@@ -5,9 +5,9 @@ struct VoiceDesignView: View {
     @Binding private var draft: VoiceDesignDraft
     @StateObject private var coordinator = VoiceDesignCoordinator()
 
-    private let ttsEngineStore: TTSEngineStore
+    @ObservedObject private var ttsEngineStore: TTSEngineStore
+    @ObservedObject private var modelManager: ModelManagerViewModel
     private let audioPlayer: AudioPlayerViewModel
-    private let modelManager: ModelManagerViewModel
     private let savedVoicesViewModel: SavedVoicesViewModel
     private let appCommandRouter: AppCommandRouter
 
@@ -54,9 +54,9 @@ struct VoiceDesignView: View {
         appCommandRouter: AppCommandRouter
     ) {
         _draft = draft
-        self.ttsEngineStore = ttsEngineStore
+        _ttsEngineStore = ObservedObject(wrappedValue: ttsEngineStore)
+        _modelManager = ObservedObject(wrappedValue: modelManager)
         self.audioPlayer = audioPlayer
-        self.modelManager = modelManager
         self.savedVoicesViewModel = savedVoicesViewModel
         self.appCommandRouter = appCommandRouter
     }
@@ -143,7 +143,7 @@ private extension VoiceDesignView {
             title: "Script",
             iconName: "text.alignleft",
             accentColor: AppTheme.voiceDesign,
-            trailingText: canGenerate ? "Ready" : nil,
+            trailingText: coordinator.isGenerating ? "Generating" : (canGenerate ? "Ready" : nil),
             fillsAvailableHeight: true,
             accessibilityIdentifier: "voiceDesign_script"
         ) {
@@ -201,10 +201,11 @@ private extension VoiceDesignView {
 
     var generationReadiness: some View {
         WorkflowReadinessNote(
-            isReady: canGenerate,
-            title: canGenerate ? "Ready to generate" : readinessTitle,
-            detail: readinessDetail,
+            isReady: canGenerate && !coordinator.isGenerating,
+            title: coordinator.isGenerating ? "Generating live preview" : (canGenerate ? "Ready to generate" : readinessTitle),
+            detail: coordinator.isGenerating ? "Vocello is streaming audio now. The final file will load into the player as soon as it is ready." : readinessDetail,
             accentColor: AppTheme.voiceDesign,
+            isBusy: coordinator.isGenerating,
             accessibilityIdentifier: "voiceDesign_readiness"
         )
     }

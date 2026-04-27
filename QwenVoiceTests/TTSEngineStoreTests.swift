@@ -380,4 +380,20 @@ final class TTSEngineStoreTests: XCTestCase {
         XCTAssertEqual(store.frontendState.lifecycleState, .failed)
         XCTAssertEqual(store.frontendState.visibleErrorMessage, "Connection failed")
     }
+
+    @MainActor
+    func testTTSEngineStoreFrontendStateReportsRecoveringLifecycleForReconnectSnapshot() async {
+        let engine = MockMacTTSEngine(
+            snapshot: TTSEngineSnapshot(
+                isReady: false,
+                loadState: .starting,
+                clonePreparationState: .idle,
+                visibleErrorMessage: "Reconnecting engine…"
+            )
+        )
+        let store = TTSEngineStore(engine: engine)
+
+        XCTAssertEqual(store.frontendState.lifecycleState, .recovering)
+        XCTAssertEqual(store.frontendState.visibleErrorMessage, "Reconnecting engine…")
+    }
 }

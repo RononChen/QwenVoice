@@ -295,6 +295,75 @@ final class GenerationScreenCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testCustomVoiceCoordinatorLeavesGeneratingStateAfterEngineInterruption() async throws {
+        let (store, engine) = makeReadyStore()
+        engine.generateError = NSError(
+            domain: "com.qwenvoice.xpc",
+            code: -1,
+            userInfo: [
+                NSLocalizedDescriptionKey: "The engine service connection was interrupted.",
+            ]
+        )
+        let coordinator = CustomVoiceCoordinator()
+        let audioPlayer = AudioPlayerViewModel()
+
+        coordinator.generate(
+            draft: CustomVoiceDraft(
+                selectedSpeaker: "Vivian",
+                emotion: "Normal tone",
+                text: "Hello there"
+            ),
+            activeModel: TTSModel.model(for: .custom),
+            isModelAvailable: true,
+            ttsEngineStore: store,
+            audioPlayer: audioPlayer,
+            modelManager: ModelManagerViewModel()
+        )
+
+        await waitUntil(
+            timeoutSeconds: 1.0,
+            description: "custom voice interruption finishes"
+        ) {
+            coordinator.isGenerating == false
+        }
+
+        XCTAssertEqual(
+            coordinator.errorMessage,
+            "The engine service connection was interrupted."
+        )
+        XCTAssertFalse(audioPlayer.isLiveStream)
+    }
+
+    @MainActor
+    func testEngineReconnectSnapshotPreservesLoadedPlaybackState() async throws {
+        let (store, engine) = makeReadyStore()
+        let audioPlayer = AudioPlayerViewModel()
+        audioPlayer.currentFilePath = "/tmp/final.wav"
+        audioPlayer.currentTitle = "hello there"
+        audioPlayer.duration = 1.2
+
+        engine.pushSnapshot(
+            TTSEngineSnapshot(
+                isReady: false,
+                loadState: .starting,
+                clonePreparationState: .idle,
+                visibleErrorMessage: "Reconnecting engine…"
+            )
+        )
+
+        await waitUntil(
+            timeoutSeconds: 1.0,
+            description: "store enters reconnecting state"
+        ) {
+            store.frontendState.lifecycleState == .recovering
+        }
+
+        XCTAssertEqual(audioPlayer.currentFilePath, "/tmp/final.wav")
+        XCTAssertEqual(audioPlayer.currentTitle, "hello there")
+        XCTAssertEqual(audioPlayer.duration, 1.2)
+    }
+
+    @MainActor
     func testVoiceDesignCoordinatorSwallowsCancellationWithoutErrorBanner() async throws {
         let (store, engine) = makeReadyStore()
         engine.generateError = CancellationError()

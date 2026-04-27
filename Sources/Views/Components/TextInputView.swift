@@ -63,14 +63,8 @@ struct TextInputView: View {
                 Button {
                     onGenerate()
                 } label: {
-                    if isGenerating {
-                        ProgressView()
-                            .controlSize(.small)
-                            .frame(minWidth: 88)
-                    } else {
-                        Label("Generate", systemImage: "sparkles")
-                            .frame(minWidth: 88)
-                    }
+                    Label("Generate", systemImage: "sparkles")
+                        .frame(minWidth: 88)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(buttonColor)

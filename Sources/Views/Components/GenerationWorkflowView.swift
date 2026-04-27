@@ -122,13 +122,21 @@ struct WorkflowReadinessNote: View {
     let title: String
     let detail: String
     var accentColor: Color = AppTheme.accent
+    var isBusy: Bool = false
     var accessibilityIdentifier: String? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: isReady ? "checkmark.circle.fill" : "info.circle")
-                .font(.subheadline)
-                .foregroundStyle(isReady ? accentColor : .secondary)
+            if isBusy {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(accentColor)
+                    .frame(width: 16, height: 16)
+            } else {
+                Image(systemName: isReady ? "checkmark.circle.fill" : "info.circle")
+                    .font(.subheadline)
+                    .foregroundStyle(isReady ? accentColor : .secondary)
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)

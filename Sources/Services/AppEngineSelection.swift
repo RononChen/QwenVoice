@@ -81,6 +81,20 @@ enum AppEngineSelection: Equatable {
         from snapshot: TTSEngineSnapshot,
         prefersInlinePresentation: Bool
     ) -> SidebarStatus {
+        if case .starting = snapshot.loadState {
+            if let visibleErrorMessage = snapshot.visibleErrorMessage,
+               !visibleErrorMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return .running(
+                    ActivityStatus(
+                        label: visibleErrorMessage,
+                        fraction: nil,
+                        presentation: .standaloneCard
+                    )
+                )
+            }
+            return .starting
+        }
+
         if let visibleErrorMessage = snapshot.visibleErrorMessage,
            !visibleErrorMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return snapshot.isReady ? .error(visibleErrorMessage) : .crashed(visibleErrorMessage)

@@ -155,6 +155,9 @@ actor XPCNativeEngineCoordinator {
     private var batchProgressHandlers: [UUID: BatchProgressHandlerBox] = [:]
     private var pendingRequests: [UUID: PendingRequestBox] = [:]
     private var inFlightBestEffortKeys: Set<String> = []
+    private let reconnectDelays: [Duration]
+    private var reconnectAttempt = 0
+    private var reconnectTask: Task<Void, Never>?
 
     init(
         onSnapshot: @escaping @Sendable (TTSEngineSnapshot) -> Void,
@@ -164,12 +167,14 @@ actor XPCNativeEngineCoordinator {
         },
         timeoutResolver: @escaping XPCNativeEngineTimeoutResolver = { command in
             command.transportTimeout
-        }
+        },
+        reconnectDelays: [Duration] = [.milliseconds(250), .seconds(1)]
     ) {
         self.onSnapshot = onSnapshot
         self.onChunk = onChunk
         self.transportFactory = transportFactory
         self.timeoutResolver = timeoutResolver
+        self.reconnectDelays = reconnectDelays
     }
 
     func initialize(appSupportDirectory: URL) async throws {
@@ -178,22 +183,34 @@ actor XPCNativeEngineCoordinator {
     }
 
     func send(_ command: EngineCommand) async throws -> EngineReply {
+        cancelReconnectTaskIfNeeded()
+        return try await send(command, cancelsReconnectTask: false)
+    }
+
+    private func send(_ command: EngineCommand, cancelsReconnectTask: Bool) async throws -> EngineReply {
+        if cancelsReconnectTask {
+            cancelReconnectTaskIfNeeded()
+        }
         let transport = ensureConnection()
         switch command {
         case .initialize(let path):
             initializedAppSupportDirectory = URL(fileURLWithPath: path)
             let reply = try await perform(transport: transport, command: command)
+            applyReplySideEffects(reply)
             didInitializeCurrentConnection = true
             return reply
         default:
             if !didInitializeCurrentConnection, let initializedAppSupportDirectory {
-                _ = try await perform(
+                let initializationReply = try await perform(
                     transport: transport,
                     command: .initialize(appSupportDirectoryPath: initializedAppSupportDirectory.path)
                 )
+                applyReplySideEffects(initializationReply)
                 didInitializeCurrentConnection = true
             }
-            return try await perform(transport: transport, command: command)
+            let reply = try await perform(transport: transport, command: command)
+            applyReplySideEffects(reply)
+            return reply
         }
     }
 
@@ -302,9 +319,14 @@ actor XPCNativeEngineCoordinator {
     }
 
 #if QW_TEST_SUPPORT
-    func invalidateForTesting() {
+    func invalidateForTesting(shouldReconnect: Bool = false) {
         guard let connectionID = activeConnection?.id else { return }
-        handleConnectionInvalidated(for: connectionID)
+        handleDisconnect(
+            connectionID: connectionID,
+            transportError: .invalidated,
+            message: EngineTransportError.invalidated.localizedDescription,
+            allowsRecovery: shouldReconnect
+        )
     }
 #endif
 
@@ -428,12 +450,9 @@ actor XPCNativeEngineCoordinator {
     private func handleDisconnect(
         connectionID: UUID,
         transportError: EngineTransportError,
-        message: String?
+        message: String?,
+        allowsRecovery: Bool = true
     ) {
-        if let message {
-            Self.logger.error("Disconnect cleanup: \(message, privacy: .public)")
-        }
-
         guard let connectionToInvalidate = disconnectCurrentConnectionIfNeeded(connectionID: connectionID) else {
             Self.logger.debug(
                 "Ignoring disconnect cleanup from stale connection \(connectionID.uuidString, privacy: .public)."
@@ -447,20 +466,28 @@ actor XPCNativeEngineCoordinator {
 
         let pendingRequestBoxes = pendingRequests.values
         pendingRequests.removeAll()
+        let pendingCommandNames = pendingRequestBoxes.map(\.commandName).joined(separator: ",")
+        let visibleMessage = message ?? transportError.localizedDescription
+        let canRecover = allowsRecovery
+            && isRecoverableDisconnect(transportError)
+            && initializedAppSupportDirectory != nil
+            && !reconnectDelays.isEmpty
+
+        Self.logger.error(
+            "Disconnect cleanup: \(visibleMessage, privacy: .public); pending=\(pendingRequestBoxes.count, privacy: .public); commands=\(pendingCommandNames, privacy: .public); recoveryScheduled=\(canRecover, privacy: .public)."
+        )
+
         for pendingRequest in pendingRequestBoxes {
             pendingRequest.timeoutTask?.cancel()
             pendingRequest.resume(.failure(transportError))
         }
 
-        let visibleMessage = message ?? transportError.localizedDescription
-        onSnapshot(
-            TTSEngineSnapshot(
-                isReady: false,
-                loadState: .failed(message: visibleMessage),
-                clonePreparationState: .idle,
-                visibleErrorMessage: visibleMessage
-            )
-        )
+        if canRecover {
+            publishRecoveringSnapshot()
+            scheduleReconnect()
+        } else {
+            publishUnavailableSnapshot(message: visibleMessage)
+        }
     }
 
     private func isCurrentConnection(_ connectionID: UUID) -> Bool {
@@ -472,6 +499,99 @@ actor XPCNativeEngineCoordinator {
         let transport = activeConnection?.transport
         activeConnection = nil
         return transport
+    }
+
+    private func applyReplySideEffects(_ reply: EngineReply) {
+        guard case .snapshot(let snapshot) = reply else { return }
+        onSnapshot(snapshot)
+    }
+
+    private func isRecoverableDisconnect(_ error: EngineTransportError) -> Bool {
+        switch error {
+        case .interrupted, .invalidated:
+            true
+        case .timedOut, .staleOrMismatchedReply, .invalidReply:
+            false
+        }
+    }
+
+    private func publishRecoveringSnapshot() {
+        onSnapshot(
+            TTSEngineSnapshot(
+                isReady: false,
+                loadState: .starting,
+                clonePreparationState: .idle,
+                visibleErrorMessage: "Reconnecting engine…"
+            )
+        )
+    }
+
+    private func publishUnavailableSnapshot(message: String) {
+        onSnapshot(
+            TTSEngineSnapshot(
+                isReady: false,
+                loadState: .failed(message: message),
+                clonePreparationState: .idle,
+                visibleErrorMessage: message
+            )
+        )
+    }
+
+    private func cancelReconnectTaskIfNeeded() {
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        reconnectAttempt = 0
+    }
+
+    private func scheduleReconnect() {
+        reconnectTask?.cancel()
+        reconnectAttempt += 1
+
+        let attempt = reconnectAttempt
+        guard attempt <= reconnectDelays.count,
+              let initializedAppSupportDirectory else {
+            reconnectTask = nil
+            publishUnavailableSnapshot(
+                message: "Engine unavailable. Try generating again to reconnect the engine."
+            )
+            return
+        }
+
+        let delay = reconnectDelays[attempt - 1]
+        reconnectTask = Task { [attempt, initializedAppSupportDirectory] in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+            await self.performReconnectAttempt(
+                attempt: attempt,
+                appSupportDirectory: initializedAppSupportDirectory
+            )
+        }
+    }
+
+    private func performReconnectAttempt(attempt: Int, appSupportDirectory: URL) async {
+        guard reconnectAttempt == attempt else { return }
+
+        do {
+            _ = try await send(
+                .initialize(appSupportDirectoryPath: appSupportDirectory.path),
+                cancelsReconnectTask: false
+            )
+            _ = try await send(.ping, cancelsReconnectTask: false)
+            reconnectTask = nil
+            reconnectAttempt = 0
+            Self.logger.notice(
+                "Engine service reconnect attempt \(attempt, privacy: .public) completed."
+            )
+        } catch {
+            guard reconnectAttempt == attempt else { return }
+            Self.logger.error(
+                "Engine service reconnect attempt \(attempt, privacy: .public) failed: \(error.localizedDescription, privacy: .public)."
+            )
+            scheduleReconnect()
+        }
     }
 
     private func bestEffortDeduplicationKey(for command: EngineCommand) -> String? {
@@ -511,7 +631,8 @@ public final class XPCNativeEngineClient: MacTTSEngine, @unchecked Sendable {
         },
         onChunk: @escaping @Sendable (GenerationEvent) -> Void = { event in
             GenerationChunkBroker.publish(event)
-        }
+        },
+        reconnectDelays: [Duration] = [.milliseconds(250), .seconds(1)]
     ) {
         let initialSnapshot = TTSEngineSnapshot(
             isReady: false,
@@ -526,7 +647,8 @@ public final class XPCNativeEngineClient: MacTTSEngine, @unchecked Sendable {
             },
             onChunk: onChunk,
             transportFactory: transportFactory,
-            timeoutResolver: timeoutResolver
+            timeoutResolver: timeoutResolver,
+            reconnectDelays: reconnectDelays
         )
     }
 
@@ -666,8 +788,8 @@ public final class XPCNativeEngineClient: MacTTSEngine, @unchecked Sendable {
     }
 
 #if QW_TEST_SUPPORT
-    func debugInvalidateConnectionForTesting() async {
-        await coordinator.invalidateForTesting()
+    func debugInvalidateConnectionForTesting(shouldReconnect: Bool = false) async {
+        await coordinator.invalidateForTesting(shouldReconnect: shouldReconnect)
     }
 #endif
 

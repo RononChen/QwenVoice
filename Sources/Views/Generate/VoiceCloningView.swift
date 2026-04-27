@@ -44,9 +44,9 @@ struct VoiceCloningView: View {
     @Binding private var pendingSavedVoiceHandoff: PendingVoiceCloningHandoff?
     @StateObject private var coordinator = VoiceCloningCoordinator()
 
-    private let ttsEngineStore: TTSEngineStore
+    @ObservedObject private var ttsEngineStore: TTSEngineStore
+    @ObservedObject private var modelManager: ModelManagerViewModel
     private let audioPlayer: AudioPlayerViewModel
-    private let modelManager: ModelManagerViewModel
     private let savedVoicesViewModel: SavedVoicesViewModel
     private let appCommandRouter: AppCommandRouter
 
@@ -187,9 +187,9 @@ struct VoiceCloningView: View {
     ) {
         _draft = draft
         _pendingSavedVoiceHandoff = pendingSavedVoiceHandoff
-        self.ttsEngineStore = ttsEngineStore
+        _ttsEngineStore = ObservedObject(wrappedValue: ttsEngineStore)
+        _modelManager = ObservedObject(wrappedValue: modelManager)
         self.audioPlayer = audioPlayer
-        self.modelManager = modelManager
         self.savedVoicesViewModel = savedVoicesViewModel
         self.appCommandRouter = appCommandRouter
     }
@@ -327,7 +327,7 @@ private extension VoiceCloningView {
             title: "Script",
             iconName: "text.alignleft",
             accentColor: AppTheme.voiceCloning,
-            trailingText: readinessDescriptor.trailingText,
+            trailingText: coordinator.isGenerating ? "Generating" : readinessDescriptor.trailingText,
             fillsAvailableHeight: true,
             accessibilityIdentifier: "voiceCloning_script"
         ) {
@@ -339,6 +339,7 @@ private extension VoiceCloningView {
                     buttonColor: AppTheme.voiceCloning,
                     batchAction: { coordinator.presentBatch(draft: draft) },
                     batchDisabled: !canRunBatch,
+                    generateDisabled: !ttsEngineStore.isReady || !isModelAvailable || draft.referenceAudioPath == nil,
                     isEmbedded: true,
                     usesFlexibleEmbeddedHeight: true,
                     onGenerate: {
@@ -354,13 +355,13 @@ private extension VoiceCloningView {
                         )
                     }
                 )
-                .disabled(!ttsEngineStore.isReady || !isModelAvailable || draft.referenceAudioPath == nil)
 
                 VoiceCloningComposerFooter(
                     modelRecoveryCard: modelRecoveryCard,
                     isReadyForFastGenerate: readinessDescriptor.noteIsReady,
                     readinessTitle: readinessDescriptor.title,
                     readinessDetail: readinessDescriptor.detail,
+                    isGenerating: coordinator.isGenerating,
                     errorMessage: coordinator.errorMessage
                 )
             }
@@ -504,6 +505,7 @@ private struct VoiceCloningComposerFooter: View {
     let isReadyForFastGenerate: Bool
     let readinessTitle: String
     let readinessDetail: String
+    let isGenerating: Bool
     let errorMessage: String?
 
     var body: some View {
@@ -513,10 +515,11 @@ private struct VoiceCloningComposerFooter: View {
             }
 
             WorkflowReadinessNote(
-                isReady: isReadyForFastGenerate,
-                title: readinessTitle,
-                detail: readinessDetail,
+                isReady: isReadyForFastGenerate && !isGenerating,
+                title: isGenerating ? "Generating live preview" : readinessTitle,
+                detail: isGenerating ? "Vocello is streaming audio now. The final file will load into the player as soon as it is ready." : readinessDetail,
                 accentColor: AppTheme.voiceCloning,
+                isBusy: isGenerating,
                 accessibilityIdentifier: "voiceCloning_readiness"
             )
 

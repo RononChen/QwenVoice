@@ -280,6 +280,137 @@ final class LivePreviewIntegrationTests: XCTestCase {
         XCTAssertFalse(viewModel.isLiveStream)
     }
 
+    func testFinalPlaybackHandoffContinuesFromPartialLivePreview() {
+        let handoff = AudioPlayerViewModel.finalPlaybackHandoff(
+            heardLivePreview: true,
+            currentTime: 0.8,
+            duration: 3.0,
+            autoPlayEnabled: true
+        )
+
+        XCTAssertEqual(handoff.preserveCurrentTime, 0.8, accuracy: 0.001)
+        XCTAssertTrue(handoff.shouldAutoPlay)
+    }
+
+    func testFinalPlaybackHandoffLoadsReadyStateWhenLivePreviewAlreadyReachedEnd() {
+        let handoff = AudioPlayerViewModel.finalPlaybackHandoff(
+            heardLivePreview: true,
+            currentTime: 0.95,
+            duration: 1.0,
+            autoPlayEnabled: true
+        )
+
+        XCTAssertEqual(handoff.preserveCurrentTime, 0, accuracy: 0.001)
+        XCTAssertFalse(handoff.shouldAutoPlay)
+    }
+
+    func testFinalPlaybackHandoffUsesPreviewDurationWhenTimerTimeIsStale() {
+        let handoff = AudioPlayerViewModel.finalPlaybackHandoff(
+            heardLivePreview: true,
+            currentTime: 0,
+            previewDuration: 1.0,
+            duration: 1.0,
+            autoPlayEnabled: true
+        )
+
+        XCTAssertEqual(handoff.preserveCurrentTime, 0, accuracy: 0.001)
+        XCTAssertFalse(handoff.shouldAutoPlay)
+    }
+
+    func testFinalPlaybackHandoffContinuesUnstreamedTailFromPreviewDuration() {
+        let handoff = AudioPlayerViewModel.finalPlaybackHandoff(
+            heardLivePreview: true,
+            currentTime: 0.2,
+            previewDuration: 0.8,
+            duration: 2.0,
+            autoPlayEnabled: true
+        )
+
+        XCTAssertEqual(handoff.preserveCurrentTime, 0.8, accuracy: 0.001)
+        XCTAssertTrue(handoff.shouldAutoPlay)
+    }
+
+    func testFinalPlaybackHandoffAutoplaysWhenNoLivePreviewWasHeard() {
+        let handoff = AudioPlayerViewModel.finalPlaybackHandoff(
+            heardLivePreview: false,
+            currentTime: 0,
+            duration: 2.0,
+            autoPlayEnabled: true
+        )
+
+        XCTAssertEqual(handoff.preserveCurrentTime, 0, accuracy: 0.001)
+        XCTAssertTrue(handoff.shouldAutoPlay)
+    }
+
+    func testLateChunkAfterFinalHandoffDoesNotRestartLivePreview() async throws {
+        let requestID = 99
+        let sessionDirectory = fixtureRoot
+            .appendingPathComponent("cache/stream_sessions/late-chunk-\(requestID)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+
+        let firstChunk = sessionDirectory.appendingPathComponent("chunk_0.wav")
+        let lateChunk = sessionDirectory.appendingPathComponent("chunk_late.wav")
+        let finalFile = fixtureRoot.appendingPathComponent("outputs/CustomVoice/final.wav")
+        try Self.writeTinyPCM16WAV(to: firstChunk)
+        try Self.writeTinyPCM16WAV(to: lateChunk)
+        try Self.writeTinyPCM16WAV(to: finalFile)
+
+        GenerationChunkBroker.publish(
+            GenerationEvent(
+                kind: .streamChunk,
+                requestID: requestID,
+                mode: QwenVoiceCore.GenerationMode.custom.rawValue,
+                title: "Late chunk guard",
+                chunkPath: firstChunk.path,
+                isFinal: false,
+                chunkDurationSeconds: 0.1,
+                cumulativeDurationSeconds: 0.1,
+                streamSessionDirectory: sessionDirectory.path
+            )
+        )
+
+        try await waitUntil(timeoutSeconds: 2.0) {
+            self.viewModel.isLiveStream
+        }
+
+        viewModel.completeStreamingPreview(
+            result: GenerationResult(
+                audioPath: finalFile.path,
+                durationSeconds: 0.1,
+                streamSessionDirectory: sessionDirectory.path,
+                benchmarkSample: BenchmarkSample(streamingUsed: true)
+            ),
+            title: "Late chunk guard",
+            shouldAutoPlay: false
+        )
+
+        XCTAssertFalse(viewModel.isLiveStream)
+        XCTAssertEqual(viewModel.currentFilePath, finalFile.path)
+
+        GenerationChunkBroker.publish(
+            GenerationEvent(
+                kind: .streamChunk,
+                requestID: requestID,
+                mode: QwenVoiceCore.GenerationMode.custom.rawValue,
+                title: "Late chunk guard",
+                chunkPath: lateChunk.path,
+                isFinal: true,
+                chunkDurationSeconds: 0.1,
+                cumulativeDurationSeconds: 0.2,
+                streamSessionDirectory: sessionDirectory.path
+            )
+        )
+
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        XCTAssertFalse(
+            viewModel.isLiveStream,
+            "Late chunk delivery after final-file handoff must not put the player back into Live Preview."
+        )
+        XCTAssertEqual(viewModel.currentFilePath, finalFile.path)
+        XCTAssertNil(viewModel.playbackError)
+    }
+
     // MARK: - Helpers
 
     private func waitUntil(
@@ -291,6 +422,39 @@ final class LivePreviewIntegrationTests: XCTestCase {
             if check() { return }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
+    }
+
+    private static func writeTinyPCM16WAV(to url: URL) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let format = try XCTUnwrap(
+            AVAudioFormat(
+                commonFormat: .pcmFormatInt16,
+                sampleRate: 24_000,
+                channels: 1,
+                interleaved: false
+            )
+        )
+        let frameCount: AVAudioFrameCount = 4
+        let buffer = try XCTUnwrap(
+            AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)
+        )
+        buffer.frameLength = frameCount
+        let samples = try XCTUnwrap(buffer.int16ChannelData?[0])
+        samples[0] = 0
+        samples[1] = 4_000
+        samples[2] = -4_000
+        samples[3] = 0
+
+        let file = try AVAudioFile(
+            forWriting: url,
+            settings: format.settings,
+            commonFormat: format.commonFormat,
+            interleaved: format.isInterleaved
+        )
+        try file.write(from: buffer)
     }
 
     /// Mirror of the Python harness `_install_stub_models` +

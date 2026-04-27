@@ -33,6 +33,7 @@ public struct TTSEngineFrontendState: Equatable, Sendable {
         let resolvedLifecycleState = lifecycleState
             ?? Self.defaultLifecycleState(
                 isReady: snapshot.isReady,
+                loadState: snapshot.loadState,
                 visibleErrorMessage: snapshot.visibleErrorMessage
             )
         self.init(
@@ -72,10 +73,18 @@ public struct TTSEngineFrontendState: Equatable, Sendable {
 
     private static func defaultLifecycleState(
         isReady: Bool,
+        loadState: EngineLoadState,
         visibleErrorMessage: String?
     ) -> EngineLifecycleState {
         if isReady {
             return .connected
+        }
+        if case .starting = loadState {
+            if let visibleErrorMessage,
+               !visibleErrorMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return .recovering
+            }
+            return .launching
         }
         if let visibleErrorMessage,
            !visibleErrorMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

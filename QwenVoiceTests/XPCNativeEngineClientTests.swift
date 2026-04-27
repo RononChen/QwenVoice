@@ -208,6 +208,113 @@ final class XPCNativeEngineClientTests: XCTestCase {
         XCTAssertTrue(pingResult)
     }
 
+    func testClientReconnectsAfterPostGenerationInterruption() async throws {
+        let firstTransport = ClientTestXPCTransport()
+        let secondTransport = ClientTestXPCTransport()
+        let factory = ClientTestTransportFactory([firstTransport, secondTransport])
+        let client = XPCNativeEngineClient(
+            transportFactory: { handlers in
+                factory.makeTransport(handlers: handlers)
+            },
+            reconnectDelays: [.milliseconds(1)]
+        )
+        let root = try NativeRuntimeTestSupport.makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        async let initialize: Void = client.initialize(appSupportDirectory: root)
+        try await waitForPerformCallCount(1, transport: firstTransport)
+        firstTransport.reply(
+            with: EngineReplyEnvelope(
+                id: try XCTUnwrap(firstTransport.lastRequestID),
+                reply: .snapshot(
+                    TTSEngineSnapshot(
+                        isReady: true,
+                        loadState: .idle,
+                        clonePreparationState: .idle,
+                        visibleErrorMessage: nil
+                    )
+                )
+            )
+        )
+        try await initialize
+
+        let request = GenerationRequest(
+            modelID: "pro_custom",
+            text: "hello there",
+            outputPath: root.appendingPathComponent("hello.wav").path,
+            shouldStream: true,
+            payload: .custom(speakerID: "vivian", deliveryStyle: nil)
+        )
+        async let generation: GenerationResult = client.generate(request)
+        try await waitForPerformCallCount(2, transport: firstTransport)
+        firstTransport.reply(
+            with: EngineReplyEnvelope(
+                id: try XCTUnwrap(firstTransport.lastRequestID),
+                reply: .generationResult(
+                    GenerationResult(
+                        audioPath: request.outputPath,
+                        durationSeconds: 1.2,
+                        streamSessionDirectory: nil,
+                        benchmarkSample: BenchmarkSample(streamingUsed: true)
+                    )
+                )
+            )
+        )
+        _ = try await generation
+
+        firstTransport.interruptFromTest()
+        _ = await waitUntil(
+            timeoutSeconds: 0.5,
+            description: "client publishes reconnecting snapshot"
+        ) {
+            client.snapshot.visibleErrorMessage == "Reconnecting engine…"
+        }
+
+        try await waitForPerformCallCount(1, transport: secondTransport)
+        XCTAssertEqual(
+            secondTransport.performedCommands.first,
+            .initialize(appSupportDirectoryPath: root.path)
+        )
+        secondTransport.reply(
+            with: EngineReplyEnvelope(
+                id: try XCTUnwrap(secondTransport.lastRequestID),
+                reply: .snapshot(
+                    TTSEngineSnapshot(
+                        isReady: true,
+                        loadState: .idle,
+                        clonePreparationState: .idle,
+                        visibleErrorMessage: nil
+                    )
+                )
+            )
+        )
+
+        try await waitForPerformCallCount(2, transport: secondTransport)
+        secondTransport.reply(
+            with: EngineReplyEnvelope(
+                id: try XCTUnwrap(secondTransport.lastRequestID),
+                reply: .capabilities(.macOSXPCDefault)
+            )
+        )
+        _ = await waitUntil(
+            timeoutSeconds: 0.5,
+            description: "client returns to ready snapshot"
+        ) {
+            client.snapshot.isReady && client.snapshot.visibleErrorMessage == nil
+        }
+
+        async let reconnectPing: Bool = client.ping()
+        try await waitForPerformCallCount(3, transport: secondTransport)
+        secondTransport.reply(
+            with: EngineReplyEnvelope(
+                id: try XCTUnwrap(secondTransport.lastRequestID),
+                reply: .capabilities(.macOSXPCDefault)
+            )
+        )
+        let reconnectPingResult = try await reconnectPing
+        XCTAssertTrue(reconnectPingResult)
+    }
+
     private func waitForPerformCallCount(
         _ expectedCount: Int,
         transport: ClientTestXPCTransport,
@@ -228,6 +335,7 @@ private final class ClientTestXPCTransport: XPCNativeEngineTransporting, @unchec
     var handlers: XPCNativeEngineTransportHandlers?
     private(set) var performCallCount = 0
     private(set) var lastRequestID: UUID?
+    private(set) var performedCommands: [EngineCommand] = []
     private var replyHandlers: [(@Sendable (Data) -> Void)] = []
 
     func install(handlers: XPCNativeEngineTransportHandlers) {
@@ -240,7 +348,10 @@ private final class ClientTestXPCTransport: XPCNativeEngineTransporting, @unchec
 
     func perform(_ payload: Data, reply: @escaping @Sendable (Data) -> Void) {
         performCallCount += 1
-        lastRequestID = try? EngineServiceCodec.decode(EngineRequestEnvelope.self, from: payload).id
+        if let envelope = try? EngineServiceCodec.decode(EngineRequestEnvelope.self, from: payload) {
+            lastRequestID = envelope.id
+            performedCommands.append(envelope.command)
+        }
         replyHandlers.append(reply)
     }
 
@@ -249,5 +360,26 @@ private final class ClientTestXPCTransport: XPCNativeEngineTransporting, @unchec
         let replyHandler = replyHandlers.removeFirst()
         let payload = try! EngineServiceCodec.encode(envelope)
         replyHandler(payload)
+    }
+
+    func interruptFromTest() {
+        handlers?.onInterrupted()
+    }
+}
+
+private final class ClientTestTransportFactory: @unchecked Sendable {
+    private let lock = NSLock()
+    private var transports: [ClientTestXPCTransport]
+
+    init(_ transports: [ClientTestXPCTransport]) {
+        self.transports = transports
+    }
+
+    func makeTransport(handlers: XPCNativeEngineTransportHandlers) -> any XPCNativeEngineTransporting {
+        lock.lock()
+        defer { lock.unlock() }
+        let transport = transports.removeFirst()
+        transport.install(handlers: handlers)
+        return transport
     }
 }

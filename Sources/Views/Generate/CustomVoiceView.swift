@@ -5,9 +5,9 @@ struct CustomVoiceView: View {
     @Binding private var draft: CustomVoiceDraft
     @StateObject private var coordinator = CustomVoiceCoordinator()
 
-    private let ttsEngineStore: TTSEngineStore
+    @ObservedObject private var ttsEngineStore: TTSEngineStore
+    @ObservedObject private var modelManager: ModelManagerViewModel
     private let audioPlayer: AudioPlayerViewModel
-    private let modelManager: ModelManagerViewModel
     private let appCommandRouter: AppCommandRouter
 
     private var activeMode: GenerationMode {
@@ -46,9 +46,9 @@ struct CustomVoiceView: View {
         appCommandRouter: AppCommandRouter
     ) {
         _draft = draft
-        self.ttsEngineStore = ttsEngineStore
+        _ttsEngineStore = ObservedObject(wrappedValue: ttsEngineStore)
+        _modelManager = ObservedObject(wrappedValue: modelManager)
         self.audioPlayer = audioPlayer
-        self.modelManager = modelManager
         self.appCommandRouter = appCommandRouter
     }
 
@@ -117,7 +117,7 @@ private extension CustomVoiceView {
             title: "Script",
             iconName: "text.alignleft",
             accentColor: AppTheme.customVoice,
-            trailingText: canGenerate ? "Ready" : nil,
+            trailingText: coordinator.isGenerating ? "Generating" : (canGenerate ? "Ready" : nil),
             fillsAvailableHeight: true,
             accessibilityIdentifier: "customVoice_script"
         ) {
@@ -129,6 +129,7 @@ private extension CustomVoiceView {
                     buttonColor: AppTheme.customVoice,
                     batchAction: { coordinator.presentBatch(draft: draft) },
                     batchDisabled: !canRunBatch,
+                    generateDisabled: !ttsEngineStore.isReady || !isModelAvailable,
                     isEmbedded: true,
                     usesFlexibleEmbeddedHeight: true,
                     onGenerate: {
@@ -142,7 +143,6 @@ private extension CustomVoiceView {
                         )
                     }
                 )
-                .disabled(!ttsEngineStore.isReady || !isModelAvailable)
 
                 composerFooter
             }
@@ -177,10 +177,11 @@ private extension CustomVoiceView {
 
     var generationReadiness: some View {
         WorkflowReadinessNote(
-            isReady: canGenerate,
-            title: canGenerate ? "Ready to generate" : readinessTitle,
-            detail: readinessDetail,
+            isReady: canGenerate && !coordinator.isGenerating,
+            title: coordinator.isGenerating ? "Generating live preview" : (canGenerate ? "Ready to generate" : readinessTitle),
+            detail: coordinator.isGenerating ? "Vocello is streaming audio now. The final file will load into the player as soon as it is ready." : readinessDetail,
             accentColor: AppTheme.customVoice,
+            isBusy: coordinator.isGenerating,
             accessibilityIdentifier: "customVoice_readiness"
         )
     }
