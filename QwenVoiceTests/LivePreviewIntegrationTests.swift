@@ -477,6 +477,59 @@ final class LivePreviewIntegrationTests: XCTestCase {
         XCTAssertNil(viewModel.playbackError)
     }
 
+    func testPCM16StreamLimiterPreservesInRangeSamples() {
+        var limiter = PCM16StreamLimiter()
+        let input: [Float] = [-0.25, -0.125, 0, 0.125, 0.25]
+        var output: [Int16] = []
+
+        limiter.append(input, into: &output)
+
+        let expected = input.map { Int16(($0 * Float(Int16.max)).rounded()) }
+        XCTAssertEqual(output, expected)
+        XCTAssertEqual(limiter.metrics.samplesOutsideUnitRange, 0)
+        XCTAssertEqual(limiter.metrics.samplesAboveCeiling, 0)
+        XCTAssertEqual(limiter.metrics.slewLimitedSamples, 0)
+        XCTAssertEqual(limiter.metrics.processedSamples, input.count)
+    }
+
+    func testPCM16StreamLimiterPreventsHardClipping() {
+        var limiter = PCM16StreamLimiter()
+        let input: [Float] = [0, 1.4, -1.6, 1.2, -1.1, 0]
+        var output: [Int16] = []
+
+        limiter.append(input, into: &output)
+
+        XCTAssertEqual(output.count, input.count)
+        XCTAssertTrue(
+            output.allSatisfy { abs(Int($0)) < Int(Int16.max) },
+            "Limiter output must stay below full-scale PCM to avoid hard clipping."
+        )
+        XCTAssertGreaterThan(limiter.metrics.samplesOutsideUnitRange, 0)
+        XCTAssertGreaterThan(limiter.metrics.samplesAboveCeiling, 0)
+        XCTAssertLessThanOrEqual(limiter.metrics.limitedPeak, PCM16StreamLimiter.ceiling)
+        XCTAssertLessThan(limiter.metrics.minimumAppliedGain, 1)
+    }
+
+    func testPCM16StreamLimiterSmoothesChunkBoundaries() {
+        var limiter = PCM16StreamLimiter()
+        var output: [Int16] = []
+
+        limiter.append([0, 0.2, 0.4], into: &output)
+        limiter.append([1.8, -1.8, 1.8], into: &output)
+
+        let normalized = output.map { Float($0) / Float(Int16.max) }
+        let maxAdjacentDiff = zip(normalized, normalized.dropFirst())
+            .map { abs($1 - $0) }
+            .max() ?? 0
+
+        XCTAssertLessThanOrEqual(
+            maxAdjacentDiff,
+            PCM16StreamLimiter.maxSingleSampleStep + 0.001
+        )
+        XCTAssertGreaterThan(limiter.metrics.slewLimitedSamples, 0)
+        XCTAssertEqual(limiter.metrics.processedSamples, output.count)
+    }
+
     // MARK: - Helpers
 
     private func waitUntil(

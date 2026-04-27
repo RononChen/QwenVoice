@@ -277,7 +277,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         case .customVoice:
             return GenerationRequest(
                 modelID: mode.modelID,
-                text: "Hello from the Vocello audio quality audit. This short clip should be clear and complete.",
+                text: "Hello from the Vocello audio quality audit with a clear complete short phrase for smooth playback",
                 outputPath: outputURL.path,
                 shouldStream: true,
                 streamingInterval: GenerationSemantics.appStreamingInterval,

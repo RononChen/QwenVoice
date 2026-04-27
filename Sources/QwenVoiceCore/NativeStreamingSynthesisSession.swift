@@ -286,14 +286,16 @@ private enum PCM16WAVWriter {
 
 private final class PCM16ScratchBuffer {
     private var storage: [Int16] = []
+    private var limiter = PCM16StreamLimiter()
 
-    func convertClamped(_ samples: [Float]) -> [Int16] {
+    var limiterMetrics: PCM16StreamLimiter.Metrics {
+        limiter.metrics
+    }
+
+    func convertLimited(_ samples: [Float]) -> [Int16] {
         storage.removeAll(keepingCapacity: true)
         storage.reserveCapacity(samples.count)
-        for sample in samples {
-            let clamped = max(-1.0, min(1.0, sample))
-            storage.append(Int16((clamped * Float(Int16.max)).rounded()))
-        }
+        limiter.append(samples, into: &storage)
         return storage
     }
 
@@ -304,6 +306,83 @@ private final class PCM16ScratchBuffer {
                 bytes: UnsafeRawPointer(baseAddress),
                 count: pointer.count * MemoryLayout<Int16>.stride
             )
+        }
+    }
+}
+
+struct PCM16StreamLimiter: Sendable {
+    struct Metrics: Equatable, Sendable {
+        var rawPeak: Float = 0
+        var limitedPeak: Float = 0
+        var samplesAboveCeiling = 0
+        var samplesOutsideUnitRange = 0
+        var slewLimitedSamples = 0
+        var processedSamples = 0
+        var minimumAppliedGain: Float = 1
+
+        var benchmarkTimingFields: [String: Int] {
+            [
+                "audio_raw_peak_ppm": Self.partsPerMillion(rawPeak),
+                "audio_limited_peak_ppm": Self.partsPerMillion(limitedPeak),
+                "audio_samples_above_ceiling": samplesAboveCeiling,
+                "audio_samples_outside_unit_range": samplesOutsideUnitRange,
+                "audio_slew_limited_samples": slewLimitedSamples,
+                "audio_processed_samples": processedSamples,
+                "audio_min_gain_ppm": Self.partsPerMillion(minimumAppliedGain),
+            ]
+        }
+
+        private static func partsPerMillion(_ value: Float) -> Int {
+            Int((Double(value) * 1_000_000).rounded())
+        }
+    }
+
+    static let ceiling: Float = 0.965
+    static let maxSingleSampleStep: Float = 0.42
+    static let releaseStepPerSample: Float = 0.002
+
+    private var currentGain: Float = 1
+    private var previousOutput: Float?
+    private(set) var metrics = Metrics()
+
+    mutating func append(_ samples: [Float], into destination: inout [Int16]) {
+        for sample in samples {
+            let rawMagnitude = abs(sample)
+            metrics.rawPeak = max(metrics.rawPeak, rawMagnitude)
+            metrics.processedSamples += 1
+            if rawMagnitude > Self.ceiling {
+                metrics.samplesAboveCeiling += 1
+            }
+            if rawMagnitude > 1 {
+                metrics.samplesOutsideUnitRange += 1
+            }
+
+            let targetGain = rawMagnitude > Self.ceiling
+                ? Self.ceiling / max(rawMagnitude, .leastNonzeroMagnitude)
+                : 1
+            if targetGain < currentGain {
+                currentGain = targetGain
+            } else {
+                currentGain = min(targetGain, currentGain + Self.releaseStepPerSample)
+            }
+            metrics.minimumAppliedGain = min(metrics.minimumAppliedGain, currentGain)
+
+            var limited = sample * currentGain
+            if let previousOutput {
+                let delta = limited - previousOutput
+                if delta > Self.maxSingleSampleStep {
+                    limited = previousOutput + Self.maxSingleSampleStep
+                    metrics.slewLimitedSamples += 1
+                } else if delta < -Self.maxSingleSampleStep {
+                    limited = previousOutput - Self.maxSingleSampleStep
+                    metrics.slewLimitedSamples += 1
+                }
+            }
+
+            limited = max(-Self.ceiling, min(Self.ceiling, limited))
+            previousOutput = limited
+            metrics.limitedPeak = max(metrics.limitedPeak, abs(limited))
+            destination.append(Int16((limited * Float(Int16.max)).rounded()))
         }
     }
 }
@@ -518,7 +597,7 @@ private struct StreamingExecutionContext: Sendable {
                         mlxMemorySnapshots["first_chunk"] = NativeMemoryPolicyResolver.snapshot()
                     }
 
-                    let pcmSamples = scratchBuffer.convertClamped(chunkSamples)
+                    let pcmSamples = scratchBuffer.convertLimited(chunkSamples)
                     let frameOffset = totalFramesWritten
                     let previewData = scratchBuffer.pcm16LittleEndianData(from: pcmSamples)
                     var chunkPath: String?
@@ -618,6 +697,7 @@ private struct StreamingExecutionContext: Sendable {
             Memory.clearCache()
             mlxMemorySnapshots["after_generation_trim"] = NativeMemoryPolicyResolver.snapshot()
         }
+        let limiterMetrics = scratchBuffer.limiterMetrics
         let benchmarkSample = makeBenchmarkSample(
             generationInfo: generationInfo,
             firstAudioReadyMS: firstAudioReadyMS,
@@ -635,7 +715,8 @@ private struct StreamingExecutionContext: Sendable {
             mlxMemorySnapshots: mlxMemorySnapshots,
             telemetryMode: telemetryMode,
             streamingOutputPolicy: streamingOutputPolicy,
-            durationSeconds: durationSeconds
+            durationSeconds: durationSeconds,
+            limiterMetrics: limiterMetrics
         )
         await telemetryRecorder?.mark(stage: .streamCompleted)
 
@@ -665,10 +746,14 @@ private struct StreamingExecutionContext: Sendable {
         mlxMemorySnapshots: [String: NativeMLXMemorySnapshot],
         telemetryMode: NativeTelemetryMode,
         streamingOutputPolicy: NativeStreamingOutputPolicy,
-        durationSeconds: Double
+        durationSeconds: Double,
+        limiterMetrics: PCM16StreamLimiter.Metrics
     ) -> BenchmarkSample {
         var timingsMS = timingOverridesMS
         for (key, value) in model.latestPreparationTimingsMS {
+            timingsMS[key] = value
+        }
+        for (key, value) in limiterMetrics.benchmarkTimingFields {
             timingsMS[key] = value
         }
         timingsMS["generation"] = generationMS

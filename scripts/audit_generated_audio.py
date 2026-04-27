@@ -274,6 +274,8 @@ def run_self_test() -> dict[str, Any]:
         discontinuity = root / "discontinuity.wav"
         mismatch_session = root / "mismatch-session"
         mismatch_session.mkdir()
+        repaired_session = root / "repaired-session"
+        repaired_session.mkdir()
 
         sample_rate = 24_000
         t = np.linspace(0, 1.2, int(sample_rate * 1.2), endpoint=False)
@@ -306,12 +308,27 @@ def run_self_test() -> dict[str, Any]:
         write_wav(mismatch_session / "chunk_001.wav", chunk_b, sample_rate)
         write_wav(mismatch_session / "final.wav", valid_samples[sample_rate // 2:sample_rate], sample_rate)
 
+        repaired_samples = valid_samples.copy()
+        repaired_start = 100
+        repaired_width = 48
+        repaired_samples[repaired_start:repaired_start + repaired_width] = np.concatenate([
+            np.linspace(repaired_samples[repaired_start - 1], 0.95, 16, endpoint=False),
+            np.full(16, 0.95, dtype=np.float32),
+            np.linspace(0.95, repaired_samples[repaired_start + repaired_width], 16),
+        ]).astype(np.float32)
+        repaired_chunk_a = repaired_samples[:sample_rate // 2]
+        repaired_chunk_b = repaired_samples[sample_rate // 2:sample_rate]
+        write_wav(repaired_session / "chunk_000.wav", repaired_chunk_a, sample_rate)
+        write_wav(repaired_session / "chunk_001.wav", repaired_chunk_b, sample_rate)
+        write_wav(repaired_session / "final.wav", repaired_samples[:sample_rate], sample_rate)
+
         valid_report = analyze_file(valid)
         header_report = analyze_file(header_only)
         clipped_report = analyze_file(clipped)
         silence_report = analyze_file(silence_gap)
         discontinuity_report = analyze_file(discontinuity)
         mismatch_report = analyze_session_dir(mismatch_session)
+        repaired_report = analyze_session_dir(repaired_session)
 
         expectations = {
             "valid_fixture_passes": valid_report["overall_pass"],
@@ -326,6 +343,7 @@ def run_self_test() -> dict[str, Any]:
                 "chunk_sample_fidelity"
                 in mismatch_report["failed_required_checks"]
             ),
+            "repaired_session_passes": repaired_report["overall_pass"],
         }
 
     checks = {
