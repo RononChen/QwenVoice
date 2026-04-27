@@ -55,6 +55,21 @@ LOUDNESS_MAX_LUFS = -6.0
 TRUE_PEAK_MAX_DBTP = 0.0
 CHUNK_LOUDNESS_STD_MAX_LU = 6.0
 
+# Final-file QC
+HEADER_ONLY_MAX_BYTES = 4096
+FINAL_MIN_DURATION_SECONDS = 0.15
+FINAL_MIN_RMS = 0.0005
+FINAL_MIN_PEAK = 0.003
+FINAL_DROPOUT_WINDOW_SECONDS = 0.05
+FINAL_DROPOUT_MIN_SECONDS = 0.35
+FINAL_DROPOUT_REQUIRED_MIN_SECONDS = 0.75
+FINAL_DROPOUT_THRESHOLD_DB = -55.0
+FINAL_DISCONTINUITY_MIN_DIFF = 0.45
+FINAL_DISCONTINUITY_MULTIPLIER = 100.0
+FINAL_DISCONTINUITY_EDGE_MARGIN_SECONDS = 0.05
+FINAL_CUTOFF_TAIL_SECONDS = 0.08
+FINAL_CUTOFF_PEAK_THRESHOLD = 0.04
+
 
 # ---------------------------------------------------------------------------
 # Loaders
@@ -85,6 +100,26 @@ def load_wav(path: str | Path) -> tuple[np.ndarray, int]:
         data = data.reshape(-1, channel_count)[:, 0]
 
     return data, int(sample_rate)
+
+
+def wav_metadata(path: str | Path) -> dict[str, Any]:
+    """Return basic WAV container metadata without loading samples."""
+    path = Path(path)
+    with wave.open(str(path), "rb") as wav_file:
+        sample_rate = wav_file.getframerate()
+        channel_count = wav_file.getnchannels()
+        sample_width = wav_file.getsampwidth()
+        frame_count = wav_file.getnframes()
+    duration = frame_count / sample_rate if sample_rate > 0 else 0.0
+    return {
+        "path": str(path),
+        "file_size_bytes": path.stat().st_size,
+        "sample_rate": int(sample_rate),
+        "channel_count": int(channel_count),
+        "sample_width_bytes": int(sample_width),
+        "frame_count": int(frame_count),
+        "duration_seconds": round(float(duration), 6),
+    }
 
 
 def load_chunk_directory(
@@ -129,6 +164,256 @@ def load_chunk_directory(
             sample_rate = sr
 
     return chunks, final_audio, sample_rate
+
+
+# ---------------------------------------------------------------------------
+# Final-file checks
+# ---------------------------------------------------------------------------
+
+def _qc_result(
+    *,
+    passed: bool,
+    severity: str = "error",
+    metric: Any | None = None,
+    threshold: Any | None = None,
+    error: str | None = None,
+    **details: Any,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {"passed": passed, "severity": severity}
+    if metric is not None:
+        result["metric"] = _native(metric)
+    if threshold is not None:
+        result["threshold"] = _native(threshold)
+    if error:
+        result["error"] = error
+    for key, value in details.items():
+        result[key] = _native(value)
+    return result
+
+
+def check_final_file_container(
+    path: str | Path,
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    """Final check: WAV is not a header-only or empty container."""
+    frame_count = int(metadata.get("frame_count", 0))
+    file_size = int(metadata.get("file_size_bytes", 0))
+    passed = frame_count > 0 and not (file_size <= HEADER_ONLY_MAX_BYTES and frame_count == 0)
+    return _qc_result(
+        passed=passed,
+        metric={"frame_count": frame_count, "file_size_bytes": file_size},
+        threshold={"min_frame_count": 1, "header_only_max_bytes": HEADER_ONLY_MAX_BYTES},
+        error=(
+            f"WAV contains no audio frames: {path}"
+            if not passed else None
+        ),
+    )
+
+
+def check_final_duration(
+    audio: np.ndarray,
+    sample_rate: int,
+) -> dict[str, Any]:
+    """Final check: generated clip is long enough to be a plausible output."""
+    duration = len(audio) / sample_rate if sample_rate > 0 else 0.0
+    passed = duration >= FINAL_MIN_DURATION_SECONDS
+    return _qc_result(
+        passed=passed,
+        metric=round(float(duration), 6),
+        threshold=FINAL_MIN_DURATION_SECONDS,
+        error=(
+            f"Duration {duration:.3f}s is below {FINAL_MIN_DURATION_SECONDS:.3f}s"
+            if not passed else None
+        ),
+    )
+
+
+def check_final_non_silence(audio: np.ndarray) -> dict[str, Any]:
+    """Final check: output contains meaningful audible energy."""
+    if len(audio) == 0:
+        return _qc_result(
+            passed=False,
+            metric={"rms": 0.0, "peak": 0.0},
+            threshold={"min_rms": FINAL_MIN_RMS, "min_peak": FINAL_MIN_PEAK},
+            error="Audio has no samples",
+        )
+    rms = float(np.sqrt(np.mean(np.square(audio))))
+    peak = float(np.max(np.abs(audio)))
+    passed = rms >= FINAL_MIN_RMS and peak >= FINAL_MIN_PEAK
+    return _qc_result(
+        passed=passed,
+        metric={"rms": round(rms, 6), "peak": round(peak, 6)},
+        threshold={"min_rms": FINAL_MIN_RMS, "min_peak": FINAL_MIN_PEAK},
+        error=(
+            f"Audio energy is too low (rms={rms:.6f}, peak={peak:.6f})"
+            if not passed else None
+        ),
+    )
+
+
+def check_final_abrupt_discontinuities(
+    audio: np.ndarray,
+    sample_rate: int,
+) -> dict[str, Any]:
+    """Final check: no large single-sample jumps away from file edges."""
+    if len(audio) < 4 or sample_rate <= 0:
+        return _qc_result(passed=True, severity="info", metric=0, threshold=0)
+
+    edge = int(FINAL_DISCONTINUITY_EDGE_MARGIN_SECONDS * sample_rate)
+    if len(audio) > edge * 2 + 4:
+        region = audio[edge:-edge]
+    else:
+        region = audio
+    diff = np.abs(np.diff(region))
+    if diff.size == 0:
+        return _qc_result(passed=True, metric=0, threshold=FINAL_DISCONTINUITY_MIN_DIFF)
+
+    median_diff = float(np.median(diff))
+    threshold = max(
+        FINAL_DISCONTINUITY_MIN_DIFF,
+        FINAL_DISCONTINUITY_MULTIPLIER * median_diff,
+    )
+    hit_indexes = np.where(diff > threshold)[0]
+    passed = len(hit_indexes) == 0
+    return _qc_result(
+        passed=passed,
+        metric={
+            "hit_count": int(len(hit_indexes)),
+            "max_diff": round(float(np.max(diff)), 6),
+            "median_diff": round(median_diff, 6),
+        },
+        threshold=round(float(threshold), 6),
+        error=(
+            f"{len(hit_indexes)} abrupt discontinuity sample jump(s) detected"
+            if not passed else None
+        ),
+        first_hit_sample=int(hit_indexes[0] + edge) if len(hit_indexes) else None,
+    )
+
+
+def check_final_dropouts(
+    audio: np.ndarray,
+    sample_rate: int,
+) -> dict[str, Any]:
+    """Final check: no suspicious internal low-energy dropouts."""
+    if sample_rate <= 0 or len(audio) == 0:
+        return _qc_result(passed=False, metric=0, threshold=FINAL_MIN_DURATION_SECONDS, error="No audio")
+
+    window = max(1, int(FINAL_DROPOUT_WINDOW_SECONDS * sample_rate))
+    if len(audio) < window * 4:
+        return _qc_result(passed=True, severity="info", metric=0, threshold=FINAL_DROPOUT_MIN_SECONDS)
+
+    edge = max(window * 2, int(0.1 * sample_rate))
+    region = audio[edge:-edge] if len(audio) > edge * 2 + window else audio
+    threshold = 10.0 ** (FINAL_DROPOUT_THRESHOLD_DB / 20.0)
+    silent_windows: list[bool] = []
+    for start in range(0, max(len(region) - window + 1, 0), window):
+        segment = region[start:start + window]
+        rms = float(np.sqrt(np.mean(np.square(segment)))) if len(segment) else 0.0
+        silent_windows.append(rms < threshold)
+
+    gaps: list[dict[str, Any]] = []
+    run_start: int | None = None
+    for index, silent in enumerate(silent_windows):
+        if silent and run_start is None:
+            run_start = index
+        if (not silent or index == len(silent_windows) - 1) and run_start is not None:
+            run_end = index + 1 if silent and index == len(silent_windows) - 1 else index
+            duration = (run_end - run_start) * FINAL_DROPOUT_WINDOW_SECONDS
+            if duration >= FINAL_DROPOUT_MIN_SECONDS:
+                gaps.append({
+                    "start_seconds": round((edge / sample_rate) + run_start * FINAL_DROPOUT_WINDOW_SECONDS, 3),
+                    "duration_seconds": round(duration, 3),
+                })
+            run_start = None
+
+    longest_gap = max((gap["duration_seconds"] for gap in gaps), default=0.0)
+    failed = len(gaps) >= 2 or longest_gap >= FINAL_DROPOUT_REQUIRED_MIN_SECONDS
+    passed = not failed
+    return _qc_result(
+        passed=passed,
+        severity="error" if failed else "warning",
+        metric={"dropout_count": len(gaps), "longest_dropout_seconds": longest_gap},
+        threshold={
+            "dropout_threshold_db": FINAL_DROPOUT_THRESHOLD_DB,
+            "warning_dropout_seconds": FINAL_DROPOUT_MIN_SECONDS,
+            "required_failure_dropout_seconds": FINAL_DROPOUT_REQUIRED_MIN_SECONDS,
+        },
+        error=(
+            f"{len(gaps)} suspicious internal dropout(s) detected"
+            if failed else None
+        ),
+        warning=(
+            f"{len(gaps)} short low-energy pause(s) detected; listen for dropout if this was unexpected."
+            if gaps and not failed else None
+        ),
+        dropouts=gaps[:10],
+    )
+
+
+def check_final_cutoff_risk(
+    audio: np.ndarray,
+    sample_rate: int,
+) -> dict[str, Any]:
+    """Final check: warn when the file ends with high amplitude."""
+    if sample_rate <= 0 or len(audio) == 0:
+        return _qc_result(passed=True, severity="warning", metric=0, threshold=FINAL_CUTOFF_PEAK_THRESHOLD)
+
+    tail_len = max(1, int(FINAL_CUTOFF_TAIL_SECONDS * sample_rate))
+    tail = audio[-tail_len:]
+    tail_peak = float(np.max(np.abs(tail))) if len(tail) else 0.0
+    last_sample = float(abs(audio[-1]))
+    risky = tail_peak >= FINAL_CUTOFF_PEAK_THRESHOLD and last_sample >= FINAL_CUTOFF_PEAK_THRESHOLD
+    result = _qc_result(
+        passed=True,
+        severity="warning",
+        metric={"tail_peak": round(tail_peak, 6), "last_sample_abs": round(last_sample, 6)},
+        threshold=FINAL_CUTOFF_PEAK_THRESHOLD,
+    )
+    if risky:
+        result["warning"] = "File ends at high amplitude; listen for a cut-off ending."
+    return result
+
+
+def run_final_file_analyses(path: str | Path) -> dict[str, dict[str, Any]]:
+    """Run deterministic QC checks for one final WAV file."""
+    path = Path(path)
+    try:
+        metadata = wav_metadata(path)
+        audio, sample_rate = load_wav(path)
+    except Exception as exc:
+        file_size = path.stat().st_size if path.exists() else None
+        return {
+            "wav_readable": _qc_result(
+                passed=False,
+                metric={"file_size_bytes": file_size},
+                threshold="valid PCM WAV",
+                error=f"Failed to open WAV: {exc}",
+            )
+        }
+
+    final_audio_chunk = [(audio, sample_rate)]
+    checks: dict[str, dict[str, Any]] = {
+        "wav_readable": _qc_result(
+            passed=True,
+            metric=metadata,
+            threshold="valid PCM WAV",
+        ),
+        "final_file_container": check_final_file_container(path, metadata),
+        "final_duration": check_final_duration(audio, sample_rate),
+        "final_non_silence": check_final_non_silence(audio),
+        "final_abrupt_discontinuities": check_final_abrupt_discontinuities(audio, sample_rate),
+        "final_dropouts": check_final_dropouts(audio, sample_rate),
+        "final_cutoff_risk": check_final_cutoff_risk(audio, sample_rate),
+        "clipping_detection": check_clipping_detection(final_audio_chunk),
+        "dc_offset": check_dc_offset(final_audio_chunk),
+        "loudness_lufs": check_loudness_lufs(audio, sample_rate),
+        "peak_analysis": check_peak_analysis(audio, sample_rate),
+    }
+
+    for result in checks.values():
+        result.setdefault("severity", "error")
+    return {k: _sanitize_result(v) for k, v in checks.items()}
 
 
 # ---------------------------------------------------------------------------

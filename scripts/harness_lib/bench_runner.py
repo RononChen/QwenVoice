@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
+import sys
 import statistics
 import subprocess
 import time
+from pathlib import Path
 from typing import Any
 
 from .output import build_suite_result, build_test_result, eprint
-from .paths import PROJECT_DIR
+from .paths import BUILD_ROOT, PROJECT_DIR, ensure_directory
 
 
 def run_benchmarks(
@@ -32,13 +35,8 @@ def run_benchmarks(
         suites.append(_run_xcode_settings_load_benchmark(runs=runs))
 
     if category in ("all", "quality"):
-        eprint("==> Running clone quality benchmarks...")
-        suites.append(
-            _retired_suite(
-                "native_quality_contract",
-                "Native acoustic quality analysis requires installed local models and an optional analyzer; run manual A/B against the fixed prompt suite for model-output-changing changes.",
-            )
-        )
+        eprint("==> Running generated audio quality checks...")
+        suites.append(_run_audio_quality_self_test(output_dir=output_dir))
 
     if category in ("all", "tts_roundtrip"):
         eprint("==> Running TTS round-trip intelligibility benchmark...")
@@ -58,6 +56,49 @@ def _retired_suite(name: str, reason: str) -> dict[str, Any]:
         [build_test_result(f"{name}_retired", passed=True, skip_reason=reason)],
         0,
     )
+
+
+def _run_audio_quality_self_test(output_dir: str | None) -> dict[str, Any]:
+    start = time.perf_counter()
+    destination = Path(output_dir) if output_dir else BUILD_ROOT / "audio-qc" / "latest"
+    ensure_directory(destination)
+    json_report = destination / "audio-qc-self-test.json"
+    markdown_report = destination / "audio-qc-self-test.md"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(PROJECT_DIR / "scripts" / "audit_generated_audio.py"),
+            "--self-test",
+            "--json-out",
+            str(json_report),
+            "--report-out",
+            str(markdown_report),
+        ],
+        cwd=str(PROJECT_DIR),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    details: dict[str, Any] = {
+        "json_report": str(json_report),
+        "markdown_report": str(markdown_report),
+        "stdout_tail": proc.stdout.splitlines()[-20:],
+        "stderr_tail": proc.stderr.splitlines()[-20:],
+    }
+    if json_report.exists():
+        try:
+            details["report"] = json.loads(json_report.read_text(encoding="utf-8"))
+        except Exception as exc:  # pragma: no cover - diagnostic only
+            details["report_parse_error"] = str(exc)
+    result = build_test_result(
+        "audio_qc_self_test",
+        passed=proc.returncode == 0,
+        error=None if proc.returncode == 0 else f"audio QC self-test exited {proc.returncode}",
+        duration_ms=duration_ms,
+        details=details,
+    )
+    return build_suite_result("audio_quality", [result], duration_ms)
 
 
 def _run_packaged_app_launch_benchmark(runs: int) -> dict[str, Any]:
