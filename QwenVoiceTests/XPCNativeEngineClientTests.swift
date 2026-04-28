@@ -151,16 +151,75 @@ final class XPCNativeEngineClientTests: XCTestCase {
         let root = try NativeRuntimeTestSupport.makeTemporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let firstClient = XPCNativeEngineClient()
-        let secondClient = XPCNativeEngineClient()
+        let firstTransport = ClientTestXPCTransport()
+        let secondTransport = ClientTestXPCTransport()
+        let firstClient = XPCNativeEngineClient(
+            transportFactory: { handlers in
+                firstTransport.install(handlers: handlers)
+                return firstTransport
+            }
+        )
+        let secondClient = XPCNativeEngineClient(
+            transportFactory: { handlers in
+                secondTransport.install(handlers: handlers)
+                return secondTransport
+            }
+        )
 
-        try await firstClient.initialize(appSupportDirectory: root)
-        try await secondClient.initialize(appSupportDirectory: root)
+        async let firstInitialize: Void = firstClient.initialize(appSupportDirectory: root)
+        try await waitForPerformCallCount(1, transport: firstTransport)
+        firstTransport.reply(
+            with: EngineReplyEnvelope(
+                id: try XCTUnwrap(firstTransport.lastRequestID),
+                reply: .snapshot(
+                    TTSEngineSnapshot(
+                        isReady: true,
+                        loadState: .idle,
+                        clonePreparationState: .idle,
+                        visibleErrorMessage: nil
+                    )
+                )
+            )
+        )
+        try await firstInitialize
 
-        let firstPing = try await firstClient.ping()
-        let secondInitialPing = try await secondClient.ping()
-        XCTAssertTrue(firstPing)
-        XCTAssertTrue(secondInitialPing)
+        async let secondInitialize: Void = secondClient.initialize(appSupportDirectory: root)
+        try await waitForPerformCallCount(1, transport: secondTransport)
+        secondTransport.reply(
+            with: EngineReplyEnvelope(
+                id: try XCTUnwrap(secondTransport.lastRequestID),
+                reply: .snapshot(
+                    TTSEngineSnapshot(
+                        isReady: true,
+                        loadState: .idle,
+                        clonePreparationState: .idle,
+                        visibleErrorMessage: nil
+                    )
+                )
+            )
+        )
+        try await secondInitialize
+
+        async let firstPing: Bool = firstClient.ping()
+        try await waitForPerformCallCount(2, transport: firstTransport)
+        firstTransport.reply(
+            with: EngineReplyEnvelope(
+                id: try XCTUnwrap(firstTransport.lastRequestID),
+                reply: .capabilities(.macOSXPCDefault)
+            )
+        )
+        async let secondInitialPing: Bool = secondClient.ping()
+        try await waitForPerformCallCount(2, transport: secondTransport)
+        secondTransport.reply(
+            with: EngineReplyEnvelope(
+                id: try XCTUnwrap(secondTransport.lastRequestID),
+                reply: .capabilities(.macOSXPCDefault)
+            )
+        )
+        let firstPingResult = try await firstPing
+        let secondInitialPingResult = try await secondInitialPing
+        XCTAssertTrue(firstPingResult)
+        XCTAssertTrue(secondInitialPingResult)
 
         await firstClient.debugInvalidateConnectionForTesting()
 
@@ -171,8 +230,16 @@ final class XPCNativeEngineClientTests: XCTestCase {
             secondClient.snapshot.visibleErrorMessage == nil
         }
 
-        let secondPing = try await secondClient.ping()
-        XCTAssertTrue(secondPing)
+        async let secondPing: Bool = secondClient.ping()
+        try await waitForPerformCallCount(3, transport: secondTransport)
+        secondTransport.reply(
+            with: EngineReplyEnvelope(
+                id: try XCTUnwrap(secondTransport.lastRequestID),
+                reply: .capabilities(.macOSXPCDefault)
+            )
+        )
+        let secondPingResult = try await secondPing
+        XCTAssertTrue(secondPingResult)
         XCTAssertTrue(secondClient.snapshot.isReady)
         XCTAssertNil(secondClient.snapshot.visibleErrorMessage)
 
