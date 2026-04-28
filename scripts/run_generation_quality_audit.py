@@ -10,9 +10,11 @@ and retained live-preview chunk sessions.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 import shutil
+import statistics
 import subprocess
 import sys
 import time
@@ -68,6 +70,35 @@ def main() -> None:
         default=None,
         help="Audit artifact directory. Defaults to build/audio-qc/<timestamp>.",
     )
+    parser.add_argument(
+        "--repeat-count",
+        type=int,
+        default=1,
+        help="Repeat live-xpc generation this many times per requested mode. Defaults to 1; maximum 10.",
+    )
+    parser.add_argument(
+        "--benchmark-profile",
+        choices=["repeat", "cold-warm"],
+        default="repeat",
+        help="Live XPC benchmark profile. cold-warm measures cold and warm generation timings.",
+    )
+    parser.add_argument(
+        "--cold-runs",
+        type=int,
+        default=2,
+        help="Measured cold runs per mode for --benchmark-profile cold-warm. Defaults to 2.",
+    )
+    parser.add_argument(
+        "--warm-runs",
+        type=int,
+        default=3,
+        help="Measured warm runs per mode for --benchmark-profile cold-warm. Defaults to 3.",
+    )
+    parser.add_argument(
+        "--compare-baseline",
+        default=None,
+        help="Optional previous summary.json to compare timing medians against this run.",
+    )
 
     args = parser.parse_args()
     output_dir = Path(args.output_dir) if args.output_dir else default_output_dir(args.source)
@@ -75,14 +106,40 @@ def main() -> None:
 
     try:
         modes = parse_modes(args.modes)
+        repeat_count = parse_repeat_count(args.repeat_count)
+        cold_runs = parse_benchmark_run_count(args.cold_runs, "--cold-runs")
+        warm_runs = parse_benchmark_run_count(args.warm_runs, "--warm-runs")
+        if args.benchmark_profile != "repeat" and args.source != "live-xpc":
+            raise UsageError("--benchmark-profile cold-warm is only supported with --source live-xpc.")
         if args.source == "self-test":
-            summary = run_self_test(output_dir)
+            summary = run_self_test(output_dir, repeat_count)
         elif args.source == "latest":
-            summary = run_latest_analysis(output_dir, modes)
+            summary = run_latest_analysis(output_dir, modes, repeat_count)
         else:
-            summary = run_live_xpc_analysis(output_dir, modes, args)
+            summary = run_live_xpc_analysis(
+                output_dir,
+                modes,
+                repeat_count,
+                cold_runs,
+                warm_runs,
+                args,
+            )
+        if args.compare_baseline:
+            summary["comparison_baseline"] = str(Path(args.compare_baseline))
+            summary["timing_comparison"] = compare_timing_summaries(
+                current_summary=summary,
+                baseline_path=Path(args.compare_baseline),
+            )
     except UsageError as exc:
-        summary = build_base_summary(output_dir, args.source, parse_modes_lenient(args.modes))
+        summary = build_base_summary(
+            output_dir,
+            args.source,
+            parse_modes_lenient(args.modes),
+            repeat_count=getattr(args, "repeat_count", 1),
+            benchmark_profile=getattr(args, "benchmark_profile", "repeat"),
+            cold_runs=getattr(args, "cold_runs", None),
+            warm_runs=getattr(args, "warm_runs", None),
+        )
         summary["overall_pass"] = False
         summary["error"] = str(exc)
         write_summary(output_dir, summary)
@@ -124,8 +181,20 @@ def parse_modes_lenient(raw_modes: str) -> list[str]:
         return [part.strip() for part in raw_modes.split(",") if part.strip()]
 
 
-def run_self_test(output_dir: Path) -> dict[str, Any]:
-    summary = build_base_summary(output_dir, "self-test", [])
+def parse_repeat_count(value: int) -> int:
+    if not 1 <= value <= 10:
+        raise UsageError("--repeat-count must be between 1 and 10.")
+    return value
+
+
+def parse_benchmark_run_count(value: int, flag_name: str) -> int:
+    if not 1 <= value <= 10:
+        raise UsageError(f"{flag_name} must be between 1 and 10.")
+    return value
+
+
+def run_self_test(output_dir: Path, repeat_count: int) -> dict[str, Any]:
+    summary = build_base_summary(output_dir, "self-test", [], repeat_count=repeat_count)
     report = run_audio_audit(
         output_dir=output_dir,
         name="self-test",
@@ -136,8 +205,8 @@ def run_self_test(output_dir: Path) -> dict[str, Any]:
     return summary
 
 
-def run_latest_analysis(output_dir: Path, modes: list[str]) -> dict[str, Any]:
-    summary = build_base_summary(output_dir, "latest", modes)
+def run_latest_analysis(output_dir: Path, modes: list[str], repeat_count: int) -> dict[str, Any]:
+    summary = build_base_summary(output_dir, "latest", modes, repeat_count=repeat_count)
     for mode in modes:
         report = run_audio_audit(
             output_dir=output_dir,
@@ -154,7 +223,14 @@ def run_latest_analysis(output_dir: Path, modes: list[str]) -> dict[str, Any]:
     return summary
 
 
-def run_live_xpc_analysis(output_dir: Path, modes: list[str], args: argparse.Namespace) -> dict[str, Any]:
+def run_live_xpc_analysis(
+    output_dir: Path,
+    modes: list[str],
+    repeat_count: int,
+    cold_runs: int,
+    warm_runs: int,
+    args: argparse.Namespace,
+) -> dict[str, Any]:
     if not args.allow_model_load:
         raise UsageError("--source live-xpc requires --allow-model-load.")
     if "Clones" in modes and not args.clone_reference:
@@ -165,9 +241,17 @@ def run_live_xpc_analysis(output_dir: Path, modes: list[str], args: argparse.Nam
     models_root = Path(args.models_root).expanduser()
     validate_required_models(modes, models_root)
 
-    summary = build_base_summary(output_dir, "live-xpc", modes)
+    summary = build_base_summary(
+        output_dir,
+        "live-xpc",
+        modes,
+        repeat_count=repeat_count,
+        benchmark_profile=args.benchmark_profile,
+        cold_runs=cold_runs if args.benchmark_profile == "cold-warm" else None,
+        warm_runs=warm_runs if args.benchmark_profile == "cold-warm" else None,
+    )
     summary["models_root"] = str(models_root)
-    xcode_result = run_live_xcode_test(output_dir, modes, models_root, args)
+    xcode_result = run_live_xcode_test(output_dir, modes, repeat_count, cold_runs, warm_runs, models_root, args)
     summary["xcodebuild"] = xcode_result
     if xcode_result["exit_code"] != 0:
         summary["overall_pass"] = False
@@ -186,29 +270,84 @@ def run_live_xpc_analysis(output_dir: Path, modes: list[str], args: argparse.Nam
     for artifact in manifest.get("artifacts", []):
         mode = artifact.get("mode", "unknown")
         output_path = artifact.get("outputPath")
-        if output_path:
-            summary["reports"].append(
-                run_audio_audit(
-                    output_dir=output_dir,
-                    name=f"live-{mode}-final",
-                    args=["--file", output_path],
-                )
+        measured = bool(artifact.get("measured", True))
+        qc_eligible = bool(artifact.get("qcEligible", measured))
+        mode_summary = {
+            "iteration": artifact_int(artifact, "iteration", default=1),
+            "phase": artifact.get("phase", "repeat"),
+            "run_index": artifact_run_index(artifact),
+            "measured": measured,
+            "qc_eligible": qc_eligible,
+            "mode": mode,
+            "duration_seconds": artifact.get("durationSeconds"),
+            "wall_clock_ms": artifact.get("wallClockMS"),
+            "real_time_factor": artifact.get("realTimeFactor"),
+            "output_path": output_path,
+            "stream_session_directory": artifact.get("streamSessionDirectory"),
+            "streaming_used": artifact.get("streamingUsed"),
+            "timings_ms": artifact.get("timingsMS") or {},
+            "reports": [],
+        }
+        report_prefix = live_report_prefix(artifact, repeat_count)
+        if output_path and qc_eligible:
+            report = run_audio_audit(
+                output_dir=output_dir,
+                name=f"{report_prefix}-final",
+                args=["--file", output_path],
             )
+            summary["reports"].append(report)
+            mode_summary["reports"].append(summarize_qc_report(report))
         session_dir = artifact.get("streamSessionDirectory")
-        if session_dir and Path(session_dir).is_dir():
+        if session_dir and Path(session_dir).is_dir() and qc_eligible:
             ensure_session_final(session_dir, output_path)
-            summary["reports"].append(
-                run_audio_audit(
-                    output_dir=output_dir,
-                    name=f"live-{mode}-session",
-                    args=["--session-dir", session_dir],
-                )
+            report = run_audio_audit(
+                output_dir=output_dir,
+                name=f"{report_prefix}-session",
+                args=["--session-dir", session_dir],
             )
+            summary["reports"].append(report)
+            mode_summary["reports"].append(summarize_qc_report(report))
+        summary.setdefault("mode_summaries", []).append(mode_summary)
+
+    measured_artifacts = [
+        artifact
+        for artifact in manifest.get("artifacts", [])
+        if artifact.get("measured", True)
+    ]
+    if measured_artifacts:
+        timing_csv = output_dir / "timing-runs.csv"
+        write_timing_csv(timing_csv, measured_artifacts)
+        summary["timing_csv"] = str(timing_csv)
+        summary["timing_summary"] = summarize_timings(measured_artifacts)
 
     summary["overall_pass"] = bool(summary["reports"]) and all(
         report["exit_code"] == 0 for report in summary["reports"]
     )
     return summary
+
+
+def live_report_prefix(artifact: dict[str, Any], repeat_count: int) -> str:
+    mode = artifact.get("mode", "unknown")
+    phase = artifact.get("phase", "repeat")
+    run_index = artifact_run_index(artifact)
+    if phase != "repeat":
+        return f"{phase}-run-{run_index:03d}-live-{mode}"
+    iteration = artifact_int(artifact, "iteration", default=1)
+    if repeat_count <= 1:
+        return f"live-{mode}"
+    return f"run-{iteration:03d}-live-{mode}"
+
+
+def artifact_run_index(artifact: dict[str, Any]) -> int:
+    value = artifact.get("runIndex")
+    if value is None:
+        value = artifact.get("iteration")
+    return int(value if value is not None else 1)
+
+
+def artifact_int(artifact: dict[str, Any], key: str, *, default: int) -> int:
+    value = artifact.get(key)
+    return int(value if value is not None else default)
 
 
 def validate_required_models(modes: list[str], models_root: Path) -> None:
@@ -235,6 +374,9 @@ def validate_required_models(modes: list[str], models_root: Path) -> None:
 def run_live_xcode_test(
     output_dir: Path,
     modes: list[str],
+    repeat_count: int,
+    cold_runs: int,
+    warm_runs: int,
     models_root: Path,
     args: argparse.Namespace,
 ) -> dict[str, Any]:
@@ -272,6 +414,10 @@ def run_live_xcode_test(
             "QWENVOICE_AUDIO_QC_OUTPUT_DIR": str(output_dir),
             "QWENVOICE_AUDIO_QC_MODES": ",".join(modes),
             "QWENVOICE_AUDIO_QC_MODELS_ROOT": str(models_root),
+            "QWENVOICE_AUDIO_QC_REPEAT_COUNT": str(repeat_count),
+            "QWENVOICE_AUDIO_QC_BENCHMARK_PROFILE": args.benchmark_profile,
+            "QWENVOICE_AUDIO_QC_COLD_RUNS": str(cold_runs),
+            "QWENVOICE_AUDIO_QC_WARM_RUNS": str(warm_runs),
         }
     )
     if args.clone_reference:
@@ -287,6 +433,10 @@ def run_live_xcode_test(
         "outputDirectory": str(output_dir.resolve()),
         "modes": modes,
         "modelsRoot": str(models_root.resolve()),
+        "repeatCount": repeat_count,
+        "benchmarkProfile": args.benchmark_profile,
+        "coldRuns": cold_runs,
+        "warmRuns": warm_runs,
         "cloneReference": str(Path(args.clone_reference).resolve()) if args.clone_reference else None,
         "cloneTranscript": args.clone_transcript,
         "expiresAt": expires_at.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
@@ -297,27 +447,175 @@ def run_live_xcode_test(
     )
     try:
         with log_path.open("w", encoding="utf-8") as log_file:
-            proc = subprocess.run(
+            timeout_seconds = resolve_xcodebuild_timeout_seconds()
+            proc = subprocess.Popen(
                 command,
                 cwd=str(PROJECT_DIR),
                 env=environment,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 text=True,
-                timeout=resolve_xcodebuild_timeout_seconds(),
             )
+            snapshots, timed_out = monitor_process(proc, started, timeout_seconds)
     finally:
         try:
             request_file.unlink()
         except FileNotFoundError:
             pass
+    exit_code = 124 if timed_out else int(proc.returncode or 0)
     return {
-        "exit_code": proc.returncode,
+        "exit_code": exit_code,
         "duration_ms": int((time.perf_counter() - started) * 1000),
+        "timed_out": timed_out,
         "command": command,
         "request_file": str(request_file),
         "log_path": str(log_path),
         "result_bundle": str(result_bundle),
+        "runtime_log_summary": summarize_runtime_log(log_path),
+        "process_snapshots": snapshots,
+        "process_memory_summary": summarize_process_memory(snapshots),
+    }
+
+
+WATCHED_PROCESS_TOKENS = (
+    "Vocello",
+    "QwenVoiceEngineService",
+    "xcodebuild",
+    "xctest",
+    "swift-frontend",
+)
+
+
+def monitor_process(
+    proc: subprocess.Popen[str],
+    started: float,
+    timeout_seconds: int,
+) -> tuple[list[dict[str, Any]], bool]:
+    snapshots: list[dict[str, Any]] = []
+    deadline = started + timeout_seconds
+    next_snapshot_at = started
+    timed_out = False
+
+    while True:
+        return_code = proc.poll()
+        now = time.perf_counter()
+        if now >= next_snapshot_at or return_code is not None:
+            snapshots.append(capture_process_snapshot(started))
+            next_snapshot_at = now + 5.0
+        if return_code is not None:
+            break
+        if now >= deadline:
+            timed_out = True
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=10)
+            snapshots.append(capture_process_snapshot(started))
+            break
+        time.sleep(0.5)
+
+    return snapshots, timed_out
+
+
+def capture_process_snapshot(started: float) -> dict[str, Any]:
+    proc = subprocess.run(
+        ["ps", "-axo", "pid=,rss=,comm=,command="],
+        cwd=str(PROJECT_DIR),
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    processes: list[dict[str, Any]] = []
+    if proc.returncode == 0:
+        for line in proc.stdout.splitlines():
+            parts = line.strip().split(None, 3)
+            if len(parts) < 3:
+                continue
+            pid_raw, rss_raw, comm = parts[:3]
+            command = parts[3] if len(parts) > 3 else comm
+            label = classify_process(comm, command)
+            if label is None:
+                continue
+            try:
+                rss_kb = int(rss_raw)
+                pid = int(pid_raw)
+            except ValueError:
+                continue
+            processes.append(
+                {
+                    "pid": pid,
+                    "label": label,
+                    "rss_kb": rss_kb,
+                    "rss_mb": round(rss_kb / 1024, 1),
+                    "command": command[:220],
+                }
+            )
+    return {
+        "elapsed_ms": int((time.perf_counter() - started) * 1000),
+        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "processes": processes,
+    }
+
+
+def classify_process(comm: str, command: str) -> str | None:
+    haystack = f"{comm} {command}"
+    for token in WATCHED_PROCESS_TOKENS:
+        if token in haystack:
+            return token
+    return None
+
+
+def summarize_process_memory(snapshots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_label: dict[str, dict[str, Any]] = {}
+    for snapshot in snapshots:
+        for process in snapshot.get("processes", []):
+            label = process.get("label")
+            if not label:
+                continue
+            current = by_label.setdefault(
+                label,
+                {
+                    "label": label,
+                    "max_rss_kb": 0,
+                    "max_rss_mb": 0.0,
+                    "sample_count": 0,
+                },
+            )
+            current["sample_count"] += 1
+            rss_kb = int(process.get("rss_kb") or 0)
+            if rss_kb > current["max_rss_kb"]:
+                current["max_rss_kb"] = rss_kb
+                current["max_rss_mb"] = round(rss_kb / 1024, 1)
+                current["pid_at_max"] = process.get("pid")
+                current["elapsed_ms_at_max"] = snapshot.get("elapsed_ms")
+    return sorted(by_label.values(), key=lambda item: item["label"])
+
+
+def summarize_runtime_log(log_path: Path) -> dict[str, Any]:
+    if not log_path.is_file():
+        return {}
+    patterns = {
+        "connection_interrupted": ("interrupted", "XPC_ERROR_CONNECTION_INTERRUPTED"),
+        "connection_invalidated": ("invalidated", "invalidation", "XPC_ERROR_CONNECTION_INVALID"),
+        "reconnect": ("reconnect", "reconnecting"),
+        "request_timeout": ("timed out", "timeout"),
+    }
+    counts = {key: 0 for key in patterns}
+    matching_lines: list[str] = []
+    for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        lowered = line.lower()
+        matched = False
+        for key, needles in patterns.items():
+            if any(needle.lower() in lowered for needle in needles):
+                counts[key] += 1
+                matched = True
+        if matched:
+            matching_lines.append(line[-300:])
+    return {
+        "counts": counts,
+        "matching_line_tail": matching_lines[-20:],
     }
 
 
@@ -369,15 +667,276 @@ def run_audio_audit(
     }
 
 
-def build_base_summary(output_dir: Path, source: str, modes: list[str]) -> dict[str, Any]:
+def summarize_qc_report(report: dict[str, Any]) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "name": report.get("name"),
+        "exit_code": report.get("exit_code"),
+        "json_report": report.get("json_report"),
+        "markdown_report": report.get("markdown_report"),
+    }
+    report_path = Path(str(report.get("json_report", "")))
+    if not report_path.is_file():
+        return summary
+    try:
+        data = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return summary
+    summary.update(
+        {
+            "overall_pass": data.get("overall_pass"),
+            "failed_required_checks": data.get("failed_required_checks") or [],
+            "warning_checks": data.get("warning_checks") or [],
+            "selected_metrics": selected_qc_metrics(data.get("checks") or {}),
+        }
+    )
+    return summary
+
+
+def selected_qc_metrics(checks: dict[str, Any]) -> dict[str, Any]:
+    selected_names = (
+        "final_duration",
+        "final_file_container",
+        "final_non_silence",
+        "final_abrupt_discontinuities",
+        "final_dropouts",
+        "final_cutoff_ending",
+        "clipping_detection",
+        "chunk_sample_fidelity",
+        "chunk_duration_consistency",
+        "chunk_loudness_consistency",
+    )
+    selected: dict[str, Any] = {}
+    for name in selected_names:
+        check = checks.get(name)
+        if not isinstance(check, dict):
+            continue
+        selected[name] = {
+            "passed": check.get("passed"),
+            "severity": check.get("severity"),
+            "metric": check.get("metric"),
+            "threshold": check.get("threshold"),
+        }
+    return selected
+
+
+TIMING_KEYS = (
+    "cache_prepare",
+    "mlx_model_load",
+    "load_model",
+    "conditioning_prepare",
+    "interactive_prefetch_conditioning_prepare_ms",
+    "generation",
+    "first_audio_ready",
+    "first_stream_chunk",
+    "final_write",
+    "chunk_write_total",
+    "chunk_write_max",
+    "event_dispatch_ms",
+    "stream_chunk_count",
+    "avg_chunk_frames",
+    "max_chunk_frames",
+)
+
+
+def write_timing_csv(path: Path, artifacts: list[dict[str, Any]]) -> None:
+    fieldnames = [
+        "mode",
+        "phase",
+        "run_index",
+        "iteration",
+        "wall_clock_ms",
+        "duration_seconds",
+        "real_time_factor",
+        "streaming_used",
+        "model_id",
+        "output_path",
+        "stream_session_directory",
+        *[f"timing_{key}" for key in TIMING_KEYS],
+    ]
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for artifact in artifacts:
+            timings = artifact.get("timingsMS") or {}
+            row = {
+                "mode": artifact.get("mode"),
+                "phase": artifact.get("phase", "repeat"),
+                "run_index": artifact.get("runIndex") or artifact.get("iteration"),
+                "iteration": artifact.get("iteration"),
+                "wall_clock_ms": artifact.get("wallClockMS"),
+                "duration_seconds": artifact.get("durationSeconds"),
+                "real_time_factor": artifact.get("realTimeFactor"),
+                "streaming_used": artifact.get("streamingUsed"),
+                "model_id": artifact.get("modelID"),
+                "output_path": artifact.get("outputPath"),
+                "stream_session_directory": artifact.get("streamSessionDirectory"),
+            }
+            for key in TIMING_KEYS:
+                row[f"timing_{key}"] = timings.get(key)
+            writer.writerow(row)
+
+
+def summarize_timings(artifacts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for artifact in artifacts:
+        mode = str(artifact.get("mode") or "unknown")
+        phase = str(artifact.get("phase") or "repeat")
+        grouped.setdefault((mode, phase), []).append(artifact)
+
+    summaries: list[dict[str, Any]] = []
+    for (mode, phase), items in sorted(grouped.items(), key=lambda pair: (pair[0][0], pair[0][1])):
+        timings_by_key: dict[str, list[float]] = {}
+        for item in items:
+            timings = item.get("timingsMS") or {}
+            for key in TIMING_KEYS:
+                value = numeric(timings.get(key))
+                if value is not None:
+                    timings_by_key.setdefault(key, []).append(value)
+
+        summaries.append(
+            {
+                "mode": mode,
+                "phase": phase,
+                "sample_count": len(items),
+                "wall_clock_ms": describe_values(
+                    [value for item in items if (value := numeric(item.get("wallClockMS"))) is not None]
+                ),
+                "duration_seconds": describe_values(
+                    [value for item in items if (value := numeric(item.get("durationSeconds"))) is not None]
+                ),
+                "real_time_factor": describe_values(
+                    [value for item in items if (value := numeric(item.get("realTimeFactor"))) is not None]
+                ),
+                "timings_ms": {
+                    key: describe_values(values)
+                    for key, values in sorted(timings_by_key.items())
+                },
+            }
+        )
+    return summaries
+
+
+def compare_timing_summaries(
+    *,
+    current_summary: dict[str, Any],
+    baseline_path: Path,
+) -> list[dict[str, Any]]:
+    if not baseline_path.is_file():
+        raise UsageError(f"Comparison baseline does not exist: {baseline_path}")
+    try:
+        baseline_summary = json.loads(baseline_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise UsageError(f"Could not read comparison baseline {baseline_path}: {exc}") from exc
+
+    baseline_by_key = {
+        (str(item.get("mode")), str(item.get("phase"))): item
+        for item in baseline_summary.get("timing_summary") or []
+    }
+    current_by_key = {
+        (str(item.get("mode")), str(item.get("phase"))): item
+        for item in current_summary.get("timing_summary") or []
+    }
+
+    comparisons: list[dict[str, Any]] = []
+    metric_specs = [
+        ("wall_clock_ms", ("wall_clock_ms",)),
+        ("real_time_factor", ("real_time_factor",)),
+        ("generation_ms", ("timings_ms", "generation")),
+        ("first_audio_ready_ms", ("timings_ms", "first_audio_ready")),
+        ("first_stream_chunk_ms", ("timings_ms", "first_stream_chunk")),
+    ]
+    for key in sorted(current_by_key):
+        current = current_by_key[key]
+        baseline = baseline_by_key.get(key)
+        if not baseline:
+            continue
+        metrics: dict[str, Any] = {}
+        for metric_name, path in metric_specs:
+            before = nested_median(baseline, path)
+            after = nested_median(current, path)
+            metrics[metric_name] = compare_metric(before, after)
+        comparisons.append(
+            {
+                "mode": key[0],
+                "phase": key[1],
+                "baseline_sample_count": baseline.get("sample_count"),
+                "current_sample_count": current.get("sample_count"),
+                "metrics": metrics,
+            }
+        )
+    return comparisons
+
+
+def nested_median(item: dict[str, Any], path: tuple[str, ...]) -> float | None:
+    cursor: Any = item
+    for key in path:
+        if not isinstance(cursor, dict):
+            return None
+        cursor = cursor.get(key)
+    if not isinstance(cursor, dict):
+        return None
+    return numeric(cursor.get("median"))
+
+
+def compare_metric(before: float | None, after: float | None) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "baseline_median": before,
+        "current_median": after,
+    }
+    if before is None or after is None or before == 0:
+        return result
+    delta = after - before
+    result["delta"] = round(delta, 3)
+    result["delta_percent"] = round((delta / before) * 100.0, 2)
+    return result
+
+
+def numeric(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def describe_values(values: list[float]) -> dict[str, Any]:
+    if not values:
+        return {}
+    sorted_values = sorted(values)
+    return {
+        "count": len(values),
+        "min": round(sorted_values[0], 3),
+        "median": round(statistics.median(sorted_values), 3),
+        "mean": round(statistics.fmean(sorted_values), 3),
+        "max": round(sorted_values[-1], 3),
+        "stdev": round(statistics.stdev(sorted_values), 3) if len(sorted_values) > 1 else 0.0,
+    }
+
+
+def build_base_summary(
+    output_dir: Path,
+    source: str,
+    modes: list[str],
+    *,
+    repeat_count: int,
+    benchmark_profile: str = "repeat",
+    cold_runs: int | None = None,
+    warm_runs: int | None = None,
+) -> dict[str, Any]:
     return {
         "tool": "run_generation_quality_audit",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "source": source,
         "modes": modes,
+        "repeat_count": repeat_count,
+        "benchmark_profile": benchmark_profile,
+        "cold_runs": cold_runs,
+        "warm_runs": warm_runs,
         "output_dir": str(output_dir),
         "overall_pass": False,
         "reports": [],
+        "mode_summaries": [],
     }
 
 
@@ -397,10 +956,20 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
         "",
         f"- Source: `{summary.get('source')}`",
         f"- Modes: `{', '.join(summary.get('modes') or [])}`",
+        f"- Repeat count: `{summary.get('repeat_count', 1)}`",
+        f"- Benchmark profile: `{summary.get('benchmark_profile', 'repeat')}`",
         f"- Output: `{summary.get('output_dir')}`",
         f"- Created: `{summary.get('created_at')}`",
         "",
     ]
+    if summary.get("benchmark_profile") == "cold-warm":
+        lines.extend(
+            [
+                f"- Cold runs per mode: `{summary.get('cold_runs')}`",
+                f"- Warm runs per mode: `{summary.get('warm_runs')}`",
+                "",
+            ]
+        )
     if summary.get("error"):
         lines.extend(["## Error", "", str(summary["error"]), ""])
     if summary.get("xcodebuild"):
@@ -410,18 +979,98 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
                 "## Live Generation",
                 "",
                 f"- Exit code: `{xcode.get('exit_code')}`",
+                f"- Duration: `{xcode.get('duration_ms')} ms`",
                 f"- Log: `{xcode.get('log_path')}`",
                 f"- Result bundle: `{xcode.get('result_bundle')}`",
                 "",
             ]
         )
+        if xcode.get("process_memory_summary"):
+            lines.extend(["### Process Memory", ""])
+            for item in xcode["process_memory_summary"]:
+                lines.append(
+                    f"- `{item.get('label')}` max RSS: `{item.get('max_rss_mb')} MB` "
+                    f"at `{item.get('elapsed_ms_at_max')} ms`"
+                )
+            lines.append("")
+        if xcode.get("runtime_log_summary"):
+            counts = xcode["runtime_log_summary"].get("counts") or {}
+            lines.extend(
+                [
+                    "### Runtime Log Signals",
+                    "",
+                    f"- XPC interruptions: `{counts.get('connection_interrupted', 0)}`",
+                    f"- XPC invalidations: `{counts.get('connection_invalidated', 0)}`",
+                    f"- Reconnect mentions: `{counts.get('reconnect', 0)}`",
+                    f"- Request timeouts: `{counts.get('request_timeout', 0)}`",
+                    "",
+                ]
+            )
     if summary.get("generated_artifacts"):
         lines.extend(["## Generated Artifacts", ""])
         for artifact in summary["generated_artifacts"]:
+            phase = artifact.get("phase", "repeat")
+            run_index = artifact.get("runIndex", artifact.get("iteration", 1))
+            measured = "measured" if artifact.get("measured", True) else "primer"
             lines.append(
-                f"- `{artifact.get('mode')}`: `{artifact.get('outputPath')}` "
-                f"({artifact.get('durationSeconds')}s)"
+                f"- `{phase}` run `{run_index}` `{artifact.get('mode')}` ({measured}): "
+                f"`{artifact.get('outputPath')}` ({artifact.get('durationSeconds')}s, "
+                f"{artifact.get('wallClockMS')} ms)"
             )
+        lines.append("")
+    if summary.get("timing_summary"):
+        lines.extend(["## Timing Summary", ""])
+        for item in summary["timing_summary"]:
+            wall = item.get("wall_clock_ms") or {}
+            rtf = item.get("real_time_factor") or {}
+            generation = (item.get("timings_ms") or {}).get("generation") or {}
+            lines.append(
+                f"- `{item.get('mode')}` `{item.get('phase')}` n=`{item.get('sample_count')}`: "
+                f"wall median `{wall.get('median')} ms`, mean `{wall.get('mean')} ms`, "
+                f"RTF median `{rtf.get('median')}`, generation median `{generation.get('median')} ms`"
+            )
+        if summary.get("timing_csv"):
+            lines.append(f"- CSV: `{summary.get('timing_csv')}`")
+        lines.append("")
+    if summary.get("timing_comparison"):
+        lines.extend(["## Timing Comparison", ""])
+        if summary.get("comparison_baseline"):
+            lines.append(f"- Baseline: `{summary.get('comparison_baseline')}`")
+            lines.append("")
+        for item in summary["timing_comparison"]:
+            metrics = item.get("metrics") or {}
+            wall = metrics.get("wall_clock_ms") or {}
+            first_audio = metrics.get("first_audio_ready_ms") or {}
+            generation = metrics.get("generation_ms") or {}
+            lines.append(
+                f"- `{item.get('mode')}` `{item.get('phase')}`: "
+                f"wall `{wall.get('baseline_median')}` -> `{wall.get('current_median')}` ms "
+                f"({format_delta_percent(wall)}), "
+                f"first audio `{first_audio.get('baseline_median')}` -> `{first_audio.get('current_median')}` ms "
+                f"({format_delta_percent(first_audio)}), "
+                f"generation `{generation.get('baseline_median')}` -> `{generation.get('current_median')}` ms "
+                f"({format_delta_percent(generation)})"
+            )
+        lines.append("")
+    if summary.get("mode_summaries"):
+        lines.extend(["## Per-Mode Results", ""])
+        for item in summary["mode_summaries"]:
+            failed = [
+                failure
+                for report in item.get("reports", [])
+                for failure in report.get("failed_required_checks", [])
+            ]
+            if not item.get("qc_eligible", True):
+                result = "SKIP"
+            else:
+                result = "PASS" if not failed and item.get("reports") else "FAIL"
+            lines.append(
+                f"- {result} `{item.get('phase')}` run `{item.get('run_index')}` `{item.get('mode')}` "
+                f"wall `{item.get('wall_clock_ms')} ms`, duration `{item.get('duration_seconds')}s`, "
+                f"reports `{len(item.get('reports', []))}`"
+            )
+            if failed:
+                lines.append(f"  Failed checks: `{', '.join(failed)}`")
         lines.append("")
     lines.extend(["## QC Reports", ""])
     if not summary.get("reports"):
@@ -435,6 +1084,14 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
         )
     lines.append("")
     return "\n".join(lines)
+
+
+def format_delta_percent(metric: dict[str, Any]) -> str:
+    value = metric.get("delta_percent")
+    if value is None:
+        return "n/a"
+    prefix = "+" if value > 0 else ""
+    return f"{prefix}{value}%"
 
 
 if __name__ == "__main__":

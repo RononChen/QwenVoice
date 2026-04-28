@@ -3,9 +3,17 @@ import Foundation
 import MLX
 import MLXAudioCore
 @preconcurrency import MLXAudioTTS
+import OSLog
 
 protocol NativeStreamingSessionRunning {
     func run(eventSink: @escaping @MainActor @Sendable (GenerationEvent) -> Void) async throws -> GenerationResult
+}
+
+private enum NativeStreamingSignposts {
+    static let signposter = OSSignposter(
+        subsystem: "com.qwenvoice.engine",
+        category: "generation"
+    )
 }
 
 final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning {
@@ -505,6 +513,10 @@ private struct StreamingExecutionContext: Sendable {
     }
 
     func run(eventSink: @escaping @MainActor @Sendable (GenerationEvent) -> Void) async throws -> GenerationResult {
+        let generationSignpost = NativeStreamingSignposts.signposter.beginInterval("Native Generation Stream")
+        defer {
+            NativeStreamingSignposts.signposter.endInterval("Native Generation Stream", generationSignpost)
+        }
         let startedAt = ContinuousClock.now
         let outputURL = URL(fileURLWithPath: request.outputPath)
         let sampleRate = model.sampleRate
@@ -590,6 +602,7 @@ private struct StreamingExecutionContext: Sendable {
 
                     if firstAudioReadyMS == nil {
                         firstAudioReadyMS = startedAt.duration(to: .now).roundedMilliseconds
+                        NativeStreamingSignposts.signposter.emitEvent("Native First Audio Chunk")
                         await telemetryRecorder?.mark(
                             stage: .firstChunk,
                             metadata: ["chunk_index": String(chunkIndex)]
@@ -680,7 +693,9 @@ private struct StreamingExecutionContext: Sendable {
         }
 
         let finalizeStartedAt = ContinuousClock.now
+        let finalWriteSignpost = NativeStreamingSignposts.signposter.beginInterval("Native Final WAV Finish")
         finalWriter.finish()
+        NativeStreamingSignposts.signposter.endInterval("Native Final WAV Finish", finalWriteSignpost)
         finalWriteMS += finalizeStartedAt.elapsedMilliseconds
         mlxMemorySnapshots["after_final_write"] = NativeMemoryPolicyResolver.snapshot()
 

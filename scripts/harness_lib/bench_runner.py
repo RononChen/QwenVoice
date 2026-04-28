@@ -21,6 +21,11 @@ def run_benchmarks(
     tier: str = "all",
     quality_source: str = "self-test",
     quality_modes: str = "CustomVoice,VoiceDesign",
+    quality_repeat_count: int = 1,
+    quality_benchmark_profile: str = "repeat",
+    quality_cold_runs: int = 2,
+    quality_warm_runs: int = 3,
+    quality_compare_baseline: str | None = None,
     allow_model_load: bool = False,
     clone_reference: str | None = None,
     clone_transcript: str | None = None,
@@ -48,6 +53,11 @@ def run_benchmarks(
                     output_dir=output_dir,
                     quality_source=quality_source,
                     quality_modes=quality_modes,
+                    quality_repeat_count=quality_repeat_count,
+                    quality_benchmark_profile=quality_benchmark_profile,
+                    quality_cold_runs=quality_cold_runs,
+                    quality_warm_runs=quality_warm_runs,
+                    quality_compare_baseline=quality_compare_baseline,
                     allow_model_load=allow_model_load,
                     clone_reference=clone_reference,
                     clone_transcript=clone_transcript,
@@ -122,6 +132,11 @@ def _run_audio_quality_workflow(
     output_dir: str | None,
     quality_source: str,
     quality_modes: str,
+    quality_repeat_count: int,
+    quality_benchmark_profile: str,
+    quality_cold_runs: int,
+    quality_warm_runs: int,
+    quality_compare_baseline: str | None,
     allow_model_load: bool,
     clone_reference: str | None,
     clone_transcript: str | None,
@@ -136,11 +151,21 @@ def _run_audio_quality_workflow(
         quality_source,
         "--modes",
         quality_modes,
+        "--repeat-count",
+        str(quality_repeat_count),
+        "--benchmark-profile",
+        quality_benchmark_profile,
+        "--cold-runs",
+        str(quality_cold_runs),
+        "--warm-runs",
+        str(quality_warm_runs),
         "--output-dir",
         str(destination),
     ]
     if allow_model_load:
         command.append("--allow-model-load")
+    if quality_compare_baseline:
+        command.extend(["--compare-baseline", quality_compare_baseline])
     if clone_reference:
         command.extend(["--clone-reference", clone_reference])
     if clone_transcript:

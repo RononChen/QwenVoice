@@ -52,6 +52,11 @@ def _run_bench(args: argparse.Namespace) -> None:
             tier=getattr(args, "tier", "all"),
             quality_source=getattr(args, "quality_source", "self-test"),
             quality_modes=getattr(args, "quality_modes", "CustomVoice,VoiceDesign"),
+            quality_repeat_count=getattr(args, "quality_repeat_count", 1),
+            quality_benchmark_profile=getattr(args, "quality_benchmark_profile", "repeat"),
+            quality_cold_runs=getattr(args, "quality_cold_runs", 2),
+            quality_warm_runs=getattr(args, "quality_warm_runs", 3),
+            quality_compare_baseline=getattr(args, "quality_compare_baseline", None),
             allow_model_load=getattr(args, "allow_model_load", False),
             clone_reference=getattr(args, "clone_reference", None),
             clone_transcript=getattr(args, "clone_transcript", None),
@@ -122,6 +127,35 @@ def main() -> None:
         "--quality-modes",
         default="CustomVoice,VoiceDesign",
         help="Comma-separated modes for --category quality.",
+    )
+    p_bench.add_argument(
+        "--quality-repeat-count",
+        type=int,
+        default=1,
+        help="Repeat count for live audio quality workflows. Defaults to one pass.",
+    )
+    p_bench.add_argument(
+        "--quality-benchmark-profile",
+        choices=["repeat", "cold-warm"],
+        default="repeat",
+        help="Benchmark profile for live audio quality workflows.",
+    )
+    p_bench.add_argument(
+        "--quality-cold-runs",
+        type=int,
+        default=2,
+        help="Cold runs per mode for --quality-benchmark-profile cold-warm.",
+    )
+    p_bench.add_argument(
+        "--quality-warm-runs",
+        type=int,
+        default=3,
+        help="Warm runs per mode for --quality-benchmark-profile cold-warm.",
+    )
+    p_bench.add_argument(
+        "--quality-compare-baseline",
+        default=None,
+        help="Previous quality summary.json to compare benchmark timing medians against.",
     )
     p_bench.add_argument(
         "--allow-model-load",

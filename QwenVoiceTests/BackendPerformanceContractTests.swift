@@ -161,4 +161,101 @@ final class BackendPerformanceContractTests: XCTestCase {
         XCTAssertTrue(iPhonePolicy.clearCacheAfterGeneration)
         XCTAssertEqual(iPhonePolicy.unloadAfterIdleSeconds, 30)
     }
+
+    func testModelPrewarmStateDoesNotPersistAcrossCoordinatorInstances() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let modelsRoot = root.appendingPathComponent("models", isDirectory: true)
+        let hubCacheRoot = root.appendingPathComponent("cache", isDirectory: true)
+        let model = ModelDescriptor(
+            id: "pro_custom",
+            name: "Custom Voice",
+            tier: "pro",
+            folder: "Custom-Model",
+            mode: .custom,
+            huggingFaceRepo: "example/custom",
+            artifactVersion: "test",
+            iosDownloadEligible: false,
+            estimatedDownloadBytes: nil,
+            outputSubfolder: "CustomVoice",
+            requiredRelativePaths: ["config.json"]
+        )
+        let descriptor = ModelAssetDescriptor(
+            model: model,
+            version: "test-version",
+            artifacts: [
+                ModelAssetArtifact(relativePath: "config.json", scope: .modelSpecific)
+            ]
+        )
+        let store = TestModelAssetStore(rootDirectory: modelsRoot, descriptors: [descriptor])
+        let modelRoot = store.localRoot(for: descriptor)
+        try FileManager.default.createDirectory(at: modelRoot, withIntermediateDirectories: true)
+        try Data(#"{"model_type":"fixture"}"#.utf8)
+            .write(to: modelRoot.appendingPathComponent("config.json"))
+
+        let stalePersistedKeyFile = modelRoot.appendingPathComponent(".qvoice_prewarm_keys.json")
+        try JSONEncoder().encode(["custom|stale"])
+            .write(to: stalePersistedKeyFile)
+
+        let firstCoordinator = MLXModelLoadCoordinator(
+            modelAssetStore: store,
+            hubCacheDirectory: hubCacheRoot,
+            modelLoader: { _, _, _ in UnsafeSpeechGenerationModel() }
+        )
+        _ = try await firstCoordinator.loadModel(id: "pro_custom", capabilityProfile: .customOnly)
+        let restoredStaleKey = await firstCoordinator.isPrewarmed(identityKey: "custom|stale")
+        XCTAssertFalse(
+            restoredStaleKey,
+            "Prewarm state is volatile model-process state and must not be restored from stale disk markers."
+        )
+
+        await firstCoordinator.markPrewarmed(identityKey: "custom|current")
+        let markedCurrentKey = await firstCoordinator.isPrewarmed(identityKey: "custom|current")
+        XCTAssertTrue(markedCurrentKey)
+
+        let secondCoordinator = MLXModelLoadCoordinator(
+            modelAssetStore: store,
+            hubCacheDirectory: hubCacheRoot,
+            modelLoader: { _, _, _ in UnsafeSpeechGenerationModel() }
+        )
+        _ = try await secondCoordinator.loadModel(id: "pro_custom", capabilityProfile: .customOnly)
+        let restoredCurrentKey = await secondCoordinator.isPrewarmed(identityKey: "custom|current")
+        XCTAssertFalse(
+            restoredCurrentKey,
+            "A fresh helper/client must explicitly warm again instead of inheriting volatile prewarm keys."
+        )
+    }
+}
+
+private struct TestModelAssetStore: ModelAssetStore {
+    let rootDirectory: URL
+    let descriptors: [ModelAssetDescriptor]
+
+    func descriptor(id: String) -> ModelAssetDescriptor? {
+        descriptors.first { $0.id == id }
+    }
+
+    func localRoot(for descriptor: ModelAssetDescriptor) -> URL {
+        rootDirectory.appendingPathComponent(descriptor.installFolder, isDirectory: true)
+    }
+
+    func localURL(for descriptor: ModelAssetDescriptor, artifact: ModelAssetArtifact) -> URL {
+        localRoot(for: descriptor).appendingPathComponent(artifact.relativePath)
+    }
+
+    func integrity(for descriptor: ModelAssetDescriptor) -> AssetIntegrity {
+        AssetIntegrity(
+            status: .verified,
+            localRootPath: localRoot(for: descriptor).path,
+            missingRelativePaths: [],
+            presentRelativePaths: descriptor.artifacts.map(\.relativePath),
+            sizeBytes: 1
+        )
+    }
+
+    func state(for descriptor: ModelAssetDescriptor) -> ModelAssetState {
+        .available(integrity(for: descriptor))
+    }
 }

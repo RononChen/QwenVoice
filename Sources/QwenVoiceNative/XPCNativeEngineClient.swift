@@ -143,6 +143,10 @@ actor XPCNativeEngineCoordinator {
         subsystem: "com.qwenvoice.app",
         category: "XPCNativeEngineClient"
     )
+    private static let signposter = OSSignposter(
+        subsystem: "com.qwenvoice.app",
+        category: "xpc"
+    )
 
     private let onSnapshot: @Sendable (TTSEngineSnapshot) -> Void
     private let onChunk: @Sendable (GenerationEvent) -> Void
@@ -371,9 +375,14 @@ actor XPCNativeEngineCoordinator {
         transport: ActiveConnection,
         command: EngineCommand
     ) async throws -> EngineReply {
+        let signpostState = Self.signposter.beginInterval("XPC Engine Command")
+        defer {
+            Self.signposter.endInterval("XPC Engine Command", signpostState)
+        }
         let requestEnvelope = EngineRequestEnvelope(id: UUID(), command: command)
         let payload = try EngineServiceCodec.encode(requestEnvelope)
 
+        Self.signposter.emitEvent("XPC Engine Command Sent")
         Self.logger.debug("Sending engine command '\(command.transportName, privacy: .public)' with id \(requestEnvelope.id.uuidString, privacy: .public)")
 
         return try await withCheckedThrowingContinuation { continuation in
@@ -397,6 +406,7 @@ actor XPCNativeEngineCoordinator {
 
             transport.transport.perform(payload) { [weak self] replyData in
                 Task {
+                    Self.signposter.emitEvent("XPC Engine Reply Received")
                     await self?.handleReplyData(replyData, from: transport.id)
                 }
             }

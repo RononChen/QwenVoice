@@ -179,8 +179,6 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
     private let diagnosticEventSink: (@Sendable (String, [String: String]) async -> Void)?
     private var preparedMetadataByDescriptorID: [String: PreparedModelMetadata] = [:]
 
-    private static let prewarmKeysFileName = ".qvoice_prewarm_keys.json"
-
     private(set) var loadedDescriptor: ModelAssetDescriptor?
     private(set) var loadedCapabilityProfile: NativeLoadCapabilityProfile?
     private(set) var loadedModel: UnsafeSpeechGenerationModel?
@@ -324,7 +322,6 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
         loadedCapabilityProfile = capabilityProfile
         loadedModel = model
         prewarmedIdentityKeys.removeAll()
-        restorePrewarmKeys(for: descriptor)
         var booleanFlags = model.loadDiagnosticBooleanFlags
         booleanFlags["prepared_model_cache_hit"] = preparedCacheResult.reusedPreparedCache
         booleanFlags["prepared_overlay_cache_hit"] = preparedCacheResult.usedPreparedOverlay
@@ -382,36 +379,10 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
 
     func markPrewarmed(identityKey: String) async {
         prewarmedIdentityKeys.insert(identityKey)
-        persistPrewarmKeys()
     }
 
     func clearPrewarmState() async {
         prewarmedIdentityKeys.removeAll()
-        guard let descriptor = loadedDescriptor else { return }
-        let root = modelAssetStore.localRoot(for: descriptor)
-        let url = root.appendingPathComponent(Self.prewarmKeysFileName)
-        try? fileManager.removeItem(at: url)
-    }
-
-    // MARK: - Prewarm Key Persistence
-
-    private func persistPrewarmKeys() {
-        guard let descriptor = loadedDescriptor else { return }
-        let root = modelAssetStore.localRoot(for: descriptor)
-        let url = root.appendingPathComponent(Self.prewarmKeysFileName)
-        let keys = Array(prewarmedIdentityKeys)
-        guard let data = try? JSONEncoder().encode(keys) else { return }
-        try? data.write(to: url, options: .atomic)
-    }
-
-    private func restorePrewarmKeys(for descriptor: ModelAssetDescriptor) {
-        let root = modelAssetStore.localRoot(for: descriptor)
-        let url = root.appendingPathComponent(Self.prewarmKeysFileName)
-        guard let data = try? Data(contentsOf: url),
-              let keys = try? JSONDecoder().decode([String].self, from: data) else {
-            return
-        }
-        prewarmedIdentityKeys = Set(keys)
     }
 
     private func resetLoadedState() {

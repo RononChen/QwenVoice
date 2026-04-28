@@ -2,6 +2,7 @@ import Foundation
 import MLX
 @preconcurrency import MLXAudioCore
 @preconcurrency import MLXAudioTTS
+import OSLog
 
 enum NativeRuntimeStage: String, Codable, Sendable {
     case preparedCacheValidation
@@ -114,6 +115,11 @@ struct NativeClonePrimeResult: Sendable {
 }
 
 actor NativeEngineRuntime {
+    private static let signposter = OSSignposter(
+        subsystem: "com.qwenvoice.engine",
+        category: "runtime"
+    )
+
     private enum DesignConditioningWarmSource: String, Sendable {
         case prefetch
         case generation
@@ -276,6 +282,10 @@ actor NativeEngineRuntime {
     }
 
     func prepareGeneration(for request: GenerationRequest) async throws -> NativePreparedGeneration {
+        let prepareSignpost = Self.signposter.beginInterval("Native Prepare Generation")
+        defer {
+            Self.signposter.endInterval("Native Prepare Generation", prepareSignpost)
+        }
         await recordDiagnosticEvent(
             "runtime-prepare-before-load-model",
             request: request
@@ -550,6 +560,10 @@ actor NativeEngineRuntime {
         capabilityProfile: NativeLoadCapabilityProfile = .fullCapabilities,
         preserveActiveClonePrimeToken: Bool
     ) async throws -> NativeModelLoadResult {
+        let loadSignpost = Self.signposter.beginInterval("Native Model Load")
+        defer {
+            Self.signposter.endInterval("Native Model Load", loadSignpost)
+        }
         do {
             let loadResult = try await loadCoordinator.loadModel(
                 id: id,
@@ -577,6 +591,10 @@ actor NativeEngineRuntime {
         reference: CloneReference,
         sampleRate: Int
     ) async throws -> ResolvedCloneConditioning {
+        let conditioningSignpost = Self.signposter.beginInterval("Native Clone Conditioning")
+        defer {
+            Self.signposter.endInterval("Native Clone Conditioning", conditioningSignpost)
+        }
         do {
             await telemetryRecorder?.mark(stage: .clonePreparation)
             return try await preparedCloneConditioningCache.resolve(
@@ -602,6 +620,10 @@ actor NativeEngineRuntime {
     ) async throws -> [String: Int] {
         if shouldSkipDedicatedCustomPrewarm(for: request, model: model) {
             return [:]
+        }
+        let prewarmSignpost = Self.signposter.beginInterval("Native Explicit Prewarm")
+        defer {
+            Self.signposter.endInterval("Native Explicit Prewarm", prewarmSignpost)
         }
 
         let identityKey: String
