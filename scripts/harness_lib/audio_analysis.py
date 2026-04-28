@@ -313,6 +313,7 @@ def check_final_dropouts(
         silent_windows.append(rms < threshold)
 
     gaps: list[dict[str, Any]] = []
+    ignored_edge_gaps: list[dict[str, Any]] = []
     run_start: int | None = None
     for index, silent in enumerate(silent_windows):
         if silent and run_start is None:
@@ -321,10 +322,14 @@ def check_final_dropouts(
             run_end = index + 1 if silent and index == len(silent_windows) - 1 else index
             duration = (run_end - run_start) * FINAL_DROPOUT_WINDOW_SECONDS
             if duration >= FINAL_DROPOUT_MIN_SECONDS:
-                gaps.append({
+                gap = {
                     "start_seconds": round((edge / sample_rate) + run_start * FINAL_DROPOUT_WINDOW_SECONDS, 3),
                     "duration_seconds": round(duration, 3),
-                })
+                }
+                if run_start == 0 or run_end == len(silent_windows):
+                    ignored_edge_gaps.append(gap)
+                else:
+                    gaps.append(gap)
             run_start = None
 
     longest_gap = max((gap["duration_seconds"] for gap in gaps), default=0.0)
@@ -333,7 +338,11 @@ def check_final_dropouts(
     return _qc_result(
         passed=passed,
         severity="error" if failed else "warning",
-        metric={"dropout_count": len(gaps), "longest_dropout_seconds": longest_gap},
+        metric={
+            "dropout_count": len(gaps),
+            "longest_dropout_seconds": longest_gap,
+            "ignored_edge_dropout_count": len(ignored_edge_gaps),
+        },
         threshold={
             "dropout_threshold_db": FINAL_DROPOUT_THRESHOLD_DB,
             "warning_dropout_seconds": FINAL_DROPOUT_MIN_SECONDS,
@@ -348,6 +357,7 @@ def check_final_dropouts(
             if gaps and not failed else None
         ),
         dropouts=gaps[:10],
+        ignored_edge_dropouts=ignored_edge_gaps[:10],
     )
 
 

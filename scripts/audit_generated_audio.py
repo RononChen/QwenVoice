@@ -270,6 +270,7 @@ def run_self_test() -> dict[str, Any]:
         valid = root / "valid.wav"
         header_only = root / "header-only.wav"
         clipped = root / "clipped.wav"
+        leading_silence = root / "leading-silence.wav"
         silence_gap = root / "silence-gap.wav"
         discontinuity = root / "discontinuity.wav"
         mismatch_session = root / "mismatch-session"
@@ -288,6 +289,12 @@ def run_self_test() -> dict[str, Any]:
         clipped_samples = valid_samples.copy()
         clipped_samples[100:110] = 1.0
         write_wav(clipped, clipped_samples, sample_rate)
+
+        leading_silence_samples = np.concatenate([
+            np.zeros(int(sample_rate * 0.9), dtype=np.float32),
+            valid_samples,
+        ])
+        write_wav(leading_silence, leading_silence_samples, sample_rate)
 
         gap_samples = np.concatenate([
             valid_samples[:sample_rate // 2],
@@ -325,6 +332,7 @@ def run_self_test() -> dict[str, Any]:
         valid_report = analyze_file(valid)
         header_report = analyze_file(header_only)
         clipped_report = analyze_file(clipped)
+        leading_silence_report = analyze_file(leading_silence)
         silence_report = analyze_file(silence_gap)
         discontinuity_report = analyze_file(discontinuity)
         mismatch_report = analyze_session_dir(mismatch_session)
@@ -334,6 +342,7 @@ def run_self_test() -> dict[str, Any]:
             "valid_fixture_passes": valid_report["overall_pass"],
             "header_only_fails": not header_report["overall_pass"],
             "clipping_fails": "clipping_detection" in clipped_report["failed_required_checks"],
+            "leading_silence_passes": leading_silence_report["overall_pass"],
             "silence_gap_fails": "final_dropouts" in silence_report["failed_required_checks"],
             "discontinuity_fails": (
                 "final_abrupt_discontinuities"
