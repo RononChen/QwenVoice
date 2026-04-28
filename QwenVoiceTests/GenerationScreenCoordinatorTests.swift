@@ -306,6 +306,85 @@ final class GenerationScreenCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testCustomVoiceCoordinatorRejectsWhitespaceOnlyScript() async throws {
+        let (store, engine) = makeReadyStore()
+        let coordinator = CustomVoiceCoordinator()
+        let audioPlayer = AudioPlayerViewModel()
+
+        coordinator.generate(
+            draft: CustomVoiceDraft(
+                selectedSpeaker: "Vivian",
+                emotion: "Normal tone",
+                text: " \n\t "
+            ),
+            activeModel: TTSModel.model(for: .custom),
+            isModelAvailable: true,
+            ttsEngineStore: store,
+            audioPlayer: audioPlayer,
+            modelManager: ModelManagerViewModel()
+        )
+
+        await Task.yield()
+
+        XCTAssertFalse(coordinator.isGenerating)
+        XCTAssertTrue(engine.generationRequests.isEmpty)
+        XCTAssertFalse(audioPlayer.isLiveStream)
+    }
+
+    @MainActor
+    func testCustomVoiceCoordinatorPreventsDuplicateGenerationRequests() async throws {
+        let (store, engine) = makeReadyStore()
+        engine.suspendGenerate = true
+        engine.generateError = CancellationError()
+        let coordinator = CustomVoiceCoordinator()
+        let audioPlayer = AudioPlayerViewModel()
+        let draft = CustomVoiceDraft(
+            selectedSpeaker: "Vivian",
+            emotion: "Normal tone",
+            text: "Hello there"
+        )
+
+        coordinator.generate(
+            draft: draft,
+            activeModel: TTSModel.model(for: .custom),
+            isModelAvailable: true,
+            ttsEngineStore: store,
+            audioPlayer: audioPlayer,
+            modelManager: ModelManagerViewModel()
+        )
+
+        await waitUntil(
+            timeoutSeconds: 1.0,
+            description: "first custom voice generation starts"
+        ) {
+            coordinator.isGenerating && engine.generationRequests.count == 1
+        }
+
+        coordinator.generate(
+            draft: draft,
+            activeModel: TTSModel.model(for: .custom),
+            isModelAvailable: true,
+            ttsEngineStore: store,
+            audioPlayer: audioPlayer,
+            modelManager: ModelManagerViewModel()
+        )
+
+        XCTAssertEqual(engine.generationRequests.count, 1)
+
+        engine.resumeSuspendedGenerate()
+
+        await waitUntil(
+            timeoutSeconds: 1.0,
+            description: "deduped custom voice generation finishes"
+        ) {
+            coordinator.isGenerating == false
+        }
+
+        XCTAssertNil(coordinator.errorMessage)
+        XCTAssertFalse(audioPlayer.isLiveStream)
+    }
+
+    @MainActor
     func testCustomVoiceCoordinatorSwallowsCancellationWithoutErrorBanner() async throws {
         let (store, engine) = makeReadyStore()
         engine.generateError = CancellationError()

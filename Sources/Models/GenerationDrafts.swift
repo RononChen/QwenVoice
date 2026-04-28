@@ -5,8 +5,12 @@ struct CustomVoiceDraft: Equatable {
     var emotion = "Normal tone"
     var text = ""
 
-    var shouldIdlePrewarm: Bool {
+    var hasText: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var shouldIdlePrewarm: Bool {
+        hasText
     }
 
     var idlePrewarmDebounceKey: String? {

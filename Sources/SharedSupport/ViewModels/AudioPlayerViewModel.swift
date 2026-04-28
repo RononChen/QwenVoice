@@ -71,7 +71,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         case live
     }
 
-    enum LivePreviewPhase: String, Sendable {
+    enum LivePreviewPhase: String, Sendable, Equatable {
         case idle
         case buffering
         case playing
@@ -137,6 +137,16 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     private var chunkObserver: NSObjectProtocol?
     private var chunkCancellable: AnyCancellable?
     private var timer: Timer?
+
+    private func setLivePreviewQueueDepth(_ value: Int) {
+        guard livePreviewQueueDepth != value else { return }
+        livePreviewQueueDepth = value
+    }
+
+    private func setLivePreviewPhase(_ value: LivePreviewPhase) {
+        guard livePreviewPhase != value else { return }
+        livePreviewPhase = value
+    }
 
     var hasAudio: Bool { currentFilePath != nil || isLiveStream || liveSessionID != nil }
     var canSeek: Bool { playbackMode == .file || liveFinalFilePath != nil }
@@ -315,8 +325,8 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         playbackError = nil
         playbackMode = .none
         isLiveStream = false
-        livePreviewQueueDepth = 0
-        livePreviewPhase = .idle
+        setLivePreviewQueueDepth(0)
+        setLivePreviewPhase(.idle)
         resetPresentationState()
     }
 
@@ -379,8 +389,8 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         playbackError = nil
         isPlaying = false
         isLiveStream = true
-        livePreviewQueueDepth = 0
-        livePreviewPhase = .buffering
+        setLivePreviewQueueDepth(0)
+        setLivePreviewPhase(.buffering)
         playbackPresentationContext = .generatePreview
         generatePreviewVisibilityState = .preparing
     }
@@ -553,8 +563,8 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         playbackError = nil
         isPlaying = false
         isLiveStream = true
-        livePreviewQueueDepth = 0
-        livePreviewPhase = .buffering
+        setLivePreviewQueueDepth(0)
+        setLivePreviewPhase(.buffering)
         playbackPresentationContext = .generatePreview
         generatePreviewVisibilityState = .preparing
     }
@@ -580,7 +590,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         }
 
         liveScheduledCount += 1
-        livePreviewQueueDepth = liveScheduledCount
+        setLivePreviewQueueDepth(liveScheduledCount)
         scheduleLiveBuffer(buffer)
 
         livePreviewDuration = cumulativeDuration
@@ -603,7 +613,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         ) {
             attemptLivePlay()
         } else {
-            livePreviewPhase = .buffering
+            setLivePreviewPhase(.buffering)
         }
 
         LivePreviewDiagnostics.logChunkEvent(
@@ -626,7 +636,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         }
 
         liveScheduledCount += 1
-        livePreviewQueueDepth = liveScheduledCount
+        setLivePreviewQueueDepth(liveScheduledCount)
         scheduleLiveBuffer(buffer)
 
         livePreviewDuration = cumulativeDuration
@@ -649,7 +659,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         ) {
             attemptLivePlay()
         } else {
-            livePreviewPhase = .buffering
+            setLivePreviewPhase(.buffering)
         }
     }
 
@@ -684,7 +694,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
                 livePlaybackStarted = true
             }
             isPlaying = true
-            livePreviewPhase = .playing
+            setLivePreviewPhase(.playing)
             playbackError = nil
             startTimer()
             consumeAutoplaySignpostIfNeeded()
@@ -725,19 +735,19 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     private func handleLiveBufferPlaybackCompletion() {
         guard playbackMode == .live else { return }
         liveScheduledCount = max(0, liveScheduledCount - 1)
-        livePreviewQueueDepth = liveScheduledCount
+        setLivePreviewQueueDepth(liveScheduledCount)
         if liveScheduledCount > 0 {
-            livePreviewPhase = isPlaying ? .playing : .draining
+            setLivePreviewPhase(isPlaying ? .playing : .draining)
         }
         if liveScheduledCount == 0, liveFinalFilePath != nil {
-            livePreviewPhase = .finalizing
+            setLivePreviewPhase(.finalizing)
             finishLivePlaybackAfterDrainingBuffers()
         } else if liveScheduledCount == 0 {
             liveUnderrunCount += 1
             livePlayerNode?.pause()
             isPlaying = false
             stopTimer()
-            livePreviewPhase = .buffering
+            setLivePreviewPhase(.buffering)
         }
     }
 
@@ -763,7 +773,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
 
     private func switchToFinalFilePlayback(preserveCurrentTime: TimeInterval, autoPlay: Bool) {
         guard let finalFilePath = liveFinalFilePath else { return }
-        livePreviewPhase = .finalizing
+        setLivePreviewPhase(.finalizing)
 
         do {
             try applyFilePlayback(
@@ -787,7 +797,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         livePlaybackTimeOffset = 0
         liveUnderrunCount = 0
         liveFormat = nil
-        livePreviewQueueDepth = 0
+        setLivePreviewQueueDepth(0)
         clearPendingFirstChunkInterval()
 
         if clearSession {
@@ -797,7 +807,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             liveFinalFilePath = nil
             liveAutoplayEnabled = false
             isLiveStream = false
-            livePreviewPhase = .idle
+            setLivePreviewPhase(.idle)
         }
     }
 
@@ -939,8 +949,8 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         currentTime = clampedTime
         playbackError = nil
         isLiveStream = false
-        livePreviewQueueDepth = 0
-        livePreviewPhase = .idle
+        setLivePreviewQueueDepth(0)
+        setLivePreviewPhase(.idle)
         playbackPresentationContext = presentationContext
         generatePreviewVisibilityState = presentationContext == .generatePreview ? .ready : .hidden
         extractWaveform(from: url, replace: true)

@@ -20,7 +20,8 @@ final class CustomVoiceCoordinator: ObservableObject {
         audioPlayer: AudioPlayerViewModel,
         modelManager: ModelManagerViewModel
     ) {
-        guard !draft.text.isEmpty, ttsEngineStore.isReady else { return }
+        guard !isGenerating else { return }
+        guard draft.hasText, ttsEngineStore.isReady else { return }
 
         if let model = activeModel, !isModelAvailable {
             errorMessage = modelManager.recoveryDetail(for: model)
