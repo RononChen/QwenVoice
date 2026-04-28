@@ -46,7 +46,8 @@ final class VoiceCloningCoordinator: ObservableObject {
         audioPlayer: AudioPlayerViewModel,
         modelManager: ModelManagerViewModel
     ) {
-        guard !draft.wrappedValue.text.isEmpty else { return }
+        guard !isGenerating else { return }
+        guard draft.wrappedValue.hasText else { return }
         guard ttsEngineStore.isReady else { return }
 
         if let model = cloneModel, !isModelAvailable {
@@ -71,6 +72,10 @@ final class VoiceCloningCoordinator: ObservableObject {
                 )
 
                 let currentDraft = draft.wrappedValue
+                guard currentDraft.hasText else {
+                    isGenerating = false
+                    return
+                }
                 guard let refPath = currentDraft.referenceAudioPath else {
                     errorMessage = "Select a reference audio file before generating."
                     isGenerating = false
@@ -86,7 +91,7 @@ final class VoiceCloningCoordinator: ObservableObject {
                             modelID: model.id,
                             reference: CloneReference(
                                 audioPath: refPath,
-                                transcript: currentDraft.referenceTranscript.isEmpty ? nil : currentDraft.referenceTranscript,
+                                transcript: currentDraft.trimmedReferenceTranscript,
                                 preparedVoiceID: currentDraft.selectedSavedVoiceID
                             )
                         )
@@ -158,6 +163,7 @@ final class VoiceCloningCoordinator: ObservableObject {
         outputPath: String
     ) -> GenerationRequest? {
         guard let referenceAudioPath = draft.referenceAudioPath else { return nil }
+        guard draft.hasText else { return nil }
         return GenerationRequest(
             modelID: model.id,
             text: draft.text,
@@ -167,7 +173,7 @@ final class VoiceCloningCoordinator: ObservableObject {
             payload: .clone(
                 reference: CloneReference(
                     audioPath: referenceAudioPath,
-                    transcript: draft.referenceTranscript.isEmpty ? nil : draft.referenceTranscript,
+                    transcript: draft.trimmedReferenceTranscript,
                     preparedVoiceID: draft.selectedSavedVoiceID
                 )
             )
@@ -197,13 +203,12 @@ final class VoiceCloningCoordinator: ObservableObject {
             return
         }
 
-        let trimmedRefText = draft.referenceTranscript.isEmpty ? nil : draft.referenceTranscript
         do {
             try await ttsEngineStore.ensureCloneReferencePrimed(
                 modelID: model.id,
                 reference: CloneReference(
                     audioPath: refPath,
-                    transcript: trimmedRefText,
+                    transcript: draft.trimmedReferenceTranscript,
                     preparedVoiceID: draft.selectedSavedVoiceID
                 )
             )

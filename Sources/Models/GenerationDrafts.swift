@@ -52,6 +52,15 @@ struct VoiceCloningDraft: Equatable {
     var referenceTranscript = ""
     var text = ""
 
+    var hasText: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var trimmedReferenceTranscript: String? {
+        let trimmed = referenceTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     mutating func applySavedVoice(_ voice: Voice, transcript: String) {
         selectedSavedVoiceID = voice.id
         referenceAudioPath = voice.wavPath
@@ -115,7 +124,7 @@ enum SavedVoiceCloneHydration {
             return .none
         }
 
-        if !draft.referenceTranscript.isEmpty || !voice.hasTranscript || transcriptLoadError != nil {
+        if draft.trimmedReferenceTranscript != nil || !voice.hasTranscript || transcriptLoadError != nil {
             return .acceptCurrentDraft
         }
 
@@ -191,7 +200,7 @@ enum VoiceCloningReadiness {
             )
         }
 
-        if text.isEmpty {
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return VoiceCloningReadinessDescriptor(
                 noteIsReady: false,
                 title: "Add a script",

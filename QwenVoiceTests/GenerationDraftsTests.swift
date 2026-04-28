@@ -155,6 +155,28 @@ final class GenerationDraftsTests: XCTestCase {
         XCTAssertNotEqual(baseDraft.idlePrewarmDebounceKey, editedDraft.idlePrewarmDebounceKey)
     }
 
+    func testVoiceCloningDraftTreatsWhitespaceOnlyScriptAndTranscriptAsEmpty() {
+        let draft = VoiceCloningDraft(
+            selectedSavedVoiceID: nil,
+            referenceAudioPath: "/tmp/reference.wav",
+            referenceTranscript: " \n\t ",
+            text: " \n\t "
+        )
+
+        XCTAssertFalse(draft.hasText)
+        XCTAssertNil(draft.trimmedReferenceTranscript)
+
+        let populatedDraft = VoiceCloningDraft(
+            selectedSavedVoiceID: nil,
+            referenceAudioPath: "/tmp/reference.wav",
+            referenceTranscript: "  Reference transcript\n",
+            text: "  Clone this line\n"
+        )
+
+        XCTAssertTrue(populatedDraft.hasText)
+        XCTAssertEqual(populatedDraft.trimmedReferenceTranscript, "Reference transcript")
+    }
+
     func testDesignResultNameSuggestionSanitizesAndTruncatesBrief() {
         let suggestedName = SavedVoiceNameSuggestion.designResultName(
             from: "Warm, deep narrator with a subtle British accent and soft radio finish."
@@ -236,6 +258,25 @@ final class GenerationDraftsTests: XCTestCase {
         XCTAssertEqual(action, .acceptCurrentDraft)
     }
 
+    func testSavedVoiceCloneHydrationTreatsWhitespaceTranscriptAsEmpty() {
+        let voice = Voice(name: "DesignedVoice", wavPath: "/tmp/designed.wav", hasTranscript: true)
+        let draft = VoiceCloningDraft(
+            selectedSavedVoiceID: voice.id,
+            referenceAudioPath: voice.wavPath,
+            referenceTranscript: " \n\t ",
+            text: "Keep this clone script"
+        )
+
+        let action = SavedVoiceCloneHydration.action(
+            draft: draft,
+            voice: voice,
+            hydratedVoiceID: nil,
+            transcriptLoadError: nil
+        )
+
+        XCTAssertEqual(action, .applyFromDisk)
+    }
+
     func testSavedVoiceCloneHydrationAcceptsAudioOnlySavedVoiceWithoutTranscript() throws {
         let tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -293,5 +334,20 @@ final class GenerationDraftsTests: XCTestCase {
         XCTAssertTrue(descriptor.noteIsReady)
         XCTAssertEqual(descriptor.title, "Ready to generate")
         XCTAssertEqual(descriptor.trailingText, "Ready")
+    }
+
+    func testVoiceCloningReadinessRejectsWhitespaceOnlyScript() {
+        let descriptor = VoiceCloningReadiness.describe(
+            engineReady: true,
+            isModelAvailable: true,
+            modelDisplayName: "Qwen3-TTS Pro Clone",
+            referenceAudioPath: "/tmp/reference.wav",
+            text: " \n\t ",
+            contextStatus: .primed
+        )
+
+        XCTAssertFalse(descriptor.noteIsReady)
+        XCTAssertEqual(descriptor.title, "Add a script")
+        XCTAssertNil(descriptor.trailingText)
     }
 }

@@ -83,7 +83,7 @@ struct VoiceCloningView: View {
             modelID: model.id,
             reference: CloneReference(
                 audioPath: referenceAudioPath,
-                transcript: draft.referenceTranscript.isEmpty ? nil : draft.referenceTranscript,
+                transcript: draft.trimmedReferenceTranscript,
                 preparedVoiceID: draft.selectedSavedVoiceID
             )
         )
@@ -339,7 +339,7 @@ private extension VoiceCloningView {
                     buttonColor: AppTheme.voiceCloning,
                     batchAction: { coordinator.presentBatch(draft: draft) },
                     batchDisabled: !canRunBatch,
-                    generateDisabled: !ttsEngineStore.isReady || !isModelAvailable || draft.referenceAudioPath == nil,
+                    generateDisabled: !ttsEngineStore.isReady || !isModelAvailable || draft.referenceAudioPath == nil || !draft.hasText,
                     isEmbedded: true,
                     usesFlexibleEmbeddedHeight: true,
                     onGenerate: {

@@ -10,6 +10,7 @@ private final class GenerationScreenMockMacTTSEngine: MacTTSEngine, @unchecked S
     private(set) var ensureModelLoadedIDs: [String] = []
     private(set) var prewarmRequests: [GenerationRequest] = []
     private(set) var primedReferences: [(String, CloneReference)] = []
+    private(set) var cancelClonePreparationCount = 0
     private(set) var generationRequests: [GenerationRequest] = []
     var generateError: Error?
     var generateResult: GenerationResult?
@@ -49,7 +50,9 @@ private final class GenerationScreenMockMacTTSEngine: MacTTSEngine, @unchecked S
         primedReferences.append((modelID, reference))
     }
 
-    func cancelClonePreparationIfNeeded() async {}
+    func cancelClonePreparationIfNeeded() async {
+        cancelClonePreparationCount += 1
+    }
 
     func generate(_ request: GenerationRequest) async throws -> GenerationResult {
         generationRequests.append(request)
@@ -590,6 +593,250 @@ final class GenerationScreenCoordinatorTests: XCTestCase {
 
         XCTAssertNil(coordinator.errorMessage)
         XCTAssertFalse(audioPlayer.isLiveStream)
+    }
+
+    @MainActor
+    func testVoiceCloningCoordinatorRejectsWhitespaceOnlyScript() async throws {
+        let (store, engine) = makeReadyStore()
+        let coordinator = VoiceCloningCoordinator()
+        let audioPlayer = AudioPlayerViewModel()
+        let draft = Binding(
+            get: {
+                VoiceCloningDraft(
+                    selectedSavedVoiceID: nil,
+                    referenceAudioPath: "/tmp/reference.wav",
+                    referenceTranscript: "Reference transcript",
+                    text: " \n\t "
+                )
+            },
+            set: { _ in }
+        )
+
+        coordinator.generate(
+            draft: draft,
+            cloneModel: TTSModel.model(for: .clone),
+            isModelAvailable: true,
+            clonePrimingRequestKey: nil,
+            selectedVoice: nil,
+            ttsEngineStore: store,
+            audioPlayer: audioPlayer,
+            modelManager: ModelManagerViewModel()
+        )
+
+        await Task.yield()
+
+        XCTAssertFalse(coordinator.isGenerating)
+        XCTAssertTrue(engine.generationRequests.isEmpty)
+        XCTAssertFalse(audioPlayer.isLiveStream)
+    }
+
+    @MainActor
+    func testVoiceCloningCoordinatorBuildsExpectedCloneGenerationRequest() throws {
+        let model = try XCTUnwrap(TTSModel.model(for: .clone))
+        let draft = VoiceCloningDraft(
+            selectedSavedVoiceID: "voice-123",
+            referenceAudioPath: "/tmp/reference.wav",
+            referenceTranscript: "  Reference transcript\n",
+            text: "Clone this line"
+        )
+
+        let request = try XCTUnwrap(VoiceCloningCoordinator.makeGenerationRequest(
+            draft: draft,
+            model: model,
+            outputPath: "/tmp/clone.wav"
+        ))
+
+        XCTAssertEqual(request.modelID, model.id)
+        XCTAssertEqual(request.text, "Clone this line")
+        XCTAssertEqual(request.outputPath, "/tmp/clone.wav")
+        XCTAssertTrue(request.shouldStream)
+        XCTAssertEqual(request.streamingTitle, "Clone this line")
+        guard case .clone(let reference) = request.payload else {
+            return XCTFail("Expected Voice Cloning payload")
+        }
+        XCTAssertEqual(reference.audioPath, "/tmp/reference.wav")
+        XCTAssertEqual(reference.transcript, "Reference transcript")
+        XCTAssertEqual(reference.preparedVoiceID, "voice-123")
+    }
+
+    @MainActor
+    func testVoiceCloningCoordinatorOmitsWhitespaceOnlyReferenceTranscript() throws {
+        let model = try XCTUnwrap(TTSModel.model(for: .clone))
+        let draft = VoiceCloningDraft(
+            selectedSavedVoiceID: nil,
+            referenceAudioPath: "/tmp/reference.wav",
+            referenceTranscript: " \n\t ",
+            text: "Clone this line"
+        )
+
+        let request = try XCTUnwrap(VoiceCloningCoordinator.makeGenerationRequest(
+            draft: draft,
+            model: model,
+            outputPath: "/tmp/clone.wav"
+        ))
+
+        guard case .clone(let reference) = request.payload else {
+            return XCTFail("Expected Voice Cloning payload")
+        }
+        XCTAssertNil(reference.transcript)
+    }
+
+    @MainActor
+    func testVoiceCloningCoordinatorPreventsDuplicateGenerationRequests() async throws {
+        let (store, engine) = makeReadyStore()
+        engine.suspendGenerate = true
+        engine.generateError = CancellationError()
+        let coordinator = VoiceCloningCoordinator()
+        let audioPlayer = AudioPlayerViewModel()
+        var draftValue = VoiceCloningDraft(
+            selectedSavedVoiceID: nil,
+            referenceAudioPath: "/tmp/reference.wav",
+            referenceTranscript: "Reference transcript",
+            text: "Clone this line"
+        )
+        let draft = Binding(
+            get: { draftValue },
+            set: { draftValue = $0 }
+        )
+
+        coordinator.generate(
+            draft: draft,
+            cloneModel: TTSModel.model(for: .clone),
+            isModelAvailable: true,
+            clonePrimingRequestKey: nil,
+            selectedVoice: nil,
+            ttsEngineStore: store,
+            audioPlayer: audioPlayer,
+            modelManager: ModelManagerViewModel()
+        )
+
+        await waitUntil(
+            timeoutSeconds: 1.0,
+            description: "first voice cloning generation starts"
+        ) {
+            coordinator.isGenerating && engine.generationRequests.count == 1
+        }
+
+        coordinator.generate(
+            draft: draft,
+            cloneModel: TTSModel.model(for: .clone),
+            isModelAvailable: true,
+            clonePrimingRequestKey: nil,
+            selectedVoice: nil,
+            ttsEngineStore: store,
+            audioPlayer: audioPlayer,
+            modelManager: ModelManagerViewModel()
+        )
+
+        XCTAssertEqual(engine.generationRequests.count, 1)
+
+        engine.resumeSuspendedGenerate()
+
+        await waitUntil(
+            timeoutSeconds: 1.0,
+            description: "deduped voice cloning generation finishes"
+        ) {
+            coordinator.isGenerating == false
+        }
+
+        XCTAssertNil(coordinator.errorMessage)
+        XCTAssertFalse(audioPlayer.isLiveStream)
+    }
+
+    @MainActor
+    func testVoiceCloningCoordinatorLeavesGeneratingStateAfterEngineInterruption() async throws {
+        let (store, engine) = makeReadyStore()
+        engine.generateError = NSError(
+            domain: "com.qwenvoice.xpc",
+            code: -1,
+            userInfo: [
+                NSLocalizedDescriptionKey: "The engine service connection was interrupted.",
+            ]
+        )
+        let coordinator = VoiceCloningCoordinator()
+        let audioPlayer = AudioPlayerViewModel()
+        var draftValue = VoiceCloningDraft(
+            selectedSavedVoiceID: nil,
+            referenceAudioPath: "/tmp/reference.wav",
+            referenceTranscript: "Reference transcript",
+            text: "Clone this line"
+        )
+        let draft = Binding(
+            get: { draftValue },
+            set: { draftValue = $0 }
+        )
+
+        coordinator.generate(
+            draft: draft,
+            cloneModel: TTSModel.model(for: .clone),
+            isModelAvailable: true,
+            clonePrimingRequestKey: nil,
+            selectedVoice: nil,
+            ttsEngineStore: store,
+            audioPlayer: audioPlayer,
+            modelManager: ModelManagerViewModel()
+        )
+
+        await waitUntil(
+            timeoutSeconds: 1.0,
+            description: "voice cloning interruption finishes"
+        ) {
+            coordinator.isGenerating == false
+        }
+
+        XCTAssertEqual(
+            coordinator.errorMessage,
+            "The engine service connection was interrupted."
+        )
+        XCTAssertFalse(audioPlayer.isLiveStream)
+    }
+
+    @MainActor
+    func testVoiceCloningCoordinatorPrimesWithTrimmedTranscript() async throws {
+        let (store, engine) = makeReadyStore()
+        let coordinator = VoiceCloningCoordinator()
+        let model = try XCTUnwrap(TTSModel.model(for: .clone))
+
+        await coordinator.syncCloneReferencePriming(
+            draft: VoiceCloningDraft(
+                selectedSavedVoiceID: nil,
+                referenceAudioPath: "/tmp/reference.wav",
+                referenceTranscript: "  Reference transcript\n",
+                text: "Clone this line"
+            ),
+            cloneModel: model,
+            isModelAvailable: true,
+            clonePrimingRequestKey: "clone-key",
+            ttsEngineStore: store
+        )
+
+        XCTAssertEqual(engine.primedReferences.count, 1)
+        XCTAssertEqual(engine.primedReferences.first?.0, model.id)
+        XCTAssertEqual(engine.primedReferences.first?.1.audioPath, "/tmp/reference.wav")
+        XCTAssertEqual(engine.primedReferences.first?.1.transcript, "Reference transcript")
+    }
+
+    @MainActor
+    func testVoiceCloningCoordinatorCancelsPrimingUntilSavedReferenceHydrates() async throws {
+        let (store, engine) = makeReadyStore()
+        let coordinator = VoiceCloningCoordinator()
+        let model = try XCTUnwrap(TTSModel.model(for: .clone))
+
+        await coordinator.syncCloneReferencePriming(
+            draft: VoiceCloningDraft(
+                selectedSavedVoiceID: "voice-123",
+                referenceAudioPath: "/tmp/reference.wav",
+                referenceTranscript: "",
+                text: "Clone this line"
+            ),
+            cloneModel: model,
+            isModelAvailable: true,
+            clonePrimingRequestKey: "clone-key",
+            ttsEngineStore: store
+        )
+
+        XCTAssertTrue(engine.primedReferences.isEmpty)
+        XCTAssertEqual(engine.cancelClonePreparationCount, 1)
     }
 
     @MainActor
