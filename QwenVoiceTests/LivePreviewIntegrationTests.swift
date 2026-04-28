@@ -286,6 +286,12 @@ final class LivePreviewIntegrationTests: XCTestCase {
             3,
             "Live preview should wait for three queued chunks by default to reduce audible underruns."
         )
+        XCTAssertEqual(
+            AudioPlayerViewModel.livePreviewMinimumBufferedDurationForTesting(),
+            2.25,
+            accuracy: 0.001,
+            "Short clips should prefer final-file playback over fragile partial live preview."
+        )
     }
 
     func testLivePreviewDoesNotStartBeforePrebufferThreshold() {
@@ -306,7 +312,31 @@ final class LivePreviewIntegrationTests: XCTestCase {
         XCTAssertTrue(
             AudioPlayerViewModel.shouldStartLivePlaybackForTesting(
                 queuedChunks: 3,
+                queuedDuration: 3.0,
                 prebufferThreshold: threshold
+            )
+        )
+    }
+
+    func testLivePreviewRequiresBufferedDurationBeforeStarting() {
+        let threshold = 3
+        let minimumDuration: TimeInterval = 2.25
+
+        XCTAssertFalse(
+            AudioPlayerViewModel.shouldStartLivePlaybackForTesting(
+                queuedChunks: 3,
+                queuedDuration: 1.8,
+                prebufferThreshold: threshold,
+                minimumBufferedDuration: minimumDuration
+            ),
+            "Chunk count alone is not enough for short clips because the preview can drain before final handoff."
+        )
+        XCTAssertTrue(
+            AudioPlayerViewModel.shouldStartLivePlaybackForTesting(
+                queuedChunks: 3,
+                queuedDuration: 2.25,
+                prebufferThreshold: threshold,
+                minimumBufferedDuration: minimumDuration
             )
         )
     }
@@ -330,6 +360,7 @@ final class LivePreviewIntegrationTests: XCTestCase {
         XCTAssertTrue(
             AudioPlayerViewModel.shouldStartLivePlaybackForTesting(
                 queuedChunks: 3,
+                queuedDuration: 3.0,
                 prebufferThreshold: threshold
             )
         )

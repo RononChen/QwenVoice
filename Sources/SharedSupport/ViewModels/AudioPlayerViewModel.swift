@@ -86,24 +86,33 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
 
     private struct LivePreviewConfiguration {
         let prebufferThreshold: Int
+        let minimumBufferedDuration: TimeInterval
 
         static func current(
             environment: [String: String] = ProcessInfo.processInfo.environment
         ) -> LivePreviewConfiguration {
             let rawThreshold = environment["QWENVOICE_LIVE_PREVIEW_PREBUFFER_CHUNKS"]
             let parsedThreshold = rawThreshold.flatMap(Int.init).map { min(max($0, 1), 8) }
-            return LivePreviewConfiguration(prebufferThreshold: parsedThreshold ?? 3)
+            let rawDuration = environment["QWENVOICE_LIVE_PREVIEW_PREBUFFER_SECONDS"]
+            let parsedDuration = rawDuration.flatMap(Double.init).map { min(max($0, 0), 8) }
+            return LivePreviewConfiguration(
+                prebufferThreshold: parsedThreshold ?? 3,
+                minimumBufferedDuration: parsedDuration ?? 2.25
+            )
         }
     }
 
     private static func shouldStartLivePlayback(
         autoplayEnabled: Bool,
         queuedChunks: Int,
+        queuedDuration: TimeInterval,
         prebufferThreshold: Int,
+        minimumBufferedDuration: TimeInterval,
         finalFileAvailable: Bool
     ) -> Bool {
         guard autoplayEnabled else { return false }
-        return queuedChunks >= prebufferThreshold || finalFileAvailable
+        guard !finalFileAvailable else { return true }
+        return queuedChunks >= prebufferThreshold && queuedDuration >= minimumBufferedDuration
     }
 
     private var playbackMode: PlaybackMode = .none
@@ -193,16 +202,26 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         LivePreviewConfiguration.current(environment: environment).prebufferThreshold
     }
 
+    static func livePreviewMinimumBufferedDurationForTesting(
+        environment: [String: String] = [:]
+    ) -> TimeInterval {
+        LivePreviewConfiguration.current(environment: environment).minimumBufferedDuration
+    }
+
     static func shouldStartLivePlaybackForTesting(
         autoplayEnabled: Bool = true,
         queuedChunks: Int,
+        queuedDuration: TimeInterval = 10,
         prebufferThreshold: Int,
+        minimumBufferedDuration: TimeInterval = 2.25,
         finalFileAvailable: Bool = false
     ) -> Bool {
         shouldStartLivePlayback(
             autoplayEnabled: autoplayEnabled,
             queuedChunks: queuedChunks,
+            queuedDuration: queuedDuration,
             prebufferThreshold: prebufferThreshold,
+            minimumBufferedDuration: minimumBufferedDuration,
             finalFileAvailable: finalFileAvailable
         )
     }
@@ -577,7 +596,9 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         if Self.shouldStartLivePlayback(
             autoplayEnabled: liveAutoplayEnabled,
             queuedChunks: liveScheduledCount,
+            queuedDuration: livePreviewDuration,
             prebufferThreshold: livePreviewConfiguration.prebufferThreshold,
+            minimumBufferedDuration: livePreviewConfiguration.minimumBufferedDuration,
             finalFileAvailable: liveFinalFilePath != nil
         ) {
             attemptLivePlay()
@@ -621,7 +642,9 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         if Self.shouldStartLivePlayback(
             autoplayEnabled: liveAutoplayEnabled,
             queuedChunks: liveScheduledCount,
+            queuedDuration: livePreviewDuration,
             prebufferThreshold: livePreviewConfiguration.prebufferThreshold,
+            minimumBufferedDuration: livePreviewConfiguration.minimumBufferedDuration,
             finalFileAvailable: liveFinalFilePath != nil
         ) {
             attemptLivePlay()
