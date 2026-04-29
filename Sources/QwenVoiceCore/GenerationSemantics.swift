@@ -39,14 +39,7 @@ public enum GenerationSemantics {
     }
 
     public static func normalizedConditioningCacheKeyText(_ text: String) -> String {
-        text
-            .replacingOccurrences(
-                of: #"\s+"#,
-                with: " ",
-                options: .regularExpression
-            )
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+        Qwen3TTSRuntimeProfile.normalizedCacheText(text)
     }
 
     public static func normalizedDesignConditioningIdentity(
@@ -80,15 +73,50 @@ public enum GenerationSemantics {
     ) -> String {
         switch request.payload {
         case .custom:
-            return detectedQwenLanguage(in: request.text) ?? canonicalCustomWarmLanguage
+            return Qwen3TTSRuntimeProfile.normalizedLanguage(
+                detectedQwenLanguage(in: request.text) ?? canonicalCustomWarmLanguage
+            )
         case .design:
-            return detectedQwenLanguage(in: request.text) ?? "auto"
+            return Qwen3TTSRuntimeProfile.normalizedLanguage(
+                detectedQwenLanguage(in: request.text) ?? "auto"
+            )
         case .clone:
             if let transcript = resolvedCloneTranscript,
                let detectedLanguage = detectedQwenLanguage(in: transcript) {
-                return detectedLanguage
+                return Qwen3TTSRuntimeProfile.normalizedLanguage(detectedLanguage)
             }
-            return detectedQwenLanguage(in: request.text) ?? "auto"
+            return Qwen3TTSRuntimeProfile.normalizedLanguage(
+                detectedQwenLanguage(in: request.text) ?? "auto"
+            )
+        }
+    }
+
+    public static func validateQwenPromptContract(for request: GenerationRequest) throws {
+        switch request.payload {
+        case .custom(_, let deliveryStyle):
+            if let deliveryStyle,
+               hasMeaningfulDeliveryInstruction(deliveryStyle),
+               Qwen3TTSRuntimeProfile.containsDisallowedVoiceImitationInstruction(
+                   normalizedConditioningCacheKeyText(deliveryStyle)
+               ) {
+                throw MLXTTSEngineError.unsupportedRequest(
+                    "Custom Voice delivery instructions cannot request celebrity imitation or voice impersonation."
+                )
+            }
+        case .design(let voiceDescription, let deliveryStyle):
+            let instruction = designInstruction(
+                voiceDescription: voiceDescription,
+                emotion: deliveryStyle ?? ""
+            )
+            if Qwen3TTSRuntimeProfile.containsDisallowedVoiceImitationInstruction(
+                normalizedConditioningCacheKeyText(instruction)
+            ) {
+                throw MLXTTSEngineError.unsupportedRequest(
+                    "Voice Design descriptions cannot request celebrity imitation or voice impersonation."
+                )
+            }
+        case .clone:
+            break
         }
     }
 

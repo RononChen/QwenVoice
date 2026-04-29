@@ -20,6 +20,28 @@ struct BatchGenerationSheet: View {
     @State private var segmentationMode: BatchSegmentationMode = .lineSeparated
     @StateObject private var coordinator = BatchGenerationCoordinator()
 
+    init(
+        mode: GenerationMode,
+        voice: String? = nil,
+        emotion: String? = nil,
+        deliveryProfile: DeliveryProfile? = nil,
+        voiceDescription: String? = nil,
+        refAudio: String? = nil,
+        refText: String? = nil,
+        initialText: String = "",
+        initialSegmentationMode: BatchSegmentationMode = .lineSeparated
+    ) {
+        self.mode = mode
+        self.voice = voice
+        self.emotion = emotion
+        self.deliveryProfile = deliveryProfile
+        self.voiceDescription = voiceDescription
+        self.refAudio = refAudio
+        self.refText = refText
+        _batchText = State(initialValue: initialText)
+        _segmentationMode = State(initialValue: initialSegmentationMode)
+    }
+
     private var themeColor: Color {
         AppTheme.modeColor(for: mode)
     }

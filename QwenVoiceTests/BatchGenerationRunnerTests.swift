@@ -124,7 +124,7 @@ final class BatchGenerationRunnerTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(manifest.schemaVersion, 2)
+        XCTAssertEqual(manifest.schemaVersion, 3)
         XCTAssertEqual(manifest.performanceSummary.totalSegments, 2)
         XCTAssertEqual(manifest.performanceSummary.generatedSegments, 1)
         XCTAssertEqual(manifest.performanceSummary.failedSegments, 1)
@@ -133,6 +133,7 @@ final class BatchGenerationRunnerTests: XCTestCase {
         XCTAssertFalse(manifest.segments[0].failed)
         XCTAssertGreaterThan(manifest.segments[0].audioStats?.durationSeconds ?? 0, 0)
         XCTAssertNotNil(manifest.segments[0].audioStats?.rmsAmplitude)
+        XCTAssertNil(manifest.segments[0].audioQualityReport)
         XCTAssertTrue(manifest.segments[1].failed)
         XCTAssertNil(manifest.segments[1].audioStats)
     }
@@ -258,6 +259,137 @@ final class BatchGenerationRunnerTests: XCTestCase {
         XCTAssertEqual(engine.generateRequests.count, 1)
         XCTAssertEqual(engine.generateRequests.first?.text, "Solo line")
         XCTAssertEqual(store.savedGenerations.count, 1)
+    }
+
+    @MainActor
+    func testLongFormBatchFailedQualityDoesNotSaveGenerationsAndWritesManifest() async throws {
+        let engine = MockBatchEngine()
+        let engineStore = TTSEngineStore(engine: engine)
+        let store = MockGenerationStore()
+        let failedReport = AudioQualityGate.Report(
+            passed: false,
+            requiredFailures: ["final_dropouts"],
+            warnings: [],
+            metrics: ["final_dropouts.longest_dropout_seconds": 0.85],
+            checks: [
+                AudioQualityGate.Check(
+                    name: "final_dropouts",
+                    passed: false,
+                    severity: .error,
+                    message: "1 suspicious internal dropout(s) detected.",
+                    metrics: ["longest_dropout_seconds": 0.85]
+                )
+            ]
+        )
+        let passedReport = AudioQualityGate.Report(
+            passed: true,
+            requiredFailures: [],
+            warnings: [],
+            metrics: [:],
+            checks: []
+        )
+        let runner = BatchGenerationRunner(
+            engineStore: engineStore,
+            store: store,
+            audioQualityEvaluator: { url in
+                url.lastPathComponent.contains("Second") ? failedReport : passedReport
+            }
+        )
+        let model = try XCTUnwrap(TTSModel.model(for: .custom))
+        let request = BatchGenerationRequest(
+            mode: .custom,
+            model: model,
+            lines: ["First segment", "Second segment"],
+            segmentationMode: .longForm,
+            voice: "vivian",
+            emotion: "Normal tone",
+            voiceDescription: nil,
+            refAudio: nil,
+            refText: nil
+        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("long_form_failed_qc_\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let outcome = await runner.run(
+            request: request,
+            makeOutputPath: { _, text in
+                root.appendingPathComponent("\(text.replacingOccurrences(of: " ", with: "_")).wav").path
+            },
+            onProgress: { _ in },
+            onItemsUpdated: { _ in }
+        )
+
+        guard case .failed(let items, let message) = outcome else {
+            return XCTFail("Expected failed outcome, got \(outcome)")
+        }
+        XCTAssertEqual(
+            message,
+            "Long-form batch failed audio quality checks. Review the failed segment details before retrying."
+        )
+        XCTAssertEqual(store.savedGenerations.count, 0)
+        XCTAssertEqual(items.filter(\.isSaved).count, 0)
+        XCTAssertTrue(items.allSatisfy { item in
+            if case .failed = item.status { return true }
+            return false
+        })
+
+        let manifestURL = root.appendingPathComponent("long_form_manifest.json")
+        let manifestData = try Data(contentsOf: manifestURL)
+        let manifest = try JSONDecoder().decode(LongFormBatchManifest.self, from: manifestData)
+        XCTAssertEqual(manifest.performanceSummary.generatedSegments, 2)
+        XCTAssertEqual(manifest.performanceSummary.failedSegments, 1)
+        XCTAssertEqual(manifest.segments[0].audioQualityReport?.passed, true)
+        XCTAssertEqual(manifest.segments[1].audioQualityReport?.requiredFailures, ["final_dropouts"])
+    }
+
+    @MainActor
+    func testLongFormBatchPassesQualityBeforeSaving() async throws {
+        let engine = MockBatchEngine()
+        let engineStore = TTSEngineStore(engine: engine)
+        let store = MockGenerationStore()
+        var evaluatedURLs: [URL] = []
+        let runner = BatchGenerationRunner(
+            engineStore: engineStore,
+            store: store,
+            audioQualityEvaluator: { url in
+                evaluatedURLs.append(url)
+                return AudioQualityGate.Report(
+                    passed: true,
+                    requiredFailures: [],
+                    warnings: [],
+                    metrics: [:],
+                    checks: []
+                )
+            }
+        )
+        let model = try XCTUnwrap(TTSModel.model(for: .design))
+        let request = BatchGenerationRequest(
+            mode: .design,
+            model: model,
+            lines: ["First segment", "Second segment"],
+            segmentationMode: .longForm,
+            voice: nil,
+            emotion: "Normal tone",
+            voiceDescription: "Warm narrator",
+            refAudio: nil,
+            refText: nil
+        )
+
+        let outcome = await runner.run(
+            request: request,
+            makeOutputPath: { _, text in "/tmp/\(text.replacingOccurrences(of: " ", with: "_")).wav" },
+            onProgress: { _ in },
+            onItemsUpdated: { _ in }
+        )
+
+        guard case .completed(let items) = outcome else {
+            return XCTFail("Expected completed outcome, got \(outcome)")
+        }
+        XCTAssertEqual(evaluatedURLs.count, 2)
+        XCTAssertEqual(items.filter(\.isSaved).count, 2)
+        XCTAssertEqual(store.savedGenerations.count, 2)
     }
 
     @MainActor

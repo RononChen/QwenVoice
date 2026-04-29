@@ -52,6 +52,16 @@ final class VoiceDesignCoordinator: ObservableObject {
         presentedSheet = .batch(.design(draft: draft))
     }
 
+    func presentLongFormBatch(draft: VoiceDesignDraft) {
+        presentedSheet = .batch(
+            .design(
+                draft: draft,
+                initialText: draft.text,
+                initialSegmentationMode: .longForm
+            )
+        )
+    }
+
     func presentSavedVoiceSheet(for draft: VoiceDesignDraft) {
         guard let candidate = currentSavedVoiceCandidate(for: draft) else { return }
         presentedSheet = .saveVoice(
@@ -94,6 +104,11 @@ final class VoiceDesignCoordinator: ObservableObject {
 
         if let model = activeModel, !isModelAvailable {
             errorMessage = modelManager.recoveryDetail(for: model)
+            return
+        }
+
+        if LongTextGenerationRouter.shouldRouteToLongFormBatch(draft.text) {
+            presentLongFormBatch(draft: draft)
             return
         }
 

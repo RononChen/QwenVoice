@@ -333,7 +333,7 @@ def check_final_dropouts(
             run_start = None
 
     longest_gap = max((gap["duration_seconds"] for gap in gaps), default=0.0)
-    failed = len(gaps) >= 2 or longest_gap >= FINAL_DROPOUT_REQUIRED_MIN_SECONDS
+    failed = longest_gap >= FINAL_DROPOUT_REQUIRED_MIN_SECONDS
     passed = not failed
     return _qc_result(
         passed=passed,

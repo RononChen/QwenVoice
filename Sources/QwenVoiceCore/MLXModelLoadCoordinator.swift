@@ -11,6 +11,7 @@ struct NativeModelLoadResult: Sendable {
     let capabilityProfile: NativeLoadCapabilityProfile
     let timingsMS: [String: Int]
     let booleanFlags: [String: Bool]
+    let stringFlags: [String: String]
 }
 
 protocol MLXModelCoordinating: AnyObject, Sendable {
@@ -31,17 +32,20 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
         let schemaVersion: Int
         let descriptorVersion: String
         let sanitizedConfigHash: String?
+        let qwenRuntimeProfileSignature: String?
         let qwenPreparedCheckpointTrust: QwenPreparedCheckpointTrust?
 
         func matchesBase(_ other: PreparedCacheMarker) -> Bool {
             schemaVersion == other.schemaVersion
                 && descriptorVersion == other.descriptorVersion
                 && sanitizedConfigHash == other.sanitizedConfigHash
+                && qwenRuntimeProfileSignature == other.qwenRuntimeProfileSignature
         }
     }
 
     private struct PreparedCacheInputs: Sendable {
         let sanitizedTopLevelConfigData: Data?
+        let qwenRuntimeProfile: Qwen3TTSRuntimeProfile
         let marker: PreparedCacheMarker
         let qwenPreparedCheckpointQuickState: QuickQwenPreparedCheckpointTrust?
     }
@@ -103,6 +107,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
         let preparedDirectory: URL
         let sourceDirectory: URL?
         let modelType: String?
+        let qwenRuntimeProfile: Qwen3TTSRuntimeProfile
         let trustedPreparedCheckpoint: Bool
         private let marker: PreparedCacheMarker
         private let qwenPreparedCheckpointTrustToPersist: QwenPreparedCheckpointTrust?
@@ -111,6 +116,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
             preparedDirectory: URL,
             sourceDirectory: URL? = nil,
             modelType: String?,
+            qwenRuntimeProfile: Qwen3TTSRuntimeProfile,
             marker: PreparedCacheMarker,
             trustedPreparedCheckpoint: Bool,
             qwenPreparedCheckpointTrustToPersist: QwenPreparedCheckpointTrust? = nil
@@ -118,6 +124,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
             self.preparedDirectory = preparedDirectory
             self.sourceDirectory = sourceDirectory
             self.modelType = modelType
+            self.qwenRuntimeProfile = qwenRuntimeProfile
             self.trustedPreparedCheckpoint = trustedPreparedCheckpoint
             self.marker = marker
             self.qwenPreparedCheckpointTrustToPersist = qwenPreparedCheckpointTrustToPersist
@@ -127,18 +134,22 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
             self.marker.matchesBase(marker)
         }
 
-        fileprivate func trustingPreparedCheckpoint() -> PreparedModelMetadata {
-            guard let trustMarker = qwenPreparedCheckpointTrustToPersist else {
+        fileprivate func trustingPreparedCheckpoint(
+            _ persistedTrustMarker: QwenPreparedCheckpointTrust? = nil
+        ) -> PreparedModelMetadata {
+            guard let trustMarker = persistedTrustMarker ?? qwenPreparedCheckpointTrustToPersist else {
                 return self
             }
             return PreparedModelMetadata(
                 preparedDirectory: preparedDirectory,
                 sourceDirectory: sourceDirectory,
                 modelType: modelType,
+                qwenRuntimeProfile: qwenRuntimeProfile,
                 marker: PreparedCacheMarker(
                     schemaVersion: marker.schemaVersion,
                     descriptorVersion: marker.descriptorVersion,
                     sanitizedConfigHash: marker.sanitizedConfigHash,
+                    qwenRuntimeProfileSignature: marker.qwenRuntimeProfileSignature,
                     qwenPreparedCheckpointTrust: trustMarker
                 ),
                 trustedPreparedCheckpoint: true
@@ -153,6 +164,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
                 schemaVersion: marker.schemaVersion,
                 descriptorVersion: marker.descriptorVersion,
                 sanitizedConfigHash: marker.sanitizedConfigHash,
+                qwenRuntimeProfileSignature: marker.qwenRuntimeProfileSignature,
                 qwenPreparedCheckpointTrust: trustMarker
             )
         }
@@ -165,7 +177,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
     private static let preparedCacheMarkerFileName = ".qvoice_prepared_cache.json"
     private static let qwenSourceCheckpointTrustFileName = ".qvoice_qwen_checkpoint_trust.json"
     private static let qwenPreparedOverlayDirectoryName = ".qvoice_prepared_model"
-    private static let preparedCacheSchemaVersion = 2
+    private static let preparedCacheSchemaVersion = 3
     private static let qwenModelWeightsRelativePath = "model.safetensors"
     private static let qwenSpeechTokenizerConfigRelativePath = "speech_tokenizer/config.json"
     private static let qwenSpeechTokenizerModelRelativePath = "speech_tokenizer/model.safetensors"
@@ -216,7 +228,8 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
                 didLoad: false,
                 capabilityProfile: loadedCapabilityProfile,
                 timingsMS: [:],
-                booleanFlags: [:]
+                booleanFlags: [:],
+                stringFlags: preparedMetadataByDescriptorID[loadedDescriptor.id]?.qwenRuntimeProfile.diagnosticStringFlags() ?? [:]
             )
         }
 
@@ -255,7 +268,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
                         "rebuiltPreparedCache": preparedCacheResult.rebuiltPreparedCache ? "true" : "false",
                         "performedTokenizerPreparation": preparedCacheResult.performedTokenizerPreparation ? "true" : "false",
                         "usedPreparedOverlay": preparedCacheResult.usedPreparedOverlay ? "true" : "false",
-                    ]
+                    ].merging(preparedCacheResult.metadata.qwenRuntimeProfile.diagnosticStringFlags()) { _, rhs in rhs }
                 )
             )
         } catch {
@@ -267,6 +280,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
             )
         }
         let cachePrepareMS = cachePrepareStartedAt.elapsedMilliseconds
+        try preparedCacheResult.metadata.qwenRuntimeProfile.validateCapability(capabilityProfile)
         if preparedCacheResult.rebuiltPreparedCache {
             await telemetryRecorder?.mark(stage: .preparedCacheRebuild)
         }
@@ -285,7 +299,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
                         "modelType": preparedCacheResult.metadata.modelType ?? "",
                         "preparedDirectory": preparedCacheResult.metadata.preparedDirectory.path,
                         "trustedPreparedCheckpoint": preparedCacheResult.metadata.trustedPreparedCheckpoint ? "true" : "false",
-                    ]
+                    ].merging(preparedCacheResult.metadata.qwenRuntimeProfile.diagnosticStringFlags()) { _, rhs in rhs }
                 )
             )
             await telemetryRecorder?.mark(stage: .upstreamModelLoad)
@@ -302,7 +316,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
                         "modelType": preparedCacheResult.metadata.modelType ?? "",
                         "preparedDirectory": preparedCacheResult.metadata.preparedDirectory.path,
                         "trustedPreparedCheckpoint": preparedCacheResult.metadata.trustedPreparedCheckpoint ? "true" : "false",
-                    ]
+                    ].merging(preparedCacheResult.metadata.qwenRuntimeProfile.diagnosticStringFlags()) { _, rhs in rhs }
                 )
             )
         } catch {
@@ -328,6 +342,8 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
             && preparedCacheResult.reusedPreparedCache
         booleanFlags["prepared_overlay_rebuilt"] = preparedCacheResult.usedPreparedOverlay
             && preparedCacheResult.rebuiltPreparedCache
+        booleanFlags["qwen3_runtime_profile_validated"] = true
+        booleanFlags["qwen3_streaming_capable"] = preparedCacheResult.metadata.qwenRuntimeProfile.supportsStreaming
 
         await emitDiagnostic(
             "coordinator-load-before-persist-trusted-marker",
@@ -337,7 +353,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
                     "modelType": preparedCacheResult.metadata.modelType ?? "",
                     "preparedDirectory": preparedCacheResult.metadata.preparedDirectory.path,
                     "trustedPreparedCheckpoint": preparedCacheResult.metadata.trustedPreparedCheckpoint ? "true" : "false",
-                ]
+                ].merging(preparedCacheResult.metadata.qwenRuntimeProfile.diagnosticStringFlags()) { _, rhs in rhs }
             )
         )
         if let persistedMetadata = persistTrustedPreparedCheckpointMarkerIfNeeded(
@@ -356,7 +372,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
                     "modelType": preparedCacheResult.metadata.modelType ?? "",
                     "preparedDirectory": preparedCacheResult.metadata.preparedDirectory.path,
                     "trustedPreparedCheckpoint": preparedCacheResult.metadata.trustedPreparedCheckpoint ? "true" : "false",
-                ]
+                ].merging(preparedCacheResult.metadata.qwenRuntimeProfile.diagnosticStringFlags()) { _, rhs in rhs }
             )
         )
 
@@ -365,7 +381,8 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
             didLoad: true,
             capabilityProfile: capabilityProfile,
             timingsMS: timingsMS,
-            booleanFlags: booleanFlags
+            booleanFlags: booleanFlags,
+            stringFlags: preparedCacheResult.metadata.qwenRuntimeProfile.diagnosticStringFlags()
         )
     }
 
@@ -407,26 +424,19 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
             sourceDirectory: sourceDirectory
         )
         let modelType = Self.preparedModelType(from: preparedInputs.sanitizedTopLevelConfigData)
-        let additionalArtifacts = Self.additionalPreparedArtifacts(for: modelType)
-        let usePreparedOverlay = Self.normalizedModelType(modelType) == "qwen3_tts"
-        let targetDirectory: URL
-        if usePreparedOverlay {
-            targetDirectory = sourceDirectory.appendingPathComponent(
-                Self.qwenPreparedOverlayDirectoryName,
-                isDirectory: true
-            )
-        } else {
-            targetDirectory = hubCacheDirectory
-                .appendingPathComponent("mlx-audio", isDirectory: true)
-                .appendingPathComponent(
-                    descriptor.model.huggingFaceRepo.replacingOccurrences(of: "/", with: "_"),
-                    isDirectory: true
-                )
-            try fileManager.createDirectory(
-                at: targetDirectory.deletingLastPathComponent(),
-                withIntermediateDirectories: true
+        guard Self.normalizedModelType(modelType) == "qwen3_tts" else {
+            throw NativeRuntimeError(
+                stage: .preparedCacheValidation,
+                message: "QwenVoice supports only Qwen3-TTS model metadata (expected model_type qwen3_tts, found \(modelType ?? "nil"))."
             )
         }
+        try preparedInputs.qwenRuntimeProfile.validateCapability(.fullCapabilities)
+        let additionalArtifacts = Self.additionalPreparedArtifacts(for: modelType)
+        let usePreparedOverlay = true
+        let targetDirectory = sourceDirectory.appendingPathComponent(
+            Self.qwenPreparedOverlayDirectoryName,
+            isDirectory: true
+        )
 
         let cacheValidation = try Self.preparedCacheIsValid(
             at: targetDirectory,
@@ -459,10 +469,12 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
                 preparedDirectory: targetDirectory,
                 sourceDirectory: sourceDirectory,
                 modelType: modelType,
+                qwenRuntimeProfile: preparedInputs.qwenRuntimeProfile,
                 marker: PreparedCacheMarker(
                     schemaVersion: preparedInputs.marker.schemaVersion,
                     descriptorVersion: preparedInputs.marker.descriptorVersion,
                     sanitizedConfigHash: preparedInputs.marker.sanitizedConfigHash,
+                    qwenRuntimeProfileSignature: preparedInputs.marker.qwenRuntimeProfileSignature,
                     qwenPreparedCheckpointTrust: cacheValidation.marker?.qwenPreparedCheckpointTrust
                 ),
                 trustedPreparedCheckpoint: qwenTrustEvaluation.trustedPreparedCheckpoint,
@@ -513,6 +525,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
                 schemaVersion: preparedInputs.marker.schemaVersion,
                 descriptorVersion: preparedInputs.marker.descriptorVersion,
                 sanitizedConfigHash: preparedInputs.marker.sanitizedConfigHash,
+                qwenRuntimeProfileSignature: preparedInputs.marker.qwenRuntimeProfileSignature,
                 qwenPreparedCheckpointTrust: trustMarker
             )
         } else {
@@ -538,6 +551,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
             preparedDirectory: targetDirectory,
             sourceDirectory: sourceDirectory,
             modelType: modelType,
+            qwenRuntimeProfile: preparedInputs.qwenRuntimeProfile,
             marker: rebuiltMarker,
             trustedPreparedCheckpoint: qwenTrustEvaluation.qwenPreparedCheckpointTrustToPersist != nil,
             qwenPreparedCheckpointTrustToPersist: nil
@@ -557,7 +571,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
         preparedMetadata: PreparedModelMetadata,
         capabilityProfile: NativeLoadCapabilityProfile
     ) async throws -> UnsafeSpeechGenerationModel {
-        UnsafeSpeechGenerationModel(
+        try UnsafeSpeechGenerationModel.qwen3Optimized(
             base: try await TTS.loadModel(
                 fromPreparedDirectory: preparedMetadata.preparedDirectory,
                 modelRepo: descriptor.model.huggingFaceRepo,
@@ -565,7 +579,8 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
                 trustPreparedCheckpoint: preparedMetadata.trustedPreparedCheckpoint,
                 qwenPreparedLoadBehavior: MLXTTSEngine.qwenPreparedLoadBehavior(
                     for: NativeQwenPreparedLoadProfile(capabilityProfile: capabilityProfile),
-                    trustPreparedCheckpoint: preparedMetadata.trustedPreparedCheckpoint
+                    trustPreparedCheckpoint: preparedMetadata.trustedPreparedCheckpoint,
+                    preparedDirectoryAlreadyValidated: true
                 )
             )
         )
@@ -656,13 +671,19 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
             sanitizedConfigData = nil
         }
 
+        let qwenRuntimeProfile = try Qwen3TTSRuntimeProfile.load(
+            from: sourceDirectory,
+            descriptor: descriptor
+        )
         let sanitizedConfigHash = sanitizedConfigData.map(Self.sha256Hex(data:))
         return PreparedCacheInputs(
             sanitizedTopLevelConfigData: sanitizedConfigData,
+            qwenRuntimeProfile: qwenRuntimeProfile,
             marker: PreparedCacheMarker(
                 schemaVersion: preparedCacheSchemaVersion,
                 descriptorVersion: descriptor.version,
                 sanitizedConfigHash: sanitizedConfigHash,
+                qwenRuntimeProfileSignature: qwenRuntimeProfile.validationSignature,
                 qwenPreparedCheckpointTrust: nil
             ),
             qwenPreparedCheckpointQuickState: try makeQwenPreparedCheckpointQuickState(
@@ -769,6 +790,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
                 schemaVersion: metadata.baseMarker.schemaVersion,
                 descriptorVersion: metadata.baseMarker.descriptorVersion,
                 sanitizedConfigHash: metadata.baseMarker.sanitizedConfigHash,
+                qwenRuntimeProfileSignature: metadata.baseMarker.qwenRuntimeProfileSignature,
                 qwenPreparedCheckpointTrust: trustMarker
             )
         } else {
@@ -779,7 +801,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
             .appendingPathComponent(Self.preparedCacheMarkerFileName)
         do {
             try Self.writePreparedCacheMarker(marker, to: markerURL)
-            return metadata.trustingPreparedCheckpoint()
+            return metadata.trustingPreparedCheckpoint(marker.qwenPreparedCheckpointTrust)
         } catch {
             return nil
         }
@@ -1057,7 +1079,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
         guard let modelType else { return nil }
         let trimmed = modelType.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        return trimmed.lowercased()
+        return trimmed.lowercased().replacingOccurrences(of: "-", with: "_")
     }
 
     private static func mirrorDirectoryContents(

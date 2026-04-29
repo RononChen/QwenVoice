@@ -22,17 +22,20 @@ public enum TTSModelError: Error, LocalizedError, CustomStringConvertible {
 
 public struct QwenPreparedLoadBehavior: Sendable, Equatable {
     public let trustPreparedCheckpoint: Bool
+    public let preparedDirectoryAlreadyValidated: Bool
     public let loadSpeakerEncoder: Bool?
     public let loadSpeechTokenizerEncoder: Bool?
     public let skipSpeechTokenizerEval: Bool
 
     public init(
         trustPreparedCheckpoint: Bool = false,
+        preparedDirectoryAlreadyValidated: Bool = false,
         loadSpeakerEncoder: Bool? = nil,
         loadSpeechTokenizerEncoder: Bool? = nil,
         skipSpeechTokenizerEval: Bool = false
     ) {
         self.trustPreparedCheckpoint = trustPreparedCheckpoint
+        self.preparedDirectoryAlreadyValidated = preparedDirectoryAlreadyValidated
         self.loadSpeakerEncoder = loadSpeakerEncoder
         self.loadSpeechTokenizerEncoder = loadSpeechTokenizerEncoder
         self.skipSpeechTokenizerEval = skipSpeechTokenizerEval
@@ -53,17 +56,15 @@ public enum TTS {
         modelType: String?
     ) throws {
         let resolvedType = normalizedModelType(modelType) ?? inferModelType(from: modelRepo)
-        switch resolvedType {
-        case "qwen3_tts":
-            try Qwen3TTSModel.preparePreparedDirectory(preparedDirectory)
-        default:
-            break
+        guard resolvedType == "qwen3_tts" else {
+            throw TTSModelError.unsupportedModelType(modelType ?? resolvedType)
         }
+        try Qwen3TTSModel.preparePreparedDirectory(preparedDirectory)
     }
 
     public static func loadModel(
         modelRepo: String,
-        textProcessor: TextProcessor? = nil,
+        textProcessor _: TextProcessor? = nil,
         hfToken: String? = nil,
         cache: HubCache = .default
     ) async throws -> SpeechGenerationModel {
@@ -76,7 +77,7 @@ public enum TTS {
             hfToken: hfToken,
             cache: cache
         )
-        return try await loadModel(modelRepo: modelRepo, modelType: modelType, textProcessor: textProcessor, cache: cache)
+        return try await loadModel(modelRepo: modelRepo, modelType: modelType, cache: cache)
     }
 
     public static func loadModel(
@@ -86,102 +87,71 @@ public enum TTS {
         trustPreparedCheckpoint: Bool = false,
         qwenPreparedLoadBehavior: QwenPreparedLoadBehavior? = nil,
         diagnosticEventSink: (@Sendable (String, [String: String]) async -> Void)? = nil,
-        textProcessor: TextProcessor? = nil,
+        textProcessor _: TextProcessor? = nil,
         cache: HubCache = .default
     ) async throws -> SpeechGenerationModel {
         let resolvedType = normalizedModelType(modelType) ?? inferModelType(from: modelRepo)
-        guard let resolvedType else {
-            throw TTSModelError.unsupportedModelType(modelType)
+        guard let resolvedType, resolvedType == "qwen3_tts" else {
+            throw TTSModelError.unsupportedModelType(modelType ?? resolvedType)
         }
 
-        switch resolvedType {
-        case "qwen3_tts":
-            if let diagnosticEventSink {
-                await diagnosticEventSink(
-                    "tts-load-before-qwen-from-prepared-directory",
-                    [
-                        "modelRepo": modelRepo,
-                        "modelType": resolvedType,
-                        "preparedDirectory": preparedDirectory.path,
-                        "trustPreparedCheckpoint": trustPreparedCheckpoint ? "true" : "false",
-                    ]
-                )
-            }
-            let model = try await Qwen3TTSModel.fromPreparedDirectory(
-                preparedDirectory,
-                modelRepo: modelRepo,
-                loadBehavior: qwenPreparedLoadBehavior ?? QwenPreparedLoadBehavior(
-                    trustPreparedCheckpoint: trustPreparedCheckpoint
-                ),
-                diagnosticEventSink: diagnosticEventSink
-            )
-            if let diagnosticEventSink {
-                await diagnosticEventSink(
-                    "tts-load-after-qwen-from-prepared-directory",
-                    [
-                        "modelRepo": modelRepo,
-                        "modelType": resolvedType,
-                        "preparedDirectory": preparedDirectory.path,
-                        "trustPreparedCheckpoint": trustPreparedCheckpoint ? "true" : "false",
-                    ]
-                )
-            }
-            return model
-        default:
-            return try await loadModel(
-                modelRepo: modelRepo,
-                modelType: modelType,
-                textProcessor: textProcessor,
-                cache: cache
+        if let diagnosticEventSink {
+            await diagnosticEventSink(
+                "tts-load-before-qwen-from-prepared-directory",
+                [
+                    "modelRepo": modelRepo,
+                    "modelType": resolvedType,
+                    "preparedDirectory": preparedDirectory.path,
+                    "trustPreparedCheckpoint": trustPreparedCheckpoint ? "true" : "false",
+                    "preparedDirectoryAlreadyValidated": (
+                        qwenPreparedLoadBehavior?.preparedDirectoryAlreadyValidated ?? false
+                    ) ? "true" : "false",
+                ]
             )
         }
+        let model = try await Qwen3TTSModel.fromPreparedDirectory(
+            preparedDirectory,
+            modelRepo: modelRepo,
+            loadBehavior: qwenPreparedLoadBehavior ?? QwenPreparedLoadBehavior(
+                trustPreparedCheckpoint: trustPreparedCheckpoint
+            ),
+            diagnosticEventSink: diagnosticEventSink
+        )
+        if let diagnosticEventSink {
+            await diagnosticEventSink(
+                "tts-load-after-qwen-from-prepared-directory",
+                [
+                    "modelRepo": modelRepo,
+                    "modelType": resolvedType,
+                    "preparedDirectory": preparedDirectory.path,
+                    "trustPreparedCheckpoint": trustPreparedCheckpoint ? "true" : "false",
+                    "preparedDirectoryAlreadyValidated": (
+                        qwenPreparedLoadBehavior?.preparedDirectoryAlreadyValidated ?? false
+                    ) ? "true" : "false",
+                ]
+            )
+        }
+        return model
     }
 
     public static func loadModel(
         modelRepo: String,
         modelType: String?,
-        textProcessor: TextProcessor? = nil,
+        textProcessor _: TextProcessor? = nil,
         cache: HubCache = .default
     ) async throws -> SpeechGenerationModel {
         let resolvedType = normalizedModelType(modelType) ?? inferModelType(from: modelRepo)
-        guard let resolvedType else {
-            throw TTSModelError.unsupportedModelType(modelType)
-        }
-
-        switch resolvedType {
-        case "echo_tts", "echo":
-            return try await EchoTTSModel.fromPretrained(modelRepo, cache: cache)
-        case "qwen3_tts":
-            return try await Qwen3TTSModel.fromPretrained(modelRepo, cache: cache)
-        case "qwen3", "qwen":
-            return try await Qwen3Model.fromPretrained(modelRepo, cache: cache)
-        case "fish_speech", "fish_qwen3_omni":
-            return try await FishSpeechModel.fromPretrained(modelRepo, cache: cache)
-        case "llama_tts", "llama3_tts", "llama3", "llama", "orpheus", "orpheus_tts":
-            return try await LlamaTTSModel.fromPretrained(modelRepo, cache: cache)
-        case "csm", "sesame":
-            return try await MarvisTTSModel.fromPretrained(modelRepo, cache: cache)
-        case "soprano_tts", "soprano":
-            return try await SopranoModel.fromPretrained(modelRepo, cache: cache)
-        case "pocket_tts":
-            return try await PocketTTSModel.fromPretrained(modelRepo, cache: cache)
-        case "chatterbox", "chatterbox_tts", "chatterbox_turbo":
-            return try await ChatterboxModel.fromPretrained(modelRepo)
-        case "kitten_tts", "kitten":
-            return try await KittenTTSModel.fromPretrained(modelRepo, textProcessor: textProcessor ?? MisakiTextProcessor(), cache: cache)
-        case "kokoro", "kokoro_tts":
-            let processor = textProcessor ?? KokoroMultilingualProcessor()
-            return try await KokoroModel.fromPretrained(modelRepo, textProcessor: processor, cache: cache)
-        default:
+        guard let resolvedType, resolvedType == "qwen3_tts" else {
             throw TTSModelError.unsupportedModelType(modelType ?? resolvedType)
         }
+        return try await Qwen3TTSModel.fromPretrained(modelRepo, cache: cache)
     }
 
     private static func normalizedModelType(_ modelType: String?) -> String? {
         guard let modelType else { return nil }
         let trimmed = modelType.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        return trimmed.lowercased()
+        return trimmed.lowercased().replacingOccurrences(of: "-", with: "_")
     }
 
     static func resolveModelType(modelRepo: String, modelType: String? = nil) -> String? {
@@ -190,43 +160,8 @@ public enum TTS {
 
     private static func inferModelType(from modelRepo: String) -> String? {
         let lower = modelRepo.lowercased()
-        if lower.contains("qwen3_tts") {
+        if lower.contains("qwen3_tts") || lower.contains("qwen3-tts") {
             return "qwen3_tts"
-        }
-        if lower.contains("fish_qwen3_omni") {
-            return "fish_qwen3_omni"
-        }
-        if lower.contains("fish-audio") || lower.contains("fish_audio")
-            || lower.contains("fish-speech") || lower.contains("fish_speech")
-        {
-            return "fish_speech"
-        }
-        if lower.contains("echo") {
-            return "echo_tts"
-        }
-        if lower.contains("qwen3") || lower.contains("qwen") {
-            return "qwen3"
-        }
-        if lower.contains("soprano") {
-            return "soprano"
-        }
-        if lower.contains("llama") || lower.contains("orpheus") {
-            return "llama_tts"
-        }
-        if lower.contains("csm") || lower.contains("sesame") {
-            return "csm"
-        }
-        if lower.contains("pocket_tts") {
-            return "pocket_tts"
-        }
-        if lower.contains("chatterbox") {
-            return "chatterbox"
-        }
-        if lower.contains("kitten") {
-            return "kitten_tts"
-        }
-        if lower.contains("kokoro") {
-            return "kokoro"
         }
         return nil
     }

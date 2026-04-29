@@ -105,7 +105,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
                         "nativeLoadCapabilityProfile": capabilityProfile.rawValue,
                         "qwenPreparedLoadProfile": Self.diagnosticLabel(for: resolvedProfile),
                         "trustedPreparedCheckpoint": preparedMetadata.trustedPreparedCheckpoint ? "true" : "false",
-                    ],
+                    ].merging(preparedMetadata.qwenRuntimeProfile.diagnosticStringFlags()) { _, rhs in rhs },
                     appSupportDirectoryURL: diagnosticAppSupportBox.url
                 )
                 let base = try await TTS.loadModel(
@@ -115,7 +115,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
                         trustPreparedCheckpoint: preparedMetadata.trustedPreparedCheckpoint,
                         qwenPreparedLoadBehavior: Self.qwenPreparedLoadBehavior(
                             for: resolvedProfile,
-                            trustPreparedCheckpoint: preparedMetadata.trustedPreparedCheckpoint
+                            trustPreparedCheckpoint: preparedMetadata.trustedPreparedCheckpoint,
+                            preparedDirectoryAlreadyValidated: true
                         ),
                         diagnosticEventSink: { action, details in
                             await Self.recordDiagnosticEvent(
@@ -135,10 +136,10 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
                         "nativeLoadCapabilityProfile": capabilityProfile.rawValue,
                         "qwenPreparedLoadProfile": Self.diagnosticLabel(for: resolvedProfile),
                         "trustedPreparedCheckpoint": preparedMetadata.trustedPreparedCheckpoint ? "true" : "false",
-                    ],
+                    ].merging(preparedMetadata.qwenRuntimeProfile.diagnosticStringFlags()) { _, rhs in rhs },
                     appSupportDirectoryURL: diagnosticAppSupportBox.url
                 )
-                return UnsafeSpeechGenerationModel(base: base)
+                return try UnsafeSpeechGenerationModel.qwen3Optimized(base: base)
             },
             telemetryRecorder: telemetryRecorder,
             diagnosticEventSink: { action, details in
@@ -781,16 +782,19 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
 
     nonisolated static func qwenPreparedLoadBehavior(
         for profile: NativeQwenPreparedLoadProfile,
-        trustPreparedCheckpoint: Bool
+        trustPreparedCheckpoint: Bool,
+        preparedDirectoryAlreadyValidated: Bool = false
     ) -> QwenPreparedLoadBehavior {
         switch profile {
         case .fullCapabilities:
             return QwenPreparedLoadBehavior(
-                trustPreparedCheckpoint: trustPreparedCheckpoint
+                trustPreparedCheckpoint: trustPreparedCheckpoint,
+                preparedDirectoryAlreadyValidated: preparedDirectoryAlreadyValidated
             )
         case .streamingOnly:
             return QwenPreparedLoadBehavior(
                 trustPreparedCheckpoint: trustPreparedCheckpoint,
+                preparedDirectoryAlreadyValidated: preparedDirectoryAlreadyValidated,
                 loadSpeakerEncoder: false,
                 loadSpeechTokenizerEncoder: false,
                 skipSpeechTokenizerEval: true

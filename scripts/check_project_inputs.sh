@@ -159,5 +159,6 @@ if [ -d "$PROJECT_DIR/Assets.xcassets" ]; then
 fi
 
 "$SCRIPT_DIR/check_backend_resource_contract.sh" --project
+"$SCRIPT_DIR/check_qwen3_backend_only.py"
 
 echo "==> Project inputs are clean."

@@ -12,6 +12,16 @@ final class CustomVoiceCoordinator: ObservableObject {
         presentedSheet = .batch(.custom(draft: draft))
     }
 
+    func presentLongFormBatch(draft: CustomVoiceDraft) {
+        presentedSheet = .batch(
+            .custom(
+                draft: draft,
+                initialText: draft.text,
+                initialSegmentationMode: .longForm
+            )
+        )
+    }
+
     func generate(
         draft: CustomVoiceDraft,
         activeModel: TTSModel?,
@@ -25,6 +35,11 @@ final class CustomVoiceCoordinator: ObservableObject {
 
         if let model = activeModel, !isModelAvailable {
             errorMessage = modelManager.recoveryDetail(for: model)
+            return
+        }
+
+        if LongTextGenerationRouter.shouldRouteToLongFormBatch(draft.text) {
+            presentLongFormBatch(draft: draft)
             return
         }
 

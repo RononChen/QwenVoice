@@ -78,9 +78,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--benchmark-profile",
-        choices=["repeat", "cold-warm"],
+        choices=["repeat", "cold-warm", "warm-focus", "exhaustive"],
         default="repeat",
-        help="Live XPC benchmark profile. cold-warm measures cold and warm generation timings.",
+        help=(
+            "Live XPC benchmark profile. cold-warm measures all modes; "
+            "warm-focus measures repeated Voice Design warm runs; exhaustive adds "
+            "endurance, direct long-text, and product long-form batch coverage."
+        ),
     )
     parser.add_argument(
         "--cold-runs",
@@ -92,7 +96,7 @@ def main() -> None:
         "--warm-runs",
         type=int,
         default=3,
-        help="Measured warm runs per mode for --benchmark-profile cold-warm. Defaults to 3.",
+        help="Measured warm runs per mode for --benchmark-profile cold-warm or warm-focus. Defaults to 3.",
     )
     parser.add_argument(
         "--compare-baseline",
@@ -101,7 +105,7 @@ def main() -> None:
     )
 
     args = parser.parse_args()
-    output_dir = Path(args.output_dir) if args.output_dir else default_output_dir(args.source)
+    output_dir = (Path(args.output_dir) if args.output_dir else default_output_dir(args.source)).resolve()
     ensure_directory(output_dir)
 
     try:
@@ -110,7 +114,9 @@ def main() -> None:
         cold_runs = parse_benchmark_run_count(args.cold_runs, "--cold-runs")
         warm_runs = parse_benchmark_run_count(args.warm_runs, "--warm-runs")
         if args.benchmark_profile != "repeat" and args.source != "live-xpc":
-            raise UsageError("--benchmark-profile cold-warm is only supported with --source live-xpc.")
+            raise UsageError("--benchmark-profile cold-warm/warm-focus/exhaustive is only supported with --source live-xpc.")
+        if args.benchmark_profile == "warm-focus" and modes != ["VoiceDesign"]:
+            raise UsageError("--benchmark-profile warm-focus requires --modes VoiceDesign.")
         if args.source == "self-test":
             summary = run_self_test(output_dir, repeat_count)
         elif args.source == "latest":
@@ -238,7 +244,7 @@ def run_live_xpc_analysis(
     if args.clone_reference and not Path(args.clone_reference).is_file():
         raise UsageError(f"Clone reference does not exist: {args.clone_reference}")
 
-    models_root = Path(args.models_root).expanduser()
+    models_root = Path(args.models_root).expanduser().resolve()
     validate_required_models(modes, models_root)
 
     summary = build_base_summary(
@@ -247,8 +253,8 @@ def run_live_xpc_analysis(
         modes,
         repeat_count=repeat_count,
         benchmark_profile=args.benchmark_profile,
-        cold_runs=cold_runs if args.benchmark_profile == "cold-warm" else None,
-        warm_runs=warm_runs if args.benchmark_profile == "cold-warm" else None,
+        cold_runs=cold_runs if args.benchmark_profile in {"cold-warm", "exhaustive"} else None,
+        warm_runs=warm_runs if args.benchmark_profile in {"cold-warm", "warm-focus", "exhaustive"} else None,
     )
     summary["models_root"] = str(models_root)
     xcode_result = run_live_xcode_test(output_dir, modes, repeat_count, cold_runs, warm_runs, models_root, args)
@@ -266,6 +272,11 @@ def run_live_xpc_analysis(
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     summary["generation_manifest"] = str(manifest_path)
+    long_text_manifest_path = output_dir / "long-text-manifest.json"
+    if long_text_manifest_path.exists():
+        summary["long_text_manifest"] = str(long_text_manifest_path)
+    if manifest.get("longText"):
+        summary["long_text"] = manifest.get("longText")
     summary["generated_artifacts"] = manifest.get("artifacts", [])
     for artifact in manifest.get("artifacts", []):
         mode = artifact.get("mode", "unknown")
@@ -282,10 +293,17 @@ def run_live_xpc_analysis(
             "duration_seconds": artifact.get("durationSeconds"),
             "wall_clock_ms": artifact.get("wallClockMS"),
             "real_time_factor": artifact.get("realTimeFactor"),
+            "text_character_count": artifact.get("textCharacterCount"),
+            "text_word_count": artifact.get("textWordCount"),
+            "segment_count": artifact.get("segmentCount"),
+            "segment_index": artifact.get("segmentIndex"),
+            "batch_total": artifact.get("batchTotal"),
             "output_path": output_path,
             "stream_session_directory": artifact.get("streamSessionDirectory"),
             "streaming_used": artifact.get("streamingUsed"),
             "timings_ms": artifact.get("timingsMS") or {},
+            "qwen3_timings_ms": qwen3_timing_subset(artifact.get("timingsMS") or {}),
+            "qwen3_cache_flags": qwen3_cache_flag_subset(artifact.get("booleanFlags") or {}),
             "reports": [],
         }
         report_prefix = live_report_prefix(artifact, repeat_count)
@@ -308,6 +326,14 @@ def run_live_xpc_analysis(
             summary["reports"].append(report)
             mode_summary["reports"].append(summarize_qc_report(report))
         summary.setdefault("mode_summaries", []).append(mode_summary)
+        if mode_summary["reports"]:
+            artifact["qcPassed"] = all(report.get("exit_code") == 0 for report in mode_summary["reports"])
+        elif qc_eligible:
+            artifact["qcPassed"] = False
+        else:
+            artifact["qcPassed"] = None
+
+    attach_long_text_qc_summary(summary)
 
     measured_artifacts = [
         artifact
@@ -316,7 +342,7 @@ def run_live_xpc_analysis(
     ]
     if measured_artifacts:
         timing_csv = output_dir / "timing-runs.csv"
-        write_timing_csv(timing_csv, measured_artifacts)
+        write_timing_csv(timing_csv, measured_artifacts, summary)
         summary["timing_csv"] = str(timing_csv)
         summary["timing_summary"] = summarize_timings(measured_artifacts)
 
@@ -324,6 +350,51 @@ def run_live_xpc_analysis(
         report["exit_code"] == 0 for report in summary["reports"]
     )
     return summary
+
+
+def attach_long_text_qc_summary(summary: dict[str, Any]) -> None:
+    long_text = summary.get("long_text")
+    if not isinstance(long_text, dict):
+        return
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in summary.get("mode_summaries") or []:
+        if item.get("phase") != "batch-long-form":
+            continue
+        mode = str(item.get("mode") or "")
+        grouped.setdefault(mode, []).append(item)
+
+    batch_cases = long_text.get("batchCases") or []
+    for case in batch_cases:
+        mode = str(case.get("mode") or "")
+        segments = sorted(
+            grouped.get(mode, []),
+            key=lambda item: artifact_int(item, "segment_index", default=artifact_int(item, "run_index", default=0)),
+        )
+        qc_failures: list[dict[str, Any]] = []
+        qc_passed_segments = 0
+        for segment in segments:
+            reports = segment.get("reports") or []
+            failed_checks = [
+                failure
+                for report in reports
+                for failure in report.get("failed_required_checks", [])
+            ]
+            if failed_checks:
+                qc_failures.append(
+                    {
+                        "segmentIndex": segment.get("segment_index"),
+                        "outputPath": segment.get("output_path"),
+                        "failedRequiredChecks": failed_checks,
+                    }
+                )
+            elif segment.get("qc_eligible", True) and reports:
+                qc_passed_segments += 1
+
+        case["qcPassedSegments"] = qc_passed_segments
+        case["qcFailedSegments"] = len(qc_failures)
+        case["qcFailures"] = qc_failures
+        case["failed"] = max(artifact_int(case, "failed", default=0), len(qc_failures))
 
 
 def live_report_prefix(artifact: dict[str, Any], repeat_count: int) -> str:
@@ -411,9 +482,9 @@ def run_live_xcode_test(
         {
             "QWENVOICE_AUDIO_QC_LIVE": "1",
             "QWENVOICE_AUDIO_QC_ALLOW_MODEL_LOAD": "1",
-            "QWENVOICE_AUDIO_QC_OUTPUT_DIR": str(output_dir),
+            "QWENVOICE_AUDIO_QC_OUTPUT_DIR": str(output_dir.resolve()),
             "QWENVOICE_AUDIO_QC_MODES": ",".join(modes),
-            "QWENVOICE_AUDIO_QC_MODELS_ROOT": str(models_root),
+            "QWENVOICE_AUDIO_QC_MODELS_ROOT": str(models_root.resolve()),
             "QWENVOICE_AUDIO_QC_REPEAT_COUNT": str(repeat_count),
             "QWENVOICE_AUDIO_QC_BENCHMARK_PROFILE": args.benchmark_profile,
             "QWENVOICE_AUDIO_QC_COLD_RUNS": str(cold_runs),
@@ -426,7 +497,8 @@ def run_live_xcode_test(
         environment["QWENVOICE_AUDIO_QC_CLONE_TRANSCRIPT"] = args.clone_transcript
 
     started = time.perf_counter()
-    expires_at = datetime.fromtimestamp(time.time() + 1800, timezone.utc)
+    timeout_floor = 7200 if args.benchmark_profile == "exhaustive" else 1800
+    expires_at = datetime.fromtimestamp(time.time() + timeout_floor, timezone.utc)
     request_payload = {
         "live": True,
         "allowModelLoad": True,
@@ -447,7 +519,7 @@ def run_live_xcode_test(
     )
     try:
         with log_path.open("w", encoding="utf-8") as log_file:
-            timeout_seconds = resolve_xcodebuild_timeout_seconds()
+            timeout_seconds = max(resolve_xcodebuild_timeout_seconds(), timeout_floor)
             proc = subprocess.Popen(
                 command,
                 cwd=str(PROJECT_DIR),
@@ -719,7 +791,10 @@ def selected_qc_metrics(checks: dict[str, Any]) -> dict[str, Any]:
     return selected
 
 
-TIMING_KEYS = (
+CORE_TIMING_KEYS = (
+    "model_mirror_ms",
+    "client_initialize_ms",
+    "request_wall_ms",
     "cache_prepare",
     "mlx_model_load",
     "load_model",
@@ -731,27 +806,152 @@ TIMING_KEYS = (
     "final_write",
     "chunk_write_total",
     "chunk_write_max",
+    "batch_wall_ms",
     "event_dispatch_ms",
     "stream_chunk_count",
     "avg_chunk_frames",
     "max_chunk_frames",
+    "reference_normalize",
+    "reference_decode",
+    "clone_prompt_artifact_load",
+    "clone_prompt_build",
+    "clone_prompt_resolve",
+    "prime_clone_reference",
+)
+
+QWEN3_TIMING_KEYS = (
+    "tokenizer_load",
+    "speech_tokenizer_load",
+    "talker_safetensors_io",
+    "talker_weight_sanitize",
+    "talker_quantize_prepare",
+    "talker_parameter_update",
+    "talker_parameter_eval",
+    "talker_core_eval",
+    "talker_decoder_layers_eval",
+    "talker_code_predictor_core_eval",
+    "talker_code_predictor_layers_eval",
+    "speech_tokenizer_eval",
+    "speaker_encoder_update",
+    "speaker_encoder_eval",
+    "custom_prefix_prepare",
+    "custom_prefix_tokenize_ms",
+    "custom_prefix_embed_build_ms",
+    "custom_text_prepare_ms",
+    "custom_prewarm_eval_ms",
+    "custom_stream_step_warm_ms",
+    "design_prefix_prepare",
+    "design_prefix_tokenize_ms",
+    "design_prefix_embed_build_ms",
+    "design_text_prepare_ms",
+    "design_prewarm_eval_ms",
+    "design_stream_step_warm_ms",
+    "design_stream_step_eval_total_ms",
+    "design_audio_chunk_eval_total_ms",
+    "design_final_decode_eval_ms",
+    "first_decoder_step",
+    "qwen_talker_forward_total",
+    "qwen_code_predictor_total",
+    "qwen_stream_decoder_total",
+    "qwen_stream_decoder_calls",
+    "qwen_generated_code_count",
+    "design_generation_steps_before_first_chunk",
+    "design_first_chunk_decoder_tokens",
+)
+
+TIMING_KEYS = CORE_TIMING_KEYS + QWEN3_TIMING_KEYS
+
+QWEN3_FLAG_KEYS = (
+    "prepared_model_cache_hit",
+    "prepared_overlay_cache_hit",
+    "prepared_overlay_rebuilt",
+    "prepared_directory_already_validated",
+    "trusted_prepared_checkpoint",
+    "tokenizer_cache_hit",
+    "tokenizer_direct_config_load",
+    "tokenizer_direct_config_fallback",
+    "speech_tokenizer_cache_hit",
+    "speech_tokenizer_encoder_loaded",
+    "speech_tokenizer_eval_skipped",
+    "prefix_cache_hit",
+    "custom_prefix_cache_hit",
+    "design_prefix_cache_hit",
+    "decoder_bucket_cache_hit",
+    "custom_stream_step_prewarmed",
+    "design_conditioning_reused",
+    "design_conditioning_prefetch_hit",
+    "interactive_design_prefetch_hit",
+    "design_conditioning_prewarmed",
+    "design_stream_step_prewarmed",
+    "design_stream_step_prefetch_hit",
+    "design_warm_bucket_short",
+    "design_warm_bucket_long",
+    "prepared_clone_cache_hit",
+    "clone_prompt_cache_hit",
+    "clone_prompt_used",
+    "clone_conditioning_reused",
+    "reused_normalized_reference",
+    "reused_decoded_reference",
 )
 
 
-def write_timing_csv(path: Path, artifacts: list[dict[str, Any]]) -> None:
+def qwen3_timing_subset(timings: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: timings[key]
+        for key in QWEN3_TIMING_KEYS
+        if key in timings
+    }
+
+
+def qwen3_cache_flag_subset(flags: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in sorted(flags.items())
+        if key.startswith(("tokenizer_", "speech_tokenizer_", "prefix_", "custom_", "design_", "decoder_bucket_", "clone_"))
+        or key in {
+            "prepared_model_cache_hit",
+            "prepared_overlay_cache_hit",
+            "prepared_overlay_rebuilt",
+            "prepared_directory_already_validated",
+            "prepared_clone_cache_hit",
+            "reused_normalized_reference",
+            "reused_decoded_reference",
+            "trusted_prepared_checkpoint",
+        }
+    }
+
+
+def write_timing_csv(path: Path, artifacts: list[dict[str, Any]], summary: dict[str, Any] | None = None) -> None:
+    runtime_counts = (((summary or {}).get("xcodebuild") or {}).get("runtime_log_summary") or {}).get("counts") or {}
+    peak_rss_mb = peak_process_rss_mb((summary or {}).get("xcodebuild") or {})
     fieldnames = [
         "mode",
         "phase",
         "run_index",
         "iteration",
+        "text_character_count",
+        "text_word_count",
+        "segment_count",
+        "segment_index",
+        "batch_total",
         "wall_clock_ms",
         "duration_seconds",
         "real_time_factor",
+        "first_audio_ready",
         "streaming_used",
+        "stream_chunk_count",
+        "chunk_write_total",
+        "chunk_write_max",
+        "final_write",
+        "rss_peak_mb",
+        "xpc_interruption_count",
+        "timeout_count",
+        "qc_passed",
         "model_id",
         "output_path",
         "stream_session_directory",
         *[f"timing_{key}" for key in TIMING_KEYS],
+        *[f"flag_{key}" for key in QWEN3_FLAG_KEYS],
     ]
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -763,17 +963,43 @@ def write_timing_csv(path: Path, artifacts: list[dict[str, Any]]) -> None:
                 "phase": artifact.get("phase", "repeat"),
                 "run_index": artifact.get("runIndex") or artifact.get("iteration"),
                 "iteration": artifact.get("iteration"),
+                "text_character_count": artifact.get("textCharacterCount"),
+                "text_word_count": artifact.get("textWordCount"),
+                "segment_count": artifact.get("segmentCount"),
+                "segment_index": artifact.get("segmentIndex"),
+                "batch_total": artifact.get("batchTotal"),
                 "wall_clock_ms": artifact.get("wallClockMS"),
                 "duration_seconds": artifact.get("durationSeconds"),
                 "real_time_factor": artifact.get("realTimeFactor"),
+                "first_audio_ready": timings.get("first_audio_ready"),
                 "streaming_used": artifact.get("streamingUsed"),
+                "stream_chunk_count": timings.get("stream_chunk_count"),
+                "chunk_write_total": timings.get("chunk_write_total"),
+                "chunk_write_max": timings.get("chunk_write_max"),
+                "final_write": timings.get("final_write"),
+                "rss_peak_mb": peak_rss_mb,
+                "xpc_interruption_count": runtime_counts.get("connection_interrupted", 0),
+                "timeout_count": runtime_counts.get("request_timeout", 0),
+                "qc_passed": artifact.get("qcPassed"),
                 "model_id": artifact.get("modelID"),
                 "output_path": artifact.get("outputPath"),
                 "stream_session_directory": artifact.get("streamSessionDirectory"),
             }
             for key in TIMING_KEYS:
                 row[f"timing_{key}"] = timings.get(key)
+            flags = artifact.get("booleanFlags") or {}
+            for key in QWEN3_FLAG_KEYS:
+                row[f"flag_{key}"] = flags.get(key)
             writer.writerow(row)
+
+
+def peak_process_rss_mb(xcode_summary: dict[str, Any]) -> float | None:
+    values = [
+        numeric(item.get("max_rss_mb"))
+        for item in xcode_summary.get("process_memory_summary") or []
+    ]
+    values = [value for value in values if value is not None]
+    return max(values) if values else None
 
 
 def summarize_timings(artifacts: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -962,13 +1188,19 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
         f"- Created: `{summary.get('created_at')}`",
         "",
     ]
-    if summary.get("benchmark_profile") == "cold-warm":
+    benchmark_profile = summary.get("benchmark_profile")
+    if benchmark_profile in {"cold-warm", "warm-focus", "exhaustive"}:
+        benchmark_lines = []
+        if benchmark_profile in {"cold-warm", "exhaustive"}:
+            benchmark_lines.append(f"- Cold runs per mode: `{summary.get('cold_runs')}`")
+        benchmark_lines.append(f"- Warm runs per mode: `{summary.get('warm_runs')}`")
+        if benchmark_profile == "exhaustive":
+            benchmark_lines.append("- Endurance warm samples per mode: `10`")
+            benchmark_lines.append("- Direct long-text samples: `900` and `2700` characters per mode")
+            benchmark_lines.append("- Product long-form batch sample: `9000` characters per mode")
+        benchmark_lines.append("")
         lines.extend(
-            [
-                f"- Cold runs per mode: `{summary.get('cold_runs')}`",
-                f"- Warm runs per mode: `{summary.get('warm_runs')}`",
-                "",
-            ]
+            benchmark_lines
         )
     if summary.get("error"):
         lines.extend(["## Error", "", str(summary["error"]), ""])
@@ -1024,13 +1256,59 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
             wall = item.get("wall_clock_ms") or {}
             rtf = item.get("real_time_factor") or {}
             generation = (item.get("timings_ms") or {}).get("generation") or {}
+            timings = item.get("timings_ms") or {}
             lines.append(
                 f"- `{item.get('mode')}` `{item.get('phase')}` n=`{item.get('sample_count')}`: "
                 f"wall median `{wall.get('median')} ms`, mean `{wall.get('mean')} ms`, "
                 f"RTF median `{rtf.get('median')}`, generation median `{generation.get('median')} ms`"
             )
+            qwen_highlights = []
+            for label, key in (
+                ("tokenizer", "tokenizer_load"),
+                ("speech tokenizer", "speech_tokenizer_load"),
+                ("first decoder", "first_decoder_step"),
+                ("stream decode", "qwen_stream_decoder_total"),
+                ("generated codes", "qwen_generated_code_count"),
+            ):
+                metric = timings.get(key) or {}
+                if metric.get("median") is not None:
+                    suffix = "" if key == "qwen_generated_code_count" else " ms"
+                    qwen_highlights.append(f"{label} `{metric.get('median')}{suffix}`")
+            if qwen_highlights:
+                lines.append(f"  - Qwen3: {', '.join(qwen_highlights)}")
         if summary.get("timing_csv"):
             lines.append(f"- CSV: `{summary.get('timing_csv')}`")
+        lines.append("")
+    if summary.get("long_text"):
+        long_text = summary["long_text"]
+        lines.extend(["## Long Text", ""])
+        lines.append(f"- Manifest: `{summary.get('long_text_manifest')}`")
+        lines.append(f"- Segment max characters: `{long_text.get('segmentMaxCharacters')}`")
+        bounded = long_text.get("boundedFailures") or []
+        lines.append(f"- Bounded direct failures: `{len(bounded)}`")
+        if bounded:
+            for failure in bounded:
+                lines.append(
+                    f"  - `{failure.get('phase')}` `{failure.get('mode')}` "
+                    f"{failure.get('characterCount')} chars: `{failure.get('error')}`"
+                )
+        batch_cases = long_text.get("batchCases") or []
+        if batch_cases:
+            lines.append("")
+            lines.append("### Product Batch")
+            for item in batch_cases:
+                lines.append(
+                    f"- `{item.get('mode')}` chars `{item.get('characterCount')}`, "
+                    f"segments `{item.get('segmentCount')}`, generated `{item.get('generated')}`, "
+                    f"failed `{item.get('failed')}`, QC passed `{item.get('qcPassedSegments')}`, "
+                    f"QC failed `{item.get('qcFailedSegments')}`, "
+                    f"audio `{round(float(item.get('totalAudioDurationSeconds') or 0), 3)}s`"
+                )
+                for failure in item.get("qcFailures") or []:
+                    lines.append(
+                        f"  - Segment `{failure.get('segmentIndex')}` failed "
+                        f"`{', '.join(failure.get('failedRequiredChecks') or [])}`"
+                    )
         lines.append("")
     if summary.get("timing_comparison"):
         lines.extend(["## Timing Comparison", ""])

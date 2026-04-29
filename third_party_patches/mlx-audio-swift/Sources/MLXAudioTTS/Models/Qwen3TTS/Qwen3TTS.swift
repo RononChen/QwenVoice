@@ -52,6 +52,7 @@ private struct LoadedSpeechTokenizerComponent: @unchecked Sendable {
 
 private struct QwenPreparedLoadOptions: Sendable {
     let trustPreparedCheckpoint: Bool
+    let preparedDirectoryAlreadyValidated: Bool
     let loadSpeakerEncoder: Bool?
     let loadSpeechTokenizerEncoder: Bool?
     let skipSpeechTokenizerEval: Bool
@@ -63,15 +64,24 @@ private let speechTokenizerEvalBatchSize = 8
 private actor Qwen3TTSPreparedComponentCache {
     static let shared = Qwen3TTSPreparedComponentCache()
 
+    private let tokenizerLimit = 3
+    private let speechTokenizerLimit = 3
     private var tokenizersByPreparedKey: [String: CachedTokenizerBox] = [:]
     private var speechTokenizersByPreparedKey: [String: CachedSpeechTokenizerBox] = [:]
+    private var tokenizerLRU: [String] = []
+    private var speechTokenizerLRU: [String] = []
 
     func cachedTokenizer(for preparedKey: String) -> CachedTokenizerBox? {
-        tokenizersByPreparedKey[preparedKey]
+        guard let box = tokenizersByPreparedKey[preparedKey] else {
+            return nil
+        }
+        touchTokenizer(preparedKey)
+        return box
     }
 
     func cachedSpeechTokenizer(for preparedKey: String) -> CachedSpeechTokenizerBox? {
         if let box = speechTokenizersByPreparedKey[preparedKey] {
+            touchSpeechTokenizer(preparedKey)
             box.speechTokenizer.decoder.resetStreamingState()
             return box
         }
@@ -80,6 +90,8 @@ private actor Qwen3TTSPreparedComponentCache {
 
     func storeTokenizer(_ tokenizer: Tokenizer, for preparedKey: String) {
         tokenizersByPreparedKey[preparedKey] = CachedTokenizerBox(tokenizer: tokenizer)
+        touchTokenizer(preparedKey)
+        trimTokenizersIfNeeded()
     }
 
     func storeSpeechTokenizer(_ speechTokenizer: Qwen3TTSSpeechTokenizer, for preparedKey: String) {
@@ -87,6 +99,8 @@ private actor Qwen3TTSPreparedComponentCache {
         speechTokenizersByPreparedKey[preparedKey] = CachedSpeechTokenizerBox(
             speechTokenizer: speechTokenizer
         )
+        touchSpeechTokenizer(preparedKey)
+        trimSpeechTokenizersIfNeeded()
     }
 
     func storeSpeechTokenizerAndReturn(
@@ -96,7 +110,33 @@ private actor Qwen3TTSPreparedComponentCache {
         speechTokenizer.decoder.resetStreamingState()
         let box = CachedSpeechTokenizerBox(speechTokenizer: speechTokenizer)
         speechTokenizersByPreparedKey[preparedKey] = box
+        touchSpeechTokenizer(preparedKey)
+        trimSpeechTokenizersIfNeeded()
         return box
+    }
+
+    private func touchTokenizer(_ preparedKey: String) {
+        tokenizerLRU.removeAll { $0 == preparedKey }
+        tokenizerLRU.append(preparedKey)
+    }
+
+    private func touchSpeechTokenizer(_ preparedKey: String) {
+        speechTokenizerLRU.removeAll { $0 == preparedKey }
+        speechTokenizerLRU.append(preparedKey)
+    }
+
+    private func trimTokenizersIfNeeded() {
+        while tokenizerLRU.count > tokenizerLimit, let evicted = tokenizerLRU.first {
+            tokenizerLRU.removeFirst()
+            tokenizersByPreparedKey.removeValue(forKey: evicted)
+        }
+    }
+
+    private func trimSpeechTokenizersIfNeeded() {
+        while speechTokenizerLRU.count > speechTokenizerLimit, let evicted = speechTokenizerLRU.first {
+            speechTokenizerLRU.removeFirst()
+            speechTokenizersByPreparedKey.removeValue(forKey: evicted)
+        }
     }
 }
 
@@ -219,38 +259,78 @@ private final class CachedConditioningPrefixBox: @unchecked Sendable {
 private final class Qwen3TTSConditioningPrefixCache: @unchecked Sendable {
     static let shared = Qwen3TTSConditioningPrefixCache()
 
+    private let limit = 16
     private let lock = NSLock()
     private var prefixesByKey: [String: CachedConditioningPrefixBox] = [:]
+    private var lruKeys: [String] = []
 
     func cachedPrefix(for cacheKey: String) -> CachedConditioningPrefix? {
         lock.lock()
         defer { lock.unlock() }
-        return prefixesByKey[cacheKey]?.prefix
+        guard let box = prefixesByKey[cacheKey] else {
+            return nil
+        }
+        touch(cacheKey)
+        return box.prefix
     }
 
     func storePrefix(_ prefix: CachedConditioningPrefix, for cacheKey: String) {
         lock.lock()
         prefixesByKey[cacheKey] = CachedConditioningPrefixBox(prefix: prefix)
+        touch(cacheKey)
+        trimIfNeeded()
         lock.unlock()
+    }
+
+    private func touch(_ cacheKey: String) {
+        lruKeys.removeAll { $0 == cacheKey }
+        lruKeys.append(cacheKey)
+    }
+
+    private func trimIfNeeded() {
+        while lruKeys.count > limit, let evicted = lruKeys.first {
+            lruKeys.removeFirst()
+            prefixesByKey.removeValue(forKey: evicted)
+        }
     }
 }
 
 private final class Qwen3TTSStreamingDecoderBucketCache: @unchecked Sendable {
     static let shared = Qwen3TTSStreamingDecoderBucketCache()
 
+    private let limit = 8
     private let lock = NSLock()
     private var warmedKeys: Set<String> = []
+    private var lruKeys: [String] = []
 
     func contains(_ key: String) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return warmedKeys.contains(key)
+        let contains = warmedKeys.contains(key)
+        if contains {
+            touch(key)
+        }
+        return contains
     }
 
     func insert(_ key: String) {
         lock.lock()
         warmedKeys.insert(key)
+        touch(key)
+        trimIfNeeded()
         lock.unlock()
+    }
+
+    private func touch(_ key: String) {
+        lruKeys.removeAll { $0 == key }
+        lruKeys.append(key)
+    }
+
+    private func trimIfNeeded() {
+        while lruKeys.count > limit, let evicted = lruKeys.first {
+            lruKeys.removeFirst()
+            warmedKeys.remove(evicted)
+        }
     }
 }
 
@@ -493,12 +573,19 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
     private func prepareInputs(
         text: String,
         prefix: CachedConditioningPrefix
-    ) throws -> (MLXArray, MLXArray, MLXArray, Int) {
+    ) throws -> (
+        inputEmbeds: MLXArray,
+        trailingTextHidden: MLXArray,
+        ttsPadEmbed: MLXArray,
+        textPrepareMS: Int,
+        targetTokenCount: Int
+    ) {
         guard let tokenizer else {
             throw AudioGenerationError.modelNotInitialized("Tokenizer not loaded")
         }
 
         let textPrepareStartedAt = ContinuousClock.now
+        let targetTokenCount = tokenizer.encode(text: text).count
         let chatText = "<|im_start|>assistant\n\(text)<|im_end|>\n<|im_start|>assistant\n"
         let inputIds = MLXArray(tokenizer.encode(text: chatText).map(Int32.init)).reshaped(1, -1)
         let textEmbed = talker.textProjection(talker.getTextEmbeddings()(inputIds))
@@ -513,7 +600,13 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             axis: 1
         )
         let inputEmbeds = concatenated([prefix.inputPrefixEmbeds, firstTextEmbed], axis: 1)
-        return (inputEmbeds, trailingTextHidden, prefix.ttsPadEmbed, textPrepareStartedAt.elapsedMilliseconds)
+        return (
+            inputEmbeds,
+            trailingTextHidden,
+            prefix.ttsPadEmbed,
+            textPrepareStartedAt.elapsedMilliseconds,
+            targetTokenCount
+        )
     }
 
     private func prepareCustomVoiceInputs(
@@ -521,7 +614,14 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         language: String,
         speaker: String,
         instruct: String?
-    ) throws -> (MLXArray, MLXArray, MLXArray, Bool, [String: Int]) {
+    ) throws -> (
+        inputEmbeds: MLXArray,
+        trailingTextHidden: MLXArray,
+        ttsPadEmbed: MLXArray,
+        prefixCacheHit: Bool,
+        timingsMS: [String: Int],
+        targetTokenCount: Int
+    ) {
         let prefixPrepareStartedAt = ContinuousClock.now
         let cacheKey = prefixCacheKeyForCustomVoice(
             language: language,
@@ -539,16 +639,30 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             "custom_prefix_prepare": prefixPrepareStartedAt.elapsedMilliseconds,
             "custom_prefix_tokenize_ms": prefixTokenizeMS,
             "custom_prefix_embed_build_ms": prefixEmbedBuildMS,
-            "custom_text_prepare_ms": prepared.3,
+            "custom_text_prepare_ms": prepared.textPrepareMS,
         ]
-        return (prepared.0, prepared.1, prepared.2, cacheHit, customTimingsMS)
+        return (
+            prepared.inputEmbeds,
+            prepared.trailingTextHidden,
+            prepared.ttsPadEmbed,
+            cacheHit,
+            customTimingsMS,
+            prepared.targetTokenCount
+        )
     }
 
     private func prepareVoiceDesignInputs(
         text: String,
         language: String,
         voiceDescription: String
-    ) throws -> (MLXArray, MLXArray, MLXArray, Bool, [String: Int]) {
+    ) throws -> (
+        inputEmbeds: MLXArray,
+        trailingTextHidden: MLXArray,
+        ttsPadEmbed: MLXArray,
+        prefixCacheHit: Bool,
+        timingsMS: [String: Int],
+        targetTokenCount: Int
+    ) {
         let prefixPrepareStartedAt = ContinuousClock.now
         let cacheKey = prefixCacheKeyForVoiceDesign(
             language: language,
@@ -565,14 +679,15 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             "design_prefix_prepare": prefixPrepareStartedAt.elapsedMilliseconds,
             "design_prefix_tokenize_ms": prefixTokenizeMS,
             "design_prefix_embed_build_ms": prefixEmbedBuildMS,
-            "design_text_prepare_ms": prepared.3,
+            "design_text_prepare_ms": prepared.textPrepareMS,
         ]
         return (
-            prepared.0,
-            prepared.1,
-            prepared.2,
+            prepared.inputEmbeds,
+            prepared.trailingTextHidden,
+            prepared.ttsPadEmbed,
             cacheHit,
-            designTimingsMS
+            designTimingsMS,
+            prepared.targetTokenCount
         )
     }
 
@@ -730,7 +845,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         }
 
         let startedAt = ContinuousClock.now
-        let (inputEmbedsInit, trailingTextHidden, ttsPadEmbed, prefixCacheHit, customPrefixPrepareMS) = try prepareCustomVoiceInputs(
+        let (inputEmbedsInit, trailingTextHidden, ttsPadEmbed, prefixCacheHit, customPrefixPrepareMS, _) = try prepareCustomVoiceInputs(
             text: text,
             language: language,
             speaker: speaker,
@@ -767,7 +882,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         }
 
         let startedAt = ContinuousClock.now
-        let (inputEmbedsInit, trailingTextHidden, ttsPadEmbed, prefixCacheHit, designPrefixPrepareMS) = try prepareVoiceDesignInputs(
+        let (inputEmbedsInit, trailingTextHidden, ttsPadEmbed, prefixCacheHit, designPrefixPrepareMS, _) = try prepareVoiceDesignInputs(
             text: text,
             language: language,
             voiceDescription: voiceDescription
@@ -853,7 +968,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             text: text,
             voiceClonePrompt: voiceClonePrompt,
             language: language
-        ).0
+        ).inputEmbeds
         try await warmPreparedInputs(
             inputEmbedsInit,
             inputPreparationMS: startedAt.elapsedMilliseconds,
@@ -896,7 +1011,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 refText: refText,
                 speakerEmbedding: speakerEmbedding,
                 language: lang
-            ).0
+            ).inputEmbeds
             preparationBooleanFlags = [:]
             additionalPreparationTimingsMS = [:]
         } else {
@@ -905,12 +1020,12 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 language: lang,
                 voiceDescription: instruct ?? ""
             )
-            inputEmbedsInit = prepared.0
+            inputEmbedsInit = prepared.inputEmbeds
             preparationBooleanFlags = [
-                "prefix_cache_hit": prepared.3,
-                "design_prefix_cache_hit": prepared.3,
+                "prefix_cache_hit": prepared.prefixCacheHit,
+                "design_prefix_cache_hit": prepared.prefixCacheHit,
             ]
-            additionalPreparationTimingsMS = prepared.4
+            additionalPreparationTimingsMS = prepared.timingsMS
         }
 
         try await warmPreparedInputs(
@@ -1203,7 +1318,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         onInfo: ((AudioGenerationInfo) -> Void)? = nil,
         onAudioChunk: ((MLXArray) -> Void)? = nil
     ) throws -> MLXArray {
-        guard let speechTokenizer, let tokenizer else {
+        guard let speechTokenizer, tokenizer != nil else {
             throw AudioGenerationError.modelNotInitialized("Speech tokenizer or text tokenizer not loaded")
         }
 
@@ -1217,6 +1332,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         let refCodes: MLXArray?
         let preparationBooleanFlags: [String: Bool]
         let preparationTimingsMS: [String: Int]
+        let preparedTargetTokenCount: Int
 
         if let voiceClonePrompt {
             let prepared = try prepareVoiceCloneInputs(
@@ -1224,10 +1340,11 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 voiceClonePrompt: voiceClonePrompt,
                 language: language
             )
-            inputEmbedsInit = prepared.0
-            trailingTextHidden = prepared.1
-            ttsPadEmbed = prepared.2
-            refCodes = prepared.3
+            inputEmbedsInit = prepared.inputEmbeds
+            trailingTextHidden = prepared.trailingTextHidden
+            ttsPadEmbed = prepared.ttsPadEmbed
+            refCodes = prepared.refCodes
+            preparedTargetTokenCount = prepared.targetTokenCount
             preparationBooleanFlags = [
                 "clone_prompt_used": true,
                 "decoder_bucket_cache_hit": decoderBucketCacheHit(),
@@ -1244,10 +1361,11 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 speakerEmbedding: speakerEmbedding,
                 language: language
             )
-            inputEmbedsInit = prepared.0
-            trailingTextHidden = prepared.1
-            ttsPadEmbed = prepared.2
-            refCodes = prepared.3
+            inputEmbedsInit = prepared.inputEmbeds
+            trailingTextHidden = prepared.trailingTextHidden
+            ttsPadEmbed = prepared.ttsPadEmbed
+            refCodes = prepared.refCodes
+            preparedTargetTokenCount = prepared.targetTokenCount
             preparationBooleanFlags = [:]
             preparationTimingsMS = [:]
         } else if let speaker {
@@ -1257,40 +1375,41 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 speaker: speaker,
                 instruct: instruct
             )
-            inputEmbedsInit = prepared.0
-            trailingTextHidden = prepared.1
-            ttsPadEmbed = prepared.2
+            inputEmbedsInit = prepared.inputEmbeds
+            trailingTextHidden = prepared.trailingTextHidden
+            ttsPadEmbed = prepared.ttsPadEmbed
             refCodes = nil
+            preparedTargetTokenCount = prepared.targetTokenCount
             preparationBooleanFlags = [
-                "prefix_cache_hit": prepared.3,
-                "custom_prefix_cache_hit": prepared.3,
+                "prefix_cache_hit": prepared.prefixCacheHit,
+                "custom_prefix_cache_hit": prepared.prefixCacheHit,
                 "custom_speaker_conditioning_used": true,
                 "decoder_bucket_cache_hit": decoderBucketCacheHit(),
             ]
-            preparationTimingsMS = prepared.4
+            preparationTimingsMS = prepared.timingsMS
         } else {
             let prepared = try prepareVoiceDesignInputs(
                 text: text,
                 language: language,
                 voiceDescription: instruct ?? ""
             )
-            inputEmbedsInit = prepared.0
-            trailingTextHidden = prepared.1
-            ttsPadEmbed = prepared.2
+            inputEmbedsInit = prepared.inputEmbeds
+            trailingTextHidden = prepared.trailingTextHidden
+            ttsPadEmbed = prepared.ttsPadEmbed
             refCodes = nil
+            preparedTargetTokenCount = prepared.targetTokenCount
             preparationBooleanFlags = [
-                "prefix_cache_hit": prepared.3,
-                "design_prefix_cache_hit": prepared.3,
+                "prefix_cache_hit": prepared.prefixCacheHit,
+                "design_prefix_cache_hit": prepared.prefixCacheHit,
                 "decoder_bucket_cache_hit": decoderBucketCacheHit(),
             ]
-            preparationTimingsMS = prepared.4
+            preparationTimingsMS = prepared.timingsMS
         }
         storePreparationBooleanFlags(preparationBooleanFlags)
         mergePreparationTimingsMS(preparationTimingsMS)
 
         // Cap max tokens based on text length
-        let targetTokenCount = tokenizer.encode(text: text).count
-        let effectiveMaxTokens = min(maxTokens, max(75, targetTokenCount * 6))
+        let effectiveMaxTokens = min(maxTokens, max(75, preparedTargetTokenCount * 6))
 
         // Initialize cache and timing
         let startTime = Date()
@@ -1569,7 +1688,13 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         refText: String,
         speakerEmbedding: MLXArray?,
         language: String
-    ) throws -> (MLXArray, MLXArray, MLXArray, MLXArray) {
+    ) throws -> (
+        inputEmbeds: MLXArray,
+        trailingTextHidden: MLXArray,
+        ttsPadEmbed: MLXArray,
+        refCodes: MLXArray,
+        targetTokenCount: Int
+    ) {
         var refAudioForEncoder = refAudio
         if refAudio.ndim == 1 {
             refAudioForEncoder = refAudio.reshaped(1, 1, refAudio.dim(0))
@@ -1592,12 +1717,19 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         refText: String,
         speakerEmbedding: MLXArray?,
         language: String
-    ) throws -> (MLXArray, MLXArray, MLXArray, MLXArray) {
+    ) throws -> (
+        inputEmbeds: MLXArray,
+        trailingTextHidden: MLXArray,
+        ttsPadEmbed: MLXArray,
+        refCodes: MLXArray,
+        targetTokenCount: Int
+    ) {
         guard let tokenizer, let talkerConfig = config.talkerConfig else {
             throw AudioGenerationError.modelNotInitialized("Tokenizer/config not loaded")
         }
 
         // Reference text and target text tokenization
+        let targetTokenCount = tokenizer.encode(text: text).count
         let refChatText = "<|im_start|>assistant\n\(refText)<|im_end|>\n"
         let refIds = MLXArray(tokenizer.encode(text: refChatText).map { Int32($0) }).reshaped(1, -1)
         let refCount = refIds.dim(1)
@@ -1702,14 +1834,20 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         // Full input embedding
         let inputEmbeds = concatenated([roleEmbed, combinedPrefix, iclInputEmbed], axis: 1)
 
-        return (inputEmbeds, trailingTextHidden, ttsPadEmbed, refCodes)
+        return (inputEmbeds, trailingTextHidden, ttsPadEmbed, refCodes, targetTokenCount)
     }
 
     func prepareVoiceCloneInputs(
         text: String,
         voiceClonePrompt: Qwen3TTSVoiceClonePrompt,
         language: String
-    ) throws -> (MLXArray, MLXArray, MLXArray, MLXArray?) {
+    ) throws -> (
+        inputEmbeds: MLXArray,
+        trailingTextHidden: MLXArray,
+        ttsPadEmbed: MLXArray,
+        refCodes: MLXArray?,
+        targetTokenCount: Int
+    ) {
         if voiceClonePrompt.iclMode {
             guard let refCodes = voiceClonePrompt.refCodes,
                   let refText = voiceClonePrompt.refText,
@@ -1725,22 +1863,40 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 speakerEmbedding: voiceClonePrompt.speakerEmbedding,
                 language: language
             )
-            return prepared
+            return (
+                prepared.inputEmbeds,
+                prepared.trailingTextHidden,
+                prepared.ttsPadEmbed,
+                prepared.refCodes,
+                prepared.targetTokenCount
+            )
         }
 
-        let (inputEmbeds, trailingTextHidden, ttsPadEmbed, _) = try prepareVoiceCloneFromSpeakerOnly(
+        let prepared = try prepareVoiceCloneFromSpeakerOnly(
             text: text,
             language: language,
             voiceClonePrompt: voiceClonePrompt
         )
-        return (inputEmbeds, trailingTextHidden, ttsPadEmbed, nil)
+        return (
+            prepared.inputEmbeds,
+            prepared.trailingTextHidden,
+            prepared.ttsPadEmbed,
+            nil,
+            prepared.targetTokenCount
+        )
     }
 
     private func prepareVoiceCloneFromSpeakerOnly(
         text: String,
         language: String,
         voiceClonePrompt: Qwen3TTSVoiceClonePrompt
-    ) throws -> (MLXArray, MLXArray, MLXArray, Bool) {
+    ) throws -> (
+        inputEmbeds: MLXArray,
+        trailingTextHidden: MLXArray,
+        ttsPadEmbed: MLXArray,
+        prefixCacheHit: Bool,
+        targetTokenCount: Int
+    ) {
         guard let speakerEmbedding = voiceClonePrompt.speakerEmbedding else {
             throw AudioGenerationError.modelNotInitialized(
                 "Qwen3 speaker-only clone prompt is missing a speaker embedding."
@@ -1752,7 +1908,13 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             speakerEmbedding: speakerEmbedding
         )
         let prepared = try prepareInputs(text: text, prefix: prefix)
-        return (prepared.0, prepared.1, prepared.2, cacheHit)
+        return (
+            prepared.inputEmbeds,
+            prepared.trailingTextHidden,
+            prepared.ttsPadEmbed,
+            cacheHit,
+            prepared.targetTokenCount
+        )
     }
 
     private func buildSpeakerConditioningPrefix(
@@ -2122,13 +2284,16 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 modelDir: modelDir,
                 loadOptions: QwenPreparedLoadOptions(
                     trustPreparedCheckpoint: loadBehavior.trustPreparedCheckpoint,
+                    preparedDirectoryAlreadyValidated: loadBehavior.preparedDirectoryAlreadyValidated,
                     loadSpeakerEncoder: loadBehavior.loadSpeakerEncoder,
                     loadSpeechTokenizerEncoder: loadBehavior.loadSpeechTokenizerEncoder,
                     skipSpeechTokenizerEval: loadBehavior.skipSpeechTokenizerEval
                 )
             )
         )
-        try preparePreparedDirectory(modelDir)
+        if !loadBehavior.preparedDirectoryAlreadyValidated {
+            try preparePreparedDirectory(modelDir)
+        }
         await emitPreparedLoadDiagnostic(
             diagnosticEventSink,
             action: "qwen-load-after-prepare-prepared-directory",
@@ -2136,6 +2301,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 modelDir: modelDir,
                 loadOptions: QwenPreparedLoadOptions(
                     trustPreparedCheckpoint: loadBehavior.trustPreparedCheckpoint,
+                    preparedDirectoryAlreadyValidated: loadBehavior.preparedDirectoryAlreadyValidated,
                     loadSpeakerEncoder: loadBehavior.loadSpeakerEncoder,
                     loadSpeechTokenizerEncoder: loadBehavior.loadSpeechTokenizerEncoder,
                     skipSpeechTokenizerEval: loadBehavior.skipSpeechTokenizerEval
@@ -2146,6 +2312,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             modelDir: modelDir,
             loadOptions: QwenPreparedLoadOptions(
                 trustPreparedCheckpoint: loadBehavior.trustPreparedCheckpoint,
+                preparedDirectoryAlreadyValidated: loadBehavior.preparedDirectoryAlreadyValidated,
                 loadSpeakerEncoder: loadBehavior.loadSpeakerEncoder,
                 loadSpeechTokenizerEncoder: loadBehavior.loadSpeechTokenizerEncoder,
                 skipSpeechTokenizerEval: loadBehavior.skipSpeechTokenizerEval
@@ -2307,6 +2474,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
 
         var loadBooleanFlags = talkerComponents.booleanFlags
         loadBooleanFlags["trusted_prepared_checkpoint"] = loadOptions.trustPreparedCheckpoint
+        loadBooleanFlags["prepared_directory_already_validated"] = loadOptions.preparedDirectoryAlreadyValidated
         loadBooleanFlags["tokenizer_cache_hit"] = tokenizerResult.cacheHit
         loadBooleanFlags["tokenizer_direct_config_load"] = tokenizerResult.directConfigLoadUsed
         loadBooleanFlags["tokenizer_direct_config_fallback"] = tokenizerResult.directConfigFallbackUsed
@@ -2556,6 +2724,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         var details: [String: String] = [
             "modelDirectory": modelDir.path,
             "trustPreparedCheckpoint": loadOptions.trustPreparedCheckpoint ? "true" : "false",
+            "preparedDirectoryAlreadyValidated": loadOptions.preparedDirectoryAlreadyValidated ? "true" : "false",
             "loadSpeakerEncoder": loadOptions.loadSpeakerEncoder.map { $0 ? "true" : "false" } ?? "auto",
             "loadSpeechTokenizerEncoder": loadOptions.loadSpeechTokenizerEncoder.map { $0 ? "true" : "false" } ?? "auto",
             "skipSpeechTokenizerEval": loadOptions.skipSpeechTokenizerEval ? "true" : "false",

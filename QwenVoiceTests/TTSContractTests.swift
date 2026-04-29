@@ -39,4 +39,57 @@ final class TTSContractTests: XCTestCase {
             XCTAssertEqual(found?.id, model.id)
         }
     }
+
+    func testContractModelsAreQwen3TTSOnly() throws {
+        for model in TTSContract.models {
+            assertQwen3TTSOnly(model: model, label: model.id)
+        }
+
+        let manifestURL = try XCTUnwrap(TTSContract.manifestURL)
+        let data = try Data(contentsOf: manifestURL)
+        let manifest = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        let rawModels = try XCTUnwrap(manifest["models"] as? [[String: Any]])
+        for rawModel in rawModels {
+            let modelID = rawModel["id"] as? String ?? "unknown"
+            for rawVariant in rawModel["variants"] as? [[String: Any]] ?? [] {
+                let variantID = rawVariant["id"] as? String ?? "unknown"
+                assertQwen3TTSOnly(rawModel: rawVariant, label: "\(modelID).\(variantID)")
+            }
+        }
+    }
+
+    private func assertQwen3TTSOnly(model: TTSModel, label: String) {
+        XCTAssertTrue(
+            model.folder.contains("Qwen3-TTS"),
+            "\(label) must use a Qwen3-TTS model folder."
+        )
+        XCTAssertTrue(
+            model.huggingFaceRepo.contains("Qwen3-TTS"),
+            "\(label) must use a Qwen3-TTS Hugging Face repo."
+        )
+        XCTAssertTrue(
+            model.requiredRelativePaths.contains("speech_tokenizer/model.safetensors"),
+            "\(label) must include the Qwen3-TTS speech tokenizer weights."
+        )
+    }
+
+    private func assertQwen3TTSOnly(rawModel: [String: Any], label: String) {
+        let folder = rawModel["folder"] as? String ?? ""
+        let huggingFaceRepo = rawModel["huggingFaceRepo"] as? String ?? ""
+        let requiredRelativePaths = rawModel["requiredRelativePaths"] as? [String] ?? []
+        XCTAssertTrue(
+            folder.contains("Qwen3-TTS"),
+            "\(label) must use a Qwen3-TTS model folder."
+        )
+        XCTAssertTrue(
+            huggingFaceRepo.contains("Qwen3-TTS"),
+            "\(label) must use a Qwen3-TTS Hugging Face repo."
+        )
+        XCTAssertTrue(
+            requiredRelativePaths.contains("speech_tokenizer/model.safetensors"),
+            "\(label) must include the Qwen3-TTS speech tokenizer weights."
+        )
+    }
 }

@@ -332,6 +332,40 @@ final class GenerationScreenCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testCustomVoiceCoordinatorRoutesOversizedDirectScriptToLongFormBatch() async throws {
+        let (store, engine) = makeReadyStore()
+        let coordinator = CustomVoiceCoordinator()
+        let audioPlayer = AudioPlayerViewModel()
+        let text = String(repeating: "Custom long-form sentence. ", count: 40)
+
+        coordinator.generate(
+            draft: CustomVoiceDraft(
+                selectedSpeaker: "Vivian",
+                emotion: "Normal tone",
+                text: text
+            ),
+            activeModel: TTSModel.model(for: .custom),
+            isModelAvailable: true,
+            ttsEngineStore: store,
+            audioPlayer: audioPlayer,
+            modelManager: ModelManagerViewModel()
+        )
+
+        XCTAssertFalse(coordinator.isGenerating)
+        XCTAssertTrue(engine.generationRequests.isEmpty)
+        guard case .batch(let configuration) = coordinator.presentedSheet else {
+            return XCTFail("Expected oversized script to open long-form batch")
+        }
+        XCTAssertEqual(configuration.initialText, text)
+        XCTAssertEqual(configuration.initialSegmentationMode, .longForm)
+    }
+
+    func testLongTextGenerationRouterUsesNineHundredCharacterLimit() {
+        XCTAssertFalse(LongTextGenerationRouter.shouldRouteToLongFormBatch(String(repeating: "a", count: 900)))
+        XCTAssertTrue(LongTextGenerationRouter.shouldRouteToLongFormBatch(String(repeating: "a", count: 901)))
+    }
+
+    @MainActor
     func testCustomVoiceCoordinatorPreventsDuplicateGenerationRequests() async throws {
         let (store, engine) = makeReadyStore()
         engine.suspendGenerate = true
@@ -635,6 +669,37 @@ final class GenerationScreenCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testVoiceDesignCoordinatorRoutesOversizedDirectScriptToLongFormBatch() async throws {
+        let (store, engine) = makeReadyStore()
+        let coordinator = VoiceDesignCoordinator()
+        let audioPlayer = AudioPlayerViewModel()
+        let text = String(repeating: "Design long-form sentence. ", count: 40)
+        let draft = VoiceDesignDraft(
+            voiceDescription: "Warm narrator",
+            emotion: "Conversational",
+            text: text
+        )
+
+        coordinator.generate(
+            draft: draft,
+            activeModel: TTSModel.model(for: .design),
+            isModelAvailable: true,
+            ttsEngineStore: store,
+            audioPlayer: audioPlayer,
+            modelManager: ModelManagerViewModel()
+        )
+
+        XCTAssertFalse(coordinator.isGenerating)
+        XCTAssertTrue(engine.generationRequests.isEmpty)
+        guard case .batch(let configuration) = coordinator.presentedSheet else {
+            return XCTFail("Expected oversized script to open long-form batch")
+        }
+        XCTAssertEqual(configuration.initialText, text)
+        XCTAssertEqual(configuration.initialSegmentationMode, .longForm)
+        XCTAssertEqual(configuration.voiceDescription, "Warm narrator")
+    }
+
+    @MainActor
     func testVoiceCloningCoordinatorSwallowsCancellationWithoutErrorBanner() async throws {
         let (store, engine) = makeReadyStore()
         engine.generateError = CancellationError()
@@ -820,6 +885,45 @@ final class GenerationScreenCoordinatorTests: XCTestCase {
 
         XCTAssertNil(coordinator.errorMessage)
         XCTAssertFalse(audioPlayer.isLiveStream)
+    }
+
+    @MainActor
+    func testVoiceCloningCoordinatorRoutesOversizedDirectScriptToLongFormBatch() async throws {
+        let (store, engine) = makeReadyStore()
+        let coordinator = VoiceCloningCoordinator()
+        let audioPlayer = AudioPlayerViewModel()
+        let text = String(repeating: "Clone long-form sentence. ", count: 40)
+        var draftValue = VoiceCloningDraft(
+            selectedSavedVoiceID: nil,
+            referenceAudioPath: "/tmp/reference.wav",
+            referenceTranscript: "Reference transcript",
+            text: text
+        )
+        let draft = Binding(
+            get: { draftValue },
+            set: { draftValue = $0 }
+        )
+
+        coordinator.generate(
+            draft: draft,
+            cloneModel: TTSModel.model(for: .clone),
+            isModelAvailable: true,
+            clonePrimingRequestKey: nil,
+            selectedVoice: nil,
+            ttsEngineStore: store,
+            audioPlayer: audioPlayer,
+            modelManager: ModelManagerViewModel()
+        )
+
+        XCTAssertFalse(coordinator.isGenerating)
+        XCTAssertTrue(engine.generationRequests.isEmpty)
+        guard case .batch(let configuration) = coordinator.presentedSheet else {
+            return XCTFail("Expected oversized script to open long-form batch")
+        }
+        XCTAssertEqual(configuration.initialText, text)
+        XCTAssertEqual(configuration.initialSegmentationMode, .longForm)
+        XCTAssertEqual(configuration.refAudio, "/tmp/reference.wav")
+        XCTAssertEqual(configuration.refText, "Reference transcript")
     }
 
     @MainActor

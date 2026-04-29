@@ -17,6 +17,16 @@ final class VoiceCloningCoordinator: ObservableObject {
         presentedSheet = .batch(.clone(draft: draft))
     }
 
+    func presentLongFormBatch(draft: VoiceCloningDraft) {
+        presentedSheet = .batch(
+            .clone(
+                draft: draft,
+                initialText: draft.text,
+                initialSegmentationMode: .longForm
+            )
+        )
+    }
+
     func handleAppear(
         draft: Binding<VoiceCloningDraft>,
         pendingSavedVoiceHandoff: Binding<PendingVoiceCloningHandoff?>
@@ -52,6 +62,20 @@ final class VoiceCloningCoordinator: ObservableObject {
 
         if let model = cloneModel, !isModelAvailable {
             errorMessage = modelManager.recoveryDetail(for: model)
+            return
+        }
+
+        if LongTextGenerationRouter.shouldRouteToLongFormBatch(draft.wrappedValue.text) {
+            ensureSelectedSavedVoiceHydratedIfNeeded(
+                draft: draft,
+                selectedVoice: selectedVoice
+            )
+            let currentDraft = draft.wrappedValue
+            guard currentDraft.referenceAudioPath != nil else {
+                errorMessage = "Select a reference audio file before generating."
+                return
+            }
+            presentLongFormBatch(draft: currentDraft)
             return
         }
 

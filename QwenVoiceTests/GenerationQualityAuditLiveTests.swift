@@ -1,6 +1,7 @@
 import Foundation
 import Dispatch
 import XCTest
+@testable import QwenVoice
 @testable import QwenVoiceNative
 import QwenVoiceEngineSupport
 
@@ -36,6 +37,8 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
     private enum BenchmarkProfile: String {
         case standard = "repeat"
         case coldWarm = "cold-warm"
+        case warmFocus = "warm-focus"
+        case exhaustive
     }
 
     private enum AuditPhase: String {
@@ -43,6 +46,10 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         case cold
         case warm
         case primer
+        case endurance
+        case direct900 = "direct-900"
+        case direct2700 = "direct-2700"
+        case batchLongForm = "batch-long-form"
     }
 
     private struct AuditManifest: Codable {
@@ -53,6 +60,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         let appSupportDirectory: String
         let modelsRoot: String
         let artifacts: [AuditArtifact]
+        let longText: LongTextManifest?
     }
 
     private struct AuditArtifact: Codable {
@@ -64,6 +72,11 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         let mode: String
         let modelID: String
         let text: String
+        let textCharacterCount: Int
+        let textWordCount: Int
+        let segmentCount: Int?
+        let segmentIndex: Int?
+        let batchTotal: Int?
         let appSupportDirectory: String
         let outputPath: String
         let streamSessionDirectory: String?
@@ -71,6 +84,54 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         let wallClockMS: Int
         let realTimeFactor: Double?
         let streamingUsed: Bool
+        let timingsMS: [String: Int]
+        let booleanFlags: [String: Bool]
+    }
+
+    private struct LongTextManifest: Codable {
+        var schemaVersion: Int = 1
+        var generatedAt: String = ISO8601DateFormatter().string(from: Date())
+        var segmentMaxCharacters: Int = LongFormBatchSegmenter.defaultMaxCharacters
+        var directCases: [DirectCase] = []
+        var batchCases: [BatchCase] = []
+        var boundedFailures: [BoundedFailure] = []
+
+        struct DirectCase: Codable {
+            let mode: String
+            let phase: String
+            let characterCount: Int
+            let wordCount: Int
+            let outputPath: String?
+            let error: String?
+        }
+
+        struct BatchCase: Codable {
+            let mode: String
+            let characterCount: Int
+            let wordCount: Int
+            let segmentCount: Int
+            let generated: Int
+            let failed: Int
+            let totalAudioDurationSeconds: Double
+            let segmentOutputPaths: [String?]
+        }
+
+        struct BoundedFailure: Codable {
+            let mode: String
+            let phase: String
+            let characterCount: Int
+            let wordCount: Int
+            let error: String
+        }
+    }
+
+    private struct AuditRunResult {
+        var artifacts: [AuditArtifact]
+        var longText: LongTextManifest?
+    }
+
+    private struct InitializedAuditClient {
+        let client: XPCNativeEngineClient
         let timingsMS: [String: Int]
     }
 
@@ -101,9 +162,93 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         let warmRuns: Int
     }
 
+    func testWarmFocusBenchmarkProfileUsesWarmRunLayout() throws {
+        XCTAssertEqual(try parseBenchmarkProfile("warm-focus"), .warmFocus)
+
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("qwenvoice-warm-focus-test", isDirectory: true)
+        let generatedRoot = root.appendingPathComponent("generated", isDirectory: true)
+        let configuration = LiveAuditConfiguration(
+            outputRoot: root,
+            modelsRoot: root.appendingPathComponent("models", isDirectory: true),
+            modes: [.voiceDesign],
+            cloneReference: nil,
+            cloneTranscript: nil,
+            repeatCount: 1,
+            benchmarkProfile: .warmFocus,
+            coldRuns: 2,
+            warmRuns: 10
+        )
+
+        let runRoot = outputRootForRun(
+            mode: .voiceDesign,
+            iteration: 7,
+            phase: .warm,
+            runIndex: 7,
+            outputRoot: generatedRoot,
+            configuration: configuration
+        )
+
+        XCTAssertTrue(
+            runRoot.path.hasSuffix("/generated/warm/VoiceDesign/run_007"),
+            "Unexpected warm-focus run root: \(runRoot.path)"
+        )
+    }
+
+    func testExhaustiveBenchmarkProfileUsesLongTextRunLayout() throws {
+        XCTAssertEqual(try parseBenchmarkProfile("exhaustive"), .exhaustive)
+
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("qwenvoice-exhaustive-test", isDirectory: true)
+        let generatedRoot = root.appendingPathComponent("generated", isDirectory: true)
+        let configuration = LiveAuditConfiguration(
+            outputRoot: root,
+            modelsRoot: root.appendingPathComponent("models", isDirectory: true),
+            modes: [.customVoice, .voiceDesign, .clones],
+            cloneReference: "/tmp/reference.wav",
+            cloneTranscript: "Reference speech",
+            repeatCount: 1,
+            benchmarkProfile: .exhaustive,
+            coldRuns: 3,
+            warmRuns: 5
+        )
+
+        let runRoot = outputRootForRun(
+            mode: .customVoice,
+            iteration: 1,
+            phase: .direct2700,
+            runIndex: 1,
+            outputRoot: generatedRoot,
+            configuration: configuration
+        )
+
+        XCTAssertTrue(
+            runRoot.path.hasSuffix("/generated/direct-2700/CustomVoice/run_001"),
+            "Unexpected exhaustive direct-run root: \(runRoot.path)"
+        )
+    }
+
+    func testLongTextFixturesAndBatchSegmentationUseNineHundredCharacterBudget() {
+        let directText = Self.longText(characterCount: 2_700, mode: .voiceDesign)
+        XCTAssertEqual(directText.count, 2_700)
+        XCTAssertGreaterThan(Self.wordCount(directText), 100)
+
+        let batchText = Self.longText(characterCount: 9_000, mode: .clones)
+        XCTAssertEqual(batchText.count, 9_000)
+        let segments = LongFormBatchSegmenter.segments(from: batchText)
+
+        XCTAssertGreaterThanOrEqual(segments.count, 10)
+        XCTAssertTrue(segments.allSatisfy { $0.count <= LongFormBatchSegmenter.defaultMaxCharacters })
+        XCTAssertEqual(
+            segments.joined(separator: " ").prefix(80),
+            LongFormBatchSegmenter.segments(from: batchText).joined(separator: " ").prefix(80)
+        )
+    }
+
     func testLiveXPCGenerationQualityAuditArtifacts() async throws {
         let environment = ProcessInfo.processInfo.environment
         let configuration = try loadLiveAuditConfiguration(environment: environment)
+        executionTimeAllowance = configuration.benchmarkProfile == .exhaustive ? 7_200 : 1_800
         let outputRoot = configuration.outputRoot
         let modelsRoot = configuration.modelsRoot
         let modes = configuration.modes
@@ -113,19 +258,44 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         try FileManager.default.createDirectory(at: outputRoot, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: generatedRoot, withIntermediateDirectories: true)
 
-        let artifacts: [AuditArtifact]
+        let runResult: AuditRunResult
         switch configuration.benchmarkProfile {
         case .standard:
             let repeatAppSupportRoot = appSupportRoot.appendingPathComponent("repeat", isDirectory: true)
-            artifacts = try await runRepeatAudit(
-                configuration: configuration,
-                modes: modes,
-                modelsRoot: modelsRoot,
-                appSupportRoot: repeatAppSupportRoot,
-                generatedRoot: generatedRoot
+            runResult = AuditRunResult(
+                artifacts: try await runRepeatAudit(
+                    configuration: configuration,
+                    modes: modes,
+                    modelsRoot: modelsRoot,
+                    appSupportRoot: repeatAppSupportRoot,
+                    generatedRoot: generatedRoot
+                ),
+                longText: nil
             )
         case .coldWarm:
-            artifacts = try await runColdWarmBenchmark(
+            runResult = AuditRunResult(
+                artifacts: try await runColdWarmBenchmark(
+                    configuration: configuration,
+                    modes: modes,
+                    modelsRoot: modelsRoot,
+                    appSupportBase: appSupportRoot,
+                    generatedRoot: generatedRoot
+                ),
+                longText: nil
+            )
+        case .warmFocus:
+            runResult = AuditRunResult(
+                artifacts: try await runWarmFocusBenchmark(
+                    configuration: configuration,
+                    modes: modes,
+                    modelsRoot: modelsRoot,
+                    appSupportBase: appSupportRoot,
+                    generatedRoot: generatedRoot
+                ),
+                longText: nil
+            )
+        case .exhaustive:
+            runResult = try await runExhaustiveBenchmark(
                 configuration: configuration,
                 modes: modes,
                 modelsRoot: modelsRoot,
@@ -137,14 +307,19 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         let manifest = AuditManifest(
             generatedAt: ISO8601DateFormatter().string(from: Date()),
             benchmarkProfile: configuration.benchmarkProfile.rawValue,
-            coldRuns: configuration.benchmarkProfile == .coldWarm ? configuration.coldRuns : nil,
-            warmRuns: configuration.benchmarkProfile == .coldWarm ? configuration.warmRuns : nil,
+            coldRuns: [.coldWarm, .exhaustive].contains(configuration.benchmarkProfile) ? configuration.coldRuns : nil,
+            warmRuns: configuration.benchmarkProfile == .standard ? nil : configuration.warmRuns,
             appSupportDirectory: appSupportRoot.path,
             modelsRoot: modelsRoot.path,
-            artifacts: artifacts
+            artifacts: runResult.artifacts,
+            longText: runResult.longText
         )
         let data = try JSONEncoder.audioQCEncoder.encode(manifest)
         try data.write(to: outputRoot.appendingPathComponent("generation-manifest.json"))
+        if let longText = runResult.longText {
+            let longTextData = try JSONEncoder.audioQCEncoder.encode(longText)
+            try longTextData.write(to: outputRoot.appendingPathComponent("long-text-manifest.json"))
+        }
     }
 
     private func runRepeatAudit(
@@ -154,13 +329,12 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         appSupportRoot: URL,
         generatedRoot: URL
     ) async throws -> [AuditArtifact] {
-        try mirrorRequiredModels(for: modes, from: modelsRoot, into: appSupportRoot)
-
-        let chunkRecorder = LiveChunkArtifactRecorder()
-        let client = XPCNativeEngineClient(onChunk: { event in
-            chunkRecorder.record(event)
-        })
-        try await client.initialize(appSupportDirectory: appSupportRoot)
+        let initialized = try await makeInitializedClient(
+            modes: modes,
+            modelsRoot: modelsRoot,
+            appSupportRoot: appSupportRoot
+        )
+        let client = initialized.client
         defer {
             Task {
                 await client.debugInvalidateConnectionForTesting()
@@ -168,6 +342,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         }
 
         var artifacts: [AuditArtifact] = []
+        var pendingInitializationTimings = initialized.timingsMS
         for iteration in 1...configuration.repeatCount {
             for mode in modes {
                 artifacts.append(
@@ -181,9 +356,11 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
                         qcEligible: true,
                         appSupportRoot: appSupportRoot,
                         generatedRoot: generatedRoot,
-                        configuration: configuration
+                        configuration: configuration,
+                        extraTimingsMS: pendingInitializationTimings
                     )
                 )
+                pendingInitializationTimings = [:]
             }
         }
         return artifacts
@@ -199,16 +376,16 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         var artifacts: [AuditArtifact] = []
 
         for mode in modes {
+            let coldAppSupportRoot = appSupportBase
+                .appendingPathComponent("cold", isDirectory: true)
+                .appendingPathComponent(mode.rawValue, isDirectory: true)
             for runIndex in 1...configuration.coldRuns {
-                let appSupportRoot = appSupportBase
-                    .appendingPathComponent("cold", isDirectory: true)
-                    .appendingPathComponent(mode.rawValue, isDirectory: true)
-                    .appendingPathComponent(String(format: "run_%03d", runIndex), isDirectory: true)
-                let client = try await makeInitializedClient(
+                let initialized = try await makeInitializedClient(
                     modes: [mode],
                     modelsRoot: modelsRoot,
-                    appSupportRoot: appSupportRoot
+                    appSupportRoot: coldAppSupportRoot
                 )
+                let client = initialized.client
                 do {
                     artifacts.append(
                         try await generateArtifact(
@@ -219,9 +396,10 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
                             runIndex: runIndex,
                             measured: true,
                             qcEligible: true,
-                            appSupportRoot: appSupportRoot,
+                            appSupportRoot: coldAppSupportRoot,
                             generatedRoot: generatedRoot,
-                            configuration: configuration
+                            configuration: configuration,
+                            extraTimingsMS: initialized.timingsMS
                         )
                     )
                     await shutdownBenchmarkClient(client)
@@ -239,10 +417,11 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
                 modelsRoot: modelsRoot,
                 appSupportRoot: warmAppSupportRoot
             )
+            let warmXPCClient = warmClient.client
             do {
                 artifacts.append(
                     try await generateArtifact(
-                        client: warmClient,
+                        client: warmXPCClient,
                         mode: mode,
                         iteration: 0,
                         phase: .primer,
@@ -251,13 +430,14 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
                         qcEligible: false,
                         appSupportRoot: warmAppSupportRoot,
                         generatedRoot: generatedRoot,
-                        configuration: configuration
+                        configuration: configuration,
+                        extraTimingsMS: warmClient.timingsMS
                     )
                 )
                 for runIndex in 1...configuration.warmRuns {
                     artifacts.append(
                         try await generateArtifact(
-                            client: warmClient,
+                            client: warmXPCClient,
                             mode: mode,
                             iteration: runIndex,
                             phase: .warm,
@@ -270,9 +450,9 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
                         )
                     )
                 }
-                await shutdownBenchmarkClient(warmClient)
+                await shutdownBenchmarkClient(warmXPCClient)
             } catch {
-                await shutdownBenchmarkClient(warmClient)
+                await shutdownBenchmarkClient(warmXPCClient)
                 throw error
             }
         }
@@ -280,18 +460,380 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         return artifacts
     }
 
+    private func runWarmFocusBenchmark(
+        configuration: LiveAuditConfiguration,
+        modes: [AuditMode],
+        modelsRoot: URL,
+        appSupportBase: URL,
+        generatedRoot: URL
+    ) async throws -> [AuditArtifact] {
+        guard modes == [.voiceDesign] else {
+            throw NSError(
+                domain: "GenerationQualityAuditLiveTests",
+                code: 10,
+                userInfo: [NSLocalizedDescriptionKey: "warm-focus benchmark supports VoiceDesign only."]
+            )
+        }
+
+        let mode = AuditMode.voiceDesign
+        let warmAppSupportRoot = appSupportBase
+            .appendingPathComponent("warm-focus", isDirectory: true)
+            .appendingPathComponent(mode.rawValue, isDirectory: true)
+        let warmClient = try await makeInitializedClient(
+            modes: [mode],
+            modelsRoot: modelsRoot,
+            appSupportRoot: warmAppSupportRoot
+        )
+        let warmXPCClient = warmClient.client
+        do {
+            var artifacts: [AuditArtifact] = [
+                try await generateArtifact(
+                    client: warmXPCClient,
+                    mode: mode,
+                    iteration: 0,
+                    phase: .primer,
+                    runIndex: 0,
+                    measured: false,
+                    qcEligible: false,
+                    appSupportRoot: warmAppSupportRoot,
+                    generatedRoot: generatedRoot,
+                    configuration: configuration,
+                    extraTimingsMS: warmClient.timingsMS
+                )
+            ]
+            for runIndex in 1...configuration.warmRuns {
+                artifacts.append(
+                    try await generateArtifact(
+                        client: warmXPCClient,
+                        mode: mode,
+                        iteration: runIndex,
+                        phase: .warm,
+                        runIndex: runIndex,
+                        measured: true,
+                        qcEligible: true,
+                        appSupportRoot: warmAppSupportRoot,
+                        generatedRoot: generatedRoot,
+                        configuration: configuration
+                    )
+                )
+            }
+            await shutdownBenchmarkClient(warmXPCClient)
+            return artifacts
+        } catch {
+            await shutdownBenchmarkClient(warmXPCClient)
+            throw error
+        }
+    }
+
+    private func runExhaustiveBenchmark(
+        configuration: LiveAuditConfiguration,
+        modes: [AuditMode],
+        modelsRoot: URL,
+        appSupportBase: URL,
+        generatedRoot: URL
+    ) async throws -> AuditRunResult {
+        var artifacts = try await runColdWarmBenchmark(
+            configuration: configuration,
+            modes: modes,
+            modelsRoot: modelsRoot,
+            appSupportBase: appSupportBase,
+            generatedRoot: generatedRoot
+        )
+        artifacts.append(contentsOf: try await runWarmEnduranceBenchmark(
+            configuration: configuration,
+            modes: modes,
+            modelsRoot: modelsRoot,
+            appSupportBase: appSupportBase,
+            generatedRoot: generatedRoot
+        ))
+
+        var longText = LongTextManifest()
+        let directResult = try await runDirectLongTextBenchmark(
+            configuration: configuration,
+            modes: modes,
+            modelsRoot: modelsRoot,
+            appSupportBase: appSupportBase,
+            generatedRoot: generatedRoot
+        )
+        artifacts.append(contentsOf: directResult.artifacts)
+        longText.directCases.append(contentsOf: directResult.directCases)
+        longText.boundedFailures.append(contentsOf: directResult.boundedFailures)
+
+        let batchResult = try await runLongFormBatchBenchmark(
+            configuration: configuration,
+            modes: modes,
+            modelsRoot: modelsRoot,
+            appSupportBase: appSupportBase,
+            generatedRoot: generatedRoot
+        )
+        artifacts.append(contentsOf: batchResult.artifacts)
+        longText.batchCases.append(contentsOf: batchResult.batchCases)
+
+        return AuditRunResult(artifacts: artifacts, longText: longText)
+    }
+
+    private func runWarmEnduranceBenchmark(
+        configuration: LiveAuditConfiguration,
+        modes: [AuditMode],
+        modelsRoot: URL,
+        appSupportBase: URL,
+        generatedRoot: URL
+    ) async throws -> [AuditArtifact] {
+        var artifacts: [AuditArtifact] = []
+        for mode in modes {
+            let enduranceAppSupportRoot = appSupportBase
+                .appendingPathComponent("endurance", isDirectory: true)
+                .appendingPathComponent(mode.rawValue, isDirectory: true)
+            let warmClient = try await makeInitializedClient(
+                modes: [mode],
+                modelsRoot: modelsRoot,
+                appSupportRoot: enduranceAppSupportRoot
+            )
+            let client = warmClient.client
+            do {
+                artifacts.append(
+                    try await generateArtifact(
+                        client: client,
+                        mode: mode,
+                        iteration: 0,
+                        phase: .primer,
+                        runIndex: 0,
+                        measured: false,
+                        qcEligible: false,
+                        appSupportRoot: enduranceAppSupportRoot,
+                        generatedRoot: generatedRoot,
+                        configuration: configuration,
+                        extraTimingsMS: warmClient.timingsMS
+                    )
+                )
+                for runIndex in 1...10 {
+                    artifacts.append(
+                        try await generateArtifact(
+                            client: client,
+                            mode: mode,
+                            iteration: runIndex,
+                            phase: .endurance,
+                            runIndex: runIndex,
+                            measured: true,
+                            qcEligible: true,
+                            appSupportRoot: enduranceAppSupportRoot,
+                            generatedRoot: generatedRoot,
+                            configuration: configuration
+                        )
+                    )
+                }
+                await shutdownBenchmarkClient(client)
+            } catch {
+                await shutdownBenchmarkClient(client)
+                throw error
+            }
+        }
+        return artifacts
+    }
+
+    private struct DirectLongTextResult {
+        var artifacts: [AuditArtifact] = []
+        var directCases: [LongTextManifest.DirectCase] = []
+        var boundedFailures: [LongTextManifest.BoundedFailure] = []
+    }
+
+    private func runDirectLongTextBenchmark(
+        configuration: LiveAuditConfiguration,
+        modes: [AuditMode],
+        modelsRoot: URL,
+        appSupportBase: URL,
+        generatedRoot: URL
+    ) async throws -> DirectLongTextResult {
+        var result = DirectLongTextResult()
+        for mode in modes {
+            let directAppSupportRoot = appSupportBase
+                .appendingPathComponent("direct-long-text", isDirectory: true)
+                .appendingPathComponent(mode.rawValue, isDirectory: true)
+            let initialized = try await makeInitializedClient(
+                modes: [mode],
+                modelsRoot: modelsRoot,
+                appSupportRoot: directAppSupportRoot
+            )
+            let client = initialized.client
+            var pendingTimings = initialized.timingsMS
+            do {
+                for (phase, characterCount) in [(AuditPhase.direct900, 900), (.direct2700, 2_700)] {
+                    let text = Self.longText(characterCount: characterCount, mode: mode)
+                    do {
+                        let artifact = try await generateArtifact(
+                            client: client,
+                            mode: mode,
+                            iteration: 1,
+                            phase: phase,
+                            runIndex: 1,
+                            measured: true,
+                            qcEligible: true,
+                            appSupportRoot: directAppSupportRoot,
+                            generatedRoot: generatedRoot,
+                            configuration: configuration,
+                            extraTimingsMS: pendingTimings,
+                            textOverride: text
+                        )
+                        pendingTimings = [:]
+                        result.artifacts.append(artifact)
+                        result.directCases.append(LongTextManifest.DirectCase(
+                            mode: mode.rawValue,
+                            phase: phase.rawValue,
+                            characterCount: text.count,
+                            wordCount: Self.wordCount(text),
+                            outputPath: artifact.outputPath,
+                            error: nil
+                        ))
+                    } catch {
+                        let boundedFailure = LongTextManifest.BoundedFailure(
+                            mode: mode.rawValue,
+                            phase: phase.rawValue,
+                            characterCount: text.count,
+                            wordCount: Self.wordCount(text),
+                            error: String(describing: error)
+                        )
+                        guard phase == .direct2700 else {
+                            throw error
+                        }
+                        result.boundedFailures.append(boundedFailure)
+                        result.directCases.append(LongTextManifest.DirectCase(
+                            mode: mode.rawValue,
+                            phase: phase.rawValue,
+                            characterCount: text.count,
+                            wordCount: Self.wordCount(text),
+                            outputPath: nil,
+                            error: boundedFailure.error
+                        ))
+                    }
+                }
+                await shutdownBenchmarkClient(client)
+            } catch {
+                await shutdownBenchmarkClient(client)
+                throw error
+            }
+        }
+        return result
+    }
+
+    private struct LongFormBatchResult {
+        var artifacts: [AuditArtifact] = []
+        var batchCases: [LongTextManifest.BatchCase] = []
+    }
+
+    private func runLongFormBatchBenchmark(
+        configuration: LiveAuditConfiguration,
+        modes: [AuditMode],
+        modelsRoot: URL,
+        appSupportBase: URL,
+        generatedRoot: URL
+    ) async throws -> LongFormBatchResult {
+        var batchResult = LongFormBatchResult()
+        for mode in modes {
+            let batchText = Self.longText(characterCount: 9_000, mode: mode)
+            let segments = LongFormBatchSegmenter.segments(from: batchText)
+            XCTAssertFalse(segments.isEmpty, "Long-form batch text should create at least one segment.")
+            XCTAssertTrue(
+                segments.allSatisfy { $0.count <= LongFormBatchSegmenter.defaultMaxCharacters },
+                "Long-form segments must respect the 900-character product budget."
+            )
+
+            let batchAppSupportRoot = appSupportBase
+                .appendingPathComponent("batch-long-form", isDirectory: true)
+                .appendingPathComponent(mode.rawValue, isDirectory: true)
+            let initialized = try await makeInitializedClient(
+                modes: [mode],
+                modelsRoot: modelsRoot,
+                appSupportRoot: batchAppSupportRoot
+            )
+            let client = initialized.client
+            do {
+                let requests = try segments.enumerated().map { index, segment in
+                    let segmentRoot = generatedRoot
+                        .appendingPathComponent(AuditPhase.batchLongForm.rawValue, isDirectory: true)
+                        .appendingPathComponent(mode.rawValue, isDirectory: true)
+                        .appendingPathComponent(String(format: "segment_%03d", index + 1), isDirectory: true)
+                    let outputURL = segmentRoot.appendingPathComponent("\(mode.fileStem).wav")
+                    return try makeRequest(
+                        mode: mode,
+                        iteration: index + 1,
+                        phase: .batchLongForm,
+                        runIndex: index + 1,
+                        outputRoot: generatedRoot,
+                        configuration: configuration,
+                        textOverride: segment,
+                        outputURLOverride: outputURL,
+                        batchIndex: index + 1,
+                        batchTotal: segments.count
+                    )
+                }
+                let started = DispatchTime.now().uptimeNanoseconds
+                let results = try await client.generateBatch(requests, progressHandler: nil)
+                let batchWallClockMS = elapsedMilliseconds(since: started)
+                XCTAssertEqual(results.count, requests.count, "Batch result count should match request count.")
+
+                var segmentArtifacts: [AuditArtifact] = []
+                for (index, result) in results.enumerated() {
+                    let request = requests[index]
+                    let artifact = try makeArtifact(
+                        mode: mode,
+                        request: request,
+                        result: result,
+                        iteration: index + 1,
+                        phase: .batchLongForm,
+                        runIndex: index + 1,
+                        measured: true,
+                        qcEligible: true,
+                        appSupportRoot: batchAppSupportRoot,
+                        wallClockMS: batchWallClockMS,
+                        extraTimingsMS: initialized.timingsMS.merging(["batch_wall_ms": batchWallClockMS]) { current, _ in current },
+                        segmentCount: segments.count,
+                        segmentIndex: index + 1,
+                        batchTotal: segments.count
+                    )
+                    segmentArtifacts.append(artifact)
+                }
+                batchResult.artifacts.append(contentsOf: segmentArtifacts)
+                batchResult.batchCases.append(LongTextManifest.BatchCase(
+                    mode: mode.rawValue,
+                    characterCount: batchText.count,
+                    wordCount: Self.wordCount(batchText),
+                    segmentCount: segments.count,
+                    generated: segmentArtifacts.count,
+                    failed: max(0, segments.count - segmentArtifacts.count),
+                    totalAudioDurationSeconds: segmentArtifacts.map(\.durationSeconds).reduce(0, +),
+                    segmentOutputPaths: requests.enumerated().map { index, _ in
+                        index < segmentArtifacts.count ? segmentArtifacts[index].outputPath : nil
+                    }
+                ))
+                await shutdownBenchmarkClient(client)
+            } catch {
+                await shutdownBenchmarkClient(client)
+                throw error
+            }
+        }
+        return batchResult
+    }
+
     private func makeInitializedClient(
         modes: [AuditMode],
         modelsRoot: URL,
         appSupportRoot: URL
-    ) async throws -> XPCNativeEngineClient {
-        try mirrorRequiredModels(for: modes, from: modelsRoot, into: appSupportRoot)
+    ) async throws -> InitializedAuditClient {
+        let modelMirrorMS = try mirrorRequiredModels(for: modes, from: modelsRoot, into: appSupportRoot)
         let chunkRecorder = LiveChunkArtifactRecorder()
         let client = XPCNativeEngineClient(onChunk: { event in
             chunkRecorder.record(event)
         })
+        let initializeStarted = DispatchTime.now().uptimeNanoseconds
         try await client.initialize(appSupportDirectory: appSupportRoot)
-        return client
+        let clientInitializeMS = elapsedMilliseconds(since: initializeStarted)
+        return InitializedAuditClient(
+            client: client,
+            timingsMS: [
+                "model_mirror_ms": modelMirrorMS,
+                "client_initialize_ms": clientInitializeMS,
+            ]
+        )
     }
 
     private func shutdownBenchmarkClient(_ client: XPCNativeEngineClient) async {
@@ -327,7 +869,9 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         qcEligible: Bool,
         appSupportRoot: URL,
         generatedRoot: URL,
-        configuration: LiveAuditConfiguration
+        configuration: LiveAuditConfiguration,
+        extraTimingsMS: [String: Int] = [:],
+        textOverride: String? = nil
     ) async throws -> AuditArtifact {
         let request = try makeRequest(
             mode: mode,
@@ -335,13 +879,44 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             phase: phase,
             runIndex: runIndex,
             outputRoot: generatedRoot,
-            configuration: configuration
+            configuration: configuration,
+            textOverride: textOverride
         )
         let started = DispatchTime.now().uptimeNanoseconds
         let result = try await client.generate(request)
-        let finished = DispatchTime.now().uptimeNanoseconds
-        let wallClockMS = Int((finished - started) / 1_000_000)
+        let wallClockMS = elapsedMilliseconds(since: started)
 
+        return try makeArtifact(
+            mode: mode,
+            request: request,
+            result: result,
+            iteration: iteration,
+            phase: phase,
+            runIndex: runIndex,
+            measured: measured,
+            qcEligible: qcEligible,
+            appSupportRoot: appSupportRoot,
+            wallClockMS: wallClockMS,
+            extraTimingsMS: extraTimingsMS
+        )
+    }
+
+    private func makeArtifact(
+        mode: AuditMode,
+        request: GenerationRequest,
+        result: GenerationResult,
+        iteration: Int,
+        phase: AuditPhase,
+        runIndex: Int,
+        measured: Bool,
+        qcEligible: Bool,
+        appSupportRoot: URL,
+        wallClockMS: Int,
+        extraTimingsMS: [String: Int] = [:],
+        segmentCount: Int? = nil,
+        segmentIndex: Int? = nil,
+        batchTotal: Int? = nil
+    ) throws -> AuditArtifact {
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: result.audioPath),
             "Expected generated audio at \(result.audioPath)."
@@ -367,6 +942,11 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             mode: mode.rawValue,
             modelID: request.modelID,
             text: request.text,
+            textCharacterCount: request.text.count,
+            textWordCount: Self.wordCount(request.text),
+            segmentCount: segmentCount,
+            segmentIndex: segmentIndex,
+            batchTotal: batchTotal ?? request.batchTotal,
             appSupportDirectory: appSupportRoot.path,
             outputPath: result.audioPath,
             streamSessionDirectory: result.streamSessionDirectory,
@@ -374,7 +954,10 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             wallClockMS: wallClockMS,
             realTimeFactor: realTimeFactor,
             streamingUsed: result.benchmarkSample?.streamingUsed ?? request.shouldStream,
-            timingsMS: result.benchmarkSample?.timingsMS ?? [:]
+            timingsMS: (result.benchmarkSample?.timingsMS ?? [:])
+                .merging(extraTimingsMS) { current, _ in current }
+                .merging(["request_wall_ms": wallClockMS]) { current, _ in current },
+            booleanFlags: result.benchmarkSample?.booleanFlags ?? [:]
         )
     }
 
@@ -453,6 +1036,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             )
         }
         return URL(fileURLWithPath: rawValue, isDirectory: true)
+            .standardizedFileURL
     }
 
     private func parseModes(_ rawValue: String?) throws -> [AuditMode] {
@@ -519,7 +1103,8 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         for modes: [AuditMode],
         from modelsRoot: URL,
         into appSupportRoot: URL
-    ) throws {
+    ) throws -> Int {
+        let started = DispatchTime.now().uptimeNanoseconds
         let destinationRoot = appSupportRoot.appendingPathComponent("models", isDirectory: true)
         try FileManager.default.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
 
@@ -530,9 +1115,51 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
 
             let destination = destinationRoot.appendingPathComponent(model.folder, isDirectory: true)
             if FileManager.default.fileExists(atPath: destination.path) {
-                try FileManager.default.removeItem(at: destination)
+                do {
+                    try validateInstalledModel(model, at: destination)
+                    continue
+                } catch {
+                    try FileManager.default.removeItem(at: destination)
+                }
             }
-            try FileManager.default.createSymbolicLink(at: destination, withDestinationURL: source)
+            try mirrorModelDirectory(from: source, to: destination)
+        }
+        return elapsedMilliseconds(since: started)
+    }
+
+    private func mirrorModelDirectory(from source: URL, to destination: URL) throws {
+        try FileManager.default.createDirectory(
+            at: destination,
+            withIntermediateDirectories: true
+        )
+
+        let sourceContents = try FileManager.default.contentsOfDirectory(
+            at: source,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: []
+        )
+
+        for sourceItem in sourceContents {
+            if sourceItem.lastPathComponent.contains(".tmp.") {
+                continue
+            }
+            let isDirectory = try sourceItem.resourceValues(
+                forKeys: [.isDirectoryKey]
+            ).isDirectory ?? false
+            let destinationItem = destination.appendingPathComponent(
+                sourceItem.lastPathComponent,
+                isDirectory: isDirectory
+            )
+
+            if isDirectory {
+                try mirrorModelDirectory(from: sourceItem, to: destinationItem)
+            } else {
+                do {
+                    try FileManager.default.linkItem(at: sourceItem, to: destinationItem)
+                } catch {
+                    try FileManager.default.copyItem(at: sourceItem, to: destinationItem)
+                }
+            }
         }
     }
 
@@ -565,7 +1192,11 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         phase: AuditPhase,
         runIndex: Int,
         outputRoot: URL,
-        configuration: LiveAuditConfiguration
+        configuration: LiveAuditConfiguration,
+        textOverride: String? = nil,
+        outputURLOverride: URL? = nil,
+        batchIndex: Int? = nil,
+        batchTotal: Int? = nil
     ) throws -> GenerationRequest {
         let runRoot = outputRootForRun(
             mode: mode,
@@ -576,16 +1207,23 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             configuration: configuration
         )
         try FileManager.default.createDirectory(at: runRoot, withIntermediateDirectories: true)
-        let outputURL = runRoot.appendingPathComponent("\(mode.fileStem).wav")
+        let outputURL = outputURLOverride ?? runRoot.appendingPathComponent("\(mode.fileStem).wav")
+        try FileManager.default.createDirectory(
+            at: outputURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
 
         switch mode {
         case .customVoice:
+            let text = textOverride ?? "Hello from the Vocello audio quality audit with a clear complete short phrase for smooth playback"
             return GenerationRequest(
                 modelID: mode.modelID,
-                text: "Hello from the Vocello audio quality audit with a clear complete short phrase for smooth playback",
+                text: text,
                 outputPath: outputURL.path,
                 shouldStream: true,
                 streamingInterval: GenerationSemantics.appStreamingInterval,
+                batchIndex: batchIndex,
+                batchTotal: batchTotal,
                 streamingTitle: "Audio QC Custom Voice",
                 payload: .custom(
                     speakerID: "vivian",
@@ -593,12 +1231,15 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
                 )
             )
         case .voiceDesign:
+            let text = textOverride ?? "Welcome to the Vocello generation quality audit with steady continuous speech and smooth playback throughout"
             return GenerationRequest(
                 modelID: mode.modelID,
-                text: "Welcome to the Vocello generation quality audit with steady continuous speech and smooth playback throughout",
+                text: text,
                 outputPath: outputURL.path,
                 shouldStream: true,
                 streamingInterval: GenerationSemantics.appStreamingInterval,
+                batchIndex: batchIndex,
+                batchTotal: batchTotal,
                 streamingTitle: "Audio QC Voice Design",
                 payload: .design(
                     voiceDescription: "A warm, steady narrator with clear pronunciation and calm pacing.",
@@ -607,12 +1248,15 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             )
         case .clones:
             let referencePath = try requireCloneReference(configuration)
+            let text = textOverride ?? "This is a short cloned voice quality audit for smooth playback and complete final audio."
             return GenerationRequest(
                 modelID: mode.modelID,
-                text: "This is a short cloned voice quality audit for smooth playback and complete final audio.",
+                text: text,
                 outputPath: outputURL.path,
                 shouldStream: true,
                 streamingInterval: GenerationSemantics.appStreamingInterval,
+                batchIndex: batchIndex,
+                batchTotal: batchTotal,
                 streamingTitle: "Audio QC Voice Clone",
                 payload: .clone(
                     reference: CloneReference(
@@ -639,7 +1283,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
                 ? outputRoot.appendingPathComponent(String(format: "run_%03d", iteration), isDirectory: true)
                 : outputRoot
             return runRoot.appendingPathComponent(mode.rawValue, isDirectory: true)
-        case .coldWarm:
+        case .coldWarm, .warmFocus, .exhaustive:
             return outputRoot
                 .appendingPathComponent(phase.rawValue, isDirectory: true)
                 .appendingPathComponent(mode.rawValue, isDirectory: true)
@@ -681,6 +1325,38 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+    }
+
+    private func elapsedMilliseconds(since started: UInt64) -> Int {
+        Int((DispatchTime.now().uptimeNanoseconds - started) / 1_000_000)
+    }
+
+    private static func longText(characterCount: Int, mode: AuditMode) -> String {
+        precondition(characterCount > 0)
+        let sentence: String
+        switch mode {
+        case .customVoice:
+            sentence = "Vivian narrates a practical product update with calm pacing, clear consonants, and a steady rhythm for a long local synthesis benchmark."
+        case .voiceDesign:
+            sentence = "The designed narrator remains warm, precise, and unhurried while carrying a longer paragraph through several connected ideas for audio quality review."
+        case .clones:
+            sentence = "The cloned voice benchmark reads neutral operational prose with consistent cadence, moderate energy, and natural pauses across a longer passage."
+        }
+
+        var text = sentence
+        while text.count < characterCount {
+            text += " " + sentence
+        }
+        text = String(text.prefix(characterCount))
+        if text.last?.isWhitespace == true {
+            text.removeLast()
+            text.append(".")
+        }
+        return text
+    }
+
+    private static func wordCount(_ text: String) -> Int {
+        text.split(whereSeparator: \.isWhitespace).count
     }
 }
 

@@ -204,6 +204,10 @@ public actor MacNativeRuntime {
                 reference: reference,
                 sampleRate: model.sampleRate
             )
+            let cloneLanguage = GenerationSemantics.qwenLanguageHint(
+                for: request,
+                resolvedCloneTranscript: conditioning.resolvedTranscript
+            )
             let resolvedConditioning = if let activeCloneConditioning,
                                           activeCloneConditioning.internalIdentityKey == conditioning.internalIdentityKey {
                 activeCloneConditioning
@@ -212,7 +216,8 @@ public actor MacNativeRuntime {
                     for: conditioning,
                     modelID: request.modelID,
                     model: model,
-                    voicesDirectory: try requirePaths().voicesDirectory
+                    voicesDirectory: try requirePaths().voicesDirectory,
+                    language: cloneLanguage
                 )
             }
             guard !(await loadCoordinator.isPrewarmed(identityKey: resolvedConditioning.internalIdentityKey)) else {
@@ -284,6 +289,10 @@ public actor MacNativeRuntime {
                 reference: reference,
                 sampleRate: model.sampleRate
             )
+            let cloneLanguage = GenerationSemantics.qwenLanguageHint(
+                for: request,
+                resolvedCloneTranscript: resolvedConditioning.resolvedTranscript
+            )
             let reusedActiveConditioning = activeCloneConditioning?.internalIdentityKey
                 == resolvedConditioning.internalIdentityKey
             let conditioning = if let activeCloneConditioning, reusedActiveConditioning {
@@ -293,7 +302,8 @@ public actor MacNativeRuntime {
                     for: resolvedConditioning,
                     modelID: request.modelID,
                     model: model,
-                    voicesDirectory: try requirePaths().voicesDirectory
+                    voicesDirectory: try requirePaths().voicesDirectory,
+                    language: cloneLanguage
                 )
             }
             cloneConditioning = conditioning
@@ -513,6 +523,17 @@ public actor MacNativeRuntime {
             reference: reference,
             sampleRate: model.sampleRate
         )
+        let cloneLanguage = GenerationSemantics.qwenLanguageHint(
+            for: GenerationRequest(
+                mode: .clone,
+                modelID: modelID,
+                text: "Hi.",
+                outputPath: "",
+                shouldStream: true,
+                payload: .clone(reference: reference)
+            ),
+            resolvedCloneTranscript: conditioning.resolvedTranscript
+        )
         let resolvedConditioning = if let activeCloneConditioning,
                                        activeCloneConditioning.internalIdentityKey == conditioning.internalIdentityKey {
             activeCloneConditioning
@@ -521,7 +542,8 @@ public actor MacNativeRuntime {
                 for: conditioning,
                 modelID: modelID,
                 model: model,
-                voicesDirectory: try requirePaths().voicesDirectory
+                voicesDirectory: try requirePaths().voicesDirectory,
+                language: cloneLanguage
             )
         }
 

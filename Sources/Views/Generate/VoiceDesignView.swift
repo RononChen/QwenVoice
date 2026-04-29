@@ -83,7 +83,9 @@ struct VoiceDesignView: View {
                     emotion: configuration.emotion,
                     voiceDescription: configuration.voiceDescription,
                     refAudio: configuration.refAudio,
-                    refText: configuration.refText
+                    refText: configuration.refText,
+                    initialText: configuration.initialText,
+                    initialSegmentationMode: configuration.initialSegmentationMode
                 )
                 .environmentObject(ttsEngineStore)
                 .environmentObject(audioPlayer)

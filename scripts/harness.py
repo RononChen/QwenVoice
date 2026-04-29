@@ -136,7 +136,7 @@ def main() -> None:
     )
     p_bench.add_argument(
         "--quality-benchmark-profile",
-        choices=["repeat", "cold-warm"],
+        choices=["repeat", "cold-warm", "warm-focus", "exhaustive"],
         default="repeat",
         help="Benchmark profile for live audio quality workflows.",
     )
@@ -150,7 +150,7 @@ def main() -> None:
         "--quality-warm-runs",
         type=int,
         default=3,
-        help="Warm runs per mode for --quality-benchmark-profile cold-warm.",
+        help="Warm runs per mode for --quality-benchmark-profile cold-warm or warm-focus.",
     )
     p_bench.add_argument(
         "--quality-compare-baseline",

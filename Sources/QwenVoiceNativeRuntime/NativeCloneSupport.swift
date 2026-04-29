@@ -244,7 +244,8 @@ actor NativePreparedCloneConditioningCache {
         for conditioning: ResolvedCloneConditioning,
         modelID: String,
         model: NativeSpeechGenerationModel,
-        voicesDirectory: URL?
+        voicesDirectory: URL?,
+        language: String? = nil
     ) throws -> ResolvedCloneConditioning {
         guard model.supportsOptimizedVoiceClone,
               conditioning.voiceClonePrompt == nil,
@@ -256,7 +257,9 @@ actor NativePreparedCloneConditioningCache {
         let artifactDirectory = clonePromptArtifactDirectory(
             voicesDirectory: voicesDirectory,
             preparedVoiceID: conditioning.preparedVoiceID,
-            modelID: modelID
+            modelID: modelID,
+            conditioning: conditioning,
+            language: language
         )
         let resolveStartedAt = ContinuousClock.now
         if let artifactDirectory,
@@ -591,14 +594,34 @@ actor NativePreparedCloneConditioningCache {
     private func clonePromptArtifactDirectory(
         voicesDirectory: URL?,
         preparedVoiceID: String?,
-        modelID: String
+        modelID: String,
+        conditioning: ResolvedCloneConditioning? = nil,
+        language: String? = nil
     ) -> URL? {
-        guard let voicesDirectory, let preparedVoiceID else { return nil }
-        let root = Self.preparedVoiceClonePromptRootDirectory(
-            in: voicesDirectory,
-            voiceID: preparedVoiceID
-        )
-        return root.appendingPathComponent(modelID, isDirectory: true)
+        guard let voicesDirectory else { return nil }
+        if let preparedVoiceID {
+            let root = Self.preparedVoiceClonePromptRootDirectory(
+                in: voicesDirectory,
+                voiceID: preparedVoiceID
+            )
+            return root.appendingPathComponent(modelID, isDirectory: true)
+        }
+        guard let conditioning else { return nil }
+        let normalizedLanguage = (language ?? "auto")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let identity = [
+            modelID,
+            conditioning.internalIdentityKey,
+            normalizedLanguage.isEmpty ? "auto" : normalizedLanguage,
+        ].joined(separator: "|")
+        let digest = SHA256.hash(data: Data(identity.utf8))
+            .prefix(16)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return voicesDirectory
+            .appendingPathComponent(".qvoice_clone_prompts", isDirectory: true)
+            .appendingPathComponent(digest, isDirectory: true)
     }
 
     private func writeVoiceClonePrompt(

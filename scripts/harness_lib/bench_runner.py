@@ -176,7 +176,7 @@ def _run_audio_quality_workflow(
         cwd=str(PROJECT_DIR),
         capture_output=True,
         text=True,
-        timeout=resolve_audio_quality_timeout_seconds(quality_source),
+        timeout=resolve_audio_quality_timeout_seconds(quality_source, quality_benchmark_profile),
     )
     duration_ms = int((time.perf_counter() - start) * 1000)
     summary_path = destination / "summary.json"
@@ -203,8 +203,10 @@ def _run_audio_quality_workflow(
     return build_suite_result("audio_quality", [result], duration_ms)
 
 
-def resolve_audio_quality_timeout_seconds(quality_source: str) -> int:
+def resolve_audio_quality_timeout_seconds(quality_source: str, quality_benchmark_profile: str = "repeat") -> int:
     if quality_source == "live-xpc":
+        if quality_benchmark_profile == "exhaustive":
+            return 7200
         return 3600
     return 300
 

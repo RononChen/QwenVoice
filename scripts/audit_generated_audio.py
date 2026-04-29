@@ -272,6 +272,7 @@ def run_self_test() -> dict[str, Any]:
         clipped = root / "clipped.wav"
         leading_silence = root / "leading-silence.wav"
         silence_gap = root / "silence-gap.wav"
+        short_pauses = root / "short-pauses.wav"
         discontinuity = root / "discontinuity.wav"
         mismatch_session = root / "mismatch-session"
         mismatch_session.mkdir()
@@ -302,6 +303,17 @@ def run_self_test() -> dict[str, Any]:
             valid_samples[:sample_rate // 2],
         ])
         write_wav(silence_gap, gap_samples, sample_rate)
+
+        short_pause_samples = np.concatenate([
+            valid_samples[:sample_rate // 2],
+            np.zeros(int(sample_rate * 0.45), dtype=np.float32),
+            valid_samples[:sample_rate // 2],
+            np.zeros(int(sample_rate * 0.55), dtype=np.float32),
+            valid_samples[:sample_rate // 2],
+            np.zeros(int(sample_rate * 0.65), dtype=np.float32),
+            valid_samples[:sample_rate // 2],
+        ])
+        write_wav(short_pauses, short_pause_samples, sample_rate)
 
         jump_samples = np.concatenate([
             np.full(sample_rate // 2, -0.35, dtype=np.float32),
@@ -334,6 +346,7 @@ def run_self_test() -> dict[str, Any]:
         clipped_report = analyze_file(clipped)
         leading_silence_report = analyze_file(leading_silence)
         silence_report = analyze_file(silence_gap)
+        short_pauses_report = analyze_file(short_pauses)
         discontinuity_report = analyze_file(discontinuity)
         mismatch_report = analyze_session_dir(mismatch_session)
         repaired_report = analyze_session_dir(repaired_session)
@@ -344,6 +357,11 @@ def run_self_test() -> dict[str, Any]:
             "clipping_fails": "clipping_detection" in clipped_report["failed_required_checks"],
             "leading_silence_passes": leading_silence_report["overall_pass"],
             "silence_gap_fails": "final_dropouts" in silence_report["failed_required_checks"],
+            "short_speech_pauses_warn_only": (
+                short_pauses_report["overall_pass"]
+                and "final_dropouts" in short_pauses_report["warning_checks"]
+                and "final_dropouts" not in short_pauses_report["failed_required_checks"]
+            ),
             "discontinuity_fails": (
                 "final_abrupt_discontinuities"
                 in discontinuity_report["failed_required_checks"]

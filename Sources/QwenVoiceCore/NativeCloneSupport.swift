@@ -1,4 +1,5 @@
 import CryptoKit
+@preconcurrency import AVFoundation
 import Foundation
 @preconcurrency import MLX
 import MLXAudioCore
@@ -26,6 +27,7 @@ struct ResolvedCloneConditioning: @unchecked Sendable {
     let usedTemporaryReference: Bool
     let reusedNormalizedReference: Bool
     let reusedDecodedReference: Bool
+    let referenceQualityWarnings: [String]
     let timingsMS: [String: Int]
 
     func withVoiceClonePrompt(
@@ -50,6 +52,7 @@ struct ResolvedCloneConditioning: @unchecked Sendable {
             usedTemporaryReference: usedTemporaryReference,
             reusedNormalizedReference: reusedNormalizedReference,
             reusedDecodedReference: reusedDecodedReference,
+            referenceQualityWarnings: referenceQualityWarnings,
             timingsMS: timingsMS.merging(additionalTimingsMS) { _, rhs in rhs }
         )
     }
@@ -130,6 +133,7 @@ actor NativePreparedCloneConditioningCache {
         )
         let normalizationDurationMS = normalizationStartedAt.elapsedMilliseconds
         let normalizedReference = normalizedReferenceOutcome.result
+        let referenceQualityWarnings = Self.referenceQualityWarnings(for: normalizedReference)
         let transcriptResolution = try Self.resolveTranscript(
             requestedTranscript: requestedTranscript,
             normalizedAudioURL: normalizedReference.normalizedURL
@@ -165,6 +169,7 @@ actor NativePreparedCloneConditioningCache {
                         != cached.normalizedReference.sourcePath,
                     reusedNormalizedReference: normalizedReferenceOutcome.reusedExistingOutput,
                     reusedDecodedReference: true,
+                    referenceQualityWarnings: referenceQualityWarnings,
                     timingsMS: [
                         "reference_normalize": normalizationDurationMS,
                         "reference_decode": 0,
@@ -202,6 +207,7 @@ actor NativePreparedCloneConditioningCache {
                 usedTemporaryReference: normalizedReference.normalizedPath != normalizedReference.sourcePath,
                 reusedNormalizedReference: normalizedReferenceOutcome.reusedExistingOutput,
                 reusedDecodedReference: reusedDecodedReference,
+                referenceQualityWarnings: referenceQualityWarnings,
                 timingsMS: [
                     "reference_normalize": normalizationDurationMS,
                     "reference_decode": decodeDurationMS,
@@ -231,6 +237,7 @@ actor NativePreparedCloneConditioningCache {
             usedTemporaryReference: normalizedReference.normalizedPath != normalizedReference.sourcePath,
             reusedNormalizedReference: normalizedReferenceOutcome.reusedExistingOutput,
             reusedDecodedReference: reusedDecodedReference,
+            referenceQualityWarnings: referenceQualityWarnings,
             timingsMS: [
                 "reference_normalize": normalizationDurationMS,
                 "reference_decode": decodeDurationMS,
@@ -242,7 +249,8 @@ actor NativePreparedCloneConditioningCache {
         for conditioning: ResolvedCloneConditioning,
         modelID: String,
         model: UnsafeSpeechGenerationModel,
-        voicesDirectory: URL?
+        voicesDirectory: URL?,
+        language: String? = nil
     ) throws -> ResolvedCloneConditioning {
         guard model.supportsOptimizedVoiceClone,
               conditioning.voiceClonePrompt == nil,
@@ -254,7 +262,9 @@ actor NativePreparedCloneConditioningCache {
         let artifactDirectory = clonePromptArtifactDirectory(
             voicesDirectory: voicesDirectory,
             preparedVoiceID: conditioning.preparedVoiceID,
-            modelID: modelID
+            modelID: modelID,
+            conditioning: conditioning,
+            language: language
         )
         let resolveStartedAt = ContinuousClock.now
         if let artifactDirectory,
@@ -493,6 +503,75 @@ actor NativePreparedCloneConditioningCache {
         )
     }
 
+    static func referenceQualityWarnings(for result: AudioNormalizationResult) -> [String] {
+        var warnings: [String] = []
+        if result.durationSeconds < 10 {
+            warnings.append("reference_duration_short")
+        } else if result.durationSeconds > 20 {
+            warnings.append("reference_duration_long")
+        }
+        if abs(result.sampleRate - 24_000) > 0.001 {
+            warnings.append("reference_sample_rate_noncanonical")
+        }
+        if result.channelCount != 1 {
+            warnings.append("reference_channels_noncanonical")
+        }
+
+        guard let audioStats = try? referenceAudioStats(at: result.normalizedURL) else {
+            warnings.append("reference_quality_unreadable")
+            return warnings
+        }
+        if audioStats.rms < 0.0005 {
+            warnings.append("reference_near_silence")
+        }
+        if audioStats.peak >= 0.98 {
+            warnings.append("reference_possible_clipping")
+        }
+        return warnings
+    }
+
+    private static func referenceAudioStats(at url: URL) throws -> (peak: Float, rms: Float) {
+        let file = try AVAudioFile(forReading: url)
+        guard let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: file.processingFormat.sampleRate,
+            channels: file.processingFormat.channelCount,
+            interleaved: false
+        ) else {
+            throw AudioPreparationError.conversionFailed("Could not create analysis format for clone reference.")
+        }
+        let maxFrames = min(file.length, AVAudioFramePosition(24_000 * 30))
+        guard maxFrames > 0,
+              let buffer = AVAudioPCMBuffer(
+                  pcmFormat: format,
+                  frameCapacity: AVAudioFrameCount(maxFrames)
+              ) else {
+            return (0, 0)
+        }
+        try file.read(into: buffer, frameCount: AVAudioFrameCount(maxFrames))
+        let frames = Int(buffer.frameLength)
+        let channels = Int(buffer.format.channelCount)
+        guard frames > 0, channels > 0 else {
+            return (0, 0)
+        }
+
+        var peak: Float = 0
+        var sumSquares: Double = 0
+        var sampleCount = 0
+        for channel in 0..<channels {
+            guard let samples = buffer.floatChannelData?[channel] else { continue }
+            for frame in 0..<frames {
+                let value = samples[frame]
+                let magnitude = abs(value)
+                peak = max(peak, magnitude)
+                sumSquares += Double(value * value)
+                sampleCount += 1
+            }
+        }
+        guard sampleCount > 0 else { return (0, 0) }
+        return (peak, Float((sumSquares / Double(sampleCount)).squareRoot()))
+    }
+
     private static func resolveTranscript(
         requestedTranscript: String?,
         normalizedAudioURL: URL
@@ -593,14 +672,34 @@ actor NativePreparedCloneConditioningCache {
     private func clonePromptArtifactDirectory(
         voicesDirectory: URL?,
         preparedVoiceID: String?,
-        modelID: String
+        modelID: String,
+        conditioning: ResolvedCloneConditioning? = nil,
+        language: String? = nil
     ) -> URL? {
-        guard let voicesDirectory, let preparedVoiceID else { return nil }
-        let root = Self.preparedVoiceClonePromptRootDirectory(
-            in: voicesDirectory,
-            voiceID: preparedVoiceID
-        )
-        return root.appendingPathComponent(modelID, isDirectory: true)
+        guard let voicesDirectory else { return nil }
+        if let preparedVoiceID {
+            let root = Self.preparedVoiceClonePromptRootDirectory(
+                in: voicesDirectory,
+                voiceID: preparedVoiceID
+            )
+            return root.appendingPathComponent(modelID, isDirectory: true)
+        }
+        guard let conditioning else { return nil }
+        let normalizedLanguage = (language ?? "auto")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let identity = [
+            modelID,
+            conditioning.internalIdentityKey,
+            normalizedLanguage.isEmpty ? "auto" : normalizedLanguage,
+        ].joined(separator: "|")
+        let digest = SHA256.hash(data: Data(identity.utf8))
+            .prefix(16)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return voicesDirectory
+            .appendingPathComponent(".qvoice_clone_prompts", isDirectory: true)
+            .appendingPathComponent(digest, isDirectory: true)
     }
 
     private func writeVoiceClonePrompt(

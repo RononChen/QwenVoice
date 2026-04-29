@@ -95,6 +95,38 @@ final class GenerationSemanticsTests: XCTestCase {
         XCTAssertEqual(GenerationSemantics.designWarmBucket(for: longRequest.text), .long)
     }
 
+    func testDesignConditioningWarmKeyReusesSemanticBriefAndInvalidatesChanges() {
+        let baseRequest = GenerationRequest(
+            modelID: "pro_design",
+            text: "Hello there.",
+            outputPath: "/tmp/out.wav",
+            payload: .design(voiceDescription: "  Warm, steady narrator  ", deliveryStyle: "Normal tone")
+        )
+        let normalizedMatch = GenerationRequest(
+            modelID: "pro_design",
+            text: "Hello there.",
+            outputPath: "/tmp/out.wav",
+            payload: .design(voiceDescription: "warm, steady narrator", deliveryStyle: "Normal tone")
+        )
+        let differentBrief = GenerationRequest(
+            modelID: "pro_design",
+            text: "Hello there.",
+            outputPath: "/tmp/out.wav",
+            payload: .design(voiceDescription: "Bright energetic announcer", deliveryStyle: "Normal tone")
+        )
+        let differentLanguage = GenerationRequest(
+            modelID: "pro_design",
+            text: "你好，这是一段测试文本。",
+            outputPath: "/tmp/out.wav",
+            payload: .design(voiceDescription: "Warm, steady narrator", deliveryStyle: "Normal tone")
+        )
+
+        let baseKey = GenerationSemantics.designConditioningWarmKey(for: baseRequest)
+        XCTAssertEqual(baseKey, GenerationSemantics.designConditioningWarmKey(for: normalizedMatch))
+        XCTAssertNotEqual(baseKey, GenerationSemantics.designConditioningWarmKey(for: differentBrief))
+        XCTAssertNotEqual(baseKey, GenerationSemantics.designConditioningWarmKey(for: differentLanguage))
+    }
+
     func testClonePreparationKeyIncludesReferenceAudioAndTranscript() {
         let reference = CloneReference(audioPath: "/tmp/reference.wav", transcript: "Bonjour")
 

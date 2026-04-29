@@ -154,38 +154,26 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning {
                 for: request,
                 resolvedCloneTranscript: cloneConditioning.resolvedTranscript
             )
-            if let voiceClonePrompt = cloneConditioning.voiceClonePrompt,
-               model.supportsOptimizedVoiceClone {
-                return model.generateVoiceCloneStream(
-                    text: request.text,
-                    language: language,
-                    voiceClonePrompt: voiceClonePrompt,
-                    streamingInterval: streamingInterval
+            guard let voiceClonePrompt = cloneConditioning.voiceClonePrompt else {
+                throw MLXTTSEngineError.unsupportedRequest(
+                    "Voice Cloning requires optimized Qwen3 clone conditioning."
                 )
             }
-            return model.generateStream(
+            return model.generateVoiceCloneStream(
                 text: request.text,
-                voice: nil,
-                refAudio: cloneConditioning.referenceAudio,
-                refText: cloneConditioning.resolvedTranscript,
+                language: language,
+                voiceClonePrompt: voiceClonePrompt,
                 streamingInterval: streamingInterval
             )
         case .custom(let speakerID, let deliveryStyle):
             let language = GenerationSemantics.qwenLanguageHint(for: request)
             let speaker = speakerID.trimmingCharacters(in: .whitespacesAndNewlines)
             let instruct = GenerationSemantics.customInstruction(deliveryStyle: deliveryStyle)
-            if model.supportsDedicatedCustomVoice {
-                return model.generateCustomVoiceStream(
-                    text: request.text,
-                    language: language,
-                    speaker: speaker,
-                    instruct: instruct,
-                    streamingInterval: streamingInterval
-                )
-            }
-            return model.generateStream(
+            return model.generateCustomVoiceStream(
                 text: request.text,
-                voice: Self.fallbackCustomVoice(speaker: speaker, instruct: instruct),
+                language: language,
+                speaker: speaker,
+                instruct: instruct,
                 streamingInterval: streamingInterval
             )
         case .design(let voiceDescription, let deliveryStyle):
@@ -194,52 +182,13 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning {
                 voiceDescription: voiceDescription,
                 emotion: deliveryStyle ?? ""
             )
-            if model.supportsOptimizedVoiceDesign {
-                return model.generateVoiceDesignStream(
-                    text: request.text,
-                    language: language,
-                    voiceDescription: resolvedVoiceDescription,
-                    streamingInterval: streamingInterval
-                )
-            }
-            return model.generateStream(
+            return model.generateVoiceDesignStream(
                 text: request.text,
-                voice: resolvedVoiceDescription,
+                language: language,
+                voiceDescription: resolvedVoiceDescription,
                 streamingInterval: streamingInterval
             )
         }
-    }
-
-    nonisolated fileprivate static func conditioningVoice(for request: GenerationRequest) throws -> String {
-        switch request.payload {
-        case .custom(let speakerID, let deliveryStyle):
-            let base = speakerID.capitalized
-            guard let deliveryStyle,
-                  GenerationSemantics.hasMeaningfulDeliveryInstruction(deliveryStyle) else {
-                return base
-            }
-            return "\(base), \(deliveryStyle.trimmingCharacters(in: .whitespacesAndNewlines))"
-        case .design(let voiceDescription, let deliveryStyle):
-            return GenerationSemantics.designInstruction(
-                voiceDescription: voiceDescription,
-                emotion: deliveryStyle ?? ""
-            )
-        case .clone:
-            throw MLXTTSEngineError.generationFailed(
-                "Voice Cloning should not request a direct voice string in the native session."
-            )
-        }
-    }
-
-    nonisolated fileprivate static func fallbackCustomVoice(
-        speaker: String,
-        instruct: String?
-    ) -> String {
-        let trimmedInstruction = instruct?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmedInstruction.isEmpty else {
-            return speaker
-        }
-        return "\(speaker), \(trimmedInstruction)"
     }
 }
 

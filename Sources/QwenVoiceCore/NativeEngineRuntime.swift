@@ -215,6 +215,7 @@ actor NativeEngineRuntime {
     }
 
     func prepareInteractiveReadiness(for request: GenerationRequest) async throws -> InteractivePrefetchDiagnostics {
+        try GenerationSemantics.validateQwenPromptContract(for: request)
         let prefetchStartedAt = ContinuousClock.now
         let identityKey = prewarmIdentityKey(for: request)
         let loadResult = try await loadModel(
@@ -282,6 +283,7 @@ actor NativeEngineRuntime {
     }
 
     func prepareGeneration(for request: GenerationRequest) async throws -> NativePreparedGeneration {
+        try GenerationSemantics.validateQwenPromptContract(for: request)
         let prepareSignpost = Self.signposter.beginInterval("Native Prepare Generation")
         defer {
             Self.signposter.endInterval("Native Prepare Generation", prepareSignpost)
@@ -324,7 +326,7 @@ actor NativeEngineRuntime {
         )
         var timingOverridesMS = loadResult.timingsMS
         var booleanFlags = loadResult.booleanFlags
-        var stringFlags: [String: String] = [:]
+        var stringFlags = loadResult.stringFlags
 
         if loadResult.didLoad {
             timingOverridesMS["load_model"] = loadStartedAt.elapsedMilliseconds
@@ -339,11 +341,16 @@ actor NativeEngineRuntime {
                 reference: reference,
                 sampleRate: model.sampleRate
             )
+            let cloneLanguage = GenerationSemantics.qwenLanguageHint(
+                for: request,
+                resolvedCloneTranscript: conditioning.resolvedTranscript
+            )
             conditioning = try await preparedCloneConditioningCache.resolveVoiceClonePrompt(
                 for: conditioning,
                 modelID: request.modelID,
                 model: model,
-                voicesDirectory: voicesDirectory
+                voicesDirectory: voicesDirectory,
+                language: cloneLanguage
             )
             cloneConditioning = conditioning
             mlxMemorySnapshots["after_clone_conditioning"] = NativeMemoryPolicyResolver.snapshot()
@@ -419,6 +426,10 @@ actor NativeEngineRuntime {
         if cloneConditioning?.cloneCacheHit != nil {
             booleanFlags["prepared_clone_cache_hit"] = cloneConditioning?.cloneCacheHit ?? false
         }
+        if let referenceWarnings = cloneConditioning?.referenceQualityWarnings,
+           !referenceWarnings.isEmpty {
+            stringFlags["clone_reference_warnings"] = referenceWarnings.joined(separator: ",")
+        }
 
         await recordDiagnosticEvent(
             "runtime-prepare-before-return",
@@ -470,11 +481,23 @@ actor NativeEngineRuntime {
             reference: reference,
             sampleRate: model.sampleRate
         )
+        let cloneLanguage = GenerationSemantics.qwenLanguageHint(
+            for: GenerationRequest(
+                mode: .clone,
+                modelID: modelID,
+                text: lightweightWarmupText,
+                outputPath: "",
+                shouldStream: true,
+                payload: .clone(reference: reference)
+            ),
+            resolvedCloneTranscript: conditioning.resolvedTranscript
+        )
         let resolvedConditioning = try await preparedCloneConditioningCache.resolveVoiceClonePrompt(
             for: conditioning,
             modelID: modelID,
             model: model,
-            voicesDirectory: voicesDirectory
+            voicesDirectory: voicesDirectory,
+            language: cloneLanguage
         )
         try ensureActiveClonePrimeToken(token)
 
@@ -493,17 +516,7 @@ actor NativeEngineRuntime {
         let primeTimings = try await primeCloneConditioning(
             model: model,
             conditioning: resolvedConditioning,
-            language: GenerationSemantics.qwenLanguageHint(
-                for: GenerationRequest(
-                    mode: .clone,
-                    modelID: modelID,
-                    text: lightweightWarmupText,
-                    outputPath: "",
-                    shouldStream: true,
-                    payload: .clone(reference: reference)
-                ),
-                resolvedCloneTranscript: resolvedConditioning.resolvedTranscript
-            ),
+            language: cloneLanguage,
             token: token
         )
         timingOverrides.merge(primeTimings) { _, rhs in rhs }
@@ -548,7 +561,18 @@ actor NativeEngineRuntime {
                 for: conditioning,
                 modelID: modelID,
                 model: loadResult.model,
-                voicesDirectory: voicesDirectory
+                voicesDirectory: voicesDirectory,
+                language: GenerationSemantics.qwenLanguageHint(
+                    for: GenerationRequest(
+                        mode: .clone,
+                        modelID: modelID,
+                        text: lightweightWarmupText,
+                        outputPath: "",
+                        shouldStream: true,
+                        payload: .clone(reference: reference)
+                    ),
+                    resolvedCloneTranscript: conditioning.resolvedTranscript
+                )
             )
         } catch {
             return
@@ -651,39 +675,21 @@ actor NativeEngineRuntime {
         do {
             await telemetryRecorder?.mark(stage: .prewarm)
             switch request.payload {
-            case .custom(let speakerID, let deliveryStyle):
+            case .custom:
                 let language = GenerationSemantics.qwenLanguageHint(for: request)
-                let speaker = speakerID.trimmingCharacters(in: .whitespacesAndNewlines)
-                if model.supportsDedicatedCustomVoice {
-                    try await model.prewarmCustomVoice(
-                        text: lightweightWarmupText,
-                        language: language,
-                        speaker: GenerationSemantics.canonicalCustomWarmSpeaker,
-                        instruct: GenerationSemantics.canonicalCustomWarmInstruction()
-                    )
-                } else {
-                    try await model.prewarm(
-                        text: lightweightWarmupText,
-                        voice: Self.fallbackCustomVoice(
-                            speaker: speaker,
-                            instruct: GenerationSemantics.customInstruction(deliveryStyle: deliveryStyle)
-                        )
-                    )
-                }
+                try await model.prewarmCustomVoice(
+                    text: lightweightWarmupText,
+                    language: language,
+                    speaker: GenerationSemantics.canonicalCustomWarmSpeaker,
+                    instruct: GenerationSemantics.canonicalCustomWarmInstruction()
+                )
             case .design:
                 let language = GenerationSemantics.qwenLanguageHint(for: request)
-                if model.supportsOptimizedVoiceDesign {
-                    try await model.prewarmVoiceDesign(
-                        text: lightweightWarmupText,
-                        language: language,
-                        voiceDescription: GenerationSemantics.canonicalDesignWarmInstruction()
-                    )
-                } else {
-                    try await model.prewarm(
-                        text: lightweightWarmupText,
-                        voice: GenerationSemantics.canonicalDesignWarmInstruction()
-                    )
-                }
+                try await model.prewarmVoiceDesign(
+                    text: lightweightWarmupText,
+                    language: language,
+                    voiceDescription: GenerationSemantics.canonicalDesignWarmInstruction()
+                )
             case .clone:
                 guard let cloneConditioning else {
                     throw NativeRuntimeError(
@@ -691,25 +697,21 @@ actor NativeEngineRuntime {
                         message: "Clone generation needs resolved native clone conditioning."
                     )
                 }
+                guard let voiceClonePrompt = cloneConditioning.voiceClonePrompt else {
+                    throw NativeRuntimeError(
+                        stage: .clonePreparation,
+                        message: "Clone generation needs optimized Qwen3 clone conditioning."
+                    )
+                }
                 let language = GenerationSemantics.qwenLanguageHint(
                     for: request,
                     resolvedCloneTranscript: cloneConditioning.resolvedTranscript
                 )
-                if let voiceClonePrompt = cloneConditioning.voiceClonePrompt,
-                   model.supportsOptimizedVoiceClone {
-                    try await model.prewarmVoiceClone(
-                        text: lightweightWarmupText,
-                        language: language,
-                        voiceClonePrompt: voiceClonePrompt
-                    )
-                } else {
-                    try await model.prewarm(
-                        text: lightweightWarmupText,
-                        voice: nil,
-                        refAudio: cloneConditioning.referenceAudio,
-                        refText: cloneConditioning.resolvedTranscript
-                    )
-                }
+                try await model.prewarmVoiceClone(
+                    text: lightweightWarmupText,
+                    language: language,
+                    voiceClonePrompt: voiceClonePrompt
+                )
             }
             await loadCoordinator.markPrewarmed(identityKey: identityKey)
             var timings = model.latestPreparationTimingsMS
@@ -792,23 +794,18 @@ actor NativeEngineRuntime {
         let startedAt = ContinuousClock.now
         var firstChunkMS: Int?
         let stream: AsyncThrowingStream<AudioGeneration, Error>
-        if let voiceClonePrompt = conditioning.voiceClonePrompt,
-           model.supportsOptimizedVoiceClone {
-            stream = model.generateVoiceCloneStream(
-                text: lightweightWarmupText,
-                language: language,
-                voiceClonePrompt: voiceClonePrompt,
-                streamingInterval: GenerationSemantics.appStreamingInterval
-            )
-        } else {
-            stream = model.generateStream(
-                text: lightweightWarmupText,
-                voice: nil as String?,
-                refAudio: conditioning.referenceAudio,
-                refText: conditioning.resolvedTranscript,
-                streamingInterval: GenerationSemantics.appStreamingInterval
+        guard let voiceClonePrompt = conditioning.voiceClonePrompt else {
+            throw NativeRuntimeError(
+                stage: .clonePreparation,
+                message: "Clone priming needs optimized Qwen3 clone conditioning."
             )
         }
+        stream = model.generateVoiceCloneStream(
+            text: lightweightWarmupText,
+            language: language,
+            voiceClonePrompt: voiceClonePrompt,
+            streamingInterval: GenerationSemantics.appStreamingInterval
+        )
 
         for try await event in stream {
             try ensureActiveClonePrimeToken(token)
@@ -917,18 +914,11 @@ actor NativeEngineRuntime {
             emotion: deliveryStyle ?? ""
         )
         do {
-            if model.supportsOptimizedVoiceDesign {
-                try await model.prewarmVoiceDesign(
-                    text: warmText,
-                    language: language,
-                    voiceDescription: warmInstruction
-                )
-            } else {
-                try await model.prewarm(
-                    text: warmText,
-                    voice: warmInstruction
-                )
-            }
+            try await model.prewarmVoiceDesign(
+                text: warmText,
+                language: language,
+                voiceDescription: warmInstruction
+            )
             activeDesignConditioningWarmKey = conditioningWarmKey
             activeDesignConditioningWarmSource = source
             let streamStepPrewarmed = model.latestPreparationBooleanFlags["design_stream_step_prewarmed"] == true
@@ -1025,11 +1015,4 @@ actor NativeEngineRuntime {
         return nextRequestID
     }
 
-    private static func fallbackCustomVoice(speaker: String, instruct: String?) -> String {
-        let trimmedInstruction = instruct?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmedInstruction.isEmpty else {
-            return speaker
-        }
-        return "\(speaker), \(trimmedInstruction)"
-    }
 }
