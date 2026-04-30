@@ -79,14 +79,23 @@ final class VoiceCloningCoordinator: ObservableObject {
             return
         }
 
+        let traceModelID = cloneModel?.id ?? "missing-model"
+        CustomVoiceUIPerformanceTrace.beginGeneration(
+            mode: .voiceCloning,
+            modelID: traceModelID,
+            snapshotLoadState: CustomVoiceUIPerformanceTrace.loadStateDescription(for: ttsEngineStore.loadState),
+            isEngineReady: ttsEngineStore.isReady
+        )
         isGenerating = true
         errorMessage = nil
+        CustomVoiceUIPerformanceTrace.mark(.coordinatorStarted)
 
         Task { @MainActor in
             do {
                 guard let model = cloneModel else {
                     errorMessage = "Model configuration not found"
                     isGenerating = false
+                    CustomVoiceUIPerformanceTrace.finish(status: "failed_missing_model")
                     return
                 }
 
@@ -98,11 +107,13 @@ final class VoiceCloningCoordinator: ObservableObject {
                 let currentDraft = draft.wrappedValue
                 guard currentDraft.hasText else {
                     isGenerating = false
+                    CustomVoiceUIPerformanceTrace.finish(status: "cancelled_empty_text")
                     return
                 }
                 guard let refPath = currentDraft.referenceAudioPath else {
                     errorMessage = "Select a reference audio file before generating."
                     isGenerating = false
+                    CustomVoiceUIPerformanceTrace.finish(status: "failed_missing_reference")
                     return
                 }
 
@@ -138,14 +149,38 @@ final class VoiceCloningCoordinator: ObservableObject {
                 ) else {
                     errorMessage = "Select a reference audio file before generating."
                     isGenerating = false
+                    CustomVoiceUIPerformanceTrace.finish(status: "failed_missing_reference")
                     return
                 }
+                CustomVoiceUIPerformanceTrace.mark(.previewSetupStarted)
                 audioPlayer.prepareStreamingPreview(
                     title: title,
                     shouldAutoPlay: AudioService.shouldAutoPlay
                 )
 
+                CustomVoiceUIPerformanceTrace.mark(
+                    .engineRequestStarted,
+                    metadata: [
+                        "model_id": model.id,
+                        "primed_reference_matches": primedReferenceMatches ? "true" : "false",
+                        "has_saved_voice": currentDraft.selectedSavedVoiceID == nil ? "false" : "true",
+                    ],
+                    metrics: [
+                        "text_characters": currentDraft.text.count,
+                        "reference_transcript_characters": currentDraft.referenceTranscript.count,
+                    ]
+                )
                 let result = try await ttsEngineStore.generate(generationRequest)
+                CustomVoiceUIPerformanceTrace.attachBenchmarkSample(result.benchmarkSample)
+                CustomVoiceUIPerformanceTrace.mark(
+                    .engineRequestFinished,
+                    metadata: [
+                        "used_streaming": result.usedStreaming ? "true" : "false",
+                    ],
+                    metrics: [
+                        "duration_ms": Int(result.durationSeconds * 1_000),
+                    ]
+                )
 
                 let voiceName = selectedVoice?.name
                     ?? URL(fileURLWithPath: refPath).deletingPathExtension().lastPathComponent
@@ -167,14 +202,21 @@ final class VoiceCloningCoordinator: ObservableObject {
                     audioPlayer: audioPlayer,
                     caller: "VoiceCloningCoordinator"
                 )
+                CustomVoiceUIPerformanceTrace.finish(
+                    status: "success",
+                    outputPath: result.audioPath,
+                    durationSeconds: result.durationSeconds
+                )
             } catch is CancellationError {
                 audioPlayer.abortLivePreviewIfNeeded()
                 errorMessage = nil
+                CustomVoiceUIPerformanceTrace.finish(status: "cancelled")
             } catch {
                 if (error as? GenerationPersistence.PersistenceError) == nil {
                     audioPlayer.abortLivePreviewIfNeeded()
                 }
                 errorMessage = error.localizedDescription
+                CustomVoiceUIPerformanceTrace.finish(status: "failed")
             }
 
             isGenerating = false

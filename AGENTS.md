@@ -195,6 +195,19 @@ Notes:
 - If a harness layer fails, inspect the emitted `.xcresult` bundle under `build/harness/results/<layer>/` before changing code. For builds, use `xcrun xcresulttool get build-results --path <path>`; for tests, use `xcrun xcresulttool get test-results summary --path <path>`.
 - SourceKit diagnostics like `No such module 'MLX'` / `Cannot find type X in scope` after an edit are index staleness, not real errors. Trust only errors reported by the harness, `xcodebuild`, and `./scripts/build_foundation_targets.sh`.
 
+## Codex Desktop UI Validation
+
+Use Codex Desktop's Computer Use and screen-aware tooling as the first-class visual validation layer after repo-script gates are green. Shell scripts remain authoritative for builds, tests, audio QC, and benchmark orchestration; Computer Use is for proving the visible app experience.
+
+- For UI validation, first run the relevant cheap gates, then launch one fresh Debug app through `./scripts/build_and_run.sh --verify`. Do not open stale benchmark-built app bundles under `build/audio-qc/`.
+- Use Computer Use for real app workflows: mode switching, text-field focus, Generate activation, visible busy feedback, playback/save behavior, screenshots, responsiveness checks, and "try it yourself in the opened app" debugging.
+- Prefer the V2 benchmark entrypoint, `scripts/run_generation_benchmark.py`, for clean With UI / Without UI measurements. Use `--surface headless-xpc` for backend-only XPC timing and `--surface ui-app` for visible-app timing plus responsiveness. Legacy scripts such as `scripts/run_custom_voice_ui_perf_audit.py` and `scripts/run_ui_generation_benchmark.py` remain useful for focused investigation.
+- For UI benchmark runs, Computer Use is the primary visual validation layer. The scripts own deterministic timing, trace, process, memory, and audio-QC artifacts; AX/AppleScript are structured probes, and coordinate/cliclick fallback is last resort only.
+- Store UI benchmark artifacts under `build/audio-qc/` or `build/audits/`. Reports should include screenshots, trace JSON, timing CSV, responsiveness samples, process and memory snapshots, audio-QC reports, and a concise Markdown summary.
+- UI responsiveness evidence must cover the app and helper process count, app/helper RSS, swap delta, missed focus/input state, stuck busy state, duplicate playback, and duplicate helper detection.
+- Keep accessibility identifiers stable. If an accessibility or `cliclick` path fails, capture the visible UI and process state before changing product code. Coordinate-click fallbacks are acceptable only inside local benchmark scripts and should be documented there.
+- Do not treat missing Accessibility metadata alone as a product failure unless screenshots, traces, logs, or process evidence confirm the visible app is wrong.
+
 ## Swift Concurrency Gotchas
 
 - `Self` cannot be referenced inside a `static let` initializer on a class (covariant-Self rule). Use the concrete type name (e.g. `EngineServiceHost.logger`) instead of `Self.logger` in static member initializers.
@@ -253,7 +266,10 @@ Release facts:
 - Prefer killing an old instance before launching a new build.
 - Never overlap heavy `xcodebuild`, `scripts/harness.py`, release packaging, live app validation, or native smoke processes on this machine.
 - Never run more than one heavy model load, generation, or benchmark at a time.
-- Use Computer Use only after heavy automation is finished; never keep desktop interaction active while memory-heavy build or validation work is still running.
+- Use Computer Use intentionally for UI validation and visual benchmarks after heavy automation is finished; never keep desktop interaction active while memory-heavy build or validation work is still running.
+- For V2 benchmarks, use `scripts/run_generation_benchmark.py --memory-policy normal|stress` instead of a raw swap cutoff. `normal` warns early; `stress` may push swap further, but abort decisions must be based on real pressure symptoms such as sustained unhealthy memory pressure, UI unresponsiveness, duplicate helpers, or runaway swap delta.
+- Before live model generation, GUI acceptance, release packaging, or exhaustive benchmarks, check for duplicate Codex/Claude MCP helper stacks such as `xcodebuildmcp`, `apple-docs-mcp`, `chrome-devtools-mcp`, and `SkyComputerUseClient`. If multiple same-purpose helpers are active, treat them as optional background pressure: restart/trim the agent app or disable unused heavy plugins before continuing unless the user explicitly accepts the memory risk.
+- Do not start Computer Use or Xcode/Apple-docs MCP-heavy workflows during QwenVoice live generation unless that tool is the thing being tested. Prefer shell-first repo scripts for builds, tests, and benchmarks.
 
 ## Before Finishing
 

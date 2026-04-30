@@ -437,6 +437,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
                 batchIndex: request.batchIndex,
                 batchTotal: request.batchTotal,
                 streamingTitle: request.streamingTitle,
+                benchmarkOptions: request.benchmarkOptions,
                 payload: request.payload
             )
             let result = try await generate(batchRequest, allowsBatchRequest: true)

@@ -120,6 +120,7 @@ struct BatchGenerationSheet: View {
             font: .systemFont(ofSize: NSFont.systemFontSize),
             isFocused: .constant(false)
         )
+        .accessibilityIdentifier("batch_textEditor")
         .padding(8)
         .frame(minHeight: 220)
         #if QW_UI_LIQUID
@@ -186,6 +187,7 @@ struct BatchGenerationSheet: View {
             .buttonStyle(.bordered)
             .disabled(coordinator.isCancelling)
             .keyboardShortcut(.cancelAction)
+            .accessibilityIdentifier("batch_cancelButton")
 
             Spacer()
 
@@ -196,6 +198,7 @@ struct BatchGenerationSheet: View {
             .tint(themeColor)
             .disabled(batchText.isEmpty || coordinator.isProcessing)
             .keyboardShortcut(.defaultAction)
+            .accessibilityIdentifier("batch_generateAllButton")
         }
     }
 
@@ -230,6 +233,7 @@ struct BatchGenerationSheet: View {
             }
             .buttonStyle(.bordered)
             .keyboardShortcut(.cancelAction)
+            .accessibilityIdentifier("batch_doneButton")
 
             if shouldShowRetryRemaining(for: outcome) {
                 Button("Retry Remaining") {

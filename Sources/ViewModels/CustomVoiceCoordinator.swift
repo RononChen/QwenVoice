@@ -44,14 +44,22 @@ final class CustomVoiceCoordinator: ObservableObject {
             return
         }
 
+        let traceModelID = activeModel?.id ?? "missing-model"
+        CustomVoiceUIPerformanceTrace.beginCustomVoiceGeneration(
+            modelID: traceModelID,
+            snapshotLoadState: CustomVoiceUIPerformanceTrace.loadStateDescription(for: ttsEngineStore.loadState),
+            isEngineReady: ttsEngineStore.isReady
+        )
         isGenerating = true
         errorMessage = nil
+        CustomVoiceUIPerformanceTrace.mark(.coordinatorStarted)
 
         Task {
             do {
                 guard let model = activeModel else {
                     self.errorMessage = "Model configuration not found"
                     self.isGenerating = false
+                    CustomVoiceUIPerformanceTrace.finish(status: "failed_missing_model")
                     return
                 }
 
@@ -61,12 +69,34 @@ final class CustomVoiceCoordinator: ObservableObject {
                     model: model,
                     outputPath: outputPath
                 )
+                CustomVoiceUIPerformanceTrace.mark(.previewSetupStarted)
                 audioPlayer.prepareStreamingPreview(
                     title: String(draft.text.prefix(40)),
                     shouldAutoPlay: AudioService.shouldAutoPlay
                 )
 
+                CustomVoiceUIPerformanceTrace.mark(
+                    .engineRequestStarted,
+                    metadata: [
+                        "model_id": model.id,
+                        "speaker": draft.selectedSpeaker,
+                        "delivery_style": draft.emotion,
+                    ],
+                    metrics: [
+                        "text_characters": draft.text.count,
+                    ]
+                )
                 let result = try await ttsEngineStore.generate(generationRequest)
+                CustomVoiceUIPerformanceTrace.attachBenchmarkSample(result.benchmarkSample)
+                CustomVoiceUIPerformanceTrace.mark(
+                    .engineRequestFinished,
+                    metadata: [
+                        "used_streaming": result.usedStreaming ? "true" : "false",
+                    ],
+                    metrics: [
+                        "duration_ms": Int(result.durationSeconds * 1_000),
+                    ]
+                )
 
                 var generation = Generation(
                     text: draft.text,
@@ -87,14 +117,21 @@ final class CustomVoiceCoordinator: ObservableObject {
                     audioPlayer: audioPlayer,
                     caller: "CustomVoiceCoordinator"
                 )
+                CustomVoiceUIPerformanceTrace.finish(
+                    status: "success",
+                    outputPath: result.audioPath,
+                    durationSeconds: result.durationSeconds
+                )
             } catch is CancellationError {
                 audioPlayer.abortLivePreviewIfNeeded()
                 self.errorMessage = nil
+                CustomVoiceUIPerformanceTrace.finish(status: "cancelled")
             } catch {
                 if (error as? GenerationPersistence.PersistenceError) == nil {
                     audioPlayer.abortLivePreviewIfNeeded()
                 }
                 self.errorMessage = error.localizedDescription
+                CustomVoiceUIPerformanceTrace.finish(status: "failed")
             }
 
             self.isGenerating = false

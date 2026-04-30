@@ -38,6 +38,16 @@ enum GenerationPersistence {
         caller: String
     ) throws {
         AppPerformanceSignposts.emit("Final File Ready")
+        CustomVoiceUIPerformanceTrace.mark(
+            .finalFileReady,
+            metadata: [
+                "caller": caller,
+                "used_streaming": result.usedStreaming ? "true" : "false",
+            ],
+            metrics: [
+                "duration_ms": Int(result.durationSeconds * 1_000),
+            ]
+        )
 
         var didHandoffPlayback = false
         if result.usedStreaming {
@@ -68,6 +78,12 @@ enum GenerationPersistence {
             #if DEBUG
             print("[Performance][\(caller)] db_save_wall_ms=\(elapsedMs(since: saveStart))")
             #endif
+            CustomVoiceUIPerformanceTrace.mark(
+                .databaseSaveFinished,
+                metrics: [
+                    "wall_ms": elapsedMs(since: saveStart),
+                ]
+            )
 
             let notificationStart = DispatchTime.now().uptimeNanoseconds
             #if canImport(QwenVoiceNative)
@@ -78,6 +94,12 @@ enum GenerationPersistence {
             #if DEBUG
             print("[Performance][\(caller)] history_notification_wall_ms=\(elapsedMs(since: notificationStart))")
             #endif
+            CustomVoiceUIPerformanceTrace.mark(
+                .historyNotificationFinished,
+                metrics: [
+                    "wall_ms": elapsedMs(since: notificationStart),
+                ]
+            )
         } catch {
             persistenceError = error
         }
@@ -88,6 +110,7 @@ enum GenerationPersistence {
             }
             throw persistenceError
         }
+        CustomVoiceUIPerformanceTrace.mark(.persistenceFinished)
     }
 
     private static func elapsedMs(since start: UInt64) -> Int {

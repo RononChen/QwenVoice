@@ -699,6 +699,25 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
         case clone(reference: CloneReference)
     }
 
+    public struct BenchmarkOptions: Hashable, Codable, Sendable {
+        public let customVoiceProfile: String?
+        public let streamStepEvalPolicy: String?
+        public let temperature: Double?
+        public let topP: Double?
+
+        public init(
+            customVoiceProfile: String? = nil,
+            streamStepEvalPolicy: String? = nil,
+            temperature: Double? = nil,
+            topP: Double? = nil
+        ) {
+            self.customVoiceProfile = customVoiceProfile
+            self.streamStepEvalPolicy = streamStepEvalPolicy
+            self.temperature = temperature
+            self.topP = topP
+        }
+    }
+
     public let mode: GenerationMode
     public let modelID: String
     public let text: String
@@ -708,6 +727,7 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
     public let batchIndex: Int?
     public let batchTotal: Int?
     public let streamingTitle: String?
+    public let benchmarkOptions: BenchmarkOptions?
     public let payload: Payload
 
     public init(
@@ -720,6 +740,7 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
         batchIndex: Int? = nil,
         batchTotal: Int? = nil,
         streamingTitle: String? = nil,
+        benchmarkOptions: BenchmarkOptions? = nil,
         payload: Payload
     ) {
         self.mode = mode
@@ -731,6 +752,7 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
         self.batchIndex = batchIndex
         self.batchTotal = batchTotal
         self.streamingTitle = streamingTitle
+        self.benchmarkOptions = benchmarkOptions
         self.payload = payload
     }
 
@@ -743,6 +765,7 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
         batchIndex: Int? = nil,
         batchTotal: Int? = nil,
         streamingTitle: String? = nil,
+        benchmarkOptions: BenchmarkOptions? = nil,
         payload: Payload
     ) {
         let resolvedMode: GenerationMode
@@ -765,6 +788,7 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
             batchIndex: batchIndex,
             batchTotal: batchTotal,
             streamingTitle: streamingTitle,
+            benchmarkOptions: benchmarkOptions,
             payload: payload
         )
     }

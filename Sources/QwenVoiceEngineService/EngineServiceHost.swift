@@ -421,6 +421,7 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
             batchIndex: request.batchIndex,
             batchTotal: request.batchTotal,
             streamingTitle: request.streamingTitle,
+            benchmarkOptions: request.benchmarkOptions,
             payload: request.payload
         )
     }

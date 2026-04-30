@@ -393,6 +393,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         setLivePreviewPhase(.buffering)
         playbackPresentationContext = .generatePreview
         generatePreviewVisibilityState = .preparing
+        CustomVoiceUIPerformanceTrace.markOnce(.previewSetupFinished)
     }
 
     func completeStreamingPreview(result: PlaybackGenerationResult, title: String, shouldAutoPlay: Bool) {
@@ -408,6 +409,15 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             return
         }
 
+        CustomVoiceUIPerformanceTrace.markOnce(
+            .finalHandoffStarted,
+            metadata: [
+                "used_streaming": "true",
+            ],
+            metrics: [
+                "duration_ms": Int(result.durationSeconds * 1_000),
+            ]
+        )
         currentTitle = title
         currentFilePath = result.audioPath
         liveFinalFilePath = result.audioPath
@@ -500,6 +510,17 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     private func handleGenerationChunk(_ chunk: ChunkInfo) {
         let sessionID = String(chunk.requestID)
         guard !completedLiveSessionIDs.contains(sessionID) else { return }
+        CustomVoiceUIPerformanceTrace.markOnce(
+            .firstLiveChunkEvent,
+            metadata: [
+                "has_chunk_path": chunk.chunkPath == nil ? "false" : "true",
+                "has_preview_audio": chunk.previewAudio == nil ? "false" : "true",
+                "has_session_directory": chunk.sessionDirectory == nil ? "false" : "true",
+            ],
+            metrics: [
+                "request_id": chunk.requestID,
+            ]
+        )
 
         let sessionDirectory = chunk.sessionDirectory
         let cumulativeDuration = chunk.cumulativeDuration
@@ -584,6 +605,16 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             playbackError = "Live audio preview could not decode the latest chunk."
             return
         }
+        CustomVoiceUIPerformanceTrace.markOnce(
+            .firstLiveChunkDecoded,
+            metadata: [
+                "source": "file",
+            ],
+            metrics: [
+                "frames": Int(buffer.frameLength),
+                "sample_rate": Int(fileFormat.sampleRate),
+            ]
+        )
 
         if liveEngine == nil || livePlayerNode == nil {
             configureLiveEngine(with: fileFormat)
@@ -592,6 +623,12 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         liveScheduledCount += 1
         setLivePreviewQueueDepth(liveScheduledCount)
         scheduleLiveBuffer(buffer)
+        CustomVoiceUIPerformanceTrace.markOnce(
+            .firstLiveChunkScheduled,
+            metrics: [
+                "queue_depth": liveScheduledCount,
+            ]
+        )
 
         livePreviewDuration = cumulativeDuration
             ?? (livePreviewDuration + TimeInterval(buffer.frameLength) / fileFormat.sampleRate)
@@ -630,6 +667,16 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             playbackError = "Live audio preview could not decode the latest chunk."
             return
         }
+        CustomVoiceUIPerformanceTrace.markOnce(
+            .firstLiveChunkDecoded,
+            metadata: [
+                "source": "inline",
+            ],
+            metrics: [
+                "frames": Int(buffer.frameLength),
+                "sample_rate": Int(format.sampleRate),
+            ]
+        )
 
         if liveEngine == nil || livePlayerNode == nil {
             configureLiveEngine(with: format)
@@ -638,6 +685,12 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         liveScheduledCount += 1
         setLivePreviewQueueDepth(liveScheduledCount)
         scheduleLiveBuffer(buffer)
+        CustomVoiceUIPerformanceTrace.markOnce(
+            .firstLiveChunkScheduled,
+            metrics: [
+                "queue_depth": liveScheduledCount,
+            ]
+        )
 
         livePreviewDuration = cumulativeDuration
             ?? (livePreviewDuration + TimeInterval(buffer.frameLength) / format.sampleRate)
@@ -774,6 +827,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     private func switchToFinalFilePlayback(preserveCurrentTime: TimeInterval, autoPlay: Bool) {
         guard let finalFilePath = liveFinalFilePath else { return }
         setLivePreviewPhase(.finalizing)
+        CustomVoiceUIPerformanceTrace.markOnce(.finalHandoffStarted)
 
         do {
             try applyFilePlayback(
@@ -954,6 +1008,18 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         playbackPresentationContext = presentationContext
         generatePreviewVisibilityState = presentationContext == .generatePreview ? .ready : .hidden
         extractWaveform(from: url, replace: true)
+        if presentationContext == .generatePreview {
+            CustomVoiceUIPerformanceTrace.markOnce(
+                .finalPlayerLoaded,
+                metadata: [
+                    "transition_from_live": transitionFromLive ? "true" : "false",
+                    "auto_play": autoPlay ? "true" : "false",
+                ],
+                metrics: [
+                    "duration_ms": Int(audioPlayer.duration * 1_000),
+                ]
+            )
+        }
 
         if autoPlay {
             attemptFilePlay()

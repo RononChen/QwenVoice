@@ -10,17 +10,33 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
         let modelID: String
     }
 
+    private enum WarmupAction: Equatable {
+        case warm
+        case transitionFromLoadedModel
+    }
+
+    private struct WarmupPlan: Equatable {
+        let request: WarmupRequest
+        let action: WarmupAction
+    }
+
     private let debounce: Duration
     private let customVoiceDebounce: Duration
+    private let modeTransitionDebounce: Duration
     private var pendingTask: Task<Void, Never>?
-    private var pendingRequest: WarmupRequest?
+    private var pendingPlan: WarmupPlan?
     private var dispatchedRequest: WarmupRequest?
     private var completedRequest: WarmupRequest?
     private var revision: UInt64 = 0
 
-    init(debounce: Duration = .milliseconds(300), customVoiceDebounce: Duration = .milliseconds(100)) {
+    init(
+        debounce: Duration = .milliseconds(300),
+        customVoiceDebounce: Duration = .milliseconds(100),
+        modeTransitionDebounce: Duration = .milliseconds(900)
+    ) {
         self.debounce = debounce
         self.customVoiceDebounce = customVoiceDebounce
+        self.modeTransitionDebounce = modeTransitionDebounce
     }
 
     func scheduleWarmupIfNeeded(
@@ -39,7 +55,7 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
         }
 
         let request = WarmupRequest(mode: mode, modelID: modelID)
-        guard shouldAllowNavigationWarmup(snapshot: snapshot, request: request) else {
+        guard let action = warmupAction(snapshot: snapshot, request: request) else {
             cancelPendingWarmup()
             return
         }
@@ -51,12 +67,13 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
             cancelPendingWarmup()
             return
         }
-        guard pendingRequest != request else { return }
+        let plan = WarmupPlan(request: request, action: action)
+        guard pendingPlan != plan else { return }
 
         revision += 1
         let scheduledRevision = revision
-        let debounce = request.mode == .custom ? customVoiceDebounce : self.debounce
-        pendingRequest = request
+        let debounce = debounce(for: plan)
+        pendingPlan = plan
         pendingTask?.cancel()
         pendingTask = Task { @MainActor [weak self, weak ttsEngineStore] in
             do {
@@ -68,26 +85,55 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
                   let ttsEngineStore,
                   !Task.isCancelled,
                   self.revision == scheduledRevision,
-                  self.pendingRequest == request,
+                  self.pendingPlan == plan,
                   self.dispatchedRequest == nil,
                   ttsEngineStore.snapshot.isReady,
-                  self.shouldAllowNavigationWarmup(
+                  self.warmupAction(
                     snapshot: ttsEngineStore.snapshot,
-                    request: request
-                  ) else {
+                    request: plan.request
+                  ) == plan.action else {
                 return
             }
 
-            self.pendingRequest = nil
-            self.dispatchedRequest = request
-            if let prewarmRequest = self.interactivePrewarmRequest(for: request) {
-                _ = await ttsEngineStore.prefetchInteractiveReadinessIfNeeded(for: prewarmRequest)
-            } else {
-                await ttsEngineStore.ensureModelLoadedIfNeeded(id: request.modelID)
+            self.pendingPlan = nil
+            self.dispatchedRequest = plan.request
+            defer {
+                if self.dispatchedRequest == plan.request {
+                    self.dispatchedRequest = nil
+                }
             }
+
+            switch plan.action {
+            case .warm:
+                await self.performWarmup(
+                    for: plan.request,
+                    ttsEngineStore: ttsEngineStore
+                )
+            case .transitionFromLoadedModel:
+                do {
+                    try await ttsEngineStore.unloadModel()
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled,
+                      self.revision == scheduledRevision,
+                      self.pendingPlan == nil,
+                      ttsEngineStore.snapshot.isReady,
+                      self.warmupAction(
+                        snapshot: ttsEngineStore.snapshot,
+                        request: plan.request
+                      ) == .warm else {
+                    return
+                }
+                await self.performWarmup(
+                    for: plan.request,
+                    ttsEngineStore: ttsEngineStore
+                )
+            }
+
             if case .loaded(let loadedModelID) = ttsEngineStore.snapshot.loadState,
-               loadedModelID == request.modelID {
-                self.completedRequest = request
+               loadedModelID == plan.request.modelID {
+                self.completedRequest = plan.request
             }
         }
     }
@@ -96,7 +142,7 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
         revision += 1
         pendingTask?.cancel()
         pendingTask = nil
-        pendingRequest = nil
+        pendingPlan = nil
     }
 
     func observe(snapshot: TTSEngineSnapshot) {
@@ -122,17 +168,20 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
         }
     }
 
-    private func shouldAllowNavigationWarmup(
+    private func warmupAction(
         snapshot: TTSEngineSnapshot,
         request: WarmupRequest
-    ) -> Bool {
+    ) -> WarmupAction? {
         switch snapshot.loadState {
         case .idle:
-            return true
+            return .warm
         case .loaded(let modelID):
-            return request.mode == .custom && modelID == request.modelID
+            if modelID == request.modelID {
+                return request.mode == .custom ? .warm : nil
+            }
+            return .transitionFromLoadedModel
         case .failed, .running, .starting:
-            return false
+            return nil
         }
     }
 
@@ -142,6 +191,26 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
             return true
         case .failed, .running, .starting:
             return false
+        }
+    }
+
+    private func debounce(for plan: WarmupPlan) -> Duration {
+        switch plan.action {
+        case .transitionFromLoadedModel:
+            return modeTransitionDebounce
+        case .warm:
+            return plan.request.mode == .custom ? customVoiceDebounce : debounce
+        }
+    }
+
+    private func performWarmup(
+        for request: WarmupRequest,
+        ttsEngineStore: TTSEngineStore
+    ) async {
+        if let prewarmRequest = interactivePrewarmRequest(for: request) {
+            _ = await ttsEngineStore.prefetchInteractiveReadinessIfNeeded(for: prewarmRequest)
+        } else {
+            await ttsEngineStore.ensureModelLoadedIfNeeded(id: request.modelID)
         }
     }
 

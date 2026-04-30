@@ -87,6 +87,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         let streamingUsed: Bool
         let timingsMS: [String: Int]
         let booleanFlags: [String: Bool]
+        let stringFlags: [String: String]
     }
 
     private struct SelectedPrefetchDiagnostics {
@@ -155,6 +156,8 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         let warmRuns: Int?
         let streamingIntervalOverride: Double?
         let customPrewarmDepth: String?
+        let customVoiceProfile: String?
+        let streamStepEvalPolicy: String?
         let expiresAt: String?
     }
 
@@ -170,6 +173,8 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         let warmRuns: Int
         let streamingIntervalOverride: Double?
         let customPrewarmDepth: String?
+        let customVoiceProfile: String?
+        let streamStepEvalPolicy: String?
     }
 
     func testWarmFocusBenchmarkProfileUsesWarmRunLayout() throws {
@@ -189,7 +194,9 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             coldRuns: 2,
             warmRuns: 10,
             streamingIntervalOverride: nil,
-            customPrewarmDepth: nil
+            customPrewarmDepth: nil,
+            customVoiceProfile: nil,
+            streamStepEvalPolicy: nil
         )
 
         let runRoot = outputRootForRun(
@@ -224,7 +231,9 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             coldRuns: 3,
             warmRuns: 5,
             streamingIntervalOverride: nil,
-            customPrewarmDepth: nil
+            customPrewarmDepth: nil,
+            customVoiceProfile: nil,
+            streamStepEvalPolicy: nil
         )
 
         let runRoot = outputRootForRun(
@@ -259,7 +268,9 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             coldRuns: 5,
             warmRuns: 5,
             streamingIntervalOverride: 0.4,
-            customPrewarmDepth: "skip-stream-step"
+            customPrewarmDepth: "skip-stream-step",
+            customVoiceProfile: "balanced-short",
+            streamStepEvalPolicy: nil
         )
 
         let request = try makeRequest(
@@ -280,6 +291,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         )
 
         XCTAssertEqual(request.streamingInterval, 0.4)
+        XCTAssertEqual(configuration.customVoiceProfile, "balanced-short")
         XCTAssertTrue(
             runRoot.path.hasSuffix("/generated/cold/CustomVoice/run_001"),
             "Unexpected custom-ui-cold run root: \(runRoot.path)"
@@ -1270,7 +1282,8 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
                 .merging(extraTimingsMS) { current, _ in current }
                 .merging(["request_wall_ms": wallClockMS]) { current, _ in current },
             booleanFlags: (result.benchmarkSample?.booleanFlags ?? [:])
-                .merging(extraBooleanFlags) { current, _ in current }
+                .merging(extraBooleanFlags) { current, _ in current },
+            stringFlags: result.benchmarkSample?.stringFlags ?? [:]
         )
     }
 
@@ -1309,7 +1322,9 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
                 streamingIntervalOverride: try parseStreamingIntervalOverride(
                     environment["QWENVOICE_AUDIO_QC_STREAMING_INTERVAL"]
                 ),
-                customPrewarmDepth: environment["QWENVOICE_AUDIO_QC_CUSTOM_PREWARM_DEPTH"]?.nonEmpty
+                customPrewarmDepth: environment["QWENVOICE_AUDIO_QC_CUSTOM_PREWARM_DEPTH"]?.nonEmpty,
+                customVoiceProfile: environment["QWENVOICE_QWEN3_CUSTOM_VOICE_PROFILE"]?.nonEmpty,
+                streamStepEvalPolicy: environment["QWENVOICE_QWEN3_STREAM_STEP_EVAL_POLICY"]?.nonEmpty
             )
         }
 
@@ -1343,7 +1358,9 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             streamingIntervalOverride: try parseStreamingIntervalOverride(
                 request.streamingIntervalOverride.map { String($0) }
             ),
-            customPrewarmDepth: request.customPrewarmDepth?.nonEmpty
+            customPrewarmDepth: request.customPrewarmDepth?.nonEmpty,
+            customVoiceProfile: request.customVoiceProfile?.nonEmpty,
+            streamStepEvalPolicy: request.streamStepEvalPolicy?.nonEmpty
         )
     }
 
@@ -1561,6 +1578,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
                 batchIndex: batchIndex,
                 batchTotal: batchTotal,
                 streamingTitle: "Audio QC Custom Voice",
+                benchmarkOptions: benchmarkOptions(for: .customVoice, configuration: configuration),
                 payload: .custom(
                     speakerID: "vivian",
                     deliveryStyle: "Conversational"
@@ -1579,6 +1597,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
                 batchIndex: batchIndex,
                 batchTotal: batchTotal,
                 streamingTitle: "Audio QC Voice Design",
+                benchmarkOptions: benchmarkOptions(for: .voiceDesign, configuration: configuration),
                 payload: .design(
                     voiceDescription: "A warm, steady narrator with clear pronunciation and calm pacing.",
                     deliveryStyle: "Normal tone"
@@ -1598,6 +1617,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
                 batchIndex: batchIndex,
                 batchTotal: batchTotal,
                 streamingTitle: "Audio QC Voice Clone",
+                benchmarkOptions: benchmarkOptions(for: .clones, configuration: configuration),
                 payload: .clone(
                     reference: CloneReference(
                         audioPath: referencePath,
@@ -1605,6 +1625,51 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
                         preparedVoiceID: nil
                     )
                 )
+            )
+        }
+    }
+
+    private func benchmarkOptions(
+        for mode: AuditMode,
+        configuration: LiveAuditConfiguration
+    ) -> GenerationRequest.BenchmarkOptions? {
+        if mode != .customVoice,
+           let streamStepEvalPolicy = configuration.streamStepEvalPolicy?.nonEmpty {
+            return GenerationRequest.BenchmarkOptions(streamStepEvalPolicy: streamStepEvalPolicy)
+        }
+
+        guard let profile = configuration.customVoiceProfile?.nonEmpty else {
+            if let streamStepEvalPolicy = configuration.streamStepEvalPolicy?.nonEmpty {
+                return GenerationRequest.BenchmarkOptions(streamStepEvalPolicy: streamStepEvalPolicy)
+            }
+            return nil
+        }
+        switch profile {
+        case "balanced-short":
+            return GenerationRequest.BenchmarkOptions(
+                customVoiceProfile: profile,
+                streamStepEvalPolicy: configuration.streamStepEvalPolicy?.nonEmpty,
+                temperature: 0.7,
+                topP: 0.9
+            )
+        case "conservative-short":
+            return GenerationRequest.BenchmarkOptions(
+                customVoiceProfile: profile,
+                streamStepEvalPolicy: configuration.streamStepEvalPolicy?.nonEmpty,
+                temperature: 0.65,
+                topP: 0.88
+            )
+        case "fast-short":
+            return GenerationRequest.BenchmarkOptions(
+                customVoiceProfile: profile,
+                streamStepEvalPolicy: configuration.streamStepEvalPolicy?.nonEmpty,
+                temperature: 0.6,
+                topP: 0.85
+            )
+        default:
+            return GenerationRequest.BenchmarkOptions(
+                customVoiceProfile: profile,
+                streamStepEvalPolicy: configuration.streamStepEvalPolicy?.nonEmpty
             )
         }
     }

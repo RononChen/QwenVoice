@@ -163,7 +163,8 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning {
                 text: request.text,
                 language: language,
                 voiceClonePrompt: voiceClonePrompt,
-                streamingInterval: streamingInterval
+                streamingInterval: streamingInterval,
+                benchmarkOptions: request.benchmarkOptions
             )
         case .custom(let speakerID, let deliveryStyle):
             let language = GenerationSemantics.qwenLanguageHint(for: request)
@@ -174,7 +175,8 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning {
                 language: language,
                 speaker: speaker,
                 instruct: instruct,
-                streamingInterval: streamingInterval
+                streamingInterval: streamingInterval,
+                benchmarkOptions: request.benchmarkOptions
             )
         case .design(let voiceDescription, let deliveryStyle):
             let language = GenerationSemantics.qwenLanguageHint(for: request)
@@ -186,7 +188,8 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning {
                 text: request.text,
                 language: language,
                 voiceDescription: resolvedVoiceDescription,
-                streamingInterval: streamingInterval
+                streamingInterval: streamingInterval,
+                benchmarkOptions: request.benchmarkOptions
             )
         }
     }
@@ -826,6 +829,9 @@ private struct StreamingExecutionContext: Sendable {
         merged["memory_policy"] = memoryPolicy.name
         merged["streaming_transport"] = streamingOutputPolicy.rawValue
         merged["telemetry_mode"] = telemetryMode.rawValue
+        for (key, value) in model.latestPreparationStringFlags {
+            merged[key] = value
+        }
         if let cloneConditioning {
             merged["resolved_transcript_mode"] = cloneConditioning.transcriptMode.rawValue
         }

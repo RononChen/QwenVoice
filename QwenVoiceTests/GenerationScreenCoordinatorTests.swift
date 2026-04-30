@@ -13,7 +13,11 @@ private final class GenerationScreenMockMacTTSEngine: MacTTSEngine, @unchecked S
     private(set) var prefetchRequests: [GenerationRequest] = []
     private(set) var primedReferences: [(String, CloneReference)] = []
     private(set) var cancelClonePreparationCount = 0
+    private(set) var unloadModelCount = 0
     private(set) var generationRequests: [GenerationRequest] = []
+    var unloadModelError: Error?
+    var suspendUnload = false
+    private var unloadContinuation: CheckedContinuation<Void, Never>?
     var generateError: Error?
     var generateResult: GenerationResult?
     var suspendGenerate = false
@@ -47,7 +51,26 @@ private final class GenerationScreenMockMacTTSEngine: MacTTSEngine, @unchecked S
     func initialize(appSupportDirectory: URL) async throws {}
     func ping() async throws -> Bool { true }
     func loadModel(id: String) async throws {}
-    func unloadModel() async throws {}
+
+    func unloadModel() async throws {
+        unloadModelCount += 1
+        if suspendUnload {
+            await withCheckedContinuation { continuation in
+                unloadContinuation = continuation
+            }
+        }
+        if let unloadModelError {
+            throw unloadModelError
+        }
+        subject.send(
+            TTSEngineSnapshot(
+                isReady: subject.value.isReady,
+                loadState: .idle,
+                clonePreparationState: subject.value.clonePreparationState,
+                visibleErrorMessage: subject.value.visibleErrorMessage
+            )
+        )
+    }
 
     func ensureModelLoadedIfNeeded(id: String) async {
         ensureModelLoadedIDs.append(id)
@@ -122,6 +145,12 @@ private final class GenerationScreenMockMacTTSEngine: MacTTSEngine, @unchecked S
         suspendGenerate = false
         generateContinuation?.resume()
         generateContinuation = nil
+    }
+
+    func resumeSuspendedUnload() {
+        suspendUnload = false
+        unloadContinuation?.resume()
+        unloadContinuation = nil
     }
 
     func resumeSuspendedPrefetch() {
@@ -311,11 +340,12 @@ final class GenerationScreenCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testMacGenerationWarmupCoordinatorSkipsWhenAnyModelIsLoaded() async {
+    func testMacGenerationWarmupCoordinatorUnloadsDifferentLoadedModelThenWarmsFinalMode() async {
         let (store, engine) = makeReadyStore()
         let coordinator = MacGenerationWarmupCoordinator(
             debounce: .milliseconds(5),
-            customVoiceDebounce: .milliseconds(5)
+            customVoiceDebounce: .milliseconds(5),
+            modeTransitionDebounce: .milliseconds(5)
         )
         let customModel = TTSModel.model(for: .custom)!
         let designModel = TTSModel.model(for: .design)!
@@ -335,9 +365,252 @@ final class GenerationScreenCoordinatorTests: XCTestCase {
             snapshot: store.snapshot,
             ttsEngineStore: store
         )
+
+        await waitUntil(
+            timeoutSeconds: 0.5,
+            description: "loaded different model unloads before warming selected mode"
+        ) {
+            engine.unloadModelCount == 1 && engine.ensureModelLoadedIDs == [designModel.id]
+        }
+        XCTAssertTrue(engine.prefetchRequests.isEmpty)
+    }
+
+    @MainActor
+    func testMacGenerationWarmupCoordinatorRapidLoadedModeSwitchOnlyWarmsFinalMode() async {
+        let (store, engine) = makeReadyStore()
+        let coordinator = MacGenerationWarmupCoordinator(
+            debounce: .milliseconds(5),
+            customVoiceDebounce: .milliseconds(5),
+            modeTransitionDebounce: .milliseconds(25)
+        )
+        let customModel = TTSModel.model(for: .custom)!
+        let designModel = TTSModel.model(for: .design)!
+        let cloneModel = TTSModel.model(for: .clone)!
+        let loadedSnapshot = TTSEngineSnapshot(
+            isReady: true,
+            loadState: .loaded(modelID: customModel.id),
+            clonePreparationState: .idle,
+            visibleErrorMessage: nil
+        )
+        engine.pushSnapshot(loadedSnapshot)
+        await Task.yield()
+
+        coordinator.scheduleWarmupIfNeeded(
+            mode: .design,
+            modelID: designModel.id,
+            isModelAvailable: true,
+            snapshot: store.snapshot,
+            ttsEngineStore: store
+        )
+        coordinator.scheduleWarmupIfNeeded(
+            mode: .clone,
+            modelID: cloneModel.id,
+            isModelAvailable: true,
+            snapshot: store.snapshot,
+            ttsEngineStore: store
+        )
+
+        await waitUntil(
+            timeoutSeconds: 0.5,
+            description: "only final loaded-mode switch runs"
+        ) {
+            engine.unloadModelCount == 1 && engine.ensureModelLoadedIDs == [cloneModel.id]
+        }
+        XCTAssertTrue(engine.prefetchRequests.isEmpty)
+    }
+
+    @MainActor
+    func testMacGenerationWarmupCoordinatorStaleTransitionDoesNotWarmOriginalModeAfterUnload() async {
+        let (store, engine) = makeReadyStore()
+        let coordinator = MacGenerationWarmupCoordinator(
+            debounce: .milliseconds(5),
+            customVoiceDebounce: .milliseconds(5),
+            modeTransitionDebounce: .milliseconds(5)
+        )
+        let customModel = TTSModel.model(for: .custom)!
+        let designModel = TTSModel.model(for: .design)!
+        let cloneModel = TTSModel.model(for: .clone)!
+        engine.suspendUnload = true
+        engine.pushSnapshot(
+            TTSEngineSnapshot(
+                isReady: true,
+                loadState: .loaded(modelID: customModel.id),
+                clonePreparationState: .idle,
+                visibleErrorMessage: nil
+            )
+        )
+        await Task.yield()
+
+        coordinator.scheduleWarmupIfNeeded(
+            mode: .design,
+            modelID: designModel.id,
+            isModelAvailable: true,
+            snapshot: store.snapshot,
+            ttsEngineStore: store
+        )
+        await waitUntil(
+            timeoutSeconds: 0.5,
+            description: "initial transition starts unload"
+        ) {
+            engine.unloadModelCount == 1
+        }
+
+        coordinator.scheduleWarmupIfNeeded(
+            mode: .clone,
+            modelID: cloneModel.id,
+            isModelAvailable: true,
+            snapshot: store.snapshot,
+            ttsEngineStore: store
+        )
+        engine.resumeSuspendedUnload()
         try? await Task.sleep(for: .milliseconds(30))
 
         XCTAssertTrue(engine.ensureModelLoadedIDs.isEmpty)
+
+        coordinator.observe(snapshot: store.snapshot)
+        coordinator.scheduleWarmupIfNeeded(
+            mode: .clone,
+            modelID: cloneModel.id,
+            isModelAvailable: true,
+            snapshot: store.snapshot,
+            ttsEngineStore: store
+        )
+
+        await waitUntil(
+            timeoutSeconds: 0.5,
+            description: "final selection can warm after stale transition exits"
+        ) {
+            engine.ensureModelLoadedIDs == [cloneModel.id]
+        }
+    }
+
+    @MainActor
+    func testMacGenerationWarmupCoordinatorLoadedSameDesignModelDoesNoWork() async {
+        let (store, engine) = makeReadyStore()
+        let coordinator = MacGenerationWarmupCoordinator(
+            debounce: .milliseconds(5),
+            customVoiceDebounce: .milliseconds(5),
+            modeTransitionDebounce: .milliseconds(5)
+        )
+        let designModel = TTSModel.model(for: .design)!
+        engine.pushSnapshot(
+            TTSEngineSnapshot(
+                isReady: true,
+                loadState: .loaded(modelID: designModel.id),
+                clonePreparationState: .idle,
+                visibleErrorMessage: nil
+            )
+        )
+        await Task.yield()
+
+        coordinator.scheduleWarmupIfNeeded(
+            mode: .design,
+            modelID: designModel.id,
+            isModelAvailable: true,
+            snapshot: store.snapshot,
+            ttsEngineStore: store
+        )
+        try? await Task.sleep(for: .milliseconds(30))
+
+        XCTAssertEqual(engine.unloadModelCount, 0)
+        XCTAssertTrue(engine.ensureModelLoadedIDs.isEmpty)
+        XCTAssertTrue(engine.prefetchRequests.isEmpty)
+    }
+
+    @MainActor
+    func testMacGenerationWarmupCoordinatorSkipsTransitionsWhileStartingOrRunning() async {
+        let (store, engine) = makeReadyStore()
+        let coordinator = MacGenerationWarmupCoordinator(
+            debounce: .milliseconds(5),
+            customVoiceDebounce: .milliseconds(5),
+            modeTransitionDebounce: .milliseconds(5)
+        )
+        let customModel = TTSModel.model(for: .custom)!
+        let designModel = TTSModel.model(for: .design)!
+
+        engine.pushSnapshot(
+            TTSEngineSnapshot(
+                isReady: true,
+                loadState: .starting,
+                clonePreparationState: .idle,
+                visibleErrorMessage: nil
+            )
+        )
+        await Task.yield()
+        coordinator.scheduleWarmupIfNeeded(
+            mode: .custom,
+            modelID: customModel.id,
+            isModelAvailable: true,
+            snapshot: store.snapshot,
+            ttsEngineStore: store
+        )
+
+        engine.pushSnapshot(
+            TTSEngineSnapshot(
+                isReady: true,
+                loadState: .running(modelID: customModel.id, label: nil, fraction: nil),
+                clonePreparationState: .idle,
+                visibleErrorMessage: nil
+            )
+        )
+        await Task.yield()
+        coordinator.scheduleWarmupIfNeeded(
+            mode: .design,
+            modelID: designModel.id,
+            isModelAvailable: true,
+            snapshot: store.snapshot,
+            ttsEngineStore: store
+        )
+        try? await Task.sleep(for: .milliseconds(30))
+
+        XCTAssertEqual(engine.unloadModelCount, 0)
+        XCTAssertTrue(engine.ensureModelLoadedIDs.isEmpty)
+        XCTAssertTrue(engine.prefetchRequests.isEmpty)
+    }
+
+    @MainActor
+    func testMacGenerationWarmupCoordinatorStopsTransitionWhenUnloadFails() async {
+        enum TestUnloadError: Error {
+            case failed
+        }
+
+        let (store, engine) = makeReadyStore()
+        let coordinator = MacGenerationWarmupCoordinator(
+            debounce: .milliseconds(5),
+            customVoiceDebounce: .milliseconds(5),
+            modeTransitionDebounce: .milliseconds(5)
+        )
+        let customModel = TTSModel.model(for: .custom)!
+        let designModel = TTSModel.model(for: .design)!
+        engine.unloadModelError = TestUnloadError.failed
+        engine.pushSnapshot(
+            TTSEngineSnapshot(
+                isReady: true,
+                loadState: .loaded(modelID: customModel.id),
+                clonePreparationState: .idle,
+                visibleErrorMessage: nil
+            )
+        )
+        await Task.yield()
+
+        coordinator.scheduleWarmupIfNeeded(
+            mode: .design,
+            modelID: designModel.id,
+            isModelAvailable: true,
+            snapshot: store.snapshot,
+            ttsEngineStore: store
+        )
+
+        await waitUntil(
+            timeoutSeconds: 0.5,
+            description: "failed unload is attempted"
+        ) {
+            engine.unloadModelCount == 1
+        }
+        try? await Task.sleep(for: .milliseconds(30))
+
+        XCTAssertTrue(engine.ensureModelLoadedIDs.isEmpty)
+        XCTAssertTrue(engine.prefetchRequests.isEmpty)
     }
 
     @MainActor

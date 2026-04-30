@@ -20,7 +20,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
@@ -36,6 +36,29 @@ MODE_MODEL_IDS = {
     "Clones": "pro_clone",
 }
 DEFAULT_MODES = ["CustomVoice", "VoiceDesign"]
+CUSTOM_VOICE_PROFILES = {
+    "baseline": {},
+    "balanced-short": {
+        "QWENVOICE_QWEN3_BENCHMARK_TEMPERATURE": "0.7",
+        "QWENVOICE_QWEN3_BENCHMARK_TOP_P": "0.9",
+    },
+    "conservative-short": {
+        "QWENVOICE_QWEN3_BENCHMARK_TEMPERATURE": "0.65",
+        "QWENVOICE_QWEN3_BENCHMARK_TOP_P": "0.88",
+    },
+    "fast-short": {
+        "QWENVOICE_QWEN3_BENCHMARK_TEMPERATURE": "0.6",
+        "QWENVOICE_QWEN3_BENCHMARK_TOP_P": "0.85",
+    },
+}
+CUSTOM_VOICE_PROFILE_ENV_KEYS = {
+    "QWENVOICE_QWEN3_CUSTOM_VOICE_PROFILE",
+    *{
+        key
+        for values in CUSTOM_VOICE_PROFILES.values()
+        for key in values
+    },
+}
 
 
 def main() -> None:
@@ -119,6 +142,24 @@ def main() -> None:
             "full prewarm path."
         ),
     )
+    parser.add_argument(
+        "--custom-voice-profile",
+        choices=sorted(CUSTOM_VOICE_PROFILES),
+        default=None,
+        help=(
+            "Benchmark-only Custom Voice generation profile. Omit this to measure "
+            "the product default; pass baseline to force the previous long profile. "
+            "Non-baseline profiles are allowed only for live CustomVoice custom-ui-cold runs."
+        ),
+    )
+    parser.add_argument(
+        "--stream-step-eval-policy",
+        choices=["full", "eos-only", "deferred"],
+        default=None,
+        help=(
+            "Benchmark-only Qwen3 per-token stream-step eval policy. Defaults to product behavior."
+        ),
+    )
 
     args = parser.parse_args()
     output_dir = (Path(args.output_dir) if args.output_dir else default_output_dir(args.source)).resolve()
@@ -135,6 +176,12 @@ def main() -> None:
             raise UsageError("--benchmark-profile warm-focus requires --modes VoiceDesign.")
         if args.benchmark_profile == "custom-ui-cold" and modes != ["CustomVoice"]:
             raise UsageError("--benchmark-profile custom-ui-cold requires --modes CustomVoice.")
+        if args.custom_voice_profile and args.custom_voice_profile != "baseline":
+            if args.source != "live-xpc" or modes != ["CustomVoice"] or args.benchmark_profile != "custom-ui-cold":
+                raise UsageError(
+                    "--custom-voice-profile non-baseline values require --source live-xpc "
+                    "--benchmark-profile custom-ui-cold --modes CustomVoice."
+                )
         if args.streaming_interval is not None and not (0.1 <= args.streaming_interval <= 1.5):
             raise UsageError("--streaming-interval must be between 0.1 and 1.5 seconds.")
         if args.custom_prewarm_depth is not None and args.source != "live-xpc":
@@ -283,6 +330,10 @@ def run_live_xpc_analysis(
         summary["streaming_interval_override"] = args.streaming_interval
     if args.custom_prewarm_depth is not None:
         summary["custom_prewarm_depth"] = args.custom_prewarm_depth
+    if args.custom_voice_profile:
+        summary["custom_voice_profile"] = args.custom_voice_profile
+    if args.stream_step_eval_policy:
+        summary["stream_step_eval_policy"] = args.stream_step_eval_policy
     xcode_result = run_live_xcode_test(output_dir, modes, repeat_count, cold_runs, warm_runs, models_root, args)
     summary["xcodebuild"] = xcode_result
     if xcode_result["exit_code"] != 0:
@@ -330,6 +381,7 @@ def run_live_xpc_analysis(
             "timings_ms": artifact.get("timingsMS") or {},
             "qwen3_timings_ms": qwen3_timing_subset(artifact.get("timingsMS") or {}),
             "qwen3_cache_flags": qwen3_cache_flag_subset(artifact.get("booleanFlags") or {}),
+            "qwen3_string_flags": qwen3_string_flag_subset(artifact.get("stringFlags") or {}),
             "reports": [],
         }
         report_prefix = live_report_prefix(artifact, repeat_count)
@@ -504,6 +556,8 @@ def run_live_xcode_test(
         "-only-testing:QwenVoiceTests/GenerationQualityAuditLiveTests",
     ]
     environment = dict(os.environ)
+    for key in CUSTOM_VOICE_PROFILE_ENV_KEYS:
+        environment.pop(key, None)
     environment.update(
         {
             "QWENVOICE_AUDIO_QC_LIVE": "1",
@@ -521,11 +575,22 @@ def run_live_xcode_test(
         environment["QWENVOICE_AUDIO_QC_STREAMING_INTERVAL"] = str(args.streaming_interval)
     if args.custom_prewarm_depth is not None:
         environment["QWENVOICE_AUDIO_QC_CUSTOM_PREWARM_DEPTH"] = args.custom_prewarm_depth
+    if args.custom_voice_profile:
+        environment["QWENVOICE_QWEN3_CUSTOM_VOICE_PROFILE"] = args.custom_voice_profile
+        environment.update(CUSTOM_VOICE_PROFILES[args.custom_voice_profile])
+    if args.stream_step_eval_policy:
+        environment["QWENVOICE_QWEN3_STREAM_STEP_EVAL_POLICY"] = args.stream_step_eval_policy
     if args.clone_reference:
         environment["QWENVOICE_AUDIO_QC_CLONE_REFERENCE"] = str(Path(args.clone_reference).resolve())
     if args.clone_transcript:
         environment["QWENVOICE_AUDIO_QC_CLONE_TRANSCRIPT"] = args.clone_transcript
 
+    launchctl_environment = {
+        key: value
+        for key, value in environment.items()
+        if key.startswith("QWENVOICE_AUDIO_QC_") or key.startswith("QWENVOICE_QWEN3_")
+    }
+    managed_launchctl_keys = set(launchctl_environment) | CUSTOM_VOICE_PROFILE_ENV_KEYS
     started = time.perf_counter()
     timeout_floor = 7200 if args.benchmark_profile == "exhaustive" else 1800
     expires_at = datetime.fromtimestamp(time.time() + timeout_floor, timezone.utc)
@@ -541,6 +606,8 @@ def run_live_xcode_test(
         "warmRuns": warm_runs,
         "streamingIntervalOverride": args.streaming_interval,
         "customPrewarmDepth": args.custom_prewarm_depth,
+        "customVoiceProfile": args.custom_voice_profile,
+        "streamStepEvalPolicy": args.stream_step_eval_policy,
         "cloneReference": str(Path(args.clone_reference).resolve()) if args.clone_reference else None,
         "cloneTranscript": args.clone_transcript,
         "expiresAt": expires_at.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
@@ -550,6 +617,8 @@ def run_live_xcode_test(
         encoding="utf-8",
     )
     try:
+        unset_launchctl_environment(managed_launchctl_keys)
+        set_launchctl_environment(launchctl_environment)
         with log_path.open("w", encoding="utf-8") as log_file:
             timeout_seconds = max(resolve_xcodebuild_timeout_seconds(), timeout_floor)
             proc = subprocess.Popen(
@@ -562,6 +631,7 @@ def run_live_xcode_test(
             )
             snapshots, timed_out = monitor_process(proc, started, timeout_seconds)
     finally:
+        unset_launchctl_environment(managed_launchctl_keys)
         try:
             request_file.unlink()
         except FileNotFoundError:
@@ -579,6 +649,30 @@ def run_live_xcode_test(
         "process_snapshots": snapshots,
         "process_memory_summary": summarize_process_memory(snapshots),
     }
+
+
+def set_launchctl_environment(environment: dict[str, str]) -> None:
+    for key, value in environment.items():
+        subprocess.run(
+            ["launchctl", "setenv", key, value],
+            cwd=str(PROJECT_DIR),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            text=True,
+        )
+
+
+def unset_launchctl_environment(keys: Iterable[str]) -> None:
+    for key in keys:
+        subprocess.run(
+            ["launchctl", "unsetenv", key],
+            cwd=str(PROJECT_DIR),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            text=True,
+        )
 
 
 WATCHED_PROCESS_TOKENS = (
@@ -931,6 +1025,7 @@ QWEN3_TIMING_KEYS = (
     "custom_prewarm_eval_ms",
     "custom_stream_step_warm_ms",
     "custom_stream_step_eval_total_ms",
+    "custom_stream_step_eos_read_total_ms",
     "custom_audio_chunk_eval_total_ms",
     "design_prefix_prepare",
     "design_prefix_tokenize_ms",
@@ -939,18 +1034,39 @@ QWEN3_TIMING_KEYS = (
     "design_prewarm_eval_ms",
     "design_stream_step_warm_ms",
     "design_stream_step_eval_total_ms",
+    "design_stream_step_eos_read_total_ms",
     "design_audio_chunk_eval_total_ms",
     "design_final_decode_eval_ms",
+    "clone_stream_step_eval_total_ms",
+    "clone_stream_step_eos_read_total_ms",
+    "clone_audio_chunk_eval_total_ms",
     "first_decoder_step",
     "qwen_talker_forward_total",
     "qwen_code_predictor_total",
     "qwen_stream_decoder_total",
     "qwen_stream_decoder_calls",
     "qwen_generated_code_count",
+    "custom_target_token_count",
+    "custom_effective_max_tokens",
+    "custom_generation_profile_multiplier",
+    "custom_generation_profile_min_tokens",
+    "custom_initial_stream_chunk_size",
+    "custom_post_first_stream_chunk_size",
+    "custom_post_first_stream_chunk_multiplier",
+    "custom_generation_ended_by_eos",
+    "custom_generation_hit_token_cap",
     "custom_generation_steps_before_first_chunk",
     "custom_first_chunk_decoder_tokens",
+    "design_initial_stream_chunk_size",
+    "design_post_first_stream_chunk_size",
+    "design_post_first_stream_chunk_multiplier",
     "design_generation_steps_before_first_chunk",
     "design_first_chunk_decoder_tokens",
+    "clone_initial_stream_chunk_size",
+    "clone_post_first_stream_chunk_size",
+    "clone_post_first_stream_chunk_multiplier",
+    "clone_generation_steps_before_first_chunk",
+    "clone_first_chunk_decoder_tokens",
 )
 
 TIMING_KEYS = CORE_TIMING_KEYS + QWEN3_TIMING_KEYS
@@ -976,6 +1092,17 @@ QWEN3_FLAG_KEYS = (
     "custom_prewarm_depth_full",
     "custom_prewarm_depth_skip_decoder_bucket",
     "custom_prewarm_depth_skip_stream_step",
+    "custom_profile_baseline",
+    "custom_profile_balanced_short",
+    "custom_profile_conservative_short",
+    "custom_profile_fast_short",
+    "custom_stream_chunk_growth_enabled",
+    "custom_generation_ended_by_eos",
+    "custom_generation_hit_token_cap",
+    "stream_step_eval_policy_full",
+    "stream_step_eval_policy_eos_only",
+    "stream_step_eval_policy_deferred",
+    "design_stream_chunk_growth_enabled",
     "design_conditioning_reused",
     "design_conditioning_prefetch_hit",
     "interactive_design_prefetch_hit",
@@ -988,8 +1115,15 @@ QWEN3_FLAG_KEYS = (
     "clone_prompt_cache_hit",
     "clone_prompt_used",
     "clone_conditioning_reused",
+    "clone_stream_chunk_growth_enabled",
     "reused_normalized_reference",
     "reused_decoded_reference",
+)
+
+QWEN3_STRING_FLAG_KEYS = (
+    "custom_voice_profile",
+    "custom_generation_end_reason",
+    "stream_step_eval_policy",
 )
 
 
@@ -1016,6 +1150,14 @@ def qwen3_cache_flag_subset(flags: dict[str, Any]) -> dict[str, Any]:
             "reused_decoded_reference",
             "trusted_prepared_checkpoint",
         }
+    }
+
+
+def qwen3_string_flag_subset(flags: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: flags[key]
+        for key in QWEN3_STRING_FLAG_KEYS
+        if key in flags
     }
 
 
@@ -1050,6 +1192,7 @@ def write_timing_csv(path: Path, artifacts: list[dict[str, Any]], summary: dict[
         "stream_session_directory",
         *[f"timing_{key}" for key in TIMING_KEYS],
         *[f"flag_{key}" for key in QWEN3_FLAG_KEYS],
+        *[f"string_{key}" for key in QWEN3_STRING_FLAG_KEYS],
     ]
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -1088,6 +1231,9 @@ def write_timing_csv(path: Path, artifacts: list[dict[str, Any]], summary: dict[
             flags = artifact.get("booleanFlags") or {}
             for key in QWEN3_FLAG_KEYS:
                 row[f"flag_{key}"] = flags.get(key)
+            string_flags = artifact.get("stringFlags") or {}
+            for key in QWEN3_STRING_FLAG_KEYS:
+                row[f"string_{key}"] = string_flags.get(key)
             writer.writerow(row)
 
 
@@ -1111,6 +1257,7 @@ def summarize_timings(artifacts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for (mode, phase), items in sorted(grouped.items(), key=lambda pair: (pair[0][0], pair[0][1])):
         timings_by_key: dict[str, list[float]] = {}
         flags_by_key: dict[str, list[bool]] = {}
+        string_flags_by_key: dict[str, list[str]] = {}
         for item in items:
             timings = item.get("timingsMS") or {}
             for key in TIMING_KEYS:
@@ -1122,6 +1269,11 @@ def summarize_timings(artifacts: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 value = flags.get(key)
                 if isinstance(value, bool):
                     flags_by_key.setdefault(key, []).append(value)
+            string_flags = item.get("stringFlags") or {}
+            for key in QWEN3_STRING_FLAG_KEYS:
+                value = string_flags.get(key)
+                if isinstance(value, str) and value:
+                    string_flags_by_key.setdefault(key, []).append(value)
 
         summaries.append(
             {
@@ -1147,6 +1299,13 @@ def summarize_timings(artifacts: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         "false": sum(1 for value in values if not value),
                     }
                     for key, values in sorted(flags_by_key.items())
+                },
+                "string_flags": {
+                    key: {
+                        value: values.count(value)
+                        for value in sorted(set(values))
+                    }
+                    for key, values in sorted(string_flags_by_key.items())
                 },
             }
         )
@@ -1309,6 +1468,8 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
             benchmark_lines.append("- Selected-mode prewarm: `Custom Voice interactive readiness before measured generate`")
         if summary.get("custom_prewarm_depth"):
             benchmark_lines.append(f"- Custom Voice prewarm depth: `{summary.get('custom_prewarm_depth')}`")
+        if summary.get("custom_voice_profile"):
+            benchmark_lines.append(f"- Custom Voice profile: `{summary.get('custom_voice_profile')}`")
         if benchmark_profile == "exhaustive":
             benchmark_lines.append("- Endurance warm samples per mode: `10`")
             benchmark_lines.append("- Direct long-text samples: `900` and `2700` characters per mode")
@@ -1400,18 +1561,63 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
                 ("custom prewarm", "custom_prewarm_eval_ms"),
                 ("stream-step warm", "custom_stream_step_warm_ms"),
                 ("custom step eval", "custom_stream_step_eval_total_ms"),
+                ("custom EOS read", "custom_stream_step_eos_read_total_ms"),
                 ("custom chunk eval", "custom_audio_chunk_eval_total_ms"),
+                ("design step eval", "design_stream_step_eval_total_ms"),
+                ("design EOS read", "design_stream_step_eos_read_total_ms"),
+                ("design chunk eval", "design_audio_chunk_eval_total_ms"),
+                ("clone step eval", "clone_stream_step_eval_total_ms"),
+                ("clone EOS read", "clone_stream_step_eos_read_total_ms"),
+                ("clone chunk eval", "clone_audio_chunk_eval_total_ms"),
                 ("first decoder", "first_decoder_step"),
                 ("stream decode", "qwen_stream_decoder_total"),
                 ("generated codes", "qwen_generated_code_count"),
+                ("target tokens", "custom_target_token_count"),
+                ("effective max", "custom_effective_max_tokens"),
+                ("initial chunk", "custom_initial_stream_chunk_size"),
+                ("post-first chunk", "custom_post_first_stream_chunk_size"),
                 ("first chunk steps", "custom_generation_steps_before_first_chunk"),
+                ("design initial chunk", "design_initial_stream_chunk_size"),
+                ("design post-first chunk", "design_post_first_stream_chunk_size"),
+                ("design first chunk steps", "design_generation_steps_before_first_chunk"),
+                ("clone initial chunk", "clone_initial_stream_chunk_size"),
+                ("clone post-first chunk", "clone_post_first_stream_chunk_size"),
+                ("clone first chunk steps", "clone_generation_steps_before_first_chunk"),
             ):
                 metric = timings.get(key) or {}
                 if metric.get("median") is not None:
-                    suffix = "" if key in ("qwen_generated_code_count", "custom_generation_steps_before_first_chunk") else " ms"
+                    suffix = "" if key in (
+                        "qwen_generated_code_count",
+                        "custom_target_token_count",
+                        "custom_effective_max_tokens",
+                        "custom_initial_stream_chunk_size",
+                        "custom_post_first_stream_chunk_size",
+                        "custom_generation_steps_before_first_chunk",
+                        "design_initial_stream_chunk_size",
+                        "design_post_first_stream_chunk_size",
+                        "design_generation_steps_before_first_chunk",
+                        "clone_initial_stream_chunk_size",
+                        "clone_post_first_stream_chunk_size",
+                        "clone_generation_steps_before_first_chunk",
+                    ) else " ms"
                     qwen_highlights.append(f"{label} `{metric.get('median')}{suffix}`")
             if qwen_highlights:
                 lines.append(f"  - Qwen3: {', '.join(qwen_highlights)}")
+            string_highlights = []
+            for label, key in (
+                ("profile", "custom_voice_profile"),
+                ("end reason", "custom_generation_end_reason"),
+                ("eval policy", "stream_step_eval_policy"),
+            ):
+                counts = (item.get("string_flags") or {}).get(key) or {}
+                if counts:
+                    string_highlights.append(
+                        f"{label} `"
+                        + ", ".join(f"{value}:{count}" for value, count in sorted(counts.items()))
+                        + "`"
+                    )
+            if string_highlights:
+                lines.append(f"  - String flags: {', '.join(string_highlights)}")
             flag_highlights = []
             for label, key in (
                 ("prepared overlay hit", "prepared_overlay_cache_hit"),
@@ -1421,8 +1627,15 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
                 ("tokenizer hit", "tokenizer_cache_hit"),
                 ("speech tokenizer hit", "speech_tokenizer_cache_hit"),
                 ("prefix hit", "custom_prefix_cache_hit"),
+                ("design prefix hit", "design_prefix_cache_hit"),
                 ("decoder bucket hit", "decoder_bucket_cache_hit"),
                 ("stream-step prewarmed", "custom_stream_step_prewarmed"),
+                ("custom chunk growth", "custom_stream_chunk_growth_enabled"),
+                ("eval full", "stream_step_eval_policy_full"),
+                ("eval EOS-only", "stream_step_eval_policy_eos_only"),
+                ("eval deferred", "stream_step_eval_policy_deferred"),
+                ("design chunk growth", "design_stream_chunk_growth_enabled"),
+                ("clone chunk growth", "clone_stream_chunk_growth_enabled"),
             ):
                 counts = (item.get("flags") or {}).get(key) or {}
                 total = (counts.get("true") or 0) + (counts.get("false") or 0)

@@ -94,6 +94,165 @@ private enum Qwen3CustomVoicePrewarmDepth: String, Sendable {
     }
 }
 
+private enum Qwen3CustomVoiceBenchmarkProfile: String, Sendable {
+    case baseline
+    case balancedShort = "balanced-short"
+    case conservativeShort = "conservative-short"
+    case fastShort = "fast-short"
+
+    static func resolve(
+        explicitProfile: String? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Qwen3CustomVoiceBenchmarkProfile {
+        if let explicitProfile = explicitProfile?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+           !explicitProfile.isEmpty {
+            return Qwen3CustomVoiceBenchmarkProfile(rawValue: explicitProfile) ?? .baseline
+        }
+
+        guard environment["QWENVOICE_AUDIO_QC_LIVE"] == "1",
+              let rawValue = environment["QWENVOICE_QWEN3_CUSTOM_VOICE_PROFILE"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased(),
+              !rawValue.isEmpty else {
+            return .balancedShort
+        }
+
+        return Qwen3CustomVoiceBenchmarkProfile(rawValue: rawValue) ?? .baseline
+    }
+
+    var maxTokenMultiplier: Int {
+        switch self {
+        case .baseline:
+            return 6
+        case .balancedShort, .fastShort:
+            return 4
+        case .conservativeShort:
+            return 5
+        }
+    }
+
+    var minimumGeneratedCodes: Int {
+        switch self {
+        case .baseline:
+            return 75
+        case .balancedShort, .conservativeShort:
+            return 60
+        case .fastShort:
+            return 50
+        }
+    }
+
+    var postFirstStreamChunkMultiplier: Int {
+        switch self {
+        case .baseline:
+            return 1
+        case .balancedShort, .conservativeShort:
+            return 2
+        case .fastShort:
+            return 3
+        }
+    }
+
+    func effectiveMaxTokens(defaultMaxTokens: Int, targetTokenCount: Int) -> Int {
+        min(
+            defaultMaxTokens,
+            max(minimumGeneratedCodes, targetTokenCount * maxTokenMultiplier)
+        )
+    }
+
+    func postFirstStreamingChunkSize(baseChunkSize: Int) -> Int {
+        max(baseChunkSize, baseChunkSize * postFirstStreamChunkMultiplier)
+    }
+
+    var booleanFlags: [String: Bool] {
+        [
+            "custom_profile_baseline": self == .baseline,
+            "custom_profile_balanced_short": self == .balancedShort,
+            "custom_profile_conservative_short": self == .conservativeShort,
+            "custom_profile_fast_short": self == .fastShort,
+        ]
+    }
+}
+
+private enum Qwen3StreamingGenerationMode: String, Sendable {
+    case custom
+    case design
+    case clone
+    case generic
+
+    var timingPrefix: String? {
+        switch self {
+        case .custom:
+            return "custom"
+        case .design:
+            return "design"
+        case .clone:
+            return "clone"
+        case .generic:
+            return nil
+        }
+    }
+
+    func postFirstStreamChunkMultiplier(customVoiceProfile: Qwen3CustomVoiceBenchmarkProfile) -> Int {
+        switch self {
+        case .custom:
+            return customVoiceProfile.postFirstStreamChunkMultiplier
+        case .design, .clone:
+            return 2
+        case .generic:
+            return 1
+        }
+    }
+
+    func postFirstStreamingChunkSize(
+        baseChunkSize: Int,
+        customVoiceProfile: Qwen3CustomVoiceBenchmarkProfile
+    ) -> Int {
+        max(
+            baseChunkSize,
+            baseChunkSize * postFirstStreamChunkMultiplier(customVoiceProfile: customVoiceProfile)
+        )
+    }
+}
+
+private enum Qwen3StreamStepEvalPolicy: String, Sendable {
+    case full
+    case eosOnly = "eos-only"
+    case deferred
+
+    static func resolve(
+        explicitPolicy: String? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Qwen3StreamStepEvalPolicy {
+        if let explicitPolicy = explicitPolicy?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+           !explicitPolicy.isEmpty {
+            return Qwen3StreamStepEvalPolicy(rawValue: explicitPolicy) ?? .full
+        }
+
+        guard environment["QWENVOICE_AUDIO_QC_LIVE"] == "1",
+              let rawValue = environment["QWENVOICE_QWEN3_STREAM_STEP_EVAL_POLICY"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased(),
+              !rawValue.isEmpty else {
+            return .full
+        }
+
+        return Qwen3StreamStepEvalPolicy(rawValue: rawValue) ?? .full
+    }
+
+    var booleanFlags: [String: Bool] {
+        [
+            "stream_step_eval_policy_full": self == .full,
+            "stream_step_eval_policy_eos_only": self == .eosOnly,
+            "stream_step_eval_policy_deferred": self == .deferred,
+        ]
+    }
+}
+
 private let talkerEvalLayerBatchSize = 4
 private let speechTokenizerEvalBatchSize = 8
 
@@ -384,6 +543,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
     private var storedLoadBooleanFlags: [String: Bool] = [:]
     private var storedPreparationTimingsMS: [String: Int] = [:]
     private var storedPreparationBooleanFlags: [String: Bool] = [:]
+    private var storedPreparationStringFlags: [String: String] = [:]
 
     public var sampleRate: Int { config.sampleRate }
     public var loadTimingsMS: [String: Int] {
@@ -410,10 +570,17 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         return storedPreparationBooleanFlags
     }
 
+    public var latestPreparationStringFlags: [String: String] {
+        diagnosticsLock.lock()
+        defer { diagnosticsLock.unlock() }
+        return storedPreparationStringFlags
+    }
+
     public func resetPreparationDiagnostics() {
         diagnosticsLock.lock()
         storedPreparationTimingsMS = [:]
         storedPreparationBooleanFlags = [:]
+        storedPreparationStringFlags = [:]
         diagnosticsLock.unlock()
     }
 
@@ -1206,6 +1373,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     minP: 0.0,
                     maxTokens: maxTokens,
                     streamingInterval: streamingInterval,
+                    streamStepEvalPolicy: nil,
                     onToken: { tokenId in
                         continuation.yield(.token(tokenId))
                     },
@@ -1230,7 +1398,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         speaker: String,
         instruct: String?,
         generationParameters: GenerateParameters,
-        streamingInterval: Double
+        streamingInterval: Double,
+        customVoiceProfile: String?,
+        streamStepEvalPolicy: String?
     ) -> AsyncThrowingStream<AudioGeneration, Error> {
         let (stream, continuation) = AsyncThrowingStream<AudioGeneration, Error>.makeStream()
         Task { @Sendable [weak self] in
@@ -1250,6 +1420,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     minP: 0.0,
                     maxTokens: generationParameters.maxTokens ?? 4096,
                     streamingInterval: streamingInterval,
+                    customVoiceProfile: customVoiceProfile,
+                    streamStepEvalPolicy: streamStepEvalPolicy,
                     onToken: { continuation.yield(.token($0)) },
                     onInfo: { continuation.yield(.info($0)) },
                     onAudioChunk: { continuation.yield(.audio($0)) }
@@ -1267,17 +1439,37 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         language: String,
         voiceDescription: String,
         generationParameters: GenerateParameters,
-        streamingInterval: Double
+        streamingInterval: Double,
+        streamStepEvalPolicy: String?
     ) -> AsyncThrowingStream<AudioGeneration, Error> {
-        generateStream(
-            text: text,
-            voice: voiceDescription,
-            refAudio: nil,
-            refText: nil,
-            language: language,
-            generationParameters: generationParameters,
-            streamingInterval: streamingInterval
-        )
+        let (stream, continuation) = AsyncThrowingStream<AudioGeneration, Error>.makeStream()
+        Task { @Sendable [weak self] in
+            guard let self else { return }
+            do {
+                _ = try generateVoiceDesign(
+                    text: text,
+                    instruct: voiceDescription,
+                    language: language,
+                    refAudio: nil,
+                    refText: nil,
+                    temperature: generationParameters.temperature,
+                    topK: 50,
+                    topP: generationParameters.topP,
+                    repetitionPenalty: generationParameters.repetitionPenalty ?? 1.05,
+                    minP: 0.0,
+                    maxTokens: generationParameters.maxTokens ?? 4096,
+                    streamingInterval: streamingInterval,
+                    streamStepEvalPolicy: streamStepEvalPolicy,
+                    onToken: { continuation.yield(.token($0)) },
+                    onInfo: { continuation.yield(.info($0)) },
+                    onAudioChunk: { continuation.yield(.audio($0)) }
+                )
+                continuation.finish()
+            } catch {
+                continuation.finish(throwing: error)
+            }
+        }
+        return stream
     }
 
     public func generateVoiceCloneStream(
@@ -1285,7 +1477,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         language: String,
         voiceClonePrompt: Qwen3TTSVoiceClonePrompt,
         generationParameters: GenerateParameters,
-        streamingInterval: Double
+        streamingInterval: Double,
+        streamStepEvalPolicy: String?
     ) -> AsyncThrowingStream<AudioGeneration, Error> {
         let (stream, continuation) = AsyncThrowingStream<AudioGeneration, Error>.makeStream()
         Task { @Sendable [weak self] in
@@ -1306,6 +1499,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     minP: 0.0,
                     maxTokens: generationParameters.maxTokens ?? 4096,
                     streamingInterval: streamingInterval,
+                    streamStepEvalPolicy: streamStepEvalPolicy,
                     onToken: { continuation.yield(.token($0)) },
                     onInfo: { continuation.yield(.info($0)) },
                     onAudioChunk: { continuation.yield(.audio($0)) }
@@ -1361,6 +1555,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         minP: Float,
         maxTokens: Int,
         streamingInterval: Double = 2.0,
+        customVoiceProfile explicitCustomVoiceProfile: String? = nil,
+        streamStepEvalPolicy explicitStreamStepEvalPolicy: String? = nil,
         onToken: ((Int) -> Void)? = nil,
         onInfo: ((AudioGenerationInfo) -> Void)? = nil,
         onAudioChunk: ((MLXArray) -> Void)? = nil
@@ -1371,6 +1567,18 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
 
         let talkerConfig = config.talkerConfig!
         let isPureVoiceDesign = speaker == nil && refAudio == nil && voiceClonePrompt == nil
+        let isDedicatedCustomVoice = speaker != nil && refAudio == nil && voiceClonePrompt == nil
+        let isVoiceCloneGeneration = voiceClonePrompt != nil || refAudio != nil
+        let streamingGenerationMode: Qwen3StreamingGenerationMode = {
+            if isDedicatedCustomVoice {
+                return .custom
+            } else if isPureVoiceDesign {
+                return .design
+            } else if isVoiceCloneGeneration {
+                return .clone
+            }
+            return .generic
+        }()
 
         // Prepare inputs
         let inputEmbedsInit: MLXArray
@@ -1454,9 +1662,36 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         }
         storePreparationBooleanFlags(preparationBooleanFlags)
         mergePreparationTimingsMS(preparationTimingsMS)
+        storePreparationStringFlags([:])
 
         // Cap max tokens based on text length
-        let effectiveMaxTokens = min(maxTokens, max(75, preparedTargetTokenCount * 6))
+        let customVoiceProfile = isDedicatedCustomVoice
+            ? Qwen3CustomVoiceBenchmarkProfile.resolve(explicitProfile: explicitCustomVoiceProfile)
+            : .baseline
+        let effectiveMaxTokens = customVoiceProfile.effectiveMaxTokens(
+            defaultMaxTokens: maxTokens,
+            targetTokenCount: preparedTargetTokenCount
+        )
+        let streamStepEvalPolicy = Qwen3StreamStepEvalPolicy.resolve(
+            explicitPolicy: explicitStreamStepEvalPolicy
+        )
+        mergePreparationBooleanFlags(streamStepEvalPolicy.booleanFlags)
+        mergePreparationStringFlags([
+            "stream_step_eval_policy": streamStepEvalPolicy.rawValue,
+        ])
+        if isDedicatedCustomVoice {
+            mergePreparationTimingsMS([
+                "custom_target_token_count": preparedTargetTokenCount,
+                "custom_effective_max_tokens": effectiveMaxTokens,
+                "custom_generation_profile_multiplier": customVoiceProfile.maxTokenMultiplier,
+                "custom_generation_profile_min_tokens": customVoiceProfile.minimumGeneratedCodes,
+                "custom_post_first_stream_chunk_multiplier": customVoiceProfile.postFirstStreamChunkMultiplier,
+            ])
+            mergePreparationBooleanFlags(customVoiceProfile.booleanFlags)
+            mergePreparationStringFlags([
+                "custom_voice_profile": customVoiceProfile.rawValue,
+            ])
+        }
 
         // Initialize cache and timing
         let startTime = Date()
@@ -1479,21 +1714,47 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         // Streaming decode state
         let codecTokenRateHz = 12.5
         let streamingChunkSize = max(1, Int(streamingInterval * codecTokenRateHz))
+        let postFirstStreamingChunkSize = streamingGenerationMode.postFirstStreamingChunkSize(
+            baseChunkSize: streamingChunkSize,
+            customVoiceProfile: customVoiceProfile
+        )
         if isStreaming {
-            pendingStreamCodes.reserveCapacity(streamingChunkSize)
+            pendingStreamCodes.reserveCapacity(max(streamingChunkSize, postFirstStreamingChunkSize))
         }
         var talkerForwardTotalMS = 0
         var codePredictorTotalMS = 0
         var streamingDecoderTotalMS = 0
         var streamingDecoderCallCount = 0
         var designStreamStepEvalTotalMS = 0
+        var designStreamStepEOSReadTotalMS = 0
         var designAudioChunkEvalTotalMS = 0
         var designGenerationStepsBeforeFirstChunk: Int?
         var designFirstChunkDecoderTokens: Int?
         var customStreamStepEvalTotalMS = 0
+        var customStreamStepEOSReadTotalMS = 0
         var customAudioChunkEvalTotalMS = 0
         var customGenerationStepsBeforeFirstChunk: Int?
         var customFirstChunkDecoderTokens: Int?
+        var cloneStreamStepEvalTotalMS = 0
+        var cloneStreamStepEOSReadTotalMS = 0
+        var cloneAudioChunkEvalTotalMS = 0
+        var cloneGenerationStepsBeforeFirstChunk: Int?
+        var cloneFirstChunkDecoderTokens: Int?
+        var generationEndReason = "token_cap"
+        var emittedStreamChunk = false
+        if let timingPrefix = streamingGenerationMode.timingPrefix {
+            let postFirstMultiplier = streamingGenerationMode.postFirstStreamChunkMultiplier(
+                customVoiceProfile: customVoiceProfile
+            )
+            mergePreparationTimingsMS([
+                "\(timingPrefix)_initial_stream_chunk_size": streamingChunkSize,
+                "\(timingPrefix)_post_first_stream_chunk_size": postFirstStreamingChunkSize,
+                "\(timingPrefix)_post_first_stream_chunk_multiplier": postFirstMultiplier,
+            ])
+            mergePreparationBooleanFlags([
+                "\(timingPrefix)_stream_chunk_growth_enabled": postFirstStreamingChunkSize > streamingChunkSize,
+            ])
+        }
 
         var trailingIdx = 0
         var inputEmbeds = inputEmbedsInit
@@ -1582,16 +1843,35 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
 
             inputEmbeds = textEmbed + codecEmbed
             let streamStepEvalStartedAt = ContinuousClock.now
-            eval(inputEmbeds, isEOS)
+            switch streamStepEvalPolicy {
+            case .full:
+                eval(inputEmbeds, isEOS)
+            case .eosOnly:
+                eval(isEOS)
+            case .deferred:
+                break
+            }
             if isPureVoiceDesign {
                 designStreamStepEvalTotalMS += streamStepEvalStartedAt.elapsedMilliseconds
-            } else if speaker != nil {
+            } else if isDedicatedCustomVoice {
                 customStreamStepEvalTotalMS += streamStepEvalStartedAt.elapsedMilliseconds
+            } else if isVoiceCloneGeneration {
+                cloneStreamStepEvalTotalMS += streamStepEvalStartedAt.elapsedMilliseconds
             }
 
             let tokenId = Int(nextToken[0, 0].item(Int32.self))
             onToken?(tokenId)
-            if isEOS.item(Bool.self) {
+            let eosReadStartedAt = ContinuousClock.now
+            let reachedEOS = isEOS.item(Bool.self)
+            if isPureVoiceDesign {
+                designStreamStepEOSReadTotalMS += eosReadStartedAt.elapsedMilliseconds
+            } else if isDedicatedCustomVoice {
+                customStreamStepEOSReadTotalMS += eosReadStartedAt.elapsedMilliseconds
+            } else if isVoiceCloneGeneration {
+                cloneStreamStepEOSReadTotalMS += eosReadStartedAt.elapsedMilliseconds
+            }
+            if reachedEOS {
+                generationEndReason = "eos"
                 break
             }
             generatedCodebookTokens.append(tokenId)
@@ -1604,15 +1884,21 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
 
             // Streaming: decode and yield audio chunks during generation
             if let onAudioChunk {
-                if pendingStreamCodes.count >= streamingChunkSize {
+                let requiredStreamChunkSize = emittedStreamChunk
+                    ? postFirstStreamingChunkSize
+                    : streamingChunkSize
+                if pendingStreamCodes.count >= requiredStreamChunkSize {
                     let codesChunk = stacked(pendingStreamCodes, axis: 1)
                     let codesForDecoder = codesChunk.transposed(0, 2, 1)
                     if isPureVoiceDesign, designGenerationStepsBeforeFirstChunk == nil {
                         designGenerationStepsBeforeFirstChunk = generatedCodeCount
                         designFirstChunkDecoderTokens = codesForDecoder.dim(2)
-                    } else if speaker != nil, customGenerationStepsBeforeFirstChunk == nil {
+                    } else if isDedicatedCustomVoice, customGenerationStepsBeforeFirstChunk == nil {
                         customGenerationStepsBeforeFirstChunk = generatedCodeCount
                         customFirstChunkDecoderTokens = codesForDecoder.dim(2)
+                    } else if isVoiceCloneGeneration, cloneGenerationStepsBeforeFirstChunk == nil {
+                        cloneGenerationStepsBeforeFirstChunk = generatedCodeCount
+                        cloneFirstChunkDecoderTokens = codesForDecoder.dim(2)
                     }
                     let streamDecoderStartedAt = ContinuousClock.now
                     let decoded = speechTokenizer.decoder.streamingStep(codesForDecoder).squeezed(axis: 1)
@@ -1623,12 +1909,15 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     eval(audioChunk)
                     if isPureVoiceDesign {
                         designAudioChunkEvalTotalMS += audioChunkEvalStartedAt.elapsedMilliseconds
-                    } else if speaker != nil {
+                    } else if isDedicatedCustomVoice {
                         customAudioChunkEvalTotalMS += audioChunkEvalStartedAt.elapsedMilliseconds
+                    } else if isVoiceCloneGeneration {
+                        cloneAudioChunkEvalTotalMS += audioChunkEvalStartedAt.elapsedMilliseconds
                     }
 
                     pendingStreamCodes.removeAll(keepingCapacity: true)
                     onAudioChunk(audioChunk)
+                    emittedStreamChunk = true
                     Memory.clearCache()
                 }
             }
@@ -1669,18 +1958,24 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 if isPureVoiceDesign, designGenerationStepsBeforeFirstChunk == nil {
                     designGenerationStepsBeforeFirstChunk = generatedCodeCount
                     designFirstChunkDecoderTokens = codesForDecoder.dim(2)
-                } else if speaker != nil, customGenerationStepsBeforeFirstChunk == nil {
+                } else if isDedicatedCustomVoice, customGenerationStepsBeforeFirstChunk == nil {
                     customGenerationStepsBeforeFirstChunk = generatedCodeCount
                     customFirstChunkDecoderTokens = codesForDecoder.dim(2)
+                } else if isVoiceCloneGeneration, cloneGenerationStepsBeforeFirstChunk == nil {
+                    cloneGenerationStepsBeforeFirstChunk = generatedCodeCount
+                    cloneFirstChunkDecoderTokens = codesForDecoder.dim(2)
                 }
                 let audioChunkEvalStartedAt = ContinuousClock.now
                 eval(audioChunk)
                 if isPureVoiceDesign {
                     designAudioChunkEvalTotalMS += audioChunkEvalStartedAt.elapsedMilliseconds
-                } else if speaker != nil {
+                } else if isDedicatedCustomVoice {
                     customAudioChunkEvalTotalMS += audioChunkEvalStartedAt.elapsedMilliseconds
+                } else if isVoiceCloneGeneration {
+                    cloneAudioChunkEvalTotalMS += audioChunkEvalStartedAt.elapsedMilliseconds
                 }
                 onAudioChunk(audioChunk)
+                emittedStreamChunk = true
                 Memory.clearCache()
             }
             var mergedTimingsMS = [
@@ -1692,6 +1987,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             ].merging(preparationTimingsMS) { _, rhs in rhs }
             if isPureVoiceDesign {
                 mergedTimingsMS["design_stream_step_eval_total_ms"] = designStreamStepEvalTotalMS
+                mergedTimingsMS["design_stream_step_eos_read_total_ms"] = designStreamStepEOSReadTotalMS
                 mergedTimingsMS["design_audio_chunk_eval_total_ms"] = designAudioChunkEvalTotalMS
                 if let designGenerationStepsBeforeFirstChunk {
                     mergedTimingsMS["design_generation_steps_before_first_chunk"] = designGenerationStepsBeforeFirstChunk
@@ -1699,14 +1995,34 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 if let designFirstChunkDecoderTokens {
                     mergedTimingsMS["design_first_chunk_decoder_tokens"] = designFirstChunkDecoderTokens
                 }
-            } else if speaker != nil {
+            } else if isDedicatedCustomVoice {
                 mergedTimingsMS["custom_stream_step_eval_total_ms"] = customStreamStepEvalTotalMS
+                mergedTimingsMS["custom_stream_step_eos_read_total_ms"] = customStreamStepEOSReadTotalMS
                 mergedTimingsMS["custom_audio_chunk_eval_total_ms"] = customAudioChunkEvalTotalMS
                 if let customGenerationStepsBeforeFirstChunk {
                     mergedTimingsMS["custom_generation_steps_before_first_chunk"] = customGenerationStepsBeforeFirstChunk
                 }
                 if let customFirstChunkDecoderTokens {
                     mergedTimingsMS["custom_first_chunk_decoder_tokens"] = customFirstChunkDecoderTokens
+                }
+                mergedTimingsMS["custom_generation_ended_by_eos"] = generationEndReason == "eos" ? 1 : 0
+                mergedTimingsMS["custom_generation_hit_token_cap"] = generationEndReason == "token_cap" ? 1 : 0
+                mergePreparationBooleanFlags([
+                    "custom_generation_ended_by_eos": generationEndReason == "eos",
+                    "custom_generation_hit_token_cap": generationEndReason == "token_cap",
+                ])
+                mergePreparationStringFlags([
+                    "custom_generation_end_reason": generationEndReason,
+                ])
+            } else if isVoiceCloneGeneration {
+                mergedTimingsMS["clone_stream_step_eval_total_ms"] = cloneStreamStepEvalTotalMS
+                mergedTimingsMS["clone_stream_step_eos_read_total_ms"] = cloneStreamStepEOSReadTotalMS
+                mergedTimingsMS["clone_audio_chunk_eval_total_ms"] = cloneAudioChunkEvalTotalMS
+                if let cloneGenerationStepsBeforeFirstChunk {
+                    mergedTimingsMS["clone_generation_steps_before_first_chunk"] = cloneGenerationStepsBeforeFirstChunk
+                }
+                if let cloneFirstChunkDecoderTokens {
+                    mergedTimingsMS["clone_first_chunk_decoder_tokens"] = cloneFirstChunkDecoderTokens
                 }
             }
             mergePreparationTimingsMS(mergedTimingsMS)
@@ -1746,7 +2062,25 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         ].merging(preparationTimingsMS) { _, rhs in rhs }
         if isPureVoiceDesign {
             mergedTimingsMS["design_stream_step_eval_total_ms"] = designStreamStepEvalTotalMS
+            mergedTimingsMS["design_stream_step_eos_read_total_ms"] = designStreamStepEOSReadTotalMS
             mergedTimingsMS["design_final_decode_eval_ms"] = finalDecodeEvalStartedAt.elapsedMilliseconds
+        } else if isDedicatedCustomVoice {
+            mergedTimingsMS["custom_stream_step_eval_total_ms"] = customStreamStepEvalTotalMS
+            mergedTimingsMS["custom_stream_step_eos_read_total_ms"] = customStreamStepEOSReadTotalMS
+            mergedTimingsMS["custom_audio_chunk_eval_total_ms"] = customAudioChunkEvalTotalMS
+            mergedTimingsMS["custom_generation_ended_by_eos"] = generationEndReason == "eos" ? 1 : 0
+            mergedTimingsMS["custom_generation_hit_token_cap"] = generationEndReason == "token_cap" ? 1 : 0
+            mergePreparationBooleanFlags([
+                "custom_generation_ended_by_eos": generationEndReason == "eos",
+                "custom_generation_hit_token_cap": generationEndReason == "token_cap",
+            ])
+            mergePreparationStringFlags([
+                "custom_generation_end_reason": generationEndReason,
+            ])
+        } else if isVoiceCloneGeneration {
+            mergedTimingsMS["clone_stream_step_eval_total_ms"] = cloneStreamStepEvalTotalMS
+            mergedTimingsMS["clone_stream_step_eos_read_total_ms"] = cloneStreamStepEOSReadTotalMS
+            mergedTimingsMS["clone_audio_chunk_eval_total_ms"] = cloneAudioChunkEvalTotalMS
         }
         mergePreparationTimingsMS(mergedTimingsMS)
         return audio
@@ -3102,6 +3436,18 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
     private func mergePreparationBooleanFlags(_ flags: [String: Bool]) {
         diagnosticsLock.lock()
         storedPreparationBooleanFlags.merge(flags) { _, rhs in rhs }
+        diagnosticsLock.unlock()
+    }
+
+    private func storePreparationStringFlags(_ flags: [String: String]) {
+        diagnosticsLock.lock()
+        storedPreparationStringFlags = flags
+        diagnosticsLock.unlock()
+    }
+
+    private func mergePreparationStringFlags(_ flags: [String: String]) {
+        diagnosticsLock.lock()
+        storedPreparationStringFlags.merge(flags) { _, rhs in rhs }
         diagnosticsLock.unlock()
     }
 
