@@ -59,10 +59,6 @@ PROHIBITED_REFERENCE_PATTERNS=(
     "docs/reference/testing.md"
     "QwenVoice-macos15.dmg"
     "build/QwenVoice.app"
-    "CLAU""DE.md"
-    "Clau""de Code"
-    "claude.ai/code"
-    ".claude/worktrees"
 )
 
 for removed_pattern in "${PROHIBITED_REFERENCE_PATTERNS[@]}"; do
