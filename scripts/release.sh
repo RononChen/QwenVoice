@@ -181,11 +181,11 @@ echo ""
 
 if [ "$PREFLIGHT" = "full" ]; then
     STEP_START="$(date +%s)"
-    echo "[preflight] Running harness and build proof gates..."
-    python3 "$SCRIPT_DIR/harness.py" validate
-    python3 "$SCRIPT_DIR/harness.py" test --layer contract
-    python3 "$SCRIPT_DIR/harness.py" test --layer swift
-    python3 "$SCRIPT_DIR/harness.py" test --layer native
+    echo "[preflight] Running QA and build proof gates..."
+    "$SCRIPT_DIR/qa.sh" validate
+    "$SCRIPT_DIR/qa.sh" test --layer contract
+    "$SCRIPT_DIR/qa.sh" test --layer swift
+    "$SCRIPT_DIR/qa.sh" test --layer native
     "$SCRIPT_DIR/build_foundation_targets.sh" macos
     "$SCRIPT_DIR/build_foundation_targets.sh" ios
     echo "[preflight] Full preflight — done ($(step_time "$STEP_START"))"

@@ -85,7 +85,7 @@ guard_swap_before_heavy_step() {
 }
 
 run_step "Project inputs" "$PROJECT_DIR/scripts/check_project_inputs.sh"
-run_step "Harness validate" python3 "$PROJECT_DIR/scripts/harness.py" validate
+run_step "QA validate" "$PROJECT_DIR/scripts/qa.sh" validate
 run_step "Git diff whitespace check" git diff --check
 
 if [ "$MODE" = "fast" ]; then
@@ -94,7 +94,7 @@ if [ "$MODE" = "fast" ]; then
 fi
 
 guard_swap_before_heavy_step "Swift source tests"
-run_step "Swift source tests" python3 "$PROJECT_DIR/scripts/harness.py" test --layer swift
+run_step "Swift source tests" "$PROJECT_DIR/scripts/qa.sh" test --layer swift
 
 guard_swap_before_heavy_step "macOS foundation build"
 run_step "macOS foundation build" "$PROJECT_DIR/scripts/build_foundation_targets.sh" macos

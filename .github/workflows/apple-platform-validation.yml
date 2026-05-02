@@ -46,19 +46,19 @@ jobs:
           mkdir -p "$CI_RESULT_ROOT"
 
       - name: Validate checked-in project inputs
-        run: python3 scripts/harness.py validate
+        run: ./scripts/qa.sh validate
 
-      - name: Run contract harness layer
-        run: python3 scripts/harness.py test --layer contract
+      - name: Run contract QA layer
+        run: ./scripts/qa.sh test --layer contract
 
-      - name: Run macOS Swift foundation harness layer
-        run: python3 scripts/harness.py test --layer swift
+      - name: Run macOS Swift foundation QA layer
+        run: ./scripts/qa.sh test --layer swift
 
-      - name: Run native runtime harness layer
-        run: python3 scripts/harness.py test --layer native
+      - name: Run native runtime QA layer
+        run: ./scripts/qa.sh test --layer native
 
-      - name: Run macOS UI smoke harness layer
-        run: python3 scripts/harness.py test --layer e2e
+      - name: Run macOS UI smoke QA layer
+        run: ./scripts/qa.sh test --layer e2e
 
       - name: Build macOS app
         run: |

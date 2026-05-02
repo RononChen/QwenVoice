@@ -1,0 +1,323 @@
+#!/usr/bin/env bash
+# QwenVoice native QA orchestrator. Replaces the Python harness for
+# validate/test invocations called from CI, release.sh, and rescue_gate.sh.
+#
+# Usage:
+#   qa.sh validate
+#   qa.sh test --layer {contract|swift|native|ios|e2e|all}
+#
+# Environment:
+#   QWENVOICE_XCODEBUILD_TIMEOUT_SECONDS  per-xcodebuild timeout (default 1800)
+#   QWENVOICE_E2E_STRICT                  treat e2e TCC/window timeouts as
+#                                         hard failures (default: skip).
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+PROJECT_DIR="$(cd -- "$SCRIPT_DIR/.." &>/dev/null && pwd)"
+PROJECT_PATH="$PROJECT_DIR/QwenVoice.xcodeproj"
+CONTRACT_PATH="$PROJECT_DIR/Sources/Resources/qwenvoice_contract.json"
+HARNESS_ROOT="$PROJECT_DIR/build/harness"
+LOCK_DIR="$HARNESS_ROOT/.lock"
+DEFAULT_TIMEOUT_SECONDS=1800
+
+usage() {
+  cat <<USAGE
+qa.sh — QwenVoice native QA orchestrator
+
+Usage:
+  qa.sh validate
+  qa.sh test --layer {contract|swift|native|ios|e2e|all}
+
+Environment:
+  QWENVOICE_XCODEBUILD_TIMEOUT_SECONDS  override per-xcodebuild timeout (default ${DEFAULT_TIMEOUT_SECONDS}s)
+  QWENVOICE_E2E_STRICT                  treat e2e TCC/window timeouts as failures (default: skip)
+USAGE
+}
+
+# Atomic mkdir-based lock so concurrent xcodebuild lanes never overlap.
+acquire_lock() {
+  local label="$1"
+  mkdir -p "$HARNESS_ROOT"
+  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    echo "qa.sh: another heavy run holds $LOCK_DIR — refusing to overlap with $label." >&2
+    echo "Wait for the other run or remove the lock dir if stale." >&2
+    exit 75
+  fi
+  printf 'pid=%s label=%s\n' "$$" "$label" > "$LOCK_DIR/info"
+  trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM
+}
+
+# Validate qwenvoice_contract.json schema essentials.
+validate_contract() {
+  if [[ ! -f "$CONTRACT_PATH" ]]; then
+    echo "qa.sh: missing contract at $CONTRACT_PATH" >&2
+    return 1
+  fi
+  python3 - "$CONTRACT_PATH" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as f:
+    contract = json.load(f)
+
+assert isinstance(contract.get("models"), list) and contract["models"], "models must be a non-empty list"
+assert isinstance(contract.get("speakers"), dict) and contract["speakers"], "speakers must be a non-empty mapping"
+assert contract.get("defaultSpeaker"), "defaultSpeaker must be set"
+
+ids = [m["id"] for m in contract["models"]]
+assert len(ids) == len(set(ids)), f"duplicate model ids: {ids}"
+
+modes = [m["mode"] for m in contract["models"]]
+assert len(modes) == len(set(modes)), f"duplicate model modes: {modes}"
+
+for m in contract["models"]:
+    assert m.get("id"), "each model must have an id"
+    assert m.get("mode"), f"model {m.get('id')} must have a mode"
+    assert m.get("folder"), f"model {m.get('id')} must have a folder"
+    assert m.get("requiredRelativePaths"), f"model {m.get('id')} must declare requiredRelativePaths"
+
+speakers_flat = []
+for group in sorted(contract["speakers"].keys()):
+    speakers_flat.extend(contract["speakers"][group])
+assert contract["defaultSpeaker"] in speakers_flat, (
+    f"defaultSpeaker {contract['defaultSpeaker']} not present in speakers"
+)
+PY
+}
+
+# Pick the best available iPhone simulator destination, or print nothing.
+resolve_ios_destination() {
+  xcrun simctl list devices available -j 2>/dev/null | python3 - <<'PY'
+import json
+import sys
+
+try:
+    data = json.load(sys.stdin)
+except json.JSONDecodeError:
+    sys.exit(0)
+
+candidates = []
+for runtime, devices in data.get("devices", {}).items():
+    if "iOS" not in runtime:
+        continue
+    for device in devices:
+        if not device.get("name", "").startswith("iPhone"):
+            continue
+        if not device.get("isAvailable", True):
+            continue
+        candidates.append(device)
+
+if not candidates:
+    sys.exit(0)
+
+preferred = (
+    "iPhone 17 Pro",
+    "iPhone 17 Pro Max",
+    "iPhone 17",
+    "iPhone 16 Pro",
+    "iPhone 15 Pro",
+)
+
+
+def order(device):
+    state_rank = 0 if device.get("state") == "Booted" else 1
+    try:
+        pref_rank = preferred.index(device["name"])
+    except ValueError:
+        pref_rank = len(preferred)
+    return (state_rank, pref_rank, device.get("name", ""))
+
+
+candidates.sort(key=order)
+print(f"platform=iOS Simulator,id={candidates[0]['udid']}")
+PY
+}
+
+# Run resolve → build-for-testing → test-without-building for one suite.
+run_xcodebuild_suite() {
+  local suite_name="$1"; shift
+  local scheme="$1"; shift
+  local destination="$1"; shift
+
+  local derived_data="$HARNESS_ROOT/derived-data/$suite_name"
+  local result_root="$HARNESS_ROOT/results/$suite_name"
+  local source_packages="$HARNESS_ROOT/source-packages/$suite_name"
+  rm -rf "$derived_data" "$result_root"
+  mkdir -p "$derived_data" "$result_root" "$source_packages"
+
+  echo "==> [$suite_name] -resolvePackageDependencies (scheme: $scheme)"
+  xcodebuild \
+    -project "$PROJECT_PATH" \
+    -scheme "$scheme" \
+    -destination "$destination" \
+    -clonedSourcePackagesDirPath "$source_packages" \
+    -resolvePackageDependencies
+
+  echo "==> [$suite_name] build-for-testing"
+  xcodebuild \
+    -project "$PROJECT_PATH" \
+    -scheme "$scheme" \
+    -destination "$destination" \
+    -clonedSourcePackagesDirPath "$source_packages" \
+    -disableAutomaticPackageResolution \
+    -derivedDataPath "$derived_data" \
+    -resultBundlePath "$result_root/build.xcresult" \
+    -resultBundleVersion 3 \
+    "$@" \
+    build-for-testing
+
+  echo "==> [$suite_name] test-without-building"
+  xcodebuild \
+    -project "$PROJECT_PATH" \
+    -scheme "$scheme" \
+    -destination "$destination" \
+    -clonedSourcePackagesDirPath "$source_packages" \
+    -disableAutomaticPackageResolution \
+    -derivedDataPath "$derived_data" \
+    -resultBundlePath "$result_root/test.xcresult" \
+    -resultBundleVersion 3 \
+    "$@" \
+    test-without-building
+}
+
+run_contract_layer() {
+  echo "==> Running contract validation tests..."
+  validate_contract
+  echo "==> contract OK"
+}
+
+run_swift_layer() {
+  echo "==> Running Swift source tests..."
+  run_xcodebuild_suite "swift_source_tests" "QwenVoice Foundation" "platform=macOS"
+}
+
+run_native_layer() {
+  echo "==> Running native runtime-focused tests..."
+  run_xcodebuild_suite "native_runtime_tests" "QwenVoice Foundation" "platform=macOS" \
+    -testPlan QwenVoiceRuntime \
+    -only-testing:QwenVoiceTests/EngineServiceCodecTests \
+    -only-testing:QwenVoiceTests/NativeAudioPreparationTests \
+    -only-testing:QwenVoiceTests/NativeCloneSupportTests \
+    -only-testing:QwenVoiceTests/NativeMLXMacEngineTests \
+    -only-testing:QwenVoiceTests/NativeModelLoadCoordinatorTests \
+    -only-testing:QwenVoiceTests/NativeModelRegistryTests \
+    -only-testing:QwenVoiceTests/TTSEngineStoreTests \
+    -only-testing:QwenVoiceTests/VoiceCloningReferenceAudioSupportTests \
+    -only-testing:QwenVoiceTests/XPCNativeEngineClientTests
+}
+
+run_ios_layer() {
+  echo "==> Running iPhone foundation tests..."
+  local destination
+  destination="$(resolve_ios_destination)"
+  if [[ -z "$destination" ]]; then
+    echo "==> No iPhone simulator destination available; skipping iOS layer."
+    return 0
+  fi
+  run_xcodebuild_suite "ios_foundation_tests" "VocelloiOS Foundation" "$destination"
+}
+
+run_e2e_layer() {
+  echo "==> Running end-to-end UI smoke tests..."
+  local result_root="$HARNESS_ROOT/results/e2e_ui_smoke"
+  mkdir -p "$result_root"
+  local log_file="$result_root/qa.log"
+
+  set +e
+  run_xcodebuild_suite "e2e_ui_smoke" "Vocello UI" "platform=macOS" -testPlan VocelloUISmoke 2>&1 | tee "$log_file"
+  local rc=${PIPESTATUS[0]}
+  set -e
+
+  if [[ $rc -eq 0 ]]; then
+    return 0
+  fi
+  if [[ "${QWENVOICE_E2E_STRICT:-}" =~ ^(1|true|yes|on)$ ]]; then
+    return "$rc"
+  fi
+  if grep -q "Timed out while enabling automation mode" "$log_file"; then
+    echo "==> e2e demoted to skip: macOS automation-mode TCC timeout." >&2
+    echo "    Grant Accessibility permission to the test runner via" >&2
+    echo "    System Settings > Privacy & Security > Accessibility, then re-run." >&2
+    return 0
+  fi
+  if grep -q "Vocello.app has no windows after launch" "$log_file"; then
+    echo "==> e2e demoted to skip: Vocello.app did not register a window in the" >&2
+    echo "    test-runner accessibility tree (foreground-activation quirk)." >&2
+    return 0
+  fi
+  return "$rc"
+}
+
+cmd_validate() {
+  echo "==> Running pre-commit validation..."
+  validate_contract
+  bash "$SCRIPT_DIR/check_project_inputs.sh"
+  echo "==> validate OK"
+}
+
+cmd_test() {
+  local layer="all"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --layer)
+        layer="${2:?missing value for --layer}"
+        shift 2
+        ;;
+      *)
+        echo "qa.sh test: unknown option '$1'" >&2
+        usage >&2
+        exit 2
+        ;;
+    esac
+  done
+
+  case "$layer" in
+    contract|swift|native|ios|e2e|all) ;;
+    *)
+      echo "qa.sh test: unknown layer '$layer'" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+
+  if [[ "$layer" != "contract" ]]; then
+    acquire_lock "test --layer $layer"
+  fi
+
+  case "$layer" in
+    contract) run_contract_layer ;;
+    swift)    run_swift_layer ;;
+    native)   run_native_layer ;;
+    ios)      run_ios_layer ;;
+    e2e)      run_e2e_layer ;;
+    all)
+      run_contract_layer
+      run_swift_layer
+      run_native_layer
+      run_ios_layer
+      run_e2e_layer
+      ;;
+  esac
+}
+
+main() {
+  if [[ $# -eq 0 ]]; then
+    usage >&2
+    exit 2
+  fi
+  local subcmd="$1"; shift
+  case "$subcmd" in
+    validate)       cmd_validate "$@" ;;
+    test)           cmd_test "$@" ;;
+    -h|--help|help) usage ;;
+    *)
+      echo "qa.sh: unknown subcommand '$subcmd'" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"

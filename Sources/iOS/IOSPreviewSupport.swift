@@ -76,7 +76,7 @@ enum IOSPreviewRuntime {
         let customDraft = CustomVoiceDraft(
             selectedSpeaker: TTSModel.defaultSpeaker,
             delivery: DeliveryInputState(mode: .preset, selectedPresetID: "neutral"),
-            text: "Build a preview pipeline that preserves the real SwiftUI layout while letting Codex inspect it in a browser."
+            text: "Build a preview pipeline that preserves the real SwiftUI layout while exposing it through a browser mirror."
         )
         let designDraft = VoiceDesignDraft(
             voiceDescription: "A polished product narrator with steady pacing, crisp diction, and a calm, credible tone.",

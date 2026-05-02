@@ -77,6 +77,19 @@ When repo facts disagree, trust sources in this order:
 
 `Sources/Resources/qwenvoice_contract.json` is the source of truth for shared model, speaker, and platform-variant metadata.
 
+## Claude Code Tooling
+
+When operating in this repo with Claude Code, prefer the following over generic equivalents:
+
+- Local validation and tests: `./scripts/qa.sh validate` and `./scripts/qa.sh test --layer {contract|swift|native|ios|e2e|all}` are the canonical entrypoints for CI, `release.sh`, and `rescue_gate.sh`. The Python `scripts/harness.py` remains callable during the QA migration; new work targets `qa.sh`.
+- Apple platform docs (HIG, Swift, WWDC, Swift-DocC): use the `sosumi` MCP (`mcp__sosumi__searchAppleDocumentation`, `mcp__sosumi__fetchAppleDocumentation`, `mcp__sosumi__fetchAppleVideoTranscript`). Do not WebFetch developer.apple.com.
+- Interactive Xcode build, test, or simulator inspection: use `XcodeBuildMCP` tools (`build_run_sim`, `test_sim`, `screenshot`, `snapshot_ui`, `list_sims`, `boot_sim`, `show_build_settings`). For headless test runs called from CI or release, use `./scripts/qa.sh`.
+- GitHub PR, issue, workflow, release ops: use the `github` MCP. Routine `git` commands stay on Bash.
+- macOS UI scripting beyond `xcodebuild`: use the `applescript` MCP for AppleScript-driven app or system automation.
+- Triage failed `qa.sh` layers by reading the `.xcresult` bundles under `build/harness/results/<layer>/` with `xcrun xcresulttool get build-results --path …` (build) or `xcrun xcresulttool get test-results summary --path …` (test) before changing code.
+
+Browser MCPs (`chrome-devtools`, `claude-in-chrome`) and computer-use are not relevant to this native macOS/iOS codebase. Do not introduce them into automated flows.
+
 ## Git Workflow Default
 
 - Work on the user-designated branch (currently `claude/init-project-7ZdXV`).
