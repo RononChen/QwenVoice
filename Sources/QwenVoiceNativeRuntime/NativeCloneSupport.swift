@@ -5,6 +5,20 @@ import MLXAudioCore
 @preconcurrency import MLXAudioTTS
 import QwenVoiceEngineSupport
 
+// MARK: - Divergence with QwenVoiceCore
+//
+// This is the RETAINED copy of clone-prep support (`ResolvedCloneConditioning`,
+// LRU cache, prompt creation). The live implementation lives at
+// `Sources/QwenVoiceCore/NativeCloneSupport.swift` (same name, comparable
+// size). Core is authoritative; this copy is kept solely so the legacy
+// `NativeCloneSupportTests` regression suite plus NativeRuntime's own
+// `MacNativeRuntime` consumer continue to compile until the full
+// QwenVoiceNativeRuntime retirement lands.
+//
+// Behavior fixes affecting `ResolvedCloneConditioning` resolution, prompt
+// creation, or normalized-reference cache reuse should be mirrored across
+// BOTH copies until consolidation.
+
 enum ResolvedCloneTranscriptMode: String, Sendable {
     case inline
     case sidecar

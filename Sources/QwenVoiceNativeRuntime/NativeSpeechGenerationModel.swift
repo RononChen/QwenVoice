@@ -4,6 +4,21 @@ import Foundation
 @preconcurrency import MLXAudioTTS
 import QwenVoiceEngineSupport
 
+// MARK: - Divergence with QwenVoiceCore
+//
+// This is the RETAINED wrapper around the base `SpeechGenerationModel`.
+// The live implementation lives at
+// `Sources/QwenVoiceCore/UnsafeSpeechGenerationModel.swift` and carries
+// the Qwen3 generation-speed-profile resolution
+// (`Qwen3GenerationSpeedProfile`), the Custom Voice parameter policy,
+// and the per-request benchmark-options threading this copy lacks. Core
+// is authoritative; this copy exists solely so the legacy
+// `NativeMLXMacEngineTests` regression suite continues to compile until
+// the full QwenVoiceNativeRuntime retirement lands.
+//
+// **Do not add new behavior to this file.** New stream/prewarm/handler
+// boxes or generation-parameter resolution belongs in the Core copy.
+
 struct NativeSpeechGenerationInfo: Sendable {
     let promptTokenCount: Int
     let generationTokenCount: Int

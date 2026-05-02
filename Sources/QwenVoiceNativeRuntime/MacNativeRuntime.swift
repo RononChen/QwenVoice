@@ -2,6 +2,23 @@ import Foundation
 @preconcurrency import MLXAudioTTS
 import QwenVoiceEngineSupport
 
+// MARK: - Divergence with QwenVoiceCore
+//
+// This is the RETAINED runtime actor (model load, generation prep, clone
+// conditioning). The active macOS runtime path is the QwenVoiceCore +
+// QwenVoiceEngineService composition (per CLAUDE.md "Architecture
+// Boundaries"). The live implementation is assembled across
+// `Sources/QwenVoiceCore/NativeRuntimeFactory.swift`,
+// `Sources/QwenVoiceCore/NativeEngineRuntime.swift`, and
+// `Sources/QwenVoiceCore/MLXTTSEngine.swift`. Core is authoritative;
+// this copy exists solely to keep the legacy `NativeMLXMacEngineTests`
+// regression suite and the in-module `NativeMLXMacEngine` honest until
+// the full QwenVoiceNativeRuntime retirement lands.
+//
+// **Do not add new behavior to this file.** New runtime stages,
+// prewarm, prepared-cache logic, or load-coordination policy belongs in
+// the Core surface.
+
 enum EngineWarmState: String, Sendable {
     case cold
     case warm

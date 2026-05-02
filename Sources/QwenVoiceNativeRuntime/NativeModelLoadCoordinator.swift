@@ -1,5 +1,18 @@
 import Foundation
 
+// MARK: - Divergence with QwenVoiceCore
+//
+// This is the RETAINED stub of model-load coordination. The live
+// implementation lives at
+// `Sources/QwenVoiceCore/MLXModelLoadCoordinator.swift` (~49 KB; full
+// in-flight dedup, prewarming, cache state, memory-policy integration).
+// Core is authoritative; this stub is kept solely so the legacy
+// `NativeModelLoadCoordinatorTests` regression suite continues to compile
+// until the full QwenVoiceNativeRuntime retirement lands.
+//
+// **Do not add new behavior to this file.** New coordination, prewarm,
+// or cache-policy logic belongs in the Core copy.
+
 actor NativeModelLoadCoordinator {
     private struct InFlightLoad {
         let modelID: String

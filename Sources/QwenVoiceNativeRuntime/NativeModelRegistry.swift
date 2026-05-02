@@ -1,5 +1,18 @@
 import Foundation
 
+// MARK: - Divergence with QwenVoiceCore
+//
+// This is the RETAINED stub of model registry types. The live
+// implementation lives at
+// `Sources/QwenVoiceCore/ContractBackedModelRegistry.swift` (substantially
+// larger; full caching, memory profiling, platform-variant logic). Core
+// is authoritative; this stub is kept solely so the legacy
+// `NativeModelRegistryTests` regression suite continues to compile until
+// the full QwenVoiceNativeRuntime retirement lands.
+//
+// **Do not add new behavior to this file.** New manifest-loading,
+// availability-check, or path-resolution logic belongs in the Core copy.
+
 struct NativeModelDescriptor: Codable, Equatable, Sendable {
     let id: String
     let name: String

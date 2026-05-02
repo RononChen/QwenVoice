@@ -2,6 +2,22 @@
 import Foundation
 import QwenVoiceEngineSupport
 
+// MARK: - Divergence with QwenVoiceCore
+//
+// This is the RETAINED engine facade. The active macOS engine path runs
+// through `QwenVoiceCore` + `QwenVoiceEngineService` (per CLAUDE.md
+// "Architecture Boundaries"); the live counterparts live at
+// `Sources/QwenVoiceCore/MLXTTSEngine.swift` (the engine surface) and
+// `Sources/QwenVoiceCore/NativeEngineRuntime.swift` (the runtime stages).
+// Core is authoritative; this copy exists solely so the legacy
+// `NativeMLXMacEngineTests` (~1,474 LoC, the largest test file) and
+// `NativeMLXMacEngineLiveTests` continue to compile until the full
+// QwenVoiceNativeRuntime retirement lands.
+//
+// **Do not add new behavior to this file.** New engine semantics,
+// snapshot/event publishing, or generation/batch logic belongs in the
+// Core surface.
+
 private actor NativeActiveGenerationCoordinator {
     private struct ActiveGeneration {
         let id: UUID
