@@ -297,11 +297,10 @@ final class LivePreviewSmokeTests: XCTestCase {
         return try createFixtureRoot()
     }
 
-    /// Create a self-contained temp fixture that mirrors what
-    /// `scripts/harness_lib/ui_test_support.py:_install_stub_models` produces:
-    /// empty placeholder files at every required relative path listed in the
-    /// contract, enough to satisfy `TTSModel.isAvailable(in:)` but without
-    /// any actual model weights.
+    /// Create a self-contained temp fixture: empty placeholder files at
+    /// every required relative path listed in the contract, enough to
+    /// satisfy `TTSModel.isAvailable(in:)` but without any actual model
+    /// weights.
     private func createFixtureRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(

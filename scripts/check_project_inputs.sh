@@ -14,13 +14,8 @@ fi
 echo "==> Validating checked-in project inputs..."
 
 REQUIRED_QA_SURFACES=(
-    "scripts/harness.py"
-    "scripts/harness_lib"
-    "scripts/harness_lib/command.py"
-    "scripts/harness_lib/fixtures.py"
-    "scripts/harness_lib/lock.py"
-    "scripts/harness_lib/simulator.py"
-    "scripts/harness_lib/xcresult.py"
+    "scripts/qa.sh"
+    "scripts/check_qwen3_backend_only.sh"
     "QwenVoiceTests"
     "VocelloUITests"
     "VocelloiOSTests"
@@ -156,6 +151,6 @@ if [ -d "$PROJECT_DIR/Assets.xcassets" ]; then
 fi
 
 "$SCRIPT_DIR/check_backend_resource_contract.sh" --project
-"$SCRIPT_DIR/check_qwen3_backend_only.py"
+"$SCRIPT_DIR/check_qwen3_backend_only.sh"
 
 echo "==> Project inputs are clean."

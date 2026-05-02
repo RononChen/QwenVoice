@@ -1352,7 +1352,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         let requestURL = repositoryRoot()
             .appendingPathComponent("build/audio-qc/live-request.json")
         guard FileManager.default.fileExists(atPath: requestURL.path) else {
-            throw XCTSkip("Set QWENVOICE_AUDIO_QC_LIVE=1 through scripts/run_generation_quality_audit.py to run live audio QC generation.")
+            throw XCTSkip("Set QWENVOICE_AUDIO_QC_LIVE=1 plus the audio-QC env and run `./scripts/qa.sh test --layer perf` to drive live audio QC generation.")
         }
         let request = try JSONDecoder().decode(LiveAuditRequest.self, from: Data(contentsOf: requestURL))
         guard request.live else {
