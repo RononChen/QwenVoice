@@ -86,4 +86,8 @@ python3 scripts/harness.py bench --category quality --runs 3
 python3 scripts/harness.py bench --category tts_roundtrip --runs 3
 ```
 
+Visible UI benchmark runs use the `macos-ax-applescript` driver: structured macOS Accessibility/AppleScript probes (`osascript`/System Events, pasteboard/keyboard actions, `screencapture`, shell process probes, and optional `cliclick` fallback). Script artifacts are authoritative for timing, traces, memory samples, process snapshots, screenshots, and audio QC. Visual review of completed runs is fine via Claude Code's screenshotting tooling, but never drive a benchmark interactively from a heavy agent host (Claude Desktop, browser-based clients, MCP-rich IDE extensions). V2 benchmark guardrails allow more headroom than the rescue/build lanes: `normal` warns around 4 GB swap and refuses around 6 GB, while `stress` warns around 6 GB and refuses around 8 GB. Preflight and runtime sampling still stop before near-exhausted swap free space can trigger macOS's application-memory force-quit dialog.
+
+The `headless-xpc` benchmark surface uses the maintained live XCTest path. Because the app-embedded XPC service needs a containing app process, the test host is still `Vocello.app`, but live audio QC launches it in a headless benchmark-host mode (`QWENVOICE_AUDIO_QC_HEADLESS_APP_HOST=1`) so the full app UI is not put onscreen.
+
 `latency` and `load` currently use portable command-backed measurements. `quality` and `tts_roundtrip` are preserved as explicit lanes but skip until native model/audio evaluation is wired without the retired Python backend path.

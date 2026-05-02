@@ -2,11 +2,12 @@
 """Run a UI-only generation benchmark for Vocello.
 
 The benchmark drives the visible macOS app and records UI responsiveness while
-the backend is under load. Codex Desktop Computer Use is the preferred visual
-validation layer for this workflow; this script owns deterministic timing,
-trace, process, and audio-QC artifacts. Accessibility and AppleScript are used
-as structured probes, with coordinate/cliclick fallback only when AX metadata is
-unavailable or brittle.
+the backend is under load. The manual computer-use procedure is the preferred
+visual validation posture for UI benchmark runs. This script owns deterministic
+timing, trace, process, and audio-QC artifacts, backed by macOS Accessibility/
+System Events, AppleScript keyboard/pasteboard actions, `screencapture`, shell
+process probes, and optional `cliclick` coordinate fallback only when AX
+metadata is unavailable or brittle.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from typing import Any, Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_SUPPORT = Path.home() / "Library/Application Support/QwenVoice"
+DEFAULT_UI_DRIVER = "computer-use-first"
 PROCESS_PATTERN = (
     "Vocello|QwenVoiceEngineService|xcodebuild|swift-frontend|harness.py|"
     "run_generation_quality_audit.py|run_ui_generation_benchmark.py"
@@ -1368,9 +1370,10 @@ def write_summary(
         "driver": driver,
         "memory_policy": memory_policy,
         "ui_interaction_policy": {
-            "primary_visual_validation": "Codex Desktop Computer Use",
+            "primary_visual_validation": "manual computer-use procedure",
             "structured_probe": "macOS Accessibility and AppleScript",
             "coordinate_fallback": "cliclick only when AX metadata is unavailable or brittle",
+            "screenshots": "screencapture artifacts from the benchmark script",
         },
         "results": serializable_results,
         "responsiveness": monitor.summary(),
@@ -1389,9 +1392,9 @@ def write_summary(
         f"Driver: `{driver}`",
         f"Memory policy: `{memory_policy}`",
         "",
-        "Computer Use is the primary visual validation layer for this benchmark procedure. "
-        "This script records deterministic timing, trace, process, and audio-QC artifacts; "
-        "AX/AppleScript are structured probes, and coordinate fallback is used only when needed.",
+        "The manual computer-use procedure is the preferred visual validation posture. "
+        "The benchmark script records deterministic AX/AppleScript probes, traces, screenshots, "
+        "process state, responsiveness samples, and audio-QC artifacts; `cliclick` remains a last-resort coordinate fallback.",
         "",
         "## Responsiveness",
         "",
@@ -1503,6 +1506,10 @@ def parse_modes(raw: str) -> list[str]:
     return modes
 
 
+def normalize_driver(raw: str) -> str:
+    return raw
+
+
 def run_self_test(output_dir: Path) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     short = make_text(80, mode="CustomVoice", case_name="short")
@@ -1521,6 +1528,9 @@ def run_self_test(output_dir: Path) -> int:
         workload_plan("smoke")[0] == ("direct", "short", "cold", 1, 80),
         any(item[1] == "direct-stress-901" for item in workload_plan("balanced")),
         any(item[0] == "batch" and item[1] == "long-form-9000" for item in workload_plan("exhaustive")),
+        normalize_driver("computer-use-first") == "computer-use-first",
+        normalize_driver("ax-fallback") == "ax-fallback",
+        normalize_driver(DEFAULT_UI_DRIVER) == DEFAULT_UI_DRIVER,
     ]
     payload = {
         "passed": all(assertions),
@@ -1551,10 +1561,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--driver",
         choices=["computer-use-first", "ax-fallback"],
-        default="computer-use-first",
+        default=DEFAULT_UI_DRIVER,
         help=(
-            "UI validation posture. computer-use-first records a runbook for Codex Desktop "
-            "visual validation while using AX/AppleScript for deterministic probes."
+            "UI benchmark driver. computer-use-first keeps the manual computer-use procedure as "
+            "the preferred visual validation posture; ax-fallback relies on Accessibility/System "
+            "Events, AppleScript, screencapture, and optional cliclick fallback."
         ),
     )
     parser.add_argument(
@@ -1568,7 +1579,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-timeout", type=float, default=2_400.0)
     parser.add_argument("--keep-app-running", action="store_true")
     parser.add_argument("--self-test", action="store_true", help="Run deterministic parser/text/responsiveness math checks only.")
-    return parser.parse_args()
+    args = parser.parse_args()
+    args.driver = normalize_driver(args.driver)
+    return args
 
 
 WorkloadSpec = tuple[str, str, str, int, int]

@@ -1,4 +1,9 @@
-"""Opt-in benchmark lanes for local release signoff."""
+"""Opt-in benchmark lanes for local release signoff.
+
+UI benchmark validation runs through the manual visual-validation procedure
+documented in the bench runbook. Headless/backend lanes remain script-driven
+and keep disk/swap preflight guardrails.
+"""
 
 from __future__ import annotations
 

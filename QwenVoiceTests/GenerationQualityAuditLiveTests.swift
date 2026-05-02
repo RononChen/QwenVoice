@@ -158,6 +158,9 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         let customPrewarmDepth: String?
         let customVoiceProfile: String?
         let streamStepEvalPolicy: String?
+        let generationSpeedProfile: String?
+        let memoryClearCadence: Int?
+        let postRequestCachePolicy: String?
         let expiresAt: String?
     }
 
@@ -175,6 +178,9 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         let customPrewarmDepth: String?
         let customVoiceProfile: String?
         let streamStepEvalPolicy: String?
+        let generationSpeedProfile: String?
+        let memoryClearCadence: Int?
+        let postRequestCachePolicy: String?
     }
 
     func testWarmFocusBenchmarkProfileUsesWarmRunLayout() throws {
@@ -196,7 +202,10 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             streamingIntervalOverride: nil,
             customPrewarmDepth: nil,
             customVoiceProfile: nil,
-            streamStepEvalPolicy: nil
+            streamStepEvalPolicy: nil,
+            generationSpeedProfile: nil,
+            memoryClearCadence: nil,
+            postRequestCachePolicy: nil
         )
 
         let runRoot = outputRootForRun(
@@ -233,7 +242,10 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             streamingIntervalOverride: nil,
             customPrewarmDepth: nil,
             customVoiceProfile: nil,
-            streamStepEvalPolicy: nil
+            streamStepEvalPolicy: nil,
+            generationSpeedProfile: nil,
+            memoryClearCadence: nil,
+            postRequestCachePolicy: nil
         )
 
         let runRoot = outputRootForRun(
@@ -270,7 +282,10 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             streamingIntervalOverride: 0.4,
             customPrewarmDepth: "skip-stream-step",
             customVoiceProfile: "balanced-short",
-            streamStepEvalPolicy: nil
+            streamStepEvalPolicy: nil,
+            generationSpeedProfile: "balanced-all-modes",
+            memoryClearCadence: 50,
+            postRequestCachePolicy: "failure-only"
         )
 
         let request = try makeRequest(
@@ -292,6 +307,9 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
 
         XCTAssertEqual(request.streamingInterval, 0.4)
         XCTAssertEqual(configuration.customVoiceProfile, "balanced-short")
+        XCTAssertEqual(request.benchmarkOptions?.generationSpeedProfile, "balanced-all-modes")
+        XCTAssertEqual(request.benchmarkOptions?.memoryClearCadence, 50)
+        XCTAssertEqual(request.benchmarkOptions?.postRequestCachePolicy, "failure-only")
         XCTAssertTrue(
             runRoot.path.hasSuffix("/generated/cold/CustomVoice/run_001"),
             "Unexpected custom-ui-cold run root: \(runRoot.path)"
@@ -1324,7 +1342,10 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
                 ),
                 customPrewarmDepth: environment["QWENVOICE_AUDIO_QC_CUSTOM_PREWARM_DEPTH"]?.nonEmpty,
                 customVoiceProfile: environment["QWENVOICE_QWEN3_CUSTOM_VOICE_PROFILE"]?.nonEmpty,
-                streamStepEvalPolicy: environment["QWENVOICE_QWEN3_STREAM_STEP_EVAL_POLICY"]?.nonEmpty
+                streamStepEvalPolicy: environment["QWENVOICE_QWEN3_STREAM_STEP_EVAL_POLICY"]?.nonEmpty,
+                generationSpeedProfile: environment["QWENVOICE_QWEN3_GENERATION_SPEED_PROFILE"]?.nonEmpty,
+                memoryClearCadence: environment["QWENVOICE_QWEN3_MEMORY_CLEAR_CADENCE"].flatMap(Int.init),
+                postRequestCachePolicy: environment["QWENVOICE_QWEN3_POST_REQUEST_CACHE_POLICY"]?.nonEmpty
             )
         }
 
@@ -1360,7 +1381,10 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             ),
             customPrewarmDepth: request.customPrewarmDepth?.nonEmpty,
             customVoiceProfile: request.customVoiceProfile?.nonEmpty,
-            streamStepEvalPolicy: request.streamStepEvalPolicy?.nonEmpty
+            streamStepEvalPolicy: request.streamStepEvalPolicy?.nonEmpty,
+            generationSpeedProfile: request.generationSpeedProfile?.nonEmpty,
+            memoryClearCadence: request.memoryClearCadence,
+            postRequestCachePolicy: request.postRequestCachePolicy?.nonEmpty
         )
     }
 
@@ -1633,44 +1657,46 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         for mode: AuditMode,
         configuration: LiveAuditConfiguration
     ) -> GenerationRequest.BenchmarkOptions? {
+        let streamStepEvalPolicy = configuration.streamStepEvalPolicy?.nonEmpty
+        let generationSpeedProfile = configuration.generationSpeedProfile?.nonEmpty
+        let memoryClearCadence = configuration.memoryClearCadence
+        let postRequestCachePolicy = configuration.postRequestCachePolicy?.nonEmpty
+        func makeOptions(
+            customVoiceProfile: String? = nil,
+            temperature: Double? = nil,
+            topP: Double? = nil
+        ) -> GenerationRequest.BenchmarkOptions {
+            GenerationRequest.BenchmarkOptions(
+                customVoiceProfile: customVoiceProfile,
+                streamStepEvalPolicy: streamStepEvalPolicy,
+                generationSpeedProfile: generationSpeedProfile,
+                memoryClearCadence: memoryClearCadence,
+                postRequestCachePolicy: postRequestCachePolicy,
+                temperature: temperature,
+                topP: topP
+            )
+        }
+
         if mode != .customVoice,
-           let streamStepEvalPolicy = configuration.streamStepEvalPolicy?.nonEmpty {
-            return GenerationRequest.BenchmarkOptions(streamStepEvalPolicy: streamStepEvalPolicy)
+           streamStepEvalPolicy != nil || generationSpeedProfile != nil || memoryClearCadence != nil || postRequestCachePolicy != nil {
+            return makeOptions()
         }
 
         guard let profile = configuration.customVoiceProfile?.nonEmpty else {
-            if let streamStepEvalPolicy = configuration.streamStepEvalPolicy?.nonEmpty {
-                return GenerationRequest.BenchmarkOptions(streamStepEvalPolicy: streamStepEvalPolicy)
+            if streamStepEvalPolicy != nil || generationSpeedProfile != nil || memoryClearCadence != nil || postRequestCachePolicy != nil {
+                return makeOptions()
             }
             return nil
         }
         switch profile {
         case "balanced-short":
-            return GenerationRequest.BenchmarkOptions(
-                customVoiceProfile: profile,
-                streamStepEvalPolicy: configuration.streamStepEvalPolicy?.nonEmpty,
-                temperature: 0.7,
-                topP: 0.9
-            )
+            return makeOptions(customVoiceProfile: profile, temperature: 0.7, topP: 0.9)
         case "conservative-short":
-            return GenerationRequest.BenchmarkOptions(
-                customVoiceProfile: profile,
-                streamStepEvalPolicy: configuration.streamStepEvalPolicy?.nonEmpty,
-                temperature: 0.65,
-                topP: 0.88
-            )
+            return makeOptions(customVoiceProfile: profile, temperature: 0.65, topP: 0.88)
         case "fast-short":
-            return GenerationRequest.BenchmarkOptions(
-                customVoiceProfile: profile,
-                streamStepEvalPolicy: configuration.streamStepEvalPolicy?.nonEmpty,
-                temperature: 0.6,
-                topP: 0.85
-            )
+            return makeOptions(customVoiceProfile: profile, temperature: 0.6, topP: 0.85)
         default:
-            return GenerationRequest.BenchmarkOptions(
-                customVoiceProfile: profile,
-                streamStepEvalPolicy: configuration.streamStepEvalPolicy?.nonEmpty
-            )
+            return makeOptions(customVoiceProfile: profile)
         }
     }
 

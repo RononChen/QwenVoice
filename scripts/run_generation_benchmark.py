@@ -4,12 +4,14 @@
 V2 separates two benchmark surfaces:
 
 * ``headless-xpc`` drives the real macOS XPC helper through the maintained live
-  XCTest path, without launching the app UI.
+  XCTest path. The embedded XPC service still requires a test-host app process,
+  but the app is launched in a headless benchmark-host mode without visible UI.
 * ``ui-app`` launches the visible ``Vocello.app`` and records UI timing,
-  responsiveness, screenshots, process state, and audio QC. Codex Desktop
-  Computer Use is the preferred visual validation layer for this surface; the
-  script provides deterministic probes and artifacts, while AX/AppleScript are
-  structured support paths and coordinate fallback remains last resort.
+  responsiveness, screenshots, process state, and audio QC.
+
+Visual validation for ``ui-app`` benchmark runs follows the manual
+computer-use procedure documented in the bench runbook. ``headless-xpc``
+remains backend-focused and does not put the full app UI onscreen.
 """
 
 from __future__ import annotations
@@ -33,6 +35,24 @@ SCRIPTS_DIR = PROJECT_DIR / "scripts"
 DEFAULT_MODES = ("CustomVoice", "VoiceDesign", "Clones")
 SUPPORTED_MODES = set(DEFAULT_MODES)
 CUSTOM_VOICE_PROFILES = ("baseline", "balanced-short", "conservative-short", "fast-short")
+UI_DRIVER = "computer-use-first"
+GENERATION_SPEED_PROFILES = (
+    "current",
+    "legacy123-memory",
+    "adaptive-failure-only",
+    "balanced-all-modes",
+)
+POST_REQUEST_CACHE_POLICIES = (
+    "current",
+    "always",
+    "failure-only",
+    "never",
+)
+NORMAL_PREFLIGHT_WARN_SWAP_MB = 4_000.0
+NORMAL_PREFLIGHT_ABORT_SWAP_MB = 6_000.0
+STRESS_PREFLIGHT_WARN_SWAP_MB = 6_000.0
+STRESS_PREFLIGHT_ABORT_SWAP_MB = 8_000.0
+PREFLIGHT_MIN_FREE_SWAP_MB = 512.0
 
 
 class UsageError(Exception):
@@ -84,6 +104,10 @@ def main() -> int:
     args = parse_args()
     try:
         modes = parse_modes(args.modes)
+        if args.memory_clear_cadence is not None and args.memory_clear_cadence < 0:
+            raise UsageError("--memory-clear-cadence must be 0 or greater.")
+        if args.phase != "combined" and args.surface != "headless-xpc":
+            raise UsageError("--phase build-for-testing/test-without-building requires --surface headless-xpc.")
         output_dir = resolve_output_dir(args)
         output_dir.mkdir(parents=True, exist_ok=True)
         if args.self_test:
@@ -141,9 +165,40 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Headless benchmark-only Qwen3 stream-step eval policy.",
     )
+    parser.add_argument(
+        "--generation-speed-profile",
+        choices=GENERATION_SPEED_PROFILES,
+        default=None,
+        help="Headless benchmark-only Qwen3 generation speed profile.",
+    )
+    parser.add_argument(
+        "--memory-clear-cadence",
+        type=int,
+        default=None,
+        help="Headless benchmark-only Qwen3 generation-loop MLX cache clear cadence; 0 disables per-step clears.",
+    )
+    parser.add_argument(
+        "--post-request-cache-policy",
+        choices=POST_REQUEST_CACHE_POLICIES,
+        default=None,
+        help="Headless benchmark-only post-request MLX cache trim policy.",
+    )
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--keep-app-running", action="store_true")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument(
+        "--phase",
+        choices=["combined", "build-for-testing", "test-without-building"],
+        default="combined",
+        help=(
+            "headless-xpc matrix phase. 'combined' (default) builds + tests in one xcodebuild "
+            "invocation. 'build-for-testing' compiles the test target into the shared cache and "
+            "exits without consuming any per-profile env vars. 'test-without-building' runs the "
+            "cached test bundle with per-profile env vars and assumes a prior 'build-for-testing' "
+            "against the same shared cache. Use the split phases when running a multi-profile "
+            "matrix to skip the swift-frontend rebuild on profiles 2..N."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -175,9 +230,12 @@ def run_self_test(output_dir: Path) -> int:
         PROFILE_CONFIGS["balanced"].ui_profile == "balanced",
         PROFILE_CONFIGS["stress"].ui_profile == "stress",
         classify_memory_policy({"swap_used_mb": 4_500.0, "memory_pressure": "System-wide memory free percentage: 30%"}, "normal")["severity"] == "warn",
-        classify_memory_policy({"swap_used_mb": 7_500.0, "memory_pressure": "System-wide memory free percentage: 28%"}, "stress")["severity"] == "warn",
+        classify_memory_policy({"swap_used_mb": 6_500.0, "memory_pressure": "System-wide memory free percentage: 30%"}, "normal")["severity"] == "abort",
+        classify_memory_policy({"swap_used_mb": 6_500.0, "memory_pressure": "System-wide memory free percentage: 28%"}, "stress")["severity"] == "warn",
+        classify_memory_policy({"swap_used_mb": 8_500.0, "memory_pressure": "System-wide memory free percentage: 28%"}, "stress")["severity"] == "abort",
+        classify_memory_policy({"swap_used_mb": 800.0, "swap_free_mb": 400.0, "memory_pressure": "System-wide memory free percentage: 45%"}, "stress")["severity"] == "abort",
         classify_memory_policy({"swap_used_mb": 2_000.0, "memory_pressure": "critical"}, "stress")["severity"] == "abort",
-        "Computer Use" in computer_use_runbook_text("smoke", ["CustomVoice"], "normal"),
+        UI_DRIVER in computer_use_runbook_text("smoke", ["CustomVoice"], "normal"),
     ]
     payload = {
         "passed": all(assertions),
@@ -200,9 +258,11 @@ def run_headless(
     preflight: dict[str, Any],
     memory_decision: dict[str, Any],
 ) -> dict[str, Any]:
-    if not args.allow_model_load:
+    is_build_only = args.phase == "build-for-testing"
+    if not is_build_only and not args.allow_model_load:
         raise UsageError("--surface headless-xpc requires --allow-model-load.")
-    validate_clone_inputs(args, modes)
+    if not is_build_only:
+        validate_clone_inputs(args, modes)
 
     delegate_dir = output_dir / "headless-xpc-run"
     command = [
@@ -212,7 +272,6 @@ def run_headless(
         "live-xpc",
         "--modes",
         ",".join(modes),
-        "--allow-model-load",
         "--output-dir",
         str(delegate_dir),
         "--benchmark-profile",
@@ -223,21 +282,34 @@ def run_headless(
         str(config.warm_runs),
         "--repeat-count",
         str(config.repeat_count),
+        "--xcode-build-cache-dir",
+        str((PROJECT_DIR / "build/audio-qc/benchmark-v2/shared-live-xpc-build").resolve()),
     ]
-    if args.clone_reference:
-        command.extend(["--clone-reference", str(args.clone_reference.resolve())])
-    if args.clone_transcript:
-        command.extend(["--clone-transcript", args.clone_transcript])
-    if args.custom_voice_profile:
-        command.extend(["--custom-voice-profile", args.custom_voice_profile])
-    if args.stream_step_eval_policy:
-        command.extend(["--stream-step-eval-policy", args.stream_step_eval_policy])
+    if args.phase != "combined":
+        command.extend(["--phase", args.phase])
+    if not is_build_only:
+        command.append("--allow-model-load")
+        if args.clone_reference:
+            command.extend(["--clone-reference", str(args.clone_reference.resolve())])
+        if args.clone_transcript:
+            command.extend(["--clone-transcript", args.clone_transcript])
+        if args.custom_voice_profile:
+            command.extend(["--custom-voice-profile", args.custom_voice_profile])
+        if args.stream_step_eval_policy:
+            command.extend(["--stream-step-eval-policy", args.stream_step_eval_policy])
+        if args.generation_speed_profile:
+            command.extend(["--generation-speed-profile", args.generation_speed_profile])
+        if args.memory_clear_cadence is not None:
+            command.extend(["--memory-clear-cadence", str(args.memory_clear_cadence)])
+        if args.post_request_cache_policy:
+            command.extend(["--post-request-cache-policy", args.post_request_cache_policy])
 
     result = run_delegate(command, output_dir / "headless-xpc.log", timeout=None)
     summary_path = delegate_dir / "summary.json"
     delegate_summary = read_json(summary_path)
-    copy_if_exists(delegate_dir / "timing-runs.csv", output_dir / "timing-runs.csv")
-    write_headless_memory_samples(output_dir / "memory-samples.csv", delegate_summary)
+    if not is_build_only:
+        copy_if_exists(delegate_dir / "timing-runs.csv", output_dir / "timing-runs.csv")
+        write_headless_memory_samples(output_dir / "memory-samples.csv", delegate_summary)
     postflight = capture_system_snapshot("postflight")
     manifest = run_manifest(
         surface="headless-xpc",
@@ -249,6 +321,7 @@ def run_headless(
         postflight=postflight,
         memory_decision=memory_decision,
     )
+    manifest["phase"] = args.phase
     write_json(output_dir / "run-manifest.json", manifest)
     return manifest
 
@@ -277,7 +350,7 @@ def run_ui(
         "--modes",
         ",".join(modes),
         "--driver",
-        "computer-use-first",
+        UI_DRIVER,
         "--memory-policy",
         args.memory_policy,
         "--output-dir",
@@ -309,11 +382,12 @@ def run_ui(
         memory_decision=memory_decision,
         extra={
             "computer_use_runbook": str(runbook_path),
-            "ui_driver": "computer-use-first",
+            "ui_driver": UI_DRIVER,
             "ui_interaction_policy": {
-                "primary_visual_validation": "Codex Desktop Computer Use",
+                "primary_visual_validation": "manual computer-use procedure",
                 "structured_probe": "macOS Accessibility and AppleScript",
                 "coordinate_fallback": "cliclick only when AX metadata is unavailable or brittle",
+                "screenshots": "screencapture artifacts from the benchmark script",
             },
             "delegate_summary": delegate_summary,
         },
@@ -366,6 +440,9 @@ def benchmark_plan(
         "output_dir": str(output_dir),
         "memory_policy": args.memory_policy,
         "custom_voice_profile": args.custom_voice_profile,
+        "generation_speed_profile": args.generation_speed_profile,
+        "memory_clear_cadence": args.memory_clear_cadence,
+        "post_request_cache_policy": args.post_request_cache_policy,
         "memory_decision": memory_decision,
         "profile_config": config.__dict__,
         "artifacts": [
@@ -424,8 +501,9 @@ def write_v2_summary(
     preflight: dict[str, Any],
     result: dict[str, Any],
 ) -> None:
-    summary_path = Path(result.get("delegate_summary", ""))
-    delegate_summary = read_json(summary_path)
+    delegate_summary_raw = result.get("delegate_summary") or ""
+    summary_path = Path(delegate_summary_raw) if delegate_summary_raw else None
+    delegate_summary = read_json(summary_path) if summary_path else {}
     summary = {
         "schema_version": 1,
         "tool": "run_generation_benchmark",
@@ -435,10 +513,13 @@ def write_v2_summary(
         "modes": modes,
         "memory_policy": args.memory_policy,
         "custom_voice_profile": args.custom_voice_profile,
+        "generation_speed_profile": args.generation_speed_profile,
+        "memory_clear_cadence": args.memory_clear_cadence,
+        "post_request_cache_policy": args.post_request_cache_policy,
         "profile_config": config.__dict__,
         "overall_pass": result.get("overall_pass", False),
         "exit_code": result.get("exit_code", 1),
-        "delegate_summary": str(summary_path),
+        "delegate_summary": str(summary_path) if summary_path else "",
         "delegate_log": result.get("delegate_log"),
         "preflight": preflight,
         "postflight": result.get("postflight"),
@@ -447,6 +528,7 @@ def write_v2_summary(
         "memory_samples_csv": str(output_dir / "memory-samples.csv") if (output_dir / "memory-samples.csv").exists() else None,
     }
     if args.surface == "ui-app":
+        summary["ui_driver"] = result.get("ui_driver")
         summary["computer_use_runbook"] = result.get("computer_use_runbook")
         summary["responsiveness_csv"] = str(output_dir / "responsiveness.csv") if (output_dir / "responsiveness.csv").exists() else None
     if delegate_summary:
@@ -460,6 +542,8 @@ def compact_delegate_summary(summary: dict[str, Any]) -> dict[str, Any]:
         "overall_pass",
         "source",
         "profile",
+        "driver",
+        "ui_interaction_policy",
         "benchmark_profile",
         "responsiveness",
         "timing_summary",
@@ -479,6 +563,9 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
         f"- Modes: `{', '.join(summary.get('modes') or [])}`",
         f"- Memory policy: `{summary.get('memory_policy')}`",
         f"- Custom Voice profile override: `{summary.get('custom_voice_profile') or 'product-default'}`",
+        f"- Generation speed profile: `{summary.get('generation_speed_profile') or 'product-default'}`",
+        f"- Memory clear cadence override: `{summary.get('memory_clear_cadence') if summary.get('memory_clear_cadence') is not None else 'profile-default'}`",
+        f"- Post-request cache policy override: `{summary.get('post_request_cache_policy') or 'profile-default'}`",
         f"- Delegate summary: `{summary.get('delegate_summary')}`",
         f"- Delegate log: `{summary.get('delegate_log')}`",
         f"- Timing CSV: `{summary.get('timing_csv') or 'n/a'}`",
@@ -490,10 +577,11 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
             [
                 "## UI Validation",
                 "",
-                "Computer Use is the primary visual validation layer for the V2 UI procedure. "
-                "The script records deterministic AX/AppleScript probes, traces, screenshots, "
-                "process state, and audio QC; coordinate fallback is documented as last resort.",
+                "Manual computer-use validation is the primary visual layer for the V2 UI procedure. "
+                "The benchmark script records deterministic AX/AppleScript probes, traces, screenshots, "
+                "process state, responsiveness samples, and audio-QC artifacts; `cliclick` remains a last-resort coordinate fallback.",
                 "",
+                f"- UI driver: `{summary.get('ui_driver')}`",
                 f"- Computer Use runbook: `{summary.get('computer_use_runbook')}`",
                 f"- Responsiveness CSV: `{summary.get('responsiveness_csv') or 'n/a'}`",
                 "",
@@ -556,6 +644,7 @@ def capture_system_snapshot(label: str) -> dict[str, Any]:
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "swap": swap_raw,
         "swap_used_mb": parse_swap_used_mb(swap_raw),
+        "swap_free_mb": parse_swap_value_mb(swap_raw, "free"),
         "memory_pressure": memory_pressure,
         "processes": processes,
     }
@@ -563,29 +652,65 @@ def capture_system_snapshot(label: str) -> dict[str, Any]:
 
 def classify_memory_policy(snapshot: dict[str, Any], policy: str) -> dict[str, Any]:
     swap_used = snapshot.get("swap_used_mb")
+    swap_free = snapshot.get("swap_free_mb")
     pressure = str(snapshot.get("memory_pressure") or "").lower()
     if "critical" in pressure:
         return {
             "severity": "abort",
             "reason": "memory_pressure reported critical pressure",
         }
+    if isinstance(swap_free, (int, float)) and swap_free <= PREFLIGHT_MIN_FREE_SWAP_MB:
+        return {
+            "severity": "abort",
+            "reason": (
+                "preflight swap free is too low for a live benchmark "
+                f"({swap_free:.0f} MB <= {PREFLIGHT_MIN_FREE_SWAP_MB:.0f} MB); "
+                "let memory pressure settle first"
+            ),
+        }
     if policy == "normal":
-        if swap_used is not None and swap_used > 4_000:
+        if swap_used is not None and swap_used >= NORMAL_PREFLIGHT_ABORT_SWAP_MB:
+            return {
+                "severity": "abort",
+                "reason": (
+                    "normal policy will not start live benchmarks with swap at or above "
+                    f"{NORMAL_PREFLIGHT_ABORT_SWAP_MB:.0f} MB; current swap is {swap_used:.0f} MB"
+                ),
+            }
+        if swap_used is not None and swap_used >= NORMAL_PREFLIGHT_WARN_SWAP_MB:
             return {
                 "severity": "warn",
-                "reason": f"normal policy prefers swap below 4000 MB; current swap is {swap_used:.0f} MB",
+                "reason": (
+                    "normal policy prefers swap below "
+                    f"{NORMAL_PREFLIGHT_WARN_SWAP_MB:.0f} MB; current swap is {swap_used:.0f} MB"
+                ),
             }
         return {"severity": "ok", "reason": "normal policy preflight is acceptable"}
-    if swap_used is not None and swap_used > 6_000:
+    if swap_used is not None and swap_used >= STRESS_PREFLIGHT_ABORT_SWAP_MB:
+        return {
+            "severity": "abort",
+            "reason": (
+                "stress policy can push memory during a run, but will not start from "
+                f"{swap_used:.0f} MB swap; reboot or let pressure settle first"
+            ),
+        }
+    if swap_used is not None and swap_used >= STRESS_PREFLIGHT_WARN_SWAP_MB:
         return {
             "severity": "warn",
-            "reason": f"stress policy accepts high swap but will correlate pressure with UI responsiveness; current swap is {swap_used:.0f} MB",
+            "reason": (
+                "stress policy accepts elevated swap but runtime guards hard-stop before "
+                f"swap exhaustion; current swap is {swap_used:.0f} MB"
+            ),
         }
     return {"severity": "ok", "reason": "stress policy preflight is acceptable"}
 
 
 def parse_swap_used_mb(raw: str) -> float | None:
-    marker = "used = "
+    return parse_swap_value_mb(raw, "used")
+
+
+def parse_swap_value_mb(raw: str, key: str) -> float | None:
+    marker = f"{key} = "
     if marker not in raw:
         return None
     value = raw.split(marker, 1)[1].split("M", 1)[0].strip()
@@ -600,7 +725,16 @@ def write_headless_memory_samples(path: Path, summary: dict[str, Any]) -> None:
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=["elapsed_ms", "captured_at", "label", "pid", "rss_mb", "command"],
+            fieldnames=[
+                "elapsed_ms",
+                "captured_at",
+                "swap_used_mb",
+                "swap_free_mb",
+                "label",
+                "pid",
+                "rss_mb",
+                "command",
+            ],
         )
         writer.writeheader()
         for snapshot in snapshots:
@@ -609,6 +743,8 @@ def write_headless_memory_samples(path: Path, summary: dict[str, Any]) -> None:
                     {
                         "elapsed_ms": snapshot.get("elapsed_ms"),
                         "captured_at": snapshot.get("captured_at"),
+                        "swap_used_mb": snapshot.get("swap_used_mb"),
+                        "swap_free_mb": snapshot.get("swap_free_mb"),
                         "label": process.get("label"),
                         "pid": process.get("pid"),
                         "rss_mb": process.get("rss_mb"),
@@ -622,23 +758,23 @@ def computer_use_runbook_text(profile: str, modes: list[str], memory_policy: str
         [
             "# Computer Use UI Benchmark Runbook",
             "",
-            "Use Codex Desktop Computer Use as the primary visual validation layer for this UI run.",
-            "The Python harness records deterministic artifacts, but Computer Use should confirm the visible app state when AX automation is ambiguous.",
+            f"Driver: `{UI_DRIVER}`",
+            "",
+            "Use the manual computer-use procedure as the primary visual validation layer for visible UI benchmark runs. The script also records macOS Accessibility/System Events probes, AppleScript keyboard and pasteboard actions, `screencapture` screenshots, shell process probes, and optional `cliclick` coordinate fallback.",
             "",
             f"- Profile: `{profile}`",
             f"- Modes: `{', '.join(modes)}`",
             f"- Memory policy: `{memory_policy}`",
             "",
-            "Checklist:",
+            "Computer Use checklist:",
             "",
-            "1. Confirm exactly one `Vocello.app` window is visible.",
-            "2. Confirm the intended mode is selected before each generation.",
-            "3. Confirm text input visibly landed and the character counter matches the planned workload.",
-            "4. Confirm Generate is enabled before activation.",
-            "5. During generation, watch for frozen controls, stuck busy state, duplicate playback, or duplicate helpers.",
-            "6. After completion, confirm final playback/player state is visible and screenshots were captured.",
+            "1. Start from a clean app state before the benchmark launches.",
+            "2. Ensure exactly one `Vocello.app` instance is active for the script-owned run.",
+            "3. Use Computer Use for visible mode switching, text entry, Generate activation, busy feedback, playback/save checks, and screenshots.",
+            "4. Use `cliclick` only as the optional coordinate fallback when AX metadata is unavailable or brittle.",
+            "5. Trust timing, memory, trace, screenshot, responsiveness, and audio-QC artifacts emitted by the script.",
             "",
-            "If Computer Use sees a mismatch that AX did not catch, preserve screenshots and classify the sample as UI validation failed rather than trusting the timing number.",
+            "If Computer Use or the structured probe cannot prove a UI action, preserve screenshots and classify the sample as UI validation failed rather than trusting the timing number.",
         ]
     ) + "\n"
 

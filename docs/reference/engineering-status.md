@@ -49,7 +49,7 @@ The next recovery work should keep this baseline stable: native SwiftUI only, no
 - The legacy `QwenVoiceNativeRuntime` module is still present for compatibility coverage, so the codebase has not finished its cleanup pass even though the active macOS helper path now runs through `QwenVoiceCore`.
 - A plain signed `xcodebuild -scheme QwenVoice build` on shared local DerivedData can still be polluted by stale build output; the maintained deterministic compile-proof path is the isolated `./scripts/build_foundation_targets.sh` flow.
 - Hosted UI smoke can still soft-skip macOS Accessibility/TCC or foreground-window issues; controlled release signoff must use `QWENVOICE_E2E_STRICT=1`.
-- Manual local app launches and Computer Use remain useful after the harness/build gates, especially for visual polish and real model-load checks.
+- Manual local app launches and Computer Use remain useful after the harness/build gates, especially for visual polish, real model-load checks, and visible UI benchmark validation. UI benchmark scripts still capture deterministic macOS Accessibility/AppleScript probes, timing, traces, process/memory snapshots, screenshots, and audio-QC artifacts.
 - The public README is intentionally conservative during the refactor period, so public GitHub messaging is narrower than the internal repo architecture docs by design.
 - Preview, debug, and manual-verification helper surfaces still need a keep/refactor/delete pass so the cleanup tracker can close with explicit ownership.
 

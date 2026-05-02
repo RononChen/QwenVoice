@@ -53,12 +53,31 @@ CUSTOM_VOICE_PROFILES = {
 }
 CUSTOM_VOICE_PROFILE_ENV_KEYS = {
     "QWENVOICE_QWEN3_CUSTOM_VOICE_PROFILE",
+    "QWENVOICE_QWEN3_GENERATION_SPEED_PROFILE",
+    "QWENVOICE_QWEN3_MEMORY_CLEAR_CADENCE",
+    "QWENVOICE_QWEN3_POST_REQUEST_CACHE_POLICY",
     *{
         key
         for values in CUSTOM_VOICE_PROFILES.values()
         for key in values
     },
 }
+GENERATION_SPEED_PROFILES = (
+    "current",
+    "legacy123-memory",
+    "adaptive-failure-only",
+    "balanced-all-modes",
+)
+POST_REQUEST_CACHE_POLICIES = (
+    "current",
+    "always",
+    "failure-only",
+    "never",
+)
+RUNTIME_SWAP_HARD_STOP_MB = 8_000.0
+RUNTIME_SWAP_MIN_FREE_MB = 512.0
+RUNTIME_SWAP_DELTA_HARD_STOP_MB = 4_000.0
+SNAPSHOT_TIMEOUT_SECONDS = 2.0
 
 
 def main() -> None:
@@ -160,6 +179,49 @@ def main() -> None:
             "Benchmark-only Qwen3 per-token stream-step eval policy. Defaults to product behavior."
         ),
     )
+    parser.add_argument(
+        "--generation-speed-profile",
+        choices=GENERATION_SPEED_PROFILES,
+        default=None,
+        help=(
+            "Benchmark-only Qwen3 speed policy translated from QwenVoice 1.2.3 lessons. "
+            "Omit this to use product defaults."
+        ),
+    )
+    parser.add_argument(
+        "--memory-clear-cadence",
+        type=int,
+        default=None,
+        help="Benchmark-only Qwen3 generation-loop MLX cache clear cadence; 0 disables per-step clears.",
+    )
+    parser.add_argument(
+        "--post-request-cache-policy",
+        choices=POST_REQUEST_CACHE_POLICIES,
+        default=None,
+        help="Benchmark-only post-request MLX cache trim policy.",
+    )
+    parser.add_argument(
+        "--xcode-build-cache-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Optional shared build cache for live XPC benchmark derived data and source packages. "
+            "Use this when comparing multiple profiles so every profile does not rebuild the app."
+        ),
+    )
+    parser.add_argument(
+        "--phase",
+        choices=["combined", "build-for-testing", "test-without-building"],
+        default="combined",
+        help=(
+            "Live-XPC matrix phase. 'combined' (default) builds and tests in one xcodebuild "
+            "invocation. 'build-for-testing' compiles the test target into the shared cache and "
+            "exits without consuming any per-profile env vars. 'test-without-building' runs the "
+            "cached test bundle with per-profile env vars and assumes a prior 'build-for-testing' "
+            "against the same --xcode-build-cache-dir. Use the split phases to run a four-profile "
+            "matrix without paying the swift-frontend rebuild cost on profiles 2..N."
+        ),
+    )
 
     args = parser.parse_args()
     output_dir = (Path(args.output_dir) if args.output_dir else default_output_dir(args.source)).resolve()
@@ -184,8 +246,18 @@ def main() -> None:
                 )
         if args.streaming_interval is not None and not (0.1 <= args.streaming_interval <= 1.5):
             raise UsageError("--streaming-interval must be between 0.1 and 1.5 seconds.")
+        if args.memory_clear_cadence is not None and args.memory_clear_cadence < 0:
+            raise UsageError("--memory-clear-cadence must be 0 or greater.")
         if args.custom_prewarm_depth is not None and args.source != "live-xpc":
             raise UsageError("--custom-prewarm-depth is only supported with --source live-xpc.")
+        if args.phase != "combined":
+            if args.source != "live-xpc":
+                raise UsageError("--phase is only supported with --source live-xpc.")
+            if not args.xcode_build_cache_dir:
+                raise UsageError(
+                    "--phase build-for-testing/test-without-building requires --xcode-build-cache-dir "
+                    "so the build cache persists across phase invocations."
+                )
         if args.source == "self-test":
             summary = run_self_test(output_dir, repeat_count)
         elif args.source == "latest":
@@ -306,6 +378,9 @@ def run_live_xpc_analysis(
     warm_runs: int,
     args: argparse.Namespace,
 ) -> dict[str, Any]:
+    if args.phase == "build-for-testing":
+        return run_live_build_phase(output_dir, args)
+
     if not args.allow_model_load:
         raise UsageError("--source live-xpc requires --allow-model-load.")
     if "Clones" in modes and not args.clone_reference:
@@ -325,6 +400,7 @@ def run_live_xpc_analysis(
         cold_runs=cold_runs if args.benchmark_profile in {"cold-warm", "custom-ui-cold", "exhaustive"} else None,
         warm_runs=warm_runs if args.benchmark_profile in {"cold-warm", "warm-focus", "custom-ui-cold", "exhaustive"} else None,
     )
+    summary["phase"] = args.phase
     summary["models_root"] = str(models_root)
     if args.streaming_interval is not None:
         summary["streaming_interval_override"] = args.streaming_interval
@@ -334,6 +410,12 @@ def run_live_xpc_analysis(
         summary["custom_voice_profile"] = args.custom_voice_profile
     if args.stream_step_eval_policy:
         summary["stream_step_eval_policy"] = args.stream_step_eval_policy
+    if args.generation_speed_profile:
+        summary["generation_speed_profile"] = args.generation_speed_profile
+    if args.memory_clear_cadence is not None:
+        summary["memory_clear_cadence"] = args.memory_clear_cadence
+    if args.post_request_cache_policy:
+        summary["post_request_cache_policy"] = args.post_request_cache_policy
     xcode_result = run_live_xcode_test(output_dir, modes, repeat_count, cold_runs, warm_runs, models_root, args)
     summary["xcodebuild"] = xcode_result
     if xcode_result["exit_code"] != 0:
@@ -531,13 +613,19 @@ def run_live_xcode_test(
 ) -> dict[str, Any]:
     log_path = output_dir / "xcodebuild.log"
     result_bundle = output_dir / "GenerationQualityAuditLiveTests.xcresult"
-    derived_data = output_dir / "derived-data"
-    source_packages = output_dir / "source-packages"
+    build_cache_dir = (
+        Path(args.xcode_build_cache_dir).resolve()
+        if args.xcode_build_cache_dir
+        else output_dir
+    )
+    derived_data = build_cache_dir / "derived-data"
+    source_packages = build_cache_dir / "source-packages"
     request_file = BUILD_ROOT / "audio-qc" / "live-request.json"
     if result_bundle.exists():
         shutil.rmtree(result_bundle)
     ensure_directory(request_file.parent)
 
+    test_action = "test-without-building" if args.phase == "test-without-building" else "test"
     command = [
         "xcodebuild",
         "-project",
@@ -550,9 +638,13 @@ def run_live_xcode_test(
         str(derived_data),
         "-clonedSourcePackagesDirPath",
         str(source_packages),
+    ]
+    if args.phase == "test-without-building":
+        command.append("-disableAutomaticPackageResolution")
+    command += [
         "-resultBundlePath",
         str(result_bundle),
-        "test",
+        test_action,
         "-only-testing:QwenVoiceTests/GenerationQualityAuditLiveTests",
     ]
     environment = dict(os.environ)
@@ -569,6 +661,7 @@ def run_live_xcode_test(
             "QWENVOICE_AUDIO_QC_BENCHMARK_PROFILE": args.benchmark_profile,
             "QWENVOICE_AUDIO_QC_COLD_RUNS": str(cold_runs),
             "QWENVOICE_AUDIO_QC_WARM_RUNS": str(warm_runs),
+            "QWENVOICE_AUDIO_QC_HEADLESS_APP_HOST": "1",
         }
     )
     if args.streaming_interval is not None:
@@ -580,6 +673,12 @@ def run_live_xcode_test(
         environment.update(CUSTOM_VOICE_PROFILES[args.custom_voice_profile])
     if args.stream_step_eval_policy:
         environment["QWENVOICE_QWEN3_STREAM_STEP_EVAL_POLICY"] = args.stream_step_eval_policy
+    if args.generation_speed_profile:
+        environment["QWENVOICE_QWEN3_GENERATION_SPEED_PROFILE"] = args.generation_speed_profile
+    if args.memory_clear_cadence is not None:
+        environment["QWENVOICE_QWEN3_MEMORY_CLEAR_CADENCE"] = str(args.memory_clear_cadence)
+    if args.post_request_cache_policy:
+        environment["QWENVOICE_QWEN3_POST_REQUEST_CACHE_POLICY"] = args.post_request_cache_policy
     if args.clone_reference:
         environment["QWENVOICE_AUDIO_QC_CLONE_REFERENCE"] = str(Path(args.clone_reference).resolve())
     if args.clone_transcript:
@@ -594,6 +693,44 @@ def run_live_xcode_test(
     started = time.perf_counter()
     timeout_floor = 7200 if args.benchmark_profile == "exhaustive" else 1800
     expires_at = datetime.fromtimestamp(time.time() + timeout_floor, timezone.utc)
+    initial_swap = capture_swap_usage()
+    initial_swap_used = initial_swap.get("used_mb")
+    initial_swap_free = initial_swap.get("free_mb")
+    abort_reason: str | None = None
+    if isinstance(initial_swap_used, (int, float)) and initial_swap_used >= RUNTIME_SWAP_HARD_STOP_MB:
+        abort_reason = f"preflight swap used is {initial_swap_used:.0f} MB"
+    elif isinstance(initial_swap_free, (int, float)) and initial_swap_free <= RUNTIME_SWAP_MIN_FREE_MB:
+        abort_reason = f"preflight swap free is {initial_swap_free:.0f} MB"
+    if abort_reason:
+        return {
+            "exit_code": 125,
+            "duration_ms": int((time.perf_counter() - started) * 1000),
+            "timed_out": False,
+            "memory_aborted": True,
+            "abort_reason": abort_reason,
+            "command": command,
+            "request_file": str(request_file),
+            "log_path": str(log_path),
+            "result_bundle": str(result_bundle),
+            "build_cache_dir": str(build_cache_dir),
+            "derived_data_path": str(derived_data),
+            "source_packages_path": str(source_packages),
+            "runtime_log_summary": {},
+            "process_snapshots": [
+                {
+                    "elapsed_ms": 0,
+                    "captured_at": datetime.now(timezone.utc).isoformat(),
+                    "processes": [],
+                    "swap_used_mb": initial_swap.get("used_mb"),
+                    "swap_total_mb": initial_swap.get("total_mb"),
+                    "swap_free_mb": initial_swap.get("free_mb"),
+                    "memory_pressure": "",
+                    "capture_error": None,
+                    "abort_reason": abort_reason,
+                }
+            ],
+            "process_memory_summary": [],
+        }
     request_payload = {
         "live": True,
         "allowModelLoad": True,
@@ -608,6 +745,9 @@ def run_live_xcode_test(
         "customPrewarmDepth": args.custom_prewarm_depth,
         "customVoiceProfile": args.custom_voice_profile,
         "streamStepEvalPolicy": args.stream_step_eval_policy,
+        "generationSpeedProfile": args.generation_speed_profile,
+        "memoryClearCadence": args.memory_clear_cadence,
+        "postRequestCachePolicy": args.post_request_cache_policy,
         "cloneReference": str(Path(args.clone_reference).resolve()) if args.clone_reference else None,
         "cloneTranscript": args.clone_transcript,
         "expiresAt": expires_at.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
@@ -616,6 +756,10 @@ def run_live_xcode_test(
         json.dumps(request_payload, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+    proc: subprocess.Popen[str] | None = None
+    snapshots: list[dict[str, Any]] = []
+    timed_out = False
+    abort_reason: str | None = None
     try:
         unset_launchctl_environment(managed_launchctl_keys)
         set_launchctl_environment(launchctl_environment)
@@ -629,26 +773,149 @@ def run_live_xcode_test(
                 stderr=subprocess.STDOUT,
                 text=True,
             )
-            snapshots, timed_out = monitor_process(proc, started, timeout_seconds)
+            snapshots, timed_out, abort_reason = monitor_process(proc, started, timeout_seconds)
     finally:
         unset_launchctl_environment(managed_launchctl_keys)
+        cleanup_live_xpc_processes(proc, derived_data)
         try:
             request_file.unlink()
         except FileNotFoundError:
             pass
-    exit_code = 124 if timed_out else int(proc.returncode or 0)
+    exit_code = 125 if abort_reason else (124 if timed_out else int((proc.returncode if proc else 1) or 0))
     return {
         "exit_code": exit_code,
         "duration_ms": int((time.perf_counter() - started) * 1000),
         "timed_out": timed_out,
+        "memory_aborted": bool(abort_reason),
+        "abort_reason": abort_reason,
         "command": command,
         "request_file": str(request_file),
         "log_path": str(log_path),
         "result_bundle": str(result_bundle),
+        "build_cache_dir": str(build_cache_dir),
+        "derived_data_path": str(derived_data),
+        "source_packages_path": str(source_packages),
         "runtime_log_summary": summarize_runtime_log(log_path),
         "process_snapshots": snapshots,
         "process_memory_summary": summarize_process_memory(snapshots),
     }
+
+
+def run_live_build_phase(output_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
+    """Run xcodebuild build-for-testing once, populating the shared cache.
+
+    The matrix orchestrator calls this once before iterating per-profile
+    'test-without-building' invocations. No env vars are consumed and no test
+    host is launched, so this phase has no per-profile generation work.
+    """
+    ensure_directory(output_dir)
+    log_path = output_dir / "build-for-testing.log"
+    build_result_bundle = output_dir / "build-for-testing.xcresult"
+    build_cache_dir = Path(args.xcode_build_cache_dir).resolve()
+    derived_data = build_cache_dir / "derived-data"
+    source_packages = build_cache_dir / "source-packages"
+    if build_result_bundle.exists():
+        shutil.rmtree(build_result_bundle)
+
+    resolve_command = [
+        "xcodebuild",
+        "-project",
+        str(PROJECT_DIR / "QwenVoice.xcodeproj"),
+        "-scheme",
+        "QwenVoice Foundation",
+        "-destination",
+        "platform=macOS",
+        "-clonedSourcePackagesDirPath",
+        str(source_packages),
+        "-resolvePackageDependencies",
+    ]
+    build_command = [
+        "xcodebuild",
+        "-project",
+        str(PROJECT_DIR / "QwenVoice.xcodeproj"),
+        "-scheme",
+        "QwenVoice Foundation",
+        "-destination",
+        "platform=macOS",
+        "-derivedDataPath",
+        str(derived_data),
+        "-clonedSourcePackagesDirPath",
+        str(source_packages),
+        "-disableAutomaticPackageResolution",
+        "-resultBundlePath",
+        str(build_result_bundle),
+        "build-for-testing",
+    ]
+
+    summary: dict[str, Any] = {
+        "source": "live-xpc",
+        "phase": "build-for-testing",
+        "output_dir": str(output_dir),
+        "modes": [],
+        "overall_pass": False,
+        "reports": [],
+        "build_cache_dir": str(build_cache_dir),
+        "derived_data_path": str(derived_data),
+        "source_packages_path": str(source_packages),
+    }
+
+    started = time.perf_counter()
+    timeout_seconds = max(resolve_xcodebuild_timeout_seconds(), 1800)
+    with log_path.open("w", encoding="utf-8") as log_file:
+        log_file.write("==> xcodebuild -resolvePackageDependencies\n")
+        log_file.flush()
+        resolve_proc = subprocess.run(
+            resolve_command,
+            cwd=str(PROJECT_DIR),
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=timeout_seconds,
+        )
+        log_file.write(f"==> resolve exit={resolve_proc.returncode}\n")
+        if resolve_proc.returncode != 0:
+            summary["xcodebuild"] = {
+                "exit_code": resolve_proc.returncode,
+                "stage": "resolve-package-dependencies",
+                "duration_ms": int((time.perf_counter() - started) * 1000),
+                "resolve_command": resolve_command,
+                "build_command": build_command,
+                "log_path": str(log_path),
+                "build_cache_dir": str(build_cache_dir),
+                "derived_data_path": str(derived_data),
+                "source_packages_path": str(source_packages),
+            }
+            summary["error"] = "xcodebuild -resolvePackageDependencies failed."
+            return summary
+
+        log_file.write("==> xcodebuild build-for-testing\n")
+        log_file.flush()
+        build_proc = subprocess.run(
+            build_command,
+            cwd=str(PROJECT_DIR),
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=timeout_seconds,
+        )
+        log_file.write(f"==> build exit={build_proc.returncode}\n")
+
+    summary["xcodebuild"] = {
+        "exit_code": build_proc.returncode,
+        "stage": "build-for-testing",
+        "duration_ms": int((time.perf_counter() - started) * 1000),
+        "resolve_command": resolve_command,
+        "build_command": build_command,
+        "log_path": str(log_path),
+        "result_bundle": str(build_result_bundle),
+        "build_cache_dir": str(build_cache_dir),
+        "derived_data_path": str(derived_data),
+        "source_packages_path": str(source_packages),
+    }
+    summary["overall_pass"] = build_proc.returncode == 0
+    if not summary["overall_pass"]:
+        summary["error"] = f"xcodebuild build-for-testing exited with {build_proc.returncode}."
+    return summary
 
 
 def set_launchctl_environment(environment: dict[str, str]) -> None:
@@ -676,6 +943,13 @@ def unset_launchctl_environment(keys: Iterable[str]) -> None:
 
 
 WATCHED_PROCESS_TOKENS = (
+    "QwenVoiceEngineService",
+    "Vocello",
+    "xcodebuild",
+    "xctest",
+    "swift-frontend",
+)
+WATCHED_PROCESS_NAMES = (
     "Vocello",
     "QwenVoiceEngineService",
     "xcodebuild",
@@ -688,81 +962,242 @@ def monitor_process(
     proc: subprocess.Popen[str],
     started: float,
     timeout_seconds: int,
-) -> tuple[list[dict[str, Any]], bool]:
+) -> tuple[list[dict[str, Any]], bool, str | None]:
     snapshots: list[dict[str, Any]] = []
     deadline = started + timeout_seconds
     next_snapshot_at = started
     timed_out = False
+    abort_reason: str | None = None
+    initial_swap_used_mb: float | None = None
 
     while True:
         return_code = proc.poll()
         now = time.perf_counter()
         if now >= next_snapshot_at or return_code is not None:
-            snapshots.append(capture_process_snapshot(started))
+            snapshot = capture_process_snapshot(started, root_pid=proc.pid)
+            if initial_swap_used_mb is None:
+                initial_swap_used_mb = snapshot.get("swap_used_mb")
+            snapshots.append(snapshot)
+            abort_reason = memory_abort_reason(snapshot, initial_swap_used_mb)
+            if abort_reason and return_code is None:
+                terminate_process(proc)
+                snapshot = capture_process_snapshot(started, root_pid=proc.pid)
+                snapshot["abort_reason"] = abort_reason
+                snapshots.append(snapshot)
+                break
             next_snapshot_at = now + 5.0
         if return_code is not None:
             break
         if now >= deadline:
             timed_out = True
-            proc.terminate()
-            try:
-                proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=10)
-            snapshots.append(capture_process_snapshot(started))
+            terminate_process(proc)
+            snapshots.append(capture_process_snapshot(started, root_pid=proc.pid))
             break
         time.sleep(0.5)
 
-    return snapshots, timed_out
+    return snapshots, timed_out, abort_reason
 
 
-def capture_process_snapshot(started: float) -> dict[str, Any]:
-    proc = subprocess.run(
-        ["ps", "-axo", "pid=,rss=,comm=,command="],
-        cwd=str(PROJECT_DIR),
-        capture_output=True,
-        text=True,
-        timeout=5,
-    )
+def capture_process_snapshot(started: float, *, root_pid: int | None = None) -> dict[str, Any]:
+    swap = capture_swap_usage()
+    memory_pressure = shell_output(["bash", "-lc", "memory_pressure | tail -n 8 || true"], timeout=SNAPSHOT_TIMEOUT_SECONDS)
+    pids = watched_pids(root_pid)
     processes: list[dict[str, Any]] = []
-    if proc.returncode == 0:
-        for line in proc.stdout.splitlines():
-            parts = line.strip().split(None, 3)
-            if len(parts) < 3:
-                continue
-            pid_raw, rss_raw, comm = parts[:3]
-            command = parts[3] if len(parts) > 3 else comm
-            label = classify_process(comm, command)
-            if label is None:
-                continue
-            try:
-                rss_kb = int(rss_raw)
-                pid = int(pid_raw)
-            except ValueError:
-                continue
-            processes.append(
-                {
-                    "pid": pid,
-                    "label": label,
-                    "rss_kb": rss_kb,
-                    "rss_mb": round(rss_kb / 1024, 1),
-                    "command": command[:220],
-                }
+    capture_error: str | None = None
+    if pids:
+        command = ["ps", "-o", "pid=,ppid=,rss=,comm=", "-p", ",".join(str(pid) for pid in sorted(pids))]
+        try:
+            proc = subprocess.run(
+                command,
+                cwd=str(PROJECT_DIR),
+                capture_output=True,
+                text=True,
+                timeout=SNAPSHOT_TIMEOUT_SECONDS,
+                check=False,
             )
+        except subprocess.TimeoutExpired:
+            proc = None
+            capture_error = f"process snapshot timed out after {SNAPSHOT_TIMEOUT_SECONDS:.0f}s"
+        if proc is not None and proc.returncode == 0:
+            for line in proc.stdout.splitlines():
+                parts = line.strip().split(None, 3)
+                if len(parts) < 4:
+                    continue
+                pid_raw, ppid_raw, rss_raw, comm = parts[:4]
+                label = classify_process(comm)
+                if label is None:
+                    continue
+                try:
+                    rss_kb = int(rss_raw)
+                    pid = int(pid_raw)
+                    ppid = int(ppid_raw)
+                except ValueError:
+                    continue
+                processes.append(
+                    {
+                        "pid": pid,
+                        "ppid": ppid,
+                        "label": label,
+                        "rss_kb": rss_kb,
+                        "rss_mb": round(rss_kb / 1024, 1),
+                        "command": comm[:220],
+                    }
+                )
+        elif proc is not None and proc.returncode not in (0, 1):
+            capture_error = f"ps returned {proc.returncode}: {(proc.stderr or '').strip()[:200]}"
     return {
         "elapsed_ms": int((time.perf_counter() - started) * 1000),
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "processes": processes,
+        "swap_used_mb": swap.get("used_mb"),
+        "swap_total_mb": swap.get("total_mb"),
+        "swap_free_mb": swap.get("free_mb"),
+        "memory_pressure": memory_pressure,
+        "capture_error": capture_error,
     }
 
 
-def classify_process(comm: str, command: str) -> str | None:
-    haystack = f"{comm} {command}"
+def watched_pids(root_pid: int | None) -> set[int]:
+    pids: set[int] = set()
+    if root_pid:
+        pids.add(root_pid)
+        pids.update(descendant_pids(root_pid))
+    for name in WATCHED_PROCESS_NAMES:
+        try:
+            proc = subprocess.run(
+                ["pgrep", "-x", name],
+                cwd=str(PROJECT_DIR),
+                capture_output=True,
+                text=True,
+                timeout=SNAPSHOT_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            continue
+        for line in proc.stdout.splitlines():
+            try:
+                pids.add(int(line.strip()))
+            except ValueError:
+                continue
+    return pids
+
+
+def descendant_pids(root_pid: int) -> set[int]:
+    descendants: set[int] = set()
+    frontier = [root_pid]
+    while frontier:
+        parent = frontier.pop()
+        try:
+            proc = subprocess.run(
+                ["pgrep", "-P", str(parent)],
+                cwd=str(PROJECT_DIR),
+                capture_output=True,
+                text=True,
+                timeout=SNAPSHOT_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            continue
+        for line in proc.stdout.splitlines():
+            try:
+                child = int(line.strip())
+            except ValueError:
+                continue
+            if child not in descendants:
+                descendants.add(child)
+                frontier.append(child)
+    return descendants
+
+
+def classify_process(comm: str) -> str | None:
+    haystack = comm
     for token in WATCHED_PROCESS_TOKENS:
         if token in haystack:
             return token
     return None
+
+
+def capture_swap_usage() -> dict[str, float | str | None]:
+    raw = shell_output(["sysctl", "vm.swapusage"], timeout=SNAPSHOT_TIMEOUT_SECONDS)
+    values = parse_swap_usage(raw)
+    values["raw"] = raw
+    return values
+
+
+def parse_swap_usage(raw: str) -> dict[str, float | None]:
+    result: dict[str, float | None] = {"total_mb": None, "used_mb": None, "free_mb": None}
+    for key in ("total", "used", "free"):
+        marker = f"{key} = "
+        if marker not in raw:
+            continue
+        value = raw.split(marker, 1)[1].split("M", 1)[0].strip()
+        try:
+            result[f"{key}_mb"] = float(value)
+        except ValueError:
+            pass
+    return result
+
+
+def shell_output(command: list[str], *, timeout: float = 10.0) -> str:
+    try:
+        return subprocess.run(
+            command,
+            cwd=str(PROJECT_DIR),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        ).stdout
+    except subprocess.TimeoutExpired:
+        return f"TimeoutExpired after {timeout:.0f}s: {' '.join(command)}"
+
+
+def memory_abort_reason(snapshot: dict[str, Any], initial_swap_used_mb: float | None) -> str | None:
+    capture_error = str(snapshot.get("capture_error") or "")
+    if capture_error:
+        return capture_error
+    pressure = str(snapshot.get("memory_pressure") or "").lower()
+    if "critical" in pressure:
+        return "memory_pressure reported critical pressure"
+    if "timeoutexpired" in pressure:
+        return "memory_pressure sampling timed out"
+    swap_used = snapshot.get("swap_used_mb")
+    if isinstance(swap_used, (int, float)):
+        if swap_used >= RUNTIME_SWAP_HARD_STOP_MB:
+            return f"swap used reached {swap_used:.0f} MB"
+        if isinstance(initial_swap_used_mb, (int, float)) and swap_used - initial_swap_used_mb >= RUNTIME_SWAP_DELTA_HARD_STOP_MB:
+            return f"swap grew by {swap_used - initial_swap_used_mb:.0f} MB"
+    swap_free = snapshot.get("swap_free_mb")
+    if isinstance(swap_free, (int, float)) and swap_free <= RUNTIME_SWAP_MIN_FREE_MB:
+        return f"swap free fell to {swap_free:.0f} MB"
+    return None
+
+
+def terminate_process(proc: subprocess.Popen[str]) -> None:
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=10)
+
+
+def cleanup_live_xpc_processes(proc: subprocess.Popen[str] | None, derived_data: Path) -> None:
+    if proc is not None:
+        terminate_process(proc)
+    product_marker = str((derived_data / "Build/Products/Debug/Vocello.app").resolve())
+    for signal in ("-TERM", "-KILL"):
+        subprocess.run(
+            ["pkill", signal, "-f", product_marker],
+            cwd=str(PROJECT_DIR),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            text=True,
+        )
+        time.sleep(0.5)
 
 
 def summarize_process_memory(snapshots: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -995,6 +1430,10 @@ CORE_TIMING_KEYS = (
     "avg_chunk_frames",
     "max_chunk_frames",
     "streaming_interval_ms",
+    "cache_clear_count",
+    "memory_clear_cadence",
+    "post_request_cache_clear_applied",
+    "allocation_retry_cleanup_ms",
     "reference_normalize",
     "reference_decode",
     "clone_prompt_artifact_load",
@@ -1058,11 +1497,19 @@ QWEN3_TIMING_KEYS = (
     "custom_generation_steps_before_first_chunk",
     "custom_first_chunk_decoder_tokens",
     "design_initial_stream_chunk_size",
+    "design_target_token_count",
+    "design_effective_max_tokens",
+    "design_generation_profile_multiplier",
+    "design_generation_profile_min_tokens",
     "design_post_first_stream_chunk_size",
     "design_post_first_stream_chunk_multiplier",
     "design_generation_steps_before_first_chunk",
     "design_first_chunk_decoder_tokens",
     "clone_initial_stream_chunk_size",
+    "clone_target_token_count",
+    "clone_effective_max_tokens",
+    "clone_generation_profile_multiplier",
+    "clone_generation_profile_min_tokens",
     "clone_post_first_stream_chunk_size",
     "clone_post_first_stream_chunk_multiplier",
     "clone_generation_steps_before_first_chunk",
@@ -1102,6 +1549,15 @@ QWEN3_FLAG_KEYS = (
     "stream_step_eval_policy_full",
     "stream_step_eval_policy_eos_only",
     "stream_step_eval_policy_deferred",
+    "generation_speed_profile_current",
+    "generation_speed_profile_legacy123_memory",
+    "generation_speed_profile_adaptive_failure_only",
+    "generation_speed_profile_balanced_all_modes",
+    "allocation_retry_attempted",
+    "allocation_retry_succeeded",
+    "clone_batch_has_batch_sampling",
+    "clone_batch_has_batch_decode",
+    "clone_batch_fast_path_available",
     "design_stream_chunk_growth_enabled",
     "design_conditioning_reused",
     "design_conditioning_prefetch_hit",
@@ -1124,6 +1580,11 @@ QWEN3_STRING_FLAG_KEYS = (
     "custom_voice_profile",
     "custom_generation_end_reason",
     "stream_step_eval_policy",
+    "generation_speed_profile",
+    "post_request_cache_policy",
+    "token_budget_policy",
+    "allocation_retry_reason",
+    "clone_batch_fast_path_status",
 )
 
 
@@ -1139,7 +1600,17 @@ def qwen3_cache_flag_subset(flags: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
         for key, value in sorted(flags.items())
-        if key.startswith(("tokenizer_", "speech_tokenizer_", "prefix_", "custom_", "design_", "decoder_bucket_", "clone_"))
+        if key.startswith((
+            "tokenizer_",
+            "speech_tokenizer_",
+            "prefix_",
+            "custom_",
+            "design_",
+            "decoder_bucket_",
+            "clone_",
+            "generation_speed_",
+            "allocation_retry_",
+        ))
         or key in {
             "prepared_model_cache_hit",
             "prepared_overlay_cache_hit",
@@ -1488,6 +1959,9 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
                 "",
                 f"- Exit code: `{xcode.get('exit_code')}`",
                 f"- Duration: `{xcode.get('duration_ms')} ms`",
+                f"- Memory aborted: `{str(bool(xcode.get('memory_aborted'))).lower()}`",
+                f"- Abort reason: `{xcode.get('abort_reason') or 'n/a'}`",
+                f"- Build cache: `{xcode.get('build_cache_dir') or 'n/a'}`",
                 f"- Log: `{xcode.get('log_path')}`",
                 f"- Result bundle: `{xcode.get('result_bundle')}`",
                 "",
@@ -1572,8 +2046,14 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
                 ("first decoder", "first_decoder_step"),
                 ("stream decode", "qwen_stream_decoder_total"),
                 ("generated codes", "qwen_generated_code_count"),
+                ("cache clears", "cache_clear_count"),
+                ("cache cadence", "memory_clear_cadence"),
                 ("target tokens", "custom_target_token_count"),
                 ("effective max", "custom_effective_max_tokens"),
+                ("design target tokens", "design_target_token_count"),
+                ("design effective max", "design_effective_max_tokens"),
+                ("clone target tokens", "clone_target_token_count"),
+                ("clone effective max", "clone_effective_max_tokens"),
                 ("initial chunk", "custom_initial_stream_chunk_size"),
                 ("post-first chunk", "custom_post_first_stream_chunk_size"),
                 ("first chunk steps", "custom_generation_steps_before_first_chunk"),
@@ -1588,8 +2068,14 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
                 if metric.get("median") is not None:
                     suffix = "" if key in (
                         "qwen_generated_code_count",
+                        "cache_clear_count",
+                        "memory_clear_cadence",
                         "custom_target_token_count",
                         "custom_effective_max_tokens",
+                        "design_target_token_count",
+                        "design_effective_max_tokens",
+                        "clone_target_token_count",
+                        "clone_effective_max_tokens",
                         "custom_initial_stream_chunk_size",
                         "custom_post_first_stream_chunk_size",
                         "custom_generation_steps_before_first_chunk",
@@ -1606,6 +2092,9 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
             string_highlights = []
             for label, key in (
                 ("profile", "custom_voice_profile"),
+                ("speed", "generation_speed_profile"),
+                ("cache policy", "post_request_cache_policy"),
+                ("token budget", "token_budget_policy"),
                 ("end reason", "custom_generation_end_reason"),
                 ("eval policy", "stream_step_eval_policy"),
             ):
@@ -1634,6 +2123,13 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
                 ("eval full", "stream_step_eval_policy_full"),
                 ("eval EOS-only", "stream_step_eval_policy_eos_only"),
                 ("eval deferred", "stream_step_eval_policy_deferred"),
+                ("speed current", "generation_speed_profile_current"),
+                ("speed 1.2.3 memory", "generation_speed_profile_legacy123_memory"),
+                ("speed adaptive", "generation_speed_profile_adaptive_failure_only"),
+                ("speed balanced", "generation_speed_profile_balanced_all_modes"),
+                ("allocation retry", "allocation_retry_attempted"),
+                ("allocation retry success", "allocation_retry_succeeded"),
+                ("clone batch fast path", "clone_batch_fast_path_available"),
                 ("design chunk growth", "design_stream_chunk_growth_enabled"),
                 ("clone chunk growth", "clone_stream_chunk_growth_enabled"),
             ):

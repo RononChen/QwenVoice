@@ -147,7 +147,7 @@ python3 scripts/check_ios_catalog.py
 ./scripts/release_ios_testflight.sh
 ```
 
-Visual and interaction verification is covered first by the `e2e` harness smoke lane. Manual local app launches and Computer Use passes remain useful after project-input checks, harness layers, and builds are green.
+Visual and interaction verification is covered first by the `e2e` harness smoke lane. Manual local app launches remain useful after project-input checks, harness layers, and builds are green. UI benchmark validation drives the visible app via the `macos-ax-applescript` driver (osascript / System Events / AppleScript / `screencapture` / shell process probes / optional `cliclick` fallback); the scripts preserve timing, trace, process/memory, screenshot, audio-QC, and macOS Accessibility/AppleScript probe artifacts. Visual review of completed runs is fine via Claude Code's screenshotting tooling, but never drive a benchmark interactively from a heavy agent host.
 
 For deterministic local compile proof, prefer `./scripts/build_foundation_targets.sh` over a shared-DerivedData signed debug build. The deterministic script uses isolated derived-data and `.xcresult` roots so stale hosted-test bundles cannot pollute app codesigning.
 
@@ -159,7 +159,7 @@ The maintained harness and foundation paths now use:
 
 ## Current Documentation Boundaries
 
-- `CLAUDE.md` is the primary repo-operating guide for agents and maintainers.
+- `CLAUDE.md` is the primary repo-operating guide for Claude Code and contributors.
 - `docs/README.md` is the index of the maintained documentation set.
 - `docs/reference/current-state.md`, `docs/reference/engineering-status.md`, `docs/reference/backend-freeze-gate.md`, `docs/reference/frontend-backend-contract.md`, `docs/reference/live-testing.md`, and `docs/reference/vendoring-runtime.md` are the maintained reference docs.
 - `docs/reference/privacy-storage.md` records local storage, deletion paths, and voice-cloning consent posture.

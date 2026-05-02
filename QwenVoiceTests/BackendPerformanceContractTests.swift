@@ -4,6 +4,56 @@ import XCTest
 @testable import QwenVoiceCore
 
 final class BackendPerformanceContractTests: XCTestCase {
+    func testBenchmarkOptionsRoundTripGenerationSpeedControls() throws {
+        let request = GenerationRequest(
+            modelID: "pro_custom",
+            text: "Hello",
+            outputPath: "/tmp/custom.wav",
+            shouldStream: true,
+            benchmarkOptions: GenerationRequest.BenchmarkOptions(
+                customVoiceProfile: "balanced-short",
+                streamStepEvalPolicy: "eos-only",
+                generationSpeedProfile: "legacy123-memory",
+                memoryClearCadence: 50,
+                postRequestCachePolicy: "failure-only",
+                temperature: 0.7,
+                topP: 0.9
+            ),
+            payload: .custom(speakerID: "vivian", deliveryStyle: nil)
+        )
+
+        let decoded = try JSONDecoder().decode(
+            GenerationRequest.self,
+            from: JSONEncoder().encode(request)
+        )
+
+        XCTAssertEqual(decoded, request)
+        XCTAssertEqual(decoded.benchmarkOptions?.generationSpeedProfile, "legacy123-memory")
+        XCTAssertEqual(decoded.benchmarkOptions?.memoryClearCadence, 50)
+        XCTAssertEqual(decoded.benchmarkOptions?.postRequestCachePolicy, "failure-only")
+    }
+
+    func testBenchmarkSampleMergesRetryAndCacheMetrics() {
+        let sample = BenchmarkSample(
+            streamingUsed: true,
+            timingsMS: ["generation": 100],
+            booleanFlags: ["allocation_retry_attempted": false],
+            stringFlags: ["generation_speed_profile": "current"]
+        )
+
+        let merged = sample.mergingBenchmarkFields(
+            timingsMS: ["cache_clear_count": 3],
+            booleanFlags: ["allocation_retry_attempted": true],
+            stringFlags: ["post_request_cache_policy": "failure-only"]
+        )
+
+        XCTAssertEqual(merged.timingsMS["generation"], 100)
+        XCTAssertEqual(merged.timingsMS["cache_clear_count"], 3)
+        XCTAssertEqual(merged.booleanFlags["allocation_retry_attempted"], true)
+        XCTAssertEqual(merged.stringFlags["generation_speed_profile"], "current")
+        XCTAssertEqual(merged.stringFlags["post_request_cache_policy"], "failure-only")
+    }
+
     func testBenchmarkSampleRoundTripsBackendPerformanceAndPCMPreviewChunk() throws {
         let preview = StreamingAudioChunk(
             requestID: 42,

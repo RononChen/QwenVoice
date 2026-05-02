@@ -28,7 +28,7 @@ def main() -> int:
                 "Use the local manual workflow instead:",
                 "1. Run ./scripts/check_project_inputs.sh",
                 "2. Launch QwenVoice on the intended fixture or live data root",
-                "3. Use Codex Computer Use to navigate and capture curated screenshots manually",
+                "3. Manually navigate the app and capture curated screenshots",
                 f"4. Save approved screenshots under {output_dir}",
                 "",
                 "Generated images may be used for explanatory mockups, but not as validation evidence.",
