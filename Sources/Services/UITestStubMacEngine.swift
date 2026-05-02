@@ -1,4 +1,5 @@
 #if QW_TEST_SUPPORT
+import QwenVoiceCore
 import Combine
 import Foundation
 import QwenVoiceNative

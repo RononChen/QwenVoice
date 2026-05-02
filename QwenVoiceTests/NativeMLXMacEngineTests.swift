@@ -1,3 +1,4 @@
+import QwenVoiceCore
 import XCTest
 import Combine
 @preconcurrency import MLX

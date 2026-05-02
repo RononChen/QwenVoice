@@ -151,12 +151,12 @@ actor NativePreparedCloneConditioningCache {
             requestedTranscript: requestedTranscript,
             normalizedAudioURL: normalizedReference.normalizedURL
         )
-        let uiIdentityKey = QwenVoiceEngineSupport.GenerationSemantics.cloneReferenceIdentityKey(
+        let uiIdentityKey = QwenVoiceCore.GenerationSemantics.cloneReferenceIdentityKey(
             modelID: modelID,
             refAudio: reference.audioPath,
             refText: requestedTranscript
         )
-        let internalIdentityKey = QwenVoiceEngineSupport.GenerationSemantics.cloneReferenceIdentityKey(
+        let internalIdentityKey = QwenVoiceCore.GenerationSemantics.cloneReferenceIdentityKey(
             modelID: modelID,
             refAudio: normalizedReference.normalizedPath,
             refText: transcriptResolution.transcript

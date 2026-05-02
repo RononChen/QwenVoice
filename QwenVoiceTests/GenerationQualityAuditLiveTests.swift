@@ -1,3 +1,4 @@
+import QwenVoiceCore
 import Foundation
 import Dispatch
 import XCTest

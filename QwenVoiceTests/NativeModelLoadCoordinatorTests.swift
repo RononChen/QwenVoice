@@ -1,3 +1,4 @@
+import QwenVoiceCore
 import XCTest
 @testable import QwenVoiceNativeRuntime
 

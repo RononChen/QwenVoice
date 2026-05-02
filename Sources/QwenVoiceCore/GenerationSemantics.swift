@@ -232,6 +232,53 @@ public enum GenerationSemantics {
         )
     }
 
+    /// Compatibility overload: build a prewarm identity key directly from
+    /// a `GenerationRequest`. Mirrors the (now-retired)
+    /// QwenVoiceEngineSupport.GenerationSemantics.prewarmIdentityKey(for:)
+    /// semantics — for `.custom`, the key INCLUDES the speaker and
+    /// (normalized) delivery instruction, so that voice/delivery changes
+    /// invalidate the prewarm cache. The parameterized
+    /// `prewarmIdentityKey(modelID:mode:...)` above intentionally omits
+    /// those for the new "stable model-level readiness" code paths;
+    /// legacy callers (MacNativeRuntime, GenerationSemanticsTests,
+    /// NativeModelLoadCoordinatorTests) keep this richer form.
+    public static func prewarmIdentityKey(for request: GenerationRequest) -> String {
+        switch request.payload {
+        case .custom(let speakerID, let deliveryStyle):
+            let normalizedInstruction = hasMeaningfulDeliveryInstruction(deliveryStyle ?? "")
+                ? deliveryStyle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                : ""
+            return [
+                request.modelID,
+                request.modeIdentifier,
+                speakerID.trimmingCharacters(in: .whitespacesAndNewlines),
+                normalizedInstruction,
+            ].joined(separator: "|")
+        case .design:
+            return [
+                request.modelID,
+                request.modeIdentifier,
+            ].joined(separator: "|")
+        case .clone(let reference):
+            return clonePreparationKey(modelID: request.modelID, reference: reference)
+        }
+    }
+
+    /// Public clone-preparation cache key. Mirrors the (now-retired)
+    /// QwenVoiceEngineSupport.GenerationSemantics.clonePreparationKey
+    /// signature so callers (UITestStubMacEngine, VoiceCloningView,
+    /// NativeMLXMacEngineTests, GenerationSemanticsTests, NativeMLXMacEngine)
+    /// can switch from the EngineSupport copy to this one without changing
+    /// arguments. Format: "<modelID>|clone|<audioPath>|<transcript>".
+    public static func clonePreparationKey(modelID: String, reference: CloneReference) -> String {
+        [
+            modelID,
+            "clone",
+            reference.audioPath.trimmingCharacters(in: .whitespacesAndNewlines),
+            reference.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+        ].joined(separator: "|")
+    }
+
     private static func detectedQwenLanguage(in text: String) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }

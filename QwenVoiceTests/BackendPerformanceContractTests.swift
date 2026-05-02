@@ -1,3 +1,4 @@
+import QwenVoiceCore
 import XCTest
 @preconcurrency import MLXLMCommon
 @preconcurrency import MLXAudioTTS

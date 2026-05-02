@@ -1,4 +1,5 @@
 @preconcurrency import Combine
+import QwenVoiceCore
 import Foundation
 import QwenVoiceEngineSupport
 

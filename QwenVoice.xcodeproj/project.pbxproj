@@ -76,7 +76,6 @@
 		44E67416118382B30463ECBF /* ExtensionBackedTTSEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB3835C8337D542719895FFA /* ExtensionBackedTTSEngineTests.swift */; };
 		450DA1B1FB4FBAEE6426D0E0 /* NativeSpeechGenerationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84CD1C46D8B6C5E3FFD1C92E /* NativeSpeechGenerationModel.swift */; };
 		47047F5254483416802EA6E7 /* TTSContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1BEC9303B02719EAE3E8EB4 /* TTSContractTests.swift */; };
-		497766375DBB06DA41E6E60A /* GenerationSemantics.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD14EA7079C5160A638BE0D4 /* GenerationSemantics.swift */; };
 		4B578A4D21A7CC18003BBA14 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4D22F70AB025CF59B428113 /* HistoryView.swift */; };
 		4C9FD3457CF174368B5DA3F8 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58289F75979DA076DE518D8D /* main.swift */; };
 		4CC416DB51B2EC87F1671931 /* ExtensionEngineCommand+Transport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E54014942862A03DA9ABA13 /* ExtensionEngineCommand+Transport.swift */; };
@@ -612,7 +611,6 @@
 		C9DFF46140E21950EEDD4721 /* MLXModelLoadCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXModelLoadCoordinator.swift; sourceTree = "<group>"; };
 		CA69FF9D2F8980B6EECA2831 /* StreamingChunkFinalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingChunkFinalizationTests.swift; sourceTree = "<group>"; };
 		CBFD195E3C3F6CFC29D83EC1 /* Generation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Generation.swift; sourceTree = "<group>"; };
-		CD14EA7079C5160A638BE0D4 /* GenerationSemantics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationSemantics.swift; sourceTree = "<group>"; };
 		CE621138D32607BE4CF4FDE5 /* NativeRuntimeTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeRuntimeTestSupport.swift; sourceTree = "<group>"; };
 		CE8BE62E6938AD70B67D6B3F /* CustomVoiceUIPerformanceTraceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomVoiceUIPerformanceTraceTests.swift; sourceTree = "<group>"; };
 		D2A539A647083CC4810F72FE /* WaveformService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformService.swift; sourceTree = "<group>"; };
@@ -963,7 +961,6 @@
 				E7EF4B9CD82A748843A9C362 /* EngineDomainModels.swift */,
 				18DE6BAD8C5C43316C0B347E /* EngineServiceIPC.swift */,
 				940DC33B01DA7425CEB5E2FF /* EngineServiceTrustPolicy.swift */,
-				CD14EA7079C5160A638BE0D4 /* GenerationSemantics.swift */,
 			);
 			name = QwenVoiceEngineSupport;
 			path = Sources/QwenVoiceEngineSupport;
@@ -1800,7 +1797,6 @@
 				A4FC37C1C7711C39409E6824 /* EngineDomainModels.swift in Sources */,
 				C4E618779FCA378BDBF07857 /* EngineServiceIPC.swift in Sources */,
 				12543458CF8FCB9C38524A9B /* EngineServiceTrustPolicy.swift in Sources */,
-				497766375DBB06DA41E6E60A /* GenerationSemantics.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
