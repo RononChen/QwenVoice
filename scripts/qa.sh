@@ -101,13 +101,21 @@ PY
 }
 
 # Pick the best available iPhone simulator destination, or print nothing.
+# Data is passed via env so python3 -c sees no stdin contention with the
+# script source.
 resolve_ios_destination() {
-  xcrun simctl list devices available -j 2>/dev/null | python3 - <<'PY'
+  local simctl_json
+  simctl_json="$(xcrun simctl list devices available -j 2>/dev/null || true)"
+  if [[ -z "$simctl_json" ]]; then
+    return 0
+  fi
+  SIMCTL_JSON="$simctl_json" python3 -c '
 import json
+import os
 import sys
 
 try:
-    data = json.load(sys.stdin)
+    data = json.loads(os.environ.get("SIMCTL_JSON", ""))
 except json.JSONDecodeError:
     sys.exit(0)
 
@@ -144,8 +152,8 @@ def order(device):
 
 
 candidates.sort(key=order)
-print(f"platform=iOS Simulator,id={candidates[0]['udid']}")
-PY
+print(f"platform=iOS Simulator,id={candidates[0][\"udid\"]}")
+'
 }
 
 # Run resolve → build-for-testing → test-without-building for one suite.
@@ -233,29 +241,29 @@ run_ios_layer() {
 }
 
 # Refuse to start a perf run when system swap is already exhausted.
-# Reads vm.swapusage; aborts with exit 125 (matching the prior Python
-# orchestration's contract) before any heavy xcodebuild stage starts.
+# Reads vm.swapusage; aborts with exit 125 before any heavy xcodebuild stage
+# starts. Parsing is done in pure bash so we avoid stdin contention between
+# the sysctl pipe and any inline interpreter.
 swap_preflight() {
   local hard_stop="${QWENVOICE_PERF_SWAP_HARD_STOP_MB:-8000}"
   local min_free="${QWENVOICE_PERF_SWAP_MIN_FREE_MB:-512}"
-  local parsed
-  parsed="$(sysctl -n vm.swapusage 2>/dev/null | python3 - <<'PY'
-import re
-import sys
-
-line = sys.stdin.read().strip()
-m = re.search(r"used = ([\d.]+)M.*free = ([\d.]+)M", line)
-if not m:
-    sys.exit(0)
-print(f"{int(float(m.group(1)))} {int(float(m.group(2)))}")
-PY
-  )"
-  if [[ -z "$parsed" ]]; then
+  local out
+  out="$(sysctl -n vm.swapusage 2>/dev/null || true)"
+  if [[ -z "$out" ]]; then
+    echo "==> swap preflight: vm.swapusage unavailable; skipping check."
+    return 0
+  fi
+  # Format example: "total = 1024.00M  used = 161.75M  free = 862.25M  (encrypted)"
+  local used_segment="${out#*used = }"
+  local used_str="${used_segment%%M*}"
+  local free_segment="${out#*free = }"
+  local free_str="${free_segment%%M*}"
+  local used_mb="${used_str%.*}"
+  local free_mb="${free_str%.*}"
+  if ! [[ "$used_mb" =~ ^[0-9]+$ ]] || ! [[ "$free_mb" =~ ^[0-9]+$ ]]; then
     echo "==> swap preflight: vm.swapusage unparseable; skipping check."
     return 0
   fi
-  local used_mb free_mb
-  read -r used_mb free_mb <<<"$parsed"
   if (( used_mb >= hard_stop )); then
     echo "qa.sh perf: refusing to start — swap in use is ${used_mb} MB (>= ${hard_stop} MB hard stop)." >&2
     echo "Quit memory-heavy apps or reboot, then re-run." >&2
@@ -308,8 +316,65 @@ run_perf_layer() {
 
   swap_preflight
 
+  # GenerationQualityAuditLiveTests reads its config from
+  # build/audio-qc/live-request.json. xcodebuild does not propagate the
+  # calling shell's env vars to the test runner process, so the JSON file
+  # is the contract — write it from the same env vars the user/qa.sh set.
+  write_live_audit_request
+
   run_xcodebuild_suite "perf_audio_qc" "QwenVoice Foundation" "platform=macOS" \
     -only-testing:QwenVoiceTests/GenerationQualityAuditLiveTests
+}
+
+# Build build/audio-qc/live-request.json that GenerationQualityAuditLiveTests
+# decodes. Mirrors the LiveAuditRequest struct in the Swift test exactly.
+write_live_audit_request() {
+  local request_path="$PROJECT_DIR/build/audio-qc/live-request.json"
+  mkdir -p "$(dirname "$request_path")"
+
+  local modes_json
+  modes_json="$(printf '%s' "$QWENVOICE_AUDIO_QC_MODES" \
+    | jq -R 'split(",") | map(select(length > 0))')"
+
+  jq -n \
+    --argjson modes "$modes_json" \
+    --arg output "$QWENVOICE_AUDIO_QC_OUTPUT_DIR" \
+    --arg models "$QWENVOICE_AUDIO_QC_MODELS_ROOT" \
+    --arg profile "$QWENVOICE_AUDIO_QC_BENCHMARK_PROFILE" \
+    --argjson repeatCount "$QWENVOICE_AUDIO_QC_REPEAT_COUNT" \
+    --argjson coldRuns "$QWENVOICE_AUDIO_QC_COLD_RUNS" \
+    --argjson warmRuns "$QWENVOICE_AUDIO_QC_WARM_RUNS" \
+    --arg cloneRef "${QWENVOICE_AUDIO_QC_CLONE_REFERENCE:-}" \
+    --arg cloneTrans "${QWENVOICE_AUDIO_QC_CLONE_TRANSCRIPT:-}" \
+    --arg streamingInterval "${QWENVOICE_AUDIO_QC_STREAMING_INTERVAL:-}" \
+    --arg prewarmDepth "${QWENVOICE_AUDIO_QC_CUSTOM_PREWARM_DEPTH:-}" \
+    --arg cvProfile "${QWENVOICE_QWEN3_CUSTOM_VOICE_PROFILE:-}" \
+    --arg evalPolicy "${QWENVOICE_QWEN3_STREAM_STEP_EVAL_POLICY:-}" \
+    --arg speedProfile "${QWENVOICE_QWEN3_GENERATION_SPEED_PROFILE:-}" \
+    --arg memCadence "${QWENVOICE_QWEN3_MEMORY_CLEAR_CADENCE:-}" \
+    --arg cachePolicy "${QWENVOICE_QWEN3_POST_REQUEST_CACHE_POLICY:-}" \
+    '{
+      live: true,
+      allowModelLoad: true,
+      outputDirectory: $output,
+      modes: $modes,
+      modelsRoot: $models,
+      cloneReference: (if $cloneRef == "" then null else $cloneRef end),
+      cloneTranscript: (if $cloneTrans == "" then null else $cloneTrans end),
+      repeatCount: $repeatCount,
+      benchmarkProfile: $profile,
+      coldRuns: $coldRuns,
+      warmRuns: $warmRuns,
+      streamingIntervalOverride: (if $streamingInterval == "" then null else ($streamingInterval | tonumber) end),
+      customPrewarmDepth: (if $prewarmDepth == "" then null else $prewarmDepth end),
+      customVoiceProfile: (if $cvProfile == "" then null else $cvProfile end),
+      streamStepEvalPolicy: (if $evalPolicy == "" then null else $evalPolicy end),
+      generationSpeedProfile: (if $speedProfile == "" then null else $speedProfile end),
+      memoryClearCadence: (if $memCadence == "" then null else ($memCadence | tonumber) end),
+      postRequestCachePolicy: (if $cachePolicy == "" then null else $cachePolicy end)
+    }' > "$request_path"
+
+  echo "==> Wrote live-audit request: $request_path"
 }
 
 run_e2e_layer() {
