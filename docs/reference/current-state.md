@@ -124,7 +124,7 @@ Project and automation source of truth:
 Active GitHub workflows:
 
 - `Project Inputs`
-- `Apple Platform QA Gate` for harness validation, contract/source/native/UI smoke layers, generic macOS/iPhone builds, unsigned macOS release verification, and `.xcresult` artifact upload
+- `Apple Platform QA Gate` for qa.sh validation, contract/source/native/UI smoke layers, generic macOS/iPhone builds, unsigned macOS release verification, and `.xcresult` artifact upload
 - `Vocello macOS Release` as the only signed/public release workflow required for the current milestone
 - `Vocello iOS TestFlight` as the maintained but deferred iPhone release workflow
 
@@ -132,26 +132,26 @@ Key local checks:
 
 ```sh
 ./scripts/check_project_inputs.sh
-python3 scripts/harness.py validate
-python3 scripts/harness.py test --layer contract
-python3 scripts/harness.py test --layer swift
-python3 scripts/harness.py test --layer native
-python3 scripts/harness.py test --layer ios
-python3 scripts/harness.py test --layer e2e
+./scripts/qa.sh validate
+./scripts/qa.sh test --layer contract
+./scripts/qa.sh test --layer swift
+./scripts/qa.sh test --layer native
+./scripts/qa.sh test --layer ios
+./scripts/qa.sh test --layer e2e
 xcodebuild -project QwenVoice.xcodeproj -scheme QwenVoice build
 xcodebuild -project QwenVoice.xcodeproj -scheme VocelloiOS -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES build
 ./scripts/build_foundation_targets.sh macos
 ./scripts/build_foundation_targets.sh ios
-python3 scripts/check_ios_catalog.py
+./scripts/check_ios_catalog.sh
 ./scripts/release.sh
 ./scripts/release_ios_testflight.sh
 ```
 
-Visual and interaction verification is covered first by the `e2e` harness smoke lane. Manual local app launches remain useful after project-input checks, harness layers, and builds are green. UI benchmark validation drives the visible app via the `macos-ax-applescript` driver (osascript / System Events / AppleScript / `screencapture` / shell process probes / optional `cliclick` fallback); the scripts preserve timing, trace, process/memory, screenshot, audio-QC, and macOS Accessibility/AppleScript probe artifacts. Visual review of completed runs is fine via Claude Code's screenshotting tooling, but never drive a benchmark interactively from a heavy agent host.
+Visual and interaction verification is covered first by the `e2e` qa.sh smoke lane. Manual local app launches remain useful after project-input checks, QA layers, and builds are green. UI benchmark validation drives the visible app via the `macos-ax-applescript` driver (osascript / System Events / AppleScript / `screencapture` / shell process probes / optional `cliclick` fallback); the scripts preserve timing, trace, process/memory, screenshot, audio-QC, and macOS Accessibility/AppleScript probe artifacts. Visual review of completed runs is fine via Claude Code's screenshotting tooling, but never drive a benchmark interactively from a heavy agent host.
 
 For deterministic local compile proof, prefer `./scripts/build_foundation_targets.sh` over a shared-DerivedData signed debug build. The deterministic script uses isolated derived-data and `.xcresult` roots so stale hosted-test bundles cannot pollute app codesigning.
 
-The maintained harness and foundation paths now use:
+The maintained qa.sh and foundation paths now use:
 
 - explicit harness roots under `build/harness/{derived-data,results,source-packages,artifacts}`
 - explicit release build roots under `build/foundation/`

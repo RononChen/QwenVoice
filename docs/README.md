@@ -7,9 +7,9 @@ This folder contains the current repo-authored documentation for QwenVoice.
 - [`../CLAUDE.md`](../CLAUDE.md) — primary repository operating guide for Claude Code and contributors
 - [`reference/current-state.md`](reference/current-state.md) — shared current repo facts
 - [`reference/engineering-status.md`](reference/engineering-status.md) — current strengths, caveats, and validation posture
-- [`reference/backend-freeze-gate.md`](reference/backend-freeze-gate.md) — rebuilt QA gate for static validation, source/native/UI harness layers, builds, and unsigned release proof
+- [`reference/backend-freeze-gate.md`](reference/backend-freeze-gate.md) — rebuilt QA gate for static validation, source/native/UI QA layers, builds, and unsigned release proof
 - [`reference/frontend-backend-contract.md`](reference/frontend-backend-contract.md) — app-facing backend state, delivery state, and QA gate
-- [`reference/live-testing.md`](reference/live-testing.md) — local harness lanes, strict e2e behavior, result paths, and xcresult triage commands
+- [`reference/live-testing.md`](reference/live-testing.md) — local QA lanes, strict e2e behavior, result paths, and xcresult triage commands
 - [`reference/release-readiness.md`](reference/release-readiness.md) — macOS-first release-track policy, proof status, public-homepage freeze rules, and the tier→workflow mapping table
 - [`reference/privacy-storage.md`](reference/privacy-storage.md) — local model, output, history, saved-voice, App Group, and deletion-path reference
 - [`reference/foundation-projects-audit.md`](reference/foundation-projects-audit.md) — upstream model/runtime/database foundations, current pins, freshness, and local customization status
@@ -45,5 +45,5 @@ Supplemental guides are useful, but they are not the primary source of truth for
 
 - Maintained contributor guidance in this checkout lives in the maintained reference docs listed above.
 - This repo does not maintain project-scoped QwenVoice skills; contributor guidance lives in the maintained docs above.
-- Current automation surfaces live in `scripts/` and `.github/workflows/`, including `scripts/harness.py`, project-input validation, source/native/UI harness layers, build proof, macOS release packaging, and the deferred iPhone TestFlight workflow.
+- Current automation surfaces live in `scripts/` and `.github/workflows/`, including `scripts/qa.sh`, project-input validation, source/native/UI QA layers, build proof, macOS release packaging, and the deferred iPhone TestFlight workflow.
 - Generated or vendored dependency documentation is intentionally out of scope for the repo docs.

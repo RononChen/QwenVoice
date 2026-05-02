@@ -1,23 +1,22 @@
 # Live Testing
 
-This document describes the rebuilt repo-owned QA harness for local and CI validation.
+This document describes the rebuilt QA orchestrator for local and CI validation.
 
 ## Entrypoint
 
-Use `scripts/harness.py` as the portable orchestrator. Xcode remains the build and test authority; the Python harness supplies deterministic roots, fixture setup, locking, `.xcresult` parsing, and JSON envelopes.
+Use `scripts/qa.sh` as the portable orchestrator. Xcode remains the build and test authority; qa.sh supplies deterministic roots, fixture setup, locking, and `.xcresult` parsing for the wrapped `xcodebuild` invocations.
 
 ```sh
-python3 scripts/harness.py validate
-python3 scripts/harness.py test --layer contract
-python3 scripts/harness.py test --layer swift
-python3 scripts/harness.py test --layer native
-python3 scripts/harness.py test --layer ios
-python3 scripts/harness.py test --layer e2e
-python3 scripts/harness.py diagnose
-python3 scripts/harness.py bench --category latency --runs 3
+./scripts/qa.sh validate
+./scripts/qa.sh test --layer contract
+./scripts/qa.sh test --layer swift
+./scripts/qa.sh test --layer native
+./scripts/qa.sh test --layer ios
+./scripts/qa.sh test --layer e2e
+./scripts/qa.sh test --layer perf      # opt-in audio-QC; not part of --layer all
 ```
 
-Harness output roots:
+qa.sh output roots:
 
 - `build/harness/derived-data/`
 - `build/harness/results/`
@@ -40,12 +39,12 @@ The iOS lane returns a structured skip when no iPhone simulator destination is i
 
 ## Strict E2E
 
-Hosted macOS runners can fail first-time UI automation because Accessibility/TCC permission has not been granted or because the app window is not frontmost in the accessibility tree. By default, the harness demotes those two environment failures into clear skipped results.
+Hosted macOS runners can fail first-time UI automation because Accessibility/TCC permission has not been granted or because the app window is not frontmost in the accessibility tree. By default, qa.sh demotes those two environment failures into clear skipped results.
 
 Release signoff on a controlled machine must use strict mode:
 
 ```sh
-QWENVOICE_E2E_STRICT=1 python3 scripts/harness.py test --layer e2e
+QWENVOICE_E2E_STRICT=1 ./scripts/qa.sh test --layer e2e
 ```
 
 In strict mode, TCC and window-registration failures fail the lane instead of being treated as skipped passes.
@@ -64,7 +63,7 @@ Release builds must not rely on `QW_TEST_SUPPORT` behavior.
 
 ## Result Triage
 
-Every Xcode-backed harness lane writes build and test result bundles under `build/harness/results/<lane>/`.
+Every Xcode-backed QA lane writes build and test result bundles under `build/harness/results/<lane>/`.
 
 Useful commands:
 
@@ -75,19 +74,19 @@ xcrun xcresulttool get test-results summary --path build/harness/results/swift_s
 
 Treat the `.xcresult` bundle as authoritative when stdout only reports a generic `** TEST BUILD FAILED **`.
 
-## Benchmarks
+## Performance Lane
 
-Benchmarks are opt-in release-investigation tools, not default PR gates:
+Performance and audio-QC validation runs through the opt-in `perf` layer. It is not part of `--layer all` and requires installed models under `QWENVOICE_AUDIO_QC_MODELS_ROOT` (default `~/Library/Application Support/QwenVoice/models`).
 
 ```sh
-python3 scripts/harness.py bench --category latency --runs 3
-python3 scripts/harness.py bench --category load --runs 3
-python3 scripts/harness.py bench --category quality --runs 3
-python3 scripts/harness.py bench --category tts_roundtrip --runs 3
+./scripts/qa.sh test --layer perf
 ```
 
-Visible UI benchmark runs use the `macos-ax-applescript` driver: structured macOS Accessibility/AppleScript probes (`osascript`/System Events, pasteboard/keyboard actions, `screencapture`, shell process probes, and optional `cliclick` fallback). Script artifacts are authoritative for timing, traces, memory samples, process snapshots, screenshots, and audio QC. Visual review of completed runs is fine via Claude Code's screenshotting tooling, but never drive a benchmark interactively from a heavy agent host (Claude Desktop, browser-based clients, MCP-rich IDE extensions). V2 benchmark guardrails allow more headroom than the rescue/build lanes: `normal` warns around 4 GB swap and refuses around 6 GB, while `stress` warns around 6 GB and refuses around 8 GB. Preflight and runtime sampling still stop before near-exhausted swap free space can trigger macOS's application-memory force-quit dialog.
+The lane drives `GenerationQualityAuditLiveTests`, which manages the cold/warm/exhaustive matrix internally and consumes:
 
-The `headless-xpc` benchmark surface uses the maintained live XCTest path. Because the app-embedded XPC service needs a containing app process, the test host is still `Vocello.app`, but live audio QC launches it in a headless benchmark-host mode (`QWENVOICE_AUDIO_QC_HEADLESS_APP_HOST=1`) so the full app UI is not put onscreen.
+- `QWENVOICE_QWEN3_GENERATION_SPEED_PROFILE` (`current` | `legacy123-memory` | `adaptive-failure-only` | `balanced-all-modes`)
+- `QWENVOICE_QWEN3_MEMORY_CLEAR_CADENCE` (`0` disables per-step MLX cache clears)
+- `QWENVOICE_QWEN3_POST_REQUEST_CACHE_POLICY` (`current` | `always` | `failure-only` | `never`)
+- `QWENVOICE_AUDIO_QC_OUTPUT_DIR`, `QWENVOICE_AUDIO_QC_MODES`, `QWENVOICE_AUDIO_QC_BENCHMARK_PROFILE`, `QWENVOICE_AUDIO_QC_REPEAT_COUNT`, `QWENVOICE_AUDIO_QC_COLD_RUNS`, `QWENVOICE_AUDIO_QC_WARM_RUNS`
 
-`latency` and `load` currently use portable command-backed measurements. `quality` and `tts_roundtrip` are preserved as explicit lanes but skip until native model/audio evaluation is wired without the retired Python backend path.
+The app launches as a headless `.accessory` host (`QWENVOICE_AUDIO_QC_HEADLESS_APP_HOST=1` is forced by the lane), keeping the embedded XPC service alive without rendering UI on screen. A `vm.swapusage` preflight refuses to start when swap-used ≥ `QWENVOICE_PERF_SWAP_HARD_STOP_MB` (default 8 GB) or swap-free ≤ `QWENVOICE_PERF_SWAP_MIN_FREE_MB` (default 512 MB).

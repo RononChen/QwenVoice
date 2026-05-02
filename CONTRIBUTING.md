@@ -28,42 +28,41 @@ Start with cheap checks:
 
 ```sh
 ./scripts/check_project_inputs.sh
-python3 scripts/harness.py validate
-python3 scripts/harness.py test --layer contract
+./scripts/qa.sh validate
+./scripts/qa.sh test --layer contract
 ```
 
 Then run the relevant source or build proof:
 
 ```sh
-python3 scripts/harness.py test --layer swift
-python3 scripts/harness.py test --layer native
-python3 scripts/harness.py test --layer ios
+./scripts/qa.sh test --layer swift
+./scripts/qa.sh test --layer native
+./scripts/qa.sh test --layer ios
 ./scripts/build_foundation_targets.sh macos
 ./scripts/build_foundation_targets.sh ios
 ```
 
-The iOS harness lane requires an available iPhone simulator and reports a structured skip when none is installed. The generic iOS foundation build remains the compile proof for machines without a simulator.
+The iOS QA lane requires an available iPhone simulator and reports a structured skip when none is installed. The generic iOS foundation build remains the compile proof for machines without a simulator.
 
 The macOS UI smoke lane is:
 
 ```sh
-python3 scripts/harness.py test --layer e2e
+./scripts/qa.sh test --layer e2e
 ```
 
 Hosted machines may soft-skip first-time macOS Accessibility/TCC setup. Release signoff on a controlled Mac should use:
 
 ```sh
-QWENVOICE_E2E_STRICT=1 python3 scripts/harness.py test --layer e2e
+QWENVOICE_E2E_STRICT=1 ./scripts/qa.sh test --layer e2e
 ```
 
-Benchmarks are opt-in release-investigation tools, not default contribution gates:
+Performance and audio-QC validation is opt-in and not a default contribution gate:
 
 ```sh
-python3 scripts/harness.py bench --category latency --runs 3
-python3 scripts/harness.py bench --category load --runs 3
+./scripts/qa.sh test --layer perf
 ```
 
-Harness outputs live under `build/harness/{derived-data,results,source-packages,artifacts}`. Inspect `.xcresult` bundles from `build/harness/results/` when a harness-backed Xcode lane fails.
+qa.sh outputs live under `build/harness/{derived-data,results,source-packages,artifacts}`. Inspect `.xcresult` bundles from `build/harness/results/` when a QA-backed Xcode lane fails.
 
 For current macOS release signoff, the maintained local loop is documented in `docs/reference/release-readiness.md`.
 

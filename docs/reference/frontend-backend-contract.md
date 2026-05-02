@@ -139,10 +139,10 @@ Frontend work should treat the backend as frozen only when these maintained proo
 
 ```sh
 ./scripts/check_project_inputs.sh
-python3 scripts/harness.py validate
-python3 scripts/harness.py test --layer contract
-python3 scripts/harness.py test --layer swift
-python3 scripts/harness.py test --layer native
+./scripts/qa.sh validate
+./scripts/qa.sh test --layer contract
+./scripts/qa.sh test --layer swift
+./scripts/qa.sh test --layer native
 ./scripts/build_foundation_targets.sh macos
 ./scripts/build_foundation_targets.sh ios
 ./scripts/release.sh
@@ -153,7 +153,7 @@ python3 scripts/harness.py test --layer native
 Maintained CI proof also includes:
 
 - `Apple Platform QA Gate`
-- `.xcresult` artifact upload for harness and platform build lanes
+- `.xcresult` artifact upload for qa.sh and platform build lanes
 - soft-skippable hosted UI smoke for known macOS automation environment failures
 - unsigned release verification in CI
 - signed macOS release proof in its dedicated CI workflow

@@ -39,10 +39,10 @@ This checkout is a native Apple-platform codebase for macOS and iPhone. Do not r
 - `docs/qwen_tone.md` — supplemental tone and prompt-writing guidance
 - `docs/reference/current-state.md` — current repo facts
 - `docs/reference/engineering-status.md` — current strengths and caveats
-- `docs/reference/backend-freeze-gate.md` — rebuilt QA gate for static validation, source/native/UI harness layers, builds, and unsigned release proof
+- `docs/reference/backend-freeze-gate.md` — rebuilt QA gate for static validation, source/native/UI QA layers, builds, and unsigned release proof
 - `docs/reference/frontend-backend-contract.md` — app-facing backend state, delivery state, and QA gate
 - `docs/reference/release-readiness.md` — macOS-first release-track policy, proof status, public-homepage freeze rules, tier→workflow mapping
-- `docs/reference/live-testing.md` — local harness lanes, strict e2e behavior, result paths, xcresult triage commands
+- `docs/reference/live-testing.md` — local QA lanes, strict e2e behavior, result paths, xcresult triage commands
 - `docs/reference/privacy-storage.md` — local model, output, history, saved-voice, App Group, and deletion-path reference
 - `docs/reference/vendoring-runtime.md` — runtime, vendoring, and packaging boundaries
 - `docs/reference/mlx-audio-swift-patching.md` — vendor delta under `third_party_patches/mlx-audio-swift/`, rebase procedure, and post-rebase build checklist
@@ -81,7 +81,7 @@ When repo facts disagree, trust sources in this order:
 
 When operating in this repo with Claude Code, prefer the following over generic equivalents:
 
-- Local validation and tests: `./scripts/qa.sh validate` and `./scripts/qa.sh test --layer {contract|swift|native|ios|e2e|all}` are the canonical entrypoints for CI, `release.sh`, and `rescue_gate.sh`. The Python `scripts/harness.py` remains callable during the QA migration; new work targets `qa.sh`.
+- Local validation and tests: `./scripts/qa.sh validate` and `./scripts/qa.sh test --layer {contract|swift|native|ios|e2e|all}` are the canonical entrypoints for CI, `release.sh`, and `rescue_gate.sh`.
 - Audio-QC and generation-speed-profile bench runs: `./scripts/qa.sh test --layer perf` is the opt-in performance lane. It drives `GenerationQualityAuditLiveTests`, requires installed models under `~/Library/Application Support/QwenVoice/models` (or `QWENVOICE_AUDIO_QC_MODELS_ROOT`), and reads `QWENVOICE_QWEN3_GENERATION_SPEED_PROFILE`, `QWENVOICE_QWEN3_MEMORY_CLEAR_CADENCE`, `QWENVOICE_QWEN3_POST_REQUEST_CACHE_POLICY`, and the `QWENVOICE_AUDIO_QC_*` matrix env vars. Not part of `--layer all`.
 - Apple platform docs (HIG, Swift, WWDC, Swift-DocC): use the `sosumi` MCP (`mcp__sosumi__searchAppleDocumentation`, `mcp__sosumi__fetchAppleDocumentation`, `mcp__sosumi__fetchAppleVideoTranscript`). Do not WebFetch developer.apple.com.
 - Interactive Xcode build, test, or simulator inspection: use `XcodeBuildMCP` tools (`build_run_sim`, `test_sim`, `screenshot`, `snapshot_ui`, `list_sims`, `boot_sim`, `show_build_settings`). For headless test runs called from CI or release, use `./scripts/qa.sh`.
@@ -164,7 +164,7 @@ Always start with the cheap gates:
 
 ```sh
 ./scripts/check_project_inputs.sh
-python3 scripts/harness.py validate
+./scripts/qa.sh validate
 ```
 
 Project regen (after editing `project.yml`):
@@ -184,22 +184,21 @@ xcodebuild -project QwenVoice.xcodeproj -scheme VocelloiOS \
 ./scripts/build_foundation_targets.sh ios
 ```
 
-Tests (the harness is the single entrypoint; pick the layer you need — there is no "single test" knob below the layer):
+Tests (qa.sh is the single entrypoint; pick the layer you need — there is no "single test" knob below the layer):
 
 ```sh
-python3 scripts/harness.py test --layer contract
-python3 scripts/harness.py test --layer swift
-python3 scripts/harness.py test --layer native
-python3 scripts/harness.py test --layer ios     # structurally skips when no iOS simulator is installed
-python3 scripts/harness.py test --layer e2e
-QWENVOICE_E2E_STRICT=1 python3 scripts/harness.py test --layer e2e   # release-signoff strict mode
-python3 scripts/harness.py diagnose
+./scripts/qa.sh test --layer contract
+./scripts/qa.sh test --layer swift
+./scripts/qa.sh test --layer native
+./scripts/qa.sh test --layer ios     # structurally skips when no iOS simulator is installed
+./scripts/qa.sh test --layer e2e
+QWENVOICE_E2E_STRICT=1 ./scripts/qa.sh test --layer e2e   # release-signoff strict mode
 ```
 
-Benchmarks are opt-in, never default gates:
+The opt-in performance/audio-QC lane (requires installed models, not part of `--layer all`):
 
 ```sh
-python3 scripts/harness.py bench --category latency|load|quality|tts_roundtrip --runs 3
+./scripts/qa.sh test --layer perf
 ```
 
 Local rescue and release:
@@ -215,25 +214,25 @@ Local rescue and release:
 iPhone TestFlight (deferred):
 
 ```sh
-python3 scripts/check_ios_catalog.py
+./scripts/check_ios_catalog.sh
 ./scripts/release_ios_testflight.sh
 ./scripts/verify_ios_release_archive.sh
 ```
 
 Notes:
 
-- `scripts/harness.py` is the primary local test, diagnostic, and benchmark entrypoint.
-- Maintained harness layers are `contract`, `swift`, `native`, `ios`, and `e2e`.
+- `scripts/qa.sh` is the primary local validation, test, and performance entrypoint.
+- Maintained QA layers are `contract`, `swift`, `native`, `ios`, and `e2e`. `perf` is opt-in and not part of `--layer all`.
 - `e2e` is the macOS XCUITest smoke layer. Hosted CI may soft-skip first-time macOS Accessibility/TCC or foreground-window activation failures; strict local release proof uses `QWENVOICE_E2E_STRICT=1`, where those issues fail instead of becoming skipped passes.
-- Benchmarks are opt-in release-investigation lanes, not default PR gates. Use `bench --category latency|load|quality|tts_roundtrip|all` explicitly.
-- Harness artifacts live under `build/harness/{derived-data,results,source-packages,artifacts}`; heavy lanes serialize on `build/harness/.lock`.
+- The `perf` layer drives `GenerationQualityAuditLiveTests` for live audio-QC validation. It needs installed models under `QWENVOICE_AUDIO_QC_MODELS_ROOT` and is gated by a `vm.swapusage` preflight (refuses below `QWENVOICE_PERF_SWAP_MIN_FREE_MB` or above `QWENVOICE_PERF_SWAP_HARD_STOP_MB`).
+- qa.sh artifacts live under `build/harness/{derived-data,results,source-packages,artifacts}`; heavy lanes serialize on `build/harness/.lock`.
 - `QwenVoice Foundation`, `VocelloiOS Foundation`, and `Vocello UI` are the maintained plan-backed test schemes. The committed plans live under `tests/Plans/`.
-- During the current `macOS-first release track`, the default required local release-readiness loop is `check_project_inputs`, `harness validate`, `contract`, `swift`, `native`, foundation builds for macOS and iOS, `release.sh`, `verify_release_bundle.sh`, and `verify_packaged_dmg.sh`. Add strict `e2e` on the controlled release machine before public signoff.
-- Generic iPhone compile proof comes from `./scripts/build_foundation_targets.sh ios` — the iOS harness layer requires an installed iPhone simulator.
+- During the current `macOS-first release track`, the default required local release-readiness loop is `check_project_inputs`, `qa.sh validate`, `contract`, `swift`, `native`, foundation builds for macOS and iOS, `release.sh`, `verify_release_bundle.sh`, and `verify_packaged_dmg.sh`. Add strict `e2e` on the controlled release machine before public signoff.
+- Generic iPhone compile proof comes from `./scripts/build_foundation_targets.sh ios` — the iOS QA layer requires an installed iPhone simulator.
 - For deterministic local compile proof, prefer `./scripts/build_foundation_targets.sh` over a shared-DerivedData signed debug build. The script uses isolated build roots and `.xcresult` bundles.
-- On this 8 GB development machine, keep validation deliberately low-RAM and serialized: run the cheapest relevant gate first, and never overlap heavy `xcodebuild`, `scripts/harness.py`, release packaging, live app validation, or native smoke processes.
-- If a harness layer fails, inspect the emitted `.xcresult` bundle under `build/harness/results/<layer>/` before changing code: `xcrun xcresulttool get build-results --path <path>` for builds, `xcrun xcresulttool get test-results summary --path <path>` for tests.
-- SourceKit diagnostics like `No such module 'MLX'` or `Cannot find type X in scope` after an edit are index staleness, not real errors. Trust only `xcodebuild`, `scripts/harness.py`, and `./scripts/build_foundation_targets.sh`.
+- On this 8 GB development machine, keep validation deliberately low-RAM and serialized: run the cheapest relevant gate first, and never overlap heavy `xcodebuild`, `scripts/qa.sh`, release packaging, live app validation, or native smoke processes.
+- If a QA layer fails, inspect the emitted `.xcresult` bundle under `build/harness/results/<layer>/` before changing code: `xcrun xcresulttool get build-results --path <path>` for builds, `xcrun xcresulttool get test-results summary --path <path>` for tests.
+- SourceKit diagnostics like `No such module 'MLX'` or `Cannot find type X in scope` after an edit are index staleness, not real errors. Trust only `xcodebuild`, `scripts/qa.sh`, and `./scripts/build_foundation_targets.sh`.
 
 ## Swift Concurrency Gotchas
 
@@ -258,7 +257,7 @@ Release facts:
 - `scripts/release.sh` is the maintained local macOS packaging entrypoint.
 - `scripts/release_ios_testflight.sh` is the maintained iPhone archive/export entrypoint; `scripts/verify_ios_release_archive.sh` is the structural verifier.
 - Both release scripts use explicit derived-data and cloned-package roots under `build/foundation/` so resolve, build, archive, and export are separate phases.
-- `Apple Platform QA Gate` is the shared-core regression gate for the current `macOS-first release track`: harness/build `.xcresult` upload, generic iPhone compile proof, soft-skippable hosted UI smoke, and unsigned macOS release verification.
+- `Apple Platform QA Gate` is the shared-core regression gate for the current `macOS-first release track`: qa.sh and build `.xcresult` upload, generic iPhone compile proof, soft-skippable hosted UI smoke, and unsigned macOS release verification.
 - `Vocello macOS Release` is the only signed/public release workflow required for the current milestone.
 - `Vocello iOS TestFlight` remains maintained but is deferred from current public release signoff.
 - Shipped macOS bundles and notarized DMGs must not contain `Contents/Resources/backend`, `Contents/Resources/python`, or bundled `Contents/Resources/ffmpeg`.
@@ -282,22 +281,22 @@ Release facts:
 - macOS release packaging or notarization behavior:
   keep `scripts/release.sh`, `scripts/create_dmg.sh`, `scripts/verify_release_bundle.sh`, `scripts/verify_packaged_dmg.sh`, `.github/workflows/macos-release.yml`, and release-facing docs aligned.
 - iPhone archive/export/TestFlight behavior:
-  keep `scripts/check_ios_catalog.py`, `scripts/release_ios_testflight.sh`, `scripts/verify_ios_release_archive.sh`, `.github/workflows/ios-testflight.yml`, and iPhone distribution docs aligned.
+  keep `scripts/check_ios_catalog.sh`, `scripts/release_ios_testflight.sh`, `scripts/verify_ios_release_archive.sh`, `.github/workflows/ios-testflight.yml`, and iPhone distribution docs aligned.
 - Broad repo facts that users or contributors rely on:
   update `CLAUDE.md`, `README.md`, `docs/README.md`, `docs/reference/current-state.md`, `docs/reference/engineering-status.md`, `docs/reference/backend-freeze-gate.md`, `docs/reference/frontend-backend-contract.md`, and `docs/reference/release-readiness.md`.
 
 ## Operational Safety
 
 - Avoid running multiple `QwenVoice` or `Vocello` app instances at once while debugging model loads, clone prep, playback, XPC behavior, or engine-extension behavior. Kill an old instance before launching a new build.
-- Never overlap heavy `xcodebuild`, `scripts/harness.py`, release packaging, live app validation, or native smoke processes on this machine.
+- Never overlap heavy `xcodebuild`, `scripts/qa.sh`, release packaging, live app validation, or native smoke processes on this machine.
 - Never run more than one heavy model load, generation, or benchmark at a time.
-- For V2 benchmarks, use `scripts/run_generation_benchmark.py --memory-policy normal|stress` instead of a raw swap cutoff. `normal` warns early; `stress` may push swap further, but abort decisions must be based on real pressure symptoms such as sustained unhealthy memory pressure, UI unresponsiveness, duplicate helpers, or runaway swap delta.
+- For perf-lane runs, qa.sh's `vm.swapusage` preflight refuses to start when swap-used ≥ 8 GB or swap-free ≤ 512 MB (override via `QWENVOICE_PERF_SWAP_HARD_STOP_MB` / `QWENVOICE_PERF_SWAP_MIN_FREE_MB`). Close memory-heavy apps before kicking a perf run on this 8 GB development machine.
 
 ## Before Finishing
 
 - Prefer manifest-backed data over duplicated constants.
 - Keep accessibility identifiers stable when UI control types change.
-- Re-run `./scripts/check_project_inputs.sh` and `python3 scripts/harness.py validate` plus the most relevant harness layer before declaring work complete.
+- Re-run `./scripts/check_project_inputs.sh` and `./scripts/qa.sh validate` plus the most relevant QA layer before declaring work complete.
 - If you changed engine architecture or runtime ownership, verify `CLAUDE.md` and `docs/reference/current-state.md` still describe the same app/service/runtime split.
 - If you changed release behavior, verify the scripts, workflows, artifact names, `docs/reference/release-readiness.md`, and README/docs all still agree.
 - If you changed any public-facing product copy, make sure the README and GitHub repo description still honor the active public homepage posture and current release-track policy.

@@ -85,7 +85,7 @@ The current `macOS-first release track` uses three proof tiers:
 1. QA and build proof
    - `Project Inputs`
    - `Apple Platform QA Gate`
-   - local `check_project_inputs`, `harness validate`, `contract`, `swift`, `native`, `build_foundation_targets.sh macos`, and `build_foundation_targets.sh ios`
+   - local `check_project_inputs`, `qa.sh validate`, `contract`, `swift`, `native`, `build_foundation_targets.sh macos`, and `build_foundation_targets.sh ios`
 2. macOS ship gate
    - local unsigned macOS packaging and verification
    - `Vocello macOS Release` for the signed/notarized public artifact
@@ -102,8 +102,8 @@ workflow is renamed, split, or retired so prose and YAML do not drift.
 
 | Tier | Workflow file | Workflow display name | Primary validation step |
 |---|---|---|---|
-| 1. QA and build proof | `.github/workflows/project-inputs.yml` | `Project Inputs` | `python3 scripts/harness.py validate` |
-| 1. QA and build proof | `.github/workflows/apple-platform-validation.yml` | `Apple Platform QA Gate` | harness validate/contract/source/native/UI smoke + generic macOS and iPhone builds + unsigned release verification |
+| 1. QA and build proof | `.github/workflows/project-inputs.yml` | `Project Inputs` | `./scripts/qa.sh validate` |
+| 1. QA and build proof | `.github/workflows/apple-platform-validation.yml` | `Apple Platform QA Gate` | qa.sh validate/contract/source/native/UI smoke + generic macOS and iPhone builds + unsigned release verification |
 | 2. macOS ship gate (local) | — | — | `./scripts/release.sh` + `./scripts/verify_release_bundle.sh` + `./scripts/verify_packaged_dmg.sh` |
 | 2. macOS ship gate (CI) | `.github/workflows/macos-release.yml` | `Vocello macOS Release` | signed + notarized `Vocello-macos26.dmg` build + `stapler validate` + post-notarization verify |
 | 3. Deferred iPhone release | `.github/workflows/ios-testflight.yml` | `Vocello iOS TestFlight` | `scripts/release_ios_testflight.sh` + `scripts/verify_ios_release_archive.sh` |
@@ -126,10 +126,10 @@ The default local release-readiness loop for the current milestone is:
 
 ```sh
 ./scripts/check_project_inputs.sh
-python3 scripts/harness.py validate
-python3 scripts/harness.py test --layer contract
-python3 scripts/harness.py test --layer swift
-python3 scripts/harness.py test --layer native
+./scripts/qa.sh validate
+./scripts/qa.sh test --layer contract
+./scripts/qa.sh test --layer swift
+./scripts/qa.sh test --layer native
 ./scripts/build_foundation_targets.sh macos
 ./scripts/build_foundation_targets.sh ios
 ./scripts/release.sh
@@ -140,12 +140,12 @@ python3 scripts/harness.py test --layer native
 Controlled-machine UI signoff:
 
 ```sh
-QWENVOICE_E2E_STRICT=1 python3 scripts/harness.py test --layer e2e
+QWENVOICE_E2E_STRICT=1 ./scripts/qa.sh test --layer e2e
 ```
 
 ## CI Proof Surface
 
-- `Apple Platform QA Gate` is the maintained gate for project inputs, harness validation, contract/source/native/UI smoke layers, generic macOS/iPhone builds, unsigned macOS release verification, and uploaded `.xcresult` artifacts.
+- `Apple Platform QA Gate` is the maintained gate for project inputs, qa.sh validation, contract/source/native/UI smoke layers, generic macOS/iPhone builds, unsigned macOS release verification, and uploaded `.xcresult` artifacts.
 - `Vocello macOS Release` is the only CI-owned signed/public release proof path required for the current milestone.
 - `Vocello iOS TestFlight` remains maintained as the deferred iPhone archive/export/upload-prep proof path and is not required for current macOS release signoff.
 - Local release scripts remain deterministic unsigned/source-validation tools; they are not the repo’s signing or notarization source of truth.

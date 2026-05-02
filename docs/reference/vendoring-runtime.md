@@ -56,7 +56,7 @@ Maintained local packaging entrypoints:
 - `scripts/create_dmg.sh`
 - `scripts/verify_release_bundle.sh`
 - `scripts/verify_packaged_dmg.sh`
-- `scripts/check_ios_catalog.py`
+- `scripts/check_ios_catalog.sh`
 - `scripts/release_ios_testflight.sh`
 
 Maintained CI/release workflow surfaces:
@@ -74,7 +74,7 @@ Maintained CI/release workflow surfaces:
 - `./scripts/build_foundation_targets.sh ios`
 - `xcodebuild -project QwenVoice.xcodeproj -scheme QwenVoice build`
 - `xcodebuild -project QwenVoice.xcodeproj -scheme VocelloiOS -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES build`
-- `python3 scripts/check_ios_catalog.py`
+- `./scripts/check_ios_catalog.sh`
 - `./scripts/release.sh`
 - `./scripts/release_ios_testflight.sh`
 

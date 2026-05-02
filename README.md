@@ -124,21 +124,20 @@ Useful local checks:
 
 ```sh
 ./scripts/check_project_inputs.sh
-python3 scripts/harness.py validate
-python3 scripts/harness.py test --layer contract
-python3 scripts/harness.py test --layer swift
-python3 scripts/harness.py test --layer native
+./scripts/qa.sh validate
+./scripts/qa.sh test --layer contract
+./scripts/qa.sh test --layer swift
+./scripts/qa.sh test --layer native
 ./scripts/build_foundation_targets.sh macos
 ./scripts/build_foundation_targets.sh ios
 ```
 
-The harness stores isolated build products and `.xcresult` bundles under `build/harness/`. The macOS UI smoke lane is available with `python3 scripts/harness.py test --layer e2e`; for release signoff on a controlled Mac, run it strictly with `QWENVOICE_E2E_STRICT=1`.
+qa.sh stores isolated build products and `.xcresult` bundles under `build/harness/`. The macOS UI smoke lane is available with `./scripts/qa.sh test --layer e2e`; for release signoff on a controlled Mac, run it strictly with `QWENVOICE_E2E_STRICT=1`.
 
-Benchmarks are opt-in:
+Performance and audio-QC validation runs through the opt-in `perf` lane (requires installed models, not part of `--layer all`):
 
 ```sh
-python3 scripts/harness.py bench --category latency --runs 3
-python3 scripts/harness.py bench --category load --runs 3
+./scripts/qa.sh test --layer perf
 ```
 
 ## Local Release Packaging

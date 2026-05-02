@@ -11,7 +11,7 @@ As of `main` commit `63a5e02` (`Guard macOS UI observation boundaries`), the rep
 - local `main` and `origin/main` are aligned at the same commit
 - GitHub `Project Inputs` passed for `63a5e02` in run `24973916220`
 - GitHub `Apple Platform QA Gate` passed for `63a5e02` in run `24973916195`, including contract, Swift, native runtime, hosted UI smoke, macOS build, iPhone build, and unsigned macOS release-artifact verification
-- local pre-push proof for `63a5e02` passed `./scripts/check_project_inputs.sh`, `python3 scripts/harness.py validate`, `git diff --check`, `python3 scripts/harness.py test --layer swift`, and `./scripts/build_foundation_targets.sh macos`
+- local pre-push proof for `63a5e02` passed `./scripts/check_project_inputs.sh`, `./scripts/qa.sh validate`, `git diff --check`, `./scripts/qa.sh test --layer swift`, and `./scripts/build_foundation_targets.sh macos`
 - prior local full release proof passed from `c6beacd` with `./scripts/release.sh`, `./scripts/verify_release_bundle.sh build/Vocello.app`, and `./scripts/verify_packaged_dmg.sh build/Vocello-macos26.dmg build/release-metadata.txt`; the hosted QA gate re-proved the unsigned release-artifact lane for `63a5e02`
 - controlled local macOS acceptance on April 26, 2026 launched `build/Vocello.app`, switched Custom Voice / Voice Design / Voice Cloning, typed a Custom Voice script, generated a 2-second preview, played it through the sidebar player, and persisted the output under `~/Library/Application Support/QwenVoice/outputs/CustomVoice/`
 
@@ -30,10 +30,10 @@ The next recovery work should keep this baseline stable: native SwiftUI only, no
 - Explicit low-RAM policy surfaces for the iPhone path, including guarded and critical memory bands
 - The shared frontend-safe engine state surface now exists as `TTSEngineFrontendState`, with matching macOS and iPhone store adapters
 - Restored repo workflows for project inputs, the Apple-platform QA gate, macOS release packaging/notarization, and iPhone TestFlight packaging
-- Rebuilt `scripts/harness.py` as the repo-owned QA orchestrator for validation, contract/source/native/iOS/UI test layers, diagnostics, and opt-in benchmarks
+- Rebuilt `scripts/qa.sh` as the repo-owned QA orchestrator for validation, contract/source/native/iOS/UI test layers, diagnostics, and opt-in benchmarks
 - Maintained release scripts for signed/notarized macOS DMGs and iPhone archive/export flows
 - Deterministic local foundation paths now separate package resolution, build, archive, and export work into explicit roots with `.xcresult` evidence
-- `Apple Platform QA Gate` now treats `.xcresult` bundles as first-class artifacts for maintained harness, build, and archive/release lanes instead of depending on raw `xcodebuild` log tails alone
+- `Apple Platform QA Gate` now treats `.xcresult` bundles as first-class artifacts for maintained build and archive/release lanes instead of depending on raw `xcodebuild` log tails alone
 - An explicit public-homepage posture that keeps GitHub landing-page messaging aligned with the currently shipped `QwenVoice v1.2.3` build, with `Vocello` framed as the forward rebrand that lands with the next macOS release
 
 ## Current Caveats
@@ -49,7 +49,7 @@ The next recovery work should keep this baseline stable: native SwiftUI only, no
 - The legacy `QwenVoiceNativeRuntime` module is still present for compatibility coverage, so the codebase has not finished its cleanup pass even though the active macOS helper path now runs through `QwenVoiceCore`.
 - A plain signed `xcodebuild -scheme QwenVoice build` on shared local DerivedData can still be polluted by stale build output; the maintained deterministic compile-proof path is the isolated `./scripts/build_foundation_targets.sh` flow.
 - Hosted UI smoke can still soft-skip macOS Accessibility/TCC or foreground-window issues; controlled release signoff must use `QWENVOICE_E2E_STRICT=1`.
-- Manual local app launches and Computer Use remain useful after the harness/build gates, especially for visual polish, real model-load checks, and visible UI benchmark validation. UI benchmark scripts still capture deterministic macOS Accessibility/AppleScript probes, timing, traces, process/memory snapshots, screenshots, and audio-QC artifacts.
+- Manual local app launches and Computer Use remain useful after the qa.sh and build gates, especially for visual polish, real model-load checks, and visible UI benchmark validation. UI benchmark scripts still capture deterministic macOS Accessibility/AppleScript probes, timing, traces, process/memory snapshots, screenshots, and audio-QC artifacts.
 - The public README is intentionally conservative during the refactor period, so public GitHub messaging is narrower than the internal repo architecture docs by design.
 - Preview, debug, and manual-verification helper surfaces still need a keep/refactor/delete pass so the cleanup tracker can close with explicit ownership.
 

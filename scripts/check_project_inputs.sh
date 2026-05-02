@@ -55,6 +55,15 @@ PROHIBITED_REFERENCE_PATTERNS=(
     "QwenVoice-macos15.dmg"
     "build/QwenVoice.app"
     ".claude/worktrees"
+    "scripts/harness\.py"
+    "scripts/harness_lib"
+    "scripts/run_generation_benchmark\.py"
+    "scripts/run_ui_generation_benchmark\.py"
+    "scripts/run_generation_quality_audit\.py"
+    "scripts/run_custom_voice_ui_perf_audit\.py"
+    "scripts/audit_generated_audio\.py"
+    "scripts/check_qwen3_backend_only\.py"
+    "scripts/refresh_readme_screenshots\.py"
 )
 
 for removed_pattern in "${PROHIBITED_REFERENCE_PATTERNS[@]}"; do

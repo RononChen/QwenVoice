@@ -4,7 +4,7 @@ This document defines the source, integration, build, and unsigned-release gate 
 
 ## Purpose
 
-The gate keeps the native Apple-platform codebase aligned with the current `macOS-first release track` using project-input validation, repo-owned harness layers, deterministic builds, and release-verification checks.
+The gate keeps the native Apple-platform codebase aligned with the current `macOS-first release track` using project-input validation, repo-owned QA layers, deterministic builds, and release-verification checks.
 
 It protects against:
 
@@ -63,20 +63,20 @@ The gate is green only when the maintained checks below are green for the curren
 
 ```sh
 ./scripts/check_project_inputs.sh
-python3 scripts/harness.py validate
-python3 scripts/harness.py test --layer contract
-python3 scripts/harness.py test --layer swift
-python3 scripts/harness.py test --layer native
+./scripts/qa.sh validate
+./scripts/qa.sh test --layer contract
+./scripts/qa.sh test --layer swift
+./scripts/qa.sh test --layer native
 ./scripts/build_foundation_targets.sh macos
 ./scripts/build_foundation_targets.sh ios
 ```
 
-The `ios` harness layer remains available but requires an installed iPhone simulator. A structured simulator-missing skip does not replace the generic iPhone compile proof from `build_foundation_targets.sh ios`.
+The `ios` QA layer remains available but requires an installed iPhone simulator. A structured simulator-missing skip does not replace the generic iPhone compile proof from `build_foundation_targets.sh ios`.
 
 Strict release-machine UI proof:
 
 ```sh
-QWENVOICE_E2E_STRICT=1 python3 scripts/harness.py test --layer e2e
+QWENVOICE_E2E_STRICT=1 ./scripts/qa.sh test --layer e2e
 ```
 
 ### Local Unsigned Release Proof
@@ -95,7 +95,7 @@ QWENVOICE_E2E_STRICT=1 python3 scripts/harness.py test --layer e2e
 
 The maintained CI evidence includes:
 
-- uploaded `.xcresult` bundles for harness layers, platform builds, and release packaging
+- uploaded `.xcresult` bundles for QA layers, platform builds, and release packaging
 - hosted macOS UI smoke that may soft-skip only known TCC/window-activation environment failures
 - unsigned macOS release verification artifacts
 - dedicated signed macOS notarization proof
@@ -114,8 +114,8 @@ Treat frontend work as unblocked only when these statements are true:
 - macOS and iPhone publish the same lifecycle vocabulary: `idle`, `launching`, `connected`, `interrupted`, `recovering`, `invalidated`, `failed`.
 - app-facing engine state is consumed through `TTSEngineFrontendState`, not transport-specific state.
 - app-facing delivery state is consumed through `IOSModelDeliverySnapshot`, not URLSession or staging internals.
-- capability, bundle identity, entitlement, and packaged-resource drift are caught by `scripts/check_project_inputs.sh` and `python3 scripts/harness.py validate`.
-- contract, macOS source, and native-runtime harness layers pass.
+- capability, bundle identity, entitlement, and packaged-resource drift are caught by `scripts/check_project_inputs.sh` and `./scripts/qa.sh validate`.
+- contract, macOS source, and native-runtime QA layers pass.
 - macOS and iPhone compile through the maintained foundation build script.
 - the maintained local and CI proof lanes above are green for the current change.
 
