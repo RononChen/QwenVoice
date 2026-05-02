@@ -735,13 +735,26 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
         case clone(reference: CloneReference)
     }
 
+    /// Per-request overrides used by live audio-QC and benchmark suites.
+    /// Every field is consumed by the engine: see
+    /// `UnsafeSpeechGenerationModel.swift` (Qwen3 parameter policy +
+    /// custom-voice prewarm) and `NativeStreamingSynthesisSession.swift`
+    /// (`NativeBenchmarkPostRequestCachePolicy`). Adding a field here is a
+    /// load-bearing change — wire it through both sites.
     public struct BenchmarkOptions: Hashable, Codable, Sendable {
         public let customVoiceProfile: String?
         public let streamStepEvalPolicy: String?
         public let generationSpeedProfile: String?
         public let memoryClearCadence: Int?
         public let postRequestCachePolicy: String?
+        /// Sampling temperature override; replaces the Custom Voice product
+        /// default (0.7) before `Qwen3BenchmarkGenerationParameterOverrides`
+        /// applies any `QWENVOICE_QWEN3_BENCHMARK_TEMPERATURE` env override.
         public let temperature: Double?
+        /// Sampling top-p override; replaces the Custom Voice product
+        /// default (0.9) before
+        /// `Qwen3BenchmarkGenerationParameterOverrides` applies any
+        /// `QWENVOICE_QWEN3_BENCHMARK_TOP_P` env override.
         public let topP: Double?
 
         public init(
