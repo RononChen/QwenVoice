@@ -305,6 +305,9 @@ run_perf_layer() {
   if [[ ! -d "$QWENVOICE_AUDIO_QC_MODELS_ROOT" ]]; then
     echo "qa.sh perf: models root '$QWENVOICE_AUDIO_QC_MODELS_ROOT' does not exist." >&2
     echo "Install required models or override QWENVOICE_AUDIO_QC_MODELS_ROOT before re-running." >&2
+    echo "First-time bootstrap (Qwen3-TTS pro_custom):" >&2
+    echo "  python3 -m pip install --user -r scripts/requirements-perf-bootstrap.txt" >&2
+    echo "  python3 -c \"from huggingface_hub import snapshot_download; snapshot_download('mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit', local_dir='$QWENVOICE_AUDIO_QC_MODELS_ROOT/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit')\"" >&2
     exit 78
   fi
 

@@ -1,0 +1,8 @@
+# Python deps used to bootstrap perf-lane fixtures (Qwen3-TTS model download).
+# NOT a runtime dependency of `qa.sh test --layer perf` — only needed to
+# populate $QWENVOICE_AUDIO_QC_MODELS_ROOT (default
+# ~/Library/Application Support/QwenVoice/models) before the first run.
+#
+# Install with:
+#   python3 -m pip install --user -r scripts/requirements-perf-bootstrap.txt
+huggingface_hub>=1.13.0,<2.0.0
