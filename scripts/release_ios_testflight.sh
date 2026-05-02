@@ -171,7 +171,7 @@ if $SKIP_CATALOG_CHECK; then
     echo "[2/8] Hosted catalog check — skipped"
 else
     echo "[2/8] Validating hosted iPhone catalog..."
-    python3 "$SCRIPT_DIR/check_ios_catalog.py" --url "$CATALOG_URL"
+    "$SCRIPT_DIR/check_ios_catalog.sh" --url "$CATALOG_URL"
     echo "[2/8] Hosted catalog check — done ($(step_time "$STEP_START"))"
 fi
 echo ""
