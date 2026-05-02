@@ -10,11 +10,13 @@ struct AppLaunchConfiguration {
     let initialScreenID: String?
     let debugCaptureEnabled: Bool
     let uiTestWindowSize: CGSize?
+    let isAudioQualityHeadlessHost: Bool
 
     static let current = AppLaunchConfiguration(
         arguments: ProcessInfo.processInfo.arguments,
         environment: ProcessInfo.processInfo.environment
     )
+    static let audioQualityHeadlessHostEnvironmentKey = "QWENVOICE_AUDIO_QC_HEADLESS_APP_HOST"
     @MainActor private static var openedInitialSettingsWindow = false
 
     init(arguments: [String], environment: [String: String]) {
@@ -35,6 +37,7 @@ struct AppLaunchConfiguration {
         initialScreenID = arguments.first(where: { $0.hasPrefix("--uitest-screen=") })?
             .replacingOccurrences(of: "--uitest-screen=", with: "")
         uiTestWindowSize = Self.parseWindowSize(environment["QWENVOICE_UI_TEST_WINDOW_SIZE"])
+        isAudioQualityHeadlessHost = Self.isTruthy(environment[Self.audioQualityHeadlessHostEnvironmentKey])
     }
 
     var initialSidebarItem: SidebarItem? {
@@ -86,6 +89,27 @@ struct AppLaunchConfiguration {
     }
 
 #if QW_TEST_SUPPORT
+    @MainActor static func configureAudioQualityHeadlessHostIfNeeded() {
+        guard current.isAudioQualityHeadlessHost else { return }
+        NSApplication.shared.setActivationPolicy(.accessory)
+    }
+
+    static func shouldUseStubBackend(
+        isStubBackendMode: Bool,
+        isAudioQualityHeadlessHost: Bool
+    ) -> Bool {
+        isStubBackendMode || isAudioQualityHeadlessHost
+    }
+
+    @MainActor static func hideAudioQualityHeadlessHostWindowsIfNeeded() {
+        guard current.isAudioQualityHeadlessHost else { return }
+        configureAudioQualityHeadlessHostIfNeeded()
+        for window in NSApplication.shared.windows {
+            window.orderOut(nil)
+        }
+        NSApplication.shared.hide(nil)
+    }
+
     private static func parseWindowSize(_ rawValue: String?) -> CGSize? {
         guard let rawValue else { return nil }
 
@@ -102,6 +126,16 @@ struct AppLaunchConfiguration {
         }
 
         return CGSize(width: width, height: height)
+    }
+
+    private static func isTruthy(_ value: String?) -> Bool {
+        guard let value else { return false }
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on":
+            return true
+        default:
+            return false
+        }
     }
 #endif
 }

@@ -20,9 +20,11 @@ struct QwenVoiceApp: App {
         let appEngineSelection = AppEngineSelection.current()
         self.appEngineSelection = appEngineSelection
 #if QW_TEST_SUPPORT
-        let engine = appEngineSelection.makeEngine(
-            isStubBackendMode: UITestAutomationSupport.isStubBackendMode
+        let useStubBackend = AppLaunchConfiguration.shouldUseStubBackend(
+            isStubBackendMode: UITestAutomationSupport.isStubBackendMode,
+            isAudioQualityHeadlessHost: AppLaunchConfiguration.current.isAudioQualityHeadlessHost
         )
+        let engine = appEngineSelection.makeEngine(isStubBackendMode: useStubBackend)
 #else
         let engine = appEngineSelection.makeEngine()
 #endif
@@ -41,45 +43,26 @@ struct QwenVoiceApp: App {
 
     var body: some Scene {
         WindowGroup {
-            Group {
-                if let launchDiagnostics = appStartupCoordinator.launchDiagnostics {
-                    StartupDiagnosticsView(
-                        snapshot: launchDiagnostics,
-                        onRetry: retryLaunchPreflight
-                    )
-                    .frame(minWidth: 520, minHeight: 420)
-                } else {
-                    ContentView()
-                        .environmentObject(ttsEngineStore)
-                        .environmentObject(audioPlayer)
-                        .environmentObject(audioPlayer.playbackProgress)
-                        .environmentObject(modelManager)
-                        .environmentObject(savedVoicesViewModel)
-                        .environmentObject(appCommandRouter)
-                        .environmentObject(generationLibraryEvents)
-                        .frame(minWidth: 720, minHeight: 560)
-                }
-            }
 #if QW_TEST_SUPPORT
-            .defaultAppStorage(UITestAutomationSupport.appStorage)
-            .background(
-                UITestWindowSizeConfigurator(
-                    contentSize: AppLaunchConfiguration.current.uiTestWindowSize
-                )
-            )
-#endif
-            .onAppear {
-                appStartupCoordinator.setupAppSupport()
-                startSelectedTTSEngineIfNeeded()
-                appStartupCoordinator.refreshLaunchDiagnostics()
-                AppLaunchConfiguration.openSettingsWindowIfNeeded()
+            if AppLaunchConfiguration.current.isAudioQualityHeadlessHost {
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .accessibilityHidden(true)
+                    .onAppear {
+                        AppLaunchConfiguration.hideAudioQualityHeadlessHostWindowsIfNeeded()
+                    }
+            } else {
+                mainWindowContent
             }
+#else
+            mainWindowContent
+#endif
         }
         .defaultSize(width: 720, height: 560)
         Settings {
             PreferencesView()
 #if QW_TEST_SUPPORT
-                .defaultAppStorage(UITestAutomationSupport.appStorage)
+            .defaultAppStorage(UITestAutomationSupport.appStorage)
 #endif
         }
         .commands {
@@ -151,6 +134,45 @@ struct QwenVoiceApp: App {
         }
     }
 
+    @ViewBuilder
+    private var mainWindowContent: some View {
+        Group {
+            if let launchDiagnostics = appStartupCoordinator.launchDiagnostics {
+                StartupDiagnosticsView(
+                    snapshot: launchDiagnostics,
+                    onRetry: retryLaunchPreflight
+                )
+                .frame(minWidth: 520, minHeight: 420)
+            } else {
+                ContentView()
+                    .environmentObject(ttsEngineStore)
+                    .environmentObject(audioPlayer)
+                    .environmentObject(audioPlayer.playbackProgress)
+                    .environmentObject(modelManager)
+                    .environmentObject(savedVoicesViewModel)
+                    .environmentObject(appCommandRouter)
+                    .environmentObject(generationLibraryEvents)
+                    .frame(minWidth: 720, minHeight: 560)
+            }
+        }
+#if QW_TEST_SUPPORT
+        .defaultAppStorage(UITestAutomationSupport.appStorage)
+        .background(
+            UITestWindowSizeConfigurator(
+                contentSize: AppLaunchConfiguration.current.uiTestWindowSize
+            )
+        )
+#endif
+        .onAppear {
+            appStartupCoordinator.setupAppSupport()
+            startSelectedTTSEngineIfNeeded()
+            appStartupCoordinator.refreshLaunchDiagnostics()
+            AppLaunchConfiguration.openSettingsWindowIfNeeded()
+        }
+    }
+
+    static var voicesDir: URL { AppPaths.voicesDir }
+
     static var appSupportDir: URL {
         AppPaths.appSupportDir
     }
@@ -161,6 +183,7 @@ struct QwenVoiceApp: App {
     private func startSelectedTTSEngineIfNeeded() {
 #if QW_TEST_SUPPORT
         guard !UITestAutomationSupport.shouldSuppressAppEngineAutoStart else { return }
+        guard !AppLaunchConfiguration.current.isAudioQualityHeadlessHost else { return }
         guard appEngineSelection.requiresManualInitialization(
             isStubBackendMode: UITestAutomationSupport.isStubBackendMode
         ) else { return }
@@ -178,7 +201,6 @@ struct QwenVoiceApp: App {
             }
         }
     }
-    static var voicesDir: URL { AppPaths.voicesDir }
 
     private func retryLaunchPreflight() {
         appStartupCoordinator.refreshLaunchDiagnostics()
