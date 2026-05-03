@@ -381,6 +381,187 @@ final class MLXTTSEngineMockBackedTests: XCTestCase {
         XCTAssertNil(engine.visibleErrorMessage)
     }
 
+    /// Ported (in shape) from
+    /// `NativeMLXMacEngineTests.testNativeMLXMacEngineGenerateBatchSupports
+    /// HomogeneousCustomRequests`. The earlier `testEngineGenerateBatch
+    /// RoutesEachRequestThroughStreamingSession` covers `.design` mode
+    /// only — `.custom` mode flows through a different prepare path
+    /// inside `NativeEngineRuntime.prepareGeneration` (custom prewarm
+    /// policy + `ensureWarmStateIfNeeded`), so a separate batch port is
+    /// needed for true coverage of the custom-batch orchestration.
+    ///
+    /// Asserts every batched request reaches the streaming session
+    /// factory once. Drops the legacy `usedStreaming == false` assertion
+    /// and the audio-file-existence checks for the same reason as the
+    /// design-batch port (mock streaming session bypasses real audio
+    /// writing; orchestration is what's being verified).
+    func testEngineGenerateBatchRoutesCustomModeRequestsThroughStreamingSession() async throws {
+        let registry = try ContractBackedModelRegistry(
+            manifestURL: try Self.bundledManifestURL()
+        )
+        let coordinator = MockMLXModelCoordinator(loadHandler: { _, capabilityProfile in
+            return await NativeModelLoadResult.makeForTesting(
+                model: UnsafeSpeechGenerationModel.makeFullySupportingForTesting(),
+                capabilityProfile: capabilityProfile
+            )
+        })
+
+        let mockSession = MockNativeStreamingSession(
+            events: [],
+            result: GenerationResult(
+                audioPath: temporaryRoot.appendingPathComponent("mock-custom-batch.wav").path,
+                durationSeconds: 0.05,
+                streamSessionDirectory: nil,
+                benchmarkSample: nil
+            )
+        )
+        let engine = MLXTTSEngine.makeForTesting(
+            modelRegistry: registry,
+            rootDirectory: temporaryRoot,
+            loadCoordinator: coordinator,
+            streamingSessionFactory: { _, _, _, _, _, _, _, _, _, _, _, _, _, _ in
+                mockSession
+            }
+        )
+        try await engine.initialize(appSupportDirectory: temporaryRoot)
+
+        // True homogeneous custom batch: same speaker + same delivery style.
+        // Core's `MLXTTSEngine.generateBatch` rejects mixed sessions (model
+        // + mode + language + speaker/design + clone reference), and that
+        // rejection path is already covered by
+        // `testEngineGenerateBatchRejectsMixedModesBeforeLoading`.
+        let first = GenerationRequest(
+            modelID: "qwen3_custom_voice",
+            text: "First custom item",
+            outputPath: temporaryRoot.appendingPathComponent("custom-first.wav").path,
+            shouldStream: false,
+            payload: .custom(speakerID: "vivian", deliveryStyle: "Conversational")
+        )
+        let second = GenerationRequest(
+            modelID: "qwen3_custom_voice",
+            text: "Second custom item",
+            outputPath: temporaryRoot.appendingPathComponent("custom-second.wav").path,
+            shouldStream: false,
+            payload: .custom(speakerID: "vivian", deliveryStyle: "Conversational")
+        )
+
+        let results = try await engine.generateBatch([first, second]) { _, _ in }
+
+        XCTAssertEqual(results.count, 2)
+        XCTAssertEqual(mockSession.runCallCount, 2)
+        XCTAssertEqual(engine.loadState, .loaded(modelID: "qwen3_custom_voice"))
+        XCTAssertNil(engine.visibleErrorMessage)
+    }
+
+    /// Ported (in shape) from
+    /// `NativeMLXMacEngineTests.testNativeMLXMacEngineBatchCancellation
+    /// StopsBeforeLaterItemsStart`. Verifies that cancellation during
+    /// the first batch item's streaming session prevents the second
+    /// item from EVER reaching the streaming-session factory — which is
+    /// the responsibility of the `try Task.checkCancellation()` at the
+    /// top of `MLXTTSEngine.generateBatch`'s for-loop.
+    ///
+    /// Cancellation is propagated via `task.cancel()` on the calling
+    /// Task (Core's `MLXTTSEngine` does not expose a separate
+    /// `cancelActiveGeneration()` API). The mock session has
+    /// `eventDelay: 500ms` so the first item's session.run is mid-sleep
+    /// when cancellation fires; cancellation throws out of session.run,
+    /// out of generateBatch's first iteration, and the for-loop's
+    /// `try Task.checkCancellation()` rejects the second iteration
+    /// before any factory call.
+    ///
+    /// Differs from the existing single-item cancellation test
+    /// (`testEngineGenerateCancelledMidStreamStopsFurtherChunks`) by
+    /// asserting at the BATCH level: only one factory call total,
+    /// proving the second item never started.
+    func testEngineGenerateBatchCancellationStopsBeforeSecondItemStarts() async throws {
+        let registry = try ContractBackedModelRegistry(
+            manifestURL: try Self.bundledManifestURL()
+        )
+        let coordinator = MockMLXModelCoordinator(loadHandler: { _, capabilityProfile in
+            return await NativeModelLoadResult.makeForTesting(
+                model: UnsafeSpeechGenerationModel.makeFullySupportingForTesting(),
+                capabilityProfile: capabilityProfile
+            )
+        })
+
+        let mockSession = MockNativeStreamingSession(
+            events: [
+                GenerationEvent(
+                    kind: .streamChunk,
+                    requestID: 1,
+                    mode: "custom",
+                    title: "Batch cancel item 1",
+                    isFinal: false,
+                    chunkDurationSeconds: 0.05,
+                    cumulativeDurationSeconds: 0.05
+                )
+            ],
+            result: GenerationResult(
+                audioPath: temporaryRoot.appendingPathComponent("mock-batch-cancel.wav").path,
+                durationSeconds: 0.05,
+                streamSessionDirectory: nil,
+                benchmarkSample: nil
+            ),
+            eventDelay: .milliseconds(500)
+        )
+        let engine = MLXTTSEngine.makeForTesting(
+            modelRegistry: registry,
+            rootDirectory: temporaryRoot,
+            loadCoordinator: coordinator,
+            streamingSessionFactory: { _, _, _, _, _, _, _, _, _, _, _, _, _, _ in
+                mockSession
+            }
+        )
+        try await engine.initialize(appSupportDirectory: temporaryRoot)
+
+        let first = GenerationRequest(
+            modelID: "qwen3_custom_voice",
+            text: "First batch item",
+            outputPath: temporaryRoot.appendingPathComponent("batch-first.wav").path,
+            shouldStream: true,
+            payload: .custom(speakerID: "vivian", deliveryStyle: nil)
+        )
+        let second = GenerationRequest(
+            modelID: "qwen3_custom_voice",
+            text: "Second batch item",
+            outputPath: temporaryRoot.appendingPathComponent("batch-second.wav").path,
+            shouldStream: true,
+            payload: .custom(speakerID: "vivian", deliveryStyle: nil)
+        )
+
+        let task = Task { @MainActor in
+            try await engine.generateBatch([first, second]) { _, _ in }
+        }
+        _ = await waitUntil(
+            timeoutSeconds: 1.0,
+            description: "first batch item reaches streaming session"
+        ) {
+            mockSession.runCallCount >= 1
+        }
+        task.cancel()
+
+        var observedCancellation = false
+        do {
+            _ = try await task.value
+            XCTFail("Expected batch generation to be cancelled.")
+        } catch is CancellationError {
+            observedCancellation = true
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.lowercased().contains("cancel"),
+                "Expected CancellationError or cancel-flavored failure, got \(error)"
+            )
+            observedCancellation = true
+        }
+        XCTAssertTrue(observedCancellation)
+        XCTAssertEqual(
+            mockSession.runCallCount,
+            1,
+            "Only the first batch item should have reached the streaming session; the second must be rejected at the for-loop's Task.checkCancellation() before its factory call."
+        )
+    }
+
     /// Ported equivalent of
     /// `NativeMLXMacEngineTests.testNativeMLXMacEnginePublishesLoadAndClone
     /// PreparationStateForAvailableCloneModel`. Verifies the happy path:
