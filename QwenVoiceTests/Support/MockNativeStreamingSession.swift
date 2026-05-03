@@ -16,7 +16,10 @@ final class MockNativeStreamingSession: NativeStreamingSessionRunning, @unchecke
         var events: [GenerationEvent]
         var result: GenerationResult?
         var error: Error?
+        var initialDelay: Duration?
+        var eventDelay: Duration?
         var runCallCount: Int = 0
+        var deliveredEventCount: Int = 0
     }
 
     private let state: OSAllocatedUnfairLock<State>
@@ -24,10 +27,18 @@ final class MockNativeStreamingSession: NativeStreamingSessionRunning, @unchecke
     init(
         events: [GenerationEvent] = [],
         result: GenerationResult? = nil,
-        error: Error? = nil
+        error: Error? = nil,
+        initialDelay: Duration? = nil,
+        eventDelay: Duration? = nil
     ) {
         self.state = OSAllocatedUnfairLock(
-            initialState: State(events: events, result: result, error: error)
+            initialState: State(
+                events: events,
+                result: result,
+                error: error,
+                initialDelay: initialDelay,
+                eventDelay: eventDelay
+            )
         )
     }
 
@@ -50,16 +61,47 @@ final class MockNativeStreamingSession: NativeStreamingSessionRunning, @unchecke
         state.withLock { $0.runCallCount }
     }
 
+    /// The number of events successfully delivered to `eventSink` across
+    /// all `run(...)` invocations. Useful for cancellation tests that
+    /// need to assert later events did NOT fire (the engine writes the
+    /// final cancellation error into `latestEvent`, masking the last
+    /// successful chunk).
+    var deliveredEventCount: Int {
+        state.withLock { $0.deliveredEventCount }
+    }
+
     func run(
         eventSink: @escaping @MainActor @Sendable (GenerationEvent) -> Void
     ) async throws -> GenerationResult {
-        let snapshot = state.withLock { current -> (events: [GenerationEvent], result: GenerationResult?, error: Error?) in
+        let snapshot = state.withLock {
+            current -> (
+                events: [GenerationEvent],
+                result: GenerationResult?,
+                error: Error?,
+                initialDelay: Duration?,
+                eventDelay: Duration?
+            ) in
             current.runCallCount += 1
-            return (current.events, current.result, current.error)
+            return (
+                current.events,
+                current.result,
+                current.error,
+                current.initialDelay,
+                current.eventDelay
+            )
+        }
+
+        if let initialDelay = snapshot.initialDelay {
+            try await Task.sleep(for: initialDelay)
         }
 
         for event in snapshot.events {
+            try Task.checkCancellation()
             await MainActor.run { eventSink(event) }
+            state.withLock { $0.deliveredEventCount += 1 }
+            if let eventDelay = snapshot.eventDelay {
+                try await Task.sleep(for: eventDelay)
+            }
         }
         if let error = snapshot.error {
             throw error

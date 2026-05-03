@@ -297,6 +297,200 @@ final class MLXTTSEngineMockBackedTests: XCTestCase {
     }
 
     /// Ported (in shape) from
+    /// `NativeMLXMacEngineTests.testNativeMLXMacEngineCancellationBeforeFirstChunkDoesNotWriteFinalOutput`.
+    /// The mock streaming session is configured with `initialDelay`
+    /// (500 ms) before any events fire; the test cancels the generate
+    /// task after 50 ms, so the session's `Task.sleep` throws
+    /// `CancellationError` before the first event.
+    ///
+    /// Cancellation is propagated via `task.cancel()` on the calling
+    /// Task — Core's `MLXTTSEngine` does not expose a separate
+    /// `cancelActiveGeneration()` API (the legacy NativeMLXMacEngine
+    /// did); the mock streaming session's cancellation-aware
+    /// `Task.sleep` and explicit `Task.checkCancellation()` boundaries
+    /// give the same effective control surface.
+    func testEngineGenerateCancelledBeforeFirstChunkPropagatesCancellationError() async throws {
+        let registry = try ContractBackedModelRegistry(
+            manifestURL: try Self.bundledManifestURL()
+        )
+        let coordinator = MockMLXModelCoordinator(loadHandler: { _, capabilityProfile in
+            return await NativeModelLoadResult.makeForTesting(
+                model: UnsafeSpeechGenerationModel.makeFullySupportingForTesting(),
+                capabilityProfile: capabilityProfile
+            )
+        })
+
+        let cannedOutputPath = temporaryRoot.appendingPathComponent("cancel-before-first-chunk.wav").path
+        let mockSession = MockNativeStreamingSession(
+            events: [
+                GenerationEvent(
+                    kind: .streamChunk,
+                    requestID: 1,
+                    mode: "custom",
+                    title: "Cancel before first chunk",
+                    isFinal: true,
+                    chunkDurationSeconds: 0.05,
+                    cumulativeDurationSeconds: 0.05
+                )
+            ],
+            result: GenerationResult(
+                audioPath: cannedOutputPath,
+                durationSeconds: 0.05,
+                streamSessionDirectory: nil,
+                benchmarkSample: nil
+            ),
+            initialDelay: .milliseconds(500)
+        )
+
+        let engine = MLXTTSEngine.makeForTesting(
+            modelRegistry: registry,
+            rootDirectory: temporaryRoot,
+            loadCoordinator: coordinator,
+            streamingSessionFactory: { _, _, _, _, _, _, _, _, _, _, _, _, _, _ in
+                mockSession
+            }
+        )
+        try await engine.initialize(appSupportDirectory: temporaryRoot)
+
+        let request = GenerationRequest(
+            modelID: "qwen3_custom_voice",
+            text: "Cancel before first chunk",
+            outputPath: cannedOutputPath,
+            shouldStream: true,
+            payload: .custom(speakerID: "vivian", deliveryStyle: nil)
+        )
+
+        let task = Task { @MainActor in
+            try await engine.generate(request)
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        task.cancel()
+
+        var observedCancellation = false
+        do {
+            _ = try await task.value
+            XCTFail("Expected generate to be cancelled.")
+        } catch is CancellationError {
+            observedCancellation = true
+        } catch {
+            // The streaming-session-startup wrapper in MLXTTSEngine wraps
+            // some errors via NativeRuntimeError.wrapping; CancellationError
+            // is the expected unwrapped propagation path, but accept any
+            // localized description containing "cancel" as well.
+            XCTAssertTrue(
+                error.localizedDescription.lowercased().contains("cancel"),
+                "Expected CancellationError or a cancel-flavored wrap, got \(error)"
+            )
+            observedCancellation = true
+        }
+        XCTAssertTrue(observedCancellation)
+        XCTAssertEqual(mockSession.runCallCount, 1)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: cannedOutputPath),
+            "Cancelled generation must not leave a final output WAV behind."
+        )
+    }
+
+    /// Ported (in shape) from
+    /// `NativeMLXMacEngineTests.testNativeMLXMacEngineCancellationMidStreamStopsFurtherChunksAndFinalOutput`.
+    /// The mock streaming session emits one chunk immediately, then
+    /// awaits a 500 ms `eventDelay` before the next; the test waits for
+    /// the engine to surface the first event into `latestEvent`, then
+    /// cancels. The session's `Task.sleep` between events throws
+    /// `CancellationError` before any further chunks fire.
+    func testEngineGenerateCancelledMidStreamStopsFurtherChunks() async throws {
+        let registry = try ContractBackedModelRegistry(
+            manifestURL: try Self.bundledManifestURL()
+        )
+        let coordinator = MockMLXModelCoordinator(loadHandler: { _, capabilityProfile in
+            return await NativeModelLoadResult.makeForTesting(
+                model: UnsafeSpeechGenerationModel.makeFullySupportingForTesting(),
+                capabilityProfile: capabilityProfile
+            )
+        })
+
+        let cannedOutputPath = temporaryRoot.appendingPathComponent("cancel-mid-stream.wav").path
+        let firstChunk = GenerationEvent(
+            kind: .streamChunk,
+            requestID: 1,
+            mode: "custom",
+            title: "Cancel mid-stream",
+            isFinal: false,
+            chunkDurationSeconds: 0.05,
+            cumulativeDurationSeconds: 0.05
+        )
+        let secondChunkUnreached = GenerationEvent(
+            kind: .streamChunk,
+            requestID: 1,
+            mode: "custom",
+            title: "Cancel mid-stream",
+            isFinal: true,
+            chunkDurationSeconds: 0.05,
+            cumulativeDurationSeconds: 0.10
+        )
+        let mockSession = MockNativeStreamingSession(
+            events: [firstChunk, secondChunkUnreached],
+            result: GenerationResult(
+                audioPath: cannedOutputPath,
+                durationSeconds: 0.10,
+                streamSessionDirectory: nil,
+                benchmarkSample: nil
+            ),
+            eventDelay: .milliseconds(500)
+        )
+
+        let engine = MLXTTSEngine.makeForTesting(
+            modelRegistry: registry,
+            rootDirectory: temporaryRoot,
+            loadCoordinator: coordinator,
+            streamingSessionFactory: { _, _, _, _, _, _, _, _, _, _, _, _, _, _ in
+                mockSession
+            }
+        )
+        try await engine.initialize(appSupportDirectory: temporaryRoot)
+
+        let request = GenerationRequest(
+            modelID: "qwen3_custom_voice",
+            text: "Cancel after first chunk",
+            outputPath: cannedOutputPath,
+            shouldStream: true,
+            payload: .custom(speakerID: "vivian", deliveryStyle: nil)
+        )
+
+        let task = Task { @MainActor in
+            try await engine.generate(request)
+        }
+        _ = await waitUntil(
+            timeoutSeconds: 1.0,
+            description: "engine.latestEvent picks up the first chunk"
+        ) {
+            engine.latestEvent == firstChunk
+        }
+        task.cancel()
+
+        var observedCancellation = false
+        do {
+            _ = try await task.value
+            XCTFail("Expected generate to be cancelled.")
+        } catch is CancellationError {
+            observedCancellation = true
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.lowercased().contains("cancel"),
+                "Expected CancellationError or a cancel-flavored wrap, got \(error)"
+            )
+            observedCancellation = true
+        }
+        XCTAssertTrue(observedCancellation)
+        XCTAssertEqual(mockSession.runCallCount, 1)
+        XCTAssertEqual(
+            mockSession.deliveredEventCount,
+            1,
+            "Only the first chunk should have been delivered; the cancellation must fire during the eventDelay before the second chunk."
+        )
+    }
+
+    /// Ported (in shape) from
     /// `NativeMLXMacEngineTests.testNativeMLXMacEngineGeneratesDesignAudioAndPublishesOptimizedBenchmarkFlags`.
     /// Exercises the prewarm-then-generate sequence for `.design` mode:
     /// `engine.prewarmModelIfNeeded(for:)` runs the runtime's design-
