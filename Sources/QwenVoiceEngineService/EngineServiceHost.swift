@@ -346,11 +346,27 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
         Self.logger.error("\(message, privacy: .public)")
         Task { @MainActor [weak self] in
             guard let self else { return }
+            // Capture the runtime context that was active when this session
+            // ended. Re-reading `self.runtimeContext` later in this Task is
+            // unsafe: another session may have already replaced it (the host
+            // is `EngineServiceHost.shared`, a process-wide singleton across
+            // every test in the test bundle). Without this capture-and-
+            // identity-check, a stale cleanup Task from session A nils out
+            // the active runtime context of session B mid-`initialize`,
+            // causing the next call from B's client to throw
+            // `MLXTTSEngineError.notInitialized`. See the May 2026 fix
+            // commit for the full timeline (Tier 4.4).
+            let contextAtSessionEnd = self.runtimeContext
             await self.activeGenerationCoordinator.cancelCurrent()
-            await self.runtimeContext?.engine.cancelClonePreparationIfNeeded()
-            self.runtimeContext?.engine.clearGenerationActivity()
-            try? await self.runtimeContext?.engine.unloadModel()
-            self.runtimeContext = nil
+            await contextAtSessionEnd?.engine.cancelClonePreparationIfNeeded()
+            contextAtSessionEnd?.engine.clearGenerationActivity()
+            try? await contextAtSessionEnd?.engine.unloadModel()
+            // Only clear the host's runtime-context slot if the context that
+            // ended is STILL the active one — otherwise a newer session has
+            // already taken it over and we must not clobber its state.
+            if self.runtimeContext === contextAtSessionEnd {
+                self.runtimeContext = nil
+            }
         }
     }
 
