@@ -24,11 +24,7 @@ The maintained process shells are:
 - macOS: `Sources/QwenVoiceEngineService/EngineServiceHost.swift`
 - iPhone: `Sources/QwenVoiceCore/ExtensionEngineHostManager.swift` plus `Sources/iOSEngineExtension/`
 
-Retained compatibility surface:
-
-- `Sources/QwenVoiceNativeRuntime/`
-
-`QwenVoiceNativeRuntime` remains compatibility code, but it is not the app-facing policy owner that frontend work should reason about.
+The legacy `Sources/QwenVoiceNativeRuntime/` retained compatibility surface was retired in May 2026; the active macOS helper path now flows through `QwenVoiceCore` end-to-end.
 
 ## Frontend-Safe Contract
 
@@ -124,7 +120,6 @@ Treat frontend work as unblocked only when these statements are true:
 These items remain important, but they do not block the current macOS-first QA gate by themselves:
 
 - official `iPhone 15 Pro` minimum-device evidence is still pending while owned-device proof continues on newer local hardware
-- `Sources/QwenVoiceNativeRuntime/` still exists as a retained compatibility surface
 - iPhone release/TestFlight proof is deferred from the current macOS-first public release milestone
 - upstream MLX and package warning noise may still appear in `.xcresult` bundles as long as repo-owned targets compile
 - hosted CI e2e can soft-skip first-time TCC/window activation failures; controlled-machine strict e2e remains required for release signoff

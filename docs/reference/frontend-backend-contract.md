@@ -124,14 +124,10 @@ The current canonical backend-policy owner is `QwenVoiceCore`.
 
 Active runtime ownership:
 
-- macOS XPC helper: `Sources/QwenVoiceEngineService/EngineServiceHost.swift` now hosts `MLXTTSEngine` from `QwenVoiceCore`
+- macOS XPC helper: `Sources/QwenVoiceEngineService/EngineServiceHost.swift` hosts `MLXTTSEngine` from `QwenVoiceCore`
 - iPhone extension path: `Sources/QwenVoiceCore/ExtensionEngineHostManager.swift` plus `Sources/iOSEngineExtension/`
 
-Compatibility retained surface:
-
-- `Sources/QwenVoiceNativeRuntime/`
-
-`QwenVoiceNativeRuntime` may still hold useful compatibility coverage, but it is no longer the active macOS policy owner that frontend work should reason about.
+The legacy `Sources/QwenVoiceNativeRuntime/` compatibility surface was retired in May 2026; the active macOS helper path is `QwenVoiceCore` end-to-end.
 
 ## Backend-Freeze Gate
 

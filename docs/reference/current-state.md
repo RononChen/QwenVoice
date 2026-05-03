@@ -16,7 +16,7 @@ This document is the shared factual reference for the current QwenVoice reposito
 - Version source: `project.yml`
 - Current version/build: `1.2.3` / `15`
 
-The iPhone app target is Vocello-branded. The next macOS release ships as `Vocello.app` inside `Vocello-macos26.dmg` on a hard `macOS 26.0` minimum — completing the public rebrand on macOS. The supporting framework/service/runtime modules (`QwenVoiceCore`, `QwenVoiceEngineService`, `QwenVoiceEngineSupport`, `QwenVoiceNative`, `QwenVoiceNativeRuntime`) keep their `QwenVoice` names internally for continuity.
+The iPhone app target is Vocello-branded. The next macOS release ships as `Vocello.app` inside `Vocello-macos26.dmg` on a hard `macOS 26.0` minimum — completing the public rebrand on macOS. The supporting framework/service/runtime modules (`QwenVoiceCore`, `QwenVoiceEngineService`, `QwenVoiceEngineSupport`, `QwenVoiceNative`) keep their `QwenVoice` names internally for continuity.
 
 ## Public Homepage Posture
 
@@ -40,7 +40,6 @@ macOS runtime split:
 - `Sources/QwenVoiceNative/` for the macOS app-facing engine proxy/store/client layer
 - `Sources/QwenVoiceEngineSupport/` for shared macOS engine IPC, transport types, and trust policy
 - `Sources/QwenVoiceEngineService/` for the bundled XPC helper embedded into the Mac app and the active shared-core runtime host
-- `Sources/QwenVoiceNativeRuntime/` as a retained compatibility and regression surface rather than the primary macOS runtime-policy owner
 
 iPhone runtime split:
 

@@ -165,7 +165,6 @@ Current `main` uses a native Apple-platform architecture:
 - `Sources/QwenVoiceNative/` contains the macOS app-facing engine proxy/store/client layer.
 - `Sources/QwenVoiceEngineSupport/` contains shared macOS engine IPC and transport types.
 - `Sources/QwenVoiceEngineService/` contains the bundled macOS XPC helper.
-- `Sources/QwenVoiceNativeRuntime/` remains as retained compatibility and regression coverage.
 - `Sources/iOS/`, `Sources/iOSSupport/`, and `Sources/iOSEngineExtension/` contain the deferred iPhone app, support layer, and isolated engine extension.
 - `Sources/SharedSupport/` contains shared playback and generation-persistence surfaces.
 

@@ -219,11 +219,8 @@ run_native_layer() {
   run_xcodebuild_suite "native_runtime_tests" "QwenVoice Foundation" "platform=macOS" \
     -testPlan QwenVoiceRuntime \
     -only-testing:QwenVoiceTests/EngineServiceCodecTests \
-    -only-testing:QwenVoiceTests/NativeAudioPreparationTests \
-    -only-testing:QwenVoiceTests/NativeCloneSupportTests \
-    -only-testing:QwenVoiceTests/NativeMLXMacEngineTests \
-    -only-testing:QwenVoiceTests/NativeModelLoadCoordinatorTests \
-    -only-testing:QwenVoiceTests/NativeModelRegistryTests \
+    -only-testing:QwenVoiceTests/MLXTTSEngineMockBackedTests \
+    -only-testing:QwenVoiceTests/NativeStreamingSynthesisSessionTests \
     -only-testing:QwenVoiceTests/TTSEngineStoreTests \
     -only-testing:QwenVoiceTests/VoiceCloningReferenceAudioSupportTests \
     -only-testing:QwenVoiceTests/XPCNativeEngineClientTests

@@ -71,7 +71,4 @@ For current macOS release signoff, the maintained local loop is documented in `d
 - `Sources/QwenVoiceCore/` owns shared engine semantics.
 - `Sources/QwenVoiceEngineService/` hosts the active macOS XPC runtime.
 - `Sources/QwenVoiceNative/` owns the macOS app-facing engine proxy/store/client layer.
-- `Sources/QwenVoiceNativeRuntime/` is retained compatibility and regression coverage, not the active policy owner.
 - `Sources/iOSEngineExtension/` keeps heavy iPhone generation work outside the iPhone UI process.
-
-When fixing streaming/session behavior that still exists in both active and retained runtime copies, update both copies in the same change.

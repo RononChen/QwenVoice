@@ -10,7 +10,7 @@ Current product reality:
 
 - the repo stays `QwenVoice`
 - the shipped iPhone app is `Vocello`
-- the next macOS release ships as `Vocello.app` inside `Vocello-macos26.dmg`; the supporting framework/service/runtime modules (`QwenVoiceCore`, `QwenVoiceEngineService`, `QwenVoiceEngineSupport`, `QwenVoiceNative`, `QwenVoiceNativeRuntime`) keep their `QwenVoice` names internally for continuity
+- the next macOS release ships as `Vocello.app` inside `Vocello-macos26.dmg`; the supporting framework/service/runtime modules (`QwenVoiceCore`, `QwenVoiceEngineService`, `QwenVoiceEngineSupport`, `QwenVoiceNative`) keep their `QwenVoice` names internally for continuity
 - the current public milestone uses a `macOS-first release track`, with iPhone retained as a compile-safe and deferred release surface
 
 The main working surfaces are:
@@ -19,7 +19,6 @@ The main working surfaces are:
 - `Sources/QwenVoiceCore/` for shared Apple-platform runtime semantics, contract types, model variants, and iOS extension transport
 - `Sources/QwenVoiceNative/` for the macOS app-facing engine proxy/store/client layer
 - `Sources/QwenVoiceEngineSupport/` for shared macOS engine IPC and transport types
-- `Sources/QwenVoiceNativeRuntime/` for retained macOS compatibility and regression coverage
 - `Sources/QwenVoiceEngineService/` for the bundled macOS XPC helper
 - `Sources/iOS/` and `Sources/iOSSupport/` for the iPhone app shell and iPhone-only support layers
 - `Sources/SharedSupport/` for cross-platform playback, persistence, and other shared app-layer helpers
@@ -102,7 +101,7 @@ Browser MCPs (`chrome-devtools`, `claude-in-chrome`) and computer-use are not re
 ## Safe Edit Boundaries
 
 - `project.yml` drives `QwenVoice.xcodeproj`. Prefer editing `project.yml` and regenerating the project over hand-editing generated project files.
-- The macOS app target intentionally excludes `Sources/QwenVoiceEngineService/`, `Sources/QwenVoiceEngineSupport/`, `Sources/QwenVoiceNativeRuntime/`, `Sources/iOS*/`, `Sources/Resources/ffmpeg/`, and `Sources/Resources/vendor/` as ordinary app sources while embedding the XPC service target through `project.yml`. Keep that split intact.
+- The macOS app target intentionally excludes `Sources/QwenVoiceEngineService/`, `Sources/QwenVoiceEngineSupport/`, `Sources/iOS*/`, `Sources/Resources/ffmpeg/`, and `Sources/Resources/vendor/` as ordinary app sources while embedding the XPC service target through `project.yml`. Keep that split intact.
 - The iPhone app target and the iPhone engine-extension target both depend on `QwenVoiceCore`. Keep engine execution isolated from the iPhone UI process.
 - `third_party_patches/mlx-audio-swift/` is the repo-owned native backend source boundary for MLXAudioSwift. Keep its package manifest and pins aligned with `project.yml` and `Package.resolved`.
 - `config/apple-platform-capability-matrix.json` is the release-verification source of truth for bundle identifiers, expected application groups, opportunistic memory-limit entitlements, and packaged-resource exclusions.
@@ -116,8 +115,7 @@ Browser MCPs (`chrome-devtools`, `claude-in-chrome`) and computer-use are not re
 - `Sources/ContentView.swift` owns the macOS `NavigationSplitView`, toolbar/search chrome, sidebar selection, and persisted generation drafts.
 - `Sources/QwenVoiceNative/` is the macOS app-side engine layer: `TTSEngineStore`, `XPCNativeEngineClient`, chunk brokering, and the app-facing `MacTTSEngine` surface live there.
 - `Sources/QwenVoiceEngineSupport/` is the shared macOS engine transport boundary used by both the app and the helper.
-- `Sources/QwenVoiceEngineService/` now hosts the active macOS shared-core runtime through `QwenVoiceCore`. Treat `Sources/QwenVoiceNativeRuntime/` as a retained compatibility surface rather than the primary live policy owner.
-- `Sources/QwenVoiceEngineService/` owns the bundled macOS XPC helper entrypoint and session/host behavior.
+- `Sources/QwenVoiceEngineService/` hosts the active macOS shared-core runtime through `QwenVoiceCore` and owns the bundled macOS XPC helper entrypoint and session/host behavior.
 - `Sources/QwenVoiceCore/` is the cross-platform engine core and shared semantic boundary. Keep it free of app-process UI assumptions.
 - `Sources/iOSEngineExtension/` hosts the isolated iPhone engine process through ExtensionFoundation. Heavy generation and prewarm work belongs there, not in the iPhone UI app process.
 - `Sources/iOS/VocelloEngineExtensionPoint.swift` owns monitor-backed iPhone extension discovery and preferred-identity selection, while `Sources/QwenVoiceCore/ExtensionEngineHostManager.swift` owns active transport replacement and teardown.
@@ -126,7 +124,6 @@ Browser MCPs (`chrome-devtools`, `claude-in-chrome`) and computer-use are not re
 - `Sources/Services/AppPaths.swift` and `Sources/iOSSupport/Services/AppPaths.swift` are the path boundaries for runtime data on each platform.
 - The iPhone App Group surface is intentionally file-based and rooted under `Sources/iOSSupport/Services/AppPaths.swift`; keep shared state constrained to the required app-support subtree for models, downloads, outputs, voices, and cache data.
 - `Sources/Models/TTSContract.swift`, `Sources/Models/TTSModel.swift`, and the `QwenVoiceCore` semantic types load `Sources/Resources/qwenvoice_contract.json`.
-- `Sources/QwenVoiceNativeRuntime/` keeps retained copies of runtime types (notably `NativeStreamingSynthesisSession`) beside the live `Sources/QwenVoiceCore/` implementation. Behavior fixes in shared streaming/session semantics often have to land in **both** copies until the retained-vs-live split is consolidated.
 
 Default macOS runtime data layout:
 
@@ -271,9 +268,9 @@ Release facts:
 - Adding or renaming source files:
   update `project.yml`, run `./scripts/regenerate_project.sh`, and confirm generated project files did not capture `__pycache__` or `.pyc` paths.
 - Shared engine semantics or model-variant resolution:
-  review `Sources/QwenVoiceCore/` and iPhone model delivery code together; mirror retained runtime copies in `Sources/QwenVoiceNativeRuntime/` when applicable.
+  review `Sources/QwenVoiceCore/` and iPhone model delivery code together.
 - macOS engine/client behavior:
-  review `Sources/QwenVoiceNative/`, `Sources/QwenVoiceEngineSupport/`, and `Sources/QwenVoiceNativeRuntime/` together.
+  review `Sources/QwenVoiceNative/`, `Sources/QwenVoiceEngineSupport/`, and `Sources/QwenVoiceEngineService/` together.
 - iPhone engine-extension transport or host behavior:
   review `Sources/QwenVoiceCore/Extension*`, `Sources/iOSEngineExtension/`, `Sources/iOS/VocelloEngineExtensionPoint.swift`, and iPhone build coverage together.
 - Memory-pressure, prewarm, or low-RAM admission behavior:
