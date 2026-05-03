@@ -6,6 +6,20 @@ private struct ContractManifest: Decodable {
     let models: [ModelDescriptor]
 }
 
+/// Three-state availability summary for a registry-resolved model. The
+/// `unavailable` case carries the resolved descriptor and the relative paths
+/// that are missing under the install directory so callers can surface a
+/// precise download/repair prompt without re-running the file walk.
+///
+/// Mirrors the legacy `QwenVoiceNativeRuntime.NativeModelAvailability` enum.
+/// Once the NativeRuntime retirement lands, this becomes the only Apple-
+/// platform availability surface.
+public enum ModelAvailability: Equatable, Sendable {
+    case unknown
+    case unavailable(descriptor: ModelDescriptor, missingRequiredPaths: [String])
+    case available(descriptor: ModelDescriptor)
+}
+
 public struct ContractBackedModelRegistry: ModelRegistry, Hashable, Sendable {
     public enum Error: LocalizedError, Equatable {
         case missingModels
@@ -80,6 +94,54 @@ public struct ContractBackedModelRegistry: ModelRegistry, Hashable, Sendable {
 
     public func model(id: String) -> ModelDescriptor? {
         models.first { $0.id == id }
+    }
+
+    /// API-parity alias for `model(id:)`. Matches the legacy
+    /// `QwenVoiceNativeRuntime.NativeModelRegistry.descriptor(id:)` shape so
+    /// MacNativeRuntime call sites can be ported in Session 5 without
+    /// renaming.
+    public func descriptor(id: String) -> ModelDescriptor? {
+        model(id: id)
+    }
+
+    /// Registry-level convenience that delegates to
+    /// `ModelDescriptor.installDirectory(in:)`. Mirrors the legacy
+    /// `QwenVoiceNativeRuntime.NativeModelRegistry.installDirectory(for:in:)`
+    /// shape so Session 5 can swap registry types without touching
+    /// caller-side path resolution.
+    public func installDirectory(for descriptor: ModelDescriptor, in modelsDirectory: URL) -> URL {
+        descriptor.installDirectory(in: modelsDirectory)
+    }
+
+    /// Three-state availability summary: returns `.unknown` when the model
+    /// id isn't in the manifest, `.unavailable(descriptor, missing)` when one
+    /// or more required relative paths are missing under the install
+    /// directory, otherwise `.available(descriptor)`. Mirrors the legacy
+    /// `QwenVoiceNativeRuntime.NativeModelRegistry.availability(...)` shape.
+    public func availability(
+        forModelID modelID: String,
+        in modelsDirectory: URL,
+        fileManager: FileManager = .default
+    ) -> ModelAvailability {
+        guard let descriptor = descriptor(id: modelID) else {
+            return .unknown
+        }
+
+        let installDirectory = descriptor.installDirectory(in: modelsDirectory)
+        let missingRequiredPaths = descriptor.requiredRelativePaths.filter { relativePath in
+            !fileManager.fileExists(
+                atPath: installDirectory.appendingPathComponent(relativePath).path
+            )
+        }
+
+        if missingRequiredPaths.isEmpty {
+            return .available(descriptor: descriptor)
+        }
+
+        return .unavailable(
+            descriptor: descriptor,
+            missingRequiredPaths: missingRequiredPaths.sorted()
+        )
     }
 
     public func resolvedForPlatform(_ platform: ModelArtifactPlatform) -> ContractBackedModelRegistry {
