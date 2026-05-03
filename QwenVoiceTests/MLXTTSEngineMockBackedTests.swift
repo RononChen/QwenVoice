@@ -296,6 +296,132 @@ final class MLXTTSEngineMockBackedTests: XCTestCase {
         XCTAssertNil(engine.visibleErrorMessage)
     }
 
+    /// Ported equivalent of
+    /// `NativeMLXMacEngineTests.testNativeMLXMacEngineGenerateBatchRejectsMixedModes`.
+    /// `generateBatch` validates the batch up front and throws an
+    /// `unsupportedRequest` error before any model interaction. No
+    /// streaming-session mock is needed because the validation gate
+    /// fires first.
+    func testEngineGenerateBatchRejectsMixedModesBeforeLoading() async throws {
+        let registry = try ContractBackedModelRegistry(
+            manifestURL: try Self.bundledManifestURL()
+        )
+        let coordinator = MockMLXModelCoordinator()
+        let engine = MLXTTSEngine.makeForTesting(
+            modelRegistry: registry,
+            rootDirectory: temporaryRoot,
+            loadCoordinator: coordinator
+        )
+        try await engine.initialize(appSupportDirectory: temporaryRoot)
+
+        let custom = GenerationRequest(
+            modelID: "qwen3_custom_voice",
+            text: "Custom item",
+            outputPath: temporaryRoot.appendingPathComponent("custom.wav").path,
+            shouldStream: false,
+            payload: .custom(speakerID: "vivian", deliveryStyle: "Conversational")
+        )
+        let design = GenerationRequest(
+            modelID: "qwen3_voice_design",
+            text: "Design item",
+            outputPath: temporaryRoot.appendingPathComponent("design.wav").path,
+            shouldStream: false,
+            payload: .design(voiceDescription: "Warm narrator", deliveryStyle: "Calm")
+        )
+
+        var didThrow = false
+        do {
+            _ = try await engine.generateBatch([custom, design]) { _, _ in }
+        } catch let error as MLXTTSEngineError {
+            didThrow = true
+            if case .unsupportedRequest(let message) = error {
+                XCTAssertTrue(
+                    message.contains("Batch generation requires one model"),
+                    "Unexpected error message: \(message)"
+                )
+            } else {
+                XCTFail("Expected .unsupportedRequest, got \(error)")
+            }
+        } catch {
+            XCTFail("Expected MLXTTSEngineError, got \(type(of: error)): \(error)")
+        }
+        XCTAssertTrue(didThrow, "Expected generateBatch to throw on mixed modes.")
+
+        // Validation fires before model load, so the coordinator should
+        // never be invoked.
+        XCTAssertEqual(coordinator.loadCalls.count, 0)
+    }
+
+    /// Ported (in shape) from
+    /// `NativeMLXMacEngineTests.testNativeMLXMacEngineGenerateBatchSupports
+    /// HomogeneousDesignRequests`. Confirms the engine routes every
+    /// request in a homogeneous batch through the streaming-session
+    /// factory (each invocation increments `runCallCount`).
+    ///
+    /// Differs from the legacy test by design: this port mocks the
+    /// streaming session so no files are written; the assertion shape
+    /// verifies the orchestration (one factory call per request) rather
+    /// than file artifacts.
+    func testEngineGenerateBatchRoutesEachRequestThroughStreamingSession() async throws {
+        let registry = try ContractBackedModelRegistry(
+            manifestURL: try Self.bundledManifestURL()
+        )
+        let coordinator = MockMLXModelCoordinator(loadHandler: { _, capabilityProfile in
+            return await NativeModelLoadResult.makeForTesting(
+                model: UnsafeSpeechGenerationModel.makeFullySupportingForTesting(),
+                capabilityProfile: capabilityProfile
+            )
+        })
+
+        let mockSession = MockNativeStreamingSession(
+            events: [],
+            result: GenerationResult(
+                audioPath: temporaryRoot.appendingPathComponent("mock-batch.wav").path,
+                durationSeconds: 0.05,
+                streamSessionDirectory: nil,
+                benchmarkSample: nil
+            )
+        )
+        let engine = MLXTTSEngine.makeForTesting(
+            modelRegistry: registry,
+            rootDirectory: temporaryRoot,
+            loadCoordinator: coordinator,
+            streamingSessionFactory: { _, _, _, _, _, _, _, _, _, _, _, _, _, _ in
+                mockSession
+            }
+        )
+        try await engine.initialize(appSupportDirectory: temporaryRoot)
+
+        let first = GenerationRequest(
+            modelID: "qwen3_voice_design",
+            text: "First design item",
+            outputPath: temporaryRoot.appendingPathComponent("design-first.wav").path,
+            shouldStream: false,
+            payload: .design(voiceDescription: "Warm narrator", deliveryStyle: "Calm")
+        )
+        let second = GenerationRequest(
+            modelID: "qwen3_voice_design",
+            text: "Second design item",
+            outputPath: temporaryRoot.appendingPathComponent("design-second.wav").path,
+            shouldStream: false,
+            payload: .design(voiceDescription: "Warm narrator", deliveryStyle: "Calm")
+        )
+
+        let results = try await engine.generateBatch([first, second]) { _, _ in }
+
+        XCTAssertEqual(results.count, 2)
+        XCTAssertEqual(mockSession.runCallCount, 2)
+        // Note: `usedStreaming` reflects an internal coercion in
+        // `MLXTTSEngine.generateBatch` (it forces `shouldStream = true`
+        // and the resulting benchmark sample's `streamingUsed`
+        // annotation propagates). The legacy NativeMLXMacEngine path
+        // didn't apply that annotation wrapper, hence the divergence.
+        // The assertion of interest here is "every request reached the
+        // streaming session" — `mockSession.runCallCount == 2` covers it.
+        XCTAssertEqual(engine.loadState, .loaded(modelID: "qwen3_voice_design"))
+        XCTAssertNil(engine.visibleErrorMessage)
+    }
+
     func testEngineClonePrimingSurfacesLoadFailureWhenCoordinatorCannotLoadModel() async throws {
         let registry = try ContractBackedModelRegistry(
             manifestURL: try Self.bundledManifestURL()
