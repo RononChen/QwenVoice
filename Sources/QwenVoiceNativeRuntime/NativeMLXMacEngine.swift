@@ -18,6 +18,57 @@ import QwenVoiceEngineSupport
 // **Do not add new behavior to this file.** New engine semantics,
 // snapshot/event publishing, or generation/batch logic belongs in the
 // Core surface.
+//
+// ## Public-surface parity vs `MLXTTSEngine` (Session 5 status)
+//
+// Method-by-method parity for the public API consumed by tests:
+//
+//   NativeMLXMacEngine                  →  MLXTTSEngine
+//   ────────────────────────────────────────────────────────────────────
+//   initialize(appSupportDirectory:)    →  initialize(appSupportDirectory:)
+//   ping()                              →  ping()
+//   loadModel(id:)                      →  loadModel(id:)
+//   unloadModel()                       →  unloadModel()  (throws)
+//   ensureModelLoadedIfNeeded(id:)      →  ensureModelLoadedIfNeeded(id:)
+//   prewarmModelIfNeeded(for:)          →  prewarmModelIfNeeded(for:)
+//   ensureCloneReferencePrimed(...)     →  ensureCloneReferencePrimed(...)
+//   cancelClonePreparationIfNeeded()    →  cancelClonePreparationIfNeeded()
+//   generate(_:)                        →  generate(_:)
+//   generateBatch(_:progressHandler:)   →  generateBatch(_:progressHandler:)
+//   listPreparedVoices()                →  listPreparedVoices()
+//   enrollPreparedVoice(...)            →  enrollPreparedVoice(...)
+//   deletePreparedVoice(id:)            →  deletePreparedVoice(id:)
+//   clearGenerationActivity()           →  clearGenerationActivity()
+//   clearVisibleError()                 →  clearVisibleError()
+//   currentLoadedModelID()              →  currentLoadedModelID()  (added Session 5)
+//   cancelActiveGeneration()            →  (no equivalent — Core uses Task cancellation;
+//                                          tests should cancel the parent Task instead)
+//
+// Snapshot/publisher surface differs by design:
+//   snapshot: TTSEngineSnapshot          →  loadState + clonePreparationState +
+//   snapshotPublisher                       latestEvent + visibleErrorMessage
+//   generationEventPublisher                (each `@Published` separately)
+//
+// ## Test-migration recipe (Sessions 5b/5c)
+//
+// The 19 tests in `QwenVoiceTests/NativeMLXMacEngineTests.swift` rely on
+// `MacNativeRuntime`'s `loadOperation` + `modelLoader` injection points and
+// `NativeSpeechGenerationModel.placeholder()`. Porting them to `MLXTTSEngine`
+// requires:
+//
+//   1. A mock conforming to `MLXModelCoordinating` (Core protocol) that
+//      satisfies `loadModel/unloadModel/isPrewarmed/markPrewarmed/clearPrewarmState`
+//      without touching MLX. Built in `QwenVoiceTests/Support/`.
+//   2. A mock `StreamingSessionFactory` that emits canned `GenerationEvent`s
+//      and final result without spinning up `NativeStreamingSynthesisSession`.
+//   3. Test-only init shortcut on `MLXTTSEngine` that bundles those mocks
+//      with no-op `audioPreparationService` + `documentIO` for fixture-only
+//      tests.
+//   4. Replacing `engine.snapshot.X` assertions with the equivalent
+//      `engine.loadState`/`clonePreparationState`/`latestEvent` reads
+//      (synchronous on `@MainActor`).
+//   5. Replacing `cancelActiveGeneration()` calls with parent-Task
+//      cancellation (`task.cancel(); await task.value`).
 
 private actor NativeActiveGenerationCoordinator {
     private struct ActiveGeneration {

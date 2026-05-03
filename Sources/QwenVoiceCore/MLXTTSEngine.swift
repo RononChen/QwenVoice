@@ -61,6 +61,16 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
         loadState
     }
 
+    /// Returns the id of the currently loaded model, or `nil` when no model
+    /// is loaded (idle / starting / failed states). API-parity surface for
+    /// the legacy `NativeMLXMacEngine` shape so call sites that previously
+    /// reached into `runtime.currentLoadedModelID()` can move to the engine
+    /// directly. Derives from `loadState.currentModelID` — covers both
+    /// `.loaded(modelID:)` and `.running(modelID:_:_:)`.
+    public func currentLoadedModelID() async -> String? {
+        loadState.currentModelID
+    }
+
     public private(set) var visibleErrorMessage: String?
 
     private let audioPreparationService: any AudioPreparationService

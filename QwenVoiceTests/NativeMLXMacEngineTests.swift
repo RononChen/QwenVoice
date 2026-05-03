@@ -5,6 +5,23 @@ import Combine
 @preconcurrency import MLXAudioTTS
 @testable import QwenVoiceNativeRuntime
 
+// MARK: - Migration recipe vs Core
+//
+// This is the LEGACY behavioral regression suite for `NativeMLXMacEngine`.
+// `NativeMLXMacEngine` has zero callers in shipping `Sources/`; this file
+// + `NativeMLXMacEngineLiveTests.swift` are its only consumers. Once the
+// 19 tests below are ported to exercise `MLXTTSEngine` directly, both this
+// file and the engine retire as part of the QwenVoiceNativeRuntime
+// removal (Sessions 5b/5c → 6 → 7).
+//
+// See the "Test-migration recipe" block at the top of
+// `Sources/QwenVoiceNativeRuntime/NativeMLXMacEngine.swift` for the
+// step-by-step Core port plan (mock conformances, MLXTTSEngine test-init
+// shortcut, snapshot→@Published assertion swap, Task-cancellation idiom).
+//
+// **Do not add new tests to this file.** New behavioral regressions
+// belong against `MLXTTSEngine` directly in a Core-targeting test file.
+
 @MainActor
 final class NativeMLXMacEngineTests: XCTestCase {
     private struct GenericGenerationCall: Equatable {
