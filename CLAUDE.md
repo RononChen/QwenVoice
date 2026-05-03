@@ -232,6 +232,8 @@ Notes:
 - On this 8 GB development machine, keep validation deliberately low-RAM and serialized: run the cheapest relevant gate first, and never overlap heavy `xcodebuild`, `scripts/qa.sh`, release packaging, live app validation, or native smoke processes.
 - If a QA layer fails, inspect the emitted `.xcresult` bundle under `build/harness/results/<layer>/` before changing code: `xcrun xcresulttool get build-results --path <path>` for builds, `xcrun xcresulttool get test-results summary --path <path>` for tests.
 - SourceKit diagnostics like `No such module 'MLX'` or `Cannot find type X in scope` after an edit are index staleness, not real errors. Trust only `xcodebuild`, `scripts/qa.sh`, and `./scripts/build_foundation_targets.sh`.
+- `xcodebuild` silently skips `-only-testing:QwenVoiceTests/<ClassName>` flags when `<ClassName>` doesn't exist (deleted/renamed). The lane will report success on the surviving subset. After deleting test classes, audit `scripts/qa.sh` for stale `-only-testing:` references — otherwise the layer's actual coverage is smaller than expected.
+- The `swift` layer (~238 tests) and curated subset layers (`native`, `e2e`) can disagree on hosted CI: a test that passes under `swift` may fail under a smaller curated subset because tighter test packing exposes shared-state races (notably the bundled `QwenVoiceEngineService`'s engine-init state across `XPCNativeEngineClientTests` test methods). When seeing a per-layer hosted-CI failure that doesn't reproduce locally, check whether the failing test depends on the bundled XPC service AND whether the layer subset reorders test classes alphabetically.
 
 ## Swift Concurrency Gotchas
 
@@ -239,6 +241,8 @@ Notes:
 - `Task.detached { ... }` does not inherit cancellation from the parent. If cancellation must propagate, wrap `try await task.value` in `withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }`.
 - `AsyncThrowingStream` iterators do not automatically observe the consuming task's cancellation when the producer runs in its own `Task`. Inside `for try await event in stream { ... }`, add `try Task.checkCancellation()` at the top of the loop body.
 - When promoting a helper out of a `@MainActor`-isolated class to module scope, mark the closure parameter `@MainActor` (e.g. `condition: @escaping @MainActor () -> Bool`) and invoke via `await MainActor.run(body: condition)`. Without this, Swift 6 flags call sites that capture actor-isolated state with "Sending risks data race".
+- `NSLock.lock()` / `NSLock.unlock()` are unavailable from async contexts in Swift 6. Use `OSAllocatedUnfairLock<State>` (`import os`) with `withLock { ... }` instead. Pattern: a single lock wraps all state, every accessor goes through `state.withLock { ... }`. Used by `QwenVoiceTests/Support/MockMLXModelCoordinator.swift` and `MockNativeStreamingSession.swift`.
+- `Task.init`'s operation parameter is `@Sendable` regardless of the surrounding actor isolation. Capturing a non-Sendable `final class` instance into a wrapping `Task { ... }` triggers "Sending '<var>' risks causing data races" — even from `@MainActor` context. If the class is already designed for concurrent use (e.g. it uses `Task.detached` internally), the minimal safe fix is `@unchecked Sendable` on the class declaration. Done for `Sources/QwenVoiceCore/NativeStreamingSynthesisSession.swift` so direct unit tests can wrap `session.run` in a Task.
 
 ## CI And Release Workflows
 
