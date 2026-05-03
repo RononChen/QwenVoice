@@ -40,7 +40,7 @@ private enum NativeStreamingSignposts {
     )
 }
 
-final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning {
+final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unchecked Sendable {
     private let requestID: Int
     private let request: GenerationRequest
     private let model: UnsafeSpeechGenerationModel

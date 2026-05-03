@@ -20,6 +20,13 @@ final class MockNativeStreamingSession: NativeStreamingSessionRunning, @unchecke
         var eventDelay: Duration?
         var runCallCount: Int = 0
         var deliveredEventCount: Int = 0
+        /// Boolean flags observed from each factory-construction event.
+        /// Tests record into this list via `recordFactoryFlags(_:)` from
+        /// inside the streaming-session-factory closure they pass to
+        /// `MLXTTSEngine.makeForTesting`. Used by tests that need to
+        /// assert on `prepareGeneration`'s emitted flags
+        /// (e.g. `clone_conditioning_reused`).
+        var factoryBooleanFlagsHistory: [[String: Bool]] = []
     }
 
     private let state: OSAllocatedUnfairLock<State>
@@ -68,6 +75,23 @@ final class MockNativeStreamingSession: NativeStreamingSessionRunning, @unchecke
     /// successful chunk).
     var deliveredEventCount: Int {
         state.withLock { $0.deliveredEventCount }
+    }
+
+    /// Boolean flags captured from each streaming-session-factory
+    /// invocation, in order. Tests record into this list by calling
+    /// `recordFactoryFlags(_:)` from inside the factory closure they
+    /// pass to `MLXTTSEngine.makeForTesting`. Used by tests that need to
+    /// assert on `prepareGeneration`-emitted flags (e.g.
+    /// `clone_conditioning_reused`).
+    var factoryBooleanFlagsHistory: [[String: Bool]] {
+        state.withLock { $0.factoryBooleanFlagsHistory }
+    }
+
+    /// Append a per-factory-call boolean-flag snapshot. Call from inside
+    /// the streaming-session-factory closure with the `booleanFlags`
+    /// positional argument (index 6).
+    func recordFactoryFlags(_ flags: [String: Bool]) {
+        state.withLock { $0.factoryBooleanFlagsHistory.append(flags) }
     }
 
     func run(

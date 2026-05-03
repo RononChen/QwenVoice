@@ -296,6 +296,196 @@ final class MLXTTSEngineMockBackedTests: XCTestCase {
         XCTAssertNil(engine.visibleErrorMessage)
     }
 
+    /// Ported equivalent of
+    /// `NativeMLXMacEngineTests.testNativeMLXMacEngineGenerateBatchSupports
+    /// HomogeneousCloneRequestsAndReusesConditioning`. Drives a 2-item
+    /// homogeneous clone batch through the engine and asserts that the
+    /// runtime emits `clone_conditioning_reused == false` on the first
+    /// request and `clone_conditioning_reused == true` on the second
+    /// (the cache hit path).
+    ///
+    /// Captures the `booleanFlags` at each streaming-session-factory
+    /// invocation via `MockNativeStreamingSession.recordFactoryFlags(_:)`
+    /// — `MLXTTSEngine.runGenerationAttempt` passes the runtime's
+    /// `prepareGeneration`-emitted flags to the factory at index 6, and
+    /// the mock session itself does not expose them on the result.
+    func testEngineCloneBatchSurfacesConditioningReuseFlagAcrossRequests() async throws {
+        let registry = try ContractBackedModelRegistry(
+            manifestURL: try Self.bundledManifestURL()
+        )
+        let coordinator = MockMLXModelCoordinator(loadHandler: { _, capabilityProfile in
+            return await NativeModelLoadResult.makeForTesting(
+                model: UnsafeSpeechGenerationModel.makeFullySupportingForTesting(),
+                capabilityProfile: capabilityProfile
+            )
+        })
+
+        let referenceURL = temporaryRoot.appendingPathComponent("batch-clone-reference.wav")
+        try NativeRuntimeTestSupport.writeTestWAV(to: referenceURL, sampleRate: 24_000, channels: 1)
+
+        let mockSession = MockNativeStreamingSession(
+            events: [],
+            result: GenerationResult(
+                audioPath: temporaryRoot.appendingPathComponent("batch-clone.wav").path,
+                durationSeconds: 0.05,
+                streamSessionDirectory: nil,
+                benchmarkSample: nil
+            )
+        )
+        let engine = MLXTTSEngine.makeForTesting(
+            modelRegistry: registry,
+            rootDirectory: temporaryRoot,
+            loadCoordinator: coordinator,
+            streamingSessionFactory: { _, _, _, _, _, _, booleanFlags, _, _, _, _, _, _, _ in
+                mockSession.recordFactoryFlags(booleanFlags)
+                return mockSession
+            }
+        )
+        try await engine.initialize(appSupportDirectory: temporaryRoot)
+
+        let reference = CloneReference(
+            audioPath: referenceURL.path,
+            transcript: "Batch transcript"
+        )
+        let first = GenerationRequest(
+            modelID: "qwen3_clone_voice",
+            text: "First clone item",
+            outputPath: temporaryRoot.appendingPathComponent("clone-first.wav").path,
+            shouldStream: false,
+            payload: .clone(reference: reference)
+        )
+        let second = GenerationRequest(
+            modelID: "qwen3_clone_voice",
+            text: "Second clone item",
+            outputPath: temporaryRoot.appendingPathComponent("clone-second.wav").path,
+            shouldStream: false,
+            payload: .clone(reference: reference)
+        )
+
+        let results = try await engine.generateBatch([first, second]) { _, _ in }
+
+        XCTAssertEqual(results.count, 2)
+        XCTAssertEqual(mockSession.runCallCount, 2)
+        XCTAssertEqual(mockSession.factoryBooleanFlagsHistory.count, 2)
+        XCTAssertEqual(
+            mockSession.factoryBooleanFlagsHistory[0]["clone_conditioning_reused"],
+            false,
+            "First batch item should not have clone-conditioning reuse."
+        )
+        XCTAssertEqual(
+            mockSession.factoryBooleanFlagsHistory[1]["clone_conditioning_reused"],
+            true,
+            "Second batch item should hit the clone-conditioning cache."
+        )
+        XCTAssertEqual(engine.loadState, .loaded(modelID: "qwen3_clone_voice"))
+        XCTAssertNil(engine.visibleErrorMessage)
+    }
+
+    /// Ported equivalent of
+    /// `NativeMLXMacEngineTests.testNativeMLXMacEnginePublishesLoadAndClone
+    /// PreparationStateForAvailableCloneModel`. Verifies the happy path:
+    /// load the model, prime a real reference WAV, observe
+    /// `clonePreparationState.phase == .primed` with the expected key,
+    /// then unload returns to `.idle`.
+    func testEngineCloneReferencePrimingPublishesPrimedStateForAvailableModel() async throws {
+        let registry = try ContractBackedModelRegistry(
+            manifestURL: try Self.bundledManifestURL()
+        )
+        let coordinator = MockMLXModelCoordinator(loadHandler: { _, capabilityProfile in
+            return await NativeModelLoadResult.makeForTesting(
+                model: UnsafeSpeechGenerationModel.makeFullySupportingForTesting(),
+                capabilityProfile: capabilityProfile
+            )
+        })
+        let engine = MLXTTSEngine.makeForTesting(
+            modelRegistry: registry,
+            rootDirectory: temporaryRoot,
+            loadCoordinator: coordinator
+        )
+        try await engine.initialize(appSupportDirectory: temporaryRoot)
+
+        let referenceURL = temporaryRoot.appendingPathComponent("primed-reference.wav")
+        try NativeRuntimeTestSupport.writeTestWAV(to: referenceURL, sampleRate: 24_000, channels: 1)
+
+        try await engine.loadModel(id: "qwen3_clone_voice")
+        let reference = CloneReference(
+            audioPath: referenceURL.path,
+            transcript: "Reference"
+        )
+        try await engine.ensureCloneReferencePrimed(
+            modelID: "qwen3_clone_voice",
+            reference: reference
+        )
+
+        XCTAssertEqual(engine.clonePreparationState.phase, .primed)
+        XCTAssertNotNil(engine.clonePreparationState.identityKey)
+        XCTAssertNil(engine.visibleErrorMessage)
+
+        try await engine.unloadModel()
+        XCTAssertEqual(engine.loadState, .idle)
+        XCTAssertEqual(engine.clonePreparationState, .idle)
+    }
+
+    /// Ported (in shape) from
+    /// `NativeMLXMacEngineTests.testNativeMLXMacEnginePublishesFailedClone
+    /// PreparationStateForInvalidReferenceAfterLoad`. Differs from the
+    /// already-ported negative-load test by design: here the model loads
+    /// successfully and only the *reference file* is invalid, so the
+    /// failure mode is "prime threw post-load" rather than "load
+    /// failed".
+    ///
+    /// Behavior divergence from the legacy test by design: legacy
+    /// NativeMLXMacEngine left `loadState == .loaded(modelID:)` after a
+    /// prime failure (only `clonePreparationState` flipped to `.failed`).
+    /// Core's `MLXTTSEngine.ensureCloneReferencePrimed` catch block calls
+    /// `handle(error)` which sets `loadState = .failed`, treating the
+    /// prime failure as a load failure surfaced to the UI. Both
+    /// `clonePreparationState.phase == .failed` AND `loadState == .failed`
+    /// after the throw on Core's path.
+    func testEngineCloneReferencePrimingPublishesFailedStateForMissingReferenceAfterLoad() async throws {
+        let registry = try ContractBackedModelRegistry(
+            manifestURL: try Self.bundledManifestURL()
+        )
+        let coordinator = MockMLXModelCoordinator(loadHandler: { _, capabilityProfile in
+            return await NativeModelLoadResult.makeForTesting(
+                model: UnsafeSpeechGenerationModel.makeFullySupportingForTesting(),
+                capabilityProfile: capabilityProfile
+            )
+        })
+        let engine = MLXTTSEngine.makeForTesting(
+            modelRegistry: registry,
+            rootDirectory: temporaryRoot,
+            loadCoordinator: coordinator
+        )
+        try await engine.initialize(appSupportDirectory: temporaryRoot)
+        try await engine.loadModel(id: "qwen3_clone_voice")
+        XCTAssertEqual(engine.loadState, .loaded(modelID: "qwen3_clone_voice"))
+
+        let missingReference = temporaryRoot.appendingPathComponent("missing.wav")
+        let reference = CloneReference(
+            audioPath: missingReference.path,
+            transcript: "Reference"
+        )
+        var didThrow = false
+        do {
+            try await engine.ensureCloneReferencePrimed(
+                modelID: "qwen3_clone_voice",
+                reference: reference
+            )
+        } catch {
+            didThrow = true
+        }
+        XCTAssertTrue(didThrow)
+
+        XCTAssertEqual(engine.clonePreparationState.phase, .failed)
+        XCTAssertNotNil(engine.clonePreparationState.errorMessage)
+        if case .failed(let message) = engine.loadState {
+            XCTAssertEqual(engine.visibleErrorMessage, message)
+        } else {
+            XCTFail("Expected loadState to be .failed (Core treats prime failure as a load failure), got \(engine.loadState)")
+        }
+    }
+
     /// Ported (in shape) from
     /// `NativeMLXMacEngineTests.testNativeMLXMacEngineCancellationBeforeFirstChunkDoesNotWriteFinalOutput`.
     /// The mock streaming session is configured with `initialDelay`

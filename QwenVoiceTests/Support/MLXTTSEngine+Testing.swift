@@ -19,19 +19,28 @@ extension UnsafeSpeechGenerationModel {
     ///
     /// Built for Session 5c of the QwenVoiceNativeRuntime retirement.
     static func makeFullySupportingForTesting(sampleRate: Int = 24_000) -> UnsafeSpeechGenerationModel {
-        let emptyStream: @Sendable () -> AsyncThrowingStream<AudioGeneration, Error> = {
+        // The prime/prewarm paths in `NativeEngineRuntime` (clone prime,
+        // design conditioning warm-up) consume a single chunk from the
+        // model's stream handler before completing. An empty
+        // `AsyncThrowingStream` causes "produced no streaming chunk"
+        // errors, so each handler yields one minimal audio event then
+        // finishes. The mock streaming session takes over for actual
+        // generation tests, so this output is never consumed past the
+        // prime/warm step.
+        let oneShotStream: @Sendable () -> AsyncThrowingStream<AudioGeneration, Error> = {
             AsyncThrowingStream { continuation in
+                continuation.yield(.audio(MLXArray([Float32(0.0), Float32(0.0)])))
                 continuation.finish()
             }
         }
         return UnsafeSpeechGenerationModel(
             sampleRate: sampleRate,
             prewarmHandler: { _, _ in },
-            streamHandler: { _, _, _ in emptyStream() },
+            streamHandler: { _, _, _ in oneShotStream() },
             customPrewarmHandler: { _, _, _, _ in },
-            customStreamHandler: { _, _, _, _, _ in emptyStream() },
+            customStreamHandler: { _, _, _, _, _ in oneShotStream() },
             designPrewarmHandler: { _, _, _ in },
-            designStreamHandler: { _, _, _, _ in emptyStream() },
+            designStreamHandler: { _, _, _, _ in oneShotStream() },
             clonePromptCreator: { _, refText, xVectorOnlyMode in
                 Qwen3TTSVoiceClonePrompt(
                     refCodes: MLXArray([Int32(1), Int32(2), Int32(3)]),
@@ -42,7 +51,7 @@ extension UnsafeSpeechGenerationModel {
                 )
             },
             clonePrewarmHandler: { _, _, _ in },
-            cloneStreamHandler: { _, _, _, _ in emptyStream() }
+            cloneStreamHandler: { _, _, _, _ in oneShotStream() }
         )
     }
 }
