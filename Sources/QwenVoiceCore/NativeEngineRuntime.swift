@@ -379,6 +379,7 @@ actor NativeEngineRuntime {
                 booleanFlags.merge(model.latestPreparationBooleanFlags) { _, rhs in rhs }
             }
             mlxMemorySnapshots["after_prewarm"] = NativeMemoryPolicyResolver.snapshot()
+            booleanFlags["clone_optimized_handler_used"] = model.supportsOptimizedVoiceClone
         case .custom:
             await recordDiagnosticEvent(
                 "runtime-prepare-custom-entered",
@@ -425,6 +426,7 @@ actor NativeEngineRuntime {
             booleanFlags["design_stream_step_prefetch_hit"] = warmState.streamStepPrefetchHit
             booleanFlags["design_warm_bucket_short"] = warmBucket == .short
             booleanFlags["design_warm_bucket_long"] = warmBucket == .long
+            booleanFlags["design_optimized_handler_used"] = model.supportsOptimizedVoiceDesign
             stringFlags["design_conditioning_request_key"] = warmState.requestKey
             mlxMemorySnapshots["after_prewarm"] = NativeMemoryPolicyResolver.snapshot()
         }
@@ -443,6 +445,8 @@ actor NativeEngineRuntime {
             extra: [
                 "customDedicatedHandlerUsed": booleanFlags["custom_dedicated_handler_used"] == true ? "true" : "false",
                 "customDedicatedPrewarmSkipped": booleanFlags["custom_dedicated_prewarm_skipped"] == true ? "true" : "false",
+                "designOptimizedHandlerUsed": booleanFlags["design_optimized_handler_used"] == true ? "true" : "false",
+                "cloneOptimizedHandlerUsed": booleanFlags["clone_optimized_handler_used"] == true ? "true" : "false",
             ]
         )
 
