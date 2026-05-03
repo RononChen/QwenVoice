@@ -198,6 +198,15 @@ The opt-in performance/audio-QC lane (requires installed models, not part of `--
 
 ```sh
 ./scripts/qa.sh test --layer perf
+QWENVOICE_AUDIO_QC_MODES=CustomVoice ./scripts/qa.sh test --layer perf   # scope to a single mode
+```
+
+Compare a fresh perf-lane run against the committed baseline at `scripts/perf-baseline-manifest.json`:
+
+```sh
+./scripts/compare_perf_manifest.sh                                    # uses build/audio-qc/qa-perf/generation-manifest.json
+./scripts/compare_perf_manifest.sh path/to/other-manifest.json
+QWENVOICE_PERF_WALL_TOLERANCE_PCT=10 ./scripts/compare_perf_manifest.sh   # tighter wall/RTF tolerance
 ```
 
 Local rescue and release:
@@ -281,6 +290,8 @@ Release facts:
   review `Sources/QwenVoiceCore/IOSMemorySnapshot.swift`, `Sources/iOS/TTSEngineStore.swift`, `Sources/iOS/QVoiceiOSApp.swift`, and iPhone settings/status UI together.
 - Playback or generation-persistence behavior:
   review `Sources/SharedSupport/` and affected macOS or iPhone feature views together.
+- Engine prepare/load/streaming hot paths (`Sources/QwenVoiceCore/NativeEngineRuntime.swift`, `MLXModelLoadCoordinator.swift`, `NativeStreamingSynthesisSession.swift`):
+  re-run `QWENVOICE_AUDIO_QC_MODES=CustomVoice ./scripts/qa.sh test --layer perf` and `./scripts/compare_perf_manifest.sh` against `scripts/perf-baseline-manifest.json`. Re-capture the baseline (overwrite from a fresh run) if the change is intentional and the regression is justified — pin the new baseline's `baselineCapturedAtCommit` field to the commit that introduces it.
 - macOS release packaging or notarization behavior:
   keep `scripts/release.sh`, `scripts/create_dmg.sh`, `scripts/verify_release_bundle.sh`, `scripts/verify_packaged_dmg.sh`, `.github/workflows/macos-release.yml`, and release-facing docs aligned.
 - iPhone archive/export/TestFlight behavior:
