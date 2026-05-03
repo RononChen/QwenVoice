@@ -105,8 +105,6 @@ targets:
           - "iOSSupport/**"
           - "QwenVoiceNative"
           - "QwenVoiceNative/**"
-          - "QwenVoiceNativeRuntime"
-          - "QwenVoiceNativeRuntime/**"
           - "Resources/ffmpeg"
           - "Resources/ffmpeg/**"
           - "Resources/vendor"
@@ -245,31 +243,6 @@ targets:
       - package: SwiftHuggingFace
         product: HuggingFace
 
-  QwenVoiceNativeRuntime:
-    type: framework.static
-    platform: macOS
-    sources:
-      - path: Sources/QwenVoiceNativeRuntime
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.qwenvoice.native-runtime
-        PRODUCT_NAME: QwenVoiceNativeRuntime
-        PRODUCT_MODULE_NAME: QwenVoiceNativeRuntime
-        SWIFT_VERSION: "6"
-        MACOSX_DEPLOYMENT_TARGET: "26.0"
-        GENERATE_INFOPLIST_FILE: YES
-    dependencies:
-      - target: QwenVoiceCore
-      - target: QwenVoiceEngineSupport
-      - package: MLXAudio
-        product: MLXAudioCore
-      - package: MLXAudio
-        product: MLXAudioTTS
-      - package: MLXSwift
-        product: MLX
-      - package: SwiftHuggingFace
-        product: HuggingFace
-
   QwenVoiceEngineService:
     type: xpc-service
     platform: macOS
@@ -317,7 +290,6 @@ targets:
       - target: QwenVoiceCore
       - target: QwenVoiceNative
       - target: QwenVoiceEngineSupport
-      - target: QwenVoiceNativeRuntime
       - package: MLXAudio
         product: MLXAudioCore
       - package: MLXAudio
