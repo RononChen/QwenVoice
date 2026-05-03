@@ -200,6 +200,57 @@ final class MLXTTSEngineMockBackedTests: XCTestCase {
         XCTAssertEqual(coordinator.unloadCallCount, 1)
     }
 
+    /// Ported equivalent of
+    /// `NativeMLXMacEngineTests.testNativeMLXMacEngineClonePrimingRequiresAvailableModel`.
+    /// Verifies that calling `ensureCloneReferencePrimed` against a model
+    /// the coordinator cannot load surfaces both `clonePreparationState`
+    /// `.failed` and `loadState` `.failed(...)`. Note: Core's
+    /// `MLXTTSEngine` retains the failed clone-prep state on error
+    /// (NativeMLXMacEngine reset it to `.idle` via its
+    /// `publishRuntimeFailure` snapshot), so the assertion shape differs
+    /// from the legacy test by design.
+    func testEngineClonePrimingSurfacesLoadFailureWhenCoordinatorCannotLoadModel() async throws {
+        let registry = try ContractBackedModelRegistry(
+            manifestURL: try Self.bundledManifestURL()
+        )
+        let coordinator = MockMLXModelCoordinator()
+        let engine = MLXTTSEngine.makeForTesting(
+            modelRegistry: registry,
+            rootDirectory: temporaryRoot,
+            loadCoordinator: coordinator
+        )
+        try await engine.initialize(appSupportDirectory: temporaryRoot)
+
+        let reference = CloneReference(
+            audioPath: "/tmp/missing-reference.wav",
+            transcript: "Reference transcript"
+        )
+        var didThrow = false
+        do {
+            try await engine.ensureCloneReferencePrimed(
+                modelID: "qwen3_clone_voice",
+                reference: reference
+            )
+        } catch {
+            didThrow = true
+        }
+        XCTAssertTrue(didThrow, "Expected ensureCloneReferencePrimed to throw when the coordinator cannot load the model.")
+
+        // The runtime calls loadModel with `.cloneOnly` capability profile
+        // before resolving conditioning, so the mock should observe a
+        // single load attempt with that profile.
+        XCTAssertEqual(coordinator.loadCalls.count, 1)
+        XCTAssertEqual(coordinator.loadCalls.first?.modelID, "qwen3_clone_voice")
+        XCTAssertEqual(coordinator.loadCalls.first?.capabilityProfile, .cloneOnly)
+
+        XCTAssertEqual(engine.clonePreparationState.phase, .failed)
+        if case .failed(let message) = engine.loadState {
+            XCTAssertEqual(engine.visibleErrorMessage, message)
+        } else {
+            XCTFail("Expected loadState to be .failed after the prime path threw, got \(engine.loadState)")
+        }
+    }
+
     // MARK: - Helpers
 
     private static func makeTemporaryRoot() throws -> URL {
