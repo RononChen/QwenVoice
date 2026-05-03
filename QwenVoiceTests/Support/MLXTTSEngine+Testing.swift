@@ -1,6 +1,33 @@
 import Foundation
 @testable import QwenVoiceCore
 
+extension NativeModelLoadResult {
+    /// Builds a `NativeModelLoadResult` whose model is a default closure-
+    /// initialized `UnsafeSpeechGenerationModel`. Suitable for tests that
+    /// don't actually exercise generation — load-state, prewarm, and
+    /// snapshot-state tests.
+    ///
+    /// Built for Session 5c of the QwenVoiceNativeRuntime retirement.
+    @MainActor
+    static func makeForTesting(
+        model: UnsafeSpeechGenerationModel = UnsafeSpeechGenerationModel(),
+        didLoad: Bool = true,
+        capabilityProfile: NativeLoadCapabilityProfile = .fullCapabilities,
+        timingsMS: [String: Int] = [:],
+        booleanFlags: [String: Bool] = [:],
+        stringFlags: [String: String] = [:]
+    ) -> NativeModelLoadResult {
+        NativeModelLoadResult(
+            model: model,
+            didLoad: didLoad,
+            capabilityProfile: capabilityProfile,
+            timingsMS: timingsMS,
+            booleanFlags: booleanFlags,
+            stringFlags: stringFlags
+        )
+    }
+}
+
 extension MLXTTSEngine {
     /// Test-only factory that constructs an `MLXTTSEngine` with a caller-
     /// supplied `MLXModelCoordinating` and an optional streaming-session
