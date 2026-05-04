@@ -42,3 +42,7 @@ build_log*.txt
 
 # Code coverage artifacts
 *.profraw
+
+# Claude Code session-local scratch
+.claude/scheduled_tasks.lock
+.claude/worktrees/
