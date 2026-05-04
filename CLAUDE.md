@@ -253,13 +253,42 @@ Driven by Claude (via the computer-use MCP) or you manually:
 # with populated inputs in the foreground; the script issues Cmd+Return,
 # waits for new wav file(s) to finish writing, sums afinfo audio
 # duration across long-form batch segments, and appends a CSV row.
-./scripts/bench_ui_generation.sh <mode> <length> <state> <sample> [csv_path]
+./scripts/bench_ui_generation.sh <mode> <length> <state> <sample> [csv_path] \
+    [--log-file <path>]
 #   mode:   custom | design | clone
 #   state:  cold | warm
+#   --log-file: optional; capture Vocello stdout to detect live-preview
+#               anomalies (DEBUG-only). Adds columns: underrun_count,
+#               total_stall_ms, ttfa_ms, max_chunk_gap_ms, decode_fails,
+#               stream_errors, duration_mismatch_s, chunk_count.
 ```
 
+To capture anomaly columns, launch Vocello via the binary so stdout is
+redirectable, then pass the same path to every sample call:
+
+```sh
+LOG=/tmp/vocello-bench.log
+nohup "$APP/Contents/MacOS/Vocello" > "$LOG" 2>&1 &
+# ...drive UI...
+./scripts/bench_ui_generation.sh custom medium warm 1 /tmp/results.csv --log-file "$LOG"
+```
+
+The `[LivePreview]` schema (DEBUG-only, emitted by `AudioPlayerViewModel`):
+
+| Event | Keys |
+|---|---|
+| `session_start` | `session=<id>` |
+| `chunk_arrived` | `seq audio_s cumulative_s queue_depth gap_ms` |
+| `playback_started` | `ttfa_ms queue_depth` |
+| `underrun_paused` | `underrun_n audio_played_s` |
+| `underrun_resumed` | `stall_ms queue_depth` |
+| `decode_failed` | `branch=<file\|inline>` |
+| `stream_error` | `message=<text>` |
+| `final_handoff` | `preview_audio_s final_audio_s delta_s` |
+| `preview_completed` | `underruns total_stall_ms decode_fails stream_errors max_chunk_gap_ms chunk_count` |
+
 Cold/warm protocol:
-- **Cold**: kill Vocello (`pkill -x Vocello`), relaunch (`open …Vocello.app`), wait for "Engine ready", paste inputs, then call the helper
+- **Cold**: kill Vocello (`pkill -x Vocello`), relaunch (`open …Vocello.app` or via binary), wait for "Engine ready", paste inputs, then call the helper
 - **Warm**: call the helper back-to-back without restarting Vocello
 
 Standard length tiers: micro (~3 words) / short (~10 words) / medium (~50 words) / long (~150 words) / very-long (~500–800 words, exercises long-form-batch routing).

@@ -34,20 +34,46 @@
 
 set -euo pipefail
 
-if [ $# -lt 4 ]; then
-    cat <<'USAGE'
+LOG_FILE=""
+POSITIONAL=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --log-file)
+            LOG_FILE="$2"; shift 2 ;;
+        --log-file=*)
+            LOG_FILE="${1#*=}"; shift ;;
+        -h|--help)
+            cat <<'USAGE'
 Usage: bench_ui_generation.sh <mode> <length> <state> <sample> [csv_path]
+                              [--log-file <path>]
 
-  mode      custom | design | clone
-  length    label (micro / short / medium / long / very-long / ...)
-  state     cold | warm
-  sample    numeric sample number (1, 2, 3, ...)
-  csv_path  optional; default /tmp/vocello-ui-bench-results.csv
+  mode       custom | design | clone
+  length     label (micro / short / medium / long / very-long / ...)
+  state      cold | warm
+  sample     numeric sample number (1, 2, 3, ...)
+  csv_path   optional; default /tmp/vocello-ui-bench-results.csv
+  --log-file optional; when provided, the script reads `[LivePreview]`
+             trace lines emitted during this sample's timing window
+             and adds anomaly columns to the CSV (underrun_count,
+             total_stall_ms, ttfa_ms, max_chunk_gap_ms, decode_fails,
+             stream_errors, duration_mismatch_s, chunk_count).
+             Caller is responsible for launching Vocello with stdout
+             redirected to this file, e.g.:
+               nohup .../Vocello > /tmp/vocello-bench.log 2>&1 &
 
 Vocello must be the foreground app with the script + (for design)
 brief fields populated. The script issues Cmd+Return to trigger
 generation, then times wall-clock to file size stability.
 USAGE
+            exit 0 ;;
+        *)
+            POSITIONAL+=("$1"); shift ;;
+    esac
+done
+set -- "${POSITIONAL[@]}"
+
+if [ $# -lt 4 ]; then
+    echo "missing required positional args; run with --help for usage" >&2
     exit 1
 fi
 
@@ -75,6 +101,13 @@ ACTIVATION_OVERHEAD=1.5
 
 # Snapshot file set before triggering
 BEFORE=$(ls "$OUT" 2>/dev/null | sort)
+
+# Capture log offset BEFORE the trigger so we can parse only the
+# `[LivePreview]` lines emitted by THIS sample's generation.
+LOG_OFFSET_BEFORE=0
+if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
+    LOG_OFFSET_BEFORE=$(stat -f %z "$LOG_FILE" 2>/dev/null || echo 0)
+fi
 
 osascript -e 'tell application "Vocello" to activate' 2>/dev/null
 sleep 0.4
@@ -149,10 +182,78 @@ else
     FILE_LABEL="$NEW"
 fi
 
-if [ ! -f "$CSV" ]; then
-    echo "mode,length,state,sample,wall_secs,audio_secs,rtf,filename" > "$CSV"
+# ---------------------------------------------------------------------
+# Anomaly parsing — when --log-file points at a captured Vocello stdout,
+# extract the `[LivePreview]` event lines emitted in this sample's
+# timing window and reduce them to summary columns.
+#
+# Schema (emitted by AudioPlayerViewModel.swift, DEBUG-only):
+#   [LivePreview] event=session_start session=<id>
+#   [LivePreview] event=chunk_arrived seq=N audio_s=X cumulative_s=Y queue_depth=Q gap_ms=G
+#   [LivePreview] event=playback_started ttfa_ms=T queue_depth=Q
+#   [LivePreview] event=underrun_paused underrun_n=N audio_played_s=X
+#   [LivePreview] event=underrun_resumed stall_ms=S queue_depth=Q
+#   [LivePreview] event=decode_failed branch=<file|inline>
+#   [LivePreview] event=stream_error message=<text>
+#   [LivePreview] event=final_handoff preview_audio_s=X final_audio_s=Y delta_s=D
+#   [LivePreview] event=preview_completed underruns=N total_stall_ms=S ...
+# ---------------------------------------------------------------------
+UNDERRUN_COUNT=""
+TOTAL_STALL_MS=""
+TTFA_MS=""
+MAX_CHUNK_GAP_MS=""
+DECODE_FAILS=""
+STREAM_ERRORS=""
+DURATION_MISMATCH_S=""
+CHUNK_COUNT=""
+
+if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
+    LOG_OFFSET_AFTER=$(stat -f %z "$LOG_FILE" 2>/dev/null || echo 0)
+    if [ "$LOG_OFFSET_AFTER" -gt "$LOG_OFFSET_BEFORE" ]; then
+        TRACE=$(tail -c "+$((LOG_OFFSET_BEFORE + 1))" "$LOG_FILE" \
+                | grep "\[LivePreview\]" || true)
+
+        # preview_completed line carries all aggregate counters
+        SUMMARY_LINE=$(echo "$TRACE" | grep "event=preview_completed" | tail -1)
+        if [ -n "$SUMMARY_LINE" ]; then
+            UNDERRUN_COUNT=$(echo "$SUMMARY_LINE" | grep -oE 'underruns=[0-9]+' | cut -d= -f2)
+            TOTAL_STALL_MS=$(echo "$SUMMARY_LINE" | grep -oE 'total_stall_ms=[0-9]+' | cut -d= -f2)
+            DECODE_FAILS=$(echo "$SUMMARY_LINE" | grep -oE 'decode_fails=[0-9]+' | cut -d= -f2)
+            STREAM_ERRORS=$(echo "$SUMMARY_LINE" | grep -oE 'stream_errors=[0-9]+' | cut -d= -f2)
+            MAX_CHUNK_GAP_MS=$(echo "$SUMMARY_LINE" | grep -oE 'max_chunk_gap_ms=[0-9]+' | cut -d= -f2)
+            CHUNK_COUNT=$(echo "$SUMMARY_LINE" | grep -oE 'chunk_count=[0-9]+' | cut -d= -f2)
+        fi
+
+        # ttfa_ms comes from playback_started
+        STARTED_LINE=$(echo "$TRACE" | grep "event=playback_started" | tail -1)
+        if [ -n "$STARTED_LINE" ]; then
+            TTFA_MS=$(echo "$STARTED_LINE" | grep -oE 'ttfa_ms=[0-9]+' | cut -d= -f2)
+        fi
+
+        # duration_mismatch_s = abs(delta_s) from final_handoff
+        HANDOFF_LINE=$(echo "$TRACE" | grep "event=final_handoff" | tail -1)
+        if [ -n "$HANDOFF_LINE" ]; then
+            DELTA=$(echo "$HANDOFF_LINE" | grep -oE 'delta_s=-?[0-9.]+' | cut -d= -f2)
+            if [ -n "$DELTA" ]; then
+                DURATION_MISMATCH_S=$(echo "$DELTA" | tr -d -)
+            fi
+        fi
+    fi
 fi
 
-ROW="$MODE,$LENGTH,$STATE,$SAMPLE,$WALL,$TOTAL_AUDIO,$RTF,$FILE_LABEL"
+UNDERRUN_COUNT=${UNDERRUN_COUNT:-}
+TOTAL_STALL_MS=${TOTAL_STALL_MS:-}
+TTFA_MS=${TTFA_MS:-}
+MAX_CHUNK_GAP_MS=${MAX_CHUNK_GAP_MS:-}
+DECODE_FAILS=${DECODE_FAILS:-}
+STREAM_ERRORS=${STREAM_ERRORS:-}
+DURATION_MISMATCH_S=${DURATION_MISMATCH_S:-}
+CHUNK_COUNT=${CHUNK_COUNT:-}
+
+if [ ! -f "$CSV" ]; then
+    echo "mode,length,state,sample,wall_secs,audio_secs,rtf,filename,underrun_count,total_stall_ms,ttfa_ms,max_chunk_gap_ms,decode_fails,stream_errors,duration_mismatch_s,chunk_count" > "$CSV"
+fi
+
+ROW="$MODE,$LENGTH,$STATE,$SAMPLE,$WALL,$TOTAL_AUDIO,$RTF,$FILE_LABEL,$UNDERRUN_COUNT,$TOTAL_STALL_MS,$TTFA_MS,$MAX_CHUNK_GAP_MS,$DECODE_FAILS,$STREAM_ERRORS,$DURATION_MISMATCH_S,$CHUNK_COUNT"
 echo "$ROW"
 echo "$ROW" >> "$CSV"
