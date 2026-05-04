@@ -9,6 +9,13 @@ private struct HistoryListItem: Identifiable {
     let textPreview: String
     let formattedDate: String
     let searchKey: String
+    /// Cached `SavedVoiceSheetConfiguration` for the "Save to Saved
+    /// Voices" action, derived once at construction time. Previously
+    /// `saveVoiceConfiguration(for: item)` was recomputed for every
+    /// visible row on every body invalidation; now the per-row work
+    /// happens once during item init (off-main, in `reloadHistory`).
+    /// Nil for non-clone/design modes (the action is unavailable).
+    let saveVoiceConfiguration: SavedVoiceSheetConfiguration?
 
     var id: String {
         if let generationID = generation.id {
@@ -23,6 +30,36 @@ private struct HistoryListItem: Identifiable {
         self.textPreview = generation.textPreview
         self.formattedDate = generation.formattedDate
         self.searchKey = "\(generation.text)\n\(generation.voice ?? "")".lowercased()
+        self.saveVoiceConfiguration = Self.makeSaveVoiceConfiguration(for: generation)
+    }
+
+    private static func makeSaveVoiceConfiguration(for generation: Generation) -> SavedVoiceSheetConfiguration? {
+        switch generation.mode {
+        case GenerationMode.clone.rawValue:
+            return .cloneResult(
+                suggestedName: suggestedSavedVoiceName(for: generation),
+                audioPath: generation.audioPath,
+                transcript: generation.text
+            )
+        case GenerationMode.design.rawValue:
+            return .designResult(
+                voiceDescription: generation.voice ?? "",
+                audioPath: generation.audioPath,
+                transcript: generation.text
+            )
+        default:
+            return nil
+        }
+    }
+
+    private static func suggestedSavedVoiceName(for generation: Generation) -> String {
+        if let voice = generation.voice?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !voice.isEmpty {
+            return "\(voice) Sample"
+        }
+        return URL(fileURLWithPath: generation.audioPath)
+            .deletingPathExtension()
+            .lastPathComponent
     }
 }
 
@@ -163,13 +200,12 @@ struct HistoryView: View {
             }
         } else {
             List(filteredItems) { item in
-                let saveVoiceConfiguration = saveVoiceConfiguration(for: item)
                 HistoryRow(
                     item: item,
                     onPlay: {
                         audioPlayer.playFile(item.generation.audioPath, title: item.textPreview)
                     },
-                    onSaveToSavedVoices: saveVoiceConfiguration.map { configuration in
+                    onSaveToSavedVoices: item.saveVoiceConfiguration.map { configuration in
                         {
                             savedVoiceSheetConfiguration = configuration
                         }
@@ -198,25 +234,6 @@ struct HistoryView: View {
 }
 
 private extension HistoryView {
-    func saveVoiceConfiguration(for item: HistoryListItem) -> SavedVoiceSheetConfiguration? {
-        switch item.generation.mode {
-        case GenerationMode.clone.rawValue:
-            return .cloneResult(
-                suggestedName: suggestedSavedVoiceName(for: item),
-                audioPath: item.generation.audioPath,
-                transcript: item.generation.text
-            )
-        case GenerationMode.design.rawValue:
-            return .designResult(
-                voiceDescription: item.generation.voice ?? "",
-                audioPath: item.generation.audioPath,
-                transcript: item.generation.text
-            )
-        default:
-            return nil
-        }
-    }
-
     func handleAppear() {
         reloadHistory()
     }
@@ -386,17 +403,6 @@ private extension HistoryView {
                 )
             }
         }
-    }
-
-    func suggestedSavedVoiceName(for item: HistoryListItem) -> String {
-        if let voice = item.generation.voice?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !voice.isEmpty {
-            return "\(voice) Sample"
-        }
-
-        return URL(fileURLWithPath: item.generation.audioPath)
-            .deletingPathExtension()
-            .lastPathComponent
     }
 
     func confirmDelete(_ item: HistoryListItem) {

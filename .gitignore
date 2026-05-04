@@ -45,4 +45,3 @@ build_log*.txt
 
 # Claude Code session-local scratch
 .claude/scheduled_tasks.lock
-.claude/worktrees/
