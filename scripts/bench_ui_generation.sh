@@ -10,6 +10,15 @@
 # Cmd+Return) lives in Claude's computer-control session because
 # Vocello's GenerationDraft state isn't surfaced via CLI.
 #
+# NO SWAP / RAM PREFLIGHT (by policy). The desktop-UI bench
+# characterises behaviour at the hardware floor including memory-
+# pressure regimes; aborting on high swap would defeat the purpose.
+# Only the single-instance rule applies: caller must `pkill -x Vocello`
+# before each cold relaunch. Engine wedge (no chunk progress for >60 s
+# with the Vocello process still alive) is the one legitimate abort
+# condition; the script's existing 4000×0.1s = 400 s completion-detect
+# loop covers it via a 60 s no-growth fallback.
+#
 # Usage:
 #   scripts/bench_ui_generation.sh <mode> <length> <state> <sample> [csv_path]
 #

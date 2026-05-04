@@ -293,6 +293,8 @@ Cold/warm protocol:
 
 Standard length tiers: micro (~3 words) / short (~10 words) / medium (~50 words) / long (~150 words) / very-long (~500–800 words, exercises long-form-batch routing).
 
+**Memory pressure during the UI bench is a feature, not a failure.** The bench is meant to characterise behaviour at the hardware floor, including swap-pressure regimes real users hit. Do NOT abort a sweep because `vm.swapusage` is high — push through. The only legitimate abort is engine wedge (no chunk progress for >60 s with the Vocello process still alive). The single-instance rule (`pkill -x Vocello` before each cold relaunch) is the only memory-related invariant; overlapping instances confuse the engine's process identity logic and pollute the `[LivePreview]` trace.
+
 Output dirs (the helper resolves these from `mode`):
 - `~/Library/Application Support/QwenVoice/outputs/CustomVoice/`
 - `~/Library/Application Support/QwenVoice/outputs/VoiceDesign/`
@@ -389,7 +391,8 @@ Release facts:
 - Avoid running multiple `QwenVoice` or `Vocello` app instances at once while debugging model loads, clone prep, playback, XPC behavior, or engine-extension behavior. Kill an old instance before launching a new build.
 - Never overlap heavy `xcodebuild`, `scripts/qa.sh`, release packaging, live app validation, or native smoke processes on this machine.
 - Never run more than one heavy model load, generation, or benchmark at a time.
-- For perf-lane runs, qa.sh's `vm.swapusage` preflight refuses to start when swap-used ≥ 8 GB or swap-free ≤ 512 MB (override via `QWENVOICE_PERF_SWAP_HARD_STOP_MB` / `QWENVOICE_PERF_SWAP_MIN_FREE_MB`). Close memory-heavy apps before kicking a perf run on this 8 GB development machine.
+- For perf-lane runs (`qa.sh test --layer perf`, the programmatic regression gate), qa.sh's `vm.swapusage` preflight refuses to start when swap-used ≥ 8 GB or swap-free ≤ 512 MB (override via `QWENVOICE_PERF_SWAP_HARD_STOP_MB` / `QWENVOICE_PERF_SWAP_MIN_FREE_MB`). The preflight protects CI-style determinism, not the desktop-UI bench.
+- **Desktop-UI bench is exempt from swap / RAM gating** as long as only one Vocello instance is running. The bench's job is to characterise behaviour at the hardware floor, including memory-pressure regimes the user actually hits. Don't abort a `bench_ui_generation.sh` run because of high swap; only abort if the engine itself is wedged (no chunk progress for >60 s with the process still alive). The single-instance rule (`pkill -x Vocello` before each cold relaunch) is non-negotiable — overlapping instances confuse the engine identity-key logic and pollute the trace.
 
 ## Storage Discipline
 
