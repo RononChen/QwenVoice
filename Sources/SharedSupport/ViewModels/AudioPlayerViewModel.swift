@@ -102,17 +102,38 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         }
     }
 
+    /// Decides whether the live-preview player has enough buffered
+    /// audio to begin (or resume) playback. The `underrunCount`
+    /// parameter scales the requirement after each buffer underrun so
+    /// medium-to-long generations (where engine RTF > 1) don't keep
+    /// re-buffering at the same shallow threshold and producing
+    /// periodic interruptions. See May 2026 benchmark + plan in
+    /// `~/.claude/plans/pull-the-latest-changes-vivid-biscuit.md`
+    /// (the "stop live-preview underruns" entry).
+    ///
+    /// Multiplier: each underrun adds +75 % to the threshold, capped at
+    /// 4× the base. Sequence: 1×, 1.75×, 2.5×, 3.25×, 4× (then 4× from
+    /// then on).
     private static func shouldStartLivePlayback(
         autoplayEnabled: Bool,
         queuedChunks: Int,
         queuedDuration: TimeInterval,
         prebufferThreshold: Int,
         minimumBufferedDuration: TimeInterval,
-        finalFileAvailable: Bool
+        finalFileAvailable: Bool,
+        underrunCount: Int = 0
     ) -> Bool {
         guard autoplayEnabled else { return false }
         guard !finalFileAvailable else { return true }
-        return queuedChunks >= prebufferThreshold && queuedDuration >= minimumBufferedDuration
+
+        let multiplier = min(1.0 + 0.75 * Double(max(underrunCount, 0)), 4.0)
+        let scaledChunks = max(
+            prebufferThreshold,
+            Int((Double(prebufferThreshold) * multiplier).rounded(.up))
+        )
+        let scaledDuration = minimumBufferedDuration * multiplier
+
+        return queuedChunks >= scaledChunks && queuedDuration >= scaledDuration
     }
 
     private var playbackMode: PlaybackMode = .none
@@ -224,7 +245,8 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         queuedDuration: TimeInterval = 10,
         prebufferThreshold: Int,
         minimumBufferedDuration: TimeInterval = 2.25,
-        finalFileAvailable: Bool = false
+        finalFileAvailable: Bool = false,
+        underrunCount: Int = 0
     ) -> Bool {
         shouldStartLivePlayback(
             autoplayEnabled: autoplayEnabled,
@@ -232,7 +254,8 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             queuedDuration: queuedDuration,
             prebufferThreshold: prebufferThreshold,
             minimumBufferedDuration: minimumBufferedDuration,
-            finalFileAvailable: finalFileAvailable
+            finalFileAvailable: finalFileAvailable,
+            underrunCount: underrunCount
         )
     }
 #endif
@@ -646,7 +669,8 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             queuedDuration: livePreviewDuration,
             prebufferThreshold: livePreviewConfiguration.prebufferThreshold,
             minimumBufferedDuration: livePreviewConfiguration.minimumBufferedDuration,
-            finalFileAvailable: liveFinalFilePath != nil
+            finalFileAvailable: liveFinalFilePath != nil,
+            underrunCount: liveUnderrunCount
         ) {
             attemptLivePlay()
         } else {
@@ -708,7 +732,8 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             queuedDuration: livePreviewDuration,
             prebufferThreshold: livePreviewConfiguration.prebufferThreshold,
             minimumBufferedDuration: livePreviewConfiguration.minimumBufferedDuration,
-            finalFileAvailable: liveFinalFilePath != nil
+            finalFileAvailable: liveFinalFilePath != nil,
+            underrunCount: liveUnderrunCount
         ) {
             attemptLivePlay()
         } else {
