@@ -227,6 +227,14 @@ iPhone TestFlight (deferred):
 ./scripts/verify_ios_release_archive.sh
 ```
 
+Disk-space recovery (this dev machine has limited storage):
+
+```sh
+./scripts/clean_build_caches.sh             # remove always-safe items (~5 GB typical)
+./scripts/clean_build_caches.sh --aggressive # also wipe qa.sh + release derived-data (~11 GB extra; slower next build)
+./scripts/clean_build_caches.sh --dry-run    # print what would be removed
+```
+
 Notes:
 
 - `scripts/qa.sh` is the primary local validation, test, and performance entrypoint.
@@ -305,6 +313,18 @@ Release facts:
 - Never overlap heavy `xcodebuild`, `scripts/qa.sh`, release packaging, live app validation, or native smoke processes on this machine.
 - Never run more than one heavy model load, generation, or benchmark at a time.
 - For perf-lane runs, qa.sh's `vm.swapusage` preflight refuses to start when swap-used ≥ 8 GB or swap-free ≤ 512 MB (override via `QWENVOICE_PERF_SWAP_HARD_STOP_MB` / `QWENVOICE_PERF_SWAP_MIN_FREE_MB`). Close memory-heavy apps before kicking a perf run on this 8 GB development machine.
+
+## Storage Discipline
+
+This dev machine has limited disk; the `build/` tree balloons quickly during active iteration (qa.sh, release packaging, perf-lane runs, foundation builds, audio-QC archives — easily 20+ GB combined). Don't accumulate artifacts.
+
+- **`./scripts/clean_build_caches.sh`** removes always-safe items (stale `build/Vocello.app` + `Vocello-macos26.dmg` + release logs, `build/audio-qc/benchmark-v2/`). Run it after a session that produced a release build or a perf-lane benchmark archive you don't need to keep.
+- **`./scripts/clean_build_caches.sh --aggressive`** additionally wipes `build/harness/derived-data/` + `source-packages/` and `build/foundation/macos-release-derived-data/` (~11 GB). Use before idle periods; trades ~5 min on the next `qa.sh` / `release.sh` while caches rebuild.
+- **`--dry-run`** prints what would be removed without removing.
+- **Don't keep parallel testbuilds.** `build/Vocello.app` is the single slot for the current release-mode build. Let `release.sh` overwrite it; don't preserve previous testbuilds elsewhere under `build/`.
+- **Don't accumulate audio-QC recordings.** `build/audio-qc/benchmark-v2/` is for active investigation; the durable perf reference is the committed `scripts/perf-baseline-manifest.json`. Drop benchmark-v2 once an investigation is closed.
+- **Foundation builds reuse `build/foundation/local-builds/`** — they overwrite, not append. Safe to leave.
+- **Never** add cleanup to a hook that runs implicitly during builds — the user controls when caches drop because rebuild cost is non-trivial.
 
 ## Before Finishing
 
