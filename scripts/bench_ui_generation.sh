@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+# scripts/bench_ui_generation.sh — timing primitives for the desktop-UI
+# Vocello generation benchmark.
+#
+# This is the timing helper called by Claude (or you) AFTER each
+# Cmd+Return to a foreground Vocello window. It does not drive the UI
+# itself — it only times the post-trigger pipeline (file appears →
+# size stable → audio decodable) and computes wall_secs / audio_secs /
+# RTF. Driving the UI (paste brief, paste script, click Generate / hit
+# Cmd+Return) lives in Claude's computer-control session because
+# Vocello's GenerationDraft state isn't surfaced via CLI.
+#
+# Usage:
+#   scripts/bench_ui_generation.sh <mode> <length> <state> <sample> [csv_path]
+#
+#   mode      custom | design | clone
+#   length    label (micro / short / medium / long / very-long / ...)
+#   state     cold | warm
+#   sample    numeric sample number (1, 2, 3, ...)
+#   csv_path  optional; default /tmp/vocello-ui-bench-results.csv
+#
+# Cold/warm semantics are the caller's responsibility:
+#   - cold = kill Vocello, relaunch, wait for "Engine ready", paste
+#            inputs, then run this script
+#   - warm = call this script back-to-back without restarting Vocello
+#
+# CSV columns: mode,length,state,sample,wall_secs,audio_secs,rtf,filename
+#
+# This is the **default** benchmark method per CLAUDE.md "Performance
+# benchmarking" — it captures the full user-perceived pipeline (paste,
+# UI activation, generation, file write, autoplay handoff, live preview
+# behavior). For tighter engine-only regression checks, see
+# `./scripts/qa.sh test --layer perf`.
+
+set -euo pipefail
+
+if [ $# -lt 4 ]; then
+    cat <<'USAGE'
+Usage: bench_ui_generation.sh <mode> <length> <state> <sample> [csv_path]
+
+  mode      custom | design | clone
+  length    label (micro / short / medium / long / very-long / ...)
+  state     cold | warm
+  sample    numeric sample number (1, 2, 3, ...)
+  csv_path  optional; default /tmp/vocello-ui-bench-results.csv
+
+Vocello must be the foreground app with the script + (for design)
+brief fields populated. The script issues Cmd+Return to trigger
+generation, then times wall-clock to file size stability.
+USAGE
+    exit 1
+fi
+
+MODE="$1"
+LENGTH="$2"
+STATE="$3"
+SAMPLE="$4"
+CSV="${5:-/tmp/vocello-ui-bench-results.csv}"
+
+case "$MODE" in
+    custom)  OUT_DIR="CustomVoice" ;;
+    design)  OUT_DIR="VoiceDesign" ;;
+    clone)   OUT_DIR="Clones" ;;
+    *) echo "unknown mode: $MODE (expected custom|design|clone)" >&2; exit 2 ;;
+esac
+
+OUT="$HOME/Library/Application Support/QwenVoice/outputs/$OUT_DIR"
+HDR_SIZE=4096
+# Cmd+Return takes ~1.5s to round-trip activation + UI through the
+# generation handoff; subtract it so wall_secs reflects actual
+# generation time rather than activation overhead.
+ACTIVATION_OVERHEAD=1.5
+
+[ -d "$OUT" ] || { echo "output dir not found: $OUT" >&2; exit 3; }
+
+# Snapshot file set before triggering
+BEFORE=$(ls "$OUT" 2>/dev/null | sort)
+
+osascript -e 'tell application "Vocello" to activate' 2>/dev/null
+sleep 0.4
+
+T0=$(date +%s.%N)
+osascript -e 'tell application "System Events" to keystroke return using command down'
+
+# Wait for the first new wav to appear (max ~180s of 0.1s polls)
+NEW=""
+for i in $(seq 1 1800); do
+    CURRENT=$(ls "$OUT" 2>/dev/null | sort)
+    if [ "$CURRENT" != "$BEFORE" ]; then
+        NEW=$(comm -13 <(echo "$BEFORE") <(echo "$CURRENT") | grep -E "\.wav$" | head -1 || true)
+        [ -n "$NEW" ] && break
+    fi
+    sleep 0.1
+done
+[ -z "$NEW" ] && { echo "FILE_TIMEOUT (no new wav appeared in $OUT)" >&2; exit 4; }
+NEWFILE="$OUT/$NEW"
+
+# Wait for file size to grow past the WAV header
+for i in $(seq 1 2000); do
+    S=$(stat -f %z "$NEWFILE" 2>/dev/null || echo 0)
+    [ "$S" -gt "$HDR_SIZE" ] && break
+    sleep 0.1
+done
+
+# Wait for size stability (streaming write done; need 15 polls of 0.1s
+# at the same size = 1.5s of no growth)
+LAST_SIZE=0
+STABLE=0
+for i in $(seq 1 2000); do
+    S=$(stat -f %z "$NEWFILE" 2>/dev/null || echo 0)
+    if [ "$S" = "$LAST_SIZE" ]; then
+        STABLE=$((STABLE + 1))
+        [ "$STABLE" -ge 15 ] && break
+    else
+        STABLE=0
+        LAST_SIZE=$S
+    fi
+    sleep 0.1
+done
+
+T1=$(date +%s.%N)
+WALL=$(echo "scale=3; $T1 - $T0 - $ACTIVATION_OVERHEAD" | bc)
+
+# Long-form batches emit multiple `*_segment_NNNN_*.wav` files within
+# the same trigger window. Sum afinfo duration across all wavs newer
+# than T0 so the audio total matches whatever the user actually got.
+sleep 0.3
+T0_INT=$(echo "$T0" | cut -d. -f1)
+TOTAL_AUDIO=0
+SEG_COUNT=0
+while IFS= read -r -d '' seg; do
+    D=$(afinfo "$seg" 2>/dev/null | grep "estimated duration" | awk '{print $3}' || true)
+    if [ -n "$D" ] && [ "$D" != "0.000000" ]; then
+        TOTAL_AUDIO=$(echo "scale=3; $TOTAL_AUDIO + $D" | bc)
+        SEG_COUNT=$((SEG_COUNT + 1))
+    fi
+done < <(find "$OUT" -name "*.wav" -newermt "@$T0_INT" -print0 2>/dev/null | sort -z)
+
+if [ "$TOTAL_AUDIO" = "0" ] || [ -z "$TOTAL_AUDIO" ]; then
+    echo "PARSE_FAILED (no readable audio in new files)" >&2
+    exit 5
+fi
+
+RTF=$(echo "scale=3; $WALL / $TOTAL_AUDIO" | bc)
+
+if [ "$SEG_COUNT" -gt 1 ]; then
+    FILE_LABEL="${SEG_COUNT}-segment-batch"
+else
+    FILE_LABEL="$NEW"
+fi
+
+if [ ! -f "$CSV" ]; then
+    echo "mode,length,state,sample,wall_secs,audio_secs,rtf,filename" > "$CSV"
+fi
+
+ROW="$MODE,$LENGTH,$STATE,$SAMPLE,$WALL,$TOTAL_AUDIO,$RTF,$FILE_LABEL"
+echo "$ROW"
+echo "$ROW" >> "$CSV"

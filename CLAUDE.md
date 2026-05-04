@@ -235,6 +235,54 @@ Disk-space recovery (this dev machine has limited storage):
 ./scripts/clean_build_caches.sh --dry-run    # print what would be removed
 ```
 
+## Performance Benchmarking
+
+Two complementary methods, both maintained:
+
+### Default — desktop-UI bench (full-pipeline, user-perceived)
+
+The **default** for any "is this fast / does it feel right?" question. Mirrors the actual user experience: text typed in the input box → Generate clicked → live-preview heard → final file saved → autoplay handoff. Captures issues invisible to the engine-only perf-lane (live-preview underruns, MainActor congestion, autoplay handoff hitches, sheet routing, batch dialog flow, paste latency, etc.).
+
+Driven by Claude (via the computer-use MCP) or you manually:
+1. Set up Vocello with the desired mode + brief + script
+2. Trigger generation (Cmd+Return); the timing helper measures wall→file-stable + audio duration
+3. Record a row per sample to a CSV
+
+```sh
+# Per-sample timing helper. Caller is responsible for placing Vocello
+# with populated inputs in the foreground; the script issues Cmd+Return,
+# waits for new wav file(s) to finish writing, sums afinfo audio
+# duration across long-form batch segments, and appends a CSV row.
+./scripts/bench_ui_generation.sh <mode> <length> <state> <sample> [csv_path]
+#   mode:   custom | design | clone
+#   state:  cold | warm
+```
+
+Cold/warm protocol:
+- **Cold**: kill Vocello (`pkill -x Vocello`), relaunch (`open …Vocello.app`), wait for "Engine ready", paste inputs, then call the helper
+- **Warm**: call the helper back-to-back without restarting Vocello
+
+Standard length tiers: micro (~3 words) / short (~10 words) / medium (~50 words) / long (~150 words) / very-long (~500–800 words, exercises long-form-batch routing).
+
+Output dirs (the helper resolves these from `mode`):
+- `~/Library/Application Support/QwenVoice/outputs/CustomVoice/`
+- `~/Library/Application Support/QwenVoice/outputs/VoiceDesign/`
+- `~/Library/Application Support/QwenVoice/outputs/Clones/`
+
+### Tight engine regression check — `qa.sh perf`
+
+Programmatic, narrow-scope, fast. Use when verifying engine internals haven't regressed (cold load, warm gen, RTF, chunk write timings, memory usage by stage), or for CI-style comparison against the committed baseline at `scripts/perf-baseline-manifest.json`.
+
+Doesn't capture: paste latency, UI activation, sheet routing, autoplay handoff, live-preview underrun behavior, or anything the user actually feels.
+
+```sh
+./scripts/qa.sh test --layer perf
+QWENVOICE_AUDIO_QC_MODES=CustomVoice ./scripts/qa.sh test --layer perf
+./scripts/compare_perf_manifest.sh
+```
+
+When choosing: if the question is about user experience or end-to-end timing, use the desktop-UI bench. If it's about engine determinism / regression-bisecting an internal change, use `qa.sh perf`.
+
 Notes:
 
 - `scripts/qa.sh` is the primary local validation, test, and performance entrypoint.
