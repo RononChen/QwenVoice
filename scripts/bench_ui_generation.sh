@@ -272,27 +272,32 @@ if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
         TRACE=$(tail -c "+$((LOG_OFFSET_BEFORE + 1))" "$LOG_FILE" \
                 | grep "\[LivePreview\]" || true)
 
-        # preview_completed line carries all aggregate counters
-        SUMMARY_LINE=$(echo "$TRACE" | grep "event=preview_completed" | tail -1)
+        # preview_completed line carries all aggregate counters.
+        # `|| true` on every grep so a missing line (e.g. very short
+        # audio that skips the live-preview path) doesn't trip
+        # `set -e` and kill the script before the CSV is written.
+        SUMMARY_LINE=$(echo "$TRACE" | grep "event=preview_completed" | tail -1 || true)
         if [ -n "$SUMMARY_LINE" ]; then
-            UNDERRUN_COUNT=$(echo "$SUMMARY_LINE" | grep -oE 'underruns=[0-9]+' | cut -d= -f2)
-            TOTAL_STALL_MS=$(echo "$SUMMARY_LINE" | grep -oE 'total_stall_ms=[0-9]+' | cut -d= -f2)
-            DECODE_FAILS=$(echo "$SUMMARY_LINE" | grep -oE 'decode_fails=[0-9]+' | cut -d= -f2)
-            STREAM_ERRORS=$(echo "$SUMMARY_LINE" | grep -oE 'stream_errors=[0-9]+' | cut -d= -f2)
-            MAX_CHUNK_GAP_MS=$(echo "$SUMMARY_LINE" | grep -oE 'max_chunk_gap_ms=[0-9]+' | cut -d= -f2)
-            CHUNK_COUNT=$(echo "$SUMMARY_LINE" | grep -oE 'chunk_count=[0-9]+' | cut -d= -f2)
+            UNDERRUN_COUNT=$(echo "$SUMMARY_LINE" | grep -oE 'underruns=[0-9]+' | cut -d= -f2 || true)
+            TOTAL_STALL_MS=$(echo "$SUMMARY_LINE" | grep -oE 'total_stall_ms=[0-9]+' | cut -d= -f2 || true)
+            DECODE_FAILS=$(echo "$SUMMARY_LINE" | grep -oE 'decode_fails=[0-9]+' | cut -d= -f2 || true)
+            STREAM_ERRORS=$(echo "$SUMMARY_LINE" | grep -oE 'stream_errors=[0-9]+' | cut -d= -f2 || true)
+            MAX_CHUNK_GAP_MS=$(echo "$SUMMARY_LINE" | grep -oE 'max_chunk_gap_ms=[0-9]+' | cut -d= -f2 || true)
+            CHUNK_COUNT=$(echo "$SUMMARY_LINE" | grep -oE 'chunk_count=[0-9]+' | cut -d= -f2 || true)
         fi
 
-        # ttfa_ms comes from playback_started
-        STARTED_LINE=$(echo "$TRACE" | grep "event=playback_started" | tail -1)
+        # ttfa_ms comes from playback_started — missing for very-short
+        # generations where the live-preview path never engages
+        # (queue duration < initial prebuffer threshold of 2.25 s).
+        STARTED_LINE=$(echo "$TRACE" | grep "event=playback_started" | tail -1 || true)
         if [ -n "$STARTED_LINE" ]; then
-            TTFA_MS=$(echo "$STARTED_LINE" | grep -oE 'ttfa_ms=[0-9]+' | cut -d= -f2)
+            TTFA_MS=$(echo "$STARTED_LINE" | grep -oE 'ttfa_ms=[0-9]+' | cut -d= -f2 || true)
         fi
 
         # duration_mismatch_s = abs(delta_s) from final_handoff
-        HANDOFF_LINE=$(echo "$TRACE" | grep "event=final_handoff" | tail -1)
+        HANDOFF_LINE=$(echo "$TRACE" | grep "event=final_handoff" | tail -1 || true)
         if [ -n "$HANDOFF_LINE" ]; then
-            DELTA=$(echo "$HANDOFF_LINE" | grep -oE 'delta_s=-?[0-9.]+' | cut -d= -f2)
+            DELTA=$(echo "$HANDOFF_LINE" | grep -oE 'delta_s=-?[0-9.]+' | cut -d= -f2 || true)
             if [ -n "$DELTA" ]; then
                 DURATION_MISMATCH_S=$(echo "$DELTA" | tr -d -)
             fi
