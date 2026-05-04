@@ -1402,6 +1402,14 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     /// Structured `[LivePreview]` event log consumed by
     /// `scripts/bench_ui_generation.sh --log-file` for the desktop-UI
     /// benchmark's anomaly columns. Stripped from release builds.
+    ///
+    /// Writes to `stderr` (not `print()`/stdout) so the bench helper
+    /// sees events line-by-line in real time. Swift's `print()` is
+    /// block-buffered (4KB) when stdout is redirected to a file, which
+    /// would leave the log empty until generation finished. stderr is
+    /// line-buffered, matching the existing `LivePreviewDiagnostics`
+    /// behaviour and unsurprising under `nohup … > log 2>&1`.
+    ///
     /// Schema:
     ///   [LivePreview] event=<name> [key=value ...]
     /// Events:
@@ -1423,7 +1431,10 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         for (key, value) in details {
             line += " \(key)=\(value)"
         }
-        print(line)
+        line += "\n"
+        if let data = line.data(using: .utf8) {
+            FileHandle.standardError.write(data)
+        }
     }
     #else
     fileprivate func logLivePreviewEvent(

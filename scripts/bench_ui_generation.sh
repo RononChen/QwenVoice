@@ -135,18 +135,51 @@ for i in $(seq 1 2000); do
     sleep 0.1
 done
 
-# Wait for size stability (streaming write done; need 15 polls of 0.1s
-# at the same size = 1.5s of no growth)
+# Wait for completion. Two signals:
+#
+# (1) When --log-file is provided: wait for the `[LivePreview]
+#     event=preview_completed` line. This is the engine's own
+#     authoritative signal — fires once per session at final-handoff
+#     or teardown. Size-stability is treated as a hang fallback only,
+#     not a primary signal, because inter-chunk pauses can falsely
+#     trip a short stability window during a healthy generation.
+#
+# (2) Without --log-file: fall back to size stability (5s of no growth).
+#     The 5s window must exceed normal inter-chunk gaps (~1.6s for
+#     medium/long gens) to avoid false positives.
 LAST_SIZE=0
 STABLE=0
-for i in $(seq 1 2000); do
-    S=$(stat -f %z "$NEWFILE" 2>/dev/null || echo 0)
-    if [ "$S" = "$LAST_SIZE" ]; then
-        STABLE=$((STABLE + 1))
-        [ "$STABLE" -ge 15 ] && break
+COMPLETED_VIA_LOG=false
+HAS_LOG_FILE=false
+[ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ] && HAS_LOG_FILE=true
+for i in $(seq 1 4000); do
+    if [ "$HAS_LOG_FILE" = "true" ]; then
+        if tail -c "+$((LOG_OFFSET_BEFORE + 1))" "$LOG_FILE" 2>/dev/null \
+            | grep -q "event=preview_completed"; then
+            COMPLETED_VIA_LOG=true
+            break
+        fi
+        # Size-stability is a HANG fallback when --log-file is set:
+        # only break on 60 s of no growth (truly stuck) so normal
+        # inter-chunk pauses never short-circuit the wait.
+        S=$(stat -f %z "$NEWFILE" 2>/dev/null || echo 0)
+        if [ "$S" = "$LAST_SIZE" ]; then
+            STABLE=$((STABLE + 1))
+            [ "$STABLE" -ge 600 ] && break
+        else
+            STABLE=0
+            LAST_SIZE=$S
+        fi
     else
-        STABLE=0
-        LAST_SIZE=$S
+        # No log file: 5 s size-stability is the only signal.
+        S=$(stat -f %z "$NEWFILE" 2>/dev/null || echo 0)
+        if [ "$S" = "$LAST_SIZE" ]; then
+            STABLE=$((STABLE + 1))
+            [ "$STABLE" -ge 50 ] && break
+        else
+            STABLE=0
+            LAST_SIZE=$S
+        fi
     fi
     sleep 0.1
 done
@@ -154,23 +187,49 @@ done
 T1=$(date +%s.%N)
 WALL=$(echo "scale=3; $T1 - $T0 - $ACTIVATION_OVERHEAD" | bc)
 
-# Long-form batches emit multiple `*_segment_NNNN_*.wav` files within
-# the same trigger window. Sum afinfo duration across all wavs newer
-# than T0 so the audio total matches whatever the user actually got.
-sleep 0.3
+# Audio duration source — two paths:
+#
+# (A) When --log-file is provided AND preview_completed was seen, read
+#     `total_audio_s` from the trace. This is the engine's own ground
+#     truth and avoids the afinfo race on the WAV header (which can
+#     read 0.000000 between streaming-write completion and
+#     finalWriter.finish() updating the RIFF header).
+#
+# (B) Otherwise (no log file, or batch path with no live preview),
+#     fall back to summing afinfo durations across all wavs newer
+#     than T0. Includes a retry loop for the header-finalization race.
 T0_INT=$(echo "$T0" | cut -d. -f1)
 TOTAL_AUDIO=0
 SEG_COUNT=0
-while IFS= read -r -d '' seg; do
-    D=$(afinfo "$seg" 2>/dev/null | grep "estimated duration" | awk '{print $3}' || true)
-    if [ -n "$D" ] && [ "$D" != "0.000000" ]; then
-        TOTAL_AUDIO=$(echo "scale=3; $TOTAL_AUDIO + $D" | bc)
-        SEG_COUNT=$((SEG_COUNT + 1))
+
+if [ "$COMPLETED_VIA_LOG" = "true" ]; then
+    SUMMARY_LINE=$(tail -c "+$((LOG_OFFSET_BEFORE + 1))" "$LOG_FILE" 2>/dev/null \
+        | grep "event=preview_completed" | tail -1)
+    LOG_AUDIO=$(echo "$SUMMARY_LINE" | grep -oE 'total_audio_s=[0-9.]+' | cut -d= -f2)
+    if [ -n "$LOG_AUDIO" ] && [ "$LOG_AUDIO" != "0" ]; then
+        TOTAL_AUDIO="$LOG_AUDIO"
+        SEG_COUNT=1
     fi
-done < <(find "$OUT" -name "*.wav" -newermt "@$T0_INT" -print0 2>/dev/null | sort -z)
+fi
 
 if [ "$TOTAL_AUDIO" = "0" ] || [ -z "$TOTAL_AUDIO" ]; then
-    echo "PARSE_FAILED (no readable audio in new files)" >&2
+    for retry in $(seq 1 50); do
+        TOTAL_AUDIO=0
+        SEG_COUNT=0
+        while IFS= read -r -d '' seg; do
+            D=$(afinfo "$seg" 2>/dev/null | grep "estimated duration" | awk '{print $3}' || true)
+            if [ -n "$D" ] && [ "$D" != "0.000000" ]; then
+                TOTAL_AUDIO=$(echo "scale=3; $TOTAL_AUDIO + $D" | bc)
+                SEG_COUNT=$((SEG_COUNT + 1))
+            fi
+        done < <(find "$OUT" -name "*.wav" -newermt "@$T0_INT" -print0 2>/dev/null | sort -z)
+        [ "$TOTAL_AUDIO" != "0" ] && [ -n "$TOTAL_AUDIO" ] && break
+        sleep 0.2
+    done
+fi
+
+if [ "$TOTAL_AUDIO" = "0" ] || [ -z "$TOTAL_AUDIO" ]; then
+    echo "PARSE_FAILED (no readable audio in new files; neither preview_completed event nor afinfo returned a non-zero duration)" >&2
     exit 5
 fi
 
