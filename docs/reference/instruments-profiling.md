@@ -146,14 +146,25 @@ prediction is not viable** in this Swift port:
 
 With the primary 12 % RTF target unreachable, Phase 2c shipped the
 plan's next-priority alternative: **Audio Chunk Eval pipelining via
-`asyncEval`**. The change replaces blocking `eval(audioChunk)` with
-non-blocking `asyncEval(audioChunk)` at the streaming chunk boundary
-in `Qwen3TTS.swift`, so the engine returns to the per-token loop
-without CPU-blocking on Metal command-buffer drain. The consumer's
-`samples.asArray(Float.self)` triggers materialisation off the
-engine's critical path. The `Audio Chunk Eval` signpost interval
-will collapse from ~135 ms / chunk to near-zero (asyncEval enqueue
-cost only) — that collapse IS the success signal. See
+`asyncEval`** at the in-loop chunk boundary only. The change replaces
+blocking `eval(audioChunk)` with non-blocking `asyncEval(audioChunk)`
+inside the per-token loop's chunk emission so the engine returns to
+the loop without CPU-blocking on Metal command-buffer drain. The
+consumer's `samples.asArray(Float.self)` triggers materialisation off
+the engine's critical path. The `Audio Chunk Eval` signpost interval
+collapses from ~135 ms / chunk to near-zero for in-loop chunks
+(asyncEval enqueue cost only) — that collapse IS the success signal.
+
+**The trailing chunk stays on blocking `eval`.** The first cut of
+Phase 2c asyncEval'd that one too; live playback then truncated
+mid-script because the engine returned with the final chunk still
+lazy, the awaited generation result raced ahead of the broker's
+MainActor chunk-publication tasks, and `AudioPlayerViewModel`'s
+`liveFinalFilePath` got set before the last few chunks had been
+scheduled in the AVAudioEngine queue. As soon as the next buffer
+drained, `handleLiveBufferPlaybackCompletion`'s `liveScheduledCount
+== 0 && liveFinalFilePath != nil` branch fired an early file-playback
+handoff. Blocking on the trailing chunk closes that race. See
 [`mlx-audio-swift-patching.md`](mlx-audio-swift-patching.md) for the
 patch baseline.
 

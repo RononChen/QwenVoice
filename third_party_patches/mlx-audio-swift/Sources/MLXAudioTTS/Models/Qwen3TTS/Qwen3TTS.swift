@@ -2237,12 +2237,31 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     cloneFirstChunkDecoderTokens = codesForDecoder.dim(2)
                 }
                 let audioChunkEvalStartedAt = ContinuousClock.now
-                // Phase 2c — final-chunk variant of the same
-                // pipelining: queue, do not block. The trailing chunk
-                // emitted after the per-token loop ends still gets
-                // its lazy graph materialised by the consumer's
-                // `samples.asArray(Float.self)`.
-                asyncEval(audioChunk)
+                // Phase 2c — trailing chunk MUST stay synchronous
+                // (eval, not asyncEval). The first cut of Phase 2c
+                // also asyncEval'd this final chunk, but live
+                // playback then truncated mid-script: the engine
+                // returned immediately, the awaited result raced
+                // back to `AudioPlayerViewModel.completeStreamingPreview`
+                // (sets `liveFinalFilePath`) on MainActor BEFORE the
+                // last few `GenerationChunkBroker`-published chunks
+                // had drained through their MainActor `Task` hop +
+                // been scheduled in the live AVAudioEngine queue. As
+                // soon as the next live buffer played out and
+                // `liveScheduledCount` momentarily hit zero, the
+                // `liveScheduledCount == 0 && liveFinalFilePath != nil`
+                // branch in `handleLiveBufferPlaybackCompletion` fired
+                // an early file-playback handoff and the user heard
+                // the preview cut off. Blocking the engine on the
+                // last chunk closes that race: by the time the
+                // generation function returns, all chunks have been
+                // materialised, NSS has finished its event loop, and
+                // the broker's chunk publications are already queued
+                // ahead of the awaited-result continuation. The
+                // in-loop chunks above keep `asyncEval` because each
+                // one HAS a next iteration to overlap with — that's
+                // where the wall-clock pipelining win lives.
+                eval(audioChunk)
                 let audioChunkEvalElapsed = audioChunkEvalStartedAt.elapsedMilliseconds
                 audioChunkEvalTotalMS += audioChunkEvalElapsed
                 if isPureVoiceDesign {
