@@ -111,11 +111,28 @@ ACTIVATION_OVERHEAD=1.5
 # Snapshot file set before triggering
 BEFORE=$(ls "$OUT" 2>/dev/null | sort)
 
-# Capture log offset BEFORE the trigger so we can parse only the
-# `[LivePreview]` lines emitted by THIS sample's generation.
-LOG_OFFSET_BEFORE=0
+# Capture pre-trigger log state. We pin OUR session as the
+# (SESSION_START_COUNT_BEFORE + 1)-th `event=session_start` in the log.
+#
+# Why session-counter gating instead of byte-offset slicing: the engine
+# emits `session_start` and `preview_completed` 1:1 per generation in
+# causal order (sample N's preview_completed is always written before
+# sample N+1's session_start, since the live-preview engine processes
+# one session at a time). Byte-offset slicing was fooled by a previous
+# sample's late-arriving preview_completed flushing into the log AFTER
+# our LOG_OFFSET_BEFORE was captured — sample N+1 would then read sample
+# N's stale summary as its own. Counter gating is immune: even if the
+# stale event appears anywhere in the log past our offset, it's by
+# definition before our session_start, so the awk filter rejects it.
+HAS_LOG_FILE=false
+SESSION_START_COUNT_BEFORE=0
+TARGET_SESSION_INDEX=0
 if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
-    LOG_OFFSET_BEFORE=$(stat -f %z "$LOG_FILE" 2>/dev/null || echo 0)
+    HAS_LOG_FILE=true
+    SESSION_START_COUNT_BEFORE=$(grep -c "event=session_start" "$LOG_FILE" 2>/dev/null || echo 0)
+    SESSION_START_COUNT_BEFORE=${SESSION_START_COUNT_BEFORE//[^0-9]/}
+    SESSION_START_COUNT_BEFORE=${SESSION_START_COUNT_BEFORE:-0}
+    TARGET_SESSION_INDEX=$((SESSION_START_COUNT_BEFORE + 1))
 fi
 
 osascript -e 'tell application "Vocello" to activate' 2>/dev/null
@@ -159,12 +176,23 @@ done
 LAST_SIZE=0
 STABLE=0
 COMPLETED_VIA_LOG=false
-HAS_LOG_FILE=false
-[ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ] && HAS_LOG_FILE=true
+SUMMARY_LINE=""
 for i in $(seq 1 4000); do
     if [ "$HAS_LOG_FILE" = "true" ]; then
-        if tail -c "+$((LOG_OFFSET_BEFORE + 1))" "$LOG_FILE" 2>/dev/null \
-            | grep -q "event=preview_completed"; then
+        # Look for OUR session's preview_completed: the first preview_completed
+        # AFTER the (TARGET_SESSION_INDEX)-th session_start. awk exits early
+        # if it walks past our session (session_idx > target) without a match,
+        # which keeps the per-tick scan cheap.
+        SUMMARY_LINE=$(awk -v target="$TARGET_SESSION_INDEX" '
+            /event=session_start/ {
+                session_idx++
+                if (session_idx == target) { our_seen = 1; next }
+                if (session_idx > target) exit
+                next
+            }
+            our_seen && /event=preview_completed/ { print; exit }
+        ' "$LOG_FILE" 2>/dev/null || true)
+        if [ -n "$SUMMARY_LINE" ]; then
             COMPLETED_VIA_LOG=true
             break
         fi
@@ -212,8 +240,8 @@ TOTAL_AUDIO=0
 SEG_COUNT=0
 
 if [ "$COMPLETED_VIA_LOG" = "true" ]; then
-    SUMMARY_LINE=$(tail -c "+$((LOG_OFFSET_BEFORE + 1))" "$LOG_FILE" 2>/dev/null \
-        | grep "event=preview_completed" | tail -1)
+    # SUMMARY_LINE was captured in the wait loop above and is already
+    # scoped to OUR session via session-counter gating.
     LOG_AUDIO=$(echo "$SUMMARY_LINE" | grep -oE 'total_audio_s=[0-9.]+' | cut -d= -f2)
     if [ -n "$LOG_AUDIO" ] && [ "$LOG_AUDIO" != "0" ]; then
         TOTAL_AUDIO="$LOG_AUDIO"
@@ -275,24 +303,33 @@ STREAM_ERRORS=""
 DURATION_MISMATCH_S=""
 CHUNK_COUNT=""
 
-if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
-    LOG_OFFSET_AFTER=$(stat -f %z "$LOG_FILE" 2>/dev/null || echo 0)
-    if [ "$LOG_OFFSET_AFTER" -gt "$LOG_OFFSET_BEFORE" ]; then
-        TRACE=$(tail -c "+$((LOG_OFFSET_BEFORE + 1))" "$LOG_FILE" \
-                | grep "\[LivePreview\]" || true)
+if [ "$HAS_LOG_FILE" = "true" ] && [ "$TARGET_SESSION_INDEX" -gt 0 ]; then
+    # Pull all `[LivePreview]` lines belonging to OUR session: from our
+    # session_start (inclusive) up to the next session_start (exclusive)
+    # or end of log. Same counter-gating as the wait loop.
+    TRACE=$(awk -v target="$TARGET_SESSION_INDEX" '
+        /\[LivePreview\]/ && /event=session_start/ {
+            session_idx++
+            if (session_idx == target) { our_seen = 1; print; next }
+            if (session_idx > target) exit
+            next
+        }
+        our_seen && /\[LivePreview\]/ { print }
+    ' "$LOG_FILE" 2>/dev/null || true)
 
+    if [ -n "$TRACE" ]; then
         # preview_completed line carries all aggregate counters.
         # `|| true` on every grep so a missing line (e.g. very short
         # audio that skips the live-preview path) doesn't trip
         # `set -e` and kill the script before the CSV is written.
-        SUMMARY_LINE=$(echo "$TRACE" | grep "event=preview_completed" | tail -1 || true)
-        if [ -n "$SUMMARY_LINE" ]; then
-            UNDERRUN_COUNT=$(echo "$SUMMARY_LINE" | grep -oE 'underruns=[0-9]+' | cut -d= -f2 || true)
-            TOTAL_STALL_MS=$(echo "$SUMMARY_LINE" | grep -oE 'total_stall_ms=[0-9]+' | cut -d= -f2 || true)
-            DECODE_FAILS=$(echo "$SUMMARY_LINE" | grep -oE 'decode_fails=[0-9]+' | cut -d= -f2 || true)
-            STREAM_ERRORS=$(echo "$SUMMARY_LINE" | grep -oE 'stream_errors=[0-9]+' | cut -d= -f2 || true)
-            MAX_CHUNK_GAP_MS=$(echo "$SUMMARY_LINE" | grep -oE 'max_chunk_gap_ms=[0-9]+' | cut -d= -f2 || true)
-            CHUNK_COUNT=$(echo "$SUMMARY_LINE" | grep -oE 'chunk_count=[0-9]+' | cut -d= -f2 || true)
+        SUMMARY=$(echo "$TRACE" | grep "event=preview_completed" | tail -1 || true)
+        if [ -n "$SUMMARY" ]; then
+            UNDERRUN_COUNT=$(echo "$SUMMARY" | grep -oE 'underruns=[0-9]+' | cut -d= -f2 || true)
+            TOTAL_STALL_MS=$(echo "$SUMMARY" | grep -oE 'total_stall_ms=[0-9]+' | cut -d= -f2 || true)
+            DECODE_FAILS=$(echo "$SUMMARY" | grep -oE 'decode_fails=[0-9]+' | cut -d= -f2 || true)
+            STREAM_ERRORS=$(echo "$SUMMARY" | grep -oE 'stream_errors=[0-9]+' | cut -d= -f2 || true)
+            MAX_CHUNK_GAP_MS=$(echo "$SUMMARY" | grep -oE 'max_chunk_gap_ms=[0-9]+' | cut -d= -f2 || true)
+            CHUNK_COUNT=$(echo "$SUMMARY" | grep -oE 'chunk_count=[0-9]+' | cut -d= -f2 || true)
         fi
 
         # ttfa_ms comes from playback_started — missing for very-short
