@@ -135,6 +135,15 @@ struct ContentView: View {
 
     private let launchSidebarOverride: SidebarItem?
 
+    static let lastSidebarItemKey = "QwenVoice.LastSelectedSidebarItem"
+    static let lastVoiceCloningSavedVoiceIDKey = "QwenVoice.LastVoiceCloningSavedVoiceID"
+
+    @AppStorage(ContentView.lastSidebarItemKey)
+    private var persistedSidebarItem: SidebarItem = .customVoice
+
+    @AppStorage(ContentView.lastVoiceCloningSavedVoiceIDKey)
+    private var persistedVoiceCloningSavedVoiceID: String = ""
+
     @State private var selectedItem: SidebarItem?
     @State private var protectedLaunchOverride: SidebarItem?
     @State private var pendingHighlightedModelID: String?
@@ -189,11 +198,30 @@ struct ContentView: View {
         let launchSidebarOverride = AppLaunchConfiguration.current.initialSidebarItem
         self.launchSidebarOverride = launchSidebarOverride
 
-        let initialSelection = SidebarItem.defaultInitialSelection(
-            launchOverride: launchSidebarOverride
-        )
+        // When a launch override is active (UI tests / debug screen pinning) we
+        // ignore the persisted sidebar + VC reference state so test runs stay
+        // hermetic. The override-less case reads UserDefaults directly here
+        // because @AppStorage isn't materialised inside `init` yet.
+        let initialSelection: SidebarItem
+        var initialDraft = VoiceCloningDraft()
+        if let launchSidebarOverride {
+            initialSelection = launchSidebarOverride
+        } else {
+            let storedSidebar = UserDefaults.standard
+                .string(forKey: ContentView.lastSidebarItemKey)
+                .flatMap(SidebarItem.init(rawValue:))
+            initialSelection = storedSidebar ?? SidebarItem.defaultInitialSelection(launchOverride: nil)
+
+            let storedVoiceID = UserDefaults.standard
+                .string(forKey: ContentView.lastVoiceCloningSavedVoiceIDKey)
+            if let storedVoiceID, !storedVoiceID.isEmpty {
+                initialDraft.selectedSavedVoiceID = storedVoiceID
+            }
+        }
+
         _selectedItem = State(initialValue: initialSelection)
         _protectedLaunchOverride = State(initialValue: launchSidebarOverride)
+        _voiceCloningDraft = State(initialValue: initialDraft)
     }
 
     static func savedVoiceCloneHandoffPlan(
@@ -250,6 +278,9 @@ struct ContentView: View {
         .onAppear(perform: handleAppear)
         .task { await handleInitialLoad() }
         .onChange(of: selectedItem) { _, newValue in handleSelectionChange(newValue) }
+        .onChange(of: voiceCloningDraft.selectedSavedVoiceID) { _, newValue in
+            handleVoiceCloningSavedVoiceIDChange(newValue)
+        }
         .onChange(of: modelManager.statuses) { _, _ in handleStatusesChange() }
         .onChange(of: ttsEngineStore.snapshot) { _, newSnapshot in
             handleEngineSnapshotChange(newSnapshot)
@@ -358,6 +389,12 @@ struct ContentView: View {
         if let protectedLaunchOverride, newValue != protectedLaunchOverride {
             self.protectedLaunchOverride = nil
         }
+        // Persist the selection so the next cold launch restores the last
+        // sidebar item. Skipped under launch-override (UI tests) to keep
+        // test runs hermetic.
+        if launchSidebarOverride == nil, let newValue {
+            persistedSidebarItem = newValue
+        }
         scheduleGenerationWarmupIfNeeded(for: newValue)
     }
 
@@ -371,6 +408,15 @@ struct ContentView: View {
     private func handleEngineSnapshotChange(_ newSnapshot: TTSEngineSnapshot) {
         generationWarmupCoordinator.observe(snapshot: newSnapshot)
         scheduleGenerationWarmupIfNeeded(for: selectedItem)
+    }
+
+    private func handleVoiceCloningSavedVoiceIDChange(_ newValue: String?) {
+        // Persist the last picked Voice Cloning saved voice so the dropdown
+        // restores it on next launch. The existing `syncSavedVoiceSelectionState`
+        // hydration path will reload `wavPath` + transcript from disk, or clear
+        // the draft if the voice was deleted between launches.
+        guard launchSidebarOverride == nil else { return }
+        persistedVoiceCloningSavedVoiceID = newValue ?? ""
     }
 
     // MARK: - Helper methods
