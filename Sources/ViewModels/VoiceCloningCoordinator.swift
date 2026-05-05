@@ -4,6 +4,16 @@ import QwenVoiceNative
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Defensive errors thrown from inside the generate(...) Task body
+/// when an invariant the sync prefix already validated turns out
+/// not to hold. Routed through the existing catch path so the
+/// `isGenerating = false` reset stays at the single Task exit point
+/// (preventing the start-of-gen flicker bug fixed in the May 2026
+/// pass).
+enum VoiceCloningCoordinatorError: Error {
+    case requestConstructionFailed
+}
+
 @MainActor
 final class VoiceCloningCoordinator: ObservableObject {
     @Published var isGenerating = false
@@ -56,6 +66,17 @@ final class VoiceCloningCoordinator: ObservableObject {
         audioPlayer: AudioPlayerViewModel,
         modelManager: ModelManagerViewModel
     ) {
+        // ALL precondition checks live in this sync prefix BEFORE
+        // `isGenerating = true` flips. Inside the Task body we only
+        // flip `isGenerating = false` on real outcomes (success,
+        // error, cancellation) — never on precondition failures.
+        // Otherwise SwiftUI sees `isGenerating` go true→false in
+        // adjacent runloop ticks at the start of generation, which
+        // causes the Script-card trailing badge AND the readiness
+        // note to flicker through "Generating" before snapping back
+        // to "Ready" while the engine quietly proceeded. Custom
+        // Voice and Voice Design already follow this discipline; this
+        // aligns Voice Cloning with them.
         guard !isGenerating else { return }
         guard draft.wrappedValue.hasText else { return }
         guard ttsEngineStore.isReady else { return }
@@ -79,10 +100,49 @@ final class VoiceCloningCoordinator: ObservableObject {
             return
         }
 
-        let traceModelID = cloneModel?.id ?? "missing-model"
+        // Hydrate first so the draft reflects the selected saved voice
+        // BEFORE we read currentDraft.referenceAudioPath etc. Sync call;
+        // applies the saved voice's wavPath + transcript to the draft
+        // unless already hydrated (idempotent).
+        ensureSelectedSavedVoiceHydratedIfNeeded(
+            draft: draft,
+            selectedVoice: selectedVoice
+        )
+
+        guard let model = cloneModel else {
+            errorMessage = "Model configuration not found"
+            CustomVoiceUIPerformanceTrace.beginGeneration(
+                mode: .voiceCloning,
+                modelID: "missing-model",
+                snapshotLoadState: CustomVoiceUIPerformanceTrace.loadStateDescription(for: ttsEngineStore.loadState),
+                isEngineReady: ttsEngineStore.isReady
+            )
+            CustomVoiceUIPerformanceTrace.finish(status: "failed_missing_model")
+            return
+        }
+
+        let currentDraft = draft.wrappedValue
+        guard currentDraft.hasText else {
+            // Re-check after hydration; should not normally fire.
+            return
+        }
+        guard let refPath = currentDraft.referenceAudioPath else {
+            errorMessage = "Select a reference audio file before generating."
+            CustomVoiceUIPerformanceTrace.beginGeneration(
+                mode: .voiceCloning,
+                modelID: model.id,
+                snapshotLoadState: CustomVoiceUIPerformanceTrace.loadStateDescription(for: ttsEngineStore.loadState),
+                isEngineReady: ttsEngineStore.isReady
+            )
+            CustomVoiceUIPerformanceTrace.finish(status: "failed_missing_reference")
+            return
+        }
+
+        // All preconditions satisfied — commit. Trace begins, isGenerating
+        // flips true exactly once.
         CustomVoiceUIPerformanceTrace.beginGeneration(
             mode: .voiceCloning,
-            modelID: traceModelID,
+            modelID: model.id,
             snapshotLoadState: CustomVoiceUIPerformanceTrace.loadStateDescription(for: ttsEngineStore.loadState),
             isEngineReady: ttsEngineStore.isReady
         )
@@ -92,31 +152,6 @@ final class VoiceCloningCoordinator: ObservableObject {
 
         Task { @MainActor in
             do {
-                guard let model = cloneModel else {
-                    errorMessage = "Model configuration not found"
-                    isGenerating = false
-                    CustomVoiceUIPerformanceTrace.finish(status: "failed_missing_model")
-                    return
-                }
-
-                ensureSelectedSavedVoiceHydratedIfNeeded(
-                    draft: draft,
-                    selectedVoice: selectedVoice
-                )
-
-                let currentDraft = draft.wrappedValue
-                guard currentDraft.hasText else {
-                    isGenerating = false
-                    CustomVoiceUIPerformanceTrace.finish(status: "cancelled_empty_text")
-                    return
-                }
-                guard let refPath = currentDraft.referenceAudioPath else {
-                    errorMessage = "Select a reference audio file before generating."
-                    isGenerating = false
-                    CustomVoiceUIPerformanceTrace.finish(status: "failed_missing_reference")
-                    return
-                }
-
                 let primedReferenceMatches = ttsEngineStore.clonePreparationState.isPrimed
                     && ttsEngineStore.clonePreparationState.key == clonePrimingRequestKey
 
@@ -142,15 +177,17 @@ final class VoiceCloningCoordinator: ObservableObject {
                     text: currentDraft.text
                 )
                 let title = String(currentDraft.text.prefix(40))
+                // Sync prefix already validated text + referenceAudioPath
+                // so makeGenerationRequest can never return nil here. If
+                // it does (defensive only) throw and let the catch reset
+                // isGenerating cleanly via the single exit point below —
+                // never flip isGenerating false inline.
                 guard let generationRequest = Self.makeGenerationRequest(
                     draft: currentDraft,
                     model: model,
                     outputPath: outputPath
                 ) else {
-                    errorMessage = "Select a reference audio file before generating."
-                    isGenerating = false
-                    CustomVoiceUIPerformanceTrace.finish(status: "failed_missing_reference")
-                    return
+                    throw VoiceCloningCoordinatorError.requestConstructionFailed
                 }
                 CustomVoiceUIPerformanceTrace.mark(.previewSetupStarted)
                 // Smooth-playback prebuffer hint (gated by
