@@ -978,6 +978,14 @@ public struct ChunkProbeMetadata: Hashable, Codable, Sendable {
     public let talkerForwardMS: Double?
     public let codePredictorMS: Double?
     public let audioDecoderMS: Double?
+    /// Engine probe Phase 2a — the `eval(...)` cadence and `eval`
+    /// flushes that sit BETWEEN the Phase 1 stages. The May 2026
+    /// Phase 1 re-bench showed talker + code predictor + audio
+    /// decoder summed to only 18-26 % of `inferMS`; these three
+    /// fields chase the missing 74-82 %.
+    public let streamStepEvalMS: Double?
+    public let streamStepEOSReadMS: Double?
+    public let audioChunkEvalMS: Double?
 
     public init(
         seq: Int,
@@ -985,7 +993,10 @@ public struct ChunkProbeMetadata: Hashable, Codable, Sendable {
         inferMS: Double,
         talkerForwardMS: Double? = nil,
         codePredictorMS: Double? = nil,
-        audioDecoderMS: Double? = nil
+        audioDecoderMS: Double? = nil,
+        streamStepEvalMS: Double? = nil,
+        streamStepEOSReadMS: Double? = nil,
+        audioChunkEvalMS: Double? = nil
     ) {
         self.seq = seq
         self.engineEmittedAtMS = engineEmittedAtMS
@@ -993,6 +1004,9 @@ public struct ChunkProbeMetadata: Hashable, Codable, Sendable {
         self.talkerForwardMS = talkerForwardMS
         self.codePredictorMS = codePredictorMS
         self.audioDecoderMS = audioDecoderMS
+        self.streamStepEvalMS = streamStepEvalMS
+        self.streamStepEOSReadMS = streamStepEOSReadMS
+        self.audioChunkEvalMS = audioChunkEvalMS
     }
 }
 

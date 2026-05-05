@@ -1877,6 +1877,19 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         var lastChunkTalkerForwardMS = 0
         var lastChunkCodePredictorMS = 0
         var lastChunkStreamingDecoderMS = 0
+        // Mode-agnostic accumulators for the three Phase 2a sub-stages
+        // — eval cadence, EOS read, and audio-chunk eval. Existing
+        // mode-specific `design*` / `custom*` / `clone*` totals (above)
+        // stay populated for the end-of-generation `BenchmarkSample`
+        // telemetry; these aggregate the same work mode-agnostically
+        // so the per-chunk delta logic can read a single counter
+        // without branching on mode.
+        var streamStepEvalTotalMS = 0
+        var streamStepEOSReadTotalMS = 0
+        var audioChunkEvalTotalMS = 0
+        var lastChunkStreamStepEvalMS = 0
+        var lastChunkStreamStepEOSReadMS = 0
+        var lastChunkAudioChunkEvalMS = 0
         var designStreamStepEvalTotalMS = 0
         var designStreamStepEOSReadTotalMS = 0
         var designAudioChunkEvalTotalMS = 0
@@ -2008,24 +2021,28 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             case .deferred:
                 break
             }
+            let streamStepEvalElapsed = streamStepEvalStartedAt.elapsedMilliseconds
+            streamStepEvalTotalMS += streamStepEvalElapsed
             if isPureVoiceDesign {
-                designStreamStepEvalTotalMS += streamStepEvalStartedAt.elapsedMilliseconds
+                designStreamStepEvalTotalMS += streamStepEvalElapsed
             } else if isDedicatedCustomVoice {
-                customStreamStepEvalTotalMS += streamStepEvalStartedAt.elapsedMilliseconds
+                customStreamStepEvalTotalMS += streamStepEvalElapsed
             } else if isVoiceCloneGeneration {
-                cloneStreamStepEvalTotalMS += streamStepEvalStartedAt.elapsedMilliseconds
+                cloneStreamStepEvalTotalMS += streamStepEvalElapsed
             }
 
             let tokenId = Int(nextToken[0, 0].item(Int32.self))
             onToken?(tokenId)
             let eosReadStartedAt = ContinuousClock.now
             let reachedEOS = isEOS.item(Bool.self)
+            let eosReadElapsed = eosReadStartedAt.elapsedMilliseconds
+            streamStepEOSReadTotalMS += eosReadElapsed
             if isPureVoiceDesign {
-                designStreamStepEOSReadTotalMS += eosReadStartedAt.elapsedMilliseconds
+                designStreamStepEOSReadTotalMS += eosReadElapsed
             } else if isDedicatedCustomVoice {
-                customStreamStepEOSReadTotalMS += eosReadStartedAt.elapsedMilliseconds
+                customStreamStepEOSReadTotalMS += eosReadElapsed
             } else if isVoiceCloneGeneration {
-                cloneStreamStepEOSReadTotalMS += eosReadStartedAt.elapsedMilliseconds
+                cloneStreamStepEOSReadTotalMS += eosReadElapsed
             }
             if reachedEOS {
                 generationEndReason = "eos"
@@ -2064,12 +2081,14 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     let audioChunk = decoded[0]
                     let audioChunkEvalStartedAt = ContinuousClock.now
                     eval(audioChunk)
+                    let audioChunkEvalElapsed = audioChunkEvalStartedAt.elapsedMilliseconds
+                    audioChunkEvalTotalMS += audioChunkEvalElapsed
                     if isPureVoiceDesign {
-                        designAudioChunkEvalTotalMS += audioChunkEvalStartedAt.elapsedMilliseconds
+                        designAudioChunkEvalTotalMS += audioChunkEvalElapsed
                     } else if isDedicatedCustomVoice {
-                        customAudioChunkEvalTotalMS += audioChunkEvalStartedAt.elapsedMilliseconds
+                        customAudioChunkEvalTotalMS += audioChunkEvalElapsed
                     } else if isVoiceCloneGeneration {
-                        cloneAudioChunkEvalTotalMS += audioChunkEvalStartedAt.elapsedMilliseconds
+                        cloneAudioChunkEvalTotalMS += audioChunkEvalElapsed
                     }
 
                     pendingStreamCodes.removeAll(keepingCapacity: true)
@@ -2077,11 +2096,17 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                         let timings = ChunkSubstageTimings(
                             talkerForwardMS: Double(talkerForwardTotalMS - lastChunkTalkerForwardMS),
                             codePredictorMS: Double(codePredictorTotalMS - lastChunkCodePredictorMS),
-                            audioDecoderMS: Double(streamingDecoderTotalMS - lastChunkStreamingDecoderMS)
+                            audioDecoderMS: Double(streamingDecoderTotalMS - lastChunkStreamingDecoderMS),
+                            streamStepEvalMS: Double(streamStepEvalTotalMS - lastChunkStreamStepEvalMS),
+                            streamStepEOSReadMS: Double(streamStepEOSReadTotalMS - lastChunkStreamStepEOSReadMS),
+                            audioChunkEvalMS: Double(audioChunkEvalTotalMS - lastChunkAudioChunkEvalMS)
                         )
                         lastChunkTalkerForwardMS = talkerForwardTotalMS
                         lastChunkCodePredictorMS = codePredictorTotalMS
                         lastChunkStreamingDecoderMS = streamingDecoderTotalMS
+                        lastChunkStreamStepEvalMS = streamStepEvalTotalMS
+                        lastChunkStreamStepEOSReadMS = streamStepEOSReadTotalMS
+                        lastChunkAudioChunkEvalMS = audioChunkEvalTotalMS
                         onAudioChunkTimings(timings)
                     }
                     onAudioChunk(audioChunk)
@@ -2137,22 +2162,30 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 }
                 let audioChunkEvalStartedAt = ContinuousClock.now
                 eval(audioChunk)
+                let audioChunkEvalElapsed = audioChunkEvalStartedAt.elapsedMilliseconds
+                audioChunkEvalTotalMS += audioChunkEvalElapsed
                 if isPureVoiceDesign {
-                    designAudioChunkEvalTotalMS += audioChunkEvalStartedAt.elapsedMilliseconds
+                    designAudioChunkEvalTotalMS += audioChunkEvalElapsed
                 } else if isDedicatedCustomVoice {
-                    customAudioChunkEvalTotalMS += audioChunkEvalStartedAt.elapsedMilliseconds
+                    customAudioChunkEvalTotalMS += audioChunkEvalElapsed
                 } else if isVoiceCloneGeneration {
-                    cloneAudioChunkEvalTotalMS += audioChunkEvalStartedAt.elapsedMilliseconds
+                    cloneAudioChunkEvalTotalMS += audioChunkEvalElapsed
                 }
                 if let onAudioChunkTimings {
                     let timings = ChunkSubstageTimings(
                         talkerForwardMS: Double(talkerForwardTotalMS - lastChunkTalkerForwardMS),
                         codePredictorMS: Double(codePredictorTotalMS - lastChunkCodePredictorMS),
-                        audioDecoderMS: Double(streamingDecoderTotalMS - lastChunkStreamingDecoderMS)
+                        audioDecoderMS: Double(streamingDecoderTotalMS - lastChunkStreamingDecoderMS),
+                        streamStepEvalMS: Double(streamStepEvalTotalMS - lastChunkStreamStepEvalMS),
+                        streamStepEOSReadMS: Double(streamStepEOSReadTotalMS - lastChunkStreamStepEOSReadMS),
+                        audioChunkEvalMS: Double(audioChunkEvalTotalMS - lastChunkAudioChunkEvalMS)
                     )
                     lastChunkTalkerForwardMS = talkerForwardTotalMS
                     lastChunkCodePredictorMS = codePredictorTotalMS
                     lastChunkStreamingDecoderMS = streamingDecoderTotalMS
+                    lastChunkStreamStepEvalMS = streamStepEvalTotalMS
+                    lastChunkStreamStepEOSReadMS = streamStepEOSReadTotalMS
+                    lastChunkAudioChunkEvalMS = audioChunkEvalTotalMS
                     onAudioChunkTimings(timings)
                 }
                 onAudioChunk(audioChunk)

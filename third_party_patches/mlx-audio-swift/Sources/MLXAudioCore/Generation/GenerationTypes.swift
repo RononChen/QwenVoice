@@ -66,15 +66,36 @@ public struct ChunkSubstageTimings: Sendable, Hashable {
     public let codePredictorMS: Double
     /// Streaming audio decoder time (codec → waveform) for this chunk.
     public let audioDecoderMS: Double
+    /// Time spent in `eval(...)` after each forward step (deferred GPU
+    /// dispatch flushing). Phase 2a addition — Phase 1's three stages
+    /// summed to only 18-26 % of `inferMS`; this and the next two
+    /// fields chase the missing 74-82 %.
+    public let streamStepEvalMS: Double
+    /// Time spent reading the EOS (end-of-speech) flag each forward
+    /// step. Lives inside the per-token loop alongside the talker
+    /// forward + code predictor; broken out separately because EOS
+    /// reads can be a non-trivial GPU sync.
+    public let streamStepEOSReadMS: Double
+    /// Time spent in `eval(audioChunk)` immediately after each
+    /// streaming decoder run — flushes the decoded waveform onto the
+    /// CPU side so the chunk can be yielded. Distinct from the
+    /// `audioDecoderMS` measurement which times the decoder kernel.
+    public let audioChunkEvalMS: Double
 
     public init(
         talkerForwardMS: Double,
         codePredictorMS: Double,
-        audioDecoderMS: Double
+        audioDecoderMS: Double,
+        streamStepEvalMS: Double = 0,
+        streamStepEOSReadMS: Double = 0,
+        audioChunkEvalMS: Double = 0
     ) {
         self.talkerForwardMS = talkerForwardMS
         self.codePredictorMS = codePredictorMS
         self.audioDecoderMS = audioDecoderMS
+        self.streamStepEvalMS = streamStepEvalMS
+        self.streamStepEOSReadMS = streamStepEOSReadMS
+        self.audioChunkEvalMS = audioChunkEvalMS
     }
 }
 

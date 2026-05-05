@@ -327,6 +327,17 @@ actor XPCNativeEngineCoordinator {
         if let audioDecoder = probe.audioDecoderMS {
             engineDetails.append(("audio_decoder_ms", String(format: "%.3f", audioDecoder)))
         }
+        // Engine probe Phase 2a: eval cadence + EOS read + audio
+        // chunk eval — the work between the Phase 1 stages.
+        if let streamStepEval = probe.streamStepEvalMS {
+            engineDetails.append(("stream_step_eval_ms", String(format: "%.3f", streamStepEval)))
+        }
+        if let streamStepEOSRead = probe.streamStepEOSReadMS {
+            engineDetails.append(("stream_step_eos_read_ms", String(format: "%.3f", streamStepEOSRead)))
+        }
+        if let audioChunkEval = probe.audioChunkEvalMS {
+            engineDetails.append(("audio_chunk_eval_ms", String(format: "%.3f", audioChunkEval)))
+        }
         logProbeEvent("Engine", event: "chunk_emitted", orderedDetails: engineDetails)
         logProbeEvent("Transport", event: "chunk_delivered", details: [
             "seq": "\(probe.seq)",

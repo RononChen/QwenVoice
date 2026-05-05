@@ -398,6 +398,14 @@ PROBE_CHUNK_COUNT=""
 PROBE_TALKER_MAX_MS=""
 PROBE_CODE_PREDICTOR_MAX_MS=""
 PROBE_AUDIO_DECODER_MAX_MS=""
+# Engine probe Phase 2a — eval cadence + EOS read + audio chunk eval.
+# Together with Phase 1's three stages they should account for ≥ 80 %
+# of `infer_ms`. If still under 50 %, the next layer down is MLX
+# kernel-launch overhead which requires Instruments / signposts
+# profiling rather than wall-clock counters.
+PROBE_STREAM_STEP_EVAL_MAX_MS=""
+PROBE_STREAM_STEP_EOS_READ_MAX_MS=""
+PROBE_AUDIO_CHUNK_EVAL_MAX_MS=""
 
 if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
     LOG_OFFSET_AFTER=$(stat -f %z "$LOG_FILE" 2>/dev/null || echo 0)
@@ -405,9 +413,11 @@ if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
         PROBE_AGGREGATES=$(tail -c "+$((LOG_OFFSET_BEFORE + 1))" "$LOG_FILE" \
             | awk '
                 BEGIN { e2t_max=0; t2u_max=0; e2u_max=0; infer_max=0; n=0;
-                        talker_max=0; code_max=0; decoder_max=0 }
+                        talker_max=0; code_max=0; decoder_max=0;
+                        stream_eval_max=0; eos_read_max=0; chunk_eval_max=0 }
                 /^\[Probe\.Engine\] event=chunk_emitted/ {
                     seq=""; eng=""; inf=""; talker=""; code=""; decoder=""
+                    stream_eval=""; eos_read=""; chunk_eval=""
                     for (i=1; i<=NF; i++) {
                         if ($i ~ /^seq=/) { sub("seq=", "", $i); seq=$i }
                         else if ($i ~ /^engine_at_ms=/) { sub("engine_at_ms=", "", $i); eng=$i }
@@ -415,12 +425,18 @@ if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
                         else if ($i ~ /^talker_forward_ms=/) { sub("talker_forward_ms=", "", $i); talker=$i }
                         else if ($i ~ /^code_predictor_ms=/) { sub("code_predictor_ms=", "", $i); code=$i }
                         else if ($i ~ /^audio_decoder_ms=/) { sub("audio_decoder_ms=", "", $i); decoder=$i }
+                        else if ($i ~ /^stream_step_eval_ms=/) { sub("stream_step_eval_ms=", "", $i); stream_eval=$i }
+                        else if ($i ~ /^stream_step_eos_read_ms=/) { sub("stream_step_eos_read_ms=", "", $i); eos_read=$i }
+                        else if ($i ~ /^audio_chunk_eval_ms=/) { sub("audio_chunk_eval_ms=", "", $i); chunk_eval=$i }
                     }
                     if (seq != "") {
                         engine_at[seq]=eng; infer[seq]=inf
                         if (talker != "") talker_t[seq] = talker
                         if (code != "") code_t[seq] = code
                         if (decoder != "") decoder_t[seq] = decoder
+                        if (stream_eval != "") stream_eval_t[seq] = stream_eval
+                        if (eos_read != "") eos_read_t[seq] = eos_read
+                        if (chunk_eval != "") chunk_eval_t[seq] = chunk_eval
                     }
                 }
                 /^\[Probe\.Transport\] event=chunk_delivered/ {
@@ -471,9 +487,21 @@ if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
                         v = decoder_t[s] + 0.0
                         if (v > decoder_max) decoder_max = v
                     }
+                    for (s in stream_eval_t) {
+                        v = stream_eval_t[s] + 0.0
+                        if (v > stream_eval_max) stream_eval_max = v
+                    }
+                    for (s in eos_read_t) {
+                        v = eos_read_t[s] + 0.0
+                        if (v > eos_read_max) eos_read_max = v
+                    }
+                    for (s in chunk_eval_t) {
+                        v = chunk_eval_t[s] + 0.0
+                        if (v > chunk_eval_max) chunk_eval_max = v
+                    }
                     if (n == 0) {
-                        printf "0.000,0.000,0.000,0.000,0.000,0.000,0.000,0,%.3f,%.3f,%.3f", \
-                            talker_max, code_max, decoder_max
+                        printf "0.000,0.000,0.000,0.000,0.000,0.000,0.000,0,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f", \
+                            talker_max, code_max, decoder_max, stream_eval_max, eos_read_max, chunk_eval_max
                         exit
                     }
                     # Sort each array (selection sort, n is small).
@@ -495,13 +523,14 @@ if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
                     e2t_p50 = e2ts[int(n/2)]
                     t2u_p50 = t2us[int(n/2)]
                     infer_p50 = infers[int(n/2)]
-                    printf "%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%.3f,%.3f,%.3f", \
+                    printf "%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f", \
                         e2t_max, e2t_p50, t2u_max, t2u_p50, e2u_max, infer_max, infer_p50, n, \
-                        talker_max, code_max, decoder_max
+                        talker_max, code_max, decoder_max, \
+                        stream_eval_max, eos_read_max, chunk_eval_max
                 }
             ' || true)
         if [ -n "$PROBE_AGGREGATES" ]; then
-            IFS=',' read -r PROBE_E2T_MAX_MS PROBE_E2T_P50_MS PROBE_T2U_MAX_MS PROBE_T2U_P50_MS PROBE_E2U_MAX_MS PROBE_INFER_MAX_MS PROBE_INFER_P50_MS PROBE_CHUNK_COUNT PROBE_TALKER_MAX_MS PROBE_CODE_PREDICTOR_MAX_MS PROBE_AUDIO_DECODER_MAX_MS <<< "$PROBE_AGGREGATES"
+            IFS=',' read -r PROBE_E2T_MAX_MS PROBE_E2T_P50_MS PROBE_T2U_MAX_MS PROBE_T2U_P50_MS PROBE_E2U_MAX_MS PROBE_INFER_MAX_MS PROBE_INFER_P50_MS PROBE_CHUNK_COUNT PROBE_TALKER_MAX_MS PROBE_CODE_PREDICTOR_MAX_MS PROBE_AUDIO_DECODER_MAX_MS PROBE_STREAM_STEP_EVAL_MAX_MS PROBE_STREAM_STEP_EOS_READ_MAX_MS PROBE_AUDIO_CHUNK_EVAL_MAX_MS <<< "$PROBE_AGGREGATES"
         fi
     fi
 fi
@@ -517,11 +546,14 @@ PROBE_CHUNK_COUNT=${PROBE_CHUNK_COUNT:-}
 PROBE_TALKER_MAX_MS=${PROBE_TALKER_MAX_MS:-}
 PROBE_CODE_PREDICTOR_MAX_MS=${PROBE_CODE_PREDICTOR_MAX_MS:-}
 PROBE_AUDIO_DECODER_MAX_MS=${PROBE_AUDIO_DECODER_MAX_MS:-}
+PROBE_STREAM_STEP_EVAL_MAX_MS=${PROBE_STREAM_STEP_EVAL_MAX_MS:-}
+PROBE_STREAM_STEP_EOS_READ_MAX_MS=${PROBE_STREAM_STEP_EOS_READ_MAX_MS:-}
+PROBE_AUDIO_CHUNK_EVAL_MAX_MS=${PROBE_AUDIO_CHUNK_EVAL_MAX_MS:-}
 
 if [ ! -f "$CSV" ]; then
-    echo "mode,length,state,sample,wall_secs,audio_secs,rtf,filename,underrun_count,total_stall_ms,ttfa_ms,max_chunk_gap_ms,decode_fails,stream_errors,duration_mismatch_s,chunk_count,e2t_max_ms,e2t_p50_ms,t2u_max_ms,t2u_p50_ms,e2u_max_ms,infer_max_ms,infer_p50_ms,probe_chunk_count,talker_max_ms,code_predictor_max_ms,audio_decoder_max_ms" > "$CSV"
+    echo "mode,length,state,sample,wall_secs,audio_secs,rtf,filename,underrun_count,total_stall_ms,ttfa_ms,max_chunk_gap_ms,decode_fails,stream_errors,duration_mismatch_s,chunk_count,e2t_max_ms,e2t_p50_ms,t2u_max_ms,t2u_p50_ms,e2u_max_ms,infer_max_ms,infer_p50_ms,probe_chunk_count,talker_max_ms,code_predictor_max_ms,audio_decoder_max_ms,stream_step_eval_max_ms,stream_step_eos_read_max_ms,audio_chunk_eval_max_ms" > "$CSV"
 fi
 
-ROW="$MODE,$LENGTH,$STATE,$SAMPLE,$WALL,$TOTAL_AUDIO,$RTF,$FILE_LABEL,$UNDERRUN_COUNT,$TOTAL_STALL_MS,$TTFA_MS,$MAX_CHUNK_GAP_MS,$DECODE_FAILS,$STREAM_ERRORS,$DURATION_MISMATCH_S,$CHUNK_COUNT,$PROBE_E2T_MAX_MS,$PROBE_E2T_P50_MS,$PROBE_T2U_MAX_MS,$PROBE_T2U_P50_MS,$PROBE_E2U_MAX_MS,$PROBE_INFER_MAX_MS,$PROBE_INFER_P50_MS,$PROBE_CHUNK_COUNT,$PROBE_TALKER_MAX_MS,$PROBE_CODE_PREDICTOR_MAX_MS,$PROBE_AUDIO_DECODER_MAX_MS"
+ROW="$MODE,$LENGTH,$STATE,$SAMPLE,$WALL,$TOTAL_AUDIO,$RTF,$FILE_LABEL,$UNDERRUN_COUNT,$TOTAL_STALL_MS,$TTFA_MS,$MAX_CHUNK_GAP_MS,$DECODE_FAILS,$STREAM_ERRORS,$DURATION_MISMATCH_S,$CHUNK_COUNT,$PROBE_E2T_MAX_MS,$PROBE_E2T_P50_MS,$PROBE_T2U_MAX_MS,$PROBE_T2U_P50_MS,$PROBE_E2U_MAX_MS,$PROBE_INFER_MAX_MS,$PROBE_INFER_P50_MS,$PROBE_CHUNK_COUNT,$PROBE_TALKER_MAX_MS,$PROBE_CODE_PREDICTOR_MAX_MS,$PROBE_AUDIO_DECODER_MAX_MS,$PROBE_STREAM_STEP_EVAL_MAX_MS,$PROBE_STREAM_STEP_EOS_READ_MAX_MS,$PROBE_AUDIO_CHUNK_EVAL_MAX_MS"
 echo "$ROW"
 echo "$ROW" >> "$CSV"

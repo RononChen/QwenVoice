@@ -269,4 +269,60 @@ final class GenerationSemanticsTests: XCTestCase {
         XCTAssertNil(decoded.probeMetadata)
         XCTAssertEqual(decoded.title, "legacy")
     }
+
+    func testGenerationChunkRoundTripsWithEngineSubstageTimingsPhase2a() throws {
+        // Engine probe Phase 2a: extends the breakdown with the three
+        // `eval` cadence fields chasing the missing 74-82% of inferMS
+        // from the May 2026 Phase 1 re-bench. Round-trip preserves
+        // all six sub-stage fields together.
+        let probe = ChunkProbeMetadata(
+            seq: 8,
+            engineEmittedAtMS: 1_777_998_000_000.0,
+            inferMS: 1_512.0,
+            talkerForwardMS: 80.0,
+            codePredictorMS: 240.0,
+            audioDecoderMS: 9.5,
+            streamStepEvalMS: 415.5,
+            streamStepEOSReadMS: 187.25,
+            audioChunkEvalMS: 320.75
+        )
+        let encoded = try JSONEncoder().encode(probe)
+        let decoded = try JSONDecoder().decode(ChunkProbeMetadata.self, from: encoded)
+        XCTAssertEqual(decoded, probe)
+        XCTAssertEqual(decoded.streamStepEvalMS, 415.5)
+        XCTAssertEqual(decoded.streamStepEOSReadMS, 187.25)
+        XCTAssertEqual(decoded.audioChunkEvalMS, 320.75)
+        // Sanity: Phase 1 + Phase 2a sub-stages should roughly sum
+        // toward `inferMS`. Six measured stages here = 1253.0 ms vs
+        // 1512.0 ms infer = 83 % — within the 80 % Phase 2a target.
+        let measured = (decoded.talkerForwardMS ?? 0)
+            + (decoded.codePredictorMS ?? 0)
+            + (decoded.audioDecoderMS ?? 0)
+            + (decoded.streamStepEvalMS ?? 0)
+            + (decoded.streamStepEOSReadMS ?? 0)
+            + (decoded.audioChunkEvalMS ?? 0)
+        XCTAssertGreaterThan(measured, 0)
+        XCTAssertLessThanOrEqual(measured, decoded.inferMS + 1.0)
+    }
+
+    func testGenerationChunkRoundTripsWithPhase1FieldsOnlyDecodesPhase2aAsNil() throws {
+        // Backward-compat: a chunk with only Phase 1 fields populated
+        // (e.g. produced before Phase 2a shipped, or from a non-Qwen3
+        // backend) round-trips with Phase 2a fields as nil — no
+        // missing-key decode error.
+        let probe = ChunkProbeMetadata(
+            seq: 5,
+            engineEmittedAtMS: 1_777_999_000_000.0,
+            inferMS: 900.0,
+            talkerForwardMS: 50.0,
+            codePredictorMS: 200.0,
+            audioDecoderMS: 8.0
+        )
+        let encoded = try JSONEncoder().encode(probe)
+        let decoded = try JSONDecoder().decode(ChunkProbeMetadata.self, from: encoded)
+        XCTAssertEqual(decoded, probe)
+        XCTAssertNil(decoded.streamStepEvalMS)
+        XCTAssertNil(decoded.streamStepEOSReadMS)
+        XCTAssertNil(decoded.audioChunkEvalMS)
+    }
 }

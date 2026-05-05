@@ -722,7 +722,10 @@ private struct StreamingExecutionContext: Sendable {
                         inferMS: probeInferMS,
                         talkerForwardMS: chunkSubstageTimings?.talkerForwardMS,
                         codePredictorMS: chunkSubstageTimings?.codePredictorMS,
-                        audioDecoderMS: chunkSubstageTimings?.audioDecoderMS
+                        audioDecoderMS: chunkSubstageTimings?.audioDecoderMS,
+                        streamStepEvalMS: chunkSubstageTimings?.streamStepEvalMS,
+                        streamStepEOSReadMS: chunkSubstageTimings?.streamStepEOSReadMS,
+                        audioChunkEvalMS: chunkSubstageTimings?.audioChunkEvalMS
                     )
 
                     let chunkEvent = GenerationEvent.chunk(
