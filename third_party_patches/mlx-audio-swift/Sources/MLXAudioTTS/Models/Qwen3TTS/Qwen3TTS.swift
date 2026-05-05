@@ -5,7 +5,32 @@ import HuggingFace
 import MLXAudioCore
 @preconcurrency import MLXLMCommon
 import MLXNN
+import os
 import Tokenizers
+
+/// Engine probe Phase 2b infrastructure: fine-grained `os_signpost`
+/// markers around the per-token hot path so Instruments / xctrace
+/// traces can correlate Metal GPU activity with the engine stages we
+/// already wall-clock via `ChunkSubstageTimings`.
+///
+/// Subsystem `com.qwenvoice.engine.qwen3` keeps these distinct from
+/// the coarser `com.qwenvoice.engine` signposts in
+/// `NativeStreamingSynthesisSession`. Capture template:
+///
+///     xctrace record --template "Time Profiler" \
+///         --output /tmp/vocello.trace \
+///         --launch -- "$APP/Contents/MacOS/Vocello"
+///
+/// Open the resulting `.trace` in Instruments and add the
+/// "os_signpost" instrument to see these intervals aligned with
+/// the Metal GPU + Time Profiler tracks. See
+/// `docs/reference/instruments-profiling.md` for the workflow.
+private enum Qwen3Signposts {
+    static let signposter = OSSignposter(
+        subsystem: "com.qwenvoice.engine.qwen3",
+        category: "generation"
+    )
+}
 
 private func qwen3TTSLog(_ message: String) {
     FileHandle.standardError.write(Data((message + "\n").utf8))
@@ -1967,7 +1992,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         for _ in 0 ..< effectiveMaxTokens {
             // Forward pass through talker
             let talkerForwardStartedAt = ContinuousClock.now
+            let talkerSignpost = Qwen3Signposts.signposter.beginInterval("Talker Forward")
             let (logits, hidden) = talker(inputEmbeds, cache: cache)
+            Qwen3Signposts.signposter.endInterval("Talker Forward", talkerSignpost)
             talkerForwardTotalMS += talkerForwardStartedAt.elapsedMilliseconds
 
             // Sample first codebook token
@@ -1994,6 +2021,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             }
 
             let codePredictorStartedAt = ContinuousClock.now
+            let codePredictorSignpost = Qwen3Signposts.signposter.beginInterval("Code Predictor Loop")
             for codeIdx in 0 ..< talkerConfig.numCodeGroups - 1 {
                 let codeInput: MLXArray
                 if codeIdx == 0 {
@@ -2016,6 +2044,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 )
                 codeTokens.append(nextCode)
             }
+            Qwen3Signposts.signposter.endInterval("Code Predictor Loop", codePredictorSignpost)
             codePredictorTotalMS += codePredictorStartedAt.elapsedMilliseconds
 
             let allCodes = concatenated(codeTokens, axis: 1) // [1, num_code_groups]
@@ -2037,6 +2066,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
 
             inputEmbeds = textEmbed + codecEmbed
             let streamStepEvalStartedAt = ContinuousClock.now
+            let stepEvalSignpost = Qwen3Signposts.signposter.beginInterval("Step Eval Flush")
             switch streamStepEvalPolicy {
             case .full:
                 eval(inputEmbeds, isEOS)
@@ -2045,6 +2075,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             case .deferred:
                 break
             }
+            Qwen3Signposts.signposter.endInterval("Step Eval Flush", stepEvalSignpost)
             let streamStepEvalElapsed = streamStepEvalStartedAt.elapsedMilliseconds
             streamStepEvalTotalMS += streamStepEvalElapsed
             if isPureVoiceDesign {
@@ -2099,12 +2130,16 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                         cloneFirstChunkDecoderTokens = codesForDecoder.dim(2)
                     }
                     let streamDecoderStartedAt = ContinuousClock.now
+                    let decoderSignpost = Qwen3Signposts.signposter.beginInterval("Audio Decoder")
                     let decoded = speechTokenizer.decoder.streamingStep(codesForDecoder).squeezed(axis: 1)
+                    Qwen3Signposts.signposter.endInterval("Audio Decoder", decoderSignpost)
                     streamingDecoderTotalMS += streamDecoderStartedAt.elapsedMilliseconds
                     streamingDecoderCallCount += 1
                     let audioChunk = decoded[0]
                     let audioChunkEvalStartedAt = ContinuousClock.now
+                    let audioChunkEvalSignpost = Qwen3Signposts.signposter.beginInterval("Audio Chunk Eval")
                     eval(audioChunk)
+                    Qwen3Signposts.signposter.endInterval("Audio Chunk Eval", audioChunkEvalSignpost)
                     let audioChunkEvalElapsed = audioChunkEvalStartedAt.elapsedMilliseconds
                     audioChunkEvalTotalMS += audioChunkEvalElapsed
                     if isPureVoiceDesign {

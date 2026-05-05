@@ -15,6 +15,7 @@ This folder contains the current repo-authored documentation for QwenVoice.
 - [`reference/foundation-projects-audit.md`](reference/foundation-projects-audit.md) — upstream model/runtime/database foundations, current pins, freshness, and local customization status
 - [`reference/vendoring-runtime.md`](reference/vendoring-runtime.md) — runtime, vendoring, and packaging boundaries
 - [`reference/mlx-audio-swift-patching.md`](reference/mlx-audio-swift-patching.md) — vendor delta under `third_party_patches/mlx-audio-swift/`, rebase procedure, and post-rebase build checklist
+- [`reference/instruments-profiling.md`](reference/instruments-profiling.md) — Instruments / `xctrace` workflow for kernel-level engine profiling (when wall-clock probes have hit their limit)
 
 Useful local diagnostics can be exported with:
 
