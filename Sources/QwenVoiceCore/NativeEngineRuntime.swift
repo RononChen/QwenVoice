@@ -860,7 +860,13 @@ actor NativeEngineRuntime {
                 if firstChunkMS == nil {
                     firstChunkMS = startedAt.elapsedMilliseconds
                 }
-            case .token, .info:
+            case .token, .info, .chunkTimings:
+                // .chunkTimings is the engine probe Phase 1 sub-stage
+                // breakdown (Qwen3TTS yields it before each .audio
+                // event). Clone priming only cares about first-chunk
+                // arrival, so the timings are ignored here — bench
+                // tracing via NativeStreamingSynthesisSession is the
+                // canonical consumer.
                 continue
             }
 

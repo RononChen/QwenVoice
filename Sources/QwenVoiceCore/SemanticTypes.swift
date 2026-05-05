@@ -969,11 +969,30 @@ public struct ChunkProbeMetadata: Hashable, Codable, Sendable {
     public let seq: Int
     public let engineEmittedAtMS: Double
     public let inferMS: Double
+    /// Engine probe Phase 1 sub-stage breakdown of `inferMS`. Optional
+    /// so legacy chunks (mock-backed tests, fixtures, non-Qwen3
+    /// backends) decode unchanged + the bench helper omits the
+    /// columns when no sub-stage data is available.
+    /// All three are millisecond deltas from the previous chunk's
+    /// emit boundary (or generation start for chunk seq 1).
+    public let talkerForwardMS: Double?
+    public let codePredictorMS: Double?
+    public let audioDecoderMS: Double?
 
-    public init(seq: Int, engineEmittedAtMS: Double, inferMS: Double) {
+    public init(
+        seq: Int,
+        engineEmittedAtMS: Double,
+        inferMS: Double,
+        talkerForwardMS: Double? = nil,
+        codePredictorMS: Double? = nil,
+        audioDecoderMS: Double? = nil
+    ) {
         self.seq = seq
         self.engineEmittedAtMS = engineEmittedAtMS
         self.inferMS = inferMS
+        self.talkerForwardMS = talkerForwardMS
+        self.codePredictorMS = codePredictorMS
+        self.audioDecoderMS = audioDecoderMS
     }
 }
 

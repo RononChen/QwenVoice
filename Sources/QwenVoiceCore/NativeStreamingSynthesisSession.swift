@@ -596,6 +596,12 @@ private struct StreamingExecutionContext: Sendable {
         // so the next chunk can record `inferMS` as the duration of its
         // own production work since the previous emit.
         var lastChunkEmittedAt: ContinuousClock.Instant?
+        // Engine probe Phase 1: per-chunk sub-stage timings emitted by
+        // Qwen3TTS as a `.chunkTimings(...)` event ALWAYS immediately
+        // before the matching `.audio(...)` chunk. We stash the most
+        // recent timings so the next audio event can attach them to its
+        // probe metadata.
+        var pendingChunkSubstageTimings: ChunkSubstageTimings?
         var mlxMemorySnapshots = initialMLXMemorySnapshots
         mlxMemorySnapshots["before_stream"] = NativeMemoryPolicyResolver.snapshot()
         let streamingOutputPolicy = NativeStreamingOutputPolicy.current()
@@ -633,6 +639,11 @@ private struct StreamingExecutionContext: Sendable {
 
                 switch event {
                 case .token:
+                    continue
+                case .chunkTimings(let timings):
+                    // Stash for the next `.audio(...)` event. Qwen3TTS
+                    // guarantees these arrive paired (timings → audio).
+                    pendingChunkSubstageTimings = timings
                     continue
                 case .info(let info):
                     generationInfo = info
@@ -703,10 +714,15 @@ private struct StreamingExecutionContext: Sendable {
                         probeInferMS = 0
                     }
                     lastChunkEmittedAt = chunkEmitInstant
+                    let chunkSubstageTimings = pendingChunkSubstageTimings
+                    pendingChunkSubstageTimings = nil
                     let probeMetadata = ChunkProbeMetadata(
                         seq: chunkIndex,
                         engineEmittedAtMS: Date().timeIntervalSince1970 * 1000.0,
-                        inferMS: probeInferMS
+                        inferMS: probeInferMS,
+                        talkerForwardMS: chunkSubstageTimings?.talkerForwardMS,
+                        codePredictorMS: chunkSubstageTimings?.codePredictorMS,
+                        audioDecoderMS: chunkSubstageTimings?.audioDecoderMS
                     )
 
                     let chunkEvent = GenerationEvent.chunk(

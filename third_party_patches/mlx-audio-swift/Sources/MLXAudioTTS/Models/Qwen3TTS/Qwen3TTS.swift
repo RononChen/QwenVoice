@@ -1481,6 +1481,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     },
                     onAudioChunk: { chunk in
                         continuation.yield(.audio(chunk))
+                    },
+                    onAudioChunkTimings: { timings in
+                        continuation.yield(.chunkTimings(timings))
                     }
                 )
                 continuation.finish()
@@ -1527,7 +1530,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     memoryClearCadence: memoryClearCadence,
                     onToken: { continuation.yield(.token($0)) },
                     onInfo: { continuation.yield(.info($0)) },
-                    onAudioChunk: { continuation.yield(.audio($0)) }
+                    onAudioChunk: { continuation.yield(.audio($0)) },
+                    onAudioChunkTimings: { continuation.yield(.chunkTimings($0)) }
                 )
                 continuation.finish()
             } catch {
@@ -1569,7 +1573,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     memoryClearCadence: memoryClearCadence,
                     onToken: { continuation.yield(.token($0)) },
                     onInfo: { continuation.yield(.info($0)) },
-                    onAudioChunk: { continuation.yield(.audio($0)) }
+                    onAudioChunk: { continuation.yield(.audio($0)) },
+                    onAudioChunkTimings: { continuation.yield(.chunkTimings($0)) }
                 )
                 continuation.finish()
             } catch {
@@ -1613,7 +1618,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     memoryClearCadence: memoryClearCadence,
                     onToken: { continuation.yield(.token($0)) },
                     onInfo: { continuation.yield(.info($0)) },
-                    onAudioChunk: { continuation.yield(.audio($0)) }
+                    onAudioChunk: { continuation.yield(.audio($0)) },
+                    onAudioChunkTimings: { continuation.yield(.chunkTimings($0)) }
                 )
                 continuation.finish()
             } catch {
@@ -1672,7 +1678,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         memoryClearCadence explicitMemoryClearCadence: Int? = nil,
         onToken: ((Int) -> Void)? = nil,
         onInfo: ((AudioGenerationInfo) -> Void)? = nil,
-        onAudioChunk: ((MLXArray) -> Void)? = nil
+        onAudioChunk: ((MLXArray) -> Void)? = nil,
+        onAudioChunkTimings: ((ChunkSubstageTimings) -> Void)? = nil
     ) throws -> MLXArray {
         guard let speechTokenizer, tokenizer != nil else {
             throw AudioGenerationError.modelNotInitialized("Speech tokenizer or text tokenizer not loaded")
@@ -1860,6 +1867,16 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         var codePredictorTotalMS = 0
         var streamingDecoderTotalMS = 0
         var streamingDecoderCallCount = 0
+        // Snapshot of the cumulative `*TotalMS` accumulators at the
+        // moment of the previous chunk's emit, so the per-chunk
+        // sub-stage delta passed to `onAudioChunkTimings` reflects ONLY
+        // the work done since the previous chunk (or since generation
+        // start for the first chunk). Engine probe Phase 1 — feeds
+        // `[Probe.Engine] talker_forward_ms / code_predictor_ms /
+        // audio_decoder_ms` in the bench helper.
+        var lastChunkTalkerForwardMS = 0
+        var lastChunkCodePredictorMS = 0
+        var lastChunkStreamingDecoderMS = 0
         var designStreamStepEvalTotalMS = 0
         var designStreamStepEOSReadTotalMS = 0
         var designAudioChunkEvalTotalMS = 0
@@ -2056,6 +2073,17 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     }
 
                     pendingStreamCodes.removeAll(keepingCapacity: true)
+                    if let onAudioChunkTimings {
+                        let timings = ChunkSubstageTimings(
+                            talkerForwardMS: Double(talkerForwardTotalMS - lastChunkTalkerForwardMS),
+                            codePredictorMS: Double(codePredictorTotalMS - lastChunkCodePredictorMS),
+                            audioDecoderMS: Double(streamingDecoderTotalMS - lastChunkStreamingDecoderMS)
+                        )
+                        lastChunkTalkerForwardMS = talkerForwardTotalMS
+                        lastChunkCodePredictorMS = codePredictorTotalMS
+                        lastChunkStreamingDecoderMS = streamingDecoderTotalMS
+                        onAudioChunkTimings(timings)
+                    }
                     onAudioChunk(audioChunk)
                     emittedStreamChunk = true
                     clearGenerationCache()
@@ -2115,6 +2143,17 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     customAudioChunkEvalTotalMS += audioChunkEvalStartedAt.elapsedMilliseconds
                 } else if isVoiceCloneGeneration {
                     cloneAudioChunkEvalTotalMS += audioChunkEvalStartedAt.elapsedMilliseconds
+                }
+                if let onAudioChunkTimings {
+                    let timings = ChunkSubstageTimings(
+                        talkerForwardMS: Double(talkerForwardTotalMS - lastChunkTalkerForwardMS),
+                        codePredictorMS: Double(codePredictorTotalMS - lastChunkCodePredictorMS),
+                        audioDecoderMS: Double(streamingDecoderTotalMS - lastChunkStreamingDecoderMS)
+                    )
+                    lastChunkTalkerForwardMS = talkerForwardTotalMS
+                    lastChunkCodePredictorMS = codePredictorTotalMS
+                    lastChunkStreamingDecoderMS = streamingDecoderTotalMS
+                    onAudioChunkTimings(timings)
                 }
                 onAudioChunk(audioChunk)
                 emittedStreamChunk = true

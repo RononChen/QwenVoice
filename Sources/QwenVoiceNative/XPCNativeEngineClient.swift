@@ -309,12 +309,25 @@ actor XPCNativeEngineCoordinator {
         guard let probe = generationEvent.probeMetadata else { return }
         let transportAtMS = Date().timeIntervalSince1970 * 1000.0
         let audioSeconds = generationEvent.chunkDurationSeconds ?? 0
-        logProbeEvent("Engine", event: "chunk_emitted", details: [
-            "seq": "\(probe.seq)",
-            "audio_s": String(format: "%.3f", audioSeconds),
-            "infer_ms": String(format: "%.3f", probe.inferMS),
-            "engine_at_ms": String(format: "%.3f", probe.engineEmittedAtMS),
-        ])
+        var engineDetails: [(String, String)] = [
+            ("seq", "\(probe.seq)"),
+            ("audio_s", String(format: "%.3f", audioSeconds)),
+            ("infer_ms", String(format: "%.3f", probe.inferMS)),
+            ("engine_at_ms", String(format: "%.3f", probe.engineEmittedAtMS)),
+        ]
+        // Engine probe Phase 1: per-chunk sub-stage breakdown when
+        // available. Fields elide cleanly for legacy chunks / non-Qwen3
+        // backends (probe metadata exists but sub-stages are nil).
+        if let talker = probe.talkerForwardMS {
+            engineDetails.append(("talker_forward_ms", String(format: "%.3f", talker)))
+        }
+        if let codePredictor = probe.codePredictorMS {
+            engineDetails.append(("code_predictor_ms", String(format: "%.3f", codePredictor)))
+        }
+        if let audioDecoder = probe.audioDecoderMS {
+            engineDetails.append(("audio_decoder_ms", String(format: "%.3f", audioDecoder)))
+        }
+        logProbeEvent("Engine", event: "chunk_emitted", orderedDetails: engineDetails)
         logProbeEvent("Transport", event: "chunk_delivered", details: [
             "seq": "\(probe.seq)",
             "transport_at_ms": String(format: "%.3f", transportAtMS),
@@ -944,10 +957,35 @@ fileprivate func logProbeEvent(
         FileHandle.standardError.write(data)
     }
 }
+
+/// Variant for callers that need to assemble the field set dynamically
+/// (e.g. Engine probe Phase 1 — sub-stage timings only included when
+/// the chunk metadata carries them). Uses `[(String, String)]` because
+/// `KeyValuePairs` is literal-only.
+fileprivate func logProbeEvent(
+    _ layer: String,
+    event: String,
+    orderedDetails: [(String, String)]
+) {
+    var line = "[Probe.\(layer)] event=\(event)"
+    for (key, value) in orderedDetails {
+        line += " \(key)=\(value)"
+    }
+    line += "\n"
+    if let data = line.data(using: .utf8) {
+        FileHandle.standardError.write(data)
+    }
+}
 #else
 fileprivate func logProbeEvent(
     _ layer: String,
     event: String,
     details: KeyValuePairs<String, String> = [:]
+) {}
+
+fileprivate func logProbeEvent(
+    _ layer: String,
+    event: String,
+    orderedDetails: [(String, String)]
 ) {}
 #endif

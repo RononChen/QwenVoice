@@ -213,6 +213,43 @@ final class GenerationSemanticsTests: XCTestCase {
         XCTAssertEqual(decoded.probeMetadata, probe)
         XCTAssertEqual(decoded.requestID, 42)
         XCTAssertEqual(decoded.chunkDurationSeconds, 1.12)
+        // Engine probe Phase 1 fields default to nil when not provided
+        // by the constructor — legacy / non-Qwen3 chunk path.
+        XCTAssertNil(decoded.probeMetadata?.talkerForwardMS)
+        XCTAssertNil(decoded.probeMetadata?.codePredictorMS)
+        XCTAssertNil(decoded.probeMetadata?.audioDecoderMS)
+    }
+
+    func testGenerationChunkRoundTripsWithEngineSubstageTimings() throws {
+        // Engine probe Phase 1: ChunkProbeMetadata carries optional
+        // sub-stage breakdown of `inferMS`. Round-trip preserves all
+        // three deltas with full Double precision.
+        let probe = ChunkProbeMetadata(
+            seq: 12,
+            engineEmittedAtMS: 1_777_944_500_500.0,
+            inferMS: 1_017.5,
+            talkerForwardMS: 612.4,
+            codePredictorMS: 47.1,
+            audioDecoderMS: 38.7
+        )
+        let chunk = GenerationChunk(
+            requestID: 99,
+            mode: "clone",
+            title: "substage round-trip",
+            chunkPath: nil,
+            isFinal: false,
+            chunkDurationSeconds: 1.12,
+            cumulativeDurationSeconds: 13.44,
+            streamSessionDirectory: nil,
+            previewAudio: nil,
+            probeMetadata: probe
+        )
+        let encoded = try JSONEncoder().encode(chunk)
+        let decoded = try JSONDecoder().decode(GenerationChunk.self, from: encoded)
+        XCTAssertEqual(decoded.probeMetadata?.talkerForwardMS, 612.4)
+        XCTAssertEqual(decoded.probeMetadata?.codePredictorMS, 47.1)
+        XCTAssertEqual(decoded.probeMetadata?.audioDecoderMS, 38.7)
+        XCTAssertEqual(decoded.probeMetadata?.inferMS, 1_017.5)
     }
 
     func testGenerationChunkDecodesLegacyPayloadWithoutProbeMetadata() throws {

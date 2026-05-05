@@ -388,21 +388,40 @@ PROBE_E2U_MAX_MS=""
 PROBE_INFER_MAX_MS=""
 PROBE_INFER_P50_MS=""
 PROBE_CHUNK_COUNT=""
+# Engine probe Phase 1 sub-stage maxes — `[Probe.Engine]` lines now
+# carry `talker_forward_ms`, `code_predictor_ms`, and
+# `audio_decoder_ms` per chunk. These three deltas always sum to less
+# than `infer_ms` (the wall-clock between chunk emits also includes
+# eval cadence, scratch buffer conversion, file write, and event
+# dispatch overhead). Empty when probes are emitted by a non-Qwen3
+# backend or legacy chunk.
+PROBE_TALKER_MAX_MS=""
+PROBE_CODE_PREDICTOR_MAX_MS=""
+PROBE_AUDIO_DECODER_MAX_MS=""
 
 if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
     LOG_OFFSET_AFTER=$(stat -f %z "$LOG_FILE" 2>/dev/null || echo 0)
     if [ "$LOG_OFFSET_AFTER" -gt "$LOG_OFFSET_BEFORE" ]; then
         PROBE_AGGREGATES=$(tail -c "+$((LOG_OFFSET_BEFORE + 1))" "$LOG_FILE" \
             | awk '
-                BEGIN { e2t_max=0; t2u_max=0; e2u_max=0; infer_max=0; n=0 }
+                BEGIN { e2t_max=0; t2u_max=0; e2u_max=0; infer_max=0; n=0;
+                        talker_max=0; code_max=0; decoder_max=0 }
                 /^\[Probe\.Engine\] event=chunk_emitted/ {
-                    seq=""; eng=""; inf=""
+                    seq=""; eng=""; inf=""; talker=""; code=""; decoder=""
                     for (i=1; i<=NF; i++) {
                         if ($i ~ /^seq=/) { sub("seq=", "", $i); seq=$i }
                         else if ($i ~ /^engine_at_ms=/) { sub("engine_at_ms=", "", $i); eng=$i }
                         else if ($i ~ /^infer_ms=/) { sub("infer_ms=", "", $i); inf=$i }
+                        else if ($i ~ /^talker_forward_ms=/) { sub("talker_forward_ms=", "", $i); talker=$i }
+                        else if ($i ~ /^code_predictor_ms=/) { sub("code_predictor_ms=", "", $i); code=$i }
+                        else if ($i ~ /^audio_decoder_ms=/) { sub("audio_decoder_ms=", "", $i); decoder=$i }
                     }
-                    if (seq != "") { engine_at[seq]=eng; infer[seq]=inf }
+                    if (seq != "") {
+                        engine_at[seq]=eng; infer[seq]=inf
+                        if (talker != "") talker_t[seq] = talker
+                        if (code != "") code_t[seq] = code
+                        if (decoder != "") decoder_t[seq] = decoder
+                    }
                 }
                 /^\[Probe\.Transport\] event=chunk_delivered/ {
                     seq=""; tr=""
@@ -437,7 +456,26 @@ if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
                             n++
                         }
                     }
-                    if (n == 0) { print "0.000,0.000,0.000,0.000,0.000,0.000,0.000,0"; exit }
+                    # Sub-stage maxes — independent of cross-layer join,
+                    # so even chunks whose Transport / UI events were
+                    # missing still contribute to the engine-side maxes.
+                    for (s in talker_t) {
+                        v = talker_t[s] + 0.0
+                        if (v > talker_max) talker_max = v
+                    }
+                    for (s in code_t) {
+                        v = code_t[s] + 0.0
+                        if (v > code_max) code_max = v
+                    }
+                    for (s in decoder_t) {
+                        v = decoder_t[s] + 0.0
+                        if (v > decoder_max) decoder_max = v
+                    }
+                    if (n == 0) {
+                        printf "0.000,0.000,0.000,0.000,0.000,0.000,0.000,0,%.3f,%.3f,%.3f", \
+                            talker_max, code_max, decoder_max
+                        exit
+                    }
                     # Sort each array (selection sort, n is small).
                     for (i=0; i<n; i++) {
                         mi=i
@@ -457,12 +495,13 @@ if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
                     e2t_p50 = e2ts[int(n/2)]
                     t2u_p50 = t2us[int(n/2)]
                     infer_p50 = infers[int(n/2)]
-                    printf "%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d", \
-                        e2t_max, e2t_p50, t2u_max, t2u_p50, e2u_max, infer_max, infer_p50, n
+                    printf "%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%.3f,%.3f,%.3f", \
+                        e2t_max, e2t_p50, t2u_max, t2u_p50, e2u_max, infer_max, infer_p50, n, \
+                        talker_max, code_max, decoder_max
                 }
             ' || true)
         if [ -n "$PROBE_AGGREGATES" ]; then
-            IFS=',' read -r PROBE_E2T_MAX_MS PROBE_E2T_P50_MS PROBE_T2U_MAX_MS PROBE_T2U_P50_MS PROBE_E2U_MAX_MS PROBE_INFER_MAX_MS PROBE_INFER_P50_MS PROBE_CHUNK_COUNT <<< "$PROBE_AGGREGATES"
+            IFS=',' read -r PROBE_E2T_MAX_MS PROBE_E2T_P50_MS PROBE_T2U_MAX_MS PROBE_T2U_P50_MS PROBE_E2U_MAX_MS PROBE_INFER_MAX_MS PROBE_INFER_P50_MS PROBE_CHUNK_COUNT PROBE_TALKER_MAX_MS PROBE_CODE_PREDICTOR_MAX_MS PROBE_AUDIO_DECODER_MAX_MS <<< "$PROBE_AGGREGATES"
         fi
     fi
 fi
@@ -475,11 +514,14 @@ PROBE_E2U_MAX_MS=${PROBE_E2U_MAX_MS:-}
 PROBE_INFER_MAX_MS=${PROBE_INFER_MAX_MS:-}
 PROBE_INFER_P50_MS=${PROBE_INFER_P50_MS:-}
 PROBE_CHUNK_COUNT=${PROBE_CHUNK_COUNT:-}
+PROBE_TALKER_MAX_MS=${PROBE_TALKER_MAX_MS:-}
+PROBE_CODE_PREDICTOR_MAX_MS=${PROBE_CODE_PREDICTOR_MAX_MS:-}
+PROBE_AUDIO_DECODER_MAX_MS=${PROBE_AUDIO_DECODER_MAX_MS:-}
 
 if [ ! -f "$CSV" ]; then
-    echo "mode,length,state,sample,wall_secs,audio_secs,rtf,filename,underrun_count,total_stall_ms,ttfa_ms,max_chunk_gap_ms,decode_fails,stream_errors,duration_mismatch_s,chunk_count,e2t_max_ms,e2t_p50_ms,t2u_max_ms,t2u_p50_ms,e2u_max_ms,infer_max_ms,infer_p50_ms,probe_chunk_count" > "$CSV"
+    echo "mode,length,state,sample,wall_secs,audio_secs,rtf,filename,underrun_count,total_stall_ms,ttfa_ms,max_chunk_gap_ms,decode_fails,stream_errors,duration_mismatch_s,chunk_count,e2t_max_ms,e2t_p50_ms,t2u_max_ms,t2u_p50_ms,e2u_max_ms,infer_max_ms,infer_p50_ms,probe_chunk_count,talker_max_ms,code_predictor_max_ms,audio_decoder_max_ms" > "$CSV"
 fi
 
-ROW="$MODE,$LENGTH,$STATE,$SAMPLE,$WALL,$TOTAL_AUDIO,$RTF,$FILE_LABEL,$UNDERRUN_COUNT,$TOTAL_STALL_MS,$TTFA_MS,$MAX_CHUNK_GAP_MS,$DECODE_FAILS,$STREAM_ERRORS,$DURATION_MISMATCH_S,$CHUNK_COUNT,$PROBE_E2T_MAX_MS,$PROBE_E2T_P50_MS,$PROBE_T2U_MAX_MS,$PROBE_T2U_P50_MS,$PROBE_E2U_MAX_MS,$PROBE_INFER_MAX_MS,$PROBE_INFER_P50_MS,$PROBE_CHUNK_COUNT"
+ROW="$MODE,$LENGTH,$STATE,$SAMPLE,$WALL,$TOTAL_AUDIO,$RTF,$FILE_LABEL,$UNDERRUN_COUNT,$TOTAL_STALL_MS,$TTFA_MS,$MAX_CHUNK_GAP_MS,$DECODE_FAILS,$STREAM_ERRORS,$DURATION_MISMATCH_S,$CHUNK_COUNT,$PROBE_E2T_MAX_MS,$PROBE_E2T_P50_MS,$PROBE_T2U_MAX_MS,$PROBE_T2U_P50_MS,$PROBE_E2U_MAX_MS,$PROBE_INFER_MAX_MS,$PROBE_INFER_P50_MS,$PROBE_CHUNK_COUNT,$PROBE_TALKER_MAX_MS,$PROBE_CODE_PREDICTOR_MAX_MS,$PROBE_AUDIO_DECODER_MAX_MS"
 echo "$ROW"
 echo "$ROW" >> "$CSV"

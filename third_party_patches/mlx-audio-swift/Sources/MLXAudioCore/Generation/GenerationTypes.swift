@@ -44,6 +44,40 @@ public struct AudioGenerationInfo: Sendable {
     }
 }
 
+// MARK: - Per-chunk sub-stage timings (engine probe Phase 1)
+
+/// Wall-clock breakdown of the inference work that produced ONE audio
+/// chunk during streaming. Emitted by `Qwen3TTS` immediately before
+/// each `.audio(...)` chunk event so consumers can correlate each
+/// audio packet with the engine work that produced it.
+///
+/// All values are millisecond deltas from the previous chunk's emit
+/// boundary (or from generation start for the first chunk). Cumulative
+/// totals over the full generation are still available via the
+/// existing `qwen_*` keys in `BenchmarkSample.timingsMS`.
+///
+/// Lives in MLXAudioCore so it can be referenced by the public
+/// `AudioGeneration` enum without forcing a Qwen3-specific dependency
+/// onto unrelated consumers.
+public struct ChunkSubstageTimings: Sendable, Hashable {
+    /// LLM forward pass time (`talker(...)` per token) for this chunk.
+    public let talkerForwardMS: Double
+    /// Multi-codebook code-predictor loop time for this chunk.
+    public let codePredictorMS: Double
+    /// Streaming audio decoder time (codec → waveform) for this chunk.
+    public let audioDecoderMS: Double
+
+    public init(
+        talkerForwardMS: Double,
+        codePredictorMS: Double,
+        audioDecoderMS: Double
+    ) {
+        self.talkerForwardMS = talkerForwardMS
+        self.codePredictorMS = codePredictorMS
+        self.audioDecoderMS = audioDecoderMS
+    }
+}
+
 // MARK: - Generation Events
 
 /// Events emitted during audio generation.
@@ -54,6 +88,12 @@ public enum AudioGeneration: Sendable {
     case info(AudioGenerationInfo)
     /// Final generated audio
     case audio(MLXArray)
+    /// Per-chunk sub-stage timing breakdown. Always emitted
+    /// immediately before the corresponding `.audio(...)` chunk so
+    /// consumers can stash it and bind to the next audio event.
+    /// Backward compatibility: legacy consumers can ignore via a
+    /// `@unknown default` branch — adding a new case is non-breaking.
+    case chunkTimings(ChunkSubstageTimings)
 }
 
 // MARK: - Generation Errors
