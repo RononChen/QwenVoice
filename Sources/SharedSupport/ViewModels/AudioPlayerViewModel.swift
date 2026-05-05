@@ -234,6 +234,21 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     private var liveEngine: AVAudioEngine?
     private var livePlayerNode: AVAudioPlayerNode?
     private var liveScheduledCount = 0
+    // Real audio-second queue depth used by `shouldStartLivePlayback`.
+    // Bumped on every `scheduleLiveBuffer` and decremented in
+    // `handleLiveBufferPlaybackCompletion` (FIFO via
+    // `liveBufferDurations`). Distinct from `livePreviewDuration`,
+    // which is monotonically-cumulative total received audio used
+    // for UI / `final_handoff` audio-length reporting. Audit
+    // Finding #3 (May 2026): the prior code path reused
+    // `livePreviewDuration` for queue health, which after an
+    // underrun read multi-second-stale, and the
+    // `shouldStartLivePlayback` predicate would resume playback
+    // with a buffer claim of 6+ s while the AVAudioEngine queue
+    // actually held one fresh chunk (~0.6 s). Repeated
+    // resume/cutoff cycles followed.
+    private var liveQueuedAudioSeconds: TimeInterval = 0
+    private var liveBufferDurations: [TimeInterval] = []
     private var liveFormat: AVAudioFormat?
     // Live-preview anomaly tracking (DEBUG-only telemetry consumed by
     // `scripts/bench_ui_generation.sh --log-file` for the desktop-UI
@@ -375,6 +390,44 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             estimatedRTF: estimatedRTF,
             smoothPlaybackEnabled: smoothPlaybackEnabled
         )
+    }
+
+    /// Read-only window into the live preview's real audio-second
+    /// queue depth (audit Finding #3 fix). Counts the duration of
+    /// every scheduled-but-not-yet-fully-played AVAudioEngine
+    /// buffer. Returns 0 when live preview is idle.
+    var liveQueuedAudioSecondsForTesting: TimeInterval {
+        liveQueuedAudioSeconds
+    }
+
+    /// Snapshot of the FIFO of buffer audio durations currently in
+    /// the AVAudioEngine queue. Head = next-to-complete buffer.
+    var liveBufferDurationsForTesting: [TimeInterval] {
+        liveBufferDurations
+    }
+
+    /// Test hooks for the queue accounting that's normally driven
+    /// by `appendLiveChunk` / `handleLiveBufferPlaybackCompletion`.
+    /// These let tests verify the FIFO contract without spinning
+    /// up a real AVAudioEngine session (which the
+    /// `playbackMode == .live` guard inside the production path
+    /// requires). They mirror the production state mutations
+    /// exactly so the assertions are meaningful for audit
+    /// Finding #3 coverage.
+    func enqueueLiveBufferDurationForTesting(_ audioSeconds: TimeInterval) {
+        liveScheduledCount += 1
+        liveBufferDurations.append(audioSeconds)
+        liveQueuedAudioSeconds += audioSeconds
+        livePreviewDuration += audioSeconds
+    }
+
+    @discardableResult
+    func drainLiveBufferDurationForTesting() -> TimeInterval? {
+        guard !liveBufferDurations.isEmpty else { return nil }
+        let drained = liveBufferDurations.removeFirst()
+        liveQueuedAudioSeconds = max(0, liveQueuedAudioSeconds - drained)
+        liveScheduledCount = max(0, liveScheduledCount - 1)
+        return drained
     }
 #endif
 
@@ -760,6 +813,8 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         liveFinalFilePath = nil
         liveAutoplayEnabled = autoPlay
         liveScheduledCount = 0
+        liveQueuedAudioSeconds = 0
+        liveBufferDurations.removeAll(keepingCapacity: true)
         livePlaybackStarted = false
         livePreviewDuration = 0
         livePlaybackTimeOffset = 0
@@ -829,7 +884,10 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             configureLiveEngine(with: fileFormat)
         }
 
+        let chunkAudioSeconds = TimeInterval(buffer.frameLength) / fileFormat.sampleRate
         liveScheduledCount += 1
+        liveBufferDurations.append(chunkAudioSeconds)
+        liveQueuedAudioSeconds += chunkAudioSeconds
         setLivePreviewQueueDepth(liveScheduledCount)
         scheduleLiveBuffer(buffer)
         CustomVoiceUIPerformanceTrace.markOnce(
@@ -839,7 +897,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             ]
         )
 
-        let chunkAudioSeconds = TimeInterval(buffer.frameLength) / fileFormat.sampleRate
         livePreviewDuration = cumulativeDuration
             ?? (livePreviewDuration + chunkAudioSeconds)
         duration = max(duration, livePreviewDuration)
@@ -854,7 +911,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         if Self.shouldStartLivePlayback(
             autoplayEnabled: liveAutoplayEnabled,
             queuedChunks: liveScheduledCount,
-            queuedDuration: livePreviewDuration,
+            queuedDuration: liveQueuedAudioSeconds,
             prebufferThreshold: livePreviewConfiguration.prebufferThreshold,
             minimumBufferedDuration: livePreviewConfiguration.minimumBufferedDuration,
             finalFileAvailable: liveFinalFilePath != nil,
@@ -899,7 +956,10 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             configureLiveEngine(with: format)
         }
 
+        let chunkAudioSeconds = TimeInterval(buffer.frameLength) / format.sampleRate
         liveScheduledCount += 1
+        liveBufferDurations.append(chunkAudioSeconds)
+        liveQueuedAudioSeconds += chunkAudioSeconds
         setLivePreviewQueueDepth(liveScheduledCount)
         scheduleLiveBuffer(buffer)
         CustomVoiceUIPerformanceTrace.markOnce(
@@ -909,7 +969,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             ]
         )
 
-        let chunkAudioSeconds = TimeInterval(buffer.frameLength) / format.sampleRate
         livePreviewDuration = cumulativeDuration
             ?? (livePreviewDuration + chunkAudioSeconds)
         duration = max(duration, livePreviewDuration)
@@ -924,7 +983,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         if Self.shouldStartLivePlayback(
             autoplayEnabled: liveAutoplayEnabled,
             queuedChunks: liveScheduledCount,
-            queuedDuration: livePreviewDuration,
+            queuedDuration: liveQueuedAudioSeconds,
             prebufferThreshold: livePreviewConfiguration.prebufferThreshold,
             minimumBufferedDuration: livePreviewConfiguration.minimumBufferedDuration,
             finalFileAvailable: liveFinalFilePath != nil,
@@ -1088,6 +1147,14 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     private func handleLiveBufferPlaybackCompletion() {
         guard playbackMode == .live else { return }
         liveScheduledCount = max(0, liveScheduledCount - 1)
+        // Decrement the audio-second queue depth in lock-step with
+        // `liveScheduledCount`. AVAudioEngine plays scheduled
+        // buffers FIFO, so the head of `liveBufferDurations` is
+        // the buffer that just completed (`.dataPlayedBack`).
+        if !liveBufferDurations.isEmpty {
+            let drained = liveBufferDurations.removeFirst()
+            liveQueuedAudioSeconds = max(0, liveQueuedAudioSeconds - drained)
+        }
         setLivePreviewQueueDepth(liveScheduledCount)
         if liveScheduledCount > 0 {
             setLivePreviewPhase(isPlaying ? .playing : .draining)
@@ -1190,6 +1257,8 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         emitPreviewCompletedTrace(totalAudioSeconds: livePreviewDuration)
         stopLivePlayback(resetCurrentTime: true)
         liveScheduledCount = 0
+        liveQueuedAudioSeconds = 0
+        liveBufferDurations.removeAll(keepingCapacity: true)
         livePlaybackStarted = false
         livePreviewDuration = 0
         livePlaybackTimeOffset = 0

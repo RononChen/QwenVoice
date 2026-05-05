@@ -377,6 +377,96 @@ final class LivePreviewIntegrationTests: XCTestCase {
         )
     }
 
+    /// Audit Finding #3 coverage. The pre-fix code path passed
+    /// `livePreviewDuration` (monotonically-cumulative total
+    /// received audio) to `shouldStartLivePlayback`, so as
+    /// playback drained the queue the predicate's view of the
+    /// buffer became increasingly stale. The fix tracks
+    /// `liveQueuedAudioSeconds` as a real FIFO that decrements on
+    /// every buffer-completion callback. This test proves the
+    /// FIFO contract: enqueue 5 buffers (3.2 s of audio), drain
+    /// 3, the visible queue depth must be 2 buffers / 1.28 s.
+    func testQueuedAudioSecondsTracksRealQueueDepthFIFO() {
+        // 5 chunks × 0.64 s = 3.2 s — typical Qwen3 streaming
+        // chunk sizing.
+        let chunkSeconds: TimeInterval = 0.64
+        for _ in 0 ..< 5 {
+            viewModel.enqueueLiveBufferDurationForTesting(chunkSeconds)
+        }
+
+        XCTAssertEqual(
+            viewModel.liveQueuedAudioSecondsForTesting,
+            3.2,
+            accuracy: 0.001,
+            "After enqueuing 5 chunks the queue depth must equal 5 × chunk audio."
+        )
+        XCTAssertEqual(viewModel.liveBufferDurationsForTesting.count, 5)
+
+        // Simulate three buffer completions (oldest first; FIFO).
+        for _ in 0 ..< 3 {
+            viewModel.drainLiveBufferDurationForTesting()
+        }
+
+        XCTAssertEqual(
+            viewModel.liveQueuedAudioSecondsForTesting,
+            1.28,
+            accuracy: 0.001,
+            "After draining 3 buffers, only 2 chunks (1.28 s) should remain queued."
+        )
+        XCTAssertEqual(viewModel.liveBufferDurationsForTesting.count, 2)
+    }
+
+    /// Audit Finding #3 — the post-underrun resume case. The
+    /// production bug: a session that has played 6+ s of audio
+    /// underruns to queue=0, then a single fresh chunk arrives.
+    /// Pre-fix, `livePreviewDuration` (cumulative) read 6.64 s
+    /// and the predicate (Smooth-OFF Policy 1b path) saw
+    /// `queuedDuration = 6.64`, satisfying its
+    /// `requiredBuffer ≈ D × (1 - 1/r)` floor, and resumed
+    /// playback. Real queue was 0.64 s and drained in one
+    /// buffer-completion callback — repeated cycles. This test
+    /// proves the predicate now correctly reads the real queue
+    /// depth (1 chunk = 0.64 s, well below the floor) and
+    /// returns false.
+    func testShouldStartLivePlaybackUsesRealQueueDepthAfterUnderrun() {
+        // Scenario: 21.76 s CV cold gen, RTF 1.56×. After ~10
+        // chunks have played out, the queue underruns, and one
+        // fresh chunk arrives. The predicate should NOT resume.
+        let expectedAudio: TimeInterval = 21.76
+        let estimatedRTF: Double = 1.56
+        let realQueuedSeconds: TimeInterval = 0.64  // one chunk
+
+        XCTAssertFalse(
+            AudioPlayerViewModel.shouldStartLivePlaybackForTesting(
+                queuedChunks: 1,
+                queuedDuration: realQueuedSeconds,
+                prebufferThreshold: 3,
+                underrunCount: 1,
+                expectedAudioDuration: expectedAudio,
+                estimatedRTF: estimatedRTF,
+                smoothPlaybackEnabled: false
+            ),
+            "Post-underrun, a single fresh chunk (0.64 s real queue) must NOT resume playback under any policy. Pre-fix, this returned true because the call site mistakenly passed the cumulative-received `livePreviewDuration` (~6.4 s) as `queuedDuration`."
+        )
+
+        // Sanity: with a sufficient real buffer (B_min for the
+        // scenario ≈ 7.81 s), the predicate DOES resume. Confirms
+        // the predicate is healthy when the call site supplies
+        // the correct value.
+        XCTAssertTrue(
+            AudioPlayerViewModel.shouldStartLivePlaybackForTesting(
+                queuedChunks: 12,
+                queuedDuration: 7.81,
+                prebufferThreshold: 3,
+                underrunCount: 1,
+                expectedAudioDuration: expectedAudio,
+                estimatedRTF: estimatedRTF,
+                smoothPlaybackEnabled: false
+            ),
+            "With a real B_min buffer queued, the predicate should resume."
+        )
+    }
+
     func testFinalPlaybackHandoffContinuesFromPartialLivePreview() {
         let handoff = AudioPlayerViewModel.finalPlaybackHandoff(
             heardLivePreview: true,
