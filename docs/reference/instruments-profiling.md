@@ -104,29 +104,74 @@ What to look for:
   housekeeping (sampling, list construction, MLX expression building)
   is amortizable.
 
-## Phase 2b Investigation Track
+## Phase 2b Findings And The Phase 2c Decision
 
-Phase 2a delivered wall-clock attribution. Phase 2b uses Instruments
-traces to identify kernel-level slack. Concrete next steps once a
-clean trace is in hand:
+Phase 2a delivered wall-clock attribution. Phase 2b used Instruments
+traces to identify kernel-level slack. The first clean trace
+(`/tmp/vocello-phase2b.trace`, May 2026, Custom Voice medium cold,
+212 token iterations / 27 audio chunks / ~17 s audio) decomposed
+per-iteration work as:
 
-1. **Code Predictor batching.** If the 7 codebook-token predictions
-   show as 7 distinct GPU bursts in the trace, file a Phase 2b commit
-   to batch them as a single multi-codebook tensor op.
-2. **Decoder pipelining.** If `Audio Chunk Eval` shows long GPU sync
-   wait while the next forward pass could already be queued, file a
-   commit that issues the next forward dispatch BEFORE eval'ing the
-   audio chunk.
-3. **Sampling on CPU vs GPU.** `sampleToken(...)` includes top-p,
-   top-k, repetition penalty — all small ops. If they show up as
-   per-token CPU-side work between GPU dispatches, batching or moving
-   them to Metal could overlap with kernel launches.
+| Stage | p50 / iter | total | % of work |
+|---|---|---|---|
+| Step Eval Flush | 80 ms | 18.2 s | 62 % |
+| Code Predictor Loop | 26 ms | 5.6 s | 19 % |
+| Audio Chunk Eval | 135 ms / chunk | 3.7 s | 13 % |
+| Talker Forward | 6 ms | 1.4 s | 5 % |
+| Audio Decoder | 6 ms / chunk | 0.2 s | <1 % |
+
+Step Eval Flush at 80 ms p50 was confirmed irreducible by the
+`.deferred` policy experiment (commit `730e569`) — moving the sync
+point doesn't reduce the underlying forward-pass GPU work.
+
+Code Predictor Loop at 26 ms p50 was the next clear wall-clock
+target, but architectural analysis showed **parallel codebook
+prediction is not viable** in this Swift port:
+
+1. Each codebook's input is built from `codeTokens.last!` — feeding
+   back the previously-sampled codebook token. The autoregressive
+   dependency is real, not optional.
+2. `lmHead[generationStep]` is a per-step `Linear(1024, 2048)` head
+   (15 of them, one per codebook). They cannot share a hidden state
+   output.
+3. The codebook KV cache (`codeCache`) builds sequentially via
+   `cache.update(keys: k, values: v)`. State accumulates across
+   inner-loop iterations.
+4. `num_code_groups = 16` (15 inner-loop iterations, not 7 as the
+   Phase 2c planning doc had assumed).
+5. The upstream Python reference (`Blaizzy/mlx-audio`) doesn't expose
+   a parallel-codebook config flag — it treats Qwen3 as a flat token
+   stream via `mlx_lm.stream_generate`, so there's no published
+   reference to port.
+
+With the primary 12 % RTF target unreachable, Phase 2c shipped the
+plan's next-priority alternative: **Audio Chunk Eval pipelining via
+`asyncEval`**. The change replaces blocking `eval(audioChunk)` with
+non-blocking `asyncEval(audioChunk)` at the streaming chunk boundary
+in `Qwen3TTS.swift`, so the engine returns to the per-token loop
+without CPU-blocking on Metal command-buffer drain. The consumer's
+`samples.asArray(Float.self)` triggers materialisation off the
+engine's critical path. The `Audio Chunk Eval` signpost interval
+will collapse from ~135 ms / chunk to near-zero (asyncEval enqueue
+cost only) — that collapse IS the success signal. See
+[`mlx-audio-swift-patching.md`](mlx-audio-swift-patching.md) for the
+patch baseline.
+
+## Open Investigation Tracks
 
 If the trace shows the GPU is *fully saturated* during the per-token
 loop (no idle gaps), the conclusion is that the M1's GPU is the
 bottleneck and further wall-clock optimization requires either model
 quantization (already at 4-bit Speed) or hardware (M2/M3/M4 with more
 GPU cores).
+
+Phase 2c's pipelining still leaves Step Eval Flush (62 % of work) as
+the dominant per-iteration cost. The work itself is the per-token
+forward sync; reducing it requires either a faster talker forward
+(quantization, kernel-fusion of the SwiGLU + attention path, or
+talker-layer batching across tokens) or a fundamentally different
+generation strategy (e.g. speculative decoding). All of these are
+research-grade, not local optimisations.
 
 ## Patch Note
 

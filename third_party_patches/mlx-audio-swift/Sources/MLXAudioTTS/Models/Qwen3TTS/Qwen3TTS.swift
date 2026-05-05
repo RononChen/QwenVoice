@@ -2138,7 +2138,24 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     let audioChunk = decoded[0]
                     let audioChunkEvalStartedAt = ContinuousClock.now
                     let audioChunkEvalSignpost = Qwen3Signposts.signposter.beginInterval("Audio Chunk Eval")
-                    eval(audioChunk)
+                    // Phase 2c — Audio Chunk Eval pipelining. The
+                    // Phase 2b trace identified `eval(audioChunk)` as
+                    // ~13 % of per-chunk wall time (135 ms p50 / chunk
+                    // for medium CV cold), and parallel-codebook
+                    // batching turned out to be architecturally
+                    // infeasible (see `Phase 2c` bullet in
+                    // `docs/reference/mlx-audio-swift-patching.md` for
+                    // the autoregressive dependency analysis). Switch
+                    // the in-loop materialisation from `eval` to
+                    // `asyncEval`: the streaming decoder kernel + any
+                    // accumulated lazy work get queued, but the engine
+                    // returns to the per-token loop immediately
+                    // instead of CPU-blocking on Metal command buffer
+                    // drain. Downstream `samples.asArray(Float.self)`
+                    // in `NativeStreamingSynthesisSession` blocks on
+                    // the consumer side instead — that thread is
+                    // already off the engine's critical path.
+                    asyncEval(audioChunk)
                     Qwen3Signposts.signposter.endInterval("Audio Chunk Eval", audioChunkEvalSignpost)
                     let audioChunkEvalElapsed = audioChunkEvalStartedAt.elapsedMilliseconds
                     audioChunkEvalTotalMS += audioChunkEvalElapsed
@@ -2220,7 +2237,12 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     cloneFirstChunkDecoderTokens = codesForDecoder.dim(2)
                 }
                 let audioChunkEvalStartedAt = ContinuousClock.now
-                eval(audioChunk)
+                // Phase 2c — final-chunk variant of the same
+                // pipelining: queue, do not block. The trailing chunk
+                // emitted after the per-token loop ends still gets
+                // its lazy graph materialised by the consumer's
+                // `samples.asArray(Float.self)`.
+                asyncEval(audioChunk)
                 let audioChunkEvalElapsed = audioChunkEvalStartedAt.elapsedMilliseconds
                 audioChunkEvalTotalMS += audioChunkEvalElapsed
                 if isPureVoiceDesign {
