@@ -141,7 +141,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         guard autoplayEnabled else { return false }
         guard !finalFileAvailable else { return true }
 
-        // Policy 1: predictive prebuffer
+        // Policy 1 — Smooth ON: aggressive predictive prebuffer.
         if smoothPlaybackEnabled,
            let expected = expectedAudioDuration,
            expected > 0,
@@ -166,7 +166,59 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             return queuedDuration >= requiredBuffer
         }
 
-        // Policy 2: adaptive scaling
+        // Policy 1b — Smooth OFF: light predictive prebuffer derived
+        // from queue dynamics. Even with Smooth disabled, when an
+        // estimated RTF + audio duration are available we can
+        // size the prebuffer so the AVAudioEngine queue does NOT
+        // run dry mid-playback. The minimum buffer that survives a
+        // generation at RTF `r` for audio length `D` is exactly:
+        //
+        //     B_min = D × (1 - 1/r)        (= D × (r-1)/r)
+        //
+        // Derivation: playback drains at 1× real-time; generation
+        // produces at 1/r real-time; net queue drain = (r-1)/r
+        // audio-seconds per wall-second; buffer must last for the
+        // full audio length ⇒ B_min = D × (r-1)/r.
+        //
+        // The pre-Phase 2c-investigation code path here was Policy 2
+        // (3 chunks AND 2.25 s), which under-provisioned for any
+        // medium+ script: a 21.76 s CV cold gen at observed RTF
+        // 1.56× needs B_min = 7.81 s; Policy 2 started at 3.2 s and
+        // the buffer drained empty at audio_played_s = 6.7 s,
+        // triggering a 5 s `underrun_paused` stall while the engine
+        // caught up — repeating later in the script. The user heard
+        // these stalls as the live preview "getting interrupted."
+        //
+        // Cap at 35 % of audio length so TTFA stays usable for very
+        // long scripts (TTFA ≈ requiredBuffer × r). For a 60 s clip
+        // at RTF 1.56× that ceilings TTFA at 60 × 0.35 × 1.56 ≈ 33 s
+        // rather than the unbounded ~22 s of accurate B_min × r.
+        // Floor at `minimumBufferedDuration` (2.25 s default) so
+        // micro / short scripts still get the existing chunk-burst
+        // start-up behavior.
+        if let expected = expectedAudioDuration, expected > 0,
+           let rtf = estimatedRTF, rtf > 1.0 {
+            let exactBuffer = expected * (rtf - 1.0) / rtf
+            let usableCap = expected * 0.35
+            // Outer `min(..., expected)` ensures `requiredBuffer`
+            // never exceeds the audio length itself — important for
+            // micro / short scripts where `minimumBufferedDuration`
+            // (2.25 s default) would otherwise demand a buffer
+            // larger than the entire clip and gate playback on the
+            // `finalFileAvailable` short-circuit at the top of this
+            // function.
+            let requiredBuffer = min(
+                expected,
+                max(minimumBufferedDuration, min(exactBuffer, usableCap))
+            )
+            return queuedDuration >= requiredBuffer
+        }
+
+        // Policy 2 — fallback adaptive scaling (no estimate).
+        // Reached when `setLivePreviewEstimate` was not called or
+        // returned 0 / RTF ≤ 1. Keeps the historical chunk-count +
+        // duration thresholds with underrun-driven scaling so a
+        // session that does drain dry adapts after the first stall.
         let multiplier = min(1.0 + 0.75 * Double(max(underrunCount, 0)), 4.0)
         let scaledChunks = max(
             prebufferThreshold,
