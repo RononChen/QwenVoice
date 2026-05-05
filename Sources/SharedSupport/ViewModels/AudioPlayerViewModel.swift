@@ -149,7 +149,20 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
            rtf > 1.0 {
             let safetyMargin: TimeInterval = 1.0
             let deficit = expected * (rtf - 1.0) + safetyMargin
-            let requiredBuffer = min(deficit, expected)
+            // Secondary cap at 60 % of expected audio length keeps
+            // Smooth ON usable for high-RTF modes (Voice Cloning
+            // ~2.3×, Custom Voice ~2.0× warm). Without this cap the
+            // raw `deficit` saturates against the `expected_audio`
+            // ceiling for any RTF ≥ 2, which means Smooth ON
+            // degenerates into "wait for full generation". The 0.6
+            // factor caps user-perceived TTFA at roughly 60 % of
+            // audio length × RTF (i.e. the user always starts
+            // hearing within ~60 % of the audio's wall-time). May
+            // 2026 bench: VC long ON had TTFA 53 s for 41 s of
+            // audio under the old cap; this trims to a bounded
+            // smooth-ish UX rather than a "no-streaming" outcome.
+            let usableCap = expected * 0.6
+            let requiredBuffer = min(deficit, usableCap, expected)
             return queuedDuration >= requiredBuffer
         }
 
@@ -482,6 +495,26 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         setLivePreviewPhase(.buffering)
         playbackPresentationContext = .generatePreview
         generatePreviewVisibilityState = .preparing
+        // Pre-warm the AVAudioEngine + player node + audio graph with
+        // the engine's expected output format (24 kHz Int16 mono per
+        // the Qwen3-TTS streaming contract). The cross-layer probe
+        // bench (May 2026) showed `t2u_max_ms` paid 110-220 ms on the
+        // first chunk specifically because `configureLiveEngine` ran
+        // lazily there — the cost is engine allocation +
+        // `engine.attach` + `engine.connect` + mainMixerNode access,
+        // all of which can run safely before any audio arrives.
+        // `configureLiveEngine` is idempotent against an identical
+        // format so the chunk-arrival site is a cheap no-op when the
+        // format matches; if it ever mismatches (different model or
+        // contract change) the chunk site falls back to reconfiguring.
+        if let prewarmFormat = AVAudioFormat(
+            commonFormat: .pcmFormatInt16,
+            sampleRate: 24_000,
+            channels: 1,
+            interleaved: false
+        ) {
+            configureLiveEngine(with: prewarmFormat)
+        }
         CustomVoiceUIPerformanceTrace.markOnce(.previewSetupFinished)
     }
 
@@ -558,8 +591,14 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
 
     private func bindGenerationEventSource() {
 #if canImport(QwenVoiceNative)
+        // The broker is `@MainActor` and its `publish(_:)` always
+        // sends from a `Task { @MainActor in ... }`, so the sink
+        // already runs on the MainActor. Dropping the previous
+        // `.receive(on: DispatchQueue.main)` saves the second
+        // scheduling hop on every chunk; the cross-layer probe
+        // bench (May 2026) showed this layer added 20–60 ms to
+        // first-chunk `t2u_max_ms`.
         chunkCancellable = GenerationChunkBroker.shared.publisher
-            .receive(on: DispatchQueue.main)
             .sink { [weak self] event in
                 guard let self,
                       let requestID = event.requestID,
@@ -948,6 +987,24 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     }
 
     private func configureLiveEngine(with format: AVAudioFormat) {
+        // Idempotent: if a prior pre-warm or chunk-arrival call already
+        // configured the engine with this exact format, skip the
+        // expensive allocation + attach + connect path. This is what
+        // makes the `prepareStreamingPreview` pre-warm a free win at
+        // the first chunk's arrival site.
+        if let existingEngine = liveEngine,
+           let existingNode = livePlayerNode,
+           let existingFormat = liveFormat,
+           existingFormat == format {
+            // Belt-and-suspenders: the engine could have been torn
+            // down between pre-warm and chunk arrival (e.g. a panic
+            // path called `engine.stop()`); confirm it's still running
+            // a valid graph before reusing.
+            if existingEngine.attachedNodes.contains(existingNode) {
+                return
+            }
+        }
+
         let engine = AVAudioEngine()
         let playerNode = AVAudioPlayerNode()
         engine.attach(playerNode)
