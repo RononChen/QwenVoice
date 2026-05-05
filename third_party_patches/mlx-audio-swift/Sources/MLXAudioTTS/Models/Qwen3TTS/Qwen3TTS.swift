@@ -319,6 +319,30 @@ private enum Qwen3StreamStepEvalPolicy: String, Sendable {
     case eosOnly = "eos-only"
     case deferred
 
+    /// May 2026 finding: `.deferred` is NOT a wall-clock win.
+    ///
+    /// The Phase 2a probe (commit 37c21c3) showed `stream_step_eval`
+    /// — the eager `eval(inputEmbeds, isEOS)` flush at every token
+    /// step — accounted for ~80 % of per-chunk wall time. A direct
+    /// smoke test with `.deferred` (skip the eager eval, let
+    /// `nextToken.item()` force the sync implicitly) showed
+    /// `stream_step_eval` correctly dropping to 0 ms — but
+    /// `infer_ms` *increased* slightly (CV medium: 1021 → 1111 ms
+    /// per chunk). The MLX work just moved: `audio_chunk_eval` grew
+    /// ~90 ms, `stream_step_eos_read` grew ~15 ms, and an untracked
+    /// portion landed in the next iteration's implicit sync.
+    /// Conclusion: `stream_step_eval` was a *visible attribution*
+    /// of the per-token forward sync, not extra work. The bottleneck
+    /// is the underlying MLX kernel compute (talker forward + code
+    /// predictor + audio decoder produce + sample), not the
+    /// scheduling timing of the flush.
+    ///
+    /// Keeping `.full` as production default — it surfaces errors
+    /// earlier and gives the cleanest wall-clock attribution for
+    /// future profiling. Real optimization requires kernel-level work
+    /// (Phase 2b / 3): Instruments + signposts to find which of
+    /// talker_core_eval / talker_decoder_layers_eval / code predictor
+    /// codebook batching has slack.
     static func resolve(
         explicitPolicy: String? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment
