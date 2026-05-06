@@ -4,19 +4,27 @@ import AppKit
 
 /// Unified Settings surface, modeled on macOS System Settings.
 ///
-/// Replaces the prior split between an in-app Models tab and a
-/// Cmd+, Preferences window. Six grouped sections, top to bottom:
-/// one per generation mode (Custom Voice, Voice Design, Voice
-/// Cloning), then Playback, Storage, About. Form rows follow the
-/// System Settings idiom: leading status indicator, two-line
-/// label/sublabel, trailing single primary control.
+/// Single in-app surface that hosts model downloads + playback +
+/// storage + about. Four grouped sections total:
 ///
-/// Mode color is contained to a small 8x8 dot in the section
-/// header, never on the row itself. Active state is signalled by
-/// a system-green check in the row's leading slot, but only when
-/// the variant is BOTH selected and on disk (`isLiveActive`).
-/// Hardware risk surfaces as an inline orange triangle next to
-/// the variant name with a hover explanation.
+/// 1. Models. One row per generation mode. Each row carries a
+///    native popup `Picker` for variant selection (the System
+///    Settings "Output device" idiom). The trailing action button
+///    reflects the state of the currently-selected variant: Get,
+///    Cancel + progress, Repair, or borderless trash when the
+///    variant is active and on disk.
+///
+/// 2. Playback. Two toggles. Captions only where the toggle name
+///    is not self-explanatory.
+///
+/// 3. Storage. Output directory + Application data, two compact
+///    rows.
+///
+/// 4. About. Version line.
+///
+/// Mode color identity attaches to each row's leading 8 pt dot
+/// rather than the section header — with one Models section, the
+/// mode marker has to live on the row itself.
 struct SettingsView: View {
     @EnvironmentObject private var viewModel: ModelManagerViewModel
     @Binding var highlightedModelID: String?
@@ -25,36 +33,22 @@ struct SettingsView: View {
     @AppStorage("outputDirectory") private var outputDirectory = ""
     @AppStorage(AudioService.smoothPlaybackKey) private var smoothPlayback = false
 
-    @State private var flashedModelID: String?
+    @State private var flashedMode: GenerationMode?
     @State private var modelToDelete: TTSModel?
     @State private var showDeleteConfirmation = false
 
     var body: some View {
         ScrollViewReader { proxy in
             Form {
-                ForEach(GenerationMode.allCases, id: \.self) { mode in
-                    Section {
-                        let pair = viewModel.pairedVariants(for: mode)
-                        if let speed = pair.speed {
-                            VariantRow(
-                                model: speed,
-                                viewModel: viewModel,
-                                isFlashed: flashedModelID == speed.id,
-                                onDelete: { request(delete: speed) }
-                            )
-                            .id(speed.id)
-                        }
-                        if let quality = pair.quality {
-                            VariantRow(
-                                model: quality,
-                                viewModel: viewModel,
-                                isFlashed: flashedModelID == quality.id,
-                                onDelete: { request(delete: quality) }
-                            )
-                            .id(quality.id)
-                        }
-                    } header: {
-                        ModeSectionHeader(mode: mode)
+                Section("Models") {
+                    ForEach(GenerationMode.allCases, id: \.self) { mode in
+                        ModeRow(
+                            mode: mode,
+                            viewModel: viewModel,
+                            isFlashed: flashedMode == mode,
+                            onDelete: { model in request(delete: model) }
+                        )
+                        .id(mode.rawValue)
                     }
                 }
 
@@ -62,16 +56,17 @@ struct SettingsView: View {
                     Toggle("Auto-play generated audio", isOn: $autoPlay)
                         .tint(AppTheme.preferences)
                         .accessibilityIdentifier("preferences_autoPlayToggle")
-                    Text("Play the latest result automatically after generation finishes.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
 
-                    Toggle("Smooth playback", isOn: $smoothPlayback)
-                        .tint(AppTheme.preferences)
-                        .accessibilityIdentifier("preferences_smoothPlaybackToggle")
-                    Text("Wait for enough audio to play through long scripts without buffering pauses. Adds a few seconds before audio starts; eliminates mid-playback interruptions.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Toggle(isOn: $smoothPlayback) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Smooth playback")
+                            Text("Adds a few seconds before audio starts; eliminates mid-playback pauses.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .tint(AppTheme.preferences)
+                    .accessibilityIdentifier("preferences_smoothPlaybackToggle")
                 }
 
                 Section("Storage") {
@@ -83,24 +78,20 @@ struct SettingsView: View {
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                                 .accessibilityIdentifier("preferences_outputDirectory")
-                            Button("Choose…") {
-                                browseForOutputDirectory()
-                            }
-                            .controlSize(.small)
-                            .accessibilityIdentifier("preferences_browseButton")
-                            if !outputDirectory.isEmpty {
-                                Button("Reset") {
-                                    outputDirectory = ""
-                                }
+                            Button("Choose…") { browseForOutputDirectory() }
                                 .controlSize(.small)
-                                .buttonStyle(.borderless)
-                                .accessibilityIdentifier("preferences_outputResetButton")
+                                .accessibilityIdentifier("preferences_browseButton")
+                            if !outputDirectory.isEmpty {
+                                Button("Reset") { outputDirectory = "" }
+                                    .controlSize(.small)
+                                    .buttonStyle(.borderless)
+                                    .accessibilityIdentifier("preferences_outputResetButton")
                             }
                         }
                     }
 
                     LabeledContent("Application data") {
-                        Button("Open in Finder") {
+                        Button("Reveal in Finder") {
                             NSWorkspace.shared.open(QwenVoiceApp.appSupportDir)
                         }
                         .controlSize(.small)
@@ -114,10 +105,6 @@ struct SettingsView: View {
                             .font(.body.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
-                    Text("Vocello runs natively. Generation and voice management stay in the Swift runtime.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("preferences_nativeMaintenanceNote")
                 }
             }
             .formStyle(.grouped)
@@ -126,10 +113,10 @@ struct SettingsView: View {
             .accessibilityIdentifier("screen_settings")
             .task {
                 await viewModel.refresh()
-                focusHighlightedModel(using: proxy)
+                focusHighlighted(using: proxy)
             }
             .onChange(of: highlightedModelID) { _, _ in
-                focusHighlightedModel(using: proxy)
+                focusHighlighted(using: proxy)
             }
         }
         .alert("Delete Model?", isPresented: $showDeleteConfirmation) {
@@ -158,9 +145,7 @@ struct SettingsView: View {
     }
 
     private var outputDirectorySummary: String {
-        if outputDirectory.isEmpty {
-            return "Default location"
-        }
+        if outputDirectory.isEmpty { return "Default" }
         return outputDirectory
     }
 
@@ -180,50 +165,116 @@ struct SettingsView: View {
         return "\(version) (\(build))"
     }
 
-    private func focusHighlightedModel(using proxy: ScrollViewProxy) {
-        guard let highlightedModelID else { return }
-        let modelID = highlightedModelID
+    private func focusHighlighted(using proxy: ScrollViewProxy) {
+        guard let modelID = highlightedModelID,
+              let model = TTSModel.model(id: modelID) else { return }
+        let mode = model.mode
         withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
-            proxy.scrollTo(modelID, anchor: .center)
+            proxy.scrollTo(mode.rawValue, anchor: .center)
         }
-        flashedModelID = modelID
+        flashedMode = mode
         self.highlightedModelID = nil
 
         Task {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             await MainActor.run {
-                if flashedModelID == modelID { flashedModelID = nil }
+                if flashedMode == mode { flashedMode = nil }
             }
         }
     }
 }
 
-// MARK: - Mode section header
+// MARK: - Mode row
 
-private struct ModeSectionHeader: View {
+/// Single row for one generation mode. Native System Settings
+/// idiom: leading label + mode-color dot, trailing native popup
+/// for variant selection plus a context-sensitive action button.
+private struct ModeRow: View {
     let mode: GenerationMode
+    @ObservedObject var viewModel: ModelManagerViewModel
+    let isFlashed: Bool
+    let onDelete: (TTSModel) -> Void
+
+    private var pair: (speed: TTSModel?, quality: TTSModel?) {
+        viewModel.pairedVariants(for: mode)
+    }
+
+    /// The variant currently active for this mode, falling back
+    /// to whichever variant exists if none is explicitly selected.
+    private var activeVariant: TTSModel? {
+        if let speed = pair.speed, viewModel.isActive(speed) { return speed }
+        if let quality = pair.quality, viewModel.isActive(quality) { return quality }
+        return pair.speed ?? pair.quality
+    }
+
+    /// Picker selection drives the active-variant preference.
+    /// Reads from `viewModel.isActive`; writes via `viewModel.use`.
+    private var selectionBinding: Binding<String?> {
+        Binding<String?>(
+            get: { activeVariant?.id },
+            set: { newID in
+                guard let newID else { return }
+                if let speed = pair.speed, speed.id == newID { viewModel.use(speed) }
+                if let quality = pair.quality, quality.id == newID { viewModel.use(quality) }
+            }
+        )
+    }
 
     var body: some View {
-        HStack(spacing: 7) {
-            Circle()
-                .fill(AppTheme.modeColor(for: mode))
-                .frame(width: 8, height: 8)
-                .accessibilityHidden(true)
-            Text(mode.displayName)
+        LabeledContent {
+            HStack(spacing: 8) {
+                Picker("", selection: selectionBinding) {
+                    if let speed = pair.speed {
+                        Text(menuLabel(for: speed)).tag(Optional(speed.id))
+                    }
+                    if let quality = pair.quality {
+                        Text(menuLabel(for: quality)).tag(Optional(quality.id))
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .frame(minWidth: 150)
+
+                if let model = activeVariant {
+                    ActionButton(
+                        model: model,
+                        viewModel: viewModel,
+                        onDelete: { onDelete(model) }
+                    )
+                }
+            }
+        } label: {
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(AppTheme.modeColor(for: mode))
+                    .frame(width: 8, height: 8)
+                    .accessibilityHidden(true)
+                Text(mode.displayName)
+            }
         }
+        .listRowBackground(isFlashed ? Color.accentColor.opacity(0.10) : nil)
+        .accessibilityIdentifier("settings_mode_\(mode.rawValue)")
+    }
+
+    /// Compact picker label. Just kind + bit-depth so the closed
+    /// popup stays narrow and the row never wraps. Size lives on
+    /// the trailing action button (`Get 2.31 GB`); recommendation
+    /// and warning attach to the leading label area through the
+    /// row's mode indicator.
+    private func menuLabel(for model: TTSModel) -> String {
+        let kind = model.variantKind?.displayName ?? model.name
+        let bits = model.variantKind?.bitDepthLabel ?? ""
+        return "\(kind) (\(bits))"
     }
 }
 
-// MARK: - Variant row
+// MARK: - Action button
 
-/// Two-line `LabeledContent` row, native System Settings shape.
-/// Leading green check appears only when the variant is the
-/// active selection AND on disk. Trailing carries one primary
-/// control whose role flips with the variant's status.
-private struct VariantRow: View {
+/// Trailing single primary control whose role flips with the
+/// status of the currently-selected variant for this mode.
+private struct ActionButton: View {
     let model: TTSModel
     @ObservedObject var viewModel: ModelManagerViewModel
-    let isFlashed: Bool
     let onDelete: () -> Void
 
     private var status: ModelManagerViewModel.ModelStatus {
@@ -235,137 +286,42 @@ private struct VariantRow: View {
         return false
     }
 
-    private var isDownloading: Bool {
-        if case .downloading = status { return true }
-        return false
-    }
-
     private var isLiveActive: Bool {
         viewModel.isActive(model) && isDownloaded
     }
 
-    private var isHardwareRisky: Bool { viewModel.isHardwareRisky(model) }
-    private var isHardwareRecommended: Bool { model.isHardwareRecommended }
-
     var body: some View {
-        LabeledContent {
-            actionView
-        } label: {
-            HStack(alignment: .top, spacing: 10) {
-                Group {
-                    if isLiveActive {
-                        Image(systemName: "checkmark")
-                            .font(.body.weight(.bold))
-                            .foregroundStyle(Color.green)
-                            .accessibilityHidden(true)
-                    } else {
-                        Color.clear
-                    }
-                }
-                .frame(width: 14, height: 18)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 5) {
-                        Text(model.variantKind?.displayName ?? model.name)
-                            .font(.body)
-                        if isHardwareRisky {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                                .help("This variant may exceed memory available on your Mac. Generation could fail or be very slow. The 4-bit variant is the safe choice for your hardware.")
-                                .accessibilityLabel("Hardware warning")
-                        }
-                    }
-                    Text(secondaryLine)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-        .listRowBackground(isFlashed ? Color.accentColor.opacity(0.10) : nil)
-        .accessibilityIdentifier("settings_variant_\(model.id)")
-        .accessibilityLabel(accessibilityLabel)
-        .contextMenu {
-            if isDownloaded {
-                Button(role: .destructive, action: onDelete) {
-                    Label("Delete", systemImage: "trash")
-                }
-            }
-        }
-    }
-
-    private var secondaryLine: String {
-        var parts: [String] = []
-        if let kind = model.variantKind {
-            parts.append(kind.bitDepthLabel)
-        }
-        if let size = viewModel.sizeText(for: model) {
-            parts.append(size)
-        }
-        switch status {
-        case .checking:
-            parts.append("Checking local files")
-        case .downloading(let progress):
-            if let total = progress.totalBytes, total > 0 {
-                let downloaded = ByteCountFormatter.string(fromByteCount: progress.downloadedBytes, countStyle: .file)
-                let totalString = ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
-                parts.append("Downloading. \(downloaded) of \(totalString)")
-            } else {
-                parts.append("Downloading")
-            }
-        case .repairAvailable(_, let missingPaths, _):
-            if missingPaths.isEmpty {
-                parts.append("Local files incomplete. Repair to keep using this variant")
-            } else {
-                let count = missingPaths.count
-                parts.append("Needs repair. \(count) required file\(count == 1 ? "" : "s") missing")
-            }
-        case .notDownloaded:
-            if isHardwareRecommended {
-                parts.append("Recommended for your Mac")
-            } else if isHardwareRisky {
-                parts.append("Heavy for your Mac")
-            } else {
-                parts.append("Available")
-            }
-        case .downloaded:
-            if isLiveActive {
-                parts.append("Active")
-            } else {
-                parts.append("Installed")
-            }
-        }
-        return parts.joined(separator: ". ") + "."
-    }
-
-    private var accessibilityLabel: String {
-        let kind = model.variantKind?.displayName ?? model.name
-        var parts: [String] = [model.mode.displayName, kind, secondaryLine]
-        if isLiveActive { parts.append("Active") }
-        if isHardwareRecommended { parts.append("Recommended for your Mac") }
-        if isHardwareRisky { parts.append("Hardware warning") }
-        return parts.joined(separator: ", ")
-    }
-
-    @ViewBuilder
-    private var actionView: some View {
         switch status {
         case .checking:
             ProgressView()
                 .controlSize(.small)
                 .accessibilityIdentifier("settings_checking_\(model.id)")
+
         case .notDownloaded:
-            Button("Get") {
+            Button(getButtonTitle) {
                 Task { await viewModel.download(model) }
             }
             .controlSize(.small)
             .accessibilityIdentifier("settings_get_\(model.id)")
+
         case .downloading(let progress):
-            DownloadingControl(progress: progress) {
-                viewModel.cancelDownload(model)
+            HStack(spacing: 8) {
+                if let total = progress.totalBytes, total > 0 {
+                    ProgressView(value: Double(progress.downloadedBytes), total: Double(total))
+                        .progressViewStyle(.linear)
+                        .frame(width: 80)
+                        .tint(AppTheme.statusProgressTint)
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                Button("Cancel") {
+                    viewModel.cancelDownload(model)
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
             }
+
         case .repairAvailable:
             Button("Repair") {
                 Task { await viewModel.download(model) }
@@ -373,48 +329,28 @@ private struct VariantRow: View {
             .controlSize(.small)
             .tint(.orange)
             .accessibilityIdentifier("settings_repair_\(model.id)")
+
         case .downloaded:
-            if isLiveActive {
-                Button(role: .destructive, action: onDelete) {
-                    Image(systemName: "trash")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.borderless)
-                .help("Delete \(model.variantKind?.displayName ?? model.name) variant")
-                .accessibilityIdentifier("settings_delete_\(model.id)")
-            } else {
-                Button("Use") {
-                    viewModel.use(model)
-                }
-                .controlSize(.small)
-                .accessibilityIdentifier("settings_use_\(model.id)")
+            // Active-and-downloaded: the picker shows it's selected,
+            // so the trailing action becomes a quiet trash. If a
+            // user picked this variant via the popup but the engine
+            // hasn't moved it to active yet (rare race), there's
+            // nothing else to do — same trash.
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "trash")
+                    .foregroundStyle(.secondary)
             }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .help("Delete \(model.variantKind?.displayName ?? model.name) variant")
+            .accessibilityIdentifier("settings_delete_\(model.id)")
         }
     }
-}
 
-// MARK: - Downloading control
-
-private struct DownloadingControl: View {
-    let progress: ModelManagerViewModel.DownloadProgress
-    let onCancel: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            if let total = progress.totalBytes, total > 0 {
-                ProgressView(value: Double(progress.downloadedBytes), total: Double(total))
-                    .progressViewStyle(.linear)
-                    .frame(width: 96)
-                    .tint(AppTheme.statusProgressTint)
-            } else {
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .controlSize(.small)
-            }
-
-            Button("Cancel", action: onCancel)
-                .buttonStyle(.borderless)
-                .controlSize(.small)
+    private var getButtonTitle: String {
+        if let size = viewModel.sizeText(for: model) {
+            return "Get \(size)"
         }
+        return "Get"
     }
 }
