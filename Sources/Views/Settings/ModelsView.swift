@@ -46,7 +46,7 @@ struct ModelsView: View {
                                 }
                             )
                             .id(model.id)
-                            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 16))
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
                         }
@@ -206,7 +206,9 @@ struct ModelRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(rowSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.18)) {
@@ -218,10 +220,15 @@ struct ModelRow: View {
         .accessibilityIdentifier("models_card_\(model.id)")
     }
 
-    /// The single anchor line for every healthy state. Variant
-    /// name carries the row; bit-depth and size sit alongside as
-    /// quiet metadata; recommended / active live in the trailing
-    /// indicator group; the action button anchors the right edge.
+    /// The single anchor line for every healthy state. The outer
+    /// row body carries `.frame(maxWidth: .infinity)`, so a plain
+    /// `HStack` + `Spacer` reliably places the leading metadata at
+    /// the leading edge and pushes the trailing indicator + action
+    /// group flush against the trailing edge — every row, every
+    /// variant, identical right-edge x. The `Spacer(minLength:)`
+    /// guarantees a minimum gap between the two groups when content
+    /// is dense, preventing the "Recommended" chip from kissing the
+    /// size metadata.
     private var primaryLine: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(variantName)
@@ -255,7 +262,7 @@ struct ModelRow: View {
                     .fixedSize(horizontal: true, vertical: false)
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 16)
 
             indicators
 
@@ -266,13 +273,20 @@ struct ModelRow: View {
 
     private var separator: String { "·" }
 
+    /// Show at most one chip per row. `Active` wins when the row is
+    /// the selected variant, since the recommendation is informational
+    /// guidance for users picking *between* variants — once a row is
+    /// already chosen, the recommendation chip is redundant. This also
+    /// caps the trailing-group width so every row has the same right
+    /// edge: with Speed-recommended-and-active rows previously carrying
+    /// two chips while Quality rows carried zero, the row widths
+    /// diverged enough to overflow the Models panel on Active rows.
     @ViewBuilder
     private var indicators: some View {
-        if isRecommended {
-            ModelBadge(text: "Recommended", tint: AppTheme.accent)
-        }
         if isActive {
             ModelBadge(text: "Active", tint: modeColor)
+        } else if isRecommended {
+            ModelBadge(text: "Recommended", tint: AppTheme.accent)
         }
     }
 
