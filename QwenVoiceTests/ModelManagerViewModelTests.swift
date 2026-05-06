@@ -106,6 +106,125 @@ final class ModelManagerViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isActive(qualityModel))
     }
 
+    /// Audit Finding B coverage — when the user deletes a variant
+    /// that is currently Active AND a sibling variant for the
+    /// same mode is still installed, the preference must
+    /// reassign to the sibling so the Generate flow stays
+    /// enabled without an extra Use click.
+    @MainActor
+    func testDeleteActiveVariantWithInstalledSiblingReassignsPreference() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let speedModel = try XCTUnwrap(TTSModel.model(id: "pro_custom_speed"))
+        let qualityModel = try XCTUnwrap(TTSModel.model(id: "pro_custom_quality"))
+        try createInstalledModelFixture(for: speedModel, in: tempRoot)
+        try createInstalledModelFixture(for: qualityModel, in: tempRoot)
+
+        let key = MacModelVariantPreferences.key(for: .custom)
+        let oldValue = UserDefaults.standard.string(forKey: key)
+        MacModelVariantPreferences.setSelectedVariantID("quality", for: .custom, defaults: .standard)
+        defer {
+            if let oldValue {
+                UserDefaults.standard.set(oldValue, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+
+        let viewModel = ModelManagerViewModel(modelsDirectory: tempRoot)
+        XCTAssertTrue(viewModel.isActive(qualityModel), "Pre-condition: Quality is Active.")
+
+        viewModel.delete(qualityModel)
+
+        // Sibling Speed is still installed → preference should
+        // reassign to "speed" so Generate stays enabled.
+        XCTAssertEqual(
+            MacModelVariantPreferences.selectedVariantID(
+                for: .custom,
+                defaultVariantID: nil
+            ),
+            "speed",
+            "After deleting the Active variant, the preference must reassign to the surviving installed sibling so the Generate button doesn't strand the user."
+        )
+        XCTAssertTrue(viewModel.isActive(speedModel))
+        XCTAssertFalse(viewModel.isActive(qualityModel))
+    }
+
+    /// Audit Finding B coverage — when the user deletes their
+    /// only-installed variant for a mode, the preference must be
+    /// cleared so the hardware-recommended variant becomes
+    /// Active again (its row will show as not-yet-installed but
+    /// the readiness banner now points the user at a sensible
+    /// next step rather than at a deleted folder).
+    @MainActor
+    func testDeleteActiveVariantWithNoSiblingClearsPreference() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let qualityModel = try XCTUnwrap(TTSModel.model(id: "pro_custom_quality"))
+        try createInstalledModelFixture(for: qualityModel, in: tempRoot)
+
+        let key = MacModelVariantPreferences.key(for: .custom)
+        let oldValue = UserDefaults.standard.string(forKey: key)
+        MacModelVariantPreferences.setSelectedVariantID("quality", for: .custom, defaults: .standard)
+        defer {
+            if let oldValue {
+                UserDefaults.standard.set(oldValue, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+
+        let viewModel = ModelManagerViewModel(modelsDirectory: tempRoot)
+        viewModel.delete(qualityModel)
+
+        XCTAssertNil(
+            MacModelVariantPreferences.selectedVariantID(
+                for: .custom,
+                defaultVariantID: nil
+            ),
+            "After deleting the only installed variant for a mode, the preference must clear so the hardware-recommended variant takes over."
+        )
+    }
+
+    /// Audit Finding B regression guard — deleting a NON-active
+    /// variant (the user's preference points at the OTHER
+    /// variant) must not touch the preference.
+    @MainActor
+    func testDeleteNonActiveVariantLeavesPreferenceUntouched() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let speedModel = try XCTUnwrap(TTSModel.model(id: "pro_custom_speed"))
+        let qualityModel = try XCTUnwrap(TTSModel.model(id: "pro_custom_quality"))
+        try createInstalledModelFixture(for: speedModel, in: tempRoot)
+        try createInstalledModelFixture(for: qualityModel, in: tempRoot)
+
+        let key = MacModelVariantPreferences.key(for: .custom)
+        let oldValue = UserDefaults.standard.string(forKey: key)
+        MacModelVariantPreferences.setSelectedVariantID("quality", for: .custom, defaults: .standard)
+        defer {
+            if let oldValue {
+                UserDefaults.standard.set(oldValue, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+
+        let viewModel = ModelManagerViewModel(modelsDirectory: tempRoot)
+        viewModel.delete(speedModel)  // not the active variant
+
+        XCTAssertEqual(
+            MacModelVariantPreferences.selectedVariantID(
+                for: .custom,
+                defaultVariantID: nil
+            ),
+            "quality",
+            "Deleting a non-active variant must not change the preference."
+        )
+    }
+
     private func createInstalledModelFixture(for model: TTSModel, in modelsDirectory: URL) throws {
         let fileManager = FileManager.default
         let modelDirectory = model.installDirectory(in: modelsDirectory)

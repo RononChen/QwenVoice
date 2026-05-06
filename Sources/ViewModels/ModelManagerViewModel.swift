@@ -245,9 +245,54 @@ final class ModelManagerViewModel: ObservableObject {
         lastFailureMessages.removeValue(forKey: model.id)
         removeInstallMetadata(for: model)
 
+        // Audit Finding B (May 2026 dual-variant cleanup): if the
+        // user just deleted their currently-active variant, the
+        // variant preference is now stale. Without this fixup, the
+        // generate flow would compute `activeModel = <deleted variant>`,
+        // `isModelAvailable = false`, and silently disable the
+        // Generate button — the user has no obvious way to recover
+        // short of clicking Use on the surviving variant.
+        //
+        // Recovery policy:
+        //   1. If another variant of the same mode is still on
+        //      disk, reassign the preference to it (smoothest UX —
+        //      Generate stays enabled).
+        //   2. Otherwise clear the preference so the
+        //      hardware-recommended variant becomes Active again
+        //      (its row will show as not-yet-installed but the
+        //      readiness banner now points the user at a sensible
+        //      next step).
+        reconcileActiveVariantAfterDeletion(of: model)
+
         Task {
             await handleMutationCompletion(for: model.id)
         }
+    }
+
+    private func reconcileActiveVariantAfterDeletion(of model: TTSModel) {
+        guard let deletedVariantID = model.variantID else { return }
+
+        let preferenceVariantID = MacModelVariantPreferences.selectedVariantID(
+            for: model.mode,
+            defaultVariantID: nil
+        )
+        guard preferenceVariantID == deletedVariantID else { return }
+
+        // Find a sibling variant of the same mode that is still
+        // installed (folder exists AND required files complete).
+        let siblingInstalled = TTSModel.all.first { candidate in
+            candidate.mode == model.mode
+                && candidate.id != model.id
+                && candidate.variantID != nil
+                && candidate.isAvailable(in: modelsDirectory, fileManager: fileManager)
+        }
+
+        if let siblingInstalled, let siblingVariantID = siblingInstalled.variantID {
+            MacModelVariantPreferences.setSelectedVariantID(siblingVariantID, for: model.mode)
+        } else {
+            MacModelVariantPreferences.clearSelectedVariantID(for: model.mode)
+        }
+        activeVariantRevision += 1
     }
 
     private func performRefresh() async {
