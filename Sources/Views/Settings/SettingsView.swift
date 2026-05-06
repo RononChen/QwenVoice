@@ -240,17 +240,11 @@ private struct ModeRow: View {
     var body: some View {
         LabeledContent {
             HStack(spacing: 8) {
-                Picker("", selection: selectionBinding) {
-                    if let speed = pair.speed {
-                        Text(menuLabel(for: speed)).tag(Optional(speed.id))
-                    }
-                    if let quality = pair.quality {
-                        Text(menuLabel(for: quality)).tag(Optional(quality.id))
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .frame(minWidth: 150)
+                variantMenu
+                    // Pinned width keeps the popup chevron at the
+                    // same x across all three rows regardless of
+                    // which variant is currently selected.
+                    .frame(width: 175)
 
                 if let model = activeVariant {
                     ActionButton(
@@ -258,6 +252,12 @@ private struct ModeRow: View {
                         viewModel: viewModel,
                         onDelete: { onDelete(model) }
                     )
+                    // Pinned minimum width so the action column
+                    // doesn't shrink to fit a short label like
+                    // "Get" while a sibling row shows
+                    // "Get 2.31 GB". Trailing alignment keeps the
+                    // button content right-anchored.
+                    .frame(width: 96, alignment: .trailing)
                 }
             }
         } label: {
@@ -273,15 +273,85 @@ private struct ModeRow: View {
         .accessibilityIdentifier("settings_mode_\(mode.rawValue)")
     }
 
-    /// Compact picker label. Just kind + bit-depth so the closed
-    /// popup stays narrow and the row never wraps. Size lives on
-    /// the trailing action button (`Get 2.31 GB`); recommendation
-    /// and warning attach to the leading label area through the
-    /// row's mode indicator.
-    private func menuLabel(for model: TTSModel) -> String {
+    /// Native macOS popup-style Menu. Closed state shows a terse
+    /// `Speed (4-bit)` plus a small status icon (green check for
+    /// the recommended variant, orange triangle for a hardware-
+    /// risky one). The dropdown items repeat the icon and append
+    /// the descriptor text so the user discovers which variant is
+    /// recommended without leaving the popup.
+    @ViewBuilder
+    private var variantMenu: some View {
+        Menu {
+            if let speed = pair.speed {
+                Button { viewModel.use(speed) } label: {
+                    Label {
+                        Text(dropdownText(for: speed))
+                    } icon: {
+                        statusGlyph(for: speed)
+                    }
+                }
+            }
+            if let quality = pair.quality {
+                Button { viewModel.use(quality) } label: {
+                    Label {
+                        Text(dropdownText(for: quality))
+                    } icon: {
+                        statusGlyph(for: quality)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text(closedLabel)
+                    .lineLimit(1)
+                if let active = activeVariant {
+                    statusGlyph(for: active)
+                        .help(statusHint(for: active))
+                }
+            }
+        }
+        .accessibilityLabel("\(mode.displayName) variant")
+    }
+
+    private var closedLabel: String {
+        guard let active = activeVariant else { return "—" }
+        let kind = active.variantKind?.displayName ?? active.name
+        let bits = active.variantKind?.bitDepthLabel ?? ""
+        return "\(kind) (\(bits))"
+    }
+
+    private func dropdownText(for model: TTSModel) -> String {
         let kind = model.variantKind?.displayName ?? model.name
         let bits = model.variantKind?.bitDepthLabel ?? ""
-        return "\(kind) (\(bits))"
+        let head = "\(kind) (\(bits))"
+        if model.isHardwareRecommended {
+            return "\(head) — Recommended"
+        }
+        if viewModel.isHardwareRisky(model) {
+            return "\(head) — Heavy for your Mac"
+        }
+        return head
+    }
+
+    @ViewBuilder
+    private func statusGlyph(for model: TTSModel) -> some View {
+        if model.isHardwareRecommended {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        } else if viewModel.isHardwareRisky(model) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        }
+    }
+
+    private func statusHint(for model: TTSModel) -> String {
+        if model.isHardwareRecommended {
+            return "Recommended for your Mac"
+        }
+        if viewModel.isHardwareRisky(model) {
+            return "Heavy for your Mac. May exceed available memory."
+        }
+        return ""
     }
 }
 
