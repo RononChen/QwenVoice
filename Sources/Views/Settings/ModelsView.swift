@@ -9,29 +9,25 @@ struct ModelsView: View {
     @State private var modelToDelete: TTSModel?
     @State private var showDeleteConfirmation = false
 
-    private var installedModels: [TTSModel] {
-        TTSModel.all.filter(isInstalledModel)
-    }
-
-    private var otherModels: [TTSModel] {
-        TTSModel.all.filter { !isInstalledModel($0) }
+    private var modeGroups: [(GenerationMode, [TTSModel])] {
+        GenerationMode.allCases.map { mode in
+            (mode, TTSModel.all.filter { $0.mode == mode })
+        }
     }
 
     var body: some View {
         ScrollViewReader { proxy in
             List {
-                if !installedModels.isEmpty {
-                    Section("Installed") {
-                        ForEach(installedModels) { model in
+                ForEach(modeGroups, id: \.0) { (mode, modelsForMode) in
+                    Section {
+                        ForEach(modelsForMode) { model in
                             ModelRow(
                                 model: model,
                                 viewModel: viewModel,
                                 isActive: viewModel.isActive(model),
                                 isRecommended: model.isHardwareRecommended,
                                 isHighlighted: flashedModelID == model.id,
-                                onUse: {
-                                    viewModel.use(model)
-                                },
+                                onUse: { viewModel.use(model) },
                                 onDelete: {
                                     modelToDelete = model
                                     showDeleteConfirmation = true
@@ -42,33 +38,11 @@ struct ModelsView: View {
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
                         }
+                    } header: {
+                        ModelSectionHeader(mode: mode)
                     }
                     .listSectionSeparator(.hidden)
                 }
-
-                Section("Available To Download") {
-                    ForEach(otherModels) { model in
-                        ModelRow(
-                            model: model,
-                            viewModel: viewModel,
-                            isActive: viewModel.isActive(model),
-                            isRecommended: model.isHardwareRecommended,
-                            isHighlighted: flashedModelID == model.id,
-                            onUse: {
-                                viewModel.use(model)
-                            },
-                            onDelete: {
-                                modelToDelete = model
-                                showDeleteConfirmation = true
-                            }
-                        )
-                        .id(model.id)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                    }
-                }
-                .listSectionSeparator(.hidden)
             }
             .listStyle(.inset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -114,15 +88,6 @@ struct ModelsView: View {
 }
 
 private extension ModelsView {
-    func isInstalledModel(_ model: TTSModel) -> Bool {
-        switch viewModel.statuses[model.id] {
-        case .downloaded:
-            return true
-        default:
-            return false
-        }
-    }
-
     func focusHighlightedModel(using proxy: ScrollViewProxy) {
         guard let highlightedModelID else { return }
         let modelID = highlightedModelID
@@ -143,6 +108,35 @@ private extension ModelsView {
     }
 }
 
+// MARK: - Section header
+
+/// Mode-grouped section header. Renders the mode name with a
+/// small leading dot in the mode color (the same color the user
+/// associates with the mode in the sidebar). Replaces the prior
+/// design's per-row mode-icon tile, which repeated the same
+/// information twice for every variant pair.
+private struct ModelSectionHeader: View {
+    let mode: GenerationMode
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(AppTheme.modeColor(for: mode))
+                .frame(width: 8, height: 8)
+
+            Text(mode.displayName)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(.primary)
+                .textCase(nil)
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(mode.displayName)
+    }
+}
+
+// MARK: - Row
+
 struct ModelRow: View {
     let model: TTSModel
     let viewModel: ModelManagerViewModel
@@ -156,180 +150,142 @@ struct ModelRow: View {
         viewModel.statuses[model.id] ?? .checking
     }
 
-    private var usageLabel: String {
-        "Used by \(model.mode.displayName)"
+    private var variantName: String {
+        model.variantKind?.displayName ?? "Default"
     }
 
-    private var variantLabel: String {
-        if let variantKind = model.variantKind {
-            return variantKind.variantLabel
+    private var bitDepthLabel: String? {
+        model.variantKind?.bitDepthLabel
+    }
+
+    private var sizeText: String? {
+        viewModel.sizeText(for: model)
+    }
+
+    private var rowAccessibilityLabel: String {
+        var parts: [String] = [model.mode.displayName, variantName]
+        if let bitDepthLabel { parts.append(bitDepthLabel) }
+        if let sizeText { parts.append(sizeText) }
+        if isRecommended { parts.append("Recommended") }
+        if isActive { parts.append("Active") }
+        switch status {
+        case .checking: parts.append("Checking")
+        case .downloading: parts.append("Downloading")
+        case .repairAvailable: parts.append("Needs repair")
+        case .notDownloaded: parts.append("Not downloaded")
+        case .downloaded: break
         }
-        if model.folder.localizedCaseInsensitiveContains("4bit") {
-            return "Speed variant"
-        }
-        if model.folder.localizedCaseInsensitiveContains("8bit") {
-            return "Quality variant"
-        }
-        return "Model variant"
+        return parts.joined(separator: ", ")
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            modeIcon
-
-            VStack(alignment: .leading, spacing: 6) {
-                // Audit Batch 7a: two-tier hierarchy (name + usage on
-                // the leading line; variant + folder path quiet
-                // beneath) instead of three competing labels jammed
-                // horizontally. Wraps cleanly at narrow widths.
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(model.name)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.primary)
-
-                    Text(usageLabel)
-                        .font(.footnote.weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack(spacing: 8) {
-                    Text(variantLabel)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-
-                    Text("·")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .accessibilityHidden(true)
-
-                    Text(model.folder)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-
-                HStack(spacing: 6) {
-                    if isRecommended {
-                        ModelBadge(text: "Recommended", tint: AppTheme.accent)
-                    }
-                    if isActive {
-                        ModelBadge(text: "Active", tint: iconTint)
-                    }
-                    if let bitDepth = model.variantKind?.bitDepthLabel {
-                        Text(bitDepth)
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-
-                statusView
-            }
-
-            Spacer(minLength: 16)
-
-            VStack(alignment: .trailing, spacing: 8) {
-                actionView
-            }
-            .frame(minWidth: 92, alignment: .trailing)
+        VStack(alignment: .leading, spacing: 4) {
+            primaryLine
+            secondaryLineContent
+                .padding(.leading, 10)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(rowHighlight)
         .accessibilityElement(children: .contain)
+        .accessibilityLabel(rowAccessibilityLabel)
         .accessibilityIdentifier("models_card_\(model.id)")
     }
 
+    /// The single anchor line for every healthy state. Variant
+    /// name carries the row; bit-depth and size sit alongside as
+    /// quiet metadata; recommended / active live in the trailing
+    /// indicator group; the action button anchors the right edge.
+    private var primaryLine: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(variantName)
+                .font(.body.weight(.medium))
+                .foregroundStyle(.primary)
+                .frame(minWidth: 60, alignment: .leading)
+                .help(model.folder)
+
+            if let bitDepthLabel {
+                Text(bitDepthLabel)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+
+            if let sizeText {
+                Text(separator)
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+
+                Text(sizeText)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            indicators
+
+            actionView
+                .frame(minWidth: 92, alignment: .trailing)
+        }
+    }
+
+    private var separator: String { "·" }
+
     @ViewBuilder
-    private var statusView: some View {
+    private var indicators: some View {
+        if isRecommended {
+            ModelBadge(text: "Recommended", tint: AppTheme.accent)
+        }
+        if isActive {
+            Circle()
+                .fill(AppTheme.modeColor(for: model.mode))
+                .frame(width: 8, height: 8)
+                .help("Active variant")
+                .accessibilityHidden(true)
+        }
+    }
+
+    /// Inline secondary content shown only for the abnormal
+    /// states that genuinely benefit from extra explanation:
+    /// download progress, repair details, and surfaced error
+    /// messages. Healthy states (checking, notDownloaded with no
+    /// error, downloaded) collapse to the single primary line.
+    @ViewBuilder
+    private var secondaryLineContent: some View {
         switch status {
         case .checking:
-            Label("Checking local files...", systemImage: "hourglass")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("models_checking_\(model.id)")
+            EmptyView()
         case .notDownloaded(let message):
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Download to enable \(model.mode.displayName).")
+            if let message, !message.isEmpty {
+                Text(message)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
-                if let message, !message.isEmpty {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
+                    .foregroundStyle(.red)
             }
         case .downloading(let progress):
-            VStack(alignment: .leading, spacing: 4) {
-                Text(progress.phase.displayName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if let totalBytes = progress.totalBytes, totalBytes > 0 {
-                    ProgressView(value: Double(progress.downloadedBytes), total: Double(totalBytes))
-                        .tint(AppTheme.statusProgressTint)
-                    Text(
-                        "\(ByteCountFormatter.string(fromByteCount: progress.downloadedBytes, countStyle: .file)) / \(ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file))"
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                } else {
-                    ProgressView()
-                        .tint(AppTheme.statusProgressTint)
-                    Text("Preparing download...")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let totalFiles = progress.totalFiles, totalFiles > 0 {
-                    Text("File \(min(progress.completedFiles + 1, totalFiles)) of \(totalFiles)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if progress.isStalled {
-                    Text("Waiting for network activity...")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else if let bytesPerSecond = progress.bytesPerSecond, bytesPerSecond > 0 {
-                    Text("\(ByteCountFormatter.string(fromByteCount: bytesPerSecond, countStyle: .file))/s")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
+            DownloadProgressLine(progress: progress)
         case .repairAvailable(let sizeBytes, let missingRequiredPaths, let message):
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 if !missingRequiredPaths.isEmpty {
                     Text("Missing \(missingRequiredPaths.count) required file\(missingRequiredPaths.count == 1 ? "" : "s").")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                } else {
+                } else if sizeBytes > 0 {
                     Text("Local files are incomplete.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-
-                if sizeBytes > 0 {
-                    Text(ByteCountFormatter.string(fromByteCount: Int64(sizeBytes), countStyle: .file))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
                 if let message, !message.isEmpty {
                     Text(message)
                         .font(.caption)
                         .foregroundStyle(.red)
                 }
             }
-        case .downloaded(let sizeBytes):
-            HStack(spacing: 8) {
-                Label("Ready", systemImage: "checkmark.circle.fill")
-                    .labelStyle(.titleAndIcon)
-                    .foregroundStyle(AppTheme.accent)
-
-                Text(ByteCountFormatter.string(fromByteCount: Int64(sizeBytes), countStyle: .file))
-                    .foregroundStyle(.secondary)
-            }
-            .font(.caption.weight(.medium))
+        case .downloaded:
+            EmptyView()
         }
     }
 
@@ -337,7 +293,9 @@ struct ModelRow: View {
     private var actionView: some View {
         switch status {
         case .checking:
-            EmptyView()
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityIdentifier("models_checking_\(model.id)")
         case .notDownloaded:
             Button("Download") {
                 Task { await viewModel.download(model) }
@@ -382,48 +340,6 @@ struct ModelRow: View {
         }
     }
 
-    private var iconTint: Color {
-        AppTheme.modeColor(for: model.mode)
-    }
-
-    @ViewBuilder
-    private var modeIcon: some View {
-        #if QW_UI_LIQUID
-        if #available(macOS 26, *) {
-            // Audit Batch 4c: tint the Liquid Glass tile in the model's
-            // own mode color (gold for Custom Voice, lavender for Voice
-            // Design, terracotta for Voice Cloning) so the row reads
-            // as belonging to the mode it serves.
-            Color.clear
-                .frame(width: 34, height: 34)
-                .glassEffect(
-                    .regular.tint(AppTheme.accentGlassTint(iconTint, for: .dark)),
-                    in: .rect(cornerRadius: 8)
-                )
-                .overlay {
-                    Image(systemName: model.mode.iconName)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-        } else {
-            modeIconLegacy
-        }
-        #else
-        modeIconLegacy
-        #endif
-    }
-
-    private var modeIconLegacy: some View {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(iconTint.opacity(isHighlighted ? 0.18 : 0.10))
-            .frame(width: 34, height: 34)
-            .overlay {
-                Image(systemName: model.mode.iconName)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(iconTint)
-            }
-    }
-
     @ViewBuilder
     private var rowHighlight: some View {
         #if QW_UI_LIQUID
@@ -453,6 +369,75 @@ struct ModelRow: View {
     }
 }
 
+// MARK: - Download progress line
+
+/// Tight inline detail for an in-flight download. Replaces the
+/// prior multi-line progress block; condenses the same data into
+/// a single readable line plus a thin progress bar.
+private struct DownloadProgressLine: View {
+    let progress: ModelManagerViewModel.DownloadProgress
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let totalBytes = progress.totalBytes, totalBytes > 0 {
+                ProgressView(value: Double(progress.downloadedBytes), total: Double(totalBytes))
+                    .progressViewStyle(.linear)
+                    .tint(AppTheme.statusProgressTint)
+                    .frame(maxWidth: 240)
+            } else {
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .tint(AppTheme.statusProgressTint)
+                    .frame(maxWidth: 240)
+            }
+
+            HStack(spacing: 6) {
+                Text(progress.phase.displayName)
+                    .foregroundStyle(.secondary)
+
+                if let totalBytes = progress.totalBytes, totalBytes > 0 {
+                    Text("·")
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                    Text(
+                        "\(ByteCountFormatter.string(fromByteCount: progress.downloadedBytes, countStyle: .file)) / \(ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file))"
+                    )
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                }
+
+                if progress.isStalled {
+                    Text("·")
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                    Text("Waiting")
+                        .foregroundStyle(.secondary)
+                } else if let bytesPerSecond = progress.bytesPerSecond, bytesPerSecond > 0 {
+                    Text("·")
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                    Text("\(ByteCountFormatter.string(fromByteCount: bytesPerSecond, countStyle: .file))/s")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+
+                if let totalFiles = progress.totalFiles, totalFiles > 0 {
+                    Text("·")
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                    Text("File \(min(progress.completedFiles + 1, totalFiles)) of \(totalFiles)")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+            .font(.caption)
+            .lineLimit(1)
+        }
+    }
+}
+
+// MARK: - Badge
+
 private struct ModelBadge: View {
     let text: String
     let tint: Color
@@ -474,15 +459,15 @@ private extension ModelManagerViewModel.DownloadProgress.Phase {
     var displayName: String {
         switch self {
         case .downloading:
-            return "Downloading model..."
+            return "Downloading"
         case .interrupted:
-            return "Download interrupted."
+            return "Interrupted"
         case .resuming:
-            return "Resuming download..."
+            return "Resuming"
         case .verifying:
-            return "Verifying model files..."
+            return "Verifying"
         case .installing:
-            return "Installing model..."
+            return "Installing"
         }
     }
 }

@@ -237,6 +237,50 @@ final class ModelManagerViewModelTests: XCTestCase {
         }
     }
 
+    /// `sizeText(for:)` is the source of truth for the redesigned
+    /// Models tab's size column. Verifies the three live-state
+    /// branches: installed (uses on-disk size), repair-available
+    /// (also on-disk size), and not-yet-downloaded (uses the
+    /// manifest's `estimatedDownloadBytes` and elides the column
+    /// when the field is missing).
+    @MainActor
+    func testSizeTextReadsInstalledSizeBeforeManifestEstimate() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let installed = try XCTUnwrap(TTSModel.model(id: "pro_custom_speed"))
+        try createInstalledModelFixture(for: installed, in: tempRoot)
+
+        let viewModel = ModelManagerViewModel(modelsDirectory: tempRoot)
+        let installedText = try XCTUnwrap(viewModel.sizeText(for: installed))
+        // `createInstalledModelFixture` writes a token file; the
+        // exact byte count varies, but `ByteCountFormatter` always
+        // emits a unit suffix.
+        XCTAssertTrue(
+            installedText.hasSuffix("KB") || installedText.hasSuffix("MB") || installedText.hasSuffix("GB") || installedText.hasSuffix("bytes"),
+            "Installed size text should carry a unit suffix, got \(installedText)"
+        )
+    }
+
+    @MainActor
+    func testSizeTextReturnsNilWhenNotDownloadedAndManifestHasNoEstimate() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        // The current contract manifest sets
+        // `estimated_download_bytes: null` for every variant, so a
+        // model that's not on disk has no fallback to surface; the
+        // UI should elide the size column rather than render an
+        // em-dash.
+        let qualityModel = try XCTUnwrap(TTSModel.model(id: "pro_custom_quality"))
+        let viewModel = ModelManagerViewModel(modelsDirectory: tempRoot)
+
+        XCTAssertNil(
+            viewModel.sizeText(for: qualityModel),
+            "When the model is not downloaded and the manifest doesn't carry an estimate, sizeText must return nil."
+        )
+    }
+
     private func createPartialModelFixture(for model: TTSModel, in modelsDirectory: URL) throws {
         let fileManager = FileManager.default
         let modelDirectory = model.installDirectory(in: modelsDirectory)

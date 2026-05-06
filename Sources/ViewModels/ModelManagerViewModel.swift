@@ -137,6 +137,39 @@ final class ModelManagerViewModel: ObservableObject {
         TTSModel.model(for: model.mode)?.id == model.id
     }
 
+    /// Localized "1.6 GB" / "3.2 GB" string for the Models row's
+    /// size column. Source of truth depends on install state:
+    ///   * `.downloaded` / `.repairAvailable` use the resolved
+    ///     `info.sizeBytes` (real on-disk size).
+    ///   * `.notDownloaded` falls back to
+    ///     `model.estimatedDownloadBytes` from the manifest.
+    ///   * `.downloading` is handled by the row's progress
+    ///     subview, not this column; returns `nil`.
+    ///   * `.checking` returns `nil` (we don't yet know).
+    /// Returns `nil` when no source has a value, so the UI can
+    /// elide the column instead of rendering an em-dash.
+    func sizeText(for model: TTSModel) -> String? {
+        switch statuses[model.id] {
+        case .downloaded(let sizeBytes), .repairAvailable(let sizeBytes, _, _):
+            guard sizeBytes > 0 else { return nil }
+            return Self.formattedFileSize(Int64(sizeBytes))
+        case .notDownloaded:
+            guard let estimated = model.estimatedDownloadBytes, estimated > 0 else {
+                return nil
+            }
+            return Self.formattedFileSize(estimated)
+        case .downloading, .checking, .none:
+            return nil
+        }
+    }
+
+    private nonisolated static func formattedFileSize(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useGB, .useMB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
+
     func use(_ model: TTSModel) {
         guard let variantID = model.variantID else { return }
         MacModelVariantPreferences.setSelectedVariantID(variantID, for: model.mode)
