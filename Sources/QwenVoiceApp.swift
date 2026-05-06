@@ -66,7 +66,7 @@ struct QwenVoiceApp: App {
             // sidebar has no notion of "the user just clicked a
             // disabled mode" inside the standalone settings
             // window).
-            SettingsView(highlightedModelID: .constant(nil))
+            SettingsView(highlightedMode: .constant(nil))
                 .environmentObject(modelManager)
 #if QW_TEST_SUPPORT
                 .defaultAppStorage(UITestAutomationSupport.appStorage)

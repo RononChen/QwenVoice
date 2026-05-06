@@ -151,7 +151,12 @@ struct ContentView: View {
 
     @State private var selectedItem: SidebarItem?
     @State private var protectedLaunchOverride: SidebarItem?
-    @State private var pendingHighlightedModelID: String?
+    /// When the user clicks a disabled generation tab, the
+    /// sidebar redirects to Settings and asks the Models page to
+    /// flash that mode's row. Keyed by `GenerationMode` (not
+    /// model id) because the row is mode-keyed and the missing
+    /// variant might not be the currently active one.
+    @State private var pendingHighlightedMode: GenerationMode?
     @State private var historySearchText = ""
     @State private var historySortOrder: HistorySortOrder = .newest
     @State private var voicesEnrollRequestID: UUID?
@@ -347,7 +352,7 @@ struct ContentView: View {
                 }
             )
         case .settings:
-            SettingsView(highlightedModelID: $pendingHighlightedModelID)
+            SettingsView(highlightedMode: $pendingHighlightedMode)
         }
     }
 
@@ -448,8 +453,8 @@ struct ContentView: View {
             return
         }
 
-        if let modelID = selectedItem.requiredModel?.id {
-            pendingHighlightedModelID = modelID
+        if let mode = selectedItem.generationMode {
+            pendingHighlightedMode = mode
         }
 
         self.selectedItem = .settings

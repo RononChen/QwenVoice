@@ -27,7 +27,14 @@ import AppKit
 /// mode marker has to live on the row itself.
 struct SettingsView: View {
     @EnvironmentObject private var viewModel: ModelManagerViewModel
-    @Binding var highlightedModelID: String?
+    /// Mode-keyed deep-link target. When the sidebar redirects
+    /// the user to Settings (because a generation tab's required
+    /// variant is missing), the upstream `ContentView` sets this
+    /// so the Models page can scroll to and flash that mode's
+    /// row. Mode-keyed instead of model-id-keyed because the row
+    /// is mode-keyed; the missing variant might not be the
+    /// currently active one.
+    @Binding var highlightedMode: GenerationMode?
 
     @AppStorage("autoPlay") private var autoPlay = true
     @AppStorage("outputDirectory") private var outputDirectory = ""
@@ -137,7 +144,7 @@ struct SettingsView: View {
                 try? await Task.sleep(nanoseconds: 50_000_000)
                 NSApp.keyWindow?.makeFirstResponder(nil)
             }
-            .onChange(of: highlightedModelID) { _, _ in
+            .onChange(of: highlightedMode) { _, _ in
                 focusHighlighted(using: proxy)
             }
         }
@@ -188,14 +195,12 @@ struct SettingsView: View {
     }
 
     private func focusHighlighted(using proxy: ScrollViewProxy) {
-        guard let modelID = highlightedModelID,
-              let model = TTSModel.model(id: modelID) else { return }
-        let mode = model.mode
+        guard let mode = highlightedMode else { return }
         withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
             proxy.scrollTo(mode.rawValue, anchor: .center)
         }
         flashedMode = mode
-        self.highlightedModelID = nil
+        self.highlightedMode = nil
 
         Task {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
