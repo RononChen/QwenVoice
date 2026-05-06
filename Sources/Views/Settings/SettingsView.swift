@@ -394,14 +394,16 @@ private struct ActionButton: View {
                 .accessibilityIdentifier("settings_checking_\(model.id)")
 
         case .notDownloaded:
-            // Standard bordered button at regular size so it reads
-            // clearly as a button without becoming a saturated
-            // call-to-action. Default size (no .controlSize override)
-            // gives the row a more substantial click target than the
-            // previous .small styling.
+            // Standard bordered button at regular size, filled to
+            // the parent action-column frame so the button stays a
+            // constant width even when its text content changes
+            // (e.g. switching Speed `Get 2.31 GB` -> Quality
+            // `Get 3.08 GB`). The container drives the size, the
+            // text rides inside.
             Button(getButtonTitle) {
                 Task { await viewModel.download(model) }
             }
+            .frame(maxWidth: .infinity)
             .accessibilityIdentifier("settings_get_\(model.id)")
 
         case .downloading(let progress):
@@ -426,6 +428,7 @@ private struct ActionButton: View {
             Button("Repair") {
                 Task { await viewModel.download(model) }
             }
+            .frame(maxWidth: .infinity)
             .tint(.orange)
             .accessibilityIdentifier("settings_repair_\(model.id)")
 
