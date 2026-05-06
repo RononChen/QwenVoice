@@ -394,19 +394,8 @@ private struct ActionButton: View {
                 .accessibilityIdentifier("settings_checking_\(model.id)")
 
         case .notDownloaded:
-            // The frame must go on the LABEL inside the button, not
-            // on the button itself. SwiftUI's bordered-button bezel
-            // hugs its label's intrinsic size; a frame applied to
-            // the Button view affects layout but doesn't widen the
-            // bezel. Stretching the Text label is what forces the
-            // bezel to fill the parent action column so the button
-            // stays a constant width regardless of whether its text
-            // is `Get 2.31 GB` or `Get 3.08 GB`.
-            Button {
+            HoverableActionButton(title: getButtonTitle) {
                 Task { await viewModel.download(model) }
-            } label: {
-                Text(getButtonTitle)
-                    .frame(maxWidth: .infinity)
             }
             .accessibilityIdentifier("settings_get_\(model.id)")
 
@@ -429,13 +418,9 @@ private struct ActionButton: View {
             }
 
         case .repairAvailable:
-            Button {
+            HoverableActionButton(title: "Repair", tint: .orange) {
                 Task { await viewModel.download(model) }
-            } label: {
-                Text("Repair")
-                    .frame(maxWidth: .infinity)
             }
-            .tint(.orange)
             .accessibilityIdentifier("settings_repair_\(model.id)")
 
         case .downloaded:
@@ -460,5 +445,39 @@ private struct ActionButton: View {
             return "Get \(size)"
         }
         return "Get"
+    }
+}
+
+// MARK: - Hoverable bordered button
+
+/// Bordered button with a subtle hover highlight. macOS bordered
+/// buttons in SwiftUI don't have a built-in hover state — only
+/// press feedback — so the rest action surface reads as static
+/// between clicks. `brightness(0.07)` on hover lifts every visible
+/// pixel of the button (bezel, text, tint) without any
+/// shape-matching gymnastics. Returns to resting brightness with a
+/// short ease-out when the cursor leaves.
+private struct HoverableActionButton: View {
+    let title: String
+    var tint: Color? = nil
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            action()
+        } label: {
+            Text(title)
+                .frame(maxWidth: .infinity)
+        }
+        .tint(tint)
+        .brightness(isHovering ? 0.12 : 0)
+        .scaleEffect(isHovering ? 1.02 : 1.0)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.14)) {
+                isHovering = hovering
+            }
+        }
     }
 }
