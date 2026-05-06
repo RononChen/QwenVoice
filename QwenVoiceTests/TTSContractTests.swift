@@ -45,13 +45,42 @@ final class TTSContractTests: XCTestCase {
         let floorModels = try TTSContract.modelsForTesting(deviceClass: .floor8GBMac)
         let midModels = try TTSContract.modelsForTesting(deviceClass: .mid16GBMac)
 
-        XCTAssertFalse(floorModels.isEmpty)
+        XCTAssertEqual(floorModels.count, 6)
         XCTAssertEqual(floorModels.count, midModels.count)
-        for floorModel in floorModels {
-            let midModel = try XCTUnwrap(midModels.first { $0.id == floorModel.id })
-            XCTAssertTrue(floorModel.folder.contains("4bit"), "\(floorModel.id) should use the Speed artifact on floor Macs.")
-            XCTAssertTrue(midModel.folder.contains("8bit"), "\(midModel.id) should use the Quality artifact on mid/high Macs.")
+        XCTAssertEqual(floorModels.map(\.id).count, Set(floorModels.map(\.id)).count)
+
+        for mode in QwenVoice.GenerationMode.allCases {
+            let floorRecommended = try XCTUnwrap(floorModels.first { $0.mode == mode && $0.isHardwareRecommended })
+            let midRecommended = try XCTUnwrap(midModels.first { $0.mode == mode && $0.isHardwareRecommended })
+            XCTAssertTrue(floorRecommended.folder.contains("4bit"), "\(mode.rawValue) should recommend Speed on floor Macs.")
+            XCTAssertTrue(midRecommended.folder.contains("8bit"), "\(mode.rawValue) should recommend Quality on mid/high Macs.")
         }
+    }
+
+    func testActiveVariantPreferenceSelectsGenerationModel() throws {
+        let suiteName = "TTSContractTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let defaultModel = try XCTUnwrap(
+            TTSContract.modelForTesting(
+                mode: .custom,
+                deviceClass: .floor8GBMac,
+                defaults: defaults
+            )
+        )
+        XCTAssertEqual(defaultModel.variantKind, .speed)
+
+        MacModelVariantPreferences.setSelectedVariantID("quality", for: .custom, defaults: defaults)
+        let selectedModel = try XCTUnwrap(
+            TTSContract.modelForTesting(
+                mode: .custom,
+                deviceClass: .floor8GBMac,
+                defaults: defaults
+            )
+        )
+        XCTAssertEqual(selectedModel.id, "pro_custom_quality")
+        XCTAssertEqual(selectedModel.variantKind, .quality)
     }
 
     func testContractModelsAreQwen3TTSOnly() throws {
@@ -106,4 +135,5 @@ final class TTSContractTests: XCTestCase {
             "\(label) must include the Qwen3-TTS speech tokenizer weights."
         )
     }
+
 }

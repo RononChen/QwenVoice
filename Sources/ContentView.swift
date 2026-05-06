@@ -282,6 +282,7 @@ struct ContentView: View {
             handleVoiceCloningSavedVoiceIDChange(newValue)
         }
         .onChange(of: modelManager.statuses) { _, _ in handleStatusesChange() }
+        .onChange(of: modelManager.activeVariantRevision) { _, _ in handleActiveVariantChange() }
         .onChange(of: ttsEngineStore.snapshot) { _, newSnapshot in
             handleEngineSnapshotChange(newSnapshot)
         }
@@ -399,6 +400,13 @@ struct ContentView: View {
     }
 
     private func handleStatusesChange() {
+        guard didCompleteInitialAvailabilityRefresh else { return }
+        guard !isPreservingLaunchOverrideSelection else { return }
+        reconcileSelectionWithAvailability()
+        scheduleGenerationWarmupIfNeeded(for: selectedItem)
+    }
+
+    private func handleActiveVariantChange() {
         guard didCompleteInitialAvailabilityRefresh else { return }
         guard !isPreservingLaunchOverrideSelection else { return }
         reconcileSelectionWithAvailability()

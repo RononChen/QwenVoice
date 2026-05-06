@@ -183,6 +183,14 @@ public struct ModelDescriptor: Identifiable, Hashable, Sendable, Codable {
         }
     }
 
+    public func platformVariants(for platform: ModelArtifactPlatform) -> [ModelVariantDescriptor] {
+        variants.filter { $0.platforms.contains(platform) }
+    }
+
+    public func variantScopedID(for variant: ModelVariantDescriptor) -> String {
+        "\(id)_\(variant.id)"
+    }
+
     public func preferredVariant(for platform: ModelArtifactPlatform) -> ModelVariantDescriptor? {
         preferredVariant(for: platform, deviceClass: nil)
     }
@@ -217,8 +225,12 @@ public struct ModelDescriptor: Identifiable, Hashable, Sendable, Codable {
             return self
         }
 
+        return resolved(with: variant, id: id)
+    }
+
+    public func resolved(with variant: ModelVariantDescriptor, id resolvedID: String? = nil) -> ModelDescriptor {
         return ModelDescriptor(
-            id: id,
+            id: resolvedID ?? id,
             name: name,
             tier: tier,
             folder: variant.folder,

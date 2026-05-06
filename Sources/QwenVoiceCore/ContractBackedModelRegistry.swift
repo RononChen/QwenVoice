@@ -149,6 +149,33 @@ public struct ContractBackedModelRegistry: ModelRegistry, Hashable, Sendable {
         )
     }
 
+    public func expandedForPlatform(
+        _ platform: ModelArtifactPlatform,
+        deviceClass: NativeDeviceMemoryClass?,
+        includeBaseAliases: Bool
+    ) -> ContractBackedModelRegistry {
+        let expandedModels = models.flatMap { model -> [ModelDescriptor] in
+            let variants = model.platformVariants(for: platform)
+            guard !variants.isEmpty else { return [model] }
+
+            var descriptors: [ModelDescriptor] = []
+            if includeBaseAliases {
+                descriptors.append(model.resolvedForPlatform(platform, deviceClass: deviceClass))
+            }
+            descriptors.append(contentsOf: variants.map { variant in
+                model.resolved(with: variant, id: model.variantScopedID(for: variant))
+            })
+            return descriptors
+        }
+
+        return ContractBackedModelRegistry(
+            manifestURL: manifestURL,
+            models: expandedModels,
+            defaultSpeaker: defaultSpeaker,
+            groupedSpeakers: groupedSpeakers
+        )
+    }
+
     /// Lists required model files that the manifest declares but cannot be
     /// found under the supplied root. Callers use this to surface missing
     /// assets at app launch instead of discovering the gap deep inside a

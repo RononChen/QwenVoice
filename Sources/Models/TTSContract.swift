@@ -57,16 +57,39 @@ enum TTSContract {
     }
 
     static func model(for mode: GenerationMode) -> TTSModel? {
-        loadState.manifest.models.first { $0.mode == mode }
+        activeModel(
+            in: loadState.manifest.models,
+            for: mode,
+            defaults: .standard
+        )
+    }
+
+    static func recommendedModel(for mode: GenerationMode) -> TTSModel? {
+        recommendedModel(in: loadState.manifest.models, for: mode)
     }
 
     static func model(id: String) -> TTSModel? {
-        loadState.manifest.models.first { $0.id == id }
+        if let exact = loadState.manifest.models.first(where: { $0.id == id }) {
+            return exact
+        }
+        return loadState.manifest.models.first {
+            $0.baseModelID == id && $0.isHardwareRecommended
+        }
     }
 
     static func modelsForTesting(deviceClass: NativeDeviceMemoryClass) throws -> [TTSModel] {
         let url = try locateManifestURL()
         return try resolvedManifest(from: url, deviceClass: deviceClass).models
+    }
+
+    static func modelForTesting(
+        mode: GenerationMode,
+        deviceClass: NativeDeviceMemoryClass,
+        defaults: UserDefaults
+    ) throws -> TTSModel? {
+        let url = try locateManifestURL()
+        let models = try resolvedManifest(from: url, deviceClass: deviceClass).models
+        return activeModel(in: models, for: mode, defaults: defaults)
     }
 
     private static let loadState: TTSContractLoadState = loadManifestState()
@@ -103,28 +126,96 @@ enum TTSContract {
         deviceClass: NativeDeviceMemoryClass
     ) throws -> TTSContractManifest {
         let registry = try ContractBackedModelRegistry(manifestURL: url)
-            .resolvedForPlatform(.macOS, deviceClass: deviceClass)
-        return try TTSContractManifest(
+        let models = try registry.models.flatMap { descriptor -> [TTSModel] in
+            let variants = descriptor.platformVariants(for: .macOS)
+            guard !variants.isEmpty else {
+                return [
+                    try makeModel(
+                        from: descriptor,
+                        baseModelID: descriptor.id,
+                        variantID: nil,
+                        variantKind: nil,
+                        isHardwareRecommended: true
+                    ),
+                ]
+            }
+
+            let recommendedVariant = descriptor.preferredVariant(
+                for: .macOS,
+                deviceClass: deviceClass
+            )
+            return try variants.map { variant in
+                try makeModel(
+                    from: descriptor.resolved(
+                        with: variant,
+                        id: descriptor.variantScopedID(for: variant)
+                    ),
+                    baseModelID: descriptor.id,
+                    variantID: variant.id,
+                    variantKind: TTSModelVariantKind(coreKind: variant.kind),
+                    isHardwareRecommended: variant.id == recommendedVariant?.id
+                )
+            }
+        }
+
+        return TTSContractManifest(
             defaultSpeaker: registry.defaultSpeaker.id,
             speakers: registry.groupedSpeakers.mapValues { speakers in
                 speakers.map(\.id)
             },
-            models: registry.models.map { descriptor in
-                guard let mode = GenerationMode(rawValue: descriptor.mode.rawValue) else {
-                    throw ValidationError("Model '\(descriptor.id)' declares unsupported mode '\(descriptor.mode.rawValue)'.")
-                }
-                return TTSModel(
-                    id: descriptor.id,
-                    name: descriptor.name,
-                    tier: descriptor.tier,
-                    folder: descriptor.folder,
-                    mode: mode,
-                    huggingFaceRepo: descriptor.huggingFaceRepo,
-                    outputSubfolder: descriptor.outputSubfolder,
-                    requiredRelativePaths: descriptor.requiredRelativePaths
-                )
-            }
+            models: models
         )
+    }
+
+    private static func makeModel(
+        from descriptor: ModelDescriptor,
+        baseModelID: String,
+        variantID: String?,
+        variantKind: TTSModelVariantKind?,
+        isHardwareRecommended: Bool
+    ) throws -> TTSModel {
+        guard let mode = GenerationMode(rawValue: descriptor.mode.rawValue) else {
+            throw ValidationError("Model '\(descriptor.id)' declares unsupported mode '\(descriptor.mode.rawValue)'.")
+        }
+        return TTSModel(
+            id: descriptor.id,
+            name: descriptor.name,
+            tier: descriptor.tier,
+            folder: descriptor.folder,
+            mode: mode,
+            huggingFaceRepo: descriptor.huggingFaceRepo,
+            outputSubfolder: descriptor.outputSubfolder,
+            requiredRelativePaths: descriptor.requiredRelativePaths,
+            baseModelID: baseModelID,
+            variantID: variantID,
+            variantKind: variantKind,
+            estimatedDownloadBytes: descriptor.estimatedDownloadBytes,
+            isHardwareRecommended: isHardwareRecommended
+        )
+    }
+
+    private static func activeModel(
+        in models: [TTSModel],
+        for mode: GenerationMode,
+        defaults: UserDefaults
+    ) -> TTSModel? {
+        let modeModels = models.filter { $0.mode == mode }
+        guard !modeModels.isEmpty else { return nil }
+        let recommended = recommendedModel(in: models, for: mode) ?? modeModels[0]
+        let selectedVariantID = MacModelVariantPreferences.selectedVariantID(
+            for: mode,
+            defaultVariantID: recommended.variantID,
+            defaults: defaults
+        )
+        return modeModels.first { $0.variantID == selectedVariantID } ?? recommended
+    }
+
+    private static func recommendedModel(
+        in models: [TTSModel],
+        for mode: GenerationMode
+    ) -> TTSModel? {
+        let modeModels = models.filter { $0.mode == mode }
+        return modeModels.first { $0.isHardwareRecommended } ?? modeModels.first
     }
 
     private static func handleLoadFailure(_ error: ContractLoadError) -> TTSContractLoadState {
@@ -159,9 +250,20 @@ enum TTSContract {
             throw ValidationError("Manifest contains duplicate model ids: \(duplicateModelIDs.joined(separator: ", ")).")
         }
 
-        let duplicateModes = duplicateValues(in: manifest.models.map(\.mode.rawValue))
-        guard duplicateModes.isEmpty else {
-            throw ValidationError("Manifest contains duplicate model modes: \(duplicateModes.joined(separator: ", ")).")
+        let missingModes = GenerationMode.allCases.filter { mode in
+            !manifest.models.contains { $0.mode == mode }
+        }
+        guard missingModes.isEmpty else {
+            throw ValidationError("Manifest is missing models for modes: \(missingModes.map(\.rawValue).joined(separator: ", ")).")
+        }
+
+        for mode in GenerationMode.allCases {
+            let recommendedCount = manifest.models.filter {
+                $0.mode == mode && $0.isHardwareRecommended
+            }.count
+            guard recommendedCount == 1 else {
+                throw ValidationError("Manifest must define one recommended model for mode '\(mode.rawValue)'.")
+            }
         }
 
         for model in manifest.models {
@@ -207,6 +309,17 @@ enum TTSContract {
         }
 
         return duplicates.sorted()
+    }
+}
+
+private extension TTSModelVariantKind {
+    init(coreKind: ModelVariantKind) {
+        switch coreKind {
+        case .speed:
+            self = .speed
+        case .quality:
+            self = .quality
+        }
     }
 }
 

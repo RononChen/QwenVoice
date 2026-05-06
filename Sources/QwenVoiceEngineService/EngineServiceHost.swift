@@ -295,7 +295,11 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
 
         let manifestURL = try Self.locateManifestURL()
         let registry = try ContractBackedModelRegistry(manifestURL: manifestURL)
-            .resolvedForPlatform(.macOS, deviceClass: NativeMemoryPolicyResolver.deviceClass())
+            .expandedForPlatform(
+                .macOS,
+                deviceClass: NativeMemoryPolicyResolver.deviceClass(),
+                includeBaseAliases: true
+            )
         let runtime = try NativeRuntimeFactory.make(
             registry: registry,
             paths: .rooted(at: appSupportDirectory),

@@ -26,7 +26,12 @@ struct ModelsView: View {
                             ModelRow(
                                 model: model,
                                 viewModel: viewModel,
+                                isActive: viewModel.isActive(model),
+                                isRecommended: model.isHardwareRecommended,
                                 isHighlighted: flashedModelID == model.id,
+                                onUse: {
+                                    viewModel.use(model)
+                                },
                                 onDelete: {
                                     modelToDelete = model
                                     showDeleteConfirmation = true
@@ -46,7 +51,12 @@ struct ModelsView: View {
                         ModelRow(
                             model: model,
                             viewModel: viewModel,
+                            isActive: viewModel.isActive(model),
+                            isRecommended: model.isHardwareRecommended,
                             isHighlighted: flashedModelID == model.id,
+                            onUse: {
+                                viewModel.use(model)
+                            },
                             onDelete: {
                                 modelToDelete = model
                                 showDeleteConfirmation = true
@@ -136,7 +146,10 @@ private extension ModelsView {
 struct ModelRow: View {
     let model: TTSModel
     let viewModel: ModelManagerViewModel
+    let isActive: Bool
+    let isRecommended: Bool
     var isHighlighted: Bool = false
+    var onUse: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
 
     private var status: ModelManagerViewModel.ModelStatus {
@@ -148,6 +161,9 @@ struct ModelRow: View {
     }
 
     private var variantLabel: String {
+        if let variantKind = model.variantKind {
+            return variantKind.variantLabel
+        }
         if model.folder.localizedCaseInsensitiveContains("4bit") {
             return "Speed variant"
         }
@@ -191,6 +207,20 @@ struct ModelRow: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                }
+
+                HStack(spacing: 6) {
+                    if isRecommended {
+                        ModelBadge(text: "Recommended", tint: AppTheme.accent)
+                    }
+                    if isActive {
+                        ModelBadge(text: "Active", tint: iconTint)
+                    }
+                    if let bitDepth = model.variantKind?.bitDepthLabel {
+                        Text(bitDepth)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.tertiary)
+                    }
                 }
 
                 statusView
@@ -331,14 +361,24 @@ struct ModelRow: View {
             .tint(AppTheme.accent)
             .accessibilityIdentifier("models_retry_\(model.id)")
         case .downloaded:
-            Button(role: .destructive) {
-                onDelete?()
-            } label: {
-                Image(systemName: "trash")
+            if isActive {
+                Button(role: .destructive) {
+                    onDelete?()
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("models_delete_\(model.id)")
+            } else {
+                Button("Use") {
+                    onUse?()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(AppTheme.accent)
+                .accessibilityIdentifier("models_use_\(model.id)")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .accessibilityIdentifier("models_delete_\(model.id)")
         }
     }
 
@@ -409,6 +449,23 @@ struct ModelRow: View {
             .overlay {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(isHighlighted ? AppTheme.accent.opacity(0.18) : .clear, lineWidth: 1)
+            }
+    }
+}
+
+private struct ModelBadge: View {
+    let text: String
+    let tint: Color
+
+    var body: some View {
+        Text(text)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background {
+                Capsule()
+                    .fill(tint.opacity(0.12))
             }
     }
 }

@@ -15,8 +15,10 @@ final class ModelManagerViewModelTests: XCTestCase {
         guard case .downloaded = viewModel.statuses[installedModel.id] else {
             return XCTFail("Expected \(installedModel.id) to be marked downloaded at init, got \(String(describing: viewModel.statuses[installedModel.id]))")
         }
-        XCTAssertEqual(viewModel.statuses["pro_design"], .notDownloaded(message: nil))
-        XCTAssertEqual(viewModel.statuses["pro_clone"], .notDownloaded(message: nil))
+        let designModel = try XCTUnwrap(TTSModel.model(for: .design))
+        let cloneModel = try XCTUnwrap(TTSModel.model(for: .clone))
+        XCTAssertEqual(viewModel.statuses[designModel.id], .notDownloaded(message: nil))
+        XCTAssertEqual(viewModel.statuses[cloneModel.id], .notDownloaded(message: nil))
     }
 
     @MainActor
@@ -51,6 +53,57 @@ final class ModelManagerViewModelTests: XCTestCase {
         guard case .downloaded = viewModel.statuses[installedModel.id] else {
             return XCTFail("Expected \(installedModel.id) to be marked downloaded after refresh, got \(String(describing: viewModel.statuses[installedModel.id]))")
         }
+        let metadataURL = installedModel.installDirectory(in: tempRoot)
+            .appendingPathComponent(".qwenvoice-install-metadata.json")
+        let metadata = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: metadataURL)) as? [String: Any]
+        )
+        XCTAssertEqual(metadata["model_id"] as? String, installedModel.id)
+        XCTAssertEqual(metadata["hugging_face_repo"] as? String, installedModel.huggingFaceRepo)
+    }
+
+    @MainActor
+    func testVariantStatusesAreIndependent() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let speedModel = try XCTUnwrap(TTSModel.model(id: "pro_custom_speed"))
+        let qualityModel = try XCTUnwrap(TTSModel.model(id: "pro_custom_quality"))
+        try createInstalledModelFixture(for: speedModel, in: tempRoot)
+
+        let viewModel = ModelManagerViewModel(modelsDirectory: tempRoot)
+
+        guard case .downloaded = viewModel.statuses[speedModel.id] else {
+            return XCTFail("Expected \(speedModel.id) to be downloaded.")
+        }
+        XCTAssertEqual(viewModel.statuses[qualityModel.id], .notDownloaded(message: nil))
+    }
+
+    @MainActor
+    func testUsePersistsActiveVariantSelection() throws {
+        let qualityModel = try XCTUnwrap(TTSModel.model(id: "pro_custom_quality"))
+        let key = MacModelVariantPreferences.key(for: .custom)
+        let oldValue = UserDefaults.standard.string(forKey: key)
+        MacModelVariantPreferences.setSelectedVariantID("speed", for: .custom, defaults: .standard)
+        defer {
+            if let oldValue {
+                UserDefaults.standard.set(oldValue, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+
+        let viewModel = ModelManagerViewModel()
+        viewModel.use(qualityModel)
+
+        XCTAssertEqual(
+            MacModelVariantPreferences.selectedVariantID(
+                for: .custom,
+                defaultVariantID: nil
+            ),
+            "quality"
+        )
+        XCTAssertTrue(viewModel.isActive(qualityModel))
     }
 
     private func createInstalledModelFixture(for model: TTSModel, in modelsDirectory: URL) throws {

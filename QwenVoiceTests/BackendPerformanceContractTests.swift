@@ -258,6 +258,35 @@ final class BackendPerformanceContractTests: XCTestCase {
         }
     }
 
+    func testMacVariantExpansionProvidesScopedIDsAndRecommendedAliases() throws {
+        let manifestURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/Resources/qwenvoice_contract.json")
+        let registry = try ContractBackedModelRegistry(manifestURL: manifestURL)
+        let expanded = registry.expandedForPlatform(
+            .macOS,
+            deviceClass: .floor8GBMac,
+            includeBaseAliases: false
+        )
+        let expandedIDs = Set(expanded.models.map(\.id))
+
+        XCTAssertEqual(expanded.models.count, 6)
+        XCTAssertTrue(expandedIDs.contains("pro_custom_speed"))
+        XCTAssertTrue(expandedIDs.contains("pro_custom_quality"))
+        XCTAssertNil(expanded.model(id: "pro_custom"))
+
+        let aliased = registry.expandedForPlatform(
+            .macOS,
+            deviceClass: .floor8GBMac,
+            includeBaseAliases: true
+        )
+        XCTAssertEqual(aliased.models.count, 9)
+        XCTAssertTrue(try XCTUnwrap(aliased.model(id: "pro_custom")).folder.contains("4bit"))
+        XCTAssertTrue(try XCTUnwrap(aliased.model(id: "pro_custom_quality")).folder.contains("8bit"))
+        XCTAssertEqual(aliased.model(for: .custom)?.id, "pro_custom")
+    }
+
     func testTelemetryDefaultsAreProductOffAndBenchmarkLightweight() {
         XCTAssertEqual(NativeTelemetryMode.current(environment: [:]), .off)
         XCTAssertEqual(

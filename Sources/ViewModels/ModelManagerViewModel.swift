@@ -68,6 +68,7 @@ final class ModelManagerViewModel: ObservableObject {
 
     @Published private(set) var statuses: [String: ModelStatus] = [:]
     @Published private(set) var modelInfoByID: [String: ModelInfo] = [:]
+    @Published private(set) var activeVariantRevision = 0
 
     private let fileManager: FileManager
     private let modelsDirectory: URL
@@ -130,6 +131,16 @@ final class ModelManagerViewModel: ObservableObject {
     func primaryActionTitle(for model: TTSModel) -> String? {
         guard !isAvailable(model) else { return nil }
         return info(for: model).requiresRepair ? "Repair Model" : "Download Model"
+    }
+
+    func isActive(_ model: TTSModel) -> Bool {
+        TTSModel.model(for: model.mode)?.id == model.id
+    }
+
+    func use(_ model: TTSModel) {
+        guard let variantID = model.variantID else { return }
+        MacModelVariantPreferences.setSelectedVariantID(variantID, for: model.mode)
+        activeVariantRevision += 1
     }
 
     func recoveryDetail(for model: TTSModel) -> String {
