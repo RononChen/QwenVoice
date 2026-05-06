@@ -243,8 +243,11 @@ private struct ModeRow: View {
                 variantMenu
                     // Pinned width keeps the popup chevron at the
                     // same x across all three rows regardless of
-                    // which variant is currently selected.
-                    .frame(width: 175)
+                    // which variant is currently selected. Slightly
+                    // narrower than before to leave room for the
+                    // wider regular-size action button without the
+                    // row wrapping to a second line.
+                    .frame(width: 150)
 
                 if let model = activeVariant {
                     ActionButton(
@@ -252,12 +255,11 @@ private struct ModeRow: View {
                         viewModel: viewModel,
                         onDelete: { onDelete(model) }
                     )
-                    // Pinned minimum width so the action column
-                    // doesn't shrink to fit a short label like
-                    // "Get" while a sibling row shows
-                    // "Get 2.31 GB". Trailing alignment keeps the
-                    // button content right-anchored.
-                    .frame(width: 96, alignment: .trailing)
+                    // Fixed width on the action column so all rows'
+                    // buttons share the same right edge regardless
+                    // of whether the content is "Get", "Get 3.08 GB",
+                    // a borderless trash icon, or "Cancel + progress".
+                    .frame(width: 115, alignment: .trailing)
                 }
             }
         } label: {
@@ -392,16 +394,14 @@ private struct ActionButton: View {
                 .accessibilityIdentifier("settings_checking_\(model.id)")
 
         case .notDownloaded:
-            // Primary download action: filled prominent button tinted
-            // with the mode's identity color so it reads
-            // unambiguously as the row's call-to-action and visually
-            // links to its generation mode in the section above.
+            // Standard bordered button at regular size so it reads
+            // clearly as a button without becoming a saturated
+            // call-to-action. Default size (no .controlSize override)
+            // gives the row a more substantial click target than the
+            // previous .small styling.
             Button(getButtonTitle) {
                 Task { await viewModel.download(model) }
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .tint(AppTheme.modeColor(for: model.mode))
             .accessibilityIdentifier("settings_get_\(model.id)")
 
         case .downloading(let progress):
@@ -426,7 +426,6 @@ private struct ActionButton: View {
             Button("Repair") {
                 Task { await viewModel.download(model) }
             }
-            .controlSize(.small)
             .tint(.orange)
             .accessibilityIdentifier("settings_repair_\(model.id)")
 
