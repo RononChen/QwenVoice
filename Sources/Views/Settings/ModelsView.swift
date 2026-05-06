@@ -1,4 +1,5 @@
 import SwiftUI
+import QwenVoiceCore
 
 struct ModelsView: View {
     @EnvironmentObject private var viewModel: ModelManagerViewModel
@@ -12,6 +13,14 @@ struct ModelsView: View {
     var body: some View {
         ScrollViewReader { proxy in
             List {
+                Section {
+                    ModelsIntroLine(deviceClass: viewModel.deviceClass)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 12, trailing: 16))
+                }
+                .listSectionSeparator(.hidden)
+
                 ForEach(GenerationMode.allCases, id: \.self) { mode in
                     Section {
                         ModelSectionHeader(mode: mode)
@@ -116,13 +125,13 @@ private extension ModelsView {
 
 // MARK: - Section header
 
-/// Mode-grouped section header. The mode name carries the row in
-/// `.title3` weight; a 28×2 underscore in the mode color sits
-/// beneath the text as a quiet identity mark, replacing the
-/// earlier leading dot. PRODUCT.md treats Vocello gold + Voice
-/// Design lavender + Voice Cloning terracotta as whisper-tinted
-/// peripherals, never wallpaper, so the underscore stays narrow
-/// and tucked beneath the label.
+/// Mode-grouped section header. Three layers of identity:
+/// the mode name in `.title3` weight; a 26×2 underscore in
+/// the mode color directly under it; a one-sentence
+/// description below in secondary text, lifted from
+/// PRODUCT.md so it stays on-brand. The description gives the
+/// section gravitas the underscore alone can't carry — without
+/// it the pills below read as orphan controls.
 private struct ModelSectionHeader: View {
     let mode: GenerationMode
 
@@ -138,10 +147,57 @@ private struct ModelSectionHeader: View {
                 .frame(width: 26, height: 2)
                 .opacity(0.85)
                 .accessibilityHidden(true)
+
+            Text(Self.description(for: mode))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .padding(.top, 2)
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(mode.displayName)
+        .accessibilityLabel("\(mode.displayName). \(Self.description(for: mode))")
+    }
+
+    private static func description(for mode: GenerationMode) -> String {
+        switch mode {
+        case .custom: return "Generate with a preset speaker."
+        case .design: return "Describe a voice in natural language."
+        case .clone: return "Match a 10 to 20 second reference clip."
+        }
+    }
+}
+
+// MARK: - Top-of-panel intro line
+
+/// One-sentence framing above the first section. Sets the
+/// page's purpose so the pills don't read as orphan controls,
+/// and personalizes the recommendation language to the user's
+/// Mac memory tier so it never speaks past the reader.
+private struct ModelsIntroLine: View {
+    let deviceClass: NativeDeviceMemoryClass
+
+    var body: some View {
+        Text(introText)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("models_intro")
+    }
+
+    private var introText: String {
+        switch deviceClass {
+        case .floor8GBMac:
+            return "Pick the variant for each mode. The 4-bit version runs comfortably on your Mac. The 8-bit version is sharper but heavier than your Mac comfortably handles."
+        case .mid16GBMac:
+            return "Pick the variant for each mode. The 8-bit version is sharper; the 4-bit version is faster and lighter."
+        case .highMemoryMac:
+            return "Pick the variant for each mode. The 8-bit version is recommended for your Mac. The 4-bit version is faster but lower fidelity."
+        case .iPhonePro:
+            // Mac-only surface; this branch is unreachable in production but
+            // keeps the switch exhaustive without a default that would mute a
+            // future enum case.
+            return "Pick the variant for each mode."
+        }
     }
 }
 
@@ -161,7 +217,7 @@ private struct ModeVariantsRow: View {
     let onDeleteRequest: (TTSModel) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 10) {
                 if let speed {
                     VariantPill(
@@ -187,6 +243,14 @@ private struct ModeVariantsRow: View {
                 DownloadProgressLine(progress: progressContext.progress)
                     .padding(.leading, 4)
                     .accessibilityIdentifier("models_progress_\(progressContext.modelID)")
+            } else if let summary = statusSummary {
+                Text(summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("models_summary_\(mode.rawValue)")
             }
 
             if let surfacedError {
@@ -200,6 +264,77 @@ private struct ModeVariantsRow: View {
         .padding(.horizontal, 4)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(mode.displayName)
+    }
+
+    /// One-sentence summary of the row's combined state. Suppressed
+    /// during in-flight downloads (the progress line carries that
+    /// state) and during repair states (the error text takes priority).
+    /// Reads as a native macOS settings caption: concrete numbers, plain
+    /// verbs, no marketing volume.
+    private var statusSummary: String? {
+        // Repair always wins — a missing-files row is the most
+        // actionable thing on the page.
+        for model in orderedVariants {
+            if case .repairAvailable(_, let missingPaths, _) = viewModel.statuses[model.id] {
+                let kind = model.variantKind?.bitDepthLabel ?? model.name
+                let count = missingPaths.count
+                if count > 0 {
+                    return "\(kind) needs repair: \(count) required file\(count == 1 ? "" : "s") missing."
+                }
+                return "\(kind) needs repair: local files are incomplete."
+            }
+        }
+
+        let speedDownloaded = isDownloaded(speed)
+        let qualityDownloaded = isDownloaded(quality)
+        let activeKind: TTSModelVariantKind? = orderedVariants
+            .first(where: { viewModel.isActive($0) && isDownloaded($0) })?
+            .variantKind
+
+        switch (speedDownloaded, qualityDownloaded) {
+        case (false, false):
+            // Neither installed — recommend the safe choice with its size.
+            if let recommended = orderedVariants.first(where: { $0.isHardwareRecommended }),
+               let kind = recommended.variantKind?.bitDepthLabel {
+                if let size = viewModel.sizeText(for: recommended) {
+                    return "Not installed. \(kind) (\(size)) recommended for your Mac."
+                }
+                return "Not installed. \(kind) recommended for your Mac."
+            }
+            return "Not installed."
+
+        case (true, false):
+            let qualitySize = quality.flatMap(viewModel.sizeText)
+            let qualityFragment = qualitySize.map { " 8-bit (\($0)) available" } ?? " 8-bit available"
+            let qualityRisky = quality.map(viewModel.isHardwareRisky) ?? false
+            let qualityTail = qualityRisky
+                ? ", but heavier than your Mac comfortably handles."
+                : "."
+            let speedHead = (activeKind == .speed) ? "4-bit active." : "4-bit installed."
+            return "\(speedHead)\(qualityFragment)\(qualityTail)"
+
+        case (false, true):
+            let speedSize = speed.flatMap(viewModel.sizeText)
+            let speedFragment = speedSize.map { " 4-bit (\($0)) available." } ?? " 4-bit available."
+            let qualityHead = (activeKind == .quality) ? "8-bit active." : "8-bit installed."
+            return "\(qualityHead)\(speedFragment)"
+
+        case (true, true):
+            switch activeKind {
+            case .speed:
+                return "4-bit active. 8-bit installed but inactive."
+            case .quality:
+                return "8-bit active. 4-bit installed but inactive."
+            case .none:
+                return "Both variants installed. Click one to make it active."
+            }
+        }
+    }
+
+    private func isDownloaded(_ model: TTSModel?) -> Bool {
+        guard let model else { return false }
+        if case .downloaded = viewModel.statuses[model.id] { return true }
+        return false
     }
 
     private var orderedVariants: [TTSModel] {

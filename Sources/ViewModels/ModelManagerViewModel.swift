@@ -73,7 +73,10 @@ final class ModelManagerViewModel: ObservableObject {
 
     private let fileManager: FileManager
     private let modelsDirectory: URL
-    private let deviceClass: NativeDeviceMemoryClass
+    /// The user's Mac memory tier, computed once at init and
+    /// surfaced for UI surfaces that frame variant choice
+    /// (e.g. the Models panel's intro line and per-row caption).
+    let deviceClass: NativeDeviceMemoryClass
     private var downloaders: [String: HuggingFaceDownloader] = [:]
     private var downloadTasks: [String: Task<Void, Never>] = [:]
     private var stateEpochs: [String: Int] = [:]
