@@ -90,20 +90,23 @@ struct SettingsView: View {
                         }
                     }
 
+                    // Application data row carries the version
+                    // text inline so the dedicated About section is
+                    // unnecessary. Settings stays at three sections;
+                    // the About box (menu Vocello -> About Vocello)
+                    // already covers full version detail in the
+                    // standard macOS spot.
                     LabeledContent("Application data") {
-                        Button("Reveal in Finder") {
-                            NSWorkspace.shared.open(QwenVoiceApp.appSupportDir)
+                        HStack(spacing: 8) {
+                            Text(appVersion)
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.tertiary)
+                            Button("Reveal in Finder") {
+                                NSWorkspace.shared.open(QwenVoiceApp.appSupportDir)
+                            }
+                            .controlSize(.small)
+                            .accessibilityIdentifier("preferences_openFinderButton")
                         }
-                        .controlSize(.small)
-                        .accessibilityIdentifier("preferences_openFinderButton")
-                    }
-                }
-
-                Section("About") {
-                    LabeledContent("Vocello") {
-                        Text(appVersion)
-                            .font(.body.monospacedDigit())
-                            .foregroundStyle(.secondary)
                     }
                 }
             }
