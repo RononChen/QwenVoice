@@ -18,8 +18,20 @@ struct ModelsView: View {
     var body: some View {
         ScrollViewReader { proxy in
             List {
+                // The header lives inside the section's content (not
+                // the `header:` slot) so the row-level
+                // `.listRowSeparator(.hidden)` modifier actually
+                // suppresses the divider — `.listStyle(.inset)` on
+                // macOS draws a separator below `header:` views and
+                // ignores attempts to hide it from the
+                // `.listSectionSeparator` chain.
                 ForEach(modeGroups, id: \.0) { (mode, modelsForMode) in
                     Section {
+                        ModelSectionHeader(mode: mode)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 14, leading: 0, bottom: 6, trailing: 0))
+
                         ForEach(modelsForMode) { model in
                             ModelRow(
                                 model: model,
@@ -38,8 +50,6 @@ struct ModelsView: View {
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
                         }
-                    } header: {
-                        ModelSectionHeader(mode: mode)
                     }
                     .listSectionSeparator(.hidden)
                 }
