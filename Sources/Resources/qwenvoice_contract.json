@@ -18,7 +18,7 @@
       "huggingFaceRepo": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit",
       "artifactVersion": "2026.04.05.2",
       "iosDownloadEligible": false,
-      "estimatedDownloadBytes": null,
+      "estimatedDownloadBytes": 3080141538,
       "outputSubfolder": "CustomVoice",
       "requiredRelativePaths": [
         "README.md",
@@ -76,7 +76,7 @@
           "huggingFaceRepo": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit",
           "artifactVersion": "2026.04.05.2",
           "iosDownloadEligible": false,
-          "estimatedDownloadBytes": null,
+          "estimatedDownloadBytes": 3080141538,
           "requiredRelativePaths": [
             "README.md",
             "config.json",
@@ -104,7 +104,7 @@
       "huggingFaceRepo": "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit",
       "artifactVersion": "2026.04.05.2",
       "iosDownloadEligible": false,
-      "estimatedDownloadBytes": null,
+      "estimatedDownloadBytes": 3080140867,
       "outputSubfolder": "VoiceDesign",
       "requiredRelativePaths": [
         "README.md",
@@ -162,7 +162,7 @@
           "huggingFaceRepo": "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit",
           "artifactVersion": "2026.04.05.2",
           "iosDownloadEligible": false,
-          "estimatedDownloadBytes": null,
+          "estimatedDownloadBytes": 3080140867,
           "requiredRelativePaths": [
             "README.md",
             "config.json",
@@ -190,7 +190,7 @@
       "huggingFaceRepo": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
       "artifactVersion": "2026.04.05.2",
       "iosDownloadEligible": false,
-      "estimatedDownloadBytes": null,
+      "estimatedDownloadBytes": 3104158788,
       "outputSubfolder": "Clones",
       "requiredRelativePaths": [
         "README.md",
@@ -248,7 +248,7 @@
           "huggingFaceRepo": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
           "artifactVersion": "2026.04.05.2",
           "iosDownloadEligible": false,
-          "estimatedDownloadBytes": null,
+          "estimatedDownloadBytes": 3104158788,
           "requiredRelativePaths": [
             "README.md",
             "config.json",
