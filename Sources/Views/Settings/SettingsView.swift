@@ -373,6 +373,8 @@ private struct ActionButton: View {
     @ObservedObject var viewModel: ModelManagerViewModel
     let onDelete: () -> Void
 
+    @State private var showingManageMenu = false
+
     private var status: ModelManagerViewModel.ModelStatus {
         viewModel.statuses[model.id] ?? .checking
     }
@@ -436,40 +438,41 @@ private struct ActionButton: View {
             .accessibilityIdentifier("settings_repair_\(model.id)")
 
         case .downloaded:
-            // Active-and-downloaded: a `Manage` Menu fills the
-            // action column so the row reads as complete (the prior
-            // bare trash icon left the slot looking empty). The
-            // menu opens to: Reveal in Finder, Delete Model. Same
-            // bordered shape as Get/Repair so the rows stay
-            // visually balanced no matter which state they're in.
-            // Use Menu(.button) so the Menu renders with a single
-            // bordered bezel identical to a Button — without it,
-            // the Menu draws its chevron in a separate attached
-            // pill that makes the Manage control look smaller and
-            // distinct from Get/Repair. With .menuStyle(.button)
-            // and .menuIndicator(.hidden), plus maxWidth on the
-            // outer view, the Manage button matches the Get bezel
-            // exactly: same width, same height, same corner radius.
-            Menu {
-                Button {
-                    let url = model.installDirectory(in: QwenVoiceApp.modelsDir)
-                    NSWorkspace.shared.open(url)
-                } label: {
-                    Label("Reveal in Finder", systemImage: "folder")
-                }
-                Divider()
-                Button(role: .destructive, action: onDelete) {
-                    Label("Delete Model", systemImage: "trash")
-                }
+            // Use a real Button (with the same `.frame(maxWidth:
+            // .infinity)` on its label) so the bezel is byte-for-
+            // byte identical to Get and Repair. SwiftUI's Menu
+            // doesn't honor the parent frame the same way Button
+            // does, so a manually-presented popover gives us the
+            // visual parity the user asked for. Popover content
+            // is two flat Buttons styled to look like menu items.
+            Button {
+                showingManageMenu.toggle()
             } label: {
                 Text("Manage")
                     .frame(maxWidth: .infinity)
             }
-            .menuStyle(.button)
-            .menuIndicator(.hidden)
-            .frame(maxWidth: .infinity)
             .help("Manage \(model.variantKind?.displayName ?? model.name) variant")
             .accessibilityIdentifier("settings_manage_\(model.id)")
+            .popover(isPresented: $showingManageMenu, arrowEdge: .top) {
+                VStack(alignment: .leading, spacing: 0) {
+                    PopoverMenuItem(title: "Reveal in Finder", systemImage: "folder") {
+                        showingManageMenu = false
+                        let url = model.installDirectory(in: QwenVoiceApp.modelsDir)
+                        NSWorkspace.shared.open(url)
+                    }
+                    Divider()
+                    PopoverMenuItem(
+                        title: "Delete Model",
+                        systemImage: "trash",
+                        isDestructive: true
+                    ) {
+                        showingManageMenu = false
+                        onDelete()
+                    }
+                }
+                .frame(minWidth: 180)
+                .padding(.vertical, 4)
+            }
         }
     }
 
@@ -478,6 +481,55 @@ private struct ActionButton: View {
             return "Get \(size)"
         }
         return "Get"
+    }
+}
+
+// MARK: - Popover menu item
+
+/// A plain Button styled to look like a native menu row, used
+/// inside the Manage popover. Hovering tints the row with the
+/// system selection color so it reads as a clickable line item.
+private struct PopoverMenuItem: View {
+    let title: String
+    let systemImage: String
+    var isDestructive: Bool = false
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .frame(width: 16, alignment: .center)
+                Text(title)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(rowForeground)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .background {
+                if isHovering {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(Color.accentColor.opacity(isDestructive ? 0 : 0.85))
+                    if isDestructive {
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(Color.red.opacity(0.85))
+                    }
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovering = hovering
+        }
+    }
+
+    private var rowForeground: Color {
+        if isHovering { return .white }
+        return isDestructive ? .red : .primary
     }
 }
 
