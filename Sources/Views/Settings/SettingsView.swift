@@ -373,7 +373,10 @@ private struct ActionButton: View {
     @ObservedObject var viewModel: ModelManagerViewModel
     let onDelete: () -> Void
 
-    @State private var showingManageMenu = false
+    /// Holder for the NSView that backs the Manage button's
+    /// background, used as the anchor for the AppKit `NSMenu`'s
+    /// popUp positioning.
+    @State private var manageHostHolder = NSViewHostHolder()
 
     private var status: ModelManagerViewModel.ModelStatus {
         viewModel.statuses[model.id] ?? .checking
@@ -438,41 +441,23 @@ private struct ActionButton: View {
             .accessibilityIdentifier("settings_repair_\(model.id)")
 
         case .downloaded:
-            // Use a real Button (with the same `.frame(maxWidth:
-            // .infinity)` on its label) so the bezel is byte-for-
-            // byte identical to Get and Repair. SwiftUI's Menu
-            // doesn't honor the parent frame the same way Button
-            // does, so a manually-presented popover gives us the
-            // visual parity the user asked for. Popover content
-            // is two flat Buttons styled to look like menu items.
+            // SwiftUI Button gives a byte-identical bezel to
+            // Get/Repair. The dropdown is a real AppKit NSMenu
+            // presented from the host NSView captured via
+            // NSViewHostAccessor, so the menu has full system
+            // chrome (vibrancy material, system rounded corners,
+            // native item heights, native hover). The popover
+            // approach we tried before rendered as plain SwiftUI
+            // boxes and read as broken against the dark panel.
             Button {
-                showingManageMenu.toggle()
+                presentManageMenu()
             } label: {
                 Text("Manage")
                     .frame(maxWidth: .infinity)
             }
+            .background(NSViewHostAccessor(holder: manageHostHolder))
             .help("Manage \(model.variantKind?.displayName ?? model.name) variant")
             .accessibilityIdentifier("settings_manage_\(model.id)")
-            .popover(isPresented: $showingManageMenu, arrowEdge: .top) {
-                VStack(alignment: .leading, spacing: 0) {
-                    PopoverMenuItem(title: "Reveal in Finder", systemImage: "folder") {
-                        showingManageMenu = false
-                        let url = model.installDirectory(in: QwenVoiceApp.modelsDir)
-                        NSWorkspace.shared.open(url)
-                    }
-                    Divider()
-                    PopoverMenuItem(
-                        title: "Delete Model",
-                        systemImage: "trash",
-                        isDestructive: true
-                    ) {
-                        showingManageMenu = false
-                        onDelete()
-                    }
-                }
-                .frame(minWidth: 180)
-                .padding(.vertical, 4)
-            }
         }
     }
 
@@ -482,54 +467,108 @@ private struct ActionButton: View {
         }
         return "Get"
     }
+
+    /// Build a real AppKit NSMenu and pop it up from the Manage
+    /// button's host NSView. The closure-based items use a small
+    /// retained `ClosureMenuItem` wrapper so we don't need a
+    /// separate `@objc` controller.
+    private func presentManageMenu() {
+        guard let host = manageHostHolder.view else { return }
+
+        let menu = NSMenu()
+        menu.addItem(ClosureMenuItem(
+            title: "Reveal in Finder",
+            systemImage: "folder",
+            handler: {
+                let url = model.installDirectory(in: QwenVoiceApp.modelsDir)
+                NSWorkspace.shared.open(url)
+            }
+        ))
+        menu.addItem(.separator())
+        menu.addItem(ClosureMenuItem(
+            title: "Delete Model",
+            systemImage: "trash",
+            isDestructive: true,
+            handler: onDelete
+        ))
+
+        // Popping up at the bottom-leading corner of the host
+        // makes the menu appear directly under the button.
+        menu.popUp(
+            positioning: nil,
+            at: NSPoint(x: 0, y: host.bounds.height + 2),
+            in: host
+        )
+    }
 }
 
-// MARK: - Popover menu item
+// MARK: - AppKit menu bridge
 
-/// A plain Button styled to look like a native menu row, used
-/// inside the Manage popover. Hovering tints the row with the
-/// system selection color so it reads as a clickable line item.
-private struct PopoverMenuItem: View {
-    let title: String
-    let systemImage: String
-    var isDestructive: Bool = false
-    let action: () -> Void
+/// Holds a weak reference to the NSView that backs the SwiftUI
+/// Manage button so we can position an AppKit `NSMenu` against
+/// it. `@State`-friendly because it's a class — SwiftUI keeps the
+/// same instance across renders.
+private final class NSViewHostHolder {
+    weak var view: NSView?
+}
 
-    @State private var isHovering = false
+/// Captures the SwiftUI Button's host NSView via a transparent
+/// background view. SwiftUI mounts the NSView in the same
+/// position as the Button itself, so its `bounds` are usable as
+/// the menu anchor.
+private struct NSViewHostAccessor: NSViewRepresentable {
+    let holder: NSViewHostHolder
 
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: systemImage)
-                    .frame(width: 16, alignment: .center)
-                Text(title)
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(rowForeground)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .background {
-                if isHovering {
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(Color.accentColor.opacity(isDestructive ? 0 : 0.85))
-                    if isDestructive {
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(Color.red.opacity(0.85))
-                    }
-                }
-            }
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { [weak view] in
+            holder.view = view
         }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            isHovering = hovering
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        holder.view = nsView
+    }
+}
+
+/// `NSMenuItem` subclass that retains a Swift closure and runs
+/// it when the item is selected. Cleaner than a separate `@objc`
+/// controller object — each item owns its own handler.
+private final class ClosureMenuItem: NSMenuItem {
+    private let handler: () -> Void
+
+    init(
+        title: String,
+        systemImage: String? = nil,
+        isDestructive: Bool = false,
+        handler: @escaping () -> Void
+    ) {
+        self.handler = handler
+        super.init(
+            title: title,
+            action: #selector(invoke),
+            keyEquivalent: ""
+        )
+        target = self
+        if let systemImage {
+            image = NSImage(systemSymbolName: systemImage, accessibilityDescription: nil)
+        }
+        if isDestructive {
+            attributedTitle = NSAttributedString(
+                string: title,
+                attributes: [.foregroundColor: NSColor.systemRed]
+            )
         }
     }
 
-    private var rowForeground: Color {
-        if isHovering { return .white }
-        return isDestructive ? .red : .primary
+    @available(*, unavailable)
+    required init(coder: NSCoder) {
+        fatalError("init(coder:) is not supported for ClosureMenuItem")
+    }
+
+    @objc private func invoke() {
+        handler()
     }
 }
 
