@@ -919,8 +919,38 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
             )
         }
 
+        // Audit Finding A (May 2026 dual-variant cleanup): the
+        // prior code used `modelRegistry.model(for: .clone)?.id`
+        // here, which with the macOS expanded registry returns
+        // the BASE alias `pro_clone`. Base alias resolves to the
+        // hardware-recommended variant — so on a mid-memory Mac
+        // where the user manually selected Speed for clone via
+        // the Use button, the prebuild fired with `modelID =
+        // "pro_clone"` (alias → Quality folder) while the
+        // runtime had `activeModelID = "pro_clone_speed"` from
+        // the user's last generation. The runtime's
+        // `prebuildSavedVoiceClonePrompt` guards on
+        // `activeModelID != modelID` and silently bailed,
+        // disabling the optimization entirely for users who
+        // picked the non-recommended variant.
+        //
+        // Fix: read the runtime's currently-loaded model ID from
+        // `loadState.currentModelID`. If a clone-mode model is
+        // loaded, prebuild for THAT model — which is the user's
+        // selected variant by construction (the runtime got
+        // there via prewarm / generate, both of which carry
+        // variant-scoped IDs from the UI generate path). If no
+        // clone model is loaded, skip — the prebuild is a
+        // background optimization, not a correctness
+        // requirement, and we don't want to evict the user's
+        // currently-loaded Custom Voice / Voice Design model
+        // just to warm a clone prompt. The first generation
+        // after enrollment will prime the prompt explicitly via
+        // `ensureCloneReferencePrimed`, so user-perceived
+        // latency stays bounded regardless.
         if let normalizedTranscript,
-           let cloneModelID = modelRegistry.model(for: .clone)?.id {
+           let activeCloneModelID = loadState.currentModelID,
+           modelRegistry.model(id: activeCloneModelID)?.mode == .clone {
             let runtime = runtime
             let cloneReference = CloneReference(
                 audioPath: audioDestinationURL.path,
@@ -930,7 +960,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
             if allowsProactiveWarmOperations {
                 Task.detached(priority: .utility) {
                     await runtime.prebuildSavedVoiceClonePrompt(
-                        modelID: cloneModelID,
+                        modelID: activeCloneModelID,
                         reference: cloneReference
                     )
                 }
