@@ -457,8 +457,19 @@ private struct ActionButton: View {
             Button {
                 presentManageMenu()
             } label: {
-                Text("Manage")
-                    .frame(maxWidth: .infinity)
+                HStack(spacing: 5) {
+                    // Leading green check distinguishes the
+                    // installed state at a glance from the
+                    // sibling Get / Repair rows that share the
+                    // same bezel shape. The button's own foreground
+                    // tint colors the text; an explicit green
+                    // foregroundStyle on the Image lets the icon
+                    // stand out against the bordered surface.
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(Color.green)
+                    Text("Manage")
+                }
+                .frame(maxWidth: .infinity)
             }
             .background(NSViewHostAccessor(holder: manageHostHolder))
             .help("Manage \(model.variantKind?.displayName ?? model.name) variant")
