@@ -442,6 +442,14 @@ private struct ActionButton: View {
             // menu opens to: Reveal in Finder, Delete Model. Same
             // bordered shape as Get/Repair so the rows stay
             // visually balanced no matter which state they're in.
+            // Use Menu(.button) so the Menu renders with a single
+            // bordered bezel identical to a Button — without it,
+            // the Menu draws its chevron in a separate attached
+            // pill that makes the Manage control look smaller and
+            // distinct from Get/Repair. With .menuStyle(.button)
+            // and .menuIndicator(.hidden), plus maxWidth on the
+            // outer view, the Manage button matches the Get bezel
+            // exactly: same width, same height, same corner radius.
             Menu {
                 Button {
                     let url = model.installDirectory(in: QwenVoiceApp.modelsDir)
@@ -457,6 +465,9 @@ private struct ActionButton: View {
                 Text("Manage")
                     .frame(maxWidth: .infinity)
             }
+            .menuStyle(.button)
+            .menuIndicator(.hidden)
+            .frame(maxWidth: .infinity)
             .help("Manage \(model.variantKind?.displayName ?? model.name) variant")
             .accessibilityIdentifier("settings_manage_\(model.id)")
         }
