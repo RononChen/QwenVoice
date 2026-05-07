@@ -34,6 +34,23 @@ Useful instruction patterns:
 - Iterate wording: instruction following is probabilistic, so small prompt changes can materially change the result.
 - Use Voice Design when you want a reusable prompt-driven voice shape, and use Voice Cloning when you want a specific reference identity from audio.
 
+## Pauses in the Spoken Text
+
+Qwen3-TTS does not parse SSML or explicit pause markers. Pauses come from the natural punctuation and line structure of the input:
+
+- **Period** — sentence-end pause (longest within a paragraph).
+- **Comma / semicolon / colon** — short pause.
+- **Blank line** between paragraphs — paragraph-level pause.
+- **Question mark / exclamation mark** — sentence-end pause with the matching prosody.
+
+Things that are **not** reliable pause cues:
+
+- Ellipsis (`...`) — read as text, not as a long pause.
+- Hyphens or dashes — usually treated as continuation, not pause.
+- Repeated commas or extra spaces — collapsed; they don't lengthen the pause.
+
+If you need a longer beat, end the sentence with a period and start a new one. For an explicit paragraph break, add a blank line.
+
 ## Examples
 
 Custom Voice:
