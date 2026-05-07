@@ -147,6 +147,10 @@ osascript -e 'tell application "Vocello" to activate' 2>/dev/null
 sleep 0.4
 
 T0=$(date +%s.%N)
+# Reference file pinned at T0 for portable `find -newer` (BSD find on
+# macOS doesn't accept the GNU/bfs `-newermt "@<epoch>"` syntax).
+T0_REF=$(mktemp -t bench-t0.XXXXXX)
+trap 'rm -f "$T0_REF"' EXIT
 osascript -e 'tell application "System Events" to keystroke return using command down'
 
 # Wait for the first new wav to appear (max ~180s of 0.1s polls)
@@ -267,7 +271,7 @@ if [ "$TOTAL_AUDIO" = "0" ] || [ -z "$TOTAL_AUDIO" ]; then
                 TOTAL_AUDIO=$(echo "scale=3; $TOTAL_AUDIO + $D" | bc)
                 SEG_COUNT=$((SEG_COUNT + 1))
             fi
-        done < <(find "$OUT" -name "*.wav" -newermt "@$T0_INT" -print0 2>/dev/null | sort -z)
+        done < <(find "$OUT" -name "*.wav" -newer "$T0_REF" -print0 2>/dev/null | sort -z)
         [ "$TOTAL_AUDIO" != "0" ] && [ -n "$TOTAL_AUDIO" ] && break
         sleep 0.2
     done
