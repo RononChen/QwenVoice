@@ -265,6 +265,17 @@ echo ""
 
 STEP_START="$(date +%s)"
 echo "[5/7] Signing and verifying the final app bundle..."
+# Re-sign every embedded XPC service first so its hardened-runtime
+# metadata matches the outer app. Xcode's build-time signing uses the
+# project's default ad-hoc identity ("-") which lacks the runtime
+# flag, and `verify_release_bundle.sh` rejects that for signed
+# releases. Sign nested code before the outer wrapper so the wrapper's
+# signature seal is valid.
+while IFS= read -r -d '' xpc_path; do
+    run_codesign "$xpc_path" \
+        --options runtime \
+        --entitlements "$PROJECT_DIR/Sources/QwenVoice.entitlements"
+done < <(find "$APP_PATH/Contents/XPCServices" -maxdepth 1 -type d -name '*.xpc' -print0 2>/dev/null)
 run_codesign "$APP_PATH" \
     --options runtime \
     --entitlements "$PROJECT_DIR/Sources/QwenVoice.entitlements"
