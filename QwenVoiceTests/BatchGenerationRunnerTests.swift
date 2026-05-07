@@ -439,6 +439,44 @@ final class BatchGenerationRunnerTests: XCTestCase {
         )
     }
 
+    /// Regression for the contradictory text reported on clone batch generation:
+    /// `"Generating item 2/2... 0 of 2 clips completed · Item 1 active"`.
+    /// During engineStore.generateBatch, completedCount lags the engine's real
+    /// progress (saves only happen after the batch returns), so any snapshot
+    /// emitted mid-batch with `activeItemIndex` < the engine's real item index
+    /// would render as a contradiction. The fix drops the "Item N active"
+    /// suffix from itemStatusText entirely; statusMessage carries that detail.
+    func testItemStatusTextNeverClaimsActiveItemSuffix() {
+        let midBatch = BatchProgressSnapshot(
+            completedCount: 0,
+            totalCount: 2,
+            activeItemIndex: 0,
+            statusMessage: "Generating item 2/2..."
+        )
+        XCTAssertEqual(midBatch.itemStatusText, "0 of 2 clips completed")
+        XCTAssertFalse(midBatch.itemStatusText.contains("active"))
+        XCTAssertFalse(midBatch.itemStatusText.contains("Item "))
+
+        let postSave = BatchProgressSnapshot(
+            completedCount: 1,
+            totalCount: 2,
+            activeItemIndex: 1,
+            statusMessage: "Saving item 2/2..."
+        )
+        XCTAssertEqual(postSave.itemStatusText, "1 of 2 clips completed")
+
+        let done = BatchProgressSnapshot(
+            completedCount: 2,
+            totalCount: 2,
+            activeItemIndex: nil,
+            statusMessage: "Done"
+        )
+        XCTAssertEqual(done.itemStatusText, "2 of 2 clips completed")
+
+        let empty = BatchProgressSnapshot()
+        XCTAssertEqual(empty.itemStatusText, "")
+    }
+
     @MainActor
     func testCoordinatorTracksCloneBatchProgressSnapshots() async throws {
         let engine = MockBatchEngine()
