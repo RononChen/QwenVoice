@@ -117,6 +117,7 @@ Use short imperative subjects, often scoped with a colon (for example, `Engine p
 
 - `Sources/QwenVoiceApp.swift` composes macOS app-global services, owns the separate Settings scene, and initializes the app-facing Mac engine through `AppEngineSelection`.
 - `Sources/ContentView.swift` owns the macOS `NavigationSplitView`, toolbar/search chrome, sidebar selection, and persisted generation drafts.
+- `Sources/Views/Settings/SettingsView.swift` is the unified macOS Settings surface (Models + Playback + Storage). Both the in-app sidebar `Settings` row and the Cmd+, Settings scene host it. The legacy `ModelsView.swift` and `PreferencesView.swift` were removed; do not reintroduce them.
 - `Sources/QwenVoiceNative/` is the macOS app-side engine layer: `TTSEngineStore`, `XPCNativeEngineClient`, chunk brokering, and the app-facing `MacTTSEngine` surface live there.
 - `Sources/QwenVoiceEngineSupport/` is the shared macOS engine transport boundary used by both the app and the helper.
 - `Sources/QwenVoiceEngineService/` hosts the active macOS shared-core runtime through `QwenVoiceCore` and owns the bundled macOS XPC helper entrypoint and session/host behavior.
