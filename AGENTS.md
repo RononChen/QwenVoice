@@ -6,16 +6,16 @@ This is the canonical repository operating guide for coding agents working in Qw
 
 QwenVoice is the repository identity for the Apple-platform Vocello product line. The repo currently contains a native Swift/Xcode codebase for macOS and iPhone, with shared engine semantics in `QwenVoiceCore`, macOS generation isolated in a bundled XPC service, and iPhone generation isolated in an ExtensionFoundation engine extension.
 
-Current checked-in RC1 facts from `project.yml`, release notes, and the model contract:
+Current checked-in milestone facts from `project.yml` and the model contract:
 
 - Repo name: `QwenVoice`
 - Forward app name: `Vocello`
 - macOS product: `Vocello.app` inside `Vocello-macos26.dmg`
-- Marketing version/build in RC1: `2.0.0` / `16`
+- Marketing version/build in current `main`: `2.0.0` / `16`
 - Deployment targets: `macOS 26.0+` and `iOS 26.0+`
 - Official hardware floor: Mac mini M1 with 8 GB RAM, and iPhone 15 Pro for the deferred iPhone track
 - Public stable release remains `QwenVoice v1.2.3` for users who need macOS 15 support
-- RC1 release tag: `v2.0.0-rc.1`, first Vocello-branded macOS 26 prerelease
+- The withdrawn RC1 GitHub release/tag must not be restored, linked, or advertised; public downloads stay on `QwenVoice v1.2.3` until a replacement Vocello release is explicitly cut.
 
 The active public milestone is macOS-first. Keep iPhone compile-safe, but do not treat iPhone TestFlight/App Store proof as blocking unless the maintainer explicitly changes the release track.
 
@@ -382,7 +382,7 @@ UI rules:
 Product messaging:
 
 - Public README remains QwenVoice-led while v1.2.3 is the stable public download.
-- Vocello is the forward macOS 26 rebrand and current RC1 app name.
+- Vocello is the forward macOS 26 rebrand and current app name on `main`.
 - Do not claim iPhone is publicly shipping until the release track changes.
 - Voice cloning copy must keep consent and rights responsibility clear.
 
@@ -421,7 +421,7 @@ If a docs-only change removes or renames a canonical guide, run a stale-referenc
 - The previous tool-specific guide was deleted by request and replaced by this file.
 - The repo still contains `.claude/settings.local.json`; that is a tracked local settings surface and was not removed by this migration.
 - The retired `QwenVoiceNativeRuntime` directory is no longer part of the active source tree; trust `QwenVoiceCore` plus the current tests for runtime ownership.
-- `docs/reference/engineering-status.md` and `release-readiness.md` contain historical rescue evidence. Use code, `project.yml`, release notes, and workflows first when exact RC1 facts matter.
+- `docs/reference/engineering-status.md` and `release-readiness.md` contain historical rescue evidence. Use code, `project.yml`, the model contract, and workflows first when exact release-track facts matter.
 - `third_party_patches/mlx-audio-swift/` is intentionally large tracked source. Do not delete or replace it as generated output.
 
 ## Before Finishing A Change
