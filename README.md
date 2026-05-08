@@ -1,113 +1,86 @@
-## Screenshots
+# Vocello Preview
+
+Vocello is the next local, private voice-generation app for Mac. It turns text into natural speech on your Apple Silicon Mac, with Custom Voice, Voice Design, and Voice Cloning built around a native Mac experience.
+
+The app is in transition from the current public name, **QwenVoice**, to the next major Mac release, **Vocello**. The project is active, but the safe public download today is still QwenVoice v1.2.3.
+
+> **Safe download today:** download [QwenVoice v1.2.3](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3). The experimental 2.0 RC1 / Vocello build has been withdrawn because voice quality and reliability needed more work. A new Vocello release will be published only after those issues are resolved.
+
+## Preview
 
 <img width="1868" height="1676" alt="QwenVoice screenshot" src="https://github.com/user-attachments/assets/311ea30b-9196-4f36-93f4-5db439c5a2ba" />
 
-## Overview
+## Project Status
 
-QwenVoice is the public repository for an offline Apple-platform Qwen3-TTS app with Custom Voice, Voice Design, and Voice Cloning.
+| Status | What it means for you |
+|---|---|
+| **Available now: QwenVoice v1.2.3 for Mac** | This is the current stable public download. Use it if you want a working app today. |
+| **Coming next: Vocello for macOS 26** | Vocello is the next major Mac version. It is being rebuilt with stronger voice quality, clearer English diction, and more reliable full-length output before another public download appears. |
+| **In development: Vocello for iPhone** | The iPhone app is maintained in this repository, but it is not a public download yet. When ready, it will ship through the App Store or TestFlight, not GitHub Releases. |
 
-The currently shipped public release is **QwenVoice v1.2.3** for macOS. The next macOS release ships under the **Vocello** app name while this repository, shared core, and many internal modules keep the QwenVoice identity for continuity.
+## Download QwenVoice Today
 
-## Version Matrix
+Download the current public release from [QwenVoice v1.2.3](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3).
 
-| Surface | Public name | Artifact | Minimum OS / tools | Runtime | Status |
-|---|---|---|---|---|---|
-| Shipped release | QwenVoice v1.2.3 | Assets attached to the v1.2.3 GitHub Release | See the v1.2.3 release notes | SwiftUI app with the shipped legacy runtime | Current public download |
-| Current `main` | QwenVoice repo / Vocello app | Local builds produce `Vocello.app` | macOS 26.0+, iOS 26.0+, Xcode 26.0 | Native Swift/MLX shared core with macOS XPC isolation and iPhone extension isolation | Active development |
-| Next macOS release | Vocello | `Vocello-macos26.dmg` | macOS 26.0+ | Native Swift/MLX macOS runtime hosted out of process | Current release target |
-| iPhone track | Vocello for iPhone | App Store / TestFlight only | iOS 26.0+, iPhone 15 Pro minimum target | 4-bit Speed variants in an engine extension | Maintained but deferred |
+Choose the DMG that matches your Mac:
 
-The public landing page remains QwenVoice-led until the Vocello-branded macOS release ships. iPhone is in active development, but it is not a public release surface for the current macOS-first milestone.
+- `QwenVoice-macos26.dmg` for macOS 26
+- the legacy macOS 15 package on the release page if you are not on macOS 26 yet
 
-## Shipped Modes
+Then open the DMG, drag the app to `/Applications`, open the app, download a voice model from the Models screen, and generate speech.
+
+## What You Can Do
 
 ### Custom Voice
 
-Generate speech with the app's built-in English speakers:
-
-- Ryan
-- Aiden
-- Serena
-- Vivian
+Pick a built-in speaker and choose the delivery style. This is the fastest way to turn a script into speech with a consistent voice.
 
 ### Voice Design
 
-Voice Design is a standalone destination. Describe the voice you want, then shape tone before generating.
+Describe the voice you want in natural language. For example, you can ask for a warm narrator, a calm guide, or an energetic presenter, then generate your text in that designed voice.
 
 ### Voice Cloning
 
-Clone a voice from a short reference clip. The app accepts WAV, MP3, AIFF, M4A, FLAC, and OGG input and can also use an optional transcript for better cloning accuracy. Only clone voices you own or have permission to use.
+Create speech from a short reference clip. Voice Cloning can use WAV, MP3, AIFF, M4A, FLAC, or OGG input, plus an optional transcript for better accuracy. Only clone voices you own or have permission to use.
 
-## What the App Does Not Expose
+## Why Local-First Matters
 
-- no temperature or max-token controls
-- no streaming batch UI
+QwenVoice and Vocello are built for people who want voice generation to happen on their own Mac.
 
-Single-generation flows use live streaming preview and sidebar playback. Batch generation remains sequential and final-file-based.
+- Speech generation runs on-device after models are installed.
+- Your generated audio and history stay in local app storage.
+- There is no cloud credit meter for generation.
+- You can choose where generated audio files are saved.
 
-## Features
+Model downloads come from Hugging Face when you install a voice model, but the generation workflow itself is local.
 
-- Native model downloads from Hugging Face
-- Live streaming preview for single generations
-- Local generation history stored in SQLite via GRDB
-- Batch generation for multi-line jobs
-- Sidebar waveform playback UI
-- Configurable output directory and autoplay preference
-- macOS XPC process isolation for native generation on current `main`
-- iPhone engine-extension isolation for the deferred iPhone track
+## What Is Changing
+
+QwenVoice v1.2.3 remains the stable public app. Vocello is the next name and direction for the Mac app.
+
+The removed 2.0 RC1 build was an early Vocello-branded prerelease. It showed the direction of the project, but it was not good enough for normal users: some outputs had quality, cadence, pronunciation, or truncation problems. That release has been withdrawn so people do not accidentally download a build that can disappoint them.
+
+The next public Vocello build will focus on:
+
+- natural tone and English diction
+- complete output with no missing words
+- reliable model downloads and playback
+- a simpler, native Mac workflow
 
 ## Requirements
 
-### Current `main`
+For the current stable QwenVoice v1.2.3 release, use the release notes and DMG names on the [v1.2.3 release page](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3) as the source of truth.
 
-| Requirement | Detail |
-|---|---|
-| macOS | 26.0+ |
-| iOS | 26.0+ for the maintained iPhone targets |
-| Chip | Apple Silicon |
-| RAM | 8 GB+ on macOS; iPhone 15 Pro is the stated iPhone floor |
-| Tools | Xcode 26.0 and XcodeGen |
-
-### Shipped QwenVoice v1.2.3
-
-The shipped v1.2.3 build predates the current native `main` release track. Use the v1.2.3 GitHub Release notes and attached assets as the source of truth for that historical build.
-
-## Install from GitHub Releases
-
-Download the current public release from [Releases](https://github.com/PowerBeef/QwenVoice/releases).
-
-For the next macOS release, the public artifact is expected to be:
-
-- `Vocello-macos26.dmg`
-
-Then:
-
-1. Open the DMG.
-2. Drag `Vocello.app` to `/Applications`.
-3. Open the app, go to **Models**, download a model, and generate speech.
-
-## Models
-
-Static model metadata comes from [`Sources/Resources/qwenvoice_contract.json`](Sources/Resources/qwenvoice_contract.json).
-
-| Mode | 8-bit Quality folder | 4-bit Speed folder | Hugging Face repos |
-|---|---|---|---|
-| Custom Voice | `Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit` | `Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit` | `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-*` |
-| Voice Design | `Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit` | `Qwen3-TTS-12Hz-1.7B-VoiceDesign-4bit` | `mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-*` |
-| Voice Cloning | `Qwen3-TTS-12Hz-1.7B-Base-8bit` | `Qwen3-TTS-12Hz-1.7B-Base-4bit` | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-*` |
-
-On macOS, the Models screen exposes both `Speed / 4-bit` and `Quality / 8-bit` rows for each generation mode, for six downloadable rows total. The app marks the hardware-recommended row and the currently active row separately: 8 GB/floor Macs recommend and default to Speed, while mid/high-memory Macs recommend and default to Quality. Users can install both folders side by side and switch the active installed variant per mode with **Use**.
-
-Downloads come directly from the Hugging Face repos listed above through immutable revisions pinned in the contract metadata. iPhone remains Speed-only and exposes the 4-bit rows for its supported model catalog.
-
-## Building from Source
-
-Source-build prerequisites for current `main`:
+For the in-development Vocello code on `main`:
 
 - macOS 26.0+
 - Apple Silicon
 - Xcode 26.0
 - XcodeGen
+
+## For Developers
+
+The `main` branch contains the in-development Vocello codebase. It is useful for contributors and testers, but normal users should use the stable v1.2.3 release until the next public Vocello build is published.
 
 ```sh
 git clone https://github.com/PowerBeef/QwenVoice.git
@@ -116,84 +89,22 @@ cd QwenVoice
 open QwenVoice.xcodeproj
 ```
 
-Build the `QwenVoice` scheme from Xcode, or use:
-
-```sh
-xcodebuild -project QwenVoice.xcodeproj -scheme QwenVoice build
-```
-
-Useful local checks:
+Useful checks:
 
 ```sh
 ./scripts/check_project_inputs.sh
 ./scripts/qa.sh validate
 ./scripts/qa.sh test --layer contract
 ./scripts/qa.sh test --layer swift
-./scripts/qa.sh test --layer native
-./scripts/build_foundation_targets.sh macos
-./scripts/build_foundation_targets.sh ios
 ```
 
-qa.sh stores isolated build products and `.xcresult` bundles under `build/harness/`. The macOS UI smoke lane is available with `./scripts/qa.sh test --layer e2e`; for release signoff on a controlled Mac, run it strictly with `QWENVOICE_E2E_STRICT=1`.
-
-Performance and audio-QC validation runs through the opt-in `perf` lane (requires installed models, not part of `--layer all`):
-
-```sh
-./scripts/qa.sh test --layer perf
-```
-
-## Local Release Packaging
-
-For a local unsigned macOS release build and DMG:
-
-```sh
-./scripts/release.sh --preflight full
-./scripts/verify_release_bundle.sh build/Vocello.app
-./scripts/verify_packaged_dmg.sh build/Vocello-macos26.dmg build/release-metadata.txt
-```
-
-## Tone and Emotion Control
-
-Custom Voice and Voice Design are guided by natural-language instructions rather than SSML-style sliders or markup.
-
-See [`docs/qwen_tone.md`](docs/qwen_tone.md) for app-oriented guidance on tone and prompt writing.
-
-## Architecture
-
-Current `main` uses a native Apple-platform architecture:
-
-- `Sources/` contains the macOS app shell, shared app models/services/views, and the shipping Mac target.
-- `Sources/QwenVoiceCore/` contains shared Apple-platform runtime semantics, contract types, model variants, and iOS extension transport.
-- `Sources/QwenVoiceNative/` contains the macOS app-facing engine proxy/store/client layer.
-- `Sources/QwenVoiceEngineSupport/` contains shared macOS engine IPC and transport types.
-- `Sources/QwenVoiceEngineService/` contains the bundled macOS XPC helper.
-- `Sources/iOS/`, `Sources/iOSSupport/`, and `Sources/iOSEngineExtension/` contain the deferred iPhone app, support layer, and isolated engine extension.
-- `Sources/SharedSupport/` contains shared playback and generation-persistence surfaces.
-
-The current codebase does not maintain a repo-owned Python backend, Python setup path, or standalone CLI surface.
-
-Default macOS runtime data layout:
-
-```text
-~/Library/Application Support/QwenVoice/
-  models/
-  outputs/
-    CustomVoice/
-    VoiceDesign/
-    Clones/
-  voices/
-  history.sqlite
-```
-
-See [`docs/reference/privacy-storage.md`](docs/reference/privacy-storage.md) for local storage, privacy, and deletion details.
-
-## More Docs
+More technical details live in the maintained docs:
 
 - [`docs/README.md`](docs/README.md) - documentation index
 - [`docs/reference/current-state.md`](docs/reference/current-state.md) - current repo facts
-- [`docs/reference/engineering-status.md`](docs/reference/engineering-status.md) - current strengths and caveats
-- [`docs/reference/release-readiness.md`](docs/reference/release-readiness.md) - macOS-first release policy and signoff gates
-- [`docs/reference/privacy-storage.md`](docs/reference/privacy-storage.md) - local storage, privacy, and deletion details
+- [`docs/reference/release-readiness.md`](docs/reference/release-readiness.md) - release policy and signoff gates
+- [`docs/reference/privacy-storage.md`](docs/reference/privacy-storage.md) - local storage and deletion details
+- [`docs/qwen_tone.md`](docs/qwen_tone.md) - tone and prompt-writing guidance
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) - contributor workflow
 
 ## License
@@ -202,7 +113,7 @@ QwenVoice is available under the [MIT License](LICENSE).
 
 ## Credits
 
-QwenVoice builds on:
+QwenVoice and Vocello build on:
 
 - [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS)
 - [mlx-audio](https://github.com/Blaizzy/mlx-audio)

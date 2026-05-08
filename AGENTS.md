@@ -381,7 +381,7 @@ UI rules:
 
 Product messaging:
 
-- Public README remains QwenVoice-led while v1.2.3 is the stable public download.
+- Public README may lead with Vocello as the next Mac identity, but it must keep QwenVoice v1.2.3 as the safe current public download until a replacement Vocello build is explicitly cut.
 - Vocello is the forward macOS 26 rebrand and current app name on `main`.
 - Do not claim iPhone is publicly shipping until the release track changes.
 - Voice cloning copy must keep consent and rights responsibility clear.

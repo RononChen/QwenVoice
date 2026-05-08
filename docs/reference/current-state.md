@@ -21,8 +21,8 @@ The iPhone app target is Vocello-branded. The next macOS release ships as `Vocel
 
 ## Public Homepage Posture
 
-- `README.md` leads with `QwenVoice` because that is the currently shipped public brand (`v1.2.3`). Its version matrix separates the shipped `QwenVoice v1.2.3` release, current `main`, the next macOS `Vocello` release, and the deferred iPhone track.
-- The GitHub repo description should stay consistent with the README — do not claim a Vocello-first public posture while the published release is still QwenVoice-branded.
+- `README.md` leads with `Vocello` as the next Mac identity, while making the shipped `QwenVoice v1.2.3` release the safe current download for normal users.
+- The GitHub repo description should stay consistent with the README: Vocello is the upcoming local-first Mac app, and QwenVoice v1.2.3 is the stable public download until the replacement Vocello build is cut.
 - Public copy should stay aligned with the currently shipped macOS reality and the active `macOS-first release track`.
 - The withdrawn `2.0.0` RC1 GitHub release must not be linked or advertised; public downloads remain on `QwenVoice v1.2.3` until a replacement Vocello build is cut.
 - Do not present iPhone as a current public release surface until the release-track policy changes. The public framing for iPhone is the in-development "Vocello for iPhone" — standalone, 4-bit, open source in this repo, published via the App Store once ready.
