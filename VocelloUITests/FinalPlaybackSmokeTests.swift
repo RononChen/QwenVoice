@@ -1,30 +1,20 @@
 import Foundation
 import XCTest
 
-/// End-to-end smoke test for the macOS live-preview pipeline.
+/// End-to-end smoke test for the macOS final-file playback pipeline.
 ///
 /// Drives the Custom Voice generate flow with the stub backend
 /// (`UITestStubMacEngine` / `StubBackendTransport`) and asserts that:
 ///
 /// 1. The generate button is reachable and enabled after text entry.
-/// 2. The live-preview badge appears — meaning `AudioPlayerViewModel`
-///    received and decoded at least one chunk via `appendLiveChunk` →
-///    `loadPCMBuffer`.
+/// 2. The sidebar player loads the completed final WAV.
 /// 3. No "could not decode" error string surfaces in the player view.
 ///
 /// This test does NOT require real MLX models or the production engine —
-/// the stub backend emits three synthetic 24 kHz Int16 WAV chunks over
-/// ~1 s. The point is to exercise the full user-facing path:
-/// `button click → GenerationRequest → chunk event → UI decoder → player`.
-///
-/// Against commit `c19e312` (before the AVAudioFile finalization fix),
-/// the real engine's `PCM16ChunkFileWriter` race could surface the
-/// "Live audio preview could not decode the latest chunk." error in the
-/// player — which was observed manually by a user before it was caught
-/// by any automated gate. This harness closes that gap: the next time the
-/// accessibility identifiers, sidebar player, or chunk event flow break,
-/// CI catches it instead of a human.
-final class LivePreviewSmokeTests: XCTestCase {
+/// the stub backend emits a synthetic 24 kHz Int16 WAV. The point is to
+/// exercise the current production path:
+/// `button click → non-streaming GenerationRequest → final file → player`.
+final class FinalPlaybackSmokeTests: XCTestCase {
 
     private var app: XCUIApplication!
     private var fixtureRoot: URL?
@@ -84,9 +74,9 @@ final class LivePreviewSmokeTests: XCTestCase {
 
     // MARK: - Tests
 
-    /// Drives the Custom Voice generate flow and asserts that chunks arrive,
-    /// the player enters live-preview state, and no decode error surfaces.
-    func testCustomVoiceGenerationEntersLivePreviewWithoutDecodeError() throws {
+    /// Drives the Custom Voice generate flow and asserts that the final WAV
+    /// reaches the player without decode/playback errors.
+    func testCustomVoiceGenerationLoadsFinalPlaybackWithoutDecodeError() throws {
         launchOnScreen("customVoice")
         try waitForScreen(identifier: "screen_customVoice")
         try skipIfAppNotInteractable()
@@ -128,42 +118,51 @@ final class LivePreviewSmokeTests: XCTestCase {
         }
         generate.click()
 
-        // The live badge appears only after `appendLiveChunk` has consumed at
-        // least one chunk. This is the strongest positive signal that the
-        // decode pipeline is alive.
-        let liveBadge = firstElement(matchingIdentifier: "sidebarPlayer_liveBadge")
+        let player = firstElement(matchingIdentifier: "sidebarPlayer_bar")
         XCTAssertTrue(
-            liveBadge.waitForExistence(timeout: 20),
+            player.waitForExistence(timeout: 20),
             """
-            sidebarPlayer_liveBadge never appeared. Either generation failed \
-            outright, chunks never arrived at the AudioPlayerViewModel, or \
-            loadPCMBuffer returned nil for every chunk.
+            sidebarPlayer_bar never appeared. Either generation failed \
+            outright, the final WAV was not written, or final-file playback \
+            did not reach AudioPlayerViewModel.
             """
         )
 
-        // Negative assertion: the player should NOT be displaying the
-        // "could not decode" error. This catches the regression class we saw
-        // when chunk WAV files weren't finalized before the consumer opened
-        // them.
-        let decodeErrorPredicate = NSPredicate(
-            format: "label CONTAINS[c] %@",
-            "could not decode"
+        XCTAssertTrue(
+            firstElement(matchingIdentifier: "sidebarPlayer_waveform")
+                .waitForExistence(timeout: 5),
+            "Final playback loaded but the waveform never appeared."
         )
-        let decodeErrorMatches = app.staticTexts.matching(decodeErrorPredicate)
+        XCTAssertTrue(
+            firstElement(matchingIdentifier: "sidebarPlayer_playPause")
+                .waitForExistence(timeout: 5),
+            "Final playback loaded but the play/pause control never appeared."
+        )
+        XCTAssertFalse(
+            firstElement(matchingIdentifier: "sidebarPlayer_liveBadge").exists,
+            "Normal generation should use final-file playback, not live-preview streaming."
+        )
+
+        let playbackErrorPredicate = NSPredicate(
+            format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@",
+            "could not decode",
+            "Playback could not start"
+        )
+        let decodeErrorMatches = app.staticTexts.matching(playbackErrorPredicate)
         if decodeErrorMatches.count > 0 {
             let labels = (0..<decodeErrorMatches.count)
                 .map { decodeErrorMatches.element(boundBy: $0).label }
                 .joined(separator: " | ")
             XCTFail(
-                "Player surfaced a decode error: \(labels)"
+                "Player surfaced a playback error: \(labels)"
             )
         }
     }
 
     /// Proves the Voice Design screen boots under the stub backend with
-    /// zero decode errors visible. This covers the same UI plumbing but
-    /// on the `design` route — accessibility identifiers and nav wiring
-    /// must hold for every streaming mode, not just Custom Voice. The
+    /// zero decode errors visible. This covers the same UI plumbing on the
+    /// `design` route — accessibility identifiers and nav wiring must hold
+    /// for every generation mode, not just Custom Voice. The
     /// positive generation assertion is deliberately NOT made here (the
     /// Voice Design generate flow typically requires a voice description
     /// set via a separate sheet, which is out of scope for a smoke test);
@@ -174,9 +173,8 @@ final class LivePreviewSmokeTests: XCTestCase {
         try waitForScreen(identifier: "screen_voiceDesign")
 
         // No generation triggered — just assert nothing is showing the
-        // decode-error text. If a stale chunk event from another session
-        // ever leaked into the player via a broker regression, this would
-        // catch it.
+        // decode-error text. If a stale event from another session ever
+        // leaked into the player, this would catch it.
         XCTAssertEqual(
             app.staticTexts
                 .matching(NSPredicate(format: "label CONTAINS[c] %@", "could not decode"))
@@ -244,8 +242,7 @@ final class LivePreviewSmokeTests: XCTestCase {
                 macOS 26 "app not frontmost-active" regime where \
                 synthesized input events aren't delivered. Screen-load \
                 smokes still cover identifier / navigation regressions, \
-                and the programmatic LivePreviewIntegrationTests suite \
-                (swift layer) covers the chunk pipeline functionally.
+                and the swift layer covers playback behavior functionally.
                 """
             )
         }

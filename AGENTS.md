@@ -153,8 +153,10 @@ Current logical modes:
 
 Speakers:
 
-- default speaker: `vivian`
-- English speakers: `ryan`, `aiden`, `serena`, `vivian`
+- default speaker: `aiden`
+- speaker picker labels come from contract metadata and annotate native-language guidance, for example `Aiden - English native` and `Vivian - Chinese native`
+- English-native speakers: `aiden`, `ryan`
+- Chinese-native speakers: `vivian`, `serena`
 
 Variant policy:
 
@@ -221,6 +223,8 @@ xcodebuild -project QwenVoice.xcodeproj -scheme VocelloiOS \
 ./scripts/build_foundation_targets.sh ios
 ```
 
+Before running any user-requested or agent-triggered build, remove stale repo-local build outputs/caches to keep disk use controlled. Prefer the relevant build script's built-in fresh-build cleanup when it has one; otherwise run `./scripts/clean_build_caches.sh` first. Scope cleanup to repo-local artifacts only, such as `build/`, `.build/`, `.swiftpm/`, and local DerivedData. Do not delete app data, downloaded models, generated audio outputs, source files, tags, or remote refs.
+
 QA layers:
 
 ```sh
@@ -238,6 +242,7 @@ Notes:
 - `e2e` may soft-skip hosted macOS Accessibility/TCC or foreground-window issues.
 - strict release-machine UI proof uses `QWENVOICE_E2E_STRICT=1 ./scripts/qa.sh test --layer e2e`.
 - `perf` is opt-in, model-heavy, and not part of `--layer all`.
+- Agent-driven UI automation, UI testing, visual checks, app launch/click/type flows, and UI operations must use `[@Ordinateur](plugin://computer-use@openai-bundled)` / Computer Use. Do not use the XCUITest automation lane as the default agent UI-operation method; keep XCUITest for CI or explicitly requested controlled-machine proof.
 
 Performance and audio-QC:
 
@@ -254,7 +259,7 @@ Desktop UI benchmark:
   [--log-file <path>]
 ```
 
-Use the desktop UI benchmark for user-perceived timing, live-preview underruns, autoplay handoff, sheet routing, paste latency, and visible app behavior. Use `qa.sh test --layer perf` for engine-internal regression checks.
+Use the desktop UI benchmark for user-perceived timing, final playback handoff, sheet routing, paste latency, and visible app behavior. Optional live-preview log parsing is diagnostic-only. Use `qa.sh test --layer perf` for engine-internal regression checks.
 
 Local release and verification:
 

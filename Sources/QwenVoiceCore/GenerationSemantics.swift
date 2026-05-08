@@ -8,18 +8,27 @@ public enum GenerationSemantics {
 
     public static let appStreamingInterval = 0.32
     public static let canonicalCustomWarmText = "Hi."
-    public static let canonicalCustomWarmSpeaker = "vivian"
+    public static let canonicalCustomWarmSpeaker = "aiden"
     public static let canonicalCustomWarmLanguage = "english"
     public static let canonicalDesignWarmLanguage = "english"
+    public static let englishDictionReinforcement =
+        "Native English pronunciation with clear English diction and natural stress."
     public static let canonicalDesignWarmShortText = "Hello world."
     public static let canonicalDesignWarmLongText =
         """
         Artificial intelligence has rapidly transformed from a niche academic pursuit into one of the most consequential technologies of the modern era. Large language models, capable of generating coherent text across a wide range of domains, have captured the imagination of researchers and the general public alike. Meanwhile, text-to-speech systems have reached a point where synthesized voices are often indistinguishable from natural human speech, opening new possibilities for accessibility, creative media production, and personalized assistants.
         """
 
-    public static func hasMeaningfulDeliveryInstruction(_ emotion: String) -> Bool {
+    public static func isNeutralDeliveryInstruction(_ emotion: String) -> Bool {
         let normalized = normalizedConditioningCacheKeyText(emotion)
-        return !normalized.isEmpty && normalized.caseInsensitiveCompare("normal tone") != .orderedSame
+        return normalized.isEmpty
+            || normalized == "normal tone"
+            || normalized == "neutral"
+            || normalized == "neutral tone"
+    }
+
+    public static func hasMeaningfulDeliveryInstruction(_ emotion: String) -> Bool {
+        !isNeutralDeliveryInstruction(emotion)
     }
 
     public static func supportsIdlePrewarm(mode: GenerationMode) -> Bool {
@@ -51,10 +60,13 @@ public enum GenerationSemantics {
         let normalizedLanguage = language
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        let resolvedInstruction = designInstruction(
-            voiceDescription: voiceDescription,
-            emotion: emotion ?? ""
-        )
+        let resolvedInstruction = englishDictionReinforcedInstruction(
+            baseInstruction: designInstruction(
+                voiceDescription: voiceDescription,
+                emotion: emotion ?? ""
+            ),
+            language: normalizedLanguage
+        ) ?? ""
         let normalizedInstruction = normalizedConditioningCacheKeyText(resolvedInstruction)
         return "\(normalizedLanguage)|\(normalizedInstruction)"
     }
@@ -66,6 +78,59 @@ public enum GenerationSemantics {
             return nil
         }
         return trimmedDelivery
+    }
+
+    public static func customInstruction(for request: GenerationRequest) -> String? {
+        guard case .custom(_, let deliveryStyle) = request.payload else {
+            return nil
+        }
+        let language = qwenLanguageHint(for: request)
+        let baseInstruction = customInstruction(deliveryStyle: deliveryStyle)
+        let resolvedBaseInstruction =
+            Qwen3TTSRuntimeProfile.normalizedLanguage(language) == "english"
+            ? baseInstruction.map { "Delivery style: \($0)" }
+            : baseInstruction
+        return englishDictionReinforcedInstruction(
+            baseInstruction: resolvedBaseInstruction,
+            language: language
+        )
+    }
+
+    public static func voiceDesignInstruction(for request: GenerationRequest) -> String? {
+        guard case .design(let voiceDescription, let deliveryStyle) = request.payload else {
+            return nil
+        }
+        return englishDictionReinforcedInstruction(
+            baseInstruction: designInstruction(
+                voiceDescription: voiceDescription,
+                emotion: deliveryStyle ?? ""
+            ),
+            language: qwenLanguageHint(for: request)
+        )
+    }
+
+    public static func englishDictionReinforcedInstruction(
+        baseInstruction: String?,
+        language: String
+    ) -> String? {
+        guard Qwen3TTSRuntimeProfile.normalizedLanguage(language) == "english" else {
+            return baseInstruction
+        }
+
+        let reinforcement = englishDictionReinforcement
+        guard let baseInstruction else {
+            return reinforcement
+        }
+
+        let trimmedBase = baseInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedBase.isEmpty else {
+            return reinforcement
+        }
+        if normalizedConditioningCacheKeyText(trimmedBase)
+            .contains(normalizedConditioningCacheKeyText(reinforcement)) {
+            return trimmedBase
+        }
+        return "\(reinforcement)\n\(trimmedBase)"
     }
 
     public static func qwenLanguageHint(
@@ -299,6 +364,9 @@ public enum GenerationSemantics {
         if trimmed.unicodeScalars.contains(where: \.isCJKScalar) {
             return "chinese"
         }
+        if trimmed.unicodeScalars.contains(where: \.isLatinLetterScalar) {
+            return "english"
+        }
         return nil
     }
 }
@@ -352,6 +420,15 @@ private extension UnicodeScalar {
     var isCyrillicScalar: Bool {
         switch value {
         case 0x0400 ... 0x04FF, 0x0500 ... 0x052F:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var isLatinLetterScalar: Bool {
+        switch value {
+        case 0x0041 ... 0x005A, 0x0061 ... 0x007A:
             return true
         default:
             return false

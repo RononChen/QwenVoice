@@ -25,6 +25,8 @@ enum EmotionIntensity: Int, CaseIterable, Identifiable {
 }
 
 struct DeliveryProfile: Equatable {
+    static let neutralInstruction = "Neutral"
+
     let presetID: String?
     let intensity: EmotionIntensity?
     let customText: String?
@@ -34,8 +36,18 @@ struct DeliveryProfile: Equatable {
         presetID: "neutral",
         intensity: nil,
         customText: nil,
-        finalInstruction: "Normal tone"
+        finalInstruction: neutralInstruction
     )
+
+    static func isNeutralInstruction(_ instruction: String) -> Bool {
+        let normalized = instruction
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return normalized.isEmpty
+            || normalized == "normal tone"
+            || normalized == "neutral"
+            || normalized == "neutral tone"
+    }
 
     var trimmedInstruction: String {
         finalInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -46,8 +58,7 @@ struct DeliveryProfile: Equatable {
     }
 
     var isNeutral: Bool {
-        let instruction = trimmedInstruction
-        return instruction.isEmpty || instruction.caseInsensitiveCompare("Normal tone") == .orderedSame
+        DeliveryProfile.isNeutralInstruction(trimmedInstruction)
     }
 
     var isMeaningful: Bool {
@@ -80,7 +91,7 @@ struct EmotionPreset: Identifiable {
     let instructions: [EmotionIntensity: String]
 
     func instruction(for intensity: EmotionIntensity) -> String {
-        instructions[intensity] ?? instructions[.normal] ?? "Normal tone"
+        instructions[intensity] ?? instructions[.normal] ?? DeliveryProfile.neutralInstruction
     }
 
     static func preset(id: String?) -> EmotionPreset? {
@@ -94,9 +105,9 @@ struct EmotionPreset: Identifiable {
             label: "Neutral",
             sfSymbol: "face.dashed",
             instructions: [
-                .subtle: "Normal tone",
-                .normal: "Normal tone",
-                .strong: "Normal tone",
+                .subtle: DeliveryProfile.neutralInstruction,
+                .normal: DeliveryProfile.neutralInstruction,
+                .strong: DeliveryProfile.neutralInstruction,
             ]
         ),
         EmotionPreset(
@@ -104,9 +115,9 @@ struct EmotionPreset: Identifiable {
             label: "Happy",
             sfSymbol: "face.smiling",
             instructions: [
-                .subtle: "Slightly cheerful tone with a hint of warmth",
-                .normal: "Happy and upbeat tone",
-                .strong: "Very happy, enthusiastic, and joyful",
+                .subtle: "Slightly cheerful and warm, with a gentle smile in the voice and natural pacing.",
+                .normal: "Happy and upbeat, with bright energy, clear articulation, and natural conversational pacing.",
+                .strong: "Very happy and joyful, energetic and expressive, with lively stress while keeping words clear.",
             ]
         ),
         EmotionPreset(
@@ -114,9 +125,9 @@ struct EmotionPreset: Identifiable {
             label: "Sad",
             sfSymbol: "cloud.rain",
             instructions: [
-                .subtle: "Slightly melancholic and subdued tone",
-                .normal: "Sad and somber tone",
-                .strong: "Deeply sad and tearful voice",
+                .subtle: "Slightly sad and reflective, subdued but clear, with slower natural pacing.",
+                .normal: "Sad and somber, with a restrained heavy tone and gentle pauses.",
+                .strong: "Deeply sad and tearful, with fragile emotion, slow pacing, and soft intensity while staying intelligible.",
             ]
         ),
         EmotionPreset(
@@ -124,9 +135,9 @@ struct EmotionPreset: Identifiable {
             label: "Angry",
             sfSymbol: "flame",
             instructions: [
-                .subtle: "Slightly irritated and tense tone",
-                .normal: "Angry and frustrated tone",
-                .strong: "Furious and intensely angry, sharp and forceful delivery",
+                .subtle: "Slightly irritated and tense, controlled and clipped without shouting.",
+                .normal: "Angry and frustrated, with firm stress, sharper consonants, and controlled intensity.",
+                .strong: "Furious but intelligible, forceful and tense, with sharp emphasis and no screaming.",
             ]
         ),
         EmotionPreset(
@@ -134,9 +145,9 @@ struct EmotionPreset: Identifiable {
             label: "Fearful",
             sfSymbol: "exclamationmark.triangle",
             instructions: [
-                .subtle: "Slightly nervous and uneasy tone",
-                .normal: "Fearful and anxious voice",
-                .strong: "Terrified, panicked voice with trembling urgency",
+                .subtle: "Slightly nervous and uneasy, cautious and quiet with natural hesitation.",
+                .normal: "Fearful and anxious, with tense breath, uncertain pacing, and clear words.",
+                .strong: "Terrified and urgent, trembling and panicked but still understandable.",
             ]
         ),
         EmotionPreset(
@@ -144,9 +155,9 @@ struct EmotionPreset: Identifiable {
             label: "Whisper",
             sfSymbol: "ear",
             instructions: [
-                .subtle: "Soft, quiet speaking voice",
-                .normal: "Hushed, whispering voice",
-                .strong: "Barely audible, intimate whisper",
+                .subtle: "Soft and quiet, close-mic delivery with reduced volume and gentle breath.",
+                .normal: "Hushed whisper, intimate and quiet, with clear articulation and soft pacing.",
+                .strong: "Barely audible intimate whisper, very soft and breathy while preserving clarity.",
             ]
         ),
         EmotionPreset(
@@ -154,9 +165,9 @@ struct EmotionPreset: Identifiable {
             label: "Dramatic",
             sfSymbol: "theatermasks",
             instructions: [
-                .subtle: "Slightly theatrical with mild emphasis",
-                .normal: "Dramatic delivery with expressive intonation",
-                .strong: "Highly dramatic, theatrical voice with bold pauses and sweeping intensity",
+                .subtle: "Slightly theatrical, with measured emphasis and tasteful pauses.",
+                .normal: "Dramatic and expressive, with heightened intonation, deliberate pacing, and clear emphasis.",
+                .strong: "Highly dramatic and theatrical, with bold emphasis, sweeping intensity, and well-timed pauses.",
             ]
         ),
         EmotionPreset(
@@ -164,9 +175,9 @@ struct EmotionPreset: Identifiable {
             label: "Calm",
             sfSymbol: "leaf",
             instructions: [
-                .subtle: "Relaxed, easy-going tone",
-                .normal: "Calm, soothing, and reassuring",
-                .strong: "Deeply serene, meditative voice with slow, deliberate pace",
+                .subtle: "Relaxed and easy-going, steady and warm with unhurried pacing.",
+                .normal: "Calm, soothing, and reassuring, with smooth pacing and gentle confidence.",
+                .strong: "Deeply serene and meditative, slow and deliberate, with soft warmth and long steady phrasing.",
             ]
         ),
         EmotionPreset(
@@ -174,9 +185,9 @@ struct EmotionPreset: Identifiable {
             label: "Excited",
             sfSymbol: "sparkles",
             instructions: [
-                .subtle: "Slightly energetic with a touch of enthusiasm",
-                .normal: "Excited and energetic, speaking with enthusiasm",
-                .strong: "Extremely excited, fast-paced, brimming with energy and anticipation",
+                .subtle: "Slightly energetic and engaged, with a touch of enthusiasm and natural pace.",
+                .normal: "Excited and energetic, enthusiastic and bright, with quick but clear delivery.",
+                .strong: "Extremely excited and animated, fast-paced and brimming with anticipation while keeping pronunciation clear.",
             ]
         ),
     ]

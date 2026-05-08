@@ -26,7 +26,7 @@
 # Workflow:
 #   1. The script kills any running Vocello and relaunches a fresh
 #      Debug build with `defaults` set so the app lands on Custom
-#      Voice with Smooth OFF.
+#      Voice.
 #   2. After the engine is ready, the script starts `xctrace record`
 #      with the System Trace template and your chosen time window.
 #   3. While the trace is recording, the OPERATOR triggers the
@@ -90,12 +90,10 @@ if [ -z "$OUTPUT" ]; then
 fi
 
 # Kill any existing Vocello + reset defaults so we land on a known
-# starting screen (Custom Voice). Smooth OFF so the live-preview path
-# behaves like the default user experience.
+# starting screen (Custom Voice).
 pkill -x Vocello 2>/dev/null || true
 sleep 2
 defaults write com.qwenvoice.app QwenVoice.LastSelectedSidebarItem -string "Custom Voice"
-defaults write com.qwenvoice.app QwenVoice.SmoothLivePreviewPlayback -bool false
 
 # Launch via direct binary so stderr (where the cross-layer probes
 # live) is captured separately from the trace.

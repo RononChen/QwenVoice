@@ -4,11 +4,13 @@ import QwenVoiceCore
 private struct TTSContractManifest: Decodable {
     let defaultSpeaker: String
     let speakers: [String: [String]]
+    let speakerDescriptors: [String: [SpeakerDescriptor]]
     let models: [TTSModel]
 
     static let empty = TTSContractManifest(
         defaultSpeaker: "",
         speakers: [:],
+        speakerDescriptors: [:],
         models: []
     )
 }
@@ -52,8 +54,22 @@ enum TTSContract {
         loadState.manifest.speakers
     }
 
+    static var groupedSpeakerDescriptors: [String: [SpeakerDescriptor]] {
+        loadState.manifest.speakerDescriptors
+    }
+
     static var allSpeakers: [String] {
         loadState.manifest.speakers.keys.sorted().flatMap { loadState.manifest.speakers[$0] ?? [] }
+    }
+
+    static var allSpeakerDescriptors: [SpeakerDescriptor] {
+        loadState.manifest.speakerDescriptors.keys.sorted().flatMap {
+            loadState.manifest.speakerDescriptors[$0] ?? []
+        }
+    }
+
+    static func speakerDescriptor(id: String) -> SpeakerDescriptor? {
+        allSpeakerDescriptors.first { $0.id == id }
     }
 
     static func model(for mode: GenerationMode) -> TTSModel? {
@@ -163,6 +179,7 @@ enum TTSContract {
             speakers: registry.groupedSpeakers.mapValues { speakers in
                 speakers.map(\.id)
             },
+            speakerDescriptors: registry.groupedSpeakers,
             models: models
         )
     }

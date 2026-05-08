@@ -69,17 +69,58 @@ public enum GenerationSupportDecision: Hashable, Codable, Sendable {
     }
 }
 
+public struct SpeakerMetadata: Hashable, Codable, Sendable {
+    public let displayName: String
+    public let nativeLanguage: String
+    public let shortDescription: String
+    public let isEnglishNative: Bool
+
+    public init(
+        displayName: String,
+        nativeLanguage: String,
+        shortDescription: String,
+        isEnglishNative: Bool
+    ) {
+        self.displayName = displayName
+        self.nativeLanguage = nativeLanguage
+        self.shortDescription = shortDescription
+        self.isEnglishNative = isEnglishNative
+    }
+}
+
 public struct SpeakerDescriptor: Identifiable, Hashable, Codable, Sendable {
     public let group: String
     public let id: String
+    public let metadata: SpeakerMetadata?
 
-    public init(group: String, id: String) {
+    public init(group: String, id: String, metadata: SpeakerMetadata? = nil) {
         self.group = group
         self.id = id
+        self.metadata = metadata
     }
 
     public var displayName: String {
-        id.capitalized
+        metadata?.displayName ?? id.capitalized
+    }
+
+    public var nativeLanguage: String? {
+        metadata?.nativeLanguage
+    }
+
+    public var shortDescription: String? {
+        metadata?.shortDescription
+    }
+
+    public var isEnglishNative: Bool {
+        metadata?.isEnglishNative ?? false
+    }
+
+    public var annotatedDisplayName: String {
+        guard let nativeLanguage,
+              !nativeLanguage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return displayName
+        }
+        return "\(displayName) - \(nativeLanguage) native"
     }
 }
 

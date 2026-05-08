@@ -44,8 +44,26 @@ final class GenerationDraftsTests: XCTestCase {
         let draft = CustomVoiceDraft()
 
         XCTAssertEqual(draft.selectedSpeaker, TTSModel.defaultSpeaker)
-        XCTAssertEqual(draft.emotion, "Normal tone")
+        XCTAssertEqual(draft.emotion, "Neutral")
         XCTAssertEqual(draft.text, "")
+    }
+
+    func testDeliveryProfileTreatsNeutralAndLegacyAliasesAsNeutral() {
+        let legacyNeutral = ["Normal", "tone"].joined(separator: " ")
+
+        for instruction in ["", "Neutral", "Neutral tone", legacyNeutral] {
+            XCTAssertTrue(DeliveryProfile.isNeutralInstruction(instruction))
+            XCTAssertTrue(
+                DeliveryProfile(
+                    presetID: nil,
+                    intensity: nil,
+                    customText: nil,
+                    finalInstruction: instruction
+                ).isNeutral
+            )
+        }
+
+        XCTAssertFalse(DeliveryProfile.isNeutralInstruction("Happy and upbeat"))
     }
 
     func testVoiceDesignDraftCarriesBriefEmotionAndText() {
@@ -65,7 +83,7 @@ final class GenerationDraftsTests: XCTestCase {
         XCTAssertTrue(
             CustomVoiceDraft(
                 selectedSpeaker: TTSModel.defaultSpeaker,
-                emotion: "Normal tone",
+                emotion: "Neutral",
                 text: "Hello there"
             ).shouldIdlePrewarm
         )
@@ -76,12 +94,12 @@ final class GenerationDraftsTests: XCTestCase {
 
         let shortDraft = CustomVoiceDraft(
             selectedSpeaker: "Vivian",
-            emotion: "Normal tone",
+            emotion: "Neutral",
             text: "H"
         )
         let longerDraft = CustomVoiceDraft(
             selectedSpeaker: "Vivian",
-            emotion: "Normal tone",
+            emotion: "Neutral",
             text: "Hello"
         )
 
@@ -93,21 +111,21 @@ final class GenerationDraftsTests: XCTestCase {
         XCTAssertFalse(
             VoiceDesignDraft(
                 voiceDescription: "",
-                emotion: "Normal tone",
+                emotion: "Neutral",
                 text: "Hello there"
             ).shouldIdlePrewarm
         )
         XCTAssertFalse(
             VoiceDesignDraft(
                 voiceDescription: "Warm narrator",
-                emotion: "Normal tone",
+                emotion: "Neutral",
                 text: ""
             ).shouldIdlePrewarm
         )
         XCTAssertTrue(
             VoiceDesignDraft(
                 voiceDescription: "Warm narrator",
-                emotion: "Normal tone",
+                emotion: "Neutral",
                 text: "Hello there"
             ).shouldIdlePrewarm
         )
@@ -117,21 +135,21 @@ final class GenerationDraftsTests: XCTestCase {
         XCTAssertFalse(
             VoiceDesignDraft(
                 voiceDescription: " \n\t",
-                emotion: "Normal tone",
+                emotion: "Neutral",
                 text: "Hello there"
             ).hasVoiceDescription
         )
         XCTAssertFalse(
             VoiceDesignDraft(
                 voiceDescription: "Warm narrator",
-                emotion: "Normal tone",
+                emotion: "Neutral",
                 text: " \n\t"
             ).hasText
         )
         XCTAssertFalse(
             VoiceDesignDraft(
                 voiceDescription: " \n\t",
-                emotion: "Normal tone",
+                emotion: "Neutral",
                 text: " \n\t"
             ).shouldIdlePrewarm
         )
@@ -142,12 +160,12 @@ final class GenerationDraftsTests: XCTestCase {
 
         let baseDraft = VoiceDesignDraft(
             voiceDescription: "Warm narrator",
-            emotion: "Normal tone",
+            emotion: "Neutral",
             text: "H"
         )
         let editedDraft = VoiceDesignDraft(
             voiceDescription: "Warm narrator",
-            emotion: "Normal tone",
+            emotion: "Neutral",
             text: "Hello"
         )
 

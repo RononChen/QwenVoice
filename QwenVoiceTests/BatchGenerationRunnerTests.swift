@@ -114,7 +114,7 @@ final class BatchGenerationRunnerTests: XCTestCase {
             lines: ["First paragraph.", "Second paragraph."],
             segmentationMode: .longForm,
             voice: "vivian",
-            emotion: "Normal tone",
+            emotion: "Neutral",
             voiceDescription: nil,
             refAudio: nil,
             refText: nil
@@ -153,7 +153,7 @@ final class BatchGenerationRunnerTests: XCTestCase {
             model: model,
             lines: ["First line", "Second line"],
             voice: "vivian",
-            emotion: "Normal tone",
+            emotion: "Neutral",
             voiceDescription: nil,
             refAudio: nil,
             refText: nil
@@ -305,7 +305,7 @@ final class BatchGenerationRunnerTests: XCTestCase {
             lines: ["First segment", "Second segment"],
             segmentationMode: .longForm,
             voice: "vivian",
-            emotion: "Normal tone",
+            emotion: "Neutral",
             voiceDescription: nil,
             refAudio: nil,
             refText: nil
@@ -374,7 +374,7 @@ final class BatchGenerationRunnerTests: XCTestCase {
             lines: ["First segment", "Second segment"],
             segmentationMode: .longForm,
             voice: nil,
-            emotion: "Normal tone",
+            emotion: "Neutral",
             voiceDescription: "Warm narrator",
             refAudio: nil,
             refText: nil

@@ -207,25 +207,24 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
         case .custom(let speakerID, let deliveryStyle):
             let language = GenerationSemantics.qwenLanguageHint(for: request)
             let speaker = speakerID.trimmingCharacters(in: .whitespacesAndNewlines)
-            let instruct = GenerationSemantics.customInstruction(deliveryStyle: deliveryStyle)
             return model.generateCustomVoiceStream(
                 text: request.text,
                 language: language,
                 speaker: speaker,
-                instruct: instruct,
+                instruct: GenerationSemantics.customInstruction(for: request),
                 streamingInterval: streamingInterval,
                 benchmarkOptions: request.benchmarkOptions
             )
         case .design(let voiceDescription, let deliveryStyle):
             let language = GenerationSemantics.qwenLanguageHint(for: request)
-            let resolvedVoiceDescription = GenerationSemantics.designInstruction(
-                voiceDescription: voiceDescription,
-                emotion: deliveryStyle ?? ""
-            )
             return model.generateVoiceDesignStream(
                 text: request.text,
                 language: language,
-                voiceDescription: resolvedVoiceDescription,
+                voiceDescription: GenerationSemantics.voiceDesignInstruction(for: request)
+                    ?? GenerationSemantics.designInstruction(
+                        voiceDescription: voiceDescription,
+                        emotion: deliveryStyle ?? ""
+                    ),
                 streamingInterval: streamingInterval,
                 benchmarkOptions: request.benchmarkOptions
             )
@@ -767,17 +766,18 @@ private struct StreamingExecutionContext: Sendable {
                 text: request.text,
                 language: GenerationSemantics.qwenLanguageHint(for: request),
                 speaker: speakerID.trimmingCharacters(in: .whitespacesAndNewlines),
-                instruct: GenerationSemantics.customInstruction(deliveryStyle: deliveryStyle),
+                instruct: GenerationSemantics.customInstruction(for: request),
                 benchmarkOptions: request.benchmarkOptions
             )
         case .design(let voiceDescription, let deliveryStyle):
             return try await model.generateVoiceDesign(
                 text: request.text,
                 language: GenerationSemantics.qwenLanguageHint(for: request),
-                voiceDescription: GenerationSemantics.designInstruction(
-                    voiceDescription: voiceDescription,
-                    emotion: deliveryStyle ?? ""
-                ),
+                voiceDescription: GenerationSemantics.voiceDesignInstruction(for: request)
+                    ?? GenerationSemantics.designInstruction(
+                        voiceDescription: voiceDescription,
+                        emotion: deliveryStyle ?? ""
+                    ),
                 benchmarkOptions: request.benchmarkOptions
             )
         }

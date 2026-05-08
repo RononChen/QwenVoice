@@ -14,8 +14,7 @@ import AppKit
 ///    Cancel + progress, Repair, or borderless trash when the
 ///    variant is active and on disk.
 ///
-/// 2. Playback. Two toggles. Captions only where the toggle name
-///    is not self-explanatory.
+/// 2. Playback. Auto-play controls the final-file handoff after generation.
 ///
 /// 3. Storage. Output directory + Application data, two compact
 ///    rows.
@@ -38,7 +37,6 @@ struct SettingsView: View {
 
     @AppStorage("autoPlay") private var autoPlay = true
     @AppStorage("outputDirectory") private var outputDirectory = ""
-    @AppStorage(AudioService.smoothPlaybackKey) private var smoothPlayback = false
 
     @State private var flashedMode: GenerationMode?
     @State private var modelToDelete: TTSModel?
@@ -69,17 +67,6 @@ struct SettingsView: View {
                     Toggle("Auto-play generated audio", isOn: $autoPlay)
                         .tint(AppTheme.preferences)
                         .accessibilityIdentifier("preferences_autoPlayToggle")
-
-                    Toggle(isOn: $smoothPlayback) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("Smooth playback")
-                            Text("Adds a few seconds before audio starts; eliminates mid-playback pauses.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .tint(AppTheme.preferences)
-                    .accessibilityIdentifier("preferences_smoothPlaybackToggle")
                 }
 
                 Section("Storage") {

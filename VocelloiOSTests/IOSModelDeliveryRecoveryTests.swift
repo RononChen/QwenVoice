@@ -291,9 +291,9 @@ private struct IOSModelDeliveryTestRegistry: ModelRegistry {
         )
     ]
 
-    let defaultSpeaker = SpeakerDescriptor(group: "English", id: "vivian")
-    let groupedSpeakers = ["English": [SpeakerDescriptor(group: "English", id: "vivian")]]
-    let allSpeakers = [SpeakerDescriptor(group: "English", id: "vivian")]
+    let defaultSpeaker = SpeakerDescriptor(group: "English", id: "aiden")
+    let groupedSpeakers = ["English": [SpeakerDescriptor(group: "English", id: "aiden")]]
+    let allSpeakers = [SpeakerDescriptor(group: "English", id: "aiden")]
 
     func model(for mode: GenerationMode) -> ModelDescriptor? {
         models.first { $0.mode == mode }

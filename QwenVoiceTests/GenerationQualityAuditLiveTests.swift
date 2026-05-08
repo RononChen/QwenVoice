@@ -1645,7 +1645,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
                 streamingTitle: "Audio QC Custom Voice",
                 benchmarkOptions: benchmarkOptions(for: .customVoice, configuration: configuration),
                 payload: .custom(
-                    speakerID: "vivian",
+                    speakerID: "aiden",
                     deliveryStyle: "Conversational"
                 )
             )
@@ -1665,7 +1665,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
                 benchmarkOptions: benchmarkOptions(for: .voiceDesign, configuration: configuration),
                 payload: .design(
                     voiceDescription: "A warm, steady narrator with clear pronunciation and calm pacing.",
-                    deliveryStyle: "Normal tone"
+                    deliveryStyle: "Neutral"
                 )
             )
         case .clones:
@@ -1808,7 +1808,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         let sentence: String
         switch mode {
         case .customVoice:
-            sentence = "Vivian narrates a practical product update with calm pacing, clear consonants, and a steady rhythm for a long local synthesis benchmark."
+            sentence = "Aiden narrates a practical product update with calm pacing, clear consonants, and a steady rhythm for a long local synthesis benchmark."
         case .voiceDesign:
             sentence = "The designed narrator remains warm, precise, and unhurried while carrying a longer paragraph through several connected ideas for audio quality review."
         case .clones:

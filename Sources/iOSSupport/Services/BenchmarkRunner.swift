@@ -176,9 +176,9 @@ final class BenchmarkRunner {
             mode: .custom,
             modelID: "pro_custom",
             text: "Hello world.",
-            speaker: "vivian",
+            speaker: "aiden",
             voiceDescription: nil,
-            deliveryStyle: "Normal tone",
+            deliveryStyle: DeliveryProfile.neutralInstruction,
             requiresColdStart: true
         ),
         Scenario(
@@ -186,9 +186,9 @@ final class BenchmarkRunner {
             mode: .custom,
             modelID: "pro_custom",
             text: "Hello world.",
-            speaker: "vivian",
+            speaker: "aiden",
             voiceDescription: nil,
-            deliveryStyle: "Normal tone",
+            deliveryStyle: DeliveryProfile.neutralInstruction,
             requiresColdStart: false
         ),
         Scenario(
@@ -196,7 +196,7 @@ final class BenchmarkRunner {
             mode: .custom,
             modelID: "pro_custom",
             text: longText,
-            speaker: "vivian",
+            speaker: "aiden",
             voiceDescription: nil,
             deliveryStyle: "Warm, bright, and enthusiastic.",
             requiresColdStart: true
@@ -206,7 +206,7 @@ final class BenchmarkRunner {
             mode: .custom,
             modelID: "pro_custom",
             text: longText,
-            speaker: "vivian",
+            speaker: "aiden",
             voiceDescription: nil,
             deliveryStyle: "Warm, bright, and enthusiastic.",
             requiresColdStart: false
@@ -219,7 +219,7 @@ final class BenchmarkRunner {
             text: "Hello world.",
             speaker: nil,
             voiceDescription: "A clear, steady female narrator with a natural conversational tone.",
-            deliveryStyle: "Normal tone",
+            deliveryStyle: DeliveryProfile.neutralInstruction,
             requiresColdStart: true
         ),
         Scenario(
@@ -229,7 +229,7 @@ final class BenchmarkRunner {
             text: "Hello world.",
             speaker: nil,
             voiceDescription: "A clear, steady female narrator with a natural conversational tone.",
-            deliveryStyle: "Normal tone",
+            deliveryStyle: DeliveryProfile.neutralInstruction,
             requiresColdStart: false
         ),
         Scenario(
@@ -315,7 +315,7 @@ final class BenchmarkRunner {
         let payload: GenerationRequest.Payload
         switch scenario.mode {
         case .custom:
-            payload = .custom(speakerID: scenario.speaker ?? "vivian", deliveryStyle: scenario.deliveryStyle)
+            payload = .custom(speakerID: scenario.speaker ?? "aiden", deliveryStyle: scenario.deliveryStyle)
         case .design:
             payload = .design(voiceDescription: scenario.voiceDescription ?? "", deliveryStyle: scenario.deliveryStyle)
         case .clone:

@@ -33,7 +33,7 @@ qa.sh output roots:
 | `swift` | macOS unit/integration foundation tests | `xcodebuild` + `QwenVoice Foundation` |
 | `native` | macOS runtime/XPC/native compatibility subset | `xcodebuild` + `QwenVoiceRuntime` plan |
 | `ios` | iPhone foundation tests when an iPhone simulator is available | `xcodebuild` + `VocelloiOS Foundation` |
-| `e2e` | macOS XCUITest smoke over the stub engine/live-preview flow | `xcodebuild` + `Vocello UI` |
+| `e2e` | macOS XCUITest smoke over the stub engine/final-playback flow | `xcodebuild` + `Vocello UI` |
 
 The iOS lane returns a structured skip when no iPhone simulator destination is installed. Generic iPhone compile proof is still maintained by `./scripts/build_foundation_targets.sh ios`.
 
@@ -48,6 +48,8 @@ QWENVOICE_E2E_STRICT=1 ./scripts/qa.sh test --layer e2e
 ```
 
 In strict mode, TCC and window-registration failures fail the lane instead of being treated as skipped passes.
+
+For agent-driven local UI checks, use the Computer Use plugin to operate the built app directly. The XCUITest `e2e` lane remains useful for CI and explicitly requested controlled-machine proof, but it is not the default agent-operated UI validation path.
 
 ## Test Support Code
 

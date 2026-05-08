@@ -27,7 +27,7 @@ struct DeliveryInputState: Equatable {
     init(legacyEmotion: String) {
         let trimmedEmotion = legacyEmotion.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if trimmedEmotion.isEmpty || trimmedEmotion.caseInsensitiveCompare("Normal tone") == .orderedSame {
+        if DeliveryProfile.isNeutralInstruction(trimmedEmotion) {
             self.init()
             return
         }
@@ -63,9 +63,9 @@ struct DeliveryInputState: Equatable {
 
     var selectedPresetLabel: String {
         guard let preset = EmotionPreset.preset(id: selectedPresetID) else {
-            return "Normal tone"
+            return DeliveryProfile.neutralInstruction
         }
-        return preset.id == DeliveryInputState.neutralPresetID ? "Normal tone" : preset.label
+        return preset.label
     }
 }
 

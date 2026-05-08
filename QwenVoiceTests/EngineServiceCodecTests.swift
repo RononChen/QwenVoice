@@ -89,7 +89,7 @@ final class EngineServiceCodecTests: XCTestCase {
                     outputPath: "",
                     shouldStream: true,
                     streamingInterval: 0.32,
-                    payload: .custom(speakerID: "vivian", deliveryStyle: "Normal tone")
+                    payload: .custom(speakerID: "vivian", deliveryStyle: "Neutral")
                 ),
                 customPrewarmDepth: "skip-stream-step"
             )

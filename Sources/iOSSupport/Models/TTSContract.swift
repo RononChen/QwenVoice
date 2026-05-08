@@ -26,8 +26,20 @@ enum TTSContract {
         }
     }
 
+    static var groupedSpeakerDescriptors: [String: [SpeakerDescriptor]] {
+        registry.groupedSpeakers
+    }
+
     static var allSpeakers: [String] {
         registry.allSpeakers.map(\.id)
+    }
+
+    static var allSpeakerDescriptors: [SpeakerDescriptor] {
+        registry.allSpeakers
+    }
+
+    static func speakerDescriptor(id: String) -> SpeakerDescriptor? {
+        registry.allSpeakers.first { $0.id == id }
     }
 
     static func model(for mode: GenerationMode) -> ModelDescriptor? {

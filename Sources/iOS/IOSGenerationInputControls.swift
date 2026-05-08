@@ -47,7 +47,7 @@ struct IOSDeliveryPicker: View {
                         delivery.selectedPresetID = preset.id
                     } label: {
                         Label(
-                            preset.id == "neutral" ? "Normal tone" : preset.label,
+                            preset.label,
                             systemImage: delivery.mode == .preset && delivery.selectedPresetID == preset.id
                                 ? "checkmark"
                                 : ""

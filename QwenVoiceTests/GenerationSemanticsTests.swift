@@ -3,6 +3,100 @@ import XCTest
 @testable import QwenVoice
 
 final class GenerationSemanticsTests: XCTestCase {
+    func testEnglishCustomVoiceAddsConservativeDictionInstruction() {
+        let request = GenerationRequest(
+            modelID: "pro_custom",
+            text: "This product update should sound natural in English.",
+            outputPath: "/tmp/out.wav",
+            payload: .custom(speakerID: "aiden", deliveryStyle: "Neutral")
+        )
+
+        XCTAssertEqual(GenerationSemantics.qwenLanguageHint(for: request), "english")
+        XCTAssertEqual(
+            GenerationSemantics.customInstruction(for: request),
+            GenerationSemantics.englishDictionReinforcement
+        )
+    }
+
+    func testNeutralDeliveryInstructionsIncludeLegacyAliases() {
+        let legacyNeutral = ["Normal", "tone"].joined(separator: " ")
+
+        for instruction in ["", "Neutral", "Neutral tone", legacyNeutral] {
+            XCTAssertTrue(GenerationSemantics.isNeutralDeliveryInstruction(instruction))
+            XCTAssertFalse(GenerationSemantics.hasMeaningfulDeliveryInstruction(instruction))
+        }
+
+        XCTAssertFalse(GenerationSemantics.isNeutralDeliveryInstruction("Calm and reassuring"))
+        XCTAssertTrue(GenerationSemantics.hasMeaningfulDeliveryInstruction("Calm and reassuring"))
+    }
+
+    func testEnglishCustomVoicePreservesUserDeliveryInstruction() {
+        let request = GenerationRequest(
+            modelID: "pro_custom",
+            text: "Please read this sentence with native English diction.",
+            outputPath: "/tmp/out.wav",
+            payload: .custom(speakerID: "aiden", deliveryStyle: "Warm and conversational")
+        )
+
+        let instruction = GenerationSemantics.customInstruction(for: request)
+        XCTAssertTrue(instruction?.contains(GenerationSemantics.englishDictionReinforcement) == true)
+        XCTAssertTrue(instruction?.contains("Delivery style:") == true)
+        XCTAssertTrue(instruction?.contains("Warm and conversational") == true)
+    }
+
+    func testNonEnglishCustomVoiceDoesNotAddEnglishDictionInstruction() {
+        let request = GenerationRequest(
+            modelID: "pro_custom",
+            text: "你好，这是一段测试文本。",
+            outputPath: "/tmp/out.wav",
+            payload: .custom(speakerID: "vivian", deliveryStyle: "Neutral")
+        )
+
+        XCTAssertEqual(GenerationSemantics.qwenLanguageHint(for: request), "chinese")
+        XCTAssertNil(GenerationSemantics.customInstruction(for: request))
+    }
+
+    func testEnglishVoiceDesignAddsDictionInstructionAndPreservesBrief() {
+        let request = GenerationRequest(
+            modelID: "pro_design",
+            text: "The product update needs calm, natural English narration.",
+            outputPath: "/tmp/out.wav",
+            payload: .design(voiceDescription: "A relaxed product narrator", deliveryStyle: "Calm")
+        )
+
+        let instruction = GenerationSemantics.voiceDesignInstruction(for: request)
+        XCTAssertEqual(GenerationSemantics.qwenLanguageHint(for: request), "english")
+        XCTAssertTrue(instruction?.contains(GenerationSemantics.englishDictionReinforcement) == true)
+        XCTAssertTrue(instruction?.contains("A relaxed product narrator") == true)
+        XCTAssertTrue(instruction?.contains("Calm") == true)
+    }
+
+    func testNeutralVoiceDesignDoesNotEmitDeliveryStyleLine() {
+        let request = GenerationRequest(
+            modelID: "pro_design",
+            text: "This should sound neutral and natural.",
+            outputPath: "/tmp/out.wav",
+            payload: .design(voiceDescription: "A clear product narrator", deliveryStyle: "Neutral")
+        )
+
+        let instruction = GenerationSemantics.voiceDesignInstruction(for: request)
+        XCTAssertTrue(instruction?.contains(GenerationSemantics.englishDictionReinforcement) == true)
+        XCTAssertTrue(instruction?.contains("A clear product narrator") == true)
+        XCTAssertFalse(instruction?.contains("Delivery style:") == true)
+    }
+
+    func testCloneRequestsDoNotReceiveHiddenDictionInstruction() {
+        let request = GenerationRequest(
+            modelID: "pro_clone",
+            text: "This English text should follow the cloned reference voice.",
+            outputPath: "/tmp/out.wav",
+            payload: .clone(reference: CloneReference(audioPath: "/tmp/ref.wav", transcript: "Reference voice text"))
+        )
+
+        XCTAssertNil(GenerationSemantics.customInstruction(for: request))
+        XCTAssertNil(GenerationSemantics.voiceDesignInstruction(for: request))
+    }
+
     func testCustomPrewarmIdentityTracksVoiceAndMeaningfulDeliveryChanges() {
         let baseRequest = GenerationRequest(
             modelID: "pro_custom",
@@ -33,12 +127,12 @@ final class GenerationSemanticsTests: XCTestCase {
         )
     }
 
-    func testCustomPrewarmIdentityIgnoresNormalToneChanges() {
+    func testCustomPrewarmIdentityIgnoresNeutralDeliveryChanges() {
         let defaultRequest = GenerationRequest(
             modelID: "pro_custom",
             text: "Hello",
             outputPath: "/tmp/out.wav",
-            payload: .custom(speakerID: "Vivian", deliveryStyle: "Normal tone")
+            payload: .custom(speakerID: "Vivian", deliveryStyle: "Neutral")
         )
         let blankRequest = GenerationRequest(
             modelID: "pro_custom",
@@ -100,25 +194,25 @@ final class GenerationSemanticsTests: XCTestCase {
             modelID: "pro_design",
             text: "Hello there.",
             outputPath: "/tmp/out.wav",
-            payload: .design(voiceDescription: "  Warm, steady narrator  ", deliveryStyle: "Normal tone")
+            payload: .design(voiceDescription: "  Warm, steady narrator  ", deliveryStyle: "Neutral")
         )
         let normalizedMatch = GenerationRequest(
             modelID: "pro_design",
             text: "Hello there.",
             outputPath: "/tmp/out.wav",
-            payload: .design(voiceDescription: "warm, steady narrator", deliveryStyle: "Normal tone")
+            payload: .design(voiceDescription: "warm, steady narrator", deliveryStyle: "Neutral")
         )
         let differentBrief = GenerationRequest(
             modelID: "pro_design",
             text: "Hello there.",
             outputPath: "/tmp/out.wav",
-            payload: .design(voiceDescription: "Bright energetic announcer", deliveryStyle: "Normal tone")
+            payload: .design(voiceDescription: "Bright energetic announcer", deliveryStyle: "Neutral")
         )
         let differentLanguage = GenerationRequest(
             modelID: "pro_design",
             text: "你好，这是一段测试文本。",
             outputPath: "/tmp/out.wav",
-            payload: .design(voiceDescription: "Warm, steady narrator", deliveryStyle: "Normal tone")
+            payload: .design(voiceDescription: "Warm, steady narrator", deliveryStyle: "Neutral")
         )
 
         let baseKey = GenerationSemantics.designConditioningWarmKey(for: baseRequest)

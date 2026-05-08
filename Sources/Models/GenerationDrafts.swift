@@ -2,7 +2,7 @@ import Foundation
 
 struct CustomVoiceDraft: Equatable {
     var selectedSpeaker = TTSModel.defaultSpeaker
-    var emotion = "Normal tone"
+    var emotion = DeliveryProfile.neutralInstruction
     var text = ""
 
     var hasText: Bool {
@@ -25,7 +25,7 @@ struct CustomVoiceDraft: Equatable {
 
 struct VoiceDesignDraft: Equatable {
     var voiceDescription = ""
-    var emotion = "Normal tone"
+    var emotion = DeliveryProfile.neutralInstruction
     var text = ""
 
     var hasVoiceDescription: Bool {

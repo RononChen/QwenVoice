@@ -57,7 +57,7 @@ Default: 30-second System Trace (CPU + Metal + signposts), output to
 Workflow:
 
 1. The script kills any running Vocello, resets defaults to land on
-   Custom Voice with Smooth OFF, and relaunches a fresh debug build.
+   Custom Voice, and relaunches a fresh debug build.
 2. After the engine is Ready, the script starts `xctrace record` with
    the `System Trace` template and your chosen time window.
 3. While recording, the operator triggers ONE generation in the
@@ -156,15 +156,16 @@ collapses from ~135 ms / chunk to near-zero for in-loop chunks
 (asyncEval enqueue cost only) — that collapse IS the success signal.
 
 **The trailing chunk stays on blocking `eval`.** The first cut of
-Phase 2c asyncEval'd that one too; live playback then truncated
-mid-script because the engine returned with the final chunk still
-lazy, the awaited generation result raced ahead of the broker's
-MainActor chunk-publication tasks, and `AudioPlayerViewModel`'s
-`liveFinalFilePath` got set before the last few chunks had been
-scheduled in the AVAudioEngine queue. As soon as the next buffer
-drained, `handleLiveBufferPlaybackCompletion`'s `liveScheduledCount
-== 0 && liveFinalFilePath != nil` branch fired an early file-playback
-handoff. Blocking on the trailing chunk closes that race. See
+Phase 2c asyncEval'd that one too; the historical live-preview
+diagnostic path then truncated mid-script because the engine returned
+with the final chunk still lazy, the awaited generation result raced
+ahead of the broker's MainActor chunk-publication tasks, and
+`AudioPlayerViewModel`'s `liveFinalFilePath` got set before the last
+few chunks had been scheduled in the AVAudioEngine queue. As soon as
+the next buffer drained, `handleLiveBufferPlaybackCompletion`'s
+`liveScheduledCount == 0 && liveFinalFilePath != nil` branch fired an
+early file-playback handoff. Blocking on the trailing chunk closes that
+race. See
 [`mlx-audio-swift-patching.md`](mlx-audio-swift-patching.md) for the
 patch baseline.
 

@@ -361,7 +361,7 @@ struct BatchGenerationRequest {
                 batchTotal: batchTotal,
                 payload: .custom(
                     speakerID: voice ?? TTSModel.defaultSpeaker,
-                    deliveryStyle: emotion ?? "Normal tone"
+                    deliveryStyle: emotion ?? DeliveryProfile.neutralInstruction
                 )
             )
         case .design:
@@ -374,7 +374,7 @@ struct BatchGenerationRequest {
                 batchTotal: batchTotal,
                 payload: .design(
                     voiceDescription: voiceDescription ?? "",
-                    deliveryStyle: emotion ?? "Normal tone"
+                    deliveryStyle: emotion ?? DeliveryProfile.neutralInstruction
                 )
             )
         case .clone:

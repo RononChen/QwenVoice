@@ -101,7 +101,7 @@ struct IOSCustomVoiceSetupCard: View {
         IOSInlineSetupField(title: "Voice") {
             Picker("Speaker", selection: $selectedSpeaker) {
                 ForEach(TTSModel.allSpeakers, id: \.self) { speaker in
-                    Text(speaker.capitalized).tag(speaker)
+                    Text(TTSModel.speakerPickerLabel(for: speaker)).tag(speaker)
                 }
             }
             .pickerStyle(.menu)

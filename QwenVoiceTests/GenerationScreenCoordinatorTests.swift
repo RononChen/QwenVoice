@@ -934,7 +934,7 @@ final class GenerationScreenCoordinatorTests: XCTestCase {
         coordinator.generate(
             draft: CustomVoiceDraft(
                 selectedSpeaker: "Vivian",
-                emotion: "Normal tone",
+                emotion: "Neutral",
                 text: " \n\t "
             ),
             activeModel: TTSModel.model(for: .custom),
@@ -961,7 +961,7 @@ final class GenerationScreenCoordinatorTests: XCTestCase {
         coordinator.generate(
             draft: CustomVoiceDraft(
                 selectedSpeaker: "Vivian",
-                emotion: "Normal tone",
+                emotion: "Neutral",
                 text: text
             ),
             activeModel: TTSModel.model(for: .custom),
@@ -991,7 +991,7 @@ final class GenerationScreenCoordinatorTests: XCTestCase {
         let request = CustomVoiceCoordinator.makeGenerationRequest(
             draft: CustomVoiceDraft(
                 selectedSpeaker: "Vivian",
-                emotion: "Normal tone",
+                emotion: "Neutral",
                 text: "Hello there"
             ),
             model: model,
@@ -1010,7 +1010,7 @@ final class GenerationScreenCoordinatorTests: XCTestCase {
         let audioPlayer = AudioPlayerViewModel()
         let draft = CustomVoiceDraft(
             selectedSpeaker: "Vivian",
-            emotion: "Normal tone",
+            emotion: "Neutral",
             text: "Hello there"
         )
 
@@ -1064,7 +1064,7 @@ final class GenerationScreenCoordinatorTests: XCTestCase {
         coordinator.generate(
             draft: CustomVoiceDraft(
                 selectedSpeaker: "Vivian",
-                emotion: "Normal tone",
+                emotion: "Neutral",
                 text: "Hello there"
             ),
             activeModel: TTSModel.model(for: .custom),
@@ -1101,7 +1101,7 @@ final class GenerationScreenCoordinatorTests: XCTestCase {
         coordinator.generate(
             draft: CustomVoiceDraft(
                 selectedSpeaker: "Vivian",
-                emotion: "Normal tone",
+                emotion: "Neutral",
                 text: "Hello there"
             ),
             activeModel: TTSModel.model(for: .custom),

@@ -365,14 +365,14 @@ private struct SpeakerPickerRow: View {
 
             Picker("Speaker", selection: $selectedSpeaker) {
                 ForEach(TTSModel.allSpeakers, id: \.self) { speaker in
-                    Text(speaker.capitalized).tag(speaker)
+                    Text(TTSModel.speakerPickerLabel(for: speaker)).tag(speaker)
                 }
             }
             .labelsHidden()
             .pickerStyle(.menu)
             .focusEffectDisabled()
             .frame(minWidth: LayoutConstants.configurationControlMinWidth, maxWidth: 220, alignment: .leading)
-            .accessibilityValue(selectedSpeaker.capitalized)
+            .accessibilityValue(TTSModel.speakerPickerLabel(for: selectedSpeaker))
             .accessibilityIdentifier("customVoice_speakerPicker")
 
             Text("Choose the built-in speaker that should deliver this line.")
@@ -381,14 +381,14 @@ private struct SpeakerPickerRow: View {
         }
         .padding(.vertical, LayoutConstants.generationConfigurationRowVerticalPadding)
         .overlay(alignment: .topLeading) {
-            Text(selectedSpeaker.capitalized)
+            Text(TTSModel.speakerPickerLabel(for: selectedSpeaker))
                 .font(.caption2)
                 .foregroundStyle(.clear)
                 .opacity(0.01)
                 .frame(width: 1, height: 1, alignment: .leading)
                 .allowsHitTesting(false)
-                .accessibilityLabel(selectedSpeaker.capitalized)
-                .accessibilityValue(selectedSpeaker.capitalized)
+                .accessibilityLabel(TTSModel.speakerPickerLabel(for: selectedSpeaker))
+                .accessibilityValue(TTSModel.speakerPickerLabel(for: selectedSpeaker))
                 .accessibilityIdentifier("customVoice_selectedSpeaker")
         }
         .accessibilityElement(children: .contain)

@@ -12,6 +12,44 @@ final class TTSContractTests: XCTestCase {
         XCTAssertTrue(TTSContract.allSpeakers.contains(TTSContract.defaultSpeaker))
     }
 
+    func testDefaultSpeakerIsEnglishNativeAiden() {
+        XCTAssertEqual(TTSContract.defaultSpeaker, "aiden")
+
+        let defaultDescriptor = TTSContract.speakerDescriptor(id: TTSContract.defaultSpeaker)
+        XCTAssertEqual(defaultDescriptor?.displayName, "Aiden")
+        XCTAssertEqual(defaultDescriptor?.nativeLanguage, "English")
+        XCTAssertEqual(defaultDescriptor?.isEnglishNative, true)
+    }
+
+    func testAllSpeakersDeclareNativeLanguageMetadata() {
+        let descriptors = Dictionary(
+            uniqueKeysWithValues: TTSContract.allSpeakerDescriptors.map { ($0.id, $0) }
+        )
+
+        XCTAssertEqual(Set(descriptors.keys), Set(TTSContract.allSpeakers))
+        for speakerID in TTSContract.allSpeakers {
+            let descriptor = descriptors[speakerID]
+            XCTAssertNotNil(descriptor?.metadata, "\(speakerID) missing speaker metadata")
+            XCTAssertFalse(descriptor?.displayName.isEmpty ?? true, "\(speakerID) missing display name")
+            XCTAssertFalse(descriptor?.nativeLanguage?.isEmpty ?? true, "\(speakerID) missing native language")
+            XCTAssertFalse(descriptor?.shortDescription?.isEmpty ?? true, "\(speakerID) missing description")
+        }
+
+        XCTAssertEqual(descriptors["aiden"]?.isEnglishNative, true)
+        XCTAssertEqual(descriptors["ryan"]?.isEnglishNative, true)
+        XCTAssertEqual(descriptors["vivian"]?.isEnglishNative, false)
+        XCTAssertEqual(descriptors["serena"]?.isEnglishNative, false)
+        XCTAssertEqual(descriptors["vivian"]?.nativeLanguage, "Chinese")
+        XCTAssertEqual(descriptors["serena"]?.nativeLanguage, "Chinese")
+    }
+
+    func testSpeakerPickerLabelsIncludeNativeLanguageGuidance() {
+        XCTAssertEqual(TTSModel.speakerPickerLabel(for: "aiden"), "Aiden - English native")
+        XCTAssertEqual(TTSModel.speakerPickerLabel(for: "ryan"), "Ryan - English native")
+        XCTAssertEqual(TTSModel.speakerPickerLabel(for: "vivian"), "Vivian - Chinese native")
+        XCTAssertEqual(TTSModel.speakerPickerLabel(for: "serena"), "Serena - Chinese native")
+    }
+
     func testNoDuplicateModelIDs() {
         let ids = TTSContract.models.map(\.id)
         XCTAssertEqual(ids.count, Set(ids).count, "Duplicate model IDs found")

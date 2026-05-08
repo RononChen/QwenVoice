@@ -696,14 +696,14 @@ actor NativeEngineRuntime {
         do {
             await telemetryRecorder?.mark(stage: .prewarm)
             switch request.payload {
-            case .custom:
+            case .custom(let speakerID, _):
                 let language = GenerationSemantics.qwenLanguageHint(for: request)
                 try await withCustomVoicePrewarmDepthOverride(customPrewarmDepth) {
                     try await model.prewarmCustomVoice(
                         text: lightweightWarmupText,
                         language: language,
-                        speaker: GenerationSemantics.canonicalCustomWarmSpeaker,
-                        instruct: GenerationSemantics.canonicalCustomWarmInstruction()
+                        speaker: speakerID.trimmingCharacters(in: .whitespacesAndNewlines),
+                        instruct: GenerationSemantics.customInstruction(for: request)
                     )
                 }
             case .design:
@@ -969,10 +969,11 @@ actor NativeEngineRuntime {
         }
 
         let warmText = GenerationSemantics.canonicalDesignWarmText(for: warmBucket)
-        let warmInstruction = GenerationSemantics.designInstruction(
-            voiceDescription: voiceDescription,
-            emotion: deliveryStyle ?? ""
-        )
+        let warmInstruction = GenerationSemantics.voiceDesignInstruction(for: request)
+            ?? GenerationSemantics.designInstruction(
+                voiceDescription: voiceDescription,
+                emotion: deliveryStyle ?? ""
+            )
         do {
             try await model.prewarmVoiceDesign(
                 text: warmText,

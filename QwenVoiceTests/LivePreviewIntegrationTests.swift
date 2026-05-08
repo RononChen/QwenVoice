@@ -581,7 +581,7 @@ final class LivePreviewIntegrationTests: XCTestCase {
                 underrunCount: 1,
                 expectedAudioDuration: expectedAudio,
                 estimatedRTF: estimatedRTF,
-                smoothPlaybackEnabled: false
+                predictivePrebufferEnabled: false
             ),
             "Post-underrun, a single fresh chunk (0.64 s real queue) must NOT resume playback under any policy. Pre-fix, this returned true because the call site mistakenly passed the cumulative-received `livePreviewDuration` (~6.4 s) as `queuedDuration`."
         )
@@ -598,7 +598,7 @@ final class LivePreviewIntegrationTests: XCTestCase {
                 underrunCount: 1,
                 expectedAudioDuration: expectedAudio,
                 estimatedRTF: estimatedRTF,
-                smoothPlaybackEnabled: false
+                predictivePrebufferEnabled: false
             ),
             "With a real B_min buffer queued, the predicate should resume."
         )

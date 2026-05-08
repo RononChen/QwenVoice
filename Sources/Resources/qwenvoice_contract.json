@@ -1,12 +1,38 @@
 {
-  "defaultSpeaker": "vivian",
+  "defaultSpeaker": "aiden",
   "speakers": {
     "English": [
-      "ryan",
       "aiden",
-      "serena",
-      "vivian"
+      "ryan",
+      "vivian",
+      "serena"
     ]
+  },
+  "speakerMetadata": {
+    "aiden": {
+      "displayName": "Aiden",
+      "nativeLanguage": "English",
+      "shortDescription": "English-native male preset for clear American English delivery.",
+      "isEnglishNative": true
+    },
+    "ryan": {
+      "displayName": "Ryan",
+      "nativeLanguage": "English",
+      "shortDescription": "English-native male preset with a more energetic delivery.",
+      "isEnglishNative": true
+    },
+    "vivian": {
+      "displayName": "Vivian",
+      "nativeLanguage": "Chinese",
+      "shortDescription": "Chinese-native female preset; best quality with Chinese text.",
+      "isEnglishNative": false
+    },
+    "serena": {
+      "displayName": "Serena",
+      "nativeLanguage": "Chinese",
+      "shortDescription": "Chinese-native female preset; best quality with Chinese text.",
+      "isEnglishNative": false
+    }
   },
   "models": [
     {

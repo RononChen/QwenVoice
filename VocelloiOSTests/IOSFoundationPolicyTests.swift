@@ -48,6 +48,18 @@ final class IOSFoundationPolicyTests: XCTestCase {
         )
     }
 
+    func testDeliveryInputStateMapsNeutralAndLegacyAliasesToNeutral() {
+        let legacyNeutral = ["Normal", "tone"].joined(separator: " ")
+
+        for instruction in ["", "Neutral", "Neutral tone", legacyNeutral] {
+            let state = DeliveryInputState(legacyEmotion: instruction)
+
+            XCTAssertEqual(state.mode, .preset)
+            XCTAssertEqual(state.resolvedDeliveryInstruction, "Neutral")
+            XCTAssertEqual(state.selectedPresetLabel, "Neutral")
+        }
+    }
+
     @MainActor
     func testTTSEngineStoreForwardsActiveGenerationCancellationAndResetsState() async throws {
         let engine = IOSCancellableEngineFixture()
@@ -255,9 +267,9 @@ private struct IOSPolicyStubModelRegistry: ModelRegistry {
         ),
     ]
 
-    let defaultSpeaker = SpeakerDescriptor(group: "English", id: "vivian")
-    let groupedSpeakers = ["English": [SpeakerDescriptor(group: "English", id: "vivian")]]
-    let allSpeakers = [SpeakerDescriptor(group: "English", id: "vivian")]
+    let defaultSpeaker = SpeakerDescriptor(group: "English", id: "aiden")
+    let groupedSpeakers = ["English": [SpeakerDescriptor(group: "English", id: "aiden")]]
+    let allSpeakers = [SpeakerDescriptor(group: "English", id: "aiden")]
 
     func model(for mode: GenerationMode) -> ModelDescriptor? {
         models.first { $0.mode == mode }

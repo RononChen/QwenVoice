@@ -1,6 +1,6 @@
 # Tone and Emotion in QwenVoice
 
-_Last reviewed: 2026-04-20._
+_Last reviewed: 2026-05-08._
 
 This guide is a supplemental prompt-writing reference for the shipped macOS app. It is supplemental and may lag shipped behavior — when in doubt, trust the sources listed below before this guide.
 
@@ -16,21 +16,25 @@ QwenVoice controls tone and emotion through natural-language instructions, not S
 
 Current app behavior:
 
-- **Custom Voice** uses one of the shipped English speakers plus an instruction prompt
-- **Voice Design** has its own generation screen and prompt flow
+- **Custom Voice** uses one of the shipped speakers plus an optional delivery instruction prompt
+- **Voice Design** has its own generation screen and prompt flow using a natural-language voice/design instruction
 - **Voice Cloning** uses reference audio and can optionally use a transcript for better preparation quality, but it does not expose a separate instruction-only tone surface
 - single generations produce a complete final take, and the app does not expose temperature or max-token controls
+- **Neutral** delivery is intentionally treated as no meaningful style instruction, so it does not add a `Delivery style:` line to Qwen prompts
 
 Useful instruction patterns:
 
 - emotional delivery: `calm and reassuring`, `frustrated but controlled`, `nervous and unsure`
-- pacing and cadence: `slow, deliberate pace`, `quick and energetic`, `measured and deliberate`
+- vocal behavior: `gentle smile in the voice`, `sharp emphasis without shouting`, `breathy but clear`
+- pacing and cadence: `slow, deliberate pace`, `quick but clear`, `measured pauses`
 - character and timbre: `warm documentary narrator`, `dry late-night radio host`, `soft-spoken teacher`
 
 ## Practical Guidance
 
-- Be specific: combine voice character, emotional state, and pacing in one instruction.
+- Be specific: combine voice character, emotional state, pacing, and clarity in one instruction.
 - Keep requests concrete: `calm middle-aged narrator with steady pacing` works better than `make it better`.
+- Prefer short, direct performance direction over one-word labels; Qwen3-TTS follows natural-language delivery instructions.
+- Keep strong emotions intelligible: add constraints like `while keeping words clear`, `without shouting`, or `still understandable`.
 - Iterate wording: instruction following is probabilistic, so small prompt changes can materially change the result.
 - Use Voice Design when you want a reusable prompt-driven voice shape, and use Voice Cloning when you want a specific reference identity from audio.
 
@@ -55,15 +59,25 @@ If you need a longer beat, end the sentence with a period and start a new one. F
 
 Custom Voice:
 
-> Speak in a calm, slightly tired voice, like someone explaining a long day.
+> Calm, soothing, and reassuring, with smooth pacing and gentle confidence.
+
+Custom Voice, strong emotion:
+
+> Very happy and joyful, energetic and expressive, with lively stress while keeping words clear.
 
 Voice Design:
 
-> A composed documentary narrator with a low, warm voice and deliberate pacing.
+> A composed documentary narrator with a low, warm voice, deliberate pacing, crisp diction, and gentle emphasis on key phrases.
 
 Voice Cloning support text:
 
 > Use a clean 5–10 second reference clip and include the transcript if possible.
+
+## Source References
+
+- [Qwen3-TTS README](https://github.com/QwenLM/Qwen3-TTS/blob/main/README.md)
+- [Qwen3-TTS Hugging Face model card](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice)
+- [Qwen3-TTS Technical Report](https://arxiv.org/abs/2601.15621)
 
 ## Related Docs
 

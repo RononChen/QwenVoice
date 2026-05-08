@@ -691,6 +691,7 @@ private extension BackendPerformanceContractTests {
               "chinese": 2
             },
             "spk_id": {
+              "aiden": [0],
               "vivian": [1]
             }
           },

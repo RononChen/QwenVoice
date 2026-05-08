@@ -14,10 +14,11 @@
 # characterises behaviour at the hardware floor including memory-
 # pressure regimes; aborting on high swap would defeat the purpose.
 # Only the single-instance rule applies: caller must `pkill -x Vocello`
-# before each cold relaunch. Engine wedge (no chunk progress for >60 s
+# before each cold relaunch. Engine wedge (no output progress for >60 s
 # with the Vocello process still alive) is the one legitimate abort
 # condition; the script's existing 4000×0.1s = 400 s completion-detect
-# loop covers it via a 60 s no-growth fallback.
+# loop covers it via a 60 s no-growth fallback when diagnostic logs are
+# enabled.
 #
 # Usage:
 #   scripts/bench_ui_generation.sh <mode> <length> <state> <sample> [csv_path]
@@ -37,8 +38,9 @@
 #
 # This is the **default** benchmark method per AGENTS.md "Common Commands"
 # benchmarking" — it captures the full user-perceived pipeline (paste,
-# UI activation, generation, file write, autoplay handoff, live preview
-# behavior). For tighter engine-only regression checks, see
+# UI activation, generation, file write, and final playback handoff).
+# Optional `[LivePreview]` log parsing remains diagnostics-only for
+# preview experiments. For tighter engine-only regression checks, see
 # `./scripts/qa.sh test --layer perf`.
 
 set -euo pipefail
@@ -114,16 +116,14 @@ BEFORE=$(ls "$OUT" 2>/dev/null | sort)
 # Capture pre-trigger log state. We pin OUR session as the
 # (SESSION_START_COUNT_BEFORE + 1)-th `event=session_start` in the log.
 #
-# Why session-counter gating instead of byte-offset slicing: the engine
-# emits `session_start` and `preview_completed` 1:1 per generation in
-# causal order (sample N's preview_completed is always written before
-# sample N+1's session_start, since the live-preview engine processes
-# one session at a time). Byte-offset slicing was fooled by a previous
-# sample's late-arriving preview_completed flushing into the log AFTER
-# our LOG_OFFSET_BEFORE was captured — sample N+1 would then read sample
-# N's stale summary as its own. Counter gating is immune: even if the
-# stale event appears anywhere in the log past our offset, it's by
-# definition before our session_start, so the awk filter rejects it.
+# Why session-counter gating instead of byte-offset slicing: diagnostic
+# preview logs emit `session_start` and `preview_completed` in causal
+# order. Byte-offset slicing was fooled by a previous sample's late
+# summary flushing into the log AFTER our LOG_OFFSET_BEFORE was captured;
+# sample N+1 would then read sample N's stale summary as its own. Counter
+# gating is immune: even if the stale event appears anywhere in the log
+# past our offset, it's by definition before our session_start, so the
+# awk filter rejects it.
 HAS_LOG_FILE=false
 SESSION_START_COUNT_BEFORE=0
 TARGET_SESSION_INDEX=0
@@ -175,12 +175,12 @@ done
 
 # Wait for completion. Two signals:
 #
-# (1) When --log-file is provided: wait for the `[LivePreview]
-#     event=preview_completed` line. This is the engine's own
-#     authoritative signal — fires once per session at final-handoff
-#     or teardown. Size-stability is treated as a hang fallback only,
-#     not a primary signal, because inter-chunk pauses can falsely
-#     trip a short stability window during a healthy generation.
+# (1) When --log-file is provided for diagnostic preview experiments:
+#     wait for the `[LivePreview] event=preview_completed` line. This is
+#     the diagnostic path's own authoritative signal. Size-stability is
+#     treated as a hang fallback only, not a primary signal, because
+#     inter-chunk pauses can falsely trip a short stability window during
+#     a healthy diagnostic preview session.
 #
 # (2) Without --log-file: fall back to size stability (5s of no growth).
 #     The 5s window must exceed normal inter-chunk gaps (~1.6s for
@@ -244,7 +244,7 @@ WALL=$(echo "scale=3; $T1 - $T0 - $ACTIVATION_OVERHEAD" | bc)
 #     read 0.000000 between streaming-write completion and
 #     finalWriter.finish() updating the RIFF header).
 #
-# (B) Otherwise (no log file, or batch path with no live preview),
+# (B) Otherwise (no log file, or final-file generation with no diagnostic preview),
 #     fall back to summing afinfo durations across all wavs newer
 #     than T0. Includes a retry loop for the header-finalization race.
 T0_INT=$(echo "$T0" | cut -d. -f1)

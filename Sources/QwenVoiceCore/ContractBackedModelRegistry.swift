@@ -3,6 +3,7 @@ import Foundation
 private struct ContractManifest: Decodable {
     let defaultSpeaker: String
     let speakers: [String: [String]]
+    let speakerMetadata: [String: SpeakerMetadata]?
     let models: [ModelDescriptor]
 }
 
@@ -25,6 +26,7 @@ public struct ContractBackedModelRegistry: ModelRegistry, Hashable, Sendable {
         case defaultSpeakerNotFound(String)
         case duplicateModelIDs([String])
         case duplicateModes([String])
+        case invalidSpeaker(id: String, reason: String)
         case invalidModel(id: String, reason: String)
 
         public var errorDescription: String? {
@@ -39,6 +41,8 @@ public struct ContractBackedModelRegistry: ModelRegistry, Hashable, Sendable {
                 return "Manifest contains duplicate model ids: \(ids.joined(separator: ", "))."
             case .duplicateModes(let modes):
                 return "Manifest contains duplicate model modes: \(modes.joined(separator: ", "))."
+            case .invalidSpeaker(let id, let reason):
+                return "Speaker '\(id)' is invalid: \(reason)"
             case .invalidModel(let id, let reason):
                 return "Model '\(id)' is invalid: \(reason)"
             }
@@ -59,9 +63,16 @@ public struct ContractBackedModelRegistry: ModelRegistry, Hashable, Sendable {
         self.models = manifest.models
 
         var grouped: [String: [SpeakerDescriptor]] = [:]
+        let metadata = manifest.speakerMetadata ?? [:]
         for group in manifest.speakers.keys.sorted() {
             let speakers = manifest.speakers[group] ?? []
-            grouped[group] = speakers.map { SpeakerDescriptor(group: group, id: $0) }
+            grouped[group] = speakers.map { speakerID in
+                SpeakerDescriptor(
+                    group: group,
+                    id: speakerID,
+                    metadata: metadata[speakerID]
+                )
+            }
         }
         self.groupedSpeakers = grouped
         self.defaultSpeaker = grouped
@@ -206,6 +217,7 @@ public struct ContractBackedModelRegistry: ModelRegistry, Hashable, Sendable {
         guard allSpeakers.contains(manifest.defaultSpeaker) else {
             throw Error.defaultSpeakerNotFound(manifest.defaultSpeaker)
         }
+        try validateSpeakers(allSpeakers: allSpeakers, metadata: manifest.speakerMetadata)
 
         let duplicateModelIDs = duplicateValues(in: manifest.models.map(\.id))
         guard duplicateModelIDs.isEmpty else {
@@ -219,6 +231,45 @@ public struct ContractBackedModelRegistry: ModelRegistry, Hashable, Sendable {
 
         for model in manifest.models {
             try validate(model: model, context: model.id)
+        }
+    }
+
+    private static func validateSpeakers(
+        allSpeakers: [String],
+        metadata: [String: SpeakerMetadata]?
+    ) throws {
+        let duplicateSpeakerIDs = duplicateValues(in: allSpeakers)
+        guard duplicateSpeakerIDs.isEmpty else {
+            throw Error.invalidSpeaker(
+                id: duplicateSpeakerIDs.joined(separator: ", "),
+                reason: "duplicate speaker id"
+            )
+        }
+
+        guard let metadata else {
+            return
+        }
+
+        let speakerSet = Set(allSpeakers)
+        for speakerID in allSpeakers {
+            guard metadata[speakerID] != nil else {
+                throw Error.invalidSpeaker(id: speakerID, reason: "missing speakerMetadata entry")
+            }
+        }
+
+        for (speakerID, speakerMetadata) in metadata {
+            guard speakerSet.contains(speakerID) else {
+                throw Error.invalidSpeaker(id: speakerID, reason: "metadata is not referenced by speakers")
+            }
+            guard !speakerMetadata.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw Error.invalidSpeaker(id: speakerID, reason: "missing displayName")
+            }
+            guard !speakerMetadata.nativeLanguage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw Error.invalidSpeaker(id: speakerID, reason: "missing nativeLanguage")
+            }
+            guard !speakerMetadata.shortDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw Error.invalidSpeaker(id: speakerID, reason: "missing shortDescription")
+            }
         }
     }
 

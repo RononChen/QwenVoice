@@ -25,4 +25,16 @@ extension ModelDescriptor {
     static var speakers: [String] { TTSContract.allSpeakers }
 
     static var allSpeakers: [String] { TTSContract.allSpeakers }
+
+    static var allSpeakerDescriptors: [SpeakerDescriptor] {
+        TTSContract.allSpeakerDescriptors
+    }
+
+    static func speakerDescriptor(id: String) -> SpeakerDescriptor? {
+        TTSContract.speakerDescriptor(id: id)
+    }
+
+    static func speakerPickerLabel(for id: String) -> String {
+        speakerDescriptor(id: id)?.annotatedDisplayName ?? id.capitalized
+    }
 }

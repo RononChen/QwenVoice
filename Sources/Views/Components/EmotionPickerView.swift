@@ -31,10 +31,10 @@ struct EmotionPickerView: View {
         }
 
         guard let selectedPreset else {
-            return "Normal tone"
+            return DeliveryProfile.neutralInstruction
         }
 
-        return selectedPreset.id == "neutral" ? "Normal tone" : selectedPreset.label
+        return selectedPreset.label
     }
 
     private var selectedOptionID: Binding<String> {
@@ -78,7 +78,7 @@ struct EmotionPickerView: View {
     private var tonePicker: some View {
         Picker(title, selection: selectedOptionID) {
             ForEach(EmotionPreset.all) { preset in
-                Text(preset.id == "neutral" ? "Normal tone" : preset.label)
+                Text(preset.label)
                     .tag(preset.id)
             }
 
@@ -138,7 +138,7 @@ struct EmotionPickerView: View {
         .animation(.easeInOut(duration: 0.2), value: showsIntensityPicker)
         .accessibilityIdentifier("\(accessibilityPrefix)_intensityPicker")
         .onChange(of: intensity) { _, _ in
-            if let selectedPreset {
+            if selectedPreset != nil {
                 applyCurrentSelection()
             }
         }
@@ -182,9 +182,11 @@ struct EmotionPickerView: View {
     }
 
     private func syncSelectionFromText() {
+        let trimmedEmotion = emotion.trimmingCharacters(in: .whitespacesAndNewlines)
+
         for preset in EmotionPreset.all {
             for level in EmotionIntensity.allCases {
-                if preset.instruction(for: level) == emotion {
+                if preset.instruction(for: level).caseInsensitiveCompare(trimmedEmotion) == .orderedSame {
                     selectedPreset = preset
                     intensity = level
                     isCustomMode = false
@@ -195,9 +197,9 @@ struct EmotionPickerView: View {
             }
         }
 
-        if !emotion.isEmpty && emotion != "Normal tone" {
+        if !DeliveryProfile.isNeutralInstruction(trimmedEmotion) {
             isCustomMode = true
-            customText = emotion
+            customText = trimmedEmotion
             selectedPreset = nil
             applyCurrentSelection()
         } else {

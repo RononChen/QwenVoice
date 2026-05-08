@@ -181,7 +181,7 @@ final class XPCNativeEngineClientTests: XCTestCase {
             outputPath: "",
             shouldStream: true,
             streamingInterval: 0.32,
-            payload: .custom(speakerID: "vivian", deliveryStyle: "Normal tone")
+            payload: .custom(speakerID: "vivian", deliveryStyle: "Neutral")
         )
         let expected = InteractivePrefetchDiagnostics(
             timingsMS: [

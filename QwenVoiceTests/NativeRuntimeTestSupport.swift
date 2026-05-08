@@ -41,9 +41,9 @@ enum NativeRuntimeTestSupport {
     ) throws -> URL {
         let manifestURL = root.appendingPathComponent("qwenvoice_contract.json")
         let payload: [String: Any] = [
-            "defaultSpeaker": "vivian",
+            "defaultSpeaker": "aiden",
             "speakers": [
-                "English": ["vivian"]
+                "English": ["aiden"]
             ],
             "models": models.map { model in
                 [
