@@ -46,7 +46,7 @@ public enum NativeMemoryPolicyResolver {
                 deviceClass: deviceClass,
                 cacheLimitBytes: 512 * 1_024 * 1_024,
                 clearCacheAfterGeneration: false,
-                unloadAfterIdleSeconds: 300
+                unloadAfterIdleSeconds: 600
             )
         case .highMemoryMac:
             return NativeMemoryPolicy(

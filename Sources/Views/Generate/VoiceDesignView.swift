@@ -9,14 +9,13 @@ struct VoiceDesignView: View {
     @ObservedObject private var modelManager: ModelManagerViewModel
     private let audioPlayer: AudioPlayerViewModel
     private let savedVoicesViewModel: SavedVoicesViewModel
-    private let appCommandRouter: AppCommandRouter
 
     private var activeMode: GenerationMode {
         .design
     }
 
     private var activeModel: TTSModel? {
-        TTSModel.model(for: activeMode)
+        modelManager.generationActiveVariant(for: activeMode)
     }
 
     private var isModelAvailable: Bool {
@@ -25,7 +24,7 @@ struct VoiceDesignView: View {
     }
 
     private var modelDisplayName: String {
-        activeModel?.name ?? "Unknown"
+        activeModel.map(modelManager.generationVariantDisplayName) ?? "Unknown"
     }
 
     private var canGenerate: Bool {
@@ -50,15 +49,13 @@ struct VoiceDesignView: View {
         ttsEngineStore: TTSEngineStore,
         audioPlayer: AudioPlayerViewModel,
         modelManager: ModelManagerViewModel,
-        savedVoicesViewModel: SavedVoicesViewModel,
-        appCommandRouter: AppCommandRouter
+        savedVoicesViewModel: SavedVoicesViewModel
     ) {
         _draft = draft
         _ttsEngineStore = ObservedObject(wrappedValue: ttsEngineStore)
         _modelManager = ObservedObject(wrappedValue: modelManager)
         self.audioPlayer = audioPlayer
         self.savedVoicesViewModel = savedVoicesViewModel
-        self.appCommandRouter = appCommandRouter
     }
 
     var body: some View {
@@ -74,6 +71,9 @@ struct VoiceDesignView: View {
             composerPanel
                 .layoutPriority(1)
         }
+        .onAppear(perform: reconcileGenerationVariantSelection)
+        .onChange(of: modelManager.statuses) { _, _ in reconcileGenerationVariantSelection() }
+        .onChange(of: modelManager.activeVariantRevision) { _, _ in reconcileGenerationVariantSelection() }
         .sheet(item: $coordinator.presentedSheet) { presentedSheet in
             switch presentedSheet {
             case .batch(let configuration):
@@ -109,6 +109,10 @@ struct VoiceDesignView: View {
             )
         }
     }
+
+    func reconcileGenerationVariantSelection() {
+        modelManager.reconcileGenerationVariantSelectionIfNeeded(for: activeMode)
+    }
 }
 
 // MARK: - Subviews
@@ -121,6 +125,7 @@ private extension VoiceDesignView {
             iconName: "slider.horizontal.3",
             accentColor: AppTheme.voiceDesign,
             trailingText: nil,
+            trailingAccessory: AnyView(variantSelector),
             rowSpacing: LayoutConstants.generationConfigurationRowSpacing,
             panelPadding: LayoutConstants.generationConfigurationPanelPadding,
             contentSlotHeight: LayoutConstants.generationConfigurationSlotHeight,
@@ -138,6 +143,16 @@ private extension VoiceDesignView {
             )
         }
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    var variantSelector: some View {
+        GenerationVariantSelector(
+            mode: activeMode,
+            modelManager: modelManager,
+            accentColor: AppTheme.voiceDesign,
+            accessibilityPrefix: "voiceDesign",
+            isDisabled: coordinator.isGenerating
+        )
     }
 
     var composerPanel: some View {
@@ -246,23 +261,6 @@ private extension VoiceDesignView {
 
     var composerFooter: some View {
         VStack(alignment: .leading, spacing: LayoutConstants.compactGap) {
-            if let model = activeModel,
-               let primaryActionTitle = modelManager.primaryActionTitle(for: model) {
-                ModelRecoveryCard(
-                    title: primaryActionTitle,
-                    detail: modelManager.recoveryDetail(for: model),
-                    primaryActionTitle: primaryActionTitle,
-                    accentColor: AppTheme.voiceDesign,
-                    accessibilityIdentifier: "voiceDesign_modelRecovery",
-                    onPrimaryAction: {
-                        Task { await modelManager.download(model) }
-                    },
-                    onSecondaryAction: {
-                        appCommandRouter.navigate(to: .settings)
-                    }
-                )
-            }
-
             generationReadiness
             saveVoiceAction
 

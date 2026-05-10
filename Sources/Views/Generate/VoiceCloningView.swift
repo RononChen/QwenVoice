@@ -49,10 +49,9 @@ struct VoiceCloningView: View {
     @ObservedObject private var modelManager: ModelManagerViewModel
     private let audioPlayer: AudioPlayerViewModel
     private let savedVoicesViewModel: SavedVoicesViewModel
-    private let appCommandRouter: AppCommandRouter
 
     private var cloneModel: TTSModel? {
-        TTSModel.model(for: .clone)
+        modelManager.generationActiveVariant(for: .clone)
     }
 
     private var isModelAvailable: Bool {
@@ -61,7 +60,7 @@ struct VoiceCloningView: View {
     }
 
     private var modelDisplayName: String {
-        cloneModel?.name ?? "Unknown"
+        cloneModel.map(modelManager.generationVariantDisplayName) ?? "Unknown"
     }
 
     private var canRunBatch: Bool {
@@ -166,8 +165,7 @@ struct VoiceCloningView: View {
         ttsEngineStore: TTSEngineStore,
         audioPlayer: AudioPlayerViewModel,
         modelManager: ModelManagerViewModel,
-        savedVoicesViewModel: SavedVoicesViewModel,
-        appCommandRouter: AppCommandRouter
+        savedVoicesViewModel: SavedVoicesViewModel
     ) {
         _draft = draft
         _pendingSavedVoiceHandoff = pendingSavedVoiceHandoff
@@ -175,7 +173,6 @@ struct VoiceCloningView: View {
         _modelManager = ObservedObject(wrappedValue: modelManager)
         self.audioPlayer = audioPlayer
         self.savedVoicesViewModel = savedVoicesViewModel
-        self.appCommandRouter = appCommandRouter
     }
 
     static func shouldStartDeferredClonePrewarm(
@@ -243,6 +240,8 @@ struct VoiceCloningView: View {
             )
         }
         .onAppear(perform: handleAppear)
+        .onChange(of: modelManager.statuses) { _, _ in reconcileGenerationVariantSelection() }
+        .onChange(of: modelManager.activeVariantRevision) { _, _ in reconcileGenerationVariantSelection() }
         .onChange(of: pendingSavedVoiceHandoff) { _, _ in
             coordinator.consumePendingSavedVoiceHandoffIfNeeded(
                 draft: $draft,
@@ -297,6 +296,7 @@ private extension VoiceCloningView {
             iconName: "slider.horizontal.3",
             accentColor: AppTheme.voiceCloning,
             trailingText: nil,
+            trailingAccessory: AnyView(variantSelector),
             rowSpacing: LayoutConstants.generationConfigurationRowSpacing,
             panelPadding: LayoutConstants.generationConfigurationPanelPadding,
             contentSlotHeight: LayoutConstants.generationConfigurationSlotHeight,
@@ -324,6 +324,16 @@ private extension VoiceCloningView {
             )
         }
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    var variantSelector: some View {
+        GenerationVariantSelector(
+            mode: .clone,
+            modelManager: modelManager,
+            accentColor: AppTheme.voiceCloning,
+            accessibilityPrefix: "voiceCloning",
+            isDisabled: coordinator.isGenerating
+        )
     }
 
     var composerPanel: some View {
@@ -361,7 +371,6 @@ private extension VoiceCloningView {
                 )
 
                 VoiceCloningComposerFooter(
-                    modelRecoveryCard: modelRecoveryCard,
                     isReadyForFastGenerate: readinessDescriptor.noteIsReady,
                     readinessTitle: readinessDescriptor.title,
                     readinessDetail: readinessDescriptor.detail,
@@ -378,33 +387,15 @@ private extension VoiceCloningView {
 
 private extension VoiceCloningView {
     func handleAppear() {
+        reconcileGenerationVariantSelection()
         coordinator.handleAppear(
             draft: $draft,
             pendingSavedVoiceHandoff: $pendingSavedVoiceHandoff
         )
     }
 
-    var modelRecoveryCard: AnyView? {
-        guard let model = cloneModel,
-              let primaryActionTitle = modelManager.primaryActionTitle(for: model) else {
-            return nil
-        }
-
-        return AnyView(
-            ModelRecoveryCard(
-                title: primaryActionTitle,
-                detail: modelManager.recoveryDetail(for: model),
-                primaryActionTitle: primaryActionTitle,
-                accentColor: AppTheme.voiceCloning,
-                accessibilityIdentifier: "voiceCloning_modelRecovery",
-                onPrimaryAction: {
-                    Task { await modelManager.download(model) }
-                },
-                onSecondaryAction: {
-                    appCommandRouter.navigate(to: .settings)
-                }
-            )
-        )
+    func reconcileGenerationVariantSelection() {
+        modelManager.reconcileGenerationVariantSelectionIfNeeded(for: .clone)
     }
 }
 
@@ -505,7 +496,6 @@ private struct VoiceCloningTranscriptSettings: View {
 // MARK: - Composer Footer
 
 private struct VoiceCloningComposerFooter: View {
-    let modelRecoveryCard: AnyView?
     let isReadyForFastGenerate: Bool
     let readinessTitle: String
     let readinessDetail: String
@@ -514,10 +504,6 @@ private struct VoiceCloningComposerFooter: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: LayoutConstants.compactGap) {
-            if let modelRecoveryCard {
-                modelRecoveryCard
-            }
-
             WorkflowReadinessNote(
                 isReady: isReadyForFastGenerate && !isGenerating,
                 title: isGenerating ? "Generating final audio" : readinessTitle,

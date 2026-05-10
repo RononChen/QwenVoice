@@ -2,13 +2,15 @@
 # scripts/bench_ui_generation.sh — timing primitives for the desktop-UI
 # Vocello generation benchmark.
 #
-# This is the timing helper called by an automation agent (or you) AFTER each
-# Cmd+Return to a foreground Vocello window. It does not drive the UI
-# itself — it only times the post-trigger pipeline (file appears →
-# size stable → audio decodable) and computes wall_secs / audio_secs /
-# RTF. Driving the UI (paste brief, paste script, click Generate / hit
-# Cmd+Return) lives in the automation driver's computer-control session because
-# Vocello's GenerationDraft state isn't surfaced via CLI.
+# This is the timing helper called by an automation agent (or you) around each
+# Generate action in a foreground Vocello window. By default it triggers
+# Cmd+Return itself for manual/non-agent runs. With --external-trigger it prints
+# READY_FOR_TRIGGER, leaves the UI action to Computer Use / Ordinateur, then
+# times the post-trigger pipeline (file appears → size stable → audio decodable)
+# and computes wall_secs / audio_secs / RTF. Driving the UI (paste brief, paste
+# script, click Generate / hit Cmd+Return) normally lives in the automation
+# driver's computer-control session because Vocello's GenerationDraft state
+# isn't surfaced via CLI.
 #
 # NO SWAP / RAM PREFLIGHT (by policy). The desktop-UI bench
 # characterises behaviour at the hardware floor including memory-
@@ -21,7 +23,7 @@
 # enabled.
 #
 # Usage:
-#   scripts/bench_ui_generation.sh <mode> <length> <state> <sample> [csv_path]
+#   scripts/bench_ui_generation.sh <mode> <length> <state> <sample> [csv_path] [--external-trigger]
 #
 #   mode      custom | design | clone
 #   length    label (micro / short / medium / long / very-long / ...)
@@ -46,9 +48,12 @@
 set -euo pipefail
 
 LOG_FILE=""
+EXTERNAL_TRIGGER=false
 POSITIONAL=()
 while [ $# -gt 0 ]; do
     case "$1" in
+        --external-trigger)
+            EXTERNAL_TRIGGER=true; shift ;;
         --log-file)
             LOG_FILE="$2"; shift 2 ;;
         --log-file=*)
@@ -56,13 +61,17 @@ while [ $# -gt 0 ]; do
         -h|--help)
             cat <<'USAGE'
 Usage: bench_ui_generation.sh <mode> <length> <state> <sample> [csv_path]
-                              [--log-file <path>]
+                              [--external-trigger] [--log-file <path>]
 
   mode       custom | design | clone
   length     label (micro / short / medium / long / very-long / ...)
   state      cold | warm
   sample     numeric sample number (1, 2, 3, ...)
   csv_path   optional; default /tmp/vocello-ui-bench-results.csv
+  --external-trigger
+             print READY_FOR_TRIGGER and wait for an external UI driver
+             (Computer Use / Ordinateur) to trigger Generate. This avoids
+             agent-run UI automation through AppleScript.
   --log-file optional; when provided, the script reads `[LivePreview]`
              trace lines emitted during this sample's timing window
              and adds anomaly columns to the CSV (underrun_count,
@@ -73,8 +82,8 @@ Usage: bench_ui_generation.sh <mode> <length> <state> <sample> [csv_path]
                nohup .../Vocello > /tmp/vocello-bench.log 2>&1 &
 
 Vocello must be the foreground app with the script + (for design)
-brief fields populated. The script issues Cmd+Return to trigger
-generation, then times wall-clock to file size stability.
+brief fields populated. Without --external-trigger the script issues
+Cmd+Return itself, then times wall-clock to file size stability.
 USAGE
             exit 0 ;;
         *)
@@ -107,6 +116,12 @@ HDR_SIZE=4096
 # generation handoff; subtract it so wall_secs reflects actual
 # generation time rather than activation overhead.
 ACTIVATION_OVERHEAD=1.5
+if [ "$EXTERNAL_TRIGGER" = "true" ]; then
+    # External mode is driven by Computer Use / Ordinateur. The script
+    # starts timing immediately after READY_FOR_TRIGGER is printed, so the
+    # caller should trigger Generate promptly.
+    ACTIVATION_OVERHEAD=0
+fi
 
 [ -d "$OUT" ] || { echo "output dir not found: $OUT" >&2; exit 3; }
 
@@ -143,15 +158,23 @@ if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
     LOG_OFFSET_BEFORE=$(stat -f %z "$LOG_FILE" 2>/dev/null || echo 0)
 fi
 
-osascript -e 'tell application "Vocello" to activate' 2>/dev/null
-sleep 0.4
+if [ "$EXTERNAL_TRIGGER" != "true" ]; then
+    osascript -e 'tell application "Vocello" to activate' 2>/dev/null
+    sleep 0.4
+fi
+
+if [ "$EXTERNAL_TRIGGER" = "true" ]; then
+    echo "READY_FOR_TRIGGER"
+fi
 
 T0=$(date +%s.%N)
 # Reference file pinned at T0 for portable `find -newer` (BSD find on
 # macOS doesn't accept the GNU/bfs `-newermt "@<epoch>"` syntax).
 T0_REF=$(mktemp -t bench-t0.XXXXXX)
 trap 'rm -f "$T0_REF"' EXIT
-osascript -e 'tell application "System Events" to keystroke return using command down'
+if [ "$EXTERNAL_TRIGGER" != "true" ]; then
+    osascript -e 'tell application "System Events" to keystroke return using command down'
+fi
 
 # Wait for the first new wav to appear (max ~180s of 0.1s polls)
 NEW=""

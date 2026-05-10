@@ -184,6 +184,43 @@ final class ModelManagerViewModel: ObservableObject {
         activeVariant(for: model.mode)?.id == model.id
     }
 
+    func variant(for mode: GenerationMode, kind: TTSModelVariantKind) -> TTSModel? {
+        let pair = pairedVariants(for: mode)
+        switch kind {
+        case .speed:
+            return pair.speed
+        case .quality:
+            return pair.quality
+        }
+    }
+
+    func hasInstalledVariant(for mode: GenerationMode) -> Bool {
+        let pair = pairedVariants(for: mode)
+        return [pair.speed, pair.quality].compactMap { $0 }.contains(where: isAvailable)
+    }
+
+    func generationActiveVariant(for mode: GenerationMode) -> TTSModel? {
+        if let active = activeVariant(for: mode), isAvailable(active) {
+            return active
+        }
+        return installedFallbackVariant(for: mode)
+    }
+
+    func isGenerationVariantSelectable(for mode: GenerationMode, kind: TTSModelVariantKind) -> Bool {
+        guard let model = variant(for: mode, kind: kind) else { return false }
+        return isAvailable(model)
+    }
+
+    @discardableResult
+    func reconcileGenerationVariantSelectionIfNeeded(for mode: GenerationMode) -> TTSModel? {
+        guard let active = activeVariant(for: mode) else { return nil }
+        guard !isAvailable(active) else { return active }
+        guard let fallback = installedFallbackVariant(for: mode) else { return active }
+
+        use(fallback)
+        return fallback
+    }
+
     /// Returns the Speed and Quality variants for a generation
     /// mode in display order. Either side can be `nil` if the
     /// manifest doesn't include that variant kind for the mode
@@ -215,6 +252,15 @@ final class ModelManagerViewModel: ObservableObject {
         return TTSModel.all.first { $0.mode == mode && $0.variantKind == preferredKind }
             ?? TTSModel.all.first { $0.mode == mode && $0.isHardwareRecommended }
             ?? TTSModel.all.first { $0.mode == mode }
+    }
+
+    private func installedFallbackVariant(for mode: GenerationMode) -> TTSModel? {
+        let pair = pairedVariants(for: mode)
+        let candidates = [recommendedVariant(for: mode), pair.speed, pair.quality].compactMap { $0 }
+        var seen = Set<String>()
+        return candidates.first { candidate in
+            seen.insert(candidate.id).inserted && isAvailable(candidate)
+        }
     }
 
     func isHardwareRecommended(_ model: TTSModel) -> Bool {
@@ -283,6 +329,26 @@ final class ModelManagerViewModel: ObservableObject {
         let bits = model.variantKind?.bitDepthLabel
         guard let bits, !bits.isEmpty else { return kind }
         return "\(kind) (\(bits))"
+    }
+
+    func generationVariantDisplayName(for model: TTSModel) -> String {
+        "\(model.name) \(activeVariantLabel(for: model))"
+    }
+
+    func generationVariantStatusLabel(for model: TTSModel) -> String {
+        let presentation = packagePresentation(for: model)
+        switch presentation.kind {
+        case .checking:
+            return "Checking"
+        case .ready:
+            return "Ready"
+        case .notInstalled:
+            return "Download"
+        case .needsRepair:
+            return "Repair"
+        case .downloading:
+            return presentation.label
+        }
     }
 
     func modePurpose(for mode: GenerationMode) -> String {
@@ -435,13 +501,14 @@ final class ModelManagerViewModel: ObservableObject {
 
     func recoveryDetail(for model: TTSModel) -> String {
         let snapshot = info(for: model)
+        let displayName = generationVariantDisplayName(for: model)
         if snapshot.requiresRepair {
             if !snapshot.missingRequiredPaths.isEmpty {
-                return "Some required files are missing. Repair \(model.name) to finish installing it."
+                return "Some required files are missing. Repair \(displayName) to finish installing it."
             }
-            return "The local model files are incomplete. Repair \(model.name) to keep using \(model.mode.displayName)."
+            return "The local model files are incomplete. Repair \(displayName) to keep using \(model.mode.displayName)."
         }
-        return "Install \(model.name) to enable \(model.mode.displayName)."
+        return "Install \(displayName) to enable \(model.mode.displayName)."
     }
 
     func download(_ model: TTSModel) async {

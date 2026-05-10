@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import QwenVoiceCore
 import QwenVoiceNative
 
 struct SavedVoiceCloneHandoffPlan: Equatable {
@@ -117,8 +118,8 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 
     @MainActor
     func isAvailable(using modelManager: ModelManagerViewModel) -> Bool {
-        guard let requiredModel else { return true }
-        return modelManager.isAvailable(requiredModel)
+        guard let generationMode else { return true }
+        return modelManager.hasInstalledVariant(for: generationMode)
     }
 
     @MainActor static func defaultInitialSelection(
@@ -180,8 +181,7 @@ struct ContentView: View {
     }
 
     private var canUseSavedVoicesInVoiceCloning: Bool {
-        guard let cloneModel = SidebarItem.voiceCloning.requiredModel else { return false }
-        return modelManager.isAvailable(cloneModel)
+        modelManager.hasInstalledVariant(for: .clone)
     }
 
     private var currentDisabledSidebarIdentifiers: String {
@@ -288,6 +288,9 @@ struct ContentView: View {
         .onAppear(perform: handleAppear)
         .task { await handleInitialLoad() }
         .onChange(of: selectedItem) { _, newValue in handleSelectionChange(newValue) }
+        .onChange(of: customVoiceDraft) { _, _ in handleGenerationDraftChange() }
+        .onChange(of: voiceDesignDraft) { _, _ in handleGenerationDraftChange() }
+        .onChange(of: voiceCloningDraft) { _, _ in handleGenerationDraftChange() }
         .onChange(of: voiceCloningDraft.selectedSavedVoiceID) { _, newValue in
             handleVoiceCloningSavedVoiceIDChange(newValue)
         }
@@ -344,9 +347,12 @@ struct ContentView: View {
                 enrollRequestID: voicesEnrollRequestID,
                 canUseInVoiceCloning: canUseSavedVoicesInVoiceCloning,
                 onUseInVoiceCloning: { voice in
+                    let cloneModel = modelManager.generationActiveVariant(for: .clone)
                     let plan = Self.savedVoiceCloneHandoffPlan(
                         for: voice,
-                        cloneModelID: TTSModel.model(for: .clone)?.id
+                        cloneModelID: cloneModel.flatMap { model in
+                            modelManager.isAvailable(model) ? model.id : nil
+                        }
                     )
                     startSavedVoiceCloningHandoff(plan)
                 }
@@ -384,7 +390,16 @@ struct ContentView: View {
             !cloneModelID.isEmpty else {
             return
         }
-        await engineStore.ensureModelLoadedIfNeeded(id: cloneModelID)
+        let trimmedTranscript = plan.handoff.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reference = CloneReference(
+            audioPath: plan.handoff.wavPath,
+            transcript: trimmedTranscript.isEmpty ? nil : trimmedTranscript,
+            preparedVoiceID: plan.handoff.savedVoiceID
+        )
+        try? await engineStore.ensureCloneReferencePrimed(
+            modelID: cloneModelID,
+            reference: reference
+        )
     }
 
     private func handleInitialLoad() async {
@@ -393,7 +408,7 @@ struct ContentView: View {
         if !isPreservingLaunchOverrideSelection {
             reconcileSelectionWithAvailability()
         }
-        scheduleGenerationWarmupIfNeeded(for: selectedItem)
+        scheduleGenerationWarmupIfNeeded(for: selectedItem, allowClonePrime: false)
     }
 
     private func handleSelectionChange(_ newValue: SidebarItem?) {
@@ -425,6 +440,11 @@ struct ContentView: View {
 
     private func handleEngineSnapshotChange(_ newSnapshot: TTSEngineSnapshot) {
         generationWarmupCoordinator.observe(snapshot: newSnapshot)
+        scheduleGenerationWarmupIfNeeded(for: selectedItem)
+    }
+
+    private func handleGenerationDraftChange() {
+        guard didCompleteInitialAvailabilityRefresh else { return }
         scheduleGenerationWarmupIfNeeded(for: selectedItem)
     }
 
@@ -460,18 +480,76 @@ struct ContentView: View {
         self.selectedItem = .settings
     }
 
-    private func scheduleGenerationWarmupIfNeeded(for item: SidebarItem?) {
-        guard let item,
-              let model = item.requiredModel else {
-            generationWarmupCoordinator.cancelPendingWarmup()
-            return
-        }
+    private func scheduleGenerationWarmupIfNeeded(
+        for item: SidebarItem?,
+        allowClonePrime: Bool = true
+    ) {
+        let context = warmupContext(for: item, allowClonePrime: allowClonePrime)
         generationWarmupCoordinator.scheduleWarmupIfNeeded(
-            mode: item.generationMode,
-            modelID: model.id,
-            isModelAvailable: modelManager.isAvailable(model),
+            context: context,
             snapshot: ttsEngineStore.snapshot,
             ttsEngineStore: ttsEngineStore
+        )
+    }
+
+    private func warmupContext(
+        for item: SidebarItem?,
+        allowClonePrime: Bool
+    ) -> MacGenerationWarmupCoordinator.WarmupContext? {
+        guard let item,
+              let mode = item.generationMode,
+              let model = modelManager.generationActiveVariant(for: mode) else {
+            return nil
+        }
+
+        let identity: MacGenerationWarmupCoordinator.WarmupIdentity
+        let reference: CloneReference?
+        switch mode {
+        case .custom:
+            identity = .custom(
+                speakerID: customVoiceDraft.selectedSpeaker,
+                deliveryStyle: customVoiceDraft.emotion
+            )
+            reference = nil
+        case .design:
+            identity = .design(
+                brief: voiceDesignDraft.voiceDescription,
+                deliveryStyle: voiceDesignDraft.emotion,
+                bucket: GenerationSemantics.designWarmBucket(for: voiceDesignDraft.text)
+            )
+            reference = nil
+        case .clone:
+            if allowClonePrime,
+               let referenceAudioPath = voiceCloningDraft.referenceAudioPath?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !referenceAudioPath.isEmpty {
+                let cloneReference = CloneReference(
+                    audioPath: referenceAudioPath,
+                    transcript: voiceCloningDraft.trimmedReferenceTranscript,
+                    preparedVoiceID: voiceCloningDraft.selectedSavedVoiceID
+                )
+                reference = cloneReference
+                identity = .clone(
+                    referenceKey: GenerationSemantics.clonePreparationKey(
+                        modelID: model.id,
+                        reference: cloneReference
+                    ),
+                    preparedVoiceID: voiceCloningDraft.selectedSavedVoiceID
+                )
+            } else {
+                reference = nil
+                identity = .modelOnly
+            }
+        }
+
+        return MacGenerationWarmupCoordinator.WarmupContext(
+            mode: mode,
+            modelID: model.id,
+            isModelAvailable: modelManager.isAvailable(model),
+            identity: identity,
+            purpose: .finalGenerationReadiness,
+            deviceClass: modelManager.deviceClass,
+            cloneReference: reference
         )
     }
 }
@@ -482,15 +560,13 @@ private struct CustomVoiceScreenHost: View {
     @EnvironmentObject private var ttsEngineStore: TTSEngineStore
     @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
     @EnvironmentObject private var modelManager: ModelManagerViewModel
-    @EnvironmentObject private var appCommandRouter: AppCommandRouter
 
     var body: some View {
         CustomVoiceView(
             draft: $draft,
             ttsEngineStore: ttsEngineStore,
             audioPlayer: audioPlayer,
-            modelManager: modelManager,
-            appCommandRouter: appCommandRouter
+            modelManager: modelManager
         )
     }
 }
@@ -502,7 +578,6 @@ private struct VoiceDesignScreenHost: View {
     @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
     @EnvironmentObject private var modelManager: ModelManagerViewModel
     @EnvironmentObject private var savedVoicesViewModel: SavedVoicesViewModel
-    @EnvironmentObject private var appCommandRouter: AppCommandRouter
 
     var body: some View {
         VoiceDesignView(
@@ -510,8 +585,7 @@ private struct VoiceDesignScreenHost: View {
             ttsEngineStore: ttsEngineStore,
             audioPlayer: audioPlayer,
             modelManager: modelManager,
-            savedVoicesViewModel: savedVoicesViewModel,
-            appCommandRouter: appCommandRouter
+            savedVoicesViewModel: savedVoicesViewModel
         )
     }
 }
@@ -524,7 +598,6 @@ private struct VoiceCloningScreenHost: View {
     @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
     @EnvironmentObject private var modelManager: ModelManagerViewModel
     @EnvironmentObject private var savedVoicesViewModel: SavedVoicesViewModel
-    @EnvironmentObject private var appCommandRouter: AppCommandRouter
 
     var body: some View {
         VoiceCloningView(
@@ -533,8 +606,7 @@ private struct VoiceCloningScreenHost: View {
             ttsEngineStore: ttsEngineStore,
             audioPlayer: audioPlayer,
             modelManager: modelManager,
-            savedVoicesViewModel: savedVoicesViewModel,
-            appCommandRouter: appCommandRouter
+            savedVoicesViewModel: savedVoicesViewModel
         )
     }
 }

@@ -237,6 +237,80 @@ final class ModelManagerViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isActive(qualityModel))
     }
 
+    @MainActor
+    func testGenerationVariantHelpersFallbackToInstalledSibling() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let speedModel = try XCTUnwrap(TTSModel.model(id: "pro_custom_speed"))
+        let qualityModel = try XCTUnwrap(TTSModel.model(id: "pro_custom_quality"))
+        try createInstalledModelFixture(for: speedModel, in: tempRoot)
+
+        try withClearedVariantPreferences {
+            MacModelVariantPreferences.setSelectedVariantID("quality", for: .custom, defaults: .standard)
+
+            let viewModel = ModelManagerViewModel(modelsDirectory: tempRoot, deviceClass: .floor8GBMac)
+
+            XCTAssertEqual(viewModel.variant(for: .custom, kind: .speed)?.id, speedModel.id)
+            XCTAssertEqual(viewModel.variant(for: .custom, kind: .quality)?.id, qualityModel.id)
+            XCTAssertTrue(viewModel.hasInstalledVariant(for: .custom))
+            XCTAssertFalse(viewModel.isAvailable(qualityModel))
+            XCTAssertTrue(viewModel.isGenerationVariantSelectable(for: .custom, kind: .speed))
+            XCTAssertFalse(viewModel.isGenerationVariantSelectable(for: .custom, kind: .quality))
+            XCTAssertEqual(viewModel.generationActiveVariant(for: .custom)?.id, speedModel.id)
+            XCTAssertTrue(
+                SidebarItem.customVoice.isAvailable(using: viewModel),
+                "The generation tab should stay reachable when a selected variant is missing but an installed sibling is ready."
+            )
+
+            XCTAssertEqual(
+                viewModel.reconcileGenerationVariantSelectionIfNeeded(for: .custom)?.id,
+                speedModel.id
+            )
+            XCTAssertEqual(
+                MacModelVariantPreferences.selectedVariantID(
+                    for: .custom,
+                    defaultVariantID: nil
+                ),
+                "speed",
+                "A stale selected variant should persistently reconcile to the installed sibling so generation does not show a download card."
+            )
+            XCTAssertTrue(viewModel.isActive(speedModel))
+            XCTAssertEqual(viewModel.generationVariantStatusLabel(for: qualityModel), "Download")
+            XCTAssertEqual(viewModel.generationVariantDisplayName(for: qualityModel), "Custom Voice Quality (8-bit)")
+        }
+    }
+
+    @MainActor
+    func testGenerationTabDisabledWhenNoVariantForModeIsInstalled() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        try withClearedVariantPreferences {
+            let viewModel = ModelManagerViewModel(modelsDirectory: tempRoot)
+
+            XCTAssertFalse(viewModel.hasInstalledVariant(for: .design))
+            XCTAssertFalse(viewModel.isGenerationVariantSelectable(for: .design, kind: .speed))
+            XCTAssertFalse(viewModel.isGenerationVariantSelectable(for: .design, kind: .quality))
+            XCTAssertNil(viewModel.generationActiveVariant(for: .design))
+            XCTAssertFalse(SidebarItem.voiceDesign.isAvailable(using: viewModel))
+        }
+    }
+
+    @MainActor
+    func testRecoveryDetailNamesSelectedVariantAndBitDepth() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let qualityModel = try XCTUnwrap(TTSModel.model(id: "pro_design_quality"))
+        let viewModel = ModelManagerViewModel(modelsDirectory: tempRoot)
+
+        XCTAssertTrue(
+            viewModel.recoveryDetail(for: qualityModel).contains("Voice Design Quality (8-bit)"),
+            "Recovery copy should identify the exact selected package instead of the base mode name."
+        )
+    }
+
     /// Audit Finding B coverage — when the user deletes a variant
     /// that is currently Active AND a sibling variant for the
     /// same mode is still installed, the preference must

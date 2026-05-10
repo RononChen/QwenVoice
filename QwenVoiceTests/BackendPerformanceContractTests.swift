@@ -257,7 +257,7 @@ final class BackendPerformanceContractTests: XCTestCase {
         )
         XCTAssertEqual(midBatchPolicy.cacheLimitBytes, 512 * 1_024 * 1_024)
         XCTAssertFalse(midBatchPolicy.clearCacheAfterGeneration)
-        XCTAssertEqual(midBatchPolicy.unloadAfterIdleSeconds, 300)
+        XCTAssertEqual(midBatchPolicy.unloadAfterIdleSeconds, 600)
         XCTAssertEqual(NativeMemoryPolicyResolver.cloneCacheCapacity(deviceClass: .mid16GBMac), 8)
         XCTAssertNil(NativeMemoryPolicyResolver.postBatchTrimLevel(deviceClass: .mid16GBMac))
 

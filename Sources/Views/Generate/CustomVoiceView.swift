@@ -125,14 +125,13 @@ struct CustomVoiceView: View {
     @ObservedObject private var ttsEngineStore: TTSEngineStore
     @ObservedObject private var modelManager: ModelManagerViewModel
     private let audioPlayer: AudioPlayerViewModel
-    private let appCommandRouter: AppCommandRouter
 
     private var activeMode: GenerationMode {
         .custom
     }
 
     private var activeModel: TTSModel? {
-        TTSModel.model(for: activeMode)
+        modelManager.generationActiveVariant(for: activeMode)
     }
 
     private var isModelAvailable: Bool {
@@ -141,7 +140,7 @@ struct CustomVoiceView: View {
     }
 
     private var modelDisplayName: String {
-        activeModel?.name ?? "Unknown"
+        activeModel.map(modelManager.generationVariantDisplayName) ?? "Unknown"
     }
 
     private var readinessPresentation: CustomVoiceReadinessPresentation {
@@ -170,14 +169,12 @@ struct CustomVoiceView: View {
         draft: Binding<CustomVoiceDraft>,
         ttsEngineStore: TTSEngineStore,
         audioPlayer: AudioPlayerViewModel,
-        modelManager: ModelManagerViewModel,
-        appCommandRouter: AppCommandRouter
+        modelManager: ModelManagerViewModel
     ) {
         _draft = draft
         _ttsEngineStore = ObservedObject(wrappedValue: ttsEngineStore)
         _modelManager = ObservedObject(wrappedValue: modelManager)
         self.audioPlayer = audioPlayer
-        self.appCommandRouter = appCommandRouter
     }
 
     var body: some View {
@@ -193,6 +190,9 @@ struct CustomVoiceView: View {
             composerPanel
                 .layoutPriority(1)
         }
+        .onAppear(perform: reconcileGenerationVariantSelection)
+        .onChange(of: modelManager.statuses) { _, _ in reconcileGenerationVariantSelection() }
+        .onChange(of: modelManager.activeVariantRevision) { _, _ in reconcileGenerationVariantSelection() }
         .sheet(item: $coordinator.presentedSheet) { presentedSheet in
             switch presentedSheet {
             case .batch(let configuration):
@@ -211,6 +211,10 @@ struct CustomVoiceView: View {
             }
         }
     }
+
+    func reconcileGenerationVariantSelection() {
+        modelManager.reconcileGenerationVariantSelectionIfNeeded(for: activeMode)
+    }
 }
 
 // MARK: - Subviews
@@ -222,6 +226,7 @@ private extension CustomVoiceView {
             detail: "Pick a built-in speaker, then shape the delivery before you generate.",
             iconName: "slider.horizontal.3",
             accentColor: AppTheme.customVoice,
+            trailingAccessory: AnyView(variantSelector),
             rowSpacing: LayoutConstants.generationConfigurationRowSpacing,
             panelPadding: LayoutConstants.generationConfigurationPanelPadding,
             contentSlotHeight: LayoutConstants.generationConfigurationSlotHeight,
@@ -240,6 +245,16 @@ private extension CustomVoiceView {
         }
         .animation(.none, value: draft.selectedSpeaker)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    var variantSelector: some View {
+        GenerationVariantSelector(
+            mode: activeMode,
+            modelManager: modelManager,
+            accentColor: AppTheme.customVoice,
+            accessibilityPrefix: "customVoice",
+            isDisabled: coordinator.isGenerating
+        )
     }
 
     var composerPanel: some View {
@@ -320,23 +335,6 @@ private extension CustomVoiceView {
 
     var composerFooter: some View {
         VStack(alignment: .leading, spacing: LayoutConstants.compactGap) {
-            if let model = activeModel,
-               let primaryActionTitle = modelManager.primaryActionTitle(for: model) {
-                ModelRecoveryCard(
-                    title: primaryActionTitle,
-                    detail: modelManager.recoveryDetail(for: model),
-                    primaryActionTitle: primaryActionTitle,
-                    accentColor: AppTheme.customVoice,
-                    accessibilityIdentifier: "customVoice_modelRecovery",
-                    onPrimaryAction: {
-                        Task { await modelManager.download(model) }
-                    },
-                    onSecondaryAction: {
-                        appCommandRouter.navigate(to: .settings)
-                    }
-                )
-            }
-
             generationReadiness
 
             if let errorMessage = coordinator.errorMessage {

@@ -5,37 +5,103 @@ import QwenVoiceNative
 
 @MainActor
 final class MacGenerationWarmupCoordinator: ObservableObject {
-    struct WarmupRequest: Equatable {
+    enum WarmupPurpose: String, Equatable, Sendable {
+        case finalGenerationReadiness
+        case livePreviewReadiness
+    }
+
+    enum WarmupAggressiveness: String, Equatable, Sendable {
+        case disabled
+        case modelOnly
+        case modelAndLightConditioning
+        case fullInteractiveReadiness
+    }
+
+    enum WarmupIdentity: Equatable, Sendable {
+        case modelOnly
+        case custom(speakerID: String, deliveryStyle: String?)
+        case design(
+            brief: String,
+            deliveryStyle: String?,
+            bucket: GenerationSemantics.DesignWarmBucket
+        )
+        case clone(referenceKey: String, preparedVoiceID: String?)
+    }
+
+    struct WarmupContext: Equatable, Sendable {
         let mode: GenerationMode
         let modelID: String
+        let isModelAvailable: Bool
+        let identity: WarmupIdentity
+        let purpose: WarmupPurpose
+        let deviceClass: NativeDeviceMemoryClass
+        let cloneReference: CloneReference?
+
+        init(
+            mode: GenerationMode,
+            modelID: String,
+            isModelAvailable: Bool,
+            identity: WarmupIdentity,
+            purpose: WarmupPurpose = .finalGenerationReadiness,
+            deviceClass: NativeDeviceMemoryClass = NativeMemoryPolicyResolver.deviceClass(),
+            cloneReference: CloneReference? = nil
+        ) {
+            self.mode = mode
+            self.modelID = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.isModelAvailable = isModelAvailable
+            self.identity = identity
+            self.purpose = purpose
+            self.deviceClass = deviceClass
+            self.cloneReference = cloneReference
+        }
+    }
+
+    enum WarmupDecision: Equatable, Sendable {
+        case skip(reason: String)
+        case ensureModelLoaded(modelID: String)
+        case prefetchInteractiveReadiness(GenerationRequest)
+        case primeCloneReference(modelID: String, reference: CloneReference)
+
+        var isModelOnly: Bool {
+            if case .ensureModelLoaded = self {
+                return true
+            }
+            return false
+        }
     }
 
     private enum WarmupAction: Equatable {
-        case warm
-        case transitionFromLoadedModel
+        case warm(WarmupDecision)
+        case transitionFromLoadedModel(WarmupDecision)
     }
 
     private struct WarmupPlan: Equatable {
-        let request: WarmupRequest
+        let context: WarmupContext
         let action: WarmupAction
     }
 
     private let debounce: Duration
     private let customVoiceDebounce: Duration
+    private let designDebounce: Duration
+    private let cloneDebounce: Duration
     private let modeTransitionDebounce: Duration
     private var pendingTask: Task<Void, Never>?
     private var pendingPlan: WarmupPlan?
-    private var dispatchedRequest: WarmupRequest?
-    private var completedRequest: WarmupRequest?
+    private var dispatchedContext: WarmupContext?
+    private var completedContext: WarmupContext?
     private var revision: UInt64 = 0
 
     init(
         debounce: Duration = .milliseconds(300),
         customVoiceDebounce: Duration = .milliseconds(100),
+        designDebounce: Duration = .milliseconds(800),
+        cloneDebounce: Duration = .milliseconds(500),
         modeTransitionDebounce: Duration = .milliseconds(900)
     ) {
         self.debounce = debounce
         self.customVoiceDebounce = customVoiceDebounce
+        self.designDebounce = designDebounce
+        self.cloneDebounce = cloneDebounce
         self.modeTransitionDebounce = modeTransitionDebounce
     }
 
@@ -48,26 +114,63 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
     ) {
         guard let mode,
               let modelID,
-              isModelAvailable,
+              !modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            cancelPendingWarmup()
+            return
+        }
+
+        let identity: WarmupIdentity
+        switch mode {
+        case .custom:
+            identity = .custom(
+                speakerID: GenerationSemantics.canonicalCustomWarmSpeaker,
+                deliveryStyle: GenerationSemantics.canonicalCustomWarmInstruction()
+            )
+        case .design, .clone:
+            identity = .modelOnly
+        }
+
+        let context = WarmupContext(
+            mode: mode,
+            modelID: modelID,
+            isModelAvailable: isModelAvailable,
+            identity: identity,
+            purpose: .livePreviewReadiness,
+            deviceClass: NativeMemoryPolicyResolver.deviceClass()
+        )
+        scheduleWarmupIfNeeded(
+            context: context,
+            snapshot: snapshot,
+            ttsEngineStore: ttsEngineStore
+        )
+    }
+
+    func scheduleWarmupIfNeeded(
+        context: WarmupContext?,
+        snapshot: TTSEngineSnapshot,
+        ttsEngineStore: TTSEngineStore
+    ) {
+        guard let context,
+              !context.modelID.isEmpty,
+              context.isModelAvailable,
               snapshot.isReady else {
             cancelPendingWarmup()
             return
         }
 
-        let request = WarmupRequest(mode: mode, modelID: modelID)
-        guard let action = warmupAction(snapshot: snapshot, request: request) else {
+        guard let action = warmupAction(snapshot: snapshot, context: context) else {
             cancelPendingWarmup()
             return
         }
-        guard completedRequest != request else {
+        guard completedContext != context else {
             cancelPendingWarmup()
             return
         }
-        guard dispatchedRequest == nil else {
+        guard dispatchedContext == nil else {
             cancelPendingWarmup()
             return
         }
-        let plan = WarmupPlan(request: request, action: action)
+        let plan = WarmupPlan(context: context, action: action)
         guard pendingPlan != plan else { return }
 
         revision += 1
@@ -86,30 +189,30 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
                   !Task.isCancelled,
                   self.revision == scheduledRevision,
                   self.pendingPlan == plan,
-                  self.dispatchedRequest == nil,
+                  self.dispatchedContext == nil,
                   ttsEngineStore.snapshot.isReady,
                   self.warmupAction(
                     snapshot: ttsEngineStore.snapshot,
-                    request: plan.request
+                    context: plan.context
                   ) == plan.action else {
                 return
             }
 
             self.pendingPlan = nil
-            self.dispatchedRequest = plan.request
+            self.dispatchedContext = plan.context
             defer {
-                if self.dispatchedRequest == plan.request {
-                    self.dispatchedRequest = nil
+                if self.dispatchedContext == plan.context {
+                    self.dispatchedContext = nil
                 }
             }
 
             switch plan.action {
-            case .warm:
+            case .warm(let decision):
                 await self.performWarmup(
-                    for: plan.request,
+                    decision,
                     ttsEngineStore: ttsEngineStore
                 )
-            case .transitionFromLoadedModel:
+            case .transitionFromLoadedModel(let decision):
                 do {
                     try await ttsEngineStore.unloadModel()
                 } catch {
@@ -121,19 +224,19 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
                       ttsEngineStore.snapshot.isReady,
                       self.warmupAction(
                         snapshot: ttsEngineStore.snapshot,
-                        request: plan.request
-                      ) == .warm else {
+                        context: plan.context
+                      ) == .warm(decision) else {
                     return
                 }
                 await self.performWarmup(
-                    for: plan.request,
+                    decision,
                     ttsEngineStore: ttsEngineStore
                 )
             }
 
             if case .loaded(let loadedModelID) = ttsEngineStore.snapshot.loadState,
-               loadedModelID == plan.request.modelID {
-                self.completedRequest = plan.request
+               loadedModelID == plan.context.modelID {
+                self.completedContext = plan.context
             }
         }
     }
@@ -152,34 +255,95 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
 
         switch snapshot.loadState {
         case .idle:
-            dispatchedRequest = nil
-            completedRequest = nil
+            dispatchedContext = nil
+            completedContext = nil
         case .loaded(let modelID):
-            dispatchedRequest = nil
-            if completedRequest?.modelID != modelID {
-                completedRequest = nil
+            dispatchedContext = nil
+            if completedContext?.modelID != modelID {
+                completedContext = nil
             }
         case .failed:
-            dispatchedRequest = nil
-            completedRequest = nil
+            dispatchedContext = nil
+            completedContext = nil
         case .starting, .running:
-            completedRequest = nil
+            completedContext = nil
             break
+        }
+    }
+
+    func aggressiveness(for context: WarmupContext) -> WarmupAggressiveness {
+        switch context.deviceClass {
+        case .floor8GBMac:
+            switch context.mode {
+            case .custom, .design:
+                return .modelAndLightConditioning
+            case .clone:
+                return context.cloneReference == nil ? .modelOnly : .fullInteractiveReadiness
+            }
+        case .mid16GBMac, .highMemoryMac:
+            return .fullInteractiveReadiness
+        case .iPhonePro:
+            return .modelOnly
+        }
+    }
+
+    func warmupDecision(for context: WarmupContext) -> WarmupDecision {
+        guard !context.modelID.isEmpty else {
+            return .skip(reason: "missing-model-id")
+        }
+        guard context.isModelAvailable else {
+            return .skip(reason: "model-unavailable")
+        }
+
+        switch aggressiveness(for: context) {
+        case .disabled:
+            return .skip(reason: "warmup-disabled")
+        case .modelOnly:
+            return .ensureModelLoaded(modelID: context.modelID)
+        case .modelAndLightConditioning, .fullInteractiveReadiness:
+            switch context.identity {
+            case .custom:
+                guard let request = interactivePrewarmRequest(for: context) else {
+                    return .ensureModelLoaded(modelID: context.modelID)
+                }
+                return .prefetchInteractiveReadiness(request)
+            case .design(let brief, _, _):
+                guard !brief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      let request = interactivePrewarmRequest(for: context) else {
+                    return .ensureModelLoaded(modelID: context.modelID)
+                }
+                return .prefetchInteractiveReadiness(request)
+            case .clone:
+                guard let reference = context.cloneReference,
+                      aggressiveness(for: context) == .fullInteractiveReadiness else {
+                    return .ensureModelLoaded(modelID: context.modelID)
+                }
+                return .primeCloneReference(
+                    modelID: context.modelID,
+                    reference: reference
+                )
+            case .modelOnly:
+                return .ensureModelLoaded(modelID: context.modelID)
+            }
         }
     }
 
     private func warmupAction(
         snapshot: TTSEngineSnapshot,
-        request: WarmupRequest
+        context: WarmupContext
     ) -> WarmupAction? {
+        let decision = warmupDecision(for: context)
+        if case .skip = decision {
+            return nil
+        }
         switch snapshot.loadState {
         case .idle:
-            return .warm
+            return .warm(decision)
         case .loaded(let modelID):
-            if modelID == request.modelID {
-                return request.mode == .custom ? .warm : nil
+            if modelID == context.modelID {
+                return decision.isModelOnly ? nil : .warm(decision)
             }
-            return .transitionFromLoadedModel
+            return .transitionFromLoadedModel(decision)
         case .failed, .running, .starting:
             return nil
         }
@@ -199,33 +363,74 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
         case .transitionFromLoadedModel:
             return modeTransitionDebounce
         case .warm:
-            return plan.request.mode == .custom ? customVoiceDebounce : debounce
+            switch plan.context.mode {
+            case .custom:
+                return customVoiceDebounce
+            case .design:
+                if case .modelOnly = plan.context.identity {
+                    return debounce
+                }
+                return designDebounce
+            case .clone:
+                if case .modelOnly = plan.context.identity {
+                    return debounce
+                }
+                return cloneDebounce
+            }
         }
     }
 
     private func performWarmup(
-        for request: WarmupRequest,
+        _ decision: WarmupDecision,
         ttsEngineStore: TTSEngineStore
     ) async {
-        if let prewarmRequest = interactivePrewarmRequest(for: request) {
-            _ = await ttsEngineStore.prefetchInteractiveReadinessIfNeeded(for: prewarmRequest)
-        } else {
-            await ttsEngineStore.ensureModelLoadedIfNeeded(id: request.modelID)
+        switch decision {
+        case .skip:
+            return
+        case .ensureModelLoaded(let modelID):
+            await ttsEngineStore.ensureModelLoadedIfNeeded(id: modelID)
+        case .prefetchInteractiveReadiness(let request):
+            _ = await ttsEngineStore.prefetchInteractiveReadinessIfNeeded(for: request)
+        case .primeCloneReference(let modelID, let reference):
+            try? await ttsEngineStore.ensureCloneReferencePrimed(
+                modelID: modelID,
+                reference: reference
+            )
         }
     }
 
-    private func interactivePrewarmRequest(for request: WarmupRequest) -> GenerationRequest? {
-        guard request.mode == .custom else { return nil }
-        return GenerationRequest(
-            modelID: request.modelID,
-            text: QwenVoiceCore.GenerationSemantics.canonicalCustomWarmText,
-            outputPath: "",
-            shouldStream: true,
-            streamingInterval: QwenVoiceCore.GenerationSemantics.appStreamingInterval,
-            payload: .custom(
-                speakerID: QwenVoiceCore.GenerationSemantics.canonicalCustomWarmSpeaker,
-                deliveryStyle: QwenVoiceCore.GenerationSemantics.canonicalCustomWarmInstruction()
+    private func interactivePrewarmRequest(for context: WarmupContext) -> GenerationRequest? {
+        let shouldStream = context.purpose == .livePreviewReadiness
+        switch context.identity {
+        case .custom(let speakerID, let deliveryStyle):
+            let speaker = speakerID.trimmingCharacters(in: .whitespacesAndNewlines)
+            return GenerationRequest(
+                modelID: context.modelID,
+                text: GenerationSemantics.canonicalCustomWarmText,
+                outputPath: "",
+                shouldStream: shouldStream,
+                streamingInterval: GenerationSemantics.appStreamingInterval,
+                payload: .custom(
+                    speakerID: speaker.isEmpty ? GenerationSemantics.canonicalCustomWarmSpeaker : speaker,
+                    deliveryStyle: deliveryStyle
+                )
             )
-        )
+        case .design(let brief, let deliveryStyle, let bucket):
+            let trimmedBrief = brief.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedBrief.isEmpty else { return nil }
+            return GenerationRequest(
+                modelID: context.modelID,
+                text: GenerationSemantics.canonicalDesignWarmText(for: bucket),
+                outputPath: "",
+                shouldStream: shouldStream,
+                streamingInterval: GenerationSemantics.appStreamingInterval,
+                payload: .design(
+                    voiceDescription: trimmedBrief,
+                    deliveryStyle: deliveryStyle
+                )
+            )
+        case .clone, .modelOnly:
+            return nil
+        }
     }
 }

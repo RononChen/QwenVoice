@@ -270,6 +270,7 @@ struct CompactConfigurationSection<Content: View>: View {
     var iconName: String? = nil
     var accentColor: Color = AppTheme.accent
     var trailingText: String? = nil
+    var trailingAccessory: AnyView? = nil
     var rowSpacing: CGFloat = LayoutConstants.configurationRowSpacing
     var panelPadding: CGFloat = LayoutConstants.configurationPanelPadding
     var contentSlotHeight: CGFloat? = nil
@@ -278,24 +279,7 @@ struct CompactConfigurationSection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: rowSpacing) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                if let iconName {
-                    Image(systemName: iconName)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(accentColor)
-                }
-
-                Text(title)
-                    .font(.headline.weight(.semibold))
-
-                Spacer(minLength: 10)
-
-                if let trailingText {
-                    Text(trailingText)
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-            }
+            header
 
             if let detail {
                 Text(detail)
@@ -355,6 +339,49 @@ struct CompactConfigurationSection<Content: View>: View {
     }
 
     @ViewBuilder
+    private var header: some View {
+        if let trailingAccessory {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 12) {
+                    headerTitle
+                    Spacer(minLength: 10)
+                    trailingAccessory
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    headerTitle
+                    trailingAccessory
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                headerTitle
+                Spacer(minLength: 10)
+
+                if let trailingText {
+                    Text(trailingText)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var headerTitle: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            if let iconName {
+                Image(systemName: iconName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(accentColor)
+            }
+
+            Text(title)
+                .font(.headline.weight(.semibold))
+        }
+    }
+
+    @ViewBuilder
     private var panelBody: some View {
         if let contentSlotHeight {
             VStack(alignment: .leading, spacing: 0) {
@@ -383,6 +410,132 @@ struct CompactConfigurationSection<Content: View>: View {
         }
     }
     #endif
+}
+
+struct GenerationVariantSelector: View {
+    let mode: GenerationMode
+    @ObservedObject var modelManager: ModelManagerViewModel
+    var accentColor: Color = AppTheme.accent
+    var accessibilityPrefix: String
+    var isDisabled: Bool = false
+
+    private var selectedModel: TTSModel? {
+        modelManager.generationActiveVariant(for: mode)
+    }
+
+    private var selectedKind: TTSModelVariantKind {
+        selectedModel?.variantKind
+            ?? modelManager.recommendedVariant(for: mode)?.variantKind
+            ?? .speed
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Text("Model")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 2) {
+                ForEach(TTSModelVariantKind.allCases, id: \.self) { kind in
+                    variantSegment(for: kind)
+                }
+            }
+            .padding(3)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.secondary.opacity(0.15))
+            )
+            .accessibilityIdentifier("\(accessibilityPrefix)_modelVariantPicker")
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(mode.displayName) model variant")
+        .accessibilityValue(accessibilityValue)
+        .accessibilityIdentifier("\(accessibilityPrefix)_modelVariantSelector")
+        .help("Choose whether \(mode.displayName) uses the Speed or Quality model package. Current status: \(statusCaption).")
+    }
+
+    private func variantSegment(for kind: TTSModelVariantKind) -> some View {
+        let isSelected = selectedModel?.variantKind == kind
+        let isSelectable = modelManager.isGenerationVariantSelectable(for: mode, kind: kind)
+        let isEnabled = isSelectable && !isDisabled
+
+        return Button {
+            guard isSelectable,
+                  let model = modelManager.variant(for: mode, kind: kind) else {
+                return
+            }
+            modelManager.use(model)
+        } label: {
+            Text(kind.displayName)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .frame(width: 58, height: 24)
+                .foregroundStyle(segmentForeground(isSelected: isSelected, isSelectable: isSelectable))
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(isSelected ? accentColor.opacity(0.78) : Color.clear)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isSelectable ? 1 : 0.42)
+        .accessibilityLabel("\(kind.displayName), \(variantAccessibilityStatus(for: kind))")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("\(accessibilityPrefix)_\(kind.rawValue)VariantButton")
+        .help(variantHelp(for: kind))
+    }
+
+    private func segmentForeground(isSelected: Bool, isSelectable: Bool) -> Color {
+        if !isSelectable {
+            return .secondary
+        }
+        return isSelected ? .white : .primary
+    }
+
+    private var statusCaption: String {
+        guard let selectedModel else { return "No model" }
+        var parts: [String] = []
+        if let bitDepth = selectedModel.variantKind?.bitDepthLabel {
+            parts.append(bitDepth)
+        }
+        if modelManager.isHardwareRisky(selectedModel),
+           case .ready = modelManager.packagePresentation(for: selectedModel).kind {
+            parts.append("Heavy on this Mac")
+        } else {
+            parts.append(modelManager.generationVariantStatusLabel(for: selectedModel))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func variantAccessibilityStatus(for kind: TTSModelVariantKind) -> String {
+        guard let model = modelManager.variant(for: mode, kind: kind) else {
+            return "unavailable"
+        }
+        let status = modelManager.generationVariantStatusLabel(for: model)
+        switch modelManager.packagePresentation(for: model).kind {
+        case .ready:
+            return "\(kind.bitDepthLabel), ready"
+        case .notInstalled:
+            return "\(kind.bitDepthLabel), not installed"
+        case .needsRepair:
+            return "\(kind.bitDepthLabel), needs repair"
+        case .checking, .downloading:
+            return "\(kind.bitDepthLabel), \(status)"
+        }
+    }
+
+    private func variantHelp(for kind: TTSModelVariantKind) -> String {
+        guard modelManager.isGenerationVariantSelectable(for: mode, kind: kind) else {
+            return "\(mode.displayName) \(kind.displayName) is not installed. Open Settings to manage model downloads."
+        }
+        return "Use the \(kind.displayName) model for \(mode.displayName)."
+    }
+
+    private var accessibilityValue: String {
+        guard let selectedModel else { return "No model variant available" }
+        return "\(modelManager.activeVariantLabel(for: selectedModel)), \(statusCaption)"
+    }
 }
 
 struct ConfigurationFieldRow<Content: View, Supporting: View>: View {

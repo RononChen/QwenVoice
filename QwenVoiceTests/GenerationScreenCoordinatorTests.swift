@@ -99,6 +99,14 @@ private final class GenerationScreenMockMacTTSEngine: MacTTSEngine, @unchecked S
 
     func ensureCloneReferencePrimed(modelID: String, reference: CloneReference) async throws {
         primedReferences.append((modelID, reference))
+        subject.send(
+            TTSEngineSnapshot(
+                isReady: subject.value.isReady,
+                loadState: .loaded(modelID: modelID),
+                clonePreparationState: .idle,
+                visibleErrorMessage: subject.value.visibleErrorMessage
+            )
+        )
     }
 
     func cancelClonePreparationIfNeeded() async {
@@ -250,6 +258,191 @@ final class GenerationScreenCoordinatorTests: XCTestCase {
         }
         XCTAssertEqual(speakerID, QwenVoiceCore.GenerationSemantics.canonicalCustomWarmSpeaker)
         XCTAssertEqual(deliveryStyle, QwenVoiceCore.GenerationSemantics.canonicalCustomWarmInstruction())
+    }
+
+    @MainActor
+    func testMacGenerationWarmupCoordinatorFinalCustomWarmupUsesSelectedIdentityWithoutStreaming() async throws {
+        let (store, engine) = makeReadyStore()
+        let coordinator = MacGenerationWarmupCoordinator(
+            debounce: .milliseconds(5),
+            customVoiceDebounce: .milliseconds(5)
+        )
+        let customModel = TTSModel.model(for: .custom)!
+        let context = MacGenerationWarmupCoordinator.WarmupContext(
+            mode: .custom,
+            modelID: customModel.id,
+            isModelAvailable: true,
+            identity: .custom(speakerID: "ryan", deliveryStyle: "Happy and upbeat."),
+            purpose: .finalGenerationReadiness,
+            deviceClass: .floor8GBMac
+        )
+
+        coordinator.scheduleWarmupIfNeeded(
+            context: context,
+            snapshot: store.snapshot,
+            ttsEngineStore: store
+        )
+
+        await waitUntil(
+            timeoutSeconds: 0.5,
+            description: "custom final-readiness warmup sends selected identity"
+        ) {
+            engine.prefetchRequests.count == 1
+        }
+
+        let request = try XCTUnwrap(engine.prefetchRequests.first)
+        XCTAssertFalse(request.shouldStream)
+        guard case .custom(let speakerID, let deliveryStyle) = request.payload else {
+            return XCTFail("Expected Custom Voice prewarm request")
+        }
+        XCTAssertEqual(speakerID, "ryan")
+        XCTAssertEqual(deliveryStyle, "Happy and upbeat.")
+    }
+
+    @MainActor
+    func testMacGenerationWarmupCoordinatorPrefetchesLoadedSameDesignIdentity() async throws {
+        let (store, engine) = makeReadyStore()
+        let coordinator = MacGenerationWarmupCoordinator(
+            debounce: .milliseconds(5),
+            designDebounce: .milliseconds(5)
+        )
+        let designModel = TTSModel.model(for: .design)!
+        engine.pushSnapshot(
+            TTSEngineSnapshot(
+                isReady: true,
+                loadState: .loaded(modelID: designModel.id),
+                clonePreparationState: .idle,
+                visibleErrorMessage: nil
+            )
+        )
+        await Task.yield()
+
+        let context = MacGenerationWarmupCoordinator.WarmupContext(
+            mode: .design,
+            modelID: designModel.id,
+            isModelAvailable: true,
+            identity: .design(
+                brief: "A warm, deep narrator.",
+                deliveryStyle: "Calm and clear.",
+                bucket: .short
+            ),
+            purpose: .finalGenerationReadiness,
+            deviceClass: .mid16GBMac
+        )
+
+        coordinator.scheduleWarmupIfNeeded(
+            context: context,
+            snapshot: store.snapshot,
+            ttsEngineStore: store
+        )
+        coordinator.scheduleWarmupIfNeeded(
+            context: context,
+            snapshot: store.snapshot,
+            ttsEngineStore: store
+        )
+
+        await waitUntil(
+            timeoutSeconds: 0.5,
+            description: "loaded same design model prefetches selected identity once"
+        ) {
+            engine.prefetchRequests.count == 1
+        }
+
+        let request = try XCTUnwrap(engine.prefetchRequests.first)
+        XCTAssertFalse(request.shouldStream)
+        XCTAssertEqual(request.text, GenerationSemantics.canonicalDesignWarmText(for: .short))
+        guard case .design(let voiceDescription, let deliveryStyle) = request.payload else {
+            return XCTFail("Expected Voice Design warmup request")
+        }
+        XCTAssertEqual(voiceDescription, "A warm, deep narrator.")
+        XCTAssertEqual(deliveryStyle, "Calm and clear.")
+    }
+
+    @MainActor
+    func testMacGenerationWarmupCoordinatorCloneContextPrimesVisibleReferenceOnce() async {
+        let (store, engine) = makeReadyStore()
+        let coordinator = MacGenerationWarmupCoordinator(
+            debounce: .milliseconds(5),
+            cloneDebounce: .milliseconds(5)
+        )
+        let cloneModel = TTSModel.model(for: .clone)!
+        let reference = CloneReference(
+            audioPath: "/tmp/reference.wav",
+            transcript: "The rain in Spain.",
+            preparedVoiceID: "voice-1"
+        )
+        let context = MacGenerationWarmupCoordinator.WarmupContext(
+            mode: .clone,
+            modelID: cloneModel.id,
+            isModelAvailable: true,
+            identity: .clone(
+                referenceKey: GenerationSemantics.clonePreparationKey(
+                    modelID: cloneModel.id,
+                    reference: reference
+                ),
+                preparedVoiceID: "voice-1"
+            ),
+            purpose: .finalGenerationReadiness,
+            deviceClass: .mid16GBMac,
+            cloneReference: reference
+        )
+
+        coordinator.scheduleWarmupIfNeeded(
+            context: context,
+            snapshot: store.snapshot,
+            ttsEngineStore: store
+        )
+
+        await waitUntil(
+            timeoutSeconds: 0.5,
+            description: "clone reference prime runs"
+        ) {
+            engine.primedReferences.count == 1
+        }
+
+        coordinator.observe(snapshot: store.snapshot)
+        coordinator.scheduleWarmupIfNeeded(
+            context: context,
+            snapshot: store.snapshot,
+            ttsEngineStore: store
+        )
+        try? await Task.sleep(for: .milliseconds(30))
+
+        XCTAssertEqual(engine.primedReferences.count, 1)
+        XCTAssertEqual(engine.primedReferences.first?.0, cloneModel.id)
+        XCTAssertEqual(engine.primedReferences.first?.1, reference)
+    }
+
+    @MainActor
+    func testMacGenerationWarmupCoordinatorFloorCloneWithoutVisibleReferenceIsModelOnly() async {
+        let (store, engine) = makeReadyStore()
+        let coordinator = MacGenerationWarmupCoordinator(
+            debounce: .milliseconds(5),
+            cloneDebounce: .milliseconds(5)
+        )
+        let cloneModel = TTSModel.model(for: .clone)!
+        let context = MacGenerationWarmupCoordinator.WarmupContext(
+            mode: .clone,
+            modelID: cloneModel.id,
+            isModelAvailable: true,
+            identity: .modelOnly,
+            purpose: .finalGenerationReadiness,
+            deviceClass: .floor8GBMac
+        )
+
+        coordinator.scheduleWarmupIfNeeded(
+            context: context,
+            snapshot: store.snapshot,
+            ttsEngineStore: store
+        )
+
+        await waitUntil(
+            timeoutSeconds: 0.5,
+            description: "floor clone without selected reference only loads model"
+        ) {
+            engine.ensureModelLoadedIDs == [cloneModel.id]
+        }
+        XCTAssertTrue(engine.primedReferences.isEmpty)
     }
 
     @MainActor

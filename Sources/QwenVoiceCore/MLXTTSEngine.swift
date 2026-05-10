@@ -422,7 +422,11 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
         cancelIdleUnload()
         do {
             try ensureInitialized()
-            loadState = .starting
+            let previousLoadState = loadState
+            let shouldPublishStarting = previousLoadState.currentModelID != request.modelID
+            if shouldPublishStarting {
+                loadState = .starting
+            }
             _ = try await runtime.prepareInteractiveReadiness(for: request)
             loadState = .loaded(modelID: request.modelID)
             visibleErrorMessage = nil
@@ -449,7 +453,11 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
         cancelIdleUnload()
         do {
             try ensureInitialized()
-            loadState = .starting
+            let previousLoadState = loadState
+            let shouldPublishStarting = previousLoadState.currentModelID != request.modelID
+            if shouldPublishStarting {
+                loadState = .starting
+            }
             let diagnostics = try await runtime.prepareInteractiveReadiness(
                 for: request,
                 customPrewarmDepth: customPrewarmDepth
