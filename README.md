@@ -1,10 +1,21 @@
 # Vocello Beta 1 for macOS 26
 
-Vocello is a local, private AI voice-generation app for Apple Silicon Macs. Write a script, choose how the voice should sound, and generate speech on your Mac with no cloud credit meter.
+Vocello is the next-generation version of QwenVoice, rebranded for the 2.0 macOS 26 beta.
 
-**Public beta:** [Download Vocello 2.0.0 beta 1](https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0-beta.1) for macOS 26.
+[![Vocello beta](https://img.shields.io/badge/Vocello-2.0%20beta%201-7b61ff?style=flat-square)](https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0-beta.1)
+![macOS 26+](https://img.shields.io/badge/macOS-26%2B-111827?style=flat-square&logo=apple)
+![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-required-111827?style=flat-square&logo=apple)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
+[![Beta downloads](https://img.shields.io/github/downloads/PowerBeef/QwenVoice/v2.0.0-beta.1/total?label=beta%20downloads&style=flat-square)](https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0-beta.1)
 
-**Stable fallback:** need macOS 15 support or a non-beta build? [Get QwenVoice v1.2.3](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3).
+**The easiest way to generate private, high-quality AI voices entirely on your Mac.**
+
+Vocello is a local, private AI voice-generation app for Apple Silicon Macs. Write a script, choose how the voice should sound, and generate speech without a subscription or cloud credit meter.
+
+| If you want... | Get this build | Notes |
+| --- | --- | --- |
+| The newest Vocello beta for Apple Silicon Macs | **Vocello 2.0 beta 1** - [Download Beta](https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0-beta.1) | Public beta for macOS 26 testers. |
+| A stable app for macOS 15 or non-beta use | **QwenVoice 1.2.3** - [Download Stable](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3) | Stable fallback before the Vocello 2.0 line. |
 
 <p align="center">
   <img src="docs/screenshots/vocello-custom-voice.png" alt="Vocello Custom Voice screen showing speaker, delivery, model, and script controls" width="920">
@@ -12,10 +23,10 @@ Vocello is a local, private AI voice-generation app for Apple Silicon Macs. Writ
 
 ## Why Try Vocello
 
-- **Create voices three ways.** Use a built-in speaker, describe a new voice, or clone from a reference clip you own or have permission to use.
-- **Keep generation local.** After models are installed, speech generation runs on your Mac and your generated audio stays in local app storage.
-- **Choose Speed or Quality.** Pick compact 4-bit models for faster startup, or larger 8-bit models when your Mac has the headroom.
-- **Stay in a native Mac workflow.** Model downloads, playback, history, saved voices, and output folders live inside one quiet macOS app.
+- **Private by default.** After models are installed, generation runs locally and your scripts, history, and generated audio stay in local app storage unless you export them.
+- **No subscription meter.** Download the models you want, then generate on your Mac without paying per line or waiting on a cloud queue.
+- **Three voice workflows.** Use a built-in speaker, describe a new voice, or clone from a reference clip you own or have permission to use.
+- **Built for Apple Silicon.** Vocello is a native Mac app with local playback, history, saved voices, model downloads, and output folders in one place.
 
 ## Screenshots
 
@@ -85,6 +96,11 @@ For Vocello 2.0.0 beta 1:
 - macOS 26.0+
 - Apple Silicon Mac
 - Voice models installed from Settings -> Model downloads
+
+Model downloads come in two sizes:
+
+- `Speed` models are smaller 4-bit packages for faster startup and lower memory use.
+- `Quality` models are larger 8-bit packages for Macs with more headroom.
 
 For macOS 15 or a stable non-beta build, use [QwenVoice v1.2.3](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3).
 
