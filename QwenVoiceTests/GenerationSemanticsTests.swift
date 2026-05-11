@@ -577,12 +577,18 @@ final class GenerationSemanticsTests: XCTestCase {
         // Sanity: Phase 1 + Phase 2a sub-stages should roughly sum
         // toward `inferMS`. Six measured stages here = 1253.0 ms vs
         // 1512.0 ms infer = 83 % — within the 80 % Phase 2a target.
-        let measured = (decoded.talkerForwardMS ?? 0)
-            + (decoded.codePredictorMS ?? 0)
-            + (decoded.audioDecoderMS ?? 0)
-            + (decoded.streamStepEvalMS ?? 0)
-            + (decoded.streamStepEOSReadMS ?? 0)
-            + (decoded.audioChunkEvalMS ?? 0)
+        let talkerForwardMS: Double = decoded.talkerForwardMS ?? 0
+        let codePredictorMS: Double = decoded.codePredictorMS ?? 0
+        let audioDecoderMS: Double = decoded.audioDecoderMS ?? 0
+        let streamStepEvalMS: Double = decoded.streamStepEvalMS ?? 0
+        let streamStepEOSReadMS: Double = decoded.streamStepEOSReadMS ?? 0
+        let audioChunkEvalMS: Double = decoded.audioChunkEvalMS ?? 0
+        let measured = talkerForwardMS
+            + codePredictorMS
+            + audioDecoderMS
+            + streamStepEvalMS
+            + streamStepEOSReadMS
+            + audioChunkEvalMS
         XCTAssertGreaterThan(measured, 0)
         XCTAssertLessThanOrEqual(measured, decoded.inferMS + 1.0)
     }
