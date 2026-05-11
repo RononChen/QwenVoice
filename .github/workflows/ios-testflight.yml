@@ -30,7 +30,7 @@ jobs:
     timeout-minutes: 180
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.git_ref }}
           fetch-depth: 0
@@ -45,7 +45,7 @@ jobs:
         run: command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
 
       - name: Cache Swift packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             build/foundation/source-packages
@@ -136,7 +136,7 @@ jobs:
           fi
 
       - name: Upload iOS release artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: vocello-ios-testflight
           if-no-files-found: warn
