@@ -1,10 +1,12 @@
-# Vocello Preview
+# Vocello Beta 1 for macOS 26
 
-Vocello is the next local, private voice-generation app for Mac. It turns text into natural speech on your Apple Silicon Mac, with Custom Voice, Voice Design, and Voice Cloning built around a native Mac experience.
+Vocello is a local, private voice-generation app for Apple Silicon Macs. It turns text into natural speech on your Mac, with Custom Voice, Voice Design, and Voice Cloning built around a native macOS experience.
 
-The app is in transition from the current public name, **QwenVoice**, to the next major Mac release, **Vocello**. The project is active, but the safe public download today is still QwenVoice v1.2.3.
+Vocello 2.0.0 beta 1 is now available as a public macOS 26 beta. QwenVoice v1.2.3 remains the stable fallback for users who need macOS 15 support or do not want beta software.
 
-> **Safe download today:** download [QwenVoice v1.2.3](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3). The experimental 2.0 RC1 / Vocello build has been withdrawn because voice quality and reliability needed more work. A new Vocello release will be published only after those issues are resolved.
+> **Public beta:** download [Vocello 2.0.0 beta 1](https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0-beta.1) for macOS 26.
+>
+> **Stable fallback:** need macOS 15 support or a non-beta build? Download [QwenVoice v1.2.3](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3).
 
 ## Preview
 
@@ -14,20 +16,22 @@ The app is in transition from the current public name, **QwenVoice**, to the nex
 
 | Status | What it means for you |
 |---|---|
-| **Available now: QwenVoice v1.2.3 for Mac** | This is the current stable public download. Use it if you want a working app today. |
-| **Coming next: Vocello for macOS 26** | Vocello is the next major Mac version. It is being rebuilt with stronger voice quality, clearer English diction, and more reliable full-length output before another public download appears. |
+| **Public beta: Vocello 2.0.0 beta 1 for macOS 26** | This is the new Vocello beta for Apple Silicon Macs on macOS 26. Use it if you want to test the next local-first generation stack. |
+| **Stable fallback: QwenVoice v1.2.3 for Mac** | This remains the stable public download, especially for macOS 15 users. |
 | **In development: Vocello for iPhone** | The iPhone app is maintained in this repository, but it is not a public download yet. When ready, it will ship through the App Store or TestFlight, not GitHub Releases. |
 
-## Download QwenVoice Today
+## Download Vocello Beta 1
 
-Download the current public release from [QwenVoice v1.2.3](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3).
+Download the public beta from [Vocello 2.0.0 beta 1](https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0-beta.1).
 
-Choose the DMG that matches your Mac:
+Choose:
 
-- `QwenVoice-macos26.dmg` for macOS 26
-- the legacy macOS 15 package on the release page if you are not on macOS 26 yet
+- `Vocello-macos26.dmg` for the macOS 26 public beta
+- `Vocello-macos26.dmg.sha256` if you want to verify the download checksum
 
-Then open the DMG, drag the app to `/Applications`, open the app, download a voice model from the Models screen, and generate speech.
+Then open the DMG, drag `Vocello.app` to `/Applications`, open the app, install the voice models you want from Settings -> Model downloads, and generate speech.
+
+If you need macOS 15 support, use [QwenVoice v1.2.3](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3) instead.
 
 ## What You Can Do
 
@@ -54,33 +58,32 @@ QwenVoice and Vocello are built for people who want voice generation to happen o
 
 Model downloads come from Hugging Face when you install a voice model, but the generation workflow itself is local.
 
-## What Is Changing
+## Beta Notes
 
-QwenVoice v1.2.3 remains the stable public app. Vocello is the next name and direction for the Mac app.
+Vocello 2.0.0 beta 1 is public beta software. It is suitable for testers who want the new macOS 26 app and understand that voice quality, tone control, model downloads, and performance may still be refined before a stable 2.0 release.
 
-The removed 2.0 RC1 build was an early Vocello-branded prerelease. It showed the direction of the project, but it was not good enough for normal users: some outputs had quality, cadence, pronunciation, or truncation problems. That release has been withdrawn so people do not accidentally download a build that can disappoint them.
+The withdrawn 2.0 RC1 build is not restored or advertised. Beta 1 is a newer public beta with backend hardening, clearer model management, Speed/Quality selection on generation screens, and targeted delivery-control fixes.
 
-The next public Vocello build will focus on:
-
-- natural tone and English diction
-- complete output with no missing words
-- reliable model downloads and playback
-- a simpler, native Mac workflow
+QwenVoice v1.2.3 remains available for people who prefer the stable macOS 15-compatible line.
 
 ## Requirements
 
-For the current stable QwenVoice v1.2.3 release, use the release notes and DMG names on the [v1.2.3 release page](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3) as the source of truth.
-
-For the in-development Vocello code on `main`:
+For Vocello 2.0.0 beta 1:
 
 - macOS 26.0+
 - Apple Silicon
+- voice models installed from Settings -> Model downloads
+
+For the stable QwenVoice v1.2.3 release, use the release notes and DMG names on the [v1.2.3 release page](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3) as the source of truth.
+
+For source builds on `main`:
+
 - Xcode 26.0
 - XcodeGen
 
 ## For Developers
 
-The `main` branch contains the in-development Vocello codebase. It is useful for contributors and testers, but normal users should use the stable v1.2.3 release until the next public Vocello build is published.
+The `main` branch contains the current Vocello codebase. The public beta release is tagged as [`v2.0.0-beta.1`](https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0-beta.1).
 
 ```sh
 git clone https://github.com/PowerBeef/QwenVoice.git

@@ -14,8 +14,9 @@ Current checked-in milestone facts from `project.yml` and the model contract:
 - Marketing version/build in current `main`: `2.0.0` / `16`
 - Deployment targets: `macOS 26.0+` and `iOS 26.0+`
 - Official hardware floor: Mac mini M1 with 8 GB RAM, and iPhone 15 Pro for the deferred iPhone track
-- Public stable release remains `QwenVoice v1.2.3` for users who need macOS 15 support
-- The withdrawn RC1 GitHub release/tag must not be restored, linked, or advertised; public downloads stay on `QwenVoice v1.2.3` until a replacement Vocello release is explicitly cut.
+- Public macOS beta release is `Vocello v2.0.0-beta.1` for macOS 26 testers
+- Public stable release remains `QwenVoice v1.2.3` for users who need macOS 15 support or do not want beta software
+- The withdrawn RC1 GitHub release/tag must not be restored, linked, or advertised; public Vocello beta downloads use `v2.0.0-beta.1`.
 
 The active public milestone is macOS-first. Keep iPhone compile-safe, but do not treat iPhone TestFlight/App Store proof as blocking unless the maintainer explicitly changes the release track.
 
@@ -381,7 +382,7 @@ UI rules:
 
 Product messaging:
 
-- Public README may lead with Vocello as the next Mac identity, but it must keep QwenVoice v1.2.3 as the safe current public download until a replacement Vocello build is explicitly cut.
+- Public README may lead with Vocello 2.0.0 beta 1 for macOS 26 testers, but it must keep QwenVoice v1.2.3 as the stable fallback for macOS 15 or non-beta users.
 - Vocello is the forward macOS 26 rebrand and current app name on `main`.
 - Do not claim iPhone is publicly shipping until the release track changes.
 - Voice cloning copy must keep consent and rights responsibility clear.
