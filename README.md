@@ -18,7 +18,7 @@ Vocello is a local, private AI voice-generation app for Apple Silicon Macs. Writ
 | A stable app for macOS 15 or non-beta use | **QwenVoice 1.2.3** - [Download Stable](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3) | Stable fallback before the Vocello 2.0 line. |
 
 <p align="center">
-  <img src="docs/screenshots/vocello-custom-voice.png" alt="Vocello Custom Voice screen showing speaker, delivery, model, and script controls" width="920">
+  <img src="docs/readme_banner_vocello.png" alt="Vocello banner with abstract voice waves and the Vocello logo" width="920">
 </p>
 
 ## Why Try Vocello
