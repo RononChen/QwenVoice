@@ -169,6 +169,69 @@ final class NativeStreamingSynthesisSessionTests: XCTestCase {
         XCTAssertEqual(result.benchmarkSample?.stringFlags["telemetry_mode"], NativeTelemetryMode.lightweight.rawValue)
     }
 
+    func testQualityFirstCachePolicyReportsClearAppliedFromMemoryPolicy() async throws {
+        let floorResult = try await runQualityFirstSession(
+            finishReason: .eos,
+            memoryPolicy: NativeMemoryPolicyResolver.policy(
+                deviceClass: .floor8GBMac,
+                mode: .custom,
+                isBatch: false
+            )
+        )
+
+        XCTAssertEqual(floorResult.benchmarkSample?.stringFlags["post_request_cache_policy"], "current")
+        XCTAssertEqual(floorResult.benchmarkSample?.timingsMS["post_request_cache_clear_applied"], 1)
+        XCTAssertNotNil(
+            floorResult.benchmarkSample?.backendPerformance?.mlxMemoryByStage["after_generation_trim"]
+        )
+
+        let midResult = try await runQualityFirstSession(
+            finishReason: .eos,
+            memoryPolicy: NativeMemoryPolicyResolver.policy(
+                deviceClass: .mid16GBMac,
+                mode: .custom,
+                isBatch: false
+            )
+        )
+
+        XCTAssertEqual(midResult.benchmarkSample?.stringFlags["post_request_cache_policy"], "current")
+        XCTAssertEqual(midResult.benchmarkSample?.timingsMS["post_request_cache_clear_applied"], 0)
+        XCTAssertNil(
+            midResult.benchmarkSample?.backendPerformance?.mlxMemoryByStage["after_generation_trim"]
+        )
+    }
+
+    func testQualityFirstCachePolicyHonorsBenchmarkOverride() async throws {
+        let floorFailureOnly = try await runQualityFirstSession(
+            finishReason: .eos,
+            benchmarkOptions: GenerationRequest.BenchmarkOptions(postRequestCachePolicy: "failure-only"),
+            memoryPolicy: NativeMemoryPolicyResolver.policy(
+                deviceClass: .floor8GBMac,
+                mode: .custom,
+                isBatch: false
+            )
+        )
+
+        XCTAssertEqual(floorFailureOnly.benchmarkSample?.stringFlags["post_request_cache_policy"], "failure-only")
+        XCTAssertEqual(floorFailureOnly.benchmarkSample?.timingsMS["post_request_cache_clear_applied"], 0)
+
+        let midAlways = try await runQualityFirstSession(
+            finishReason: .eos,
+            benchmarkOptions: GenerationRequest.BenchmarkOptions(postRequestCachePolicy: "always"),
+            memoryPolicy: NativeMemoryPolicyResolver.policy(
+                deviceClass: .mid16GBMac,
+                mode: .custom,
+                isBatch: false
+            )
+        )
+
+        XCTAssertEqual(midAlways.benchmarkSample?.stringFlags["post_request_cache_policy"], "always")
+        XCTAssertEqual(midAlways.benchmarkSample?.timingsMS["post_request_cache_clear_applied"], 1)
+        XCTAssertNotNil(
+            midAlways.benchmarkSample?.backendPerformance?.mlxMemoryByStage["after_generation_trim"]
+        )
+    }
+
     func testQualityFirstMaxTokensFinishThrowsTruncationFailure() async throws {
         do {
             _ = try await runQualityFirstSession(finishReason: .maxTokens)
@@ -228,10 +291,13 @@ final class NativeStreamingSynthesisSessionTests: XCTestCase {
     }
 
     private func runQualityFirstSession(
-        finishReason: AudioGenerationFinishReason
+        finishReason: AudioGenerationFinishReason,
+        benchmarkOptions: GenerationRequest.BenchmarkOptions? = nil,
+        memoryPolicy: NativeMemoryPolicy? = nil
     ) async throws -> GenerationResult {
         let sessionsRoot = temporaryRoot.appendingPathComponent("stream_sessions", isDirectory: true)
-        let outputURL = temporaryRoot.appendingPathComponent("quality-\(finishReason.rawValue).wav")
+        let outputURL = temporaryRoot
+            .appendingPathComponent("quality-\(finishReason.rawValue)-\(UUID().uuidString).wav")
         let model = UnsafeSpeechGenerationModel(
             sampleRate: 24_000,
             customPrewarmHandler: { _, _, _, _ in },
@@ -255,13 +321,14 @@ final class NativeStreamingSynthesisSessionTests: XCTestCase {
                 text: "Quality first finish reason",
                 outputPath: outputURL.path,
                 shouldStream: false,
+                benchmarkOptions: benchmarkOptions,
                 payload: .custom(speakerID: "aiden", deliveryStyle: nil)
             ),
             model: model,
             streamSessionsDirectory: sessionsRoot,
             warmState: .cold,
             loadCapabilityProfile: .customOnly,
-            memoryPolicy: NativeMemoryPolicyResolver.policy(mode: .custom, isBatch: false),
+            memoryPolicy: memoryPolicy ?? NativeMemoryPolicyResolver.policy(mode: .custom, isBatch: false),
             mlxMemorySnapshots: [:]
         )
         return try await session.run { _ in }

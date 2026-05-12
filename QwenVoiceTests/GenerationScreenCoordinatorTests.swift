@@ -1192,6 +1192,27 @@ final class GenerationScreenCoordinatorTests: XCTestCase {
         )
 
         XCTAssertEqual(request.streamingInterval, QwenVoiceCore.GenerationSemantics.appStreamingInterval)
+        XCTAssertNil(request.benchmarkOptions)
+    }
+
+    @MainActor
+    func testCustomVoiceCoordinatorAddsBenchmarkOptionsOnlyDuringUIPerformanceAudit() throws {
+        let model = try XCTUnwrap(TTSModel.model(for: .custom))
+        let request = CustomVoiceCoordinator.makeGenerationRequest(
+            draft: CustomVoiceDraft(
+                selectedSpeaker: "Vivian",
+                emotion: "Neutral",
+                text: "Hello there"
+            ),
+            model: model,
+            outputPath: "/tmp/custom.wav",
+            environment: [
+                MacGenerationBenchmarkOptions.uiPerformanceAuditEnvironmentKey: "1",
+                MacGenerationBenchmarkOptions.postRequestCachePolicyEnvironmentKey: "failure-only",
+            ]
+        )
+
+        XCTAssertEqual(request.benchmarkOptions?.postRequestCachePolicy, "failure-only")
     }
 
     @MainActor
@@ -1442,6 +1463,27 @@ final class GenerationScreenCoordinatorTests: XCTestCase {
         }
         XCTAssertEqual(voiceDescription, "Warm narrator")
         XCTAssertEqual(deliveryStyle, "Conversational")
+        XCTAssertNil(request.benchmarkOptions)
+    }
+
+    @MainActor
+    func testVoiceDesignCoordinatorAddsBenchmarkOptionsOnlyDuringUIPerformanceAudit() throws {
+        let model = try XCTUnwrap(TTSModel.model(for: .design))
+        let request = VoiceDesignCoordinator.makeGenerationRequest(
+            draft: VoiceDesignDraft(
+                voiceDescription: "Warm narrator",
+                emotion: "Conversational",
+                text: "Design this voice"
+            ),
+            model: model,
+            outputPath: "/tmp/design.wav",
+            environment: [
+                MacGenerationBenchmarkOptions.uiPerformanceAuditEnvironmentKey: "1",
+                MacGenerationBenchmarkOptions.postRequestCachePolicyEnvironmentKey: "failure-only",
+            ]
+        )
+
+        XCTAssertEqual(request.benchmarkOptions?.postRequestCachePolicy, "failure-only")
     }
 
     @MainActor
@@ -1630,6 +1672,28 @@ final class GenerationScreenCoordinatorTests: XCTestCase {
         XCTAssertEqual(reference.audioPath, "/tmp/reference.wav")
         XCTAssertEqual(reference.transcript, "Reference transcript")
         XCTAssertEqual(reference.preparedVoiceID, "voice-123")
+        XCTAssertNil(request.benchmarkOptions)
+    }
+
+    @MainActor
+    func testVoiceCloningCoordinatorAddsBenchmarkOptionsOnlyDuringUIPerformanceAudit() throws {
+        let model = try XCTUnwrap(TTSModel.model(for: .clone))
+        let request = try XCTUnwrap(VoiceCloningCoordinator.makeGenerationRequest(
+            draft: VoiceCloningDraft(
+                selectedSavedVoiceID: "voice-123",
+                referenceAudioPath: "/tmp/reference.wav",
+                referenceTranscript: "Reference transcript",
+                text: "Clone this line"
+            ),
+            model: model,
+            outputPath: "/tmp/clone.wav",
+            environment: [
+                MacGenerationBenchmarkOptions.uiPerformanceAuditEnvironmentKey: "1",
+                MacGenerationBenchmarkOptions.postRequestCachePolicyEnvironmentKey: "failure-only",
+            ]
+        ))
+
+        XCTAssertEqual(request.benchmarkOptions?.postRequestCachePolicy, "failure-only")
     }
 
     @MainActor

@@ -1,4 +1,5 @@
 import XCTest
+import QwenVoiceCore
 @testable import QwenVoice
 
 final class AppStateRestorationPolicyTests: XCTestCase {
@@ -69,5 +70,37 @@ final class AppLaunchConfigurationTests: XCTestCase {
                 isAudioQualityHeadlessHost: true
             )
         )
+    }
+
+    func testMacGenerationBenchmarkOptionsAreNilOutsideUIPerformanceAudit() {
+        let options = MacGenerationBenchmarkOptions.requestOptions(
+            environment: [
+                MacGenerationBenchmarkOptions.postRequestCachePolicyEnvironmentKey: "failure-only",
+            ]
+        )
+
+        XCTAssertNil(options)
+    }
+
+    func testMacGenerationBenchmarkOptionsAcceptPostRequestCachePolicyDuringUIPerformanceAudit() {
+        let options = MacGenerationBenchmarkOptions.requestOptions(
+            environment: [
+                MacGenerationBenchmarkOptions.uiPerformanceAuditEnvironmentKey: "1",
+                MacGenerationBenchmarkOptions.postRequestCachePolicyEnvironmentKey: " failure-only ",
+            ]
+        )
+
+        XCTAssertEqual(options?.postRequestCachePolicy, "failure-only")
+    }
+
+    func testMacGenerationBenchmarkOptionsRejectUnknownPostRequestCachePolicy() {
+        let options = MacGenerationBenchmarkOptions.requestOptions(
+            environment: [
+                MacGenerationBenchmarkOptions.uiPerformanceAuditEnvironmentKey: "1",
+                MacGenerationBenchmarkOptions.postRequestCachePolicyEnvironmentKey: "ship-it",
+            ]
+        )
+
+        XCTAssertNil(options)
     }
 }

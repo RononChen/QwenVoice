@@ -221,7 +221,8 @@ final class VoiceDesignCoordinator: ObservableObject {
     nonisolated static func makeGenerationRequest(
         draft: VoiceDesignDraft,
         model: TTSModel,
-        outputPath: String
+        outputPath: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> GenerationRequest {
         GenerationRequest(
             modelID: model.id,
@@ -229,6 +230,7 @@ final class VoiceDesignCoordinator: ObservableObject {
             outputPath: outputPath,
             shouldStream: false,
             streamingTitle: String(draft.text.prefix(40)),
+            benchmarkOptions: MacGenerationBenchmarkOptions.requestOptions(environment: environment),
             payload: .design(
                 voiceDescription: draft.voiceDescription,
                 deliveryStyle: draft.emotion

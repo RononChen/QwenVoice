@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import CoreGraphics
+import QwenVoiceCore
 
 struct AppLaunchConfiguration {
 #if QW_TEST_SUPPORT
@@ -138,4 +139,44 @@ struct AppLaunchConfiguration {
         }
     }
 #endif
+}
+
+enum MacGenerationBenchmarkOptions {
+    static let uiPerformanceAuditEnvironmentKey = "QWENVOICE_UI_PERF_AUDIT"
+    static let postRequestCachePolicyEnvironmentKey = "QWENVOICE_QWEN3_POST_REQUEST_CACHE_POLICY"
+
+    private static let supportedPostRequestCachePolicies: Set<String> = [
+        "current",
+        "always",
+        "failure-only",
+        "never",
+    ]
+
+    static func requestOptions(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> GenerationRequest.BenchmarkOptions? {
+        guard isTruthy(environment[uiPerformanceAuditEnvironmentKey]) else { return nil }
+
+        let postRequestCachePolicy = environment[postRequestCachePolicyEnvironmentKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard let postRequestCachePolicy,
+              supportedPostRequestCachePolicies.contains(postRequestCachePolicy) else {
+            return nil
+        }
+
+        return GenerationRequest.BenchmarkOptions(
+            postRequestCachePolicy: postRequestCachePolicy
+        )
+    }
+
+    private static func isTruthy(_ value: String?) -> Bool {
+        guard let value else { return false }
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on":
+            return true
+        default:
+            return false
+        }
+    }
 }

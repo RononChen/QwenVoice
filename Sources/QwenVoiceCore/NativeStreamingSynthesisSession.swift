@@ -481,7 +481,7 @@ private final class IncrementalPCM16WAVFileWriter {
     }
 }
 
-private enum NativeBenchmarkPostRequestCachePolicy: String {
+enum NativeBenchmarkPostRequestCachePolicy: String {
     case current
     case always
     case failureOnly = "failure-only"
@@ -566,6 +566,7 @@ private struct StreamingExecutionContext: Sendable {
         }
 
         let startedAt = ContinuousClock.now
+        let postRequestCachePolicy = NativeBenchmarkPostRequestCachePolicy.resolve(request.benchmarkOptions)
         let outputURL = URL(fileURLWithPath: request.outputPath)
         let sampleRate = model.sampleRate
         let telemetryMode = NativeTelemetryMode.current(benchmarkOptions: request.benchmarkOptions)
@@ -604,7 +605,9 @@ private struct StreamingExecutionContext: Sendable {
                 telemetrySampler,
                 stageMarks: await telemetryRecorder?.snapshot() ?? []
             )
-            Memory.clearCache()
+            if postRequestCachePolicy.clearsAfterFailure {
+                Memory.clearCache()
+            }
             throw error
         }
 
@@ -618,28 +621,44 @@ private struct StreamingExecutionContext: Sendable {
                 telemetrySampler,
                 stageMarks: await telemetryRecorder?.snapshot() ?? []
             )
-            Memory.clearCache()
+            if postRequestCachePolicy.clearsAfterFailure {
+                Memory.clearCache()
+            }
             throw Self.error(for: finishReason)
         }
 
         let samples = completion.audio.asArray(Float.self)
         guard !samples.isEmpty else {
+            if postRequestCachePolicy.clearsAfterFailure {
+                Memory.clearCache()
+            }
             throw MLXTTSEngineError.generationFailed("The native engine did not produce final audio.")
         }
 
         let scratchBuffer = PCM16ScratchBuffer()
         let pcmSamples = scratchBuffer.convertLimited(samples)
-        let finalWriter = try IncrementalPCM16WAVFileWriter(
-            sampleRate: sampleRate,
-            outputURL: outputURL
-        )
-        let finalWriteStartedAt = ContinuousClock.now
-        try finalWriter.append(pcmSamples: pcmSamples)
-        finalWriter.finish()
-        let finalWriteMS = finalWriteStartedAt.elapsedMilliseconds
+        let finalWriteMS: Int
+        do {
+            let finalWriter = try IncrementalPCM16WAVFileWriter(
+                sampleRate: sampleRate,
+                outputURL: outputURL
+            )
+            let finalWriteStartedAt = ContinuousClock.now
+            try finalWriter.append(pcmSamples: pcmSamples)
+            finalWriter.finish()
+            finalWriteMS = finalWriteStartedAt.elapsedMilliseconds
+        } catch {
+            if postRequestCachePolicy.clearsAfterFailure {
+                Memory.clearCache()
+            }
+            throw error
+        }
         mlxMemorySnapshots["after_final_write"] = NativeMemoryPolicyResolver.snapshot()
-        Memory.clearCache()
-        mlxMemorySnapshots["after_generation_trim"] = NativeMemoryPolicyResolver.snapshot()
+        let postRequestCacheClearApplied = postRequestCachePolicy.clearsAfterSuccess(memoryPolicy: memoryPolicy)
+        if postRequestCacheClearApplied {
+            Memory.clearCache()
+            mlxMemorySnapshots["after_generation_trim"] = NativeMemoryPolicyResolver.snapshot()
+        }
 
         let generationMS = startedAt.duration(to: .now).roundedMilliseconds
         let durationSeconds = Double(pcmSamples.count) / Double(sampleRate)
@@ -661,6 +680,7 @@ private struct StreamingExecutionContext: Sendable {
         timingsMS["final_write"] = finalWriteMS
         timingsMS["stream_chunk_count"] = 0
         timingsMS["quality_first_final_audio"] = 1
+        timingsMS["post_request_cache_clear_applied"] = postRequestCacheClearApplied ? 1 : 0
 
         var finalBooleanFlags = mergedBooleanFlags()
         finalBooleanFlags["quality_first_final_audio"] = true
@@ -670,7 +690,7 @@ private struct StreamingExecutionContext: Sendable {
         var finalStringFlags = mergedStringFlags(
             telemetryMode: telemetryMode,
             streamingOutputPolicy: .pcmPreview,
-            postRequestCachePolicy: "quality-first"
+            postRequestCachePolicy: postRequestCachePolicy.rawValue
         )
         finalStringFlags["generation_finish_reason"] = finishReason.rawValue
         finalStringFlags["backend_provenance_upstream_tag"] = QwenVoiceBackendProvenance.upstreamTag

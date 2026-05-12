@@ -135,7 +135,8 @@ final class CustomVoiceCoordinator: ObservableObject {
     nonisolated static func makeGenerationRequest(
         draft: CustomVoiceDraft,
         model: TTSModel,
-        outputPath: String
+        outputPath: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> GenerationRequest {
         GenerationRequest(
             modelID: model.id,
@@ -144,6 +145,7 @@ final class CustomVoiceCoordinator: ObservableObject {
             shouldStream: false,
             streamingInterval: QwenVoiceCore.GenerationSemantics.appStreamingInterval,
             streamingTitle: Swift.String(draft.text.prefix(40)),
+            benchmarkOptions: MacGenerationBenchmarkOptions.requestOptions(environment: environment),
             payload: .custom(
                 speakerID: draft.selectedSpeaker,
                 deliveryStyle: draft.emotion

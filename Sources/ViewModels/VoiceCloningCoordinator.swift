@@ -256,7 +256,8 @@ final class VoiceCloningCoordinator: ObservableObject {
     static func makeGenerationRequest(
         draft: VoiceCloningDraft,
         model: TTSModel,
-        outputPath: String
+        outputPath: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> GenerationRequest? {
         guard let referenceAudioPath = draft.referenceAudioPath else { return nil }
         guard draft.hasText else { return nil }
@@ -266,6 +267,7 @@ final class VoiceCloningCoordinator: ObservableObject {
             outputPath: outputPath,
             shouldStream: false,
             streamingTitle: String(draft.text.prefix(40)),
+            benchmarkOptions: MacGenerationBenchmarkOptions.requestOptions(environment: environment),
             payload: .clone(
                 reference: CloneReference(
                     audioPath: referenceAudioPath,

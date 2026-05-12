@@ -57,6 +57,86 @@ final class BackendPerformanceContractTests: XCTestCase {
         XCTAssertEqual(merged.stringFlags["post_request_cache_policy"], "failure-only")
     }
 
+    func testNativeBenchmarkPostRequestCachePolicyHonorsMemoryClassAndOverrides() {
+        let floorPolicy = NativeMemoryPolicyResolver.policy(
+            deviceClass: .floor8GBMac,
+            mode: .custom,
+            isBatch: false
+        )
+        let midPolicy = NativeMemoryPolicyResolver.policy(
+            deviceClass: .mid16GBMac,
+            mode: .custom,
+            isBatch: false
+        )
+        let highPolicy = NativeMemoryPolicyResolver.policy(
+            deviceClass: .highMemoryMac,
+            mode: .custom,
+            isBatch: false
+        )
+
+        let current = NativeBenchmarkPostRequestCachePolicy.resolve(nil)
+        XCTAssertEqual(current, .current)
+        XCTAssertTrue(current.clearsAfterSuccess(memoryPolicy: floorPolicy))
+        XCTAssertFalse(current.clearsAfterSuccess(memoryPolicy: midPolicy))
+        XCTAssertFalse(current.clearsAfterSuccess(memoryPolicy: highPolicy))
+        XCTAssertTrue(current.clearsAfterFailure)
+
+        let failureOnly = NativeBenchmarkPostRequestCachePolicy.resolve(
+            GenerationRequest.BenchmarkOptions(postRequestCachePolicy: " failure-only ")
+        )
+        XCTAssertEqual(failureOnly, .failureOnly)
+        XCTAssertFalse(failureOnly.clearsAfterSuccess(memoryPolicy: floorPolicy))
+        XCTAssertTrue(failureOnly.clearsAfterFailure)
+
+        let always = NativeBenchmarkPostRequestCachePolicy.resolve(
+            GenerationRequest.BenchmarkOptions(postRequestCachePolicy: "always")
+        )
+        XCTAssertTrue(always.clearsAfterSuccess(memoryPolicy: midPolicy))
+        XCTAssertTrue(always.clearsAfterFailure)
+
+        let never = NativeBenchmarkPostRequestCachePolicy.resolve(
+            GenerationRequest.BenchmarkOptions(postRequestCachePolicy: "never")
+        )
+        XCTAssertFalse(never.clearsAfterSuccess(memoryPolicy: floorPolicy))
+        XCTAssertFalse(never.clearsAfterFailure)
+    }
+
+    func testNativeBenchmarkPostRequestCachePolicyMapsSpeedProfilesToAdaptiveReuse() {
+        XCTAssertEqual(
+            NativeBenchmarkPostRequestCachePolicy.resolve(
+                GenerationRequest.BenchmarkOptions(generationSpeedProfile: "current")
+            ),
+            .current
+        )
+        XCTAssertEqual(
+            NativeBenchmarkPostRequestCachePolicy.resolve(
+                GenerationRequest.BenchmarkOptions(generationSpeedProfile: "legacy123-memory")
+            ),
+            .failureOnly
+        )
+        XCTAssertEqual(
+            NativeBenchmarkPostRequestCachePolicy.resolve(
+                GenerationRequest.BenchmarkOptions(generationSpeedProfile: "adaptive-failure-only")
+            ),
+            .failureOnly
+        )
+        XCTAssertEqual(
+            NativeBenchmarkPostRequestCachePolicy.resolve(
+                GenerationRequest.BenchmarkOptions(generationSpeedProfile: "balanced-all-modes")
+            ),
+            .failureOnly
+        )
+        XCTAssertEqual(
+            NativeBenchmarkPostRequestCachePolicy.resolve(
+                GenerationRequest.BenchmarkOptions(
+                    generationSpeedProfile: "legacy123-memory",
+                    postRequestCachePolicy: "always"
+                )
+            ),
+            .always
+        )
+    }
+
     func testBenchmarkSampleRoundTripsBackendPerformanceAndPCMPreviewChunk() throws {
         let preview = StreamingAudioChunk(
             requestID: 42,
