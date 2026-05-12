@@ -26,7 +26,7 @@ Vocello is a local, private AI voice-generation app for Apple Silicon Macs. Writ
 - **Private by default.** After models are installed, generation runs locally and your scripts, history, and generated audio stay in local app storage unless you export them.
 - **No subscription meter.** Download the models you want, then generate on your Mac without paying per line or waiting on a cloud queue.
 - **Three voice workflows.** Use a built-in speaker, describe a new voice, or clone from a reference clip you own or have permission to use.
-- **Built for Apple Silicon.** Vocello is a native Mac app with local playback, history, saved voices, model downloads, and output folders in one place.
+- **Built for Apple Silicon.** Vocello 2.0 uses a native Swift + MLX backend instead of the older bundled Python runtime, keeping the beta local, private, self-contained, and Mac-like.
 
 ## Screenshots
 
@@ -87,6 +87,8 @@ Settings is focused on model packages: download, repair, reveal, or delete Speed
 4. Go to Settings -> Model downloads and install the voice models you want.
 5. Generate from Custom Voice, Voice Design, or Voice Cloning.
 
+No Python setup or local server is required. Install the app, download models from Settings, and generate locally.
+
 You can verify the download with `Vocello-macos26.dmg.sha256` from the same release.
 
 ## Requirements
@@ -122,6 +124,8 @@ The iPhone app is maintained in this repository, but it is not a public download
 ## For Developers
 
 The `main` branch contains the current Vocello codebase. The public beta release is tagged as [`v2.0.0-beta.1`](https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0-beta.1).
+
+Vocello 2.0's native Swift + MLX engine is hosted outside the UI process and replaces the legacy Python-backed runtime for the beta line.
 
 ```sh
 git clone https://github.com/PowerBeef/QwenVoice.git
