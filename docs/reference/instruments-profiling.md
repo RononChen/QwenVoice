@@ -11,6 +11,7 @@ tool.
 | Question | Right tool |
 |---|---|
 | "How long does the user wait between Cmd+Return and audio playback?" | `scripts/bench_ui_generation.sh` (desktop-UI bench, full pipeline) |
+| "Which cells got faster or slower, and did warmup/cache flags explain it?" | `scripts/compare_ui_bench_runs.sh <baseline-run> <candidate-run>` |
 | "How does that wall break down across engine / XPC / UI layers?" | `[Probe.Engine|Transport|UI]` lines in the bench log |
 | "How does per-chunk `infer_ms` break down across talker / code predictor / decoder / eval cadence?" | Phase 1 + Phase 2a fields in the same probe |
 | "Inside `talker_forward_ms`, which Metal kernels run, and is the GPU saturated or idle-waiting?" | **Instruments / `xctrace`** (this doc) |

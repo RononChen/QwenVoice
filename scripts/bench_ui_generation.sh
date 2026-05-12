@@ -125,8 +125,44 @@ fi
 
 [ -d "$OUT" ] || { echo "output dir not found: $OUT" >&2; exit 3; }
 
+rss_mb_for_pids() {
+    local pids="$1"
+    local total_kb=0
+    local found=false
+    local pid
+    while IFS= read -r pid; do
+        [ -n "$pid" ] || continue
+        local rss_kb
+        rss_kb=$(ps -o rss= -p "$pid" 2>/dev/null | awk 'NR == 1 { print $1 }' || true)
+        if [[ "$rss_kb" =~ ^[0-9]+$ ]]; then
+            total_kb=$((total_kb + rss_kb))
+            found=true
+        fi
+    done <<< "$pids"
+
+    if [ "$found" = "true" ]; then
+        awk -v kb="$total_kb" 'BEGIN { printf "%.1f", kb / 1024 }'
+    fi
+}
+
+rss_mb_for_exact_process() {
+    local process_name="$1"
+    local pids
+    pids=$(pgrep -x "$process_name" 2>/dev/null || true)
+    rss_mb_for_pids "$pids"
+}
+
+rss_mb_for_matching_process() {
+    local process_pattern="$1"
+    local pids
+    pids=$(pgrep -f "$process_pattern" 2>/dev/null || true)
+    rss_mb_for_pids "$pids"
+}
+
 # Snapshot file set before triggering
 BEFORE=$(ls "$OUT" 2>/dev/null | sort)
+VOCELLO_RSS_MB_BEFORE=$(rss_mb_for_exact_process "Vocello")
+ENGINE_RSS_MB_BEFORE=$(rss_mb_for_matching_process "QwenVoiceEngineService")
 
 # Capture pre-trigger log state. We pin OUR session as the
 # (SESSION_START_COUNT_BEFORE + 1)-th `event=session_start` in the log.
@@ -258,6 +294,8 @@ done
 
 T1=$(date +%s.%N)
 WALL=$(echo "scale=3; $T1 - $T0 - $ACTIVATION_OVERHEAD" | bc)
+VOCELLO_RSS_MB_AFTER=$(rss_mb_for_exact_process "Vocello")
+ENGINE_RSS_MB_AFTER=$(rss_mb_for_matching_process "QwenVoiceEngineService")
 
 # Audio duration source — two paths:
 #
@@ -577,10 +615,16 @@ PROBE_STREAM_STEP_EVAL_MAX_MS=${PROBE_STREAM_STEP_EVAL_MAX_MS:-}
 PROBE_STREAM_STEP_EOS_READ_MAX_MS=${PROBE_STREAM_STEP_EOS_READ_MAX_MS:-}
 PROBE_AUDIO_CHUNK_EVAL_MAX_MS=${PROBE_AUDIO_CHUNK_EVAL_MAX_MS:-}
 
+CSV_HEADER_WITH_RSS="mode,length,state,sample,wall_secs,audio_secs,rtf,filename,underrun_count,total_stall_ms,ttfa_ms,max_chunk_gap_ms,decode_fails,stream_errors,duration_mismatch_s,chunk_count,e2t_max_ms,e2t_p50_ms,t2u_max_ms,t2u_p50_ms,e2u_max_ms,infer_max_ms,infer_p50_ms,probe_chunk_count,talker_max_ms,code_predictor_max_ms,audio_decoder_max_ms,stream_step_eval_max_ms,stream_step_eos_read_max_ms,audio_chunk_eval_max_ms,vocello_rss_mb_before,vocello_rss_mb_after,engine_rss_mb_before,engine_rss_mb_after"
 if [ ! -f "$CSV" ]; then
-    echo "mode,length,state,sample,wall_secs,audio_secs,rtf,filename,underrun_count,total_stall_ms,ttfa_ms,max_chunk_gap_ms,decode_fails,stream_errors,duration_mismatch_s,chunk_count,e2t_max_ms,e2t_p50_ms,t2u_max_ms,t2u_p50_ms,e2u_max_ms,infer_max_ms,infer_p50_ms,probe_chunk_count,talker_max_ms,code_predictor_max_ms,audio_decoder_max_ms,stream_step_eval_max_ms,stream_step_eos_read_max_ms,audio_chunk_eval_max_ms" > "$CSV"
+    echo "$CSV_HEADER_WITH_RSS" > "$CSV"
 fi
 
-ROW="$MODE,$LENGTH,$STATE,$SAMPLE,$WALL,$TOTAL_AUDIO,$RTF,$FILE_LABEL,$UNDERRUN_COUNT,$TOTAL_STALL_MS,$TTFA_MS,$MAX_CHUNK_GAP_MS,$DECODE_FAILS,$STREAM_ERRORS,$DURATION_MISMATCH_S,$CHUNK_COUNT,$PROBE_E2T_MAX_MS,$PROBE_E2T_P50_MS,$PROBE_T2U_MAX_MS,$PROBE_T2U_P50_MS,$PROBE_E2U_MAX_MS,$PROBE_INFER_MAX_MS,$PROBE_INFER_P50_MS,$PROBE_CHUNK_COUNT,$PROBE_TALKER_MAX_MS,$PROBE_CODE_PREDICTOR_MAX_MS,$PROBE_AUDIO_DECODER_MAX_MS,$PROBE_STREAM_STEP_EVAL_MAX_MS,$PROBE_STREAM_STEP_EOS_READ_MAX_MS,$PROBE_AUDIO_CHUNK_EVAL_MAX_MS"
+CSV_HEADER=$(head -n 1 "$CSV" 2>/dev/null || true)
+if [[ "$CSV_HEADER" == *"vocello_rss_mb_before"* ]]; then
+    ROW="$MODE,$LENGTH,$STATE,$SAMPLE,$WALL,$TOTAL_AUDIO,$RTF,$FILE_LABEL,$UNDERRUN_COUNT,$TOTAL_STALL_MS,$TTFA_MS,$MAX_CHUNK_GAP_MS,$DECODE_FAILS,$STREAM_ERRORS,$DURATION_MISMATCH_S,$CHUNK_COUNT,$PROBE_E2T_MAX_MS,$PROBE_E2T_P50_MS,$PROBE_T2U_MAX_MS,$PROBE_T2U_P50_MS,$PROBE_E2U_MAX_MS,$PROBE_INFER_MAX_MS,$PROBE_INFER_P50_MS,$PROBE_CHUNK_COUNT,$PROBE_TALKER_MAX_MS,$PROBE_CODE_PREDICTOR_MAX_MS,$PROBE_AUDIO_DECODER_MAX_MS,$PROBE_STREAM_STEP_EVAL_MAX_MS,$PROBE_STREAM_STEP_EOS_READ_MAX_MS,$PROBE_AUDIO_CHUNK_EVAL_MAX_MS,$VOCELLO_RSS_MB_BEFORE,$VOCELLO_RSS_MB_AFTER,$ENGINE_RSS_MB_BEFORE,$ENGINE_RSS_MB_AFTER"
+else
+    ROW="$MODE,$LENGTH,$STATE,$SAMPLE,$WALL,$TOTAL_AUDIO,$RTF,$FILE_LABEL,$UNDERRUN_COUNT,$TOTAL_STALL_MS,$TTFA_MS,$MAX_CHUNK_GAP_MS,$DECODE_FAILS,$STREAM_ERRORS,$DURATION_MISMATCH_S,$CHUNK_COUNT,$PROBE_E2T_MAX_MS,$PROBE_E2T_P50_MS,$PROBE_T2U_MAX_MS,$PROBE_T2U_P50_MS,$PROBE_E2U_MAX_MS,$PROBE_INFER_MAX_MS,$PROBE_INFER_P50_MS,$PROBE_CHUNK_COUNT,$PROBE_TALKER_MAX_MS,$PROBE_CODE_PREDICTOR_MAX_MS,$PROBE_AUDIO_DECODER_MAX_MS,$PROBE_STREAM_STEP_EVAL_MAX_MS,$PROBE_STREAM_STEP_EOS_READ_MAX_MS,$PROBE_AUDIO_CHUNK_EVAL_MAX_MS"
+fi
 echo "$ROW"
 echo "$ROW" >> "$CSV"
