@@ -152,7 +152,7 @@
   "benchmarkProfile": "repeat",
   "baselineKind": "perf-lane-CustomVoice-only",
   "baselineCapturedAtCommit": "152e822",
-  "baselineCapturedAtMachine": "Mac mini M1, 8 GB RAM (project owner)",
+  "baselineCapturedAtMachine": "Mac mini M2, 8 GB RAM (project owner)",
   "baselineNotes": "Captured by scripts/compare_perf_manifest.sh workflow. CustomVoice-only because that is the only model installed on the project owner machine. VoiceDesign + Clones lanes are gated separately.",
   "baselineCapturedAtAfterCommit": "Symmetric handler-used flags landed (Tier 1.4 closure)"
 }

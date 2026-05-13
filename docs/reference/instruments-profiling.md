@@ -240,6 +240,13 @@ bottleneck and further wall-clock optimization requires either model
 quantization (already at 4-bit Speed) or hardware (M2/M3/M4 with more
 GPU cores).
 
+> Verification note: this conclusion was reached on Mac mini M1,
+> 8 GB RAM. The project owner's current testing machine is Mac mini
+> M2, 8 GB RAM, which has wider memory bandwidth and more capable GPU
+> cores. The saturation profile and the 62 % Step Eval Flush share may
+> differ on M2 and should be re-verified via Instruments before being
+> cited as M2-bound conclusions.
+
 Phase 2c's pipelining still leaves Step Eval Flush (62 % of work) as
 the dominant per-iteration cost. The work itself is the per-token
 forward sync; reducing it requires either a faster talker forward
