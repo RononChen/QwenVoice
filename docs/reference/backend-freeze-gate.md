@@ -2,10 +2,7 @@
 
 This document defines the source, integration, build, and unsigned-release gate that must stay green before release-hardening work is treated as reviewable.
 
-The "gate" is composed of two parts:
-
-- **Local proof** (the source of truth for behavioral validation) — `qa.sh validate`, contract/swift/native/e2e/perf-static test layers, foundation builds, unsigned release packaging on Mac mini M2.
-- **CI proof** (build + packaging only) — `Project Inputs` + `Apple Platform Build Gate` + `Vocello macOS Release` for signed/notarized DMGs. Behavioral test layers do **not** run on CI; they are local-only.
+The "gate" is **entirely local** as of May 2026: `qa.sh validate`, contract/swift/native/e2e/perf-static test layers, foundation builds, unsigned + signed/notarized release packaging, and iPhone archive/export all run on Mac mini M2 via the `scripts/` tooling. There is no CI counterpart; the prior GitHub workflows were retired in a deliberate reset.
 
 ## Purpose
 
@@ -90,23 +87,18 @@ QWENVOICE_E2E_STRICT=1 ./scripts/qa.sh test --layer e2e
 
 ### Maintained CI Proof
 
-- `Project Inputs` (runs `qa.sh validate` only)
-- `Apple Platform Build Gate` (project regen + `qa.sh validate` + generic macOS/iPhone builds + unsigned macOS release verification)
-- `Vocello macOS Release` (signed/notarized DMG)
+None. GitHub workflows were retired in May 2026. Build, packaging, signing, notarization, and TestFlight-prep work all run locally on Mac mini M2 via:
 
-The maintained CI evidence includes:
+- `scripts/release.sh` + `scripts/verify_release_bundle.sh` + `scripts/verify_packaged_dmg.sh` — signed/notarized macOS DMG
+- `scripts/check_ios_catalog.sh` + `scripts/release_ios_testflight.sh` + `scripts/verify_ios_release_archive.sh` — iPhone archive/export/TestFlight prep
+- `scripts/build_foundation_targets.sh macos\|ios` — deterministic foundation builds
 
-- uploaded `.xcresult` bundles for platform builds and release packaging
-- unsigned macOS release verification artifacts
-- dedicated signed macOS notarization proof
-- generic iPhone compile proof to protect shared-core integration
+These are the authoritative source-of-truth tools for any build, packaging, or distribution work. There is no CI mirror.
 
-CI does **not** run behavioral test layers (`contract`, `swift`, `native`, `e2e`, `perf-static`, `perf`) or UI benches. Those are local-only on Mac mini M2 — see Local Harness And Build Proof above.
+Deferred but still maintained local proof:
 
-Deferred but still maintained CI proof:
-
-- `Vocello iOS TestFlight`
-- dedicated iPhone archive/export/upload-prep proof
+- `scripts/release_ios_testflight.sh` + `scripts/verify_ios_release_archive.sh`
+- iPhone archive/export/upload-prep on Mac mini M2 via the local TestFlight tooling
 
 ## Acceptance Checklist
 

@@ -125,15 +125,9 @@ Project and automation source of truth:
 
 - `project.yml`
 - `scripts/`
-- `.github/workflows/`
 - `config/apple-platform-capability-matrix.json`
 
-Active GitHub workflows (scoped to building and packaging validations only — behavioral test layers run locally on Mac mini M2):
-
-- `Project Inputs` (runs `qa.sh validate`)
-- `Apple Platform Build Gate` (project regeneration + `qa.sh validate` + generic macOS/iPhone builds + unsigned macOS release verification + `.xcresult` artifact upload)
-- `Vocello macOS Release` as the only signed/public release workflow required for the current milestone
-- `Vocello iOS TestFlight` as the maintained but deferred iPhone release workflow
+There are no GitHub workflows. CI was retired in May 2026 after harness-driven churn made it unreliable; all builds, tests, debugging, benchmarking, packaging, signing, notarization, and TestFlight prep happen locally on Mac mini M2 via the `scripts/` tooling.
 
 Key local checks:
 
@@ -162,7 +156,7 @@ The maintained qa.sh and foundation paths now use:
 
 - explicit harness roots under `build/harness/{derived-data,results,source-packages,artifacts}`
 - explicit release build roots under `build/foundation/`
-- explicit archive/release `.xcresult` bundles under `build/foundation/` for the maintained CI release paths
+- explicit archive/release `.xcresult` bundles under `build/foundation/` for the maintained local release paths
 
 ## Current Documentation Boundaries
 

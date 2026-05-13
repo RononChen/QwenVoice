@@ -168,12 +168,7 @@ Frontend work should treat the backend as frozen only when these maintained proo
 ./scripts/verify_packaged_dmg.sh build/Vocello-macos26.dmg build/release-metadata.txt
 ```
 
-Maintained CI proof also includes:
-
-- `Apple Platform Build Gate` (project regen + `qa.sh validate` + generic macOS/iPhone builds + unsigned macOS release verification — no behavioral test layers; those are local-only)
-- `.xcresult` artifact upload for platform build lanes
-- signed macOS release proof in its dedicated CI workflow
-- deferred iPhone release proof in its dedicated CI workflow
+There is no CI proof. All build, packaging, signing, notarization, and TestFlight-prep work runs locally on Mac mini M2 via the `scripts/` tooling; the prior CI surface was retired in May 2026.
 
 The explicit build-gate acceptance checklist lives in:
 

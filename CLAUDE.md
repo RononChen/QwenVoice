@@ -20,7 +20,7 @@ When facts disagree, trust in this order:
 
 1. `Sources/`
 2. `project.yml`
-3. `scripts/` and `.github/workflows/`
+3. `scripts/`
 4. `Sources/Resources/qwenvoice_contract.json` — authoritative for model, speaker, output, variant, Hugging Face revision (40-char commit pin), and required-file metadata
 5. `docs/reference/`
 6. other prose docs
@@ -230,28 +230,25 @@ Shell pipeline exit codes: when piping `qa.sh`, `bench_ui_generation.sh`, or `co
 
 ## CI Workflows
 
-GitHub workflows are scoped to **building and packaging validations only**. App debugging, benchmarking, and behavioral test layers all run locally on Mac mini M2. CI is not a behavioral-test gate.
+**There are no GitHub workflows.** All builds, tests, debugging, benchmarking, packaging, signing, notarization, release verification, iPhone archive/export, and TestFlight prep happen locally on Mac mini M2 via the existing `scripts/` tooling. The previous CI surface accumulated through harness churn and was retired in a deliberate reset (May 2026).
 
-- `.github/workflows/project-inputs.yml` → `Project Inputs` (runs `qa.sh validate` — static project-input check: schema, contract presence, paths)
-- `.github/workflows/apple-platform-validation.yml` → `Apple Platform Build Gate` (project regeneration, `qa.sh validate`, generic macOS/iPhone builds, unsigned macOS release verification)
-- `.github/workflows/macos-release.yml` → `Vocello macOS Release` (signed public macOS release path)
-- `.github/workflows/ios-testflight.yml` → `Vocello iOS TestFlight` (maintained but deferred)
+If you want to verify what the remote thinks: `gh workflow list` returns nothing.
 
-## PR Workflow
+## Git Workflow
 
-`main` is protected: direct pushes are rejected unless the commit has passing `validate-apple-platforms` (Apple Platform Build Gate) **and** `validate-project-inputs` (Project Inputs) checks. Force-push and branch deletion are blocked. Admins are not exempt (`enforce_admins=true`). All work targeting `main` goes through a PR.
+`main` is the only branch that matters. **Direct push to `main` is allowed.** Force-push and branch deletion on `main` are blocked at the remote (`allow_force_pushes: false`, `allow_deletions: false`). No required status checks; no required PR reviews; admins are not enforced (`enforce_admins: false`).
 
-Canonical agent flow:
+Default flow:
 
 ```sh
-git checkout -b <branch>
-# edit + commit
-git push -u origin <branch>
-gh pr create --title "…" --body "…"
-gh pr merge --auto --rebase --delete-branch  # queues auto-merge once required checks go green
+# edit + validate locally
+./scripts/check_project_inputs.sh && ./scripts/qa.sh validate && git diff --check
+git add <files>
+git commit -m "…"
+git push origin main
 ```
 
-Auto-merge waits for both required checks to complete before rebasing onto `main`. Feature branches auto-delete remotely on merge (`delete_branch_on_merge=true`); clean up your local copy via `git branch -D <branch>` after `git pull origin main`.
+Feature branches and PRs are still allowed for substantive review-worthy changes at the contributor's discretion, but they are not required and there are no checks gating their merge. Cleanup is the contributor's job.
 
 ## Edit-Coupling Rules
 
@@ -277,10 +274,10 @@ When changing playback, live preview, or persistence:
 - review `Sources/SharedSupport/` and affected macOS or iPhone feature views → preserve accessibility identifiers that UI tests depend on.
 
 When changing macOS release packaging:
-- keep `scripts/release.sh`, `scripts/create_dmg.sh`, `scripts/verify_release_bundle.sh`, `scripts/verify_packaged_dmg.sh`, `.github/workflows/macos-release.yml`, and release docs aligned.
+- keep `scripts/release.sh`, `scripts/create_dmg.sh`, `scripts/verify_release_bundle.sh`, `scripts/verify_packaged_dmg.sh`, and release docs aligned. Signing + notarization run locally using the project owner's Apple developer credentials; there is no CI counterpart.
 
 When changing iPhone archive/export:
-- keep `scripts/check_ios_catalog.sh`, `scripts/release_ios_testflight.sh`, `scripts/verify_ios_release_archive.sh`, `.github/workflows/ios-testflight.yml`, and iPhone distribution docs aligned.
+- keep `scripts/check_ios_catalog.sh`, `scripts/release_ios_testflight.sh`, `scripts/verify_ios_release_archive.sh`, and iPhone distribution docs aligned. Archive/export/TestFlight upload run locally; there is no CI counterpart.
 
 When changing broad repo facts:
 - update `CLAUDE.md`, `README.md`, `CONTRIBUTING.md`, `docs/README.md`, and affected files under `docs/reference/`.

@@ -8,7 +8,7 @@ When facts disagree, trust:
 
 1. `Sources/`
 2. `project.yml`
-3. `scripts/` and `.github/workflows/`
+3. `scripts/`
 4. maintained docs under `docs/reference/`
 5. other prose docs
 
