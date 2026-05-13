@@ -8,8 +8,11 @@
 # Hosted CI does not run the perf lane (no installed models), so this is
 # a developer-facing tool, not a CI gate.
 #
-# Usage: ./scripts/compare_perf_manifest.sh [<fresh-manifest>]
+# Usage: ./scripts/compare_perf_manifest.sh [--baseline <path>] [<fresh-manifest>]
 #   <fresh-manifest>: defaults to build/audio-qc/qa-perf/generation-manifest.json
+#   --baseline <path>: compare against a non-default baseline file
+#                      (e.g. scripts/perf-baseline-manifest-quality.json).
+#                      Defaults to scripts/perf-baseline-manifest.json.
 #
 # Tolerances (override via env):
 #   QWENVOICE_PERF_WALL_TOLERANCE_PCT     default 15  (wallClockMS / realTimeFactor)
@@ -35,7 +38,7 @@
 set -euo pipefail
 
 readonly PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-readonly BASELINE_PATH="$PROJECT_DIR/scripts/perf-baseline-manifest.json"
+readonly DEFAULT_BASELINE_PATH="$PROJECT_DIR/scripts/perf-baseline-manifest.json"
 readonly DEFAULT_FRESH_PATH="$PROJECT_DIR/build/audio-qc/qa-perf/generation-manifest.json"
 
 readonly WALL_TOLERANCE_PCT="${QWENVOICE_PERF_WALL_TOLERANCE_PCT:-15}"
@@ -56,13 +59,16 @@ readonly HEADLINE_TIMING_KEYS=(
 
 usage() {
   cat <<EOF
-Usage: ${0##*/} [<fresh-manifest>]
+Usage: ${0##*/} [--baseline <path>] [<fresh-manifest>]
 
-Compare <fresh-manifest> against the committed baseline at
-$BASELINE_PATH and print regressions.
+Compare <fresh-manifest> against a baseline manifest and print
+regressions.
 
 If <fresh-manifest> is omitted, defaults to:
   $DEFAULT_FRESH_PATH
+
+If --baseline is omitted, defaults to:
+  $DEFAULT_BASELINE_PATH
 
 Tolerances (env overrides):
   QWENVOICE_PERF_WALL_TOLERANCE_PCT    default $WALL_TOLERANCE_PCT  (wallClockMS, realTimeFactor)
@@ -75,17 +81,56 @@ Exit codes:
 EOF
 }
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  usage
-  exit 0
-fi
+BASELINE_PATH_OVERRIDE=""
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --baseline)
+      if [[ $# -lt 2 ]]; then
+        echo "error: --baseline requires a path argument" >&2
+        exit 2
+      fi
+      BASELINE_PATH_OVERRIDE="$2"
+      shift 2
+      ;;
+    --baseline=*)
+      BASELINE_PATH_OVERRIDE="${1#*=}"
+      shift
+      ;;
+    --)
+      shift
+      while [[ $# -gt 0 ]]; do
+        POSITIONAL+=("$1")
+        shift
+      done
+      ;;
+    -*)
+      echo "error: unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      POSITIONAL+=("$1")
+      shift
+      ;;
+  esac
+done
 
-if [[ $# -gt 1 ]]; then
+if [[ ${#POSITIONAL[@]} -gt 1 ]]; then
   usage >&2
   exit 2
 fi
 
-FRESH_PATH="${1:-$DEFAULT_FRESH_PATH}"
+readonly BASELINE_PATH="${BASELINE_PATH_OVERRIDE:-$DEFAULT_BASELINE_PATH}"
+if [[ ${#POSITIONAL[@]} -gt 0 ]]; then
+  FRESH_PATH="${POSITIONAL[0]}"
+else
+  FRESH_PATH="$DEFAULT_FRESH_PATH"
+fi
 
 if [[ ! -f "$BASELINE_PATH" ]]; then
   echo "error: baseline manifest not found at $BASELINE_PATH" >&2
