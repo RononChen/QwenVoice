@@ -14,8 +14,6 @@ When facts disagree, trust:
 
 `Sources/Resources/qwenvoice_contract.json` is the source of truth for model, speaker, variant, output, Hugging Face revision, and required-file metadata.
 
-`CLAUDE.md` is the canonical repository operating guide for coding agents working in this checkout.
-
 Current model-selection policy:
 
 - macOS exposes both `Speed / 4-bit` and `Quality / 8-bit` variants for Custom Voice, Voice Design, and Voice Cloning.
@@ -34,45 +32,20 @@ Current model-selection policy:
 
 ## Useful Checks
 
-Start with cheap checks:
+Start with the static validator:
 
 ```sh
 ./scripts/check_project_inputs.sh
-./scripts/qa.sh validate
-./scripts/qa.sh test --layer contract
 ```
 
-Then run the relevant source or build proof:
+Then run the relevant build proof:
 
 ```sh
-./scripts/qa.sh test --layer swift
-./scripts/qa.sh test --layer native
-./scripts/qa.sh test --layer ios
 ./scripts/build_foundation_targets.sh macos
 ./scripts/build_foundation_targets.sh ios
 ```
 
-The iOS QA lane requires an available iPhone simulator and reports a structured skip when none is installed. The generic iOS foundation build remains the compile proof for machines without a simulator.
-
-The macOS UI smoke lane is:
-
-```sh
-./scripts/qa.sh test --layer e2e
-```
-
-Hosted machines may soft-skip first-time macOS Accessibility/TCC setup. Release signoff on a controlled Mac should use:
-
-```sh
-QWENVOICE_E2E_STRICT=1 ./scripts/qa.sh test --layer e2e
-```
-
-Performance and audio-QC validation is opt-in and not a default contribution gate:
-
-```sh
-./scripts/qa.sh test --layer perf
-```
-
-qa.sh outputs live under `build/harness/{derived-data,results,source-packages,artifacts}`. Inspect `.xcresult` bundles from `build/harness/results/` when a QA-backed Xcode lane fails.
+Behavioral testing: **manual only.** The repo has no XCTest targets and no automated test harness as of May 2026. After a clean foundation build, launch `build/Vocello.app` and exercise the affected paths by hand. Any reintroduction of automated tests should be a deliberate, scoped decision.
 
 For current macOS release signoff, the maintained local loop is documented in `docs/reference/release-readiness.md`.
 

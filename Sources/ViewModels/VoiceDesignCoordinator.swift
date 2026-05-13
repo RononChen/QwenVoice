@@ -112,17 +112,9 @@ final class VoiceDesignCoordinator: ObservableObject {
             return
         }
 
-        let traceModelID = activeModel?.id ?? "missing-model"
-        CustomVoiceUIPerformanceTrace.beginGeneration(
-            mode: .voiceDesign,
-            modelID: traceModelID,
-            snapshotLoadState: CustomVoiceUIPerformanceTrace.loadStateDescription(for: ttsEngineStore.loadState),
-            isEngineReady: ttsEngineStore.isReady
-        )
         isGenerating = true
         errorMessage = nil
         latestSavedVoiceCandidate = nil
-        CustomVoiceUIPerformanceTrace.mark(.coordinatorStarted)
 
         let text = draft.text
         let voiceDescription = draft.voiceDescription
@@ -133,7 +125,6 @@ final class VoiceDesignCoordinator: ObservableObject {
                 guard let model = activeModel else {
                     self.errorMessage = "Model configuration not found"
                     self.isGenerating = false
-                    CustomVoiceUIPerformanceTrace.finish(status: "failed_missing_model")
                     return
                 }
 
@@ -147,30 +138,7 @@ final class VoiceDesignCoordinator: ObservableObject {
                     model: model,
                     outputPath: outputPath
                 )
-                CustomVoiceUIPerformanceTrace.mark(.previewSetupStarted)
-
-                CustomVoiceUIPerformanceTrace.mark(
-                    .engineRequestStarted,
-                    metadata: [
-                        "model_id": model.id,
-                        "delivery_style": emotion,
-                    ],
-                    metrics: [
-                        "text_characters": text.count,
-                        "voice_description_characters": voiceDescription.count,
-                    ]
-                )
                 let result = try await ttsEngineStore.generate(generationRequest)
-                CustomVoiceUIPerformanceTrace.attachBenchmarkSample(result.benchmarkSample)
-                CustomVoiceUIPerformanceTrace.mark(
-                    .engineRequestFinished,
-                    metadata: [
-                        "used_streaming": result.usedStreaming ? "true" : "false",
-                    ],
-                    metrics: [
-                        "duration_ms": Int(result.durationSeconds * 1_000),
-                    ]
-                )
 
                 var generation = Generation(
                     text: text,
@@ -199,19 +167,12 @@ final class VoiceDesignCoordinator: ObservableObject {
                     emotion: emotion,
                     text: text
                 )
-                CustomVoiceUIPerformanceTrace.finish(
-                    status: "success",
-                    outputPath: result.audioPath,
-                    durationSeconds: result.durationSeconds
-                )
             } catch is CancellationError {
                 audioPlayer.abortLivePreviewIfNeeded()
                 self.errorMessage = nil
-                CustomVoiceUIPerformanceTrace.finish(status: "cancelled")
             } catch {
                 audioPlayer.abortLivePreviewIfNeeded()
                 self.errorMessage = error.localizedDescription
-                CustomVoiceUIPerformanceTrace.finish(status: "failed")
             }
 
             self.isGenerating = false
@@ -221,8 +182,7 @@ final class VoiceDesignCoordinator: ObservableObject {
     nonisolated static func makeGenerationRequest(
         draft: VoiceDesignDraft,
         model: TTSModel,
-        outputPath: String,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        outputPath: String
     ) -> GenerationRequest {
         GenerationRequest(
             modelID: model.id,
@@ -230,7 +190,6 @@ final class VoiceDesignCoordinator: ObservableObject {
             outputPath: outputPath,
             shouldStream: false,
             streamingTitle: String(draft.text.prefix(40)),
-            benchmarkOptions: MacGenerationBenchmarkOptions.requestOptions(environment: environment),
             payload: .design(
                 voiceDescription: draft.voiceDescription,
                 deliveryStyle: draft.emotion

@@ -52,9 +52,7 @@ public struct AudioGenerationInfo: Sendable {
 /// audio packet with the engine work that produced it.
 ///
 /// All values are millisecond deltas from the previous chunk's emit
-/// boundary (or from generation start for the first chunk). Cumulative
-/// totals over the full generation are still available via the
-/// existing `qwen_*` keys in `BenchmarkSample.timingsMS`.
+/// boundary (or from generation start for the first chunk).
 ///
 /// Lives in MLXAudioCore so it can be referenced by the public
 /// `AudioGeneration` enum without forcing a Qwen3-specific dependency

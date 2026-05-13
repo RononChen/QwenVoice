@@ -323,12 +323,9 @@ public enum GenerationSemantics {
         }
     }
 
-    /// Public clone-preparation cache key. Mirrors the (now-retired)
-    /// QwenVoiceEngineSupport.GenerationSemantics.clonePreparationKey
-    /// signature so callers (UITestStubMacEngine, VoiceCloningView,
-    /// NativeMLXMacEngineTests, GenerationSemanticsTests, NativeMLXMacEngine)
-    /// can switch from the EngineSupport copy to this one without changing
-    /// arguments. Format: "<modelID>|clone|<audioPath>|<transcript>".
+    /// Public clone-preparation cache key. Mirrors the engine-support
+    /// signature so production callers can switch to this copy without
+    /// changing arguments. Format: "<modelID>|clone|<audioPath>|<transcript>".
     public static func clonePreparationKey(modelID: String, reference: CloneReference) -> String {
         [
             modelID,

@@ -36,7 +36,7 @@ Retained QwenVoice deltas:
 - XPC and iPhone extension process isolation.
 - Cancellation and unload coordination owned by the app engine boundary.
 - Qwen3-TTS quality-first full-result generation using official sampling defaults and full-text nonstreaming conditioning for Custom Voice and Voice Design.
-- Final WAV/output integration and benchmark/diagnostic metadata.
+- Final WAV/output integration and production diagnostic metadata.
 
 Intentionally omitted from the owned production path:
 

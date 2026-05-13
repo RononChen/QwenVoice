@@ -127,18 +127,12 @@ Project and automation source of truth:
 - `scripts/`
 - `config/apple-platform-capability-matrix.json`
 
-There are no GitHub workflows. CI was retired in May 2026 after harness-driven churn made it unreliable; all builds, tests, debugging, benchmarking, packaging, signing, notarization, and TestFlight prep happen locally on Mac mini M2 via the `scripts/` tooling.
+There are no GitHub workflows and no automated test/bench harness. Both were retired in May 2026 after harness-driven churn made them unreliable; all builds, packaging, signing, notarization, and TestFlight prep happen locally on Mac mini M2 via the `scripts/` tooling. Behavioral verification is manual: launch `build/Vocello.app` and exercise the affected paths.
 
 Key local checks:
 
 ```sh
 ./scripts/check_project_inputs.sh
-./scripts/qa.sh validate
-./scripts/qa.sh test --layer contract
-./scripts/qa.sh test --layer swift
-./scripts/qa.sh test --layer native
-./scripts/qa.sh test --layer ios
-./scripts/qa.sh test --layer e2e
 xcodebuild -project QwenVoice.xcodeproj -scheme QwenVoice build
 xcodebuild -project QwenVoice.xcodeproj -scheme VocelloiOS -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES build
 ./scripts/build_foundation_targets.sh macos
@@ -148,21 +142,17 @@ xcodebuild -project QwenVoice.xcodeproj -scheme VocelloiOS -destination 'generic
 ./scripts/release_ios_testflight.sh
 ```
 
-Visual and interaction verification is covered first by the `e2e` qa.sh smoke lane. Manual local app launches remain useful after project-input checks, QA layers, and builds are green. UI benchmark validation drives the visible app via the `macos-ax-applescript` driver (osascript / System Events / AppleScript / `screencapture` / shell process probes / optional `cliclick` fallback); the scripts preserve timing, trace, process/memory, screenshot, audio-QC, and macOS Accessibility/AppleScript probe artifacts. Visual review of completed runs is fine via agent screenshotting tooling, but never drive a benchmark interactively from a heavy agent host.
+For deterministic local compile proof, prefer `./scripts/build_foundation_targets.sh` over a shared-DerivedData signed debug build. The deterministic script uses isolated derived-data and `.xcresult` roots so stale build artifacts cannot pollute app codesigning.
 
-For deterministic local compile proof, prefer `./scripts/build_foundation_targets.sh` over a shared-DerivedData signed debug build. The deterministic script uses isolated derived-data and `.xcresult` roots so stale hosted-test bundles cannot pollute app codesigning.
+The maintained foundation paths now use:
 
-The maintained qa.sh and foundation paths now use:
-
-- explicit harness roots under `build/harness/{derived-data,results,source-packages,artifacts}`
 - explicit release build roots under `build/foundation/`
 - explicit archive/release `.xcresult` bundles under `build/foundation/` for the maintained local release paths
 
 ## Current Documentation Boundaries
 
-- `CLAUDE.md` is the canonical repository operating guide for coding agents.
 - `docs/README.md` is the index of the maintained documentation set.
-- `docs/reference/current-state.md`, `docs/reference/engineering-status.md`, `docs/reference/backend-freeze-gate.md`, `docs/reference/frontend-backend-contract.md`, `docs/reference/live-testing.md`, and `docs/reference/vendoring-runtime.md` are the maintained reference docs.
+- `docs/reference/current-state.md`, `docs/reference/engineering-status.md`, `docs/reference/backend-freeze-gate.md`, `docs/reference/frontend-backend-contract.md`, and `docs/reference/vendoring-runtime.md` are the maintained reference docs.
 - `docs/reference/privacy-storage.md` records local storage, deletion paths, and voice-cloning consent posture.
 - `README.md` is the public GitHub landing page.
 - `docs/qwen_tone.md` is a supplemental guidance doc, not a maintained reference doc.

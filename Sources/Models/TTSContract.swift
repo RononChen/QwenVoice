@@ -93,21 +93,6 @@ enum TTSContract {
         }
     }
 
-    static func modelsForTesting(deviceClass: NativeDeviceMemoryClass) throws -> [TTSModel] {
-        let url = try locateManifestURL()
-        return try resolvedManifest(from: url, deviceClass: deviceClass).models
-    }
-
-    static func modelForTesting(
-        mode: GenerationMode,
-        deviceClass: NativeDeviceMemoryClass,
-        defaults: UserDefaults
-    ) throws -> TTSModel? {
-        let url = try locateManifestURL()
-        let models = try resolvedManifest(from: url, deviceClass: deviceClass).models
-        return activeModel(in: models, for: mode, defaults: defaults)
-    }
-
     private static let loadState: TTSContractLoadState = loadManifestState()
 
     private static func loadManifestState() -> TTSContractLoadState {

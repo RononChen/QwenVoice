@@ -250,18 +250,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     private var liveQueuedAudioSeconds: TimeInterval = 0
     private var liveBufferDurations: [TimeInterval] = []
     private var liveFormat: AVAudioFormat?
-    // Live-preview anomaly tracking (DEBUG-only telemetry consumed by
-    // `scripts/bench_ui_generation.sh --log-file` for the desktop-UI
-    // benchmark anomaly columns: underrun_count, total_stall_ms,
-    // ttfa_ms, chunk_jitter_max_ms, etc.). Stripped from release.
-    private var liveSessionStartedAt: Date?
-    private var liveLastUnderrunStartedAt: Date?
-    private var liveTotalStallMS: Int = 0
-    private var liveChunkArrivalCount: Int = 0
-    private var liveLastChunkArrivedAt: Date?
-    private var liveMaxChunkGapMS: Int = 0
-    private var liveDecodeFailureCount: Int = 0
-    private var liveStreamErrorCount: Int = 0
     // Predictive prebuffer state — set by setLivePreviewEstimate
     // before generation starts, picked up by startLiveSession,
     // cleared at session end. See `shouldStartLivePlayback` policy 1.
@@ -334,123 +322,8 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     override init() {
         livePreviewConfiguration = .current()
         super.init()
-#if QW_TEST_SUPPORT
-        if !Self.isRunningUnderXCTest {
-            bindGenerationEventSource()
-        }
-#else
-        bindGenerationEventSource()
-#endif
-    }
-
-#if QW_TEST_SUPPORT
-    private static var isRunningUnderXCTest: Bool {
-        ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
-            || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-            || ProcessInfo.processInfo.environment["XCTestSessionIdentifier"] != nil
-    }
-
-    func startLivePreviewChunkSubscriptionForTesting() {
-        guard chunkCancellable == nil, chunkObserver == nil else { return }
         bindGenerationEventSource()
     }
-
-    static func livePreviewPrebufferThresholdForTesting(
-        environment: [String: String] = [:]
-    ) -> Int {
-        LivePreviewConfiguration.current(environment: environment).prebufferThreshold
-    }
-
-    static func livePreviewMinimumBufferedDurationForTesting(
-        environment: [String: String] = [:]
-    ) -> TimeInterval {
-        LivePreviewConfiguration.current(environment: environment).minimumBufferedDuration
-    }
-
-    static func shouldStartLivePlaybackForTesting(
-        autoplayEnabled: Bool = true,
-        queuedChunks: Int,
-        queuedDuration: TimeInterval = 10,
-        prebufferThreshold: Int,
-        minimumBufferedDuration: TimeInterval = 2.25,
-        finalFileAvailable: Bool = false,
-        underrunCount: Int = 0,
-        expectedAudioDuration: TimeInterval? = nil,
-        estimatedRTF: Double? = nil,
-        predictivePrebufferEnabled: Bool = false
-    ) -> Bool {
-        shouldStartLivePlayback(
-            autoplayEnabled: autoplayEnabled,
-            queuedChunks: queuedChunks,
-            queuedDuration: queuedDuration,
-            prebufferThreshold: prebufferThreshold,
-            minimumBufferedDuration: minimumBufferedDuration,
-            finalFileAvailable: finalFileAvailable,
-            underrunCount: underrunCount,
-            expectedAudioDuration: expectedAudioDuration,
-            estimatedRTF: estimatedRTF,
-            predictivePrebufferEnabled: predictivePrebufferEnabled
-        )
-    }
-
-    /// Read-only window into the live preview's real audio-second
-    /// queue depth (audit Finding #3 fix). Counts the duration of
-    /// every scheduled-but-not-yet-fully-played AVAudioEngine
-    /// buffer. Returns 0 when live preview is idle.
-    var liveQueuedAudioSecondsForTesting: TimeInterval {
-        liveQueuedAudioSeconds
-    }
-
-    /// Snapshot of the FIFO of buffer audio durations currently in
-    /// the AVAudioEngine queue. Head = next-to-complete buffer.
-    var liveBufferDurationsForTesting: [TimeInterval] {
-        liveBufferDurations
-    }
-
-    /// Test hooks for the queue accounting that's normally driven
-    /// by `appendLiveChunk` / `handleLiveBufferPlaybackCompletion`.
-    /// These let tests verify the FIFO contract without spinning
-    /// up a real AVAudioEngine session (which the
-    /// `playbackMode == .live` guard inside the production path
-    /// requires). They mirror the production state mutations
-    /// exactly so the assertions are meaningful for audit
-    /// Finding #3 coverage.
-    func enqueueLiveBufferDurationForTesting(_ audioSeconds: TimeInterval) {
-        liveScheduledCount += 1
-        liveBufferDurations.append(audioSeconds)
-        liveQueuedAudioSeconds += audioSeconds
-        livePreviewDuration += audioSeconds
-    }
-
-    @discardableResult
-    func drainLiveBufferDurationForTesting() -> TimeInterval? {
-        guard !liveBufferDurations.isEmpty else { return nil }
-        let drained = liveBufferDurations.removeFirst()
-        liveQueuedAudioSeconds = max(0, liveQueuedAudioSeconds - drained)
-        liveScheduledCount = max(0, liveScheduledCount - 1)
-        return drained
-    }
-
-    /// Test hooks for audit Finding #2 coverage. Let tests
-    /// construct the "live preview session active, result just
-    /// delivered" state and inspect the late-chunk gate without
-    /// driving a real AVAudioEngine pipeline.
-    func setLiveSessionIDForTesting(_ id: String?) {
-        liveSessionID = id
-    }
-
-    func setLivePlaybackStartedForTesting(_ started: Bool) {
-        livePlaybackStarted = started
-    }
-
-    func completedLiveSessionIDsContainsForTesting(_ id: String) -> Bool {
-        completedLiveSessionIDs.contains(id)
-    }
-
-    func finishLivePlaybackAfterDrainingBuffersForTesting() {
-        finishLivePlaybackAfterDrainingBuffers()
-    }
-#endif
 
     deinit {
         MainActor.assumeIsolated {
@@ -620,12 +493,8 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         generatePreviewVisibilityState = .preparing
         // Pre-warm the AVAudioEngine + player node + audio graph with
         // the engine's expected output format (24 kHz Int16 mono per
-        // the Qwen3-TTS streaming contract). The cross-layer probe
-        // bench (May 2026) showed `t2u_max_ms` paid 110-220 ms on the
-        // first chunk specifically because `configureLiveEngine` ran
-        // lazily there — the cost is engine allocation +
-        // `engine.attach` + `engine.connect` + mainMixerNode access,
-        // all of which can run safely before any audio arrives.
+        // the Qwen3-TTS streaming contract). This avoids paying the
+        // allocation/connect cost on the first live chunk.
         // `configureLiveEngine` is idempotent against an identical
         // format so the chunk-arrival site is a cheap no-op when the
         // format matches; if it ever mismatches (different model or
@@ -638,7 +507,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         ) {
             configureLiveEngine(with: prewarmFormat)
         }
-        CustomVoiceUIPerformanceTrace.markOnce(.previewSetupFinished)
     }
 
     func completeStreamingPreview(result: PlaybackGenerationResult, title: String, shouldAutoPlay: Bool) {
@@ -654,15 +522,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             return
         }
 
-        CustomVoiceUIPerformanceTrace.markOnce(
-            .finalHandoffStarted,
-            metadata: [
-                "used_streaming": "true",
-            ],
-            metrics: [
-                "duration_ms": Int(result.durationSeconds * 1_000),
-            ]
-        )
         currentTitle = title
         currentFilePath = result.audioPath
         liveFinalFilePath = result.audioPath
@@ -735,11 +594,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         let previewAudio: StreamingAudioChunk?
         let sessionDirectory: String?
         let cumulativeDuration: Double?
-        /// Engine-assigned monotonic per-generation seq. Carries through
-        /// to `[LivePreview] event=chunk_arrived engine_seq=N` and the
-        /// new `[Probe.UI] event=chunk_consumed seq=N` so the bench
-        /// helper can join with `[Probe.Engine]` / `[Probe.Transport]`.
-        let probeSeq: Int?
     }
 
     private func bindGenerationEventSource() {
@@ -747,10 +601,8 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         // The broker is `@MainActor` and its `publish(_:)` always
         // sends from a `Task { @MainActor in ... }`, so the sink
         // already runs on the MainActor. Dropping the previous
-        // `.receive(on: DispatchQueue.main)` saves the second
-        // scheduling hop on every chunk; the cross-layer probe
-        // bench (May 2026) showed this layer added 20–60 ms to
-        // first-chunk `t2u_max_ms`.
+        // `.receive(on: DispatchQueue.main)` saves a second scheduling
+        // hop on every chunk.
         chunkCancellable = GenerationChunkBroker.shared.publisher
             .sink { [weak self] event in
                 guard let self,
@@ -763,8 +615,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
                     chunkPath: event.chunkPath,
                     previewAudio: event.previewAudio,
                     sessionDirectory: event.streamSessionDirectory,
-                    cumulativeDuration: event.cumulativeDurationSeconds,
-                    probeSeq: event.probeMetadata?.seq
+                    cumulativeDuration: event.cumulativeDurationSeconds
                 )
                 self.handleGenerationChunk(chunk)
             }
@@ -785,8 +636,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
                 chunkPath: chunkPath,
                 previewAudio: nil,
                 sessionDirectory: userInfo["streamSessionDirectory"] as? String,
-                cumulativeDuration: userInfo["cumulativeDurationSeconds"] as? Double,
-                probeSeq: userInfo["probeSeq"] as? Int
+                cumulativeDuration: userInfo["cumulativeDurationSeconds"] as? Double
             )
             Task { @MainActor [weak self] in
                 self?.handleGenerationChunk(chunk)
@@ -798,17 +648,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     private func handleGenerationChunk(_ chunk: ChunkInfo) {
         let sessionID = String(chunk.requestID)
         guard !completedLiveSessionIDs.contains(sessionID) else { return }
-        CustomVoiceUIPerformanceTrace.markOnce(
-            .firstLiveChunkEvent,
-            metadata: [
-                "has_chunk_path": chunk.chunkPath == nil ? "false" : "true",
-                "has_preview_audio": chunk.previewAudio == nil ? "false" : "true",
-                "has_session_directory": chunk.sessionDirectory == nil ? "false" : "true",
-            ],
-            metrics: [
-                "request_id": chunk.requestID,
-            ]
-        )
 
         let sessionDirectory = chunk.sessionDirectory
         let cumulativeDuration = chunk.cumulativeDuration
@@ -825,14 +664,12 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         if let previewAudio = chunk.previewAudio {
             appendLiveChunk(
                 previewAudio,
-                cumulativeDuration: cumulativeDuration,
-                probeSeq: chunk.probeSeq
+                cumulativeDuration: cumulativeDuration
             )
         } else if let chunkPath = chunk.chunkPath {
             appendLiveChunk(
                 from: URL(fileURLWithPath: chunkPath),
-                cumulativeDuration: cumulativeDuration,
-                probeSeq: chunk.probeSeq
+                cumulativeDuration: cumulativeDuration
             )
         }
     }
@@ -868,15 +705,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         livePlaybackTimeOffset = 0
         liveUnderrunCount = 0
         liveFormat = nil
-        // Anomaly-tracking reset (paired with teardownLivePlayback).
-        liveSessionStartedAt = Date()
-        liveLastUnderrunStartedAt = nil
-        liveTotalStallMS = 0
-        liveChunkArrivalCount = 0
-        liveLastChunkArrivedAt = nil
-        liveMaxChunkGapMS = 0
-        liveDecodeFailureCount = 0
-        liveStreamErrorCount = 0
         // Predictive prebuffer estimate handoff: pending values
         // captured pre-generation become the active session's
         // estimate, then are cleared so a future session that arrives
@@ -897,10 +725,9 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         setLivePreviewPhase(.buffering)
         playbackPresentationContext = .generatePreview
         generatePreviewVisibilityState = .preparing
-        logLivePreviewEvent("session_start", ["session": id])
     }
 
-    private func appendLiveChunk(from url: URL, cumulativeDuration: TimeInterval?, probeSeq: Int?) {
+    private func appendLiveChunk(from url: URL, cumulativeDuration: TimeInterval?) {
         LivePreviewDiagnostics.logChunkEvent(
             "appendLiveChunk.enter",
             viewModel: self,
@@ -912,21 +739,9 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
                 viewModel: self,
                 url: url
             )
-            liveDecodeFailureCount += 1
-            logLivePreviewEvent("decode_failed", ["branch": "file"])
             playbackError = "Live audio preview could not decode the latest chunk."
             return
         }
-        CustomVoiceUIPerformanceTrace.markOnce(
-            .firstLiveChunkDecoded,
-            metadata: [
-                "source": "file",
-            ],
-            metrics: [
-                "frames": Int(buffer.frameLength),
-                "sample_rate": Int(fileFormat.sampleRate),
-            ]
-        )
 
         if liveEngine == nil || livePlayerNode == nil {
             configureLiveEngine(with: fileFormat)
@@ -938,12 +753,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         liveQueuedAudioSeconds += chunkAudioSeconds
         setLivePreviewQueueDepth(liveScheduledCount)
         scheduleLiveBuffer(buffer)
-        CustomVoiceUIPerformanceTrace.markOnce(
-            .firstLiveChunkScheduled,
-            metrics: [
-                "queue_depth": liveScheduledCount,
-            ]
-        )
 
         livePreviewDuration = cumulativeDuration
             ?? (livePreviewDuration + chunkAudioSeconds)
@@ -954,7 +763,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             AppPerformanceSignposts.emit("First Chunk Received")
             self.pendingFirstChunkInterval = nil
         }
-        recordChunkArrivalForTrace(audioSeconds: chunkAudioSeconds, probeSeq: probeSeq)
 
         if Self.shouldStartLivePlayback(
             autoplayEnabled: liveAutoplayEnabled,
@@ -982,23 +790,11 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         cleanupLiveSessionDirectoryIfEmpty()
     }
 
-    private func appendLiveChunk(_ previewAudio: StreamingAudioChunk, cumulativeDuration: TimeInterval?, probeSeq: Int?) {
+    private func appendLiveChunk(_ previewAudio: StreamingAudioChunk, cumulativeDuration: TimeInterval?) {
         guard let (buffer, format) = makePCMBuffer(from: previewAudio) else {
-            liveDecodeFailureCount += 1
-            logLivePreviewEvent("decode_failed", ["branch": "inline"])
             playbackError = "Live audio preview could not decode the latest chunk."
             return
         }
-        CustomVoiceUIPerformanceTrace.markOnce(
-            .firstLiveChunkDecoded,
-            metadata: [
-                "source": "inline",
-            ],
-            metrics: [
-                "frames": Int(buffer.frameLength),
-                "sample_rate": Int(format.sampleRate),
-            ]
-        )
 
         if liveEngine == nil || livePlayerNode == nil {
             configureLiveEngine(with: format)
@@ -1010,12 +806,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         liveQueuedAudioSeconds += chunkAudioSeconds
         setLivePreviewQueueDepth(liveScheduledCount)
         scheduleLiveBuffer(buffer)
-        CustomVoiceUIPerformanceTrace.markOnce(
-            .firstLiveChunkScheduled,
-            metrics: [
-                "queue_depth": liveScheduledCount,
-            ]
-        )
 
         livePreviewDuration = cumulativeDuration
             ?? (livePreviewDuration + chunkAudioSeconds)
@@ -1026,7 +816,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             AppPerformanceSignposts.emit("First Chunk Received")
             self.pendingFirstChunkInterval = nil
         }
-        recordChunkArrivalForTrace(audioSeconds: chunkAudioSeconds, probeSeq: probeSeq)
 
         if Self.shouldStartLivePlayback(
             autoplayEnabled: liveAutoplayEnabled,
@@ -1043,40 +832,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             attemptLivePlay()
         } else {
             setLivePreviewPhase(.buffering)
-        }
-    }
-
-    /// Tracks chunk arrival timestamps + max inter-chunk gap for the
-    /// DEBUG-only `[LivePreview]` trace. Emits the `chunk_arrived`
-    /// event with the gap from the previous chunk in milliseconds.
-    private func recordChunkArrivalForTrace(audioSeconds: TimeInterval, probeSeq: Int?) {
-        liveChunkArrivalCount += 1
-        let now = Date()
-        let gapMS: Int
-        if let last = liveLastChunkArrivedAt {
-            gapMS = Int(now.timeIntervalSince(last) * 1000.0)
-            liveMaxChunkGapMS = max(liveMaxChunkGapMS, gapMS)
-        } else {
-            gapMS = 0
-        }
-        liveLastChunkArrivedAt = now
-        // Existing UI-side trace; gains `engine_seq` for cross-correlation.
-        logLivePreviewEvent("chunk_arrived", [
-            "seq": "\(liveChunkArrivalCount)",
-            "engine_seq": probeSeq.map { "\($0)" } ?? "",
-            "audio_s": String(format: "%.3f", audioSeconds),
-            "cumulative_s": String(format: "%.3f", livePreviewDuration),
-            "queue_depth": "\(liveScheduledCount)",
-            "gap_ms": "\(gapMS)",
-        ])
-        // Cross-layer probe (UI side). Joined offline by the bench
-        // helper with `[Probe.Engine]` / `[Probe.Transport]` on `seq`
-        // to compute per-chunk e2e + transport-to-ui latencies.
-        if let probeSeq {
-            logProbeEvent("UI", event: "chunk_consumed", details: [
-                "seq": "\(probeSeq)",
-                "ui_at_ms": String(format: "%.3f", now.timeIntervalSince1970 * 1000.0),
-            ])
         }
     }
 
@@ -1098,7 +853,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
 
         guard let liveEngine, let livePlayerNode else { return }
 
-        let wasResume = livePlaybackStarted
         do {
             if !liveEngine.isRunning {
                 try liveEngine.start()
@@ -1116,30 +870,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             playbackError = nil
             startTimer()
             consumeAutoplaySignpostIfNeeded()
-
-            // Trace: distinguish first-time start (playback_started) from
-            // post-underrun resume (underrun_resumed). Each path captures
-            // a different latency: TTFA on first start, stall_ms on resume.
-            if !wasResume {
-                let ttfaMS: Int
-                if let sessionStart = liveSessionStartedAt {
-                    ttfaMS = Int(Date().timeIntervalSince(sessionStart) * 1000.0)
-                } else {
-                    ttfaMS = 0
-                }
-                logLivePreviewEvent("playback_started", [
-                    "ttfa_ms": "\(ttfaMS)",
-                    "queue_depth": "\(liveScheduledCount)",
-                ])
-            } else if let underrunStart = liveLastUnderrunStartedAt {
-                let stallMS = Int(Date().timeIntervalSince(underrunStart) * 1000.0)
-                liveTotalStallMS += stallMS
-                liveLastUnderrunStartedAt = nil
-                logLivePreviewEvent("underrun_resumed", [
-                    "stall_ms": "\(stallMS)",
-                    "queue_depth": "\(liveScheduledCount)",
-                ])
-            }
         } catch {
             playbackError = "Playback could not start."
         }
@@ -1216,11 +946,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             isPlaying = false
             stopTimer()
             setLivePreviewPhase(.buffering)
-            liveLastUnderrunStartedAt = Date()
-            logLivePreviewEvent("underrun_paused", [
-                "underrun_n": "\(liveUnderrunCount)",
-                "audio_played_s": String(format: "%.3f", currentTime),
-            ])
         }
     }
 
@@ -1255,24 +980,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     private func switchToFinalFilePlayback(preserveCurrentTime: TimeInterval, autoPlay: Bool) {
         guard let finalFilePath = liveFinalFilePath else { return }
         setLivePreviewPhase(.finalizing)
-        CustomVoiceUIPerformanceTrace.markOnce(.finalHandoffStarted)
-
-        // Capture preview vs final-file duration delta for the
-        // [LivePreview] trace BEFORE applyFilePlayback resets the
-        // live-* state. Reading file duration via AVAudioFile is
-        // cheap (header-only) and matches the bench helper's
-        // `afinfo` source of truth.
-        let previewAudio = livePreviewDuration
-        let finalAudio: TimeInterval = (try? AVAudioFile(forReading: URL(fileURLWithPath: finalFilePath)))
-            .map { Double($0.length) / max($0.processingFormat.sampleRate, 1) } ?? 0
-        if finalAudio > 0 {
-            logLivePreviewEvent("final_handoff", [
-                "preview_audio_s": String(format: "%.3f", previewAudio),
-                "final_audio_s": String(format: "%.3f", finalAudio),
-                "delta_s": String(format: "%.3f", finalAudio - previewAudio),
-            ])
-        }
-        emitPreviewCompletedTrace(totalAudioSeconds: max(previewAudio, finalAudio))
 
         do {
             try applyFilePlayback(
@@ -1288,23 +995,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         }
     }
 
-    /// Emits the `preview_completed` summary line at the end of a live
-    /// session. Idempotent — guarded by `liveSessionStartedAt` so a
-    /// second handoff or teardown doesn't emit twice.
-    private func emitPreviewCompletedTrace(totalAudioSeconds: TimeInterval) {
-        guard liveSessionStartedAt != nil else { return }
-        logLivePreviewEvent("preview_completed", [
-            "total_audio_s": String(format: "%.3f", totalAudioSeconds),
-            "underruns": "\(liveUnderrunCount)",
-            "total_stall_ms": "\(liveTotalStallMS)",
-            "decode_fails": "\(liveDecodeFailureCount)",
-            "stream_errors": "\(liveStreamErrorCount)",
-            "max_chunk_gap_ms": "\(liveMaxChunkGapMS)",
-            "chunk_count": "\(liveChunkArrivalCount)",
-        ])
-        liveSessionStartedAt = nil
-    }
-
     private func teardownLivePlayback(clearSession: Bool) {
         // Audit Finding #2 — defensive record. If teardown is
         // reached without a completion-handoff path having fired
@@ -1315,11 +1005,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         // `liveSessionID != sessionID` branch. Idempotent.
         recordCompletedLiveSessionID(liveSessionID)
 
-        // Emit the preview_completed summary BEFORE we wipe live-*
-        // counters. emitPreviewCompletedTrace is idempotent (no-op when
-        // already fired by a successful handoff), so this only fires
-        // for aborted / dismissed previews.
-        emitPreviewCompletedTrace(totalAudioSeconds: livePreviewDuration)
         stopLivePlayback(resetCurrentTime: true)
         liveScheduledCount = 0
         liveQueuedAudioSeconds = 0
@@ -1488,18 +1173,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         playbackPresentationContext = presentationContext
         generatePreviewVisibilityState = presentationContext == .generatePreview ? .ready : .hidden
         extractWaveform(from: url, replace: true)
-        if presentationContext == .generatePreview {
-            CustomVoiceUIPerformanceTrace.markOnce(
-                .finalPlayerLoaded,
-                metadata: [
-                    "transition_from_live": transitionFromLive ? "true" : "false",
-                    "auto_play": autoPlay ? "true" : "false",
-                ],
-                metrics: [
-                    "duration_ms": Int(audioPlayer.duration * 1_000),
-                ]
-            )
-        }
 
         if autoPlay {
             attemptFilePlay()
@@ -1729,53 +1402,6 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         return String(format: "%d:%02d", minutes, seconds)
     }
 
-    // MARK: - Live-preview anomaly trace (DEBUG-only)
-
-    #if DEBUG
-    /// Structured `[LivePreview]` event log consumed by
-    /// `scripts/bench_ui_generation.sh --log-file` for the desktop-UI
-    /// benchmark's anomaly columns. Stripped from release builds.
-    ///
-    /// Writes to `stderr` (not `print()`/stdout) so the bench helper
-    /// sees events line-by-line in real time. Swift's `print()` is
-    /// block-buffered (4KB) when stdout is redirected to a file, which
-    /// would leave the log empty until generation finished. stderr is
-    /// line-buffered, matching the existing `LivePreviewDiagnostics`
-    /// behaviour and unsurprising under `nohup … > log 2>&1`.
-    ///
-    /// Schema:
-    ///   [LivePreview] event=<name> [key=value ...]
-    /// Events:
-    ///   session_start    → session=<id>
-    ///   chunk_arrived    → seq=N audio_s=X cumulative_s=Y queue_depth=Q gap_ms=G
-    ///   playback_started → ttfa_ms=T queue_depth=Q
-    ///   underrun_paused  → underrun_n=N audio_played_s=X
-    ///   underrun_resumed → stall_ms=S queue_depth=Q
-    ///   decode_failed    → branch=<name>
-    ///   stream_error     → message=<text>
-    ///   final_handoff    → preview_audio_s=X final_audio_s=Y delta_s=D
-    ///   preview_completed → underruns=N total_stall_ms=S decode_fails=D
-    ///                       stream_errors=E max_chunk_gap_ms=G chunk_count=C
-    fileprivate func logLivePreviewEvent(
-        _ event: String,
-        _ details: KeyValuePairs<String, String> = [:]
-    ) {
-        var line = "[LivePreview] event=\(event)"
-        for (key, value) in details {
-            line += " \(key)=\(value)"
-        }
-        line += "\n"
-        if let data = line.data(using: .utf8) {
-            FileHandle.standardError.write(data)
-        }
-    }
-    #else
-    fileprivate func logLivePreviewEvent(
-        _ event: String,
-        _ details: KeyValuePairs<String, String> = [:]
-    ) {}
-    #endif
-
     // MARK: - AVAudioPlayerDelegate
 
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
@@ -1792,31 +1418,3 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         }
     }
 }
-
-#if DEBUG
-/// Mirror of `XPCNativeEngineClient.logProbeEvent`. Emits cross-layer
-/// chunk probe lines to stderr so the desktop-UI bench helper can join
-/// `[Probe.Engine]`, `[Probe.Transport]`, and `[Probe.UI]` records on
-/// the engine-assigned `seq` to derive per-chunk latency aggregates.
-/// DEBUG-only — release builds compile to a no-op.
-fileprivate func logProbeEvent(
-    _ layer: String,
-    event: String,
-    details: KeyValuePairs<String, String> = [:]
-) {
-    var line = "[Probe.\(layer)] event=\(event)"
-    for (key, value) in details {
-        line += " \(key)=\(value)"
-    }
-    line += "\n"
-    if let data = line.data(using: .utf8) {
-        FileHandle.standardError.write(data)
-    }
-}
-#else
-fileprivate func logProbeEvent(
-    _ layer: String,
-    event: String,
-    details: KeyValuePairs<String, String> = [:]
-) {}
-#endif

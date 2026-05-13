@@ -31,17 +31,10 @@ public enum EngineServiceTrustPolicy {
     }
 
     public static func clientRequirement(teamIdentifier: String? = nil) -> String {
-        #if QW_TEST_SUPPORT
-        return clientRequirement(
-            environment: ProcessInfo.processInfo.environment,
-            teamIdentifier: teamIdentifier
-        )
-        #else
         return requirement(
             forAllowedBundleIdentifiers: [appBundleIdentifier],
             teamIdentifier: teamIdentifier
         )
-        #endif
     }
 
     public static func clientRequirementForCurrentBundle(bundle: Bundle = .main) -> String {
@@ -54,30 +47,6 @@ public enum EngineServiceTrustPolicy {
     ) -> String? {
         normalizedTeamIdentifier(bundle.object(forInfoDictionaryKey: infoKey) as? String)
     }
-
-    #if QW_TEST_SUPPORT
-    public static func clientRequirement(
-        environment: [String: String],
-        teamIdentifier: String? = nil
-    ) -> String {
-        let normalizedTeamIdentifier = normalizedTeamIdentifier(teamIdentifier)
-        let allowedBundleIdentifiers: [String]
-        if normalizedTeamIdentifier == nil, isXCTestEnvironment(environment) {
-            allowedBundleIdentifiers = [
-                appBundleIdentifier,
-                "com.qwenvoice.tests",
-                "com.apple.dt.xctest.tool",
-            ]
-        } else {
-            allowedBundleIdentifiers = [appBundleIdentifier]
-        }
-
-        return requirement(
-            forAllowedBundleIdentifiers: allowedBundleIdentifiers,
-            teamIdentifier: normalizedTeamIdentifier
-        )
-    }
-    #endif
 
     private static func requirement(
         forAllowedBundleIdentifiers bundleIdentifiers: [String],
@@ -112,14 +81,6 @@ public enum EngineServiceTrustPolicy {
         }
         return teamIdentifier
     }
-
-    #if QW_TEST_SUPPORT
-    private static func isXCTestEnvironment(_ environment: [String: String]) -> Bool {
-        environment["XCTestConfigurationFilePath"] != nil
-            || environment["XCTestBundlePath"] != nil
-            || environment["XCTestSessionIdentifier"] != nil
-    }
-    #endif
 
     private static func escape(_ value: String) -> String {
         value.replacingOccurrences(of: "\"", with: "\\\"")

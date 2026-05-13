@@ -5,50 +5,6 @@ import Foundation
 @preconcurrency import MLXLMCommon
 @preconcurrency import QwenVoiceBackendCore
 
-enum Qwen3BenchmarkGenerationParameterOverrides {
-    static func resolve(
-        defaultParameters: GenerateParameters,
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> GenerateParameters {
-        guard environment["QWENVOICE_AUDIO_QC_LIVE"] == "1" else {
-            return defaultParameters
-        }
-
-        let maxTokens = int(environment["QWENVOICE_QWEN3_BENCHMARK_MAX_TOKENS"])
-            ?? defaultParameters.maxTokens
-        let temperature = float(environment["QWENVOICE_QWEN3_BENCHMARK_TEMPERATURE"])
-            ?? defaultParameters.temperature
-        let topP = float(environment["QWENVOICE_QWEN3_BENCHMARK_TOP_P"])
-            ?? defaultParameters.topP
-        let repetitionPenalty = float(environment["QWENVOICE_QWEN3_BENCHMARK_REPETITION_PENALTY"])
-            ?? defaultParameters.repetitionPenalty
-
-        guard maxTokens != defaultParameters.maxTokens
-            || temperature != defaultParameters.temperature
-            || topP != defaultParameters.topP
-            || repetitionPenalty != defaultParameters.repetitionPenalty else {
-            return defaultParameters
-        }
-
-        var parameters = defaultParameters
-        parameters.maxTokens = maxTokens
-        parameters.temperature = temperature
-        parameters.topP = topP
-        parameters.repetitionPenalty = repetitionPenalty
-        return parameters
-    }
-
-    private static func int(_ value: String?) -> Int? {
-        guard let value else { return nil }
-        return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-
-    private static func float(_ value: String?) -> Float? {
-        guard let value else { return nil }
-        return Float(value.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-}
-
 enum Qwen3CustomVoiceGenerationParameterPolicy {
     static let temperature: Float = Qwen3GenerationConfiguration.officialQualityDefault.temperature
     static let topP: Float = Qwen3GenerationConfiguration.officialQualityDefault.topP
@@ -63,21 +19,9 @@ enum Qwen3CustomVoiceGenerationParameterPolicy {
     }
 
     static func resolve(
-        defaultParameters: GenerateParameters,
-        benchmarkOptions: GenerationRequest.BenchmarkOptions? = nil,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        defaultParameters: GenerateParameters
     ) -> GenerateParameters {
-        var parameters = productParameters(defaultParameters: defaultParameters)
-        if let temperature = benchmarkOptions?.temperature {
-            parameters.temperature = Float(temperature)
-        }
-        if let topP = benchmarkOptions?.topP {
-            parameters.topP = Float(topP)
-        }
-        return Qwen3BenchmarkGenerationParameterOverrides.resolve(
-            defaultParameters: parameters,
-            environment: environment
-        )
+        productParameters(defaultParameters: defaultParameters)
     }
 }
 
@@ -93,21 +37,9 @@ enum Qwen3QualityGenerationParameterPolicy {
     }
 
     static func resolve(
-        defaultParameters: GenerateParameters,
-        benchmarkOptions: GenerationRequest.BenchmarkOptions? = nil,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        defaultParameters: GenerateParameters
     ) -> GenerateParameters {
-        var parameters = productParameters(defaultParameters: defaultParameters)
-        if let temperature = benchmarkOptions?.temperature {
-            parameters.temperature = Float(temperature)
-        }
-        if let topP = benchmarkOptions?.topP {
-            parameters.topP = Float(topP)
-        }
-        return Qwen3BenchmarkGenerationParameterOverrides.resolve(
-            defaultParameters: parameters,
-            environment: environment
-        )
+        productParameters(defaultParameters: defaultParameters)
     }
 }
 
@@ -130,16 +62,16 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
     private let latestPreparationBooleanFlagsProvider: @Sendable () -> [String: Bool]
     private let latestPreparationStringFlagsProvider: @Sendable () -> [String: String]
     private let resetPreparationDiagnosticsHandler: @Sendable () -> Void
-    private let customPrewarmHandler: (@Sendable (String, String, String, String?, GenerationRequest.BenchmarkOptions?, String?) async throws -> Void)?
-    private let customStreamHandler: (@Sendable (String, String, String, String?, Double, GenerationRequest.BenchmarkOptions?) -> AsyncThrowingStream<AudioGeneration, Error>)?
-    private let customGenerateHandler: (@Sendable (String, String, String, String?, GenerationRequest.BenchmarkOptions?) async throws -> AudioGenerationCompletion)?
+    private let customPrewarmHandler: (@Sendable (String, String, String, String?, String?) async throws -> Void)?
+    private let customStreamHandler: (@Sendable (String, String, String, String?, Double) -> AsyncThrowingStream<AudioGeneration, Error>)?
+    private let customGenerateHandler: (@Sendable (String, String, String, String?) async throws -> AudioGenerationCompletion)?
     private let designPrewarmHandler: (@Sendable (String, String, String) async throws -> Void)?
-    private let designStreamHandler: (@Sendable (String, String, String, Double, GenerationRequest.BenchmarkOptions?) -> AsyncThrowingStream<AudioGeneration, Error>)?
-    private let designGenerateHandler: (@Sendable (String, String, String, GenerationRequest.BenchmarkOptions?) async throws -> AudioGenerationCompletion)?
+    private let designStreamHandler: (@Sendable (String, String, String, Double) -> AsyncThrowingStream<AudioGeneration, Error>)?
+    private let designGenerateHandler: (@Sendable (String, String, String) async throws -> AudioGenerationCompletion)?
     private let clonePromptCreator: (@Sendable (MLXArray, String?, Bool) throws -> Qwen3TTSVoiceClonePrompt)?
     private let clonePrewarmHandler: (@Sendable (String, String, Qwen3TTSVoiceClonePrompt) async throws -> Void)?
-    private let cloneStreamHandler: (@Sendable (String, String, Qwen3TTSVoiceClonePrompt, Double, GenerationRequest.BenchmarkOptions?) -> AsyncThrowingStream<AudioGeneration, Error>)?
-    private let cloneGenerateHandler: (@Sendable (String, String, Qwen3TTSVoiceClonePrompt, GenerationRequest.BenchmarkOptions?) async throws -> AudioGenerationCompletion)?
+    private let cloneStreamHandler: (@Sendable (String, String, Qwen3TTSVoiceClonePrompt, Double) -> AsyncThrowingStream<AudioGeneration, Error>)?
+    private let cloneGenerateHandler: (@Sendable (String, String, Qwen3TTSVoiceClonePrompt) async throws -> AudioGenerationCompletion)?
 
     private final class BaseModelBox: @unchecked Sendable {
         let base: any SpeechGenerationModel
@@ -161,29 +93,23 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
         let box = BaseModelBox(base: base)
         self.sampleRateProvider = { box.base.sampleRate }
         self.prewarmHandler = { text, voice, refAudio, refText in
-            let parameters = Qwen3BenchmarkGenerationParameterOverrides.resolve(
-                defaultParameters: box.base.defaultGenerationParameters
-            )
             try await box.base.prepareForGeneration(
                 text: text,
                 voice: voice,
                 refAudio: refAudio,
                 refText: refText,
                 language: nil,
-                generationParameters: parameters
+                generationParameters: box.base.defaultGenerationParameters
             )
         }
         self.streamHandler = { text, voice, refAudio, refText, streamingInterval in
-            let parameters = Qwen3BenchmarkGenerationParameterOverrides.resolve(
-                defaultParameters: box.base.defaultGenerationParameters
-            )
             return box.base.generateStream(
                 text: text,
                 voice: voice,
                 refAudio: refAudio,
                 refText: refText,
                 language: nil,
-                generationParameters: parameters,
+                generationParameters: box.base.defaultGenerationParameters,
                 streamingInterval: streamingInterval
             )
         }
@@ -207,10 +133,9 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
         }
         if let optimizedBase = base as? any Qwen3OptimizedSpeechGenerationModel {
             let optimizedBox = OptimizedModelBox(base: optimizedBase)
-            self.customPrewarmHandler = { text, language, speaker, instruct, benchmarkOptions, customPrewarmDepth in
+            self.customPrewarmHandler = { text, language, speaker, instruct, customPrewarmDepth in
                 let parameters = Qwen3CustomVoiceGenerationParameterPolicy.resolve(
-                    defaultParameters: box.base.defaultGenerationParameters,
-                    benchmarkOptions: benchmarkOptions
+                    defaultParameters: box.base.defaultGenerationParameters
                 )
                 if let configurable = optimizedBox.base as? any Qwen3CustomVoicePrewarmDepthControlling {
                     try await configurable.prepareCustomVoice(
@@ -231,10 +156,9 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
                     )
                 }
             }
-            self.customStreamHandler = { text, language, speaker, instruct, streamingInterval, benchmarkOptions in
+            self.customStreamHandler = { text, language, speaker, instruct, streamingInterval in
                 let parameters = Qwen3CustomVoiceGenerationParameterPolicy.resolve(
-                    defaultParameters: box.base.defaultGenerationParameters,
-                    benchmarkOptions: benchmarkOptions
+                    defaultParameters: box.base.defaultGenerationParameters
                 )
                 return optimizedBox.base.generateCustomVoiceStream(
                     text: text,
@@ -243,16 +167,15 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
                     instruct: instruct,
                     generationParameters: parameters,
                     streamingInterval: streamingInterval,
-                    customVoiceProfile: benchmarkOptions?.customVoiceProfile,
-                    streamStepEvalPolicy: benchmarkOptions?.streamStepEvalPolicy,
-                    generationSpeedProfile: benchmarkOptions?.generationSpeedProfile,
-                    memoryClearCadence: benchmarkOptions?.memoryClearCadence
+                    customVoiceProfile: nil,
+                    streamStepEvalPolicy: nil,
+                    generationSpeedProfile: nil,
+                    memoryClearCadence: nil
                 )
             }
-            self.customGenerateHandler = { text, language, speaker, instruct, benchmarkOptions in
+            self.customGenerateHandler = { text, language, speaker, instruct in
                 let parameters = Qwen3CustomVoiceGenerationParameterPolicy.resolve(
-                    defaultParameters: box.base.defaultGenerationParameters,
-                    benchmarkOptions: benchmarkOptions
+                    defaultParameters: box.base.defaultGenerationParameters
                 )
                 return try await optimizedBox.base.generateCustomVoice(
                     text: text,
@@ -263,35 +186,28 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
                 )
             }
             self.designPrewarmHandler = { text, language, voiceDescription in
-                let parameters = Qwen3BenchmarkGenerationParameterOverrides.resolve(
-                    defaultParameters: box.base.defaultGenerationParameters
-                )
                 try await optimizedBox.base.prepareVoiceDesign(
                     text: text,
                     language: language,
                     voiceDescription: voiceDescription,
-                    generationParameters: parameters
+                    generationParameters: box.base.defaultGenerationParameters
                 )
             }
-            self.designStreamHandler = { text, language, voiceDescription, streamingInterval, benchmarkOptions in
-                let parameters = Qwen3BenchmarkGenerationParameterOverrides.resolve(
-                    defaultParameters: box.base.defaultGenerationParameters
-                )
+            self.designStreamHandler = { text, language, voiceDescription, streamingInterval in
                 return optimizedBox.base.generateVoiceDesignStream(
                     text: text,
                     language: language,
                     voiceDescription: voiceDescription,
-                    generationParameters: parameters,
+                    generationParameters: box.base.defaultGenerationParameters,
                     streamingInterval: streamingInterval,
-                    streamStepEvalPolicy: benchmarkOptions?.streamStepEvalPolicy,
-                    generationSpeedProfile: benchmarkOptions?.generationSpeedProfile,
-                    memoryClearCadence: benchmarkOptions?.memoryClearCadence
+                    streamStepEvalPolicy: nil,
+                    generationSpeedProfile: nil,
+                    memoryClearCadence: nil
                 )
             }
-            self.designGenerateHandler = { text, language, voiceDescription, benchmarkOptions in
+            self.designGenerateHandler = { text, language, voiceDescription in
                 let parameters = Qwen3QualityGenerationParameterPolicy.resolve(
-                    defaultParameters: box.base.defaultGenerationParameters,
-                    benchmarkOptions: benchmarkOptions
+                    defaultParameters: box.base.defaultGenerationParameters
                 )
                 return try await optimizedBox.base.generateVoiceDesign(
                     text: text,
@@ -308,35 +224,28 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
                 )
             }
             self.clonePrewarmHandler = { text, language, voiceClonePrompt in
-                let parameters = Qwen3BenchmarkGenerationParameterOverrides.resolve(
-                    defaultParameters: box.base.defaultGenerationParameters
-                )
                 try await optimizedBox.base.prepareVoiceClone(
                     text: text,
                     language: language,
                     voiceClonePrompt: voiceClonePrompt,
-                    generationParameters: parameters
+                    generationParameters: box.base.defaultGenerationParameters
                 )
             }
-            self.cloneStreamHandler = { text, language, voiceClonePrompt, streamingInterval, benchmarkOptions in
-                let parameters = Qwen3BenchmarkGenerationParameterOverrides.resolve(
-                    defaultParameters: box.base.defaultGenerationParameters
-                )
+            self.cloneStreamHandler = { text, language, voiceClonePrompt, streamingInterval in
                 return optimizedBox.base.generateVoiceCloneStream(
                     text: text,
                     language: language,
                     voiceClonePrompt: voiceClonePrompt,
-                    generationParameters: parameters,
+                    generationParameters: box.base.defaultGenerationParameters,
                     streamingInterval: streamingInterval,
-                    streamStepEvalPolicy: benchmarkOptions?.streamStepEvalPolicy,
-                    generationSpeedProfile: benchmarkOptions?.generationSpeedProfile,
-                    memoryClearCadence: benchmarkOptions?.memoryClearCadence
+                    streamStepEvalPolicy: nil,
+                    generationSpeedProfile: nil,
+                    memoryClearCadence: nil
                 )
             }
-            self.cloneGenerateHandler = { text, language, voiceClonePrompt, benchmarkOptions in
+            self.cloneGenerateHandler = { text, language, voiceClonePrompt in
                 let parameters = Qwen3QualityGenerationParameterPolicy.resolve(
-                    defaultParameters: box.base.defaultGenerationParameters,
-                    benchmarkOptions: benchmarkOptions
+                    defaultParameters: box.base.defaultGenerationParameters
                 )
                 return try await optimizedBox.base.generateVoiceClone(
                     text: text,
@@ -408,21 +317,21 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
         self.latestPreparationStringFlagsProvider = latestPreparationStringFlagsProvider
         self.resetPreparationDiagnosticsHandler = {}
         if let customPrewarmHandler {
-            self.customPrewarmHandler = { text, language, speaker, instruct, _, _ in
+            self.customPrewarmHandler = { text, language, speaker, instruct, _ in
                 try await customPrewarmHandler(text, language, speaker, instruct)
             }
         } else {
             self.customPrewarmHandler = nil
         }
         if let customStreamHandler {
-            self.customStreamHandler = { text, language, speaker, instruct, streamingInterval, _ in
+            self.customStreamHandler = { text, language, speaker, instruct, streamingInterval in
                 customStreamHandler(text, language, speaker, instruct, streamingInterval)
             }
         } else {
             self.customStreamHandler = nil
         }
         if let customGenerateHandler {
-            self.customGenerateHandler = { text, language, speaker, instruct, _ in
+            self.customGenerateHandler = { text, language, speaker, instruct in
                 try await customGenerateHandler(text, language, speaker, instruct)
             }
         } else {
@@ -430,14 +339,14 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
         }
         self.designPrewarmHandler = designPrewarmHandler
         if let designStreamHandler {
-            self.designStreamHandler = { text, language, voiceDescription, streamingInterval, _ in
+            self.designStreamHandler = { text, language, voiceDescription, streamingInterval in
                 designStreamHandler(text, language, voiceDescription, streamingInterval)
             }
         } else {
             self.designStreamHandler = nil
         }
         if let designGenerateHandler {
-            self.designGenerateHandler = { text, language, voiceDescription, _ in
+            self.designGenerateHandler = { text, language, voiceDescription in
                 try await designGenerateHandler(text, language, voiceDescription)
             }
         } else {
@@ -446,14 +355,14 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
         self.clonePromptCreator = clonePromptCreator
         self.clonePrewarmHandler = clonePrewarmHandler
         if let cloneStreamHandler {
-            self.cloneStreamHandler = { text, language, voiceClonePrompt, streamingInterval, _ in
+            self.cloneStreamHandler = { text, language, voiceClonePrompt, streamingInterval in
                 cloneStreamHandler(text, language, voiceClonePrompt, streamingInterval)
             }
         } else {
             self.cloneStreamHandler = nil
         }
         if let cloneGenerateHandler {
-            self.cloneGenerateHandler = { text, language, voiceClonePrompt, _ in
+            self.cloneGenerateHandler = { text, language, voiceClonePrompt in
                 try await cloneGenerateHandler(text, language, voiceClonePrompt)
             }
         } else {
@@ -489,21 +398,21 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
         self.latestPreparationStringFlagsProvider = latestPreparationStringFlagsProvider
         self.resetPreparationDiagnosticsHandler = {}
         if let customPrewarmHandler {
-            self.customPrewarmHandler = { text, language, speaker, instruct, _, _ in
+            self.customPrewarmHandler = { text, language, speaker, instruct, _ in
                 try await customPrewarmHandler(text, language, speaker, instruct)
             }
         } else {
             self.customPrewarmHandler = nil
         }
         if let customStreamHandler {
-            self.customStreamHandler = { text, language, speaker, instruct, streamingInterval, _ in
+            self.customStreamHandler = { text, language, speaker, instruct, streamingInterval in
                 customStreamHandler(text, language, speaker, instruct, streamingInterval)
             }
         } else {
             self.customStreamHandler = nil
         }
         if let customGenerateHandler {
-            self.customGenerateHandler = { text, language, speaker, instruct, _ in
+            self.customGenerateHandler = { text, language, speaker, instruct in
                 try await customGenerateHandler(text, language, speaker, instruct)
             }
         } else {
@@ -511,14 +420,14 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
         }
         self.designPrewarmHandler = designPrewarmHandler
         if let designStreamHandler {
-            self.designStreamHandler = { text, language, voiceDescription, streamingInterval, _ in
+            self.designStreamHandler = { text, language, voiceDescription, streamingInterval in
                 designStreamHandler(text, language, voiceDescription, streamingInterval)
             }
         } else {
             self.designStreamHandler = nil
         }
         if let designGenerateHandler {
-            self.designGenerateHandler = { text, language, voiceDescription, _ in
+            self.designGenerateHandler = { text, language, voiceDescription in
                 try await designGenerateHandler(text, language, voiceDescription)
             }
         } else {
@@ -527,14 +436,14 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
         self.clonePromptCreator = clonePromptCreator
         self.clonePrewarmHandler = clonePrewarmHandler
         if let cloneStreamHandler {
-            self.cloneStreamHandler = { text, language, voiceClonePrompt, streamingInterval, _ in
+            self.cloneStreamHandler = { text, language, voiceClonePrompt, streamingInterval in
                 cloneStreamHandler(text, language, voiceClonePrompt, streamingInterval)
             }
         } else {
             self.cloneStreamHandler = nil
         }
         if let cloneGenerateHandler {
-            self.cloneGenerateHandler = { text, language, voiceClonePrompt, _ in
+            self.cloneGenerateHandler = { text, language, voiceClonePrompt in
                 try await cloneGenerateHandler(text, language, voiceClonePrompt)
             }
         } else {
@@ -622,7 +531,6 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
         language: String,
         speaker: String,
         instruct: String?,
-        benchmarkOptions: GenerationRequest.BenchmarkOptions? = nil,
         customPrewarmDepth: String? = nil
     ) async throws {
         guard let customPrewarmHandler else {
@@ -630,7 +538,7 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
                 "The active native model does not support optimized Qwen3 Custom Voice generation."
             )
         }
-        try await customPrewarmHandler(text, language, speaker, instruct, benchmarkOptions, customPrewarmDepth)
+        try await customPrewarmHandler(text, language, speaker, instruct, customPrewarmDepth)
     }
 
     func generateCustomVoiceStream(
@@ -638,11 +546,10 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
         language: String,
         speaker: String,
         instruct: String?,
-        streamingInterval: Double,
-        benchmarkOptions: GenerationRequest.BenchmarkOptions? = nil
+        streamingInterval: Double
     ) -> AsyncThrowingStream<AudioGeneration, Error> {
         if let customStreamHandler {
-            return customStreamHandler(text, language, speaker, instruct, streamingInterval, benchmarkOptions)
+            return customStreamHandler(text, language, speaker, instruct, streamingInterval)
         }
         return AsyncThrowingStream { continuation in
             continuation.finish(
@@ -657,15 +564,14 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
         text: String,
         language: String,
         speaker: String,
-        instruct: String?,
-        benchmarkOptions: GenerationRequest.BenchmarkOptions? = nil
+        instruct: String?
     ) async throws -> AudioGenerationCompletion {
         guard let customGenerateHandler else {
             throw MLXTTSEngineError.unsupportedRequest(
                 "The active native model does not support quality-first Qwen3 Custom Voice generation."
             )
         }
-        return try await customGenerateHandler(text, language, speaker, instruct, benchmarkOptions)
+        return try await customGenerateHandler(text, language, speaker, instruct)
     }
 
     func prewarmVoiceDesign(
@@ -685,11 +591,10 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
         text: String,
         language: String,
         voiceDescription: String,
-        streamingInterval: Double,
-        benchmarkOptions: GenerationRequest.BenchmarkOptions? = nil
+        streamingInterval: Double
     ) -> AsyncThrowingStream<AudioGeneration, Error> {
         if let designStreamHandler {
-            return designStreamHandler(text, language, voiceDescription, streamingInterval, benchmarkOptions)
+            return designStreamHandler(text, language, voiceDescription, streamingInterval)
         }
         return AsyncThrowingStream { continuation in
             continuation.finish(
@@ -703,15 +608,14 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
     func generateVoiceDesign(
         text: String,
         language: String,
-        voiceDescription: String,
-        benchmarkOptions: GenerationRequest.BenchmarkOptions? = nil
+        voiceDescription: String
     ) async throws -> AudioGenerationCompletion {
         guard let designGenerateHandler else {
             throw MLXTTSEngineError.unsupportedRequest(
                 "The active native model does not support quality-first Qwen3 Voice Design generation."
             )
         }
-        return try await designGenerateHandler(text, language, voiceDescription, benchmarkOptions)
+        return try await designGenerateHandler(text, language, voiceDescription)
     }
 
     func createVoiceClonePrompt(
@@ -739,11 +643,10 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
         text: String,
         language: String,
         voiceClonePrompt: Qwen3TTSVoiceClonePrompt,
-        streamingInterval: Double,
-        benchmarkOptions: GenerationRequest.BenchmarkOptions? = nil
+        streamingInterval: Double
     ) -> AsyncThrowingStream<AudioGeneration, Error> {
         if let cloneStreamHandler {
-            return cloneStreamHandler(text, language, voiceClonePrompt, streamingInterval, benchmarkOptions)
+            return cloneStreamHandler(text, language, voiceClonePrompt, streamingInterval)
         }
         return AsyncThrowingStream { continuation in
             continuation.finish(
@@ -757,15 +660,14 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
     func generateVoiceClone(
         text: String,
         language: String,
-        voiceClonePrompt: Qwen3TTSVoiceClonePrompt,
-        benchmarkOptions: GenerationRequest.BenchmarkOptions? = nil
+        voiceClonePrompt: Qwen3TTSVoiceClonePrompt
     ) async throws -> AudioGenerationCompletion {
         guard let cloneGenerateHandler else {
             throw MLXTTSEngineError.unsupportedRequest(
                 "The active native model does not support quality-first Qwen voice-clone generation."
             )
         }
-        return try await cloneGenerateHandler(text, language, voiceClonePrompt, benchmarkOptions)
+        return try await cloneGenerateHandler(text, language, voiceClonePrompt)
     }
 
 }

@@ -546,7 +546,6 @@ public struct NativeMemoryPolicy: Hashable, Codable, Sendable {
 public enum NativeTelemetryMode: String, Hashable, Codable, Sendable {
     case off
     case lightweight
-    case benchmarkFull = "benchmark_full"
 
     public var sampleIntervalMS: Int? {
         switch self {
@@ -554,28 +553,17 @@ public enum NativeTelemetryMode: String, Hashable, Codable, Sendable {
             return nil
         case .lightweight:
             return 250
-        case .benchmarkFull:
-            return 50
         }
     }
 
     public static func current(environment: [String: String] = ProcessInfo.processInfo.environment) -> NativeTelemetryMode {
-        current(environment: environment, benchmarkOptions: nil)
-    }
-
-    public static func current(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        benchmarkOptions: GenerationRequest.BenchmarkOptions?
-    ) -> NativeTelemetryMode {
         switch environment["QWENVOICE_NATIVE_TELEMETRY_MODE"]?.lowercased() {
         case "off", "disabled":
             return .off
-        case "full", "benchmark", "benchmark_full":
-            return .benchmarkFull
         case "light", "lightweight":
             return .lightweight
         default:
-            return benchmarkOptions == nil ? .off : .lightweight
+            return .off
         }
     }
 }
@@ -644,130 +632,6 @@ public struct GenerationSessionKey: Hashable, Codable, Sendable {
     }
 }
 
-public struct BenchmarkSample: Hashable, Codable, Sendable {
-    public let engineKind: EngineImplementationKind?
-    public let routingPolicy: EngineRoutingPolicy?
-    public let warmState: EngineWarmState?
-    public let tokenCount: Int?
-    public let processingTimeSeconds: Double?
-    public let peakMemoryUsage: Double?
-    public let streamingUsed: Bool
-    public let preparedCloneUsed: Bool?
-    public let cloneCacheHit: Bool?
-    public let firstChunkMs: Int?
-    public let peakResidentMB: Double?
-    public let peakPhysFootprintMB: Double?
-    public let residentStartMB: Double?
-    public let residentEndMB: Double?
-    public let compressedPeakMB: Double?
-    public let headroomStartMB: Double?
-    public let headroomEndMB: Double?
-    public let headroomMinMB: Double?
-    public let gpuAllocatedPeakMB: Double?
-    public let gpuRecommendedWorkingSetMB: Double?
-    public let telemetryEnabled: Bool?
-    public let telemetrySamples: [TelemetrySample]?
-    public let telemetryStageMarks: [NativeTelemetryStageMark]?
-    public let timingsMS: [String: Int]
-    public let booleanFlags: [String: Bool]
-    public let stringFlags: [String: String]
-    public let backendPerformance: NativeBackendPerformanceSample?
-
-    public init(
-        engineKind: EngineImplementationKind? = nil,
-        routingPolicy: EngineRoutingPolicy? = nil,
-        warmState: EngineWarmState? = nil,
-        tokenCount: Int? = nil,
-        processingTimeSeconds: Double? = nil,
-        peakMemoryUsage: Double? = nil,
-        streamingUsed: Bool,
-        preparedCloneUsed: Bool? = nil,
-        cloneCacheHit: Bool? = nil,
-        firstChunkMs: Int? = nil,
-        peakResidentMB: Double? = nil,
-        peakPhysFootprintMB: Double? = nil,
-        residentStartMB: Double? = nil,
-        residentEndMB: Double? = nil,
-        compressedPeakMB: Double? = nil,
-        headroomStartMB: Double? = nil,
-        headroomEndMB: Double? = nil,
-        headroomMinMB: Double? = nil,
-        gpuAllocatedPeakMB: Double? = nil,
-        gpuRecommendedWorkingSetMB: Double? = nil,
-        telemetryEnabled: Bool? = nil,
-        telemetrySamples: [TelemetrySample]? = nil,
-        telemetryStageMarks: [NativeTelemetryStageMark]? = nil,
-        timingsMS: [String: Int] = [:],
-        booleanFlags: [String: Bool] = [:],
-        stringFlags: [String: String] = [:],
-        backendPerformance: NativeBackendPerformanceSample? = nil
-    ) {
-        self.engineKind = engineKind
-        self.routingPolicy = routingPolicy
-        self.warmState = warmState
-        self.tokenCount = tokenCount
-        self.processingTimeSeconds = processingTimeSeconds
-        self.peakMemoryUsage = peakMemoryUsage
-        self.streamingUsed = streamingUsed
-        self.preparedCloneUsed = preparedCloneUsed
-        self.cloneCacheHit = cloneCacheHit
-        self.firstChunkMs = firstChunkMs
-        self.peakResidentMB = peakResidentMB
-        self.peakPhysFootprintMB = peakPhysFootprintMB
-        self.residentStartMB = residentStartMB
-        self.residentEndMB = residentEndMB
-        self.compressedPeakMB = compressedPeakMB
-        self.headroomStartMB = headroomStartMB
-        self.headroomEndMB = headroomEndMB
-        self.headroomMinMB = headroomMinMB
-        self.gpuAllocatedPeakMB = gpuAllocatedPeakMB
-        self.gpuRecommendedWorkingSetMB = gpuRecommendedWorkingSetMB
-        self.telemetryEnabled = telemetryEnabled
-        self.telemetrySamples = telemetrySamples
-        self.telemetryStageMarks = telemetryStageMarks
-        self.timingsMS = timingsMS
-        self.booleanFlags = booleanFlags
-        self.stringFlags = stringFlags
-        self.backendPerformance = backendPerformance
-    }
-
-    public func mergingBenchmarkFields(
-        timingsMS additionalTimingsMS: [String: Int] = [:],
-        booleanFlags additionalBooleanFlags: [String: Bool] = [:],
-        stringFlags additionalStringFlags: [String: String] = [:]
-    ) -> BenchmarkSample {
-        BenchmarkSample(
-            engineKind: engineKind,
-            routingPolicy: routingPolicy,
-            warmState: warmState,
-            tokenCount: tokenCount,
-            processingTimeSeconds: processingTimeSeconds,
-            peakMemoryUsage: peakMemoryUsage,
-            streamingUsed: streamingUsed,
-            preparedCloneUsed: preparedCloneUsed,
-            cloneCacheHit: cloneCacheHit,
-            firstChunkMs: firstChunkMs,
-            peakResidentMB: peakResidentMB,
-            peakPhysFootprintMB: peakPhysFootprintMB,
-            residentStartMB: residentStartMB,
-            residentEndMB: residentEndMB,
-            compressedPeakMB: compressedPeakMB,
-            headroomStartMB: headroomStartMB,
-            headroomEndMB: headroomEndMB,
-            headroomMinMB: headroomMinMB,
-            gpuAllocatedPeakMB: gpuAllocatedPeakMB,
-            gpuRecommendedWorkingSetMB: gpuRecommendedWorkingSetMB,
-            telemetryEnabled: telemetryEnabled,
-            telemetrySamples: telemetrySamples,
-            telemetryStageMarks: telemetryStageMarks,
-            timingsMS: timingsMS.merging(additionalTimingsMS) { _, rhs in rhs },
-            booleanFlags: booleanFlags.merging(additionalBooleanFlags) { _, rhs in rhs },
-            stringFlags: stringFlags.merging(additionalStringFlags) { _, rhs in rhs },
-            backendPerformance: backendPerformance
-        )
-    }
-}
-
 public enum GenerationFinishReason: String, Hashable, Codable, Sendable {
     case eos
     case maxTokens = "max_tokens"
@@ -779,20 +643,20 @@ public struct GenerationResult: Hashable, Codable, Sendable {
     public let audioPath: String
     public let durationSeconds: Double
     public let streamSessionDirectory: String?
-    public let benchmarkSample: BenchmarkSample?
+    public let usedStreaming: Bool
     public let finishReason: GenerationFinishReason?
 
     public init(
         audioPath: String,
         durationSeconds: Double,
         streamSessionDirectory: String?,
-        benchmarkSample: BenchmarkSample?,
+        usedStreaming: Bool,
         finishReason: GenerationFinishReason? = nil
     ) {
         self.audioPath = audioPath
         self.durationSeconds = durationSeconds
         self.streamSessionDirectory = streamSessionDirectory
-        self.benchmarkSample = benchmarkSample
+        self.usedStreaming = usedStreaming
         self.finishReason = finishReason
     }
 
@@ -805,19 +669,6 @@ public struct GenerationResult: Hashable, Codable, Sendable {
         return URL(fileURLWithPath: streamSessionDirectory)
     }
 
-    public var usedStreaming: Bool {
-        benchmarkSample?.streamingUsed ?? false
-    }
-
-    public func withBenchmarkSample(_ benchmarkSample: BenchmarkSample?) -> GenerationResult {
-        GenerationResult(
-            audioPath: audioPath,
-            durationSeconds: durationSeconds,
-            streamSessionDirectory: streamSessionDirectory,
-            benchmarkSample: benchmarkSample,
-            finishReason: finishReason
-        )
-    }
 }
 
 public enum EngineActivityPresentation: String, Hashable, Codable, Sendable {
@@ -974,46 +825,6 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
         case clone(reference: CloneReference)
     }
 
-    /// Per-request overrides used by live audio-QC and benchmark suites.
-    /// Every field is consumed by the engine: see
-    /// `UnsafeSpeechGenerationModel.swift` (Qwen3 parameter policy +
-    /// custom-voice prewarm) and `NativeStreamingSynthesisSession.swift`
-    /// (`NativeBenchmarkPostRequestCachePolicy`). Adding a field here is a
-    /// load-bearing change — wire it through both sites.
-    public struct BenchmarkOptions: Hashable, Codable, Sendable {
-        public let customVoiceProfile: String?
-        public let streamStepEvalPolicy: String?
-        public let generationSpeedProfile: String?
-        public let memoryClearCadence: Int?
-        public let postRequestCachePolicy: String?
-        /// Sampling temperature override; replaces the official Qwen3-TTS
-        /// default before `Qwen3BenchmarkGenerationParameterOverrides`
-        /// applies any `QWENVOICE_QWEN3_BENCHMARK_TEMPERATURE` env override.
-        public let temperature: Double?
-        /// Sampling top-p override; replaces the official Qwen3-TTS default
-        /// before `Qwen3BenchmarkGenerationParameterOverrides` applies any
-        /// `QWENVOICE_QWEN3_BENCHMARK_TOP_P` env override.
-        public let topP: Double?
-
-        public init(
-            customVoiceProfile: String? = nil,
-            streamStepEvalPolicy: String? = nil,
-            generationSpeedProfile: String? = nil,
-            memoryClearCadence: Int? = nil,
-            postRequestCachePolicy: String? = nil,
-            temperature: Double? = nil,
-            topP: Double? = nil
-        ) {
-            self.customVoiceProfile = customVoiceProfile
-            self.streamStepEvalPolicy = streamStepEvalPolicy
-            self.generationSpeedProfile = generationSpeedProfile
-            self.memoryClearCadence = memoryClearCadence
-            self.postRequestCachePolicy = postRequestCachePolicy
-            self.temperature = temperature
-            self.topP = topP
-        }
-    }
-
     public let mode: GenerationMode
     public let modelID: String
     public let text: String
@@ -1023,7 +834,6 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
     public let batchIndex: Int?
     public let batchTotal: Int?
     public let streamingTitle: String?
-    public let benchmarkOptions: BenchmarkOptions?
     public let payload: Payload
 
     public init(
@@ -1036,7 +846,6 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
         batchIndex: Int? = nil,
         batchTotal: Int? = nil,
         streamingTitle: String? = nil,
-        benchmarkOptions: BenchmarkOptions? = nil,
         payload: Payload
     ) {
         self.mode = mode
@@ -1048,7 +857,6 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
         self.batchIndex = batchIndex
         self.batchTotal = batchTotal
         self.streamingTitle = streamingTitle
-        self.benchmarkOptions = benchmarkOptions
         self.payload = payload
     }
 
@@ -1061,7 +869,6 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
         batchIndex: Int? = nil,
         batchTotal: Int? = nil,
         streamingTitle: String? = nil,
-        benchmarkOptions: BenchmarkOptions? = nil,
         payload: Payload
     ) {
         let resolvedMode: GenerationMode
@@ -1084,7 +891,6 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
             batchIndex: batchIndex,
             batchTotal: batchTotal,
             streamingTitle: streamingTitle,
-            benchmarkOptions: benchmarkOptions,
             payload: payload
         )
     }
@@ -1108,65 +914,6 @@ public struct GenerationProgress: Hashable, Codable, Sendable {
     }
 }
 
-/// Per-chunk metadata used by the cross-layer probe trace
-/// (`[Probe.Engine]`, `[Probe.Transport]`, `[Probe.UI]`).
-///
-/// Set by the engine at chunk-construction time inside the bundled XPC
-/// helper (`NativeStreamingSynthesisSession`). The app process re-emits
-/// the engine + transport probe events from `XPCNativeEngineClient` on
-/// receipt, using the embedded `engineEmittedAtMS` (wall-clock) for
-/// cross-process latency math. `seq` is the engine's monotonic per-
-/// generation chunk index (1-based) and is the join key that the bench
-/// helper uses to correlate `[Probe.*]` lines across layers.
-///
-/// Optional: nil when the chunk did not originate from the streaming
-/// synthesis path (legacy paths, mocks, fixtures), so the probe emits
-/// are skipped gracefully and Codable round-trip stays backward-compat.
-public struct ChunkProbeMetadata: Hashable, Codable, Sendable {
-    public let seq: Int
-    public let engineEmittedAtMS: Double
-    public let inferMS: Double
-    /// Engine probe Phase 1 sub-stage breakdown of `inferMS`. Optional
-    /// so legacy chunks (mock-backed tests, fixtures, non-Qwen3
-    /// backends) decode unchanged + the bench helper omits the
-    /// columns when no sub-stage data is available.
-    /// All three are millisecond deltas from the previous chunk's
-    /// emit boundary (or generation start for chunk seq 1).
-    public let talkerForwardMS: Double?
-    public let codePredictorMS: Double?
-    public let audioDecoderMS: Double?
-    /// Engine probe Phase 2a — the `eval(...)` cadence and `eval`
-    /// flushes that sit BETWEEN the Phase 1 stages. The May 2026
-    /// Phase 1 re-bench showed talker + code predictor + audio
-    /// decoder summed to only 18-26 % of `inferMS`; these three
-    /// fields chase the missing 74-82 %.
-    public let streamStepEvalMS: Double?
-    public let streamStepEOSReadMS: Double?
-    public let audioChunkEvalMS: Double?
-
-    public init(
-        seq: Int,
-        engineEmittedAtMS: Double,
-        inferMS: Double,
-        talkerForwardMS: Double? = nil,
-        codePredictorMS: Double? = nil,
-        audioDecoderMS: Double? = nil,
-        streamStepEvalMS: Double? = nil,
-        streamStepEOSReadMS: Double? = nil,
-        audioChunkEvalMS: Double? = nil
-    ) {
-        self.seq = seq
-        self.engineEmittedAtMS = engineEmittedAtMS
-        self.inferMS = inferMS
-        self.talkerForwardMS = talkerForwardMS
-        self.codePredictorMS = codePredictorMS
-        self.audioDecoderMS = audioDecoderMS
-        self.streamStepEvalMS = streamStepEvalMS
-        self.streamStepEOSReadMS = streamStepEOSReadMS
-        self.audioChunkEvalMS = audioChunkEvalMS
-    }
-}
-
 public struct GenerationChunk: Hashable, Codable, Sendable {
     public let requestID: Int?
     public let mode: String
@@ -1177,7 +924,6 @@ public struct GenerationChunk: Hashable, Codable, Sendable {
     public let cumulativeDurationSeconds: Double?
     public let streamSessionDirectory: String?
     public let previewAudio: StreamingAudioChunk?
-    public let probeMetadata: ChunkProbeMetadata?
 
     public init(
         requestID: Int? = nil,
@@ -1188,8 +934,7 @@ public struct GenerationChunk: Hashable, Codable, Sendable {
         chunkDurationSeconds: Double?,
         cumulativeDurationSeconds: Double?,
         streamSessionDirectory: String?,
-        previewAudio: StreamingAudioChunk? = nil,
-        probeMetadata: ChunkProbeMetadata? = nil
+        previewAudio: StreamingAudioChunk? = nil
     ) {
         self.requestID = requestID
         self.mode = mode
@@ -1200,7 +945,6 @@ public struct GenerationChunk: Hashable, Codable, Sendable {
         self.cumulativeDurationSeconds = cumulativeDurationSeconds
         self.streamSessionDirectory = streamSessionDirectory
         self.previewAudio = previewAudio
-        self.probeMetadata = probeMetadata
     }
 
     public func withoutPreviewAudioPayload() -> GenerationChunk {
@@ -1213,8 +957,7 @@ public struct GenerationChunk: Hashable, Codable, Sendable {
             chunkDurationSeconds: chunkDurationSeconds,
             cumulativeDurationSeconds: cumulativeDurationSeconds,
             streamSessionDirectory: streamSessionDirectory,
-            previewAudio: nil,
-            probeMetadata: probeMetadata
+            previewAudio: nil
         )
     }
 
@@ -1350,11 +1093,6 @@ public enum GenerationEvent: Hashable, Codable, Sendable {
     public var streamSessionDirectory: String? {
         guard case .chunk(let chunk) = self else { return nil }
         return chunk.streamSessionDirectory
-    }
-
-    public var probeMetadata: ChunkProbeMetadata? {
-        guard case .chunk(let chunk) = self else { return nil }
-        return chunk.probeMetadata
     }
 
     public func withoutPreviewAudioPayload() -> GenerationEvent {

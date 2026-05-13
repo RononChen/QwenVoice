@@ -19,7 +19,7 @@ The audit is grounded in:
 
 The current app is still built on the same core foundation stack: Qwen3-TTS model families, a vendored `mlx-audio-swift` runtime layer, MLX Swift, Hugging Face Swift libraries, and GRDB for local persistence.
 
-The healthiest dependencies are `GRDB.swift`, `swift-huggingface`, `swift-jinja`, and several Apple transitive packages, whose pinned versions match the latest release tags observed during this audit. The highest-risk foundation is the vendored `third_party_patches/mlx-audio-swift` tree: it is intentionally customized and central to generation, but its exact upstream source SHA is not recorded. The main runtime stack is also behind current upstream MLX tags, so updates should be treated as a controlled backend/vendor refresh with benchmark and audio-QC proof, not a routine package bump.
+The healthiest dependencies are `GRDB.swift`, `swift-huggingface`, `swift-jinja`, and several Apple transitive packages, whose pinned versions match the latest release tags observed during this audit. The highest-risk foundation is the vendored `third_party_patches/mlx-audio-swift` tree: it is intentionally customized and central to generation, but its exact upstream source SHA is not recorded. The main runtime stack is also behind current upstream MLX tags, so updates should be treated as a controlled backend/vendor refresh with manual generation-quality proof, not a routine package bump.
 
 ## Core Foundations
 
@@ -27,8 +27,8 @@ The healthiest dependencies are `GRDB.swift`, `swift-huggingface`, `swift-jinja`
 | --- | --- | --- | --- | --- | --- |
 | Qwen3-TTS / mlx-community models | `Sources/Resources/qwenvoice_contract.json` | Yes, all three modes | Model repos are pinned to immutable revisions in the contract | No local model files are tracked; app contract customizes mode/variant mapping | Keep repo IDs, artifact versions, and revision pins aligned |
 | `mlx-audio-swift` | `third_party_patches/mlx-audio-swift/` | Yes, central runtime foundation | Unknown exact snapshot; upstream SHA is not recorded | Yes, intentionally vendored and adapted | Record upstream SHA before further backend work |
-| MLX Swift | `project.yml`, Package.resolved | Yes, native tensor/runtime dependency | Pinned `0.30.6`; latest observed tag `0.31.3` | No | Defer update to vendor refresh benchmark |
-| MLX Swift LM | Vendored package dependency | Yes, via MLXAudio TTS internals | Pinned `2.30.6`; latest observed tag `3.31.3` | No | Defer update to vendor refresh benchmark |
+| MLX Swift | `project.yml`, Package.resolved | Yes, native tensor/runtime dependency | Pinned `0.30.6`; latest observed tag `0.31.3` | No | Defer update to controlled vendor refresh |
+| MLX Swift LM | Vendored package dependency | Yes, via MLXAudio TTS internals | Pinned `2.30.6`; latest observed tag `3.31.3` | No | Defer update to controlled vendor refresh |
 | Hugging Face Swift tooling | `project.yml`, vendored package manifest | Yes, direct package plus vendored imports | `swift-huggingface` current; `swift-transformers` behind | No package patches; app has its own downloader | Keep `swift-huggingface`; review Transformers only with MLXAudio refresh |
 | GRDB.swift | `project.yml`, Package.resolved | Yes, history and saved-generation SQLite | Pinned `7.10.0`; latest observed tag `v7.10.0` | No | Keep unchanged |
 

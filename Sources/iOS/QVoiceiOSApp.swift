@@ -99,12 +99,6 @@ struct QVoiceiOSApp: App {
                 try await engine.initialize(appSupportDirectory: AppPaths.appSupportDir)
                 _ = engine.refreshMemoryPolicy()
                 print("[QVoiceiOSApp] Engine initialized.")
-#if QW_TEST_SUPPORT
-                if BenchmarkRunner.isEnabled {
-                    let runner = BenchmarkRunner(engine: engine)
-                    await runner.run()
-                }
-#endif
             } catch {
                 didInitializeEngine = false
                 engine.setVisibleError("Engine initialization failed: \(error.localizedDescription)")

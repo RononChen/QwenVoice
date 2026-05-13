@@ -23,8 +23,7 @@ import Tokenizers
 ///
 /// Open the resulting `.trace` in Instruments and add the
 /// "os_signpost" instrument to see these intervals aligned with
-/// the Metal GPU + Time Profiler tracks. See
-/// `docs/reference/instruments-profiling.md` for the workflow.
+/// the Metal GPU + Time Profiler tracks.
 private enum Qwen3Signposts {
     static let signposter = OSSignposter(
         subsystem: "com.qwenvoice.engine.qwen3",
@@ -116,32 +115,23 @@ private enum Qwen3CustomVoicePrewarmDepth: String, Sendable {
     }
 }
 
-private enum Qwen3CustomVoiceBenchmarkProfile: String, Sendable {
+private enum Qwen3CustomVoiceGenerationProfile: String, Sendable {
     case baseline
     case balancedShort = "balanced-short"
     case conservativeShort = "conservative-short"
     case fastShort = "fast-short"
 
     static func resolve(
-        explicitProfile: String? = nil,
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> Qwen3CustomVoiceBenchmarkProfile {
+        explicitProfile: String? = nil
+    ) -> Qwen3CustomVoiceGenerationProfile {
         if let explicitProfile = explicitProfile?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased(),
            !explicitProfile.isEmpty {
-            return Qwen3CustomVoiceBenchmarkProfile(rawValue: explicitProfile) ?? .baseline
+            return Qwen3CustomVoiceGenerationProfile(rawValue: explicitProfile) ?? .baseline
         }
 
-        guard environment["QWENVOICE_AUDIO_QC_LIVE"] == "1",
-              let rawValue = environment["QWENVOICE_QWEN3_CUSTOM_VOICE_PROFILE"]?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased(),
-              !rawValue.isEmpty else {
-            return .baseline
-        }
-
-        return Qwen3CustomVoiceBenchmarkProfile(rawValue: rawValue) ?? .baseline
+        return .baseline
     }
 
     var maxTokenMultiplier: Int {
@@ -241,8 +231,7 @@ private enum Qwen3GenerationSpeedProfile: String, Sendable {
     case balancedAllModes = "balanced-all-modes"
 
     static func resolve(
-        explicitProfile: String? = nil,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        explicitProfile: String? = nil
     ) -> Qwen3GenerationSpeedProfile {
         if let explicitProfile = explicitProfile?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -251,15 +240,7 @@ private enum Qwen3GenerationSpeedProfile: String, Sendable {
             return Qwen3GenerationSpeedProfile(rawValue: explicitProfile) ?? .current
         }
 
-        guard environment["QWENVOICE_AUDIO_QC_LIVE"] == "1",
-              let rawValue = environment["QWENVOICE_QWEN3_GENERATION_SPEED_PROFILE"]?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased(),
-              !rawValue.isEmpty else {
-            return .current
-        }
-
-        return Qwen3GenerationSpeedProfile(rawValue: rawValue) ?? .current
+        return .current
     }
 
     func memoryClearCadence(explicitCadence: Int?) -> Int {
@@ -274,7 +255,7 @@ private enum Qwen3GenerationSpeedProfile: String, Sendable {
 
     func tokenBudgetPolicy(
         mode: Qwen3StreamingGenerationMode,
-        customVoiceProfile: Qwen3CustomVoiceBenchmarkProfile
+        customVoiceProfile: Qwen3CustomVoiceGenerationProfile
     ) -> Qwen3TokenBudgetPolicy {
         switch self {
         case .current:
@@ -296,8 +277,8 @@ private enum Qwen3GenerationSpeedProfile: String, Sendable {
             if mode == .custom {
                 return Qwen3TokenBudgetPolicy(
                     name: "balanced-all-modes-custom",
-                    maxTokenMultiplier: Qwen3CustomVoiceBenchmarkProfile.balancedShort.maxTokenMultiplier,
-                    minimumGeneratedCodes: Qwen3CustomVoiceBenchmarkProfile.balancedShort.minimumGeneratedCodes
+                    maxTokenMultiplier: Qwen3CustomVoiceGenerationProfile.balancedShort.maxTokenMultiplier,
+                    minimumGeneratedCodes: Qwen3CustomVoiceGenerationProfile.balancedShort.minimumGeneratedCodes
                 )
             }
             return Qwen3TokenBudgetPolicy(
@@ -337,7 +318,7 @@ private enum Qwen3StreamingGenerationMode: String, Sendable {
         }
     }
 
-    func postFirstStreamChunkMultiplier(customVoiceProfile: Qwen3CustomVoiceBenchmarkProfile) -> Int {
+    func postFirstStreamChunkMultiplier(customVoiceProfile: Qwen3CustomVoiceGenerationProfile) -> Int {
         switch self {
         case .custom:
             return customVoiceProfile.postFirstStreamChunkMultiplier
@@ -350,7 +331,7 @@ private enum Qwen3StreamingGenerationMode: String, Sendable {
 
     func postFirstStreamingChunkSize(
         baseChunkSize: Int,
-        customVoiceProfile: Qwen3CustomVoiceBenchmarkProfile
+        customVoiceProfile: Qwen3CustomVoiceGenerationProfile
     ) -> Int {
         max(
             baseChunkSize,
@@ -394,8 +375,7 @@ private enum Qwen3StreamStepEvalPolicy: String, Sendable {
     /// talker_core_eval / talker_decoder_layers_eval / code predictor
     /// codebook batching has slack.
     static func resolve(
-        explicitPolicy: String? = nil,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        explicitPolicy: String? = nil
     ) -> Qwen3StreamStepEvalPolicy {
         if let explicitPolicy = explicitPolicy?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -404,15 +384,7 @@ private enum Qwen3StreamStepEvalPolicy: String, Sendable {
             return Qwen3StreamStepEvalPolicy(rawValue: explicitPolicy) ?? .full
         }
 
-        guard environment["QWENVOICE_AUDIO_QC_LIVE"] == "1",
-              let rawValue = environment["QWENVOICE_QWEN3_STREAM_STEP_EVAL_POLICY"]?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased(),
-              !rawValue.isEmpty else {
-            return .full
-        }
-
-        return Qwen3StreamStepEvalPolicy(rawValue: rawValue) ?? .full
+        return .full
     }
 
     var booleanFlags: [String: Bool] {
@@ -2079,7 +2051,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
 
         // Cap max tokens based on text length
         let customVoiceProfile = isDedicatedCustomVoice
-            ? Qwen3CustomVoiceBenchmarkProfile.resolve(explicitProfile: explicitCustomVoiceProfile)
+            ? Qwen3CustomVoiceGenerationProfile.resolve(explicitProfile: explicitCustomVoiceProfile)
             : .baseline
         let generationSpeedProfile = Qwen3GenerationSpeedProfile.resolve(
             explicitProfile: explicitGenerationSpeedProfile
@@ -2169,19 +2141,15 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         // moment of the previous chunk's emit, so the per-chunk
         // sub-stage delta passed to `onAudioChunkTimings` reflects ONLY
         // the work done since the previous chunk (or since generation
-        // start for the first chunk). Engine probe Phase 1 — feeds
-        // `[Probe.Engine] talker_forward_ms / code_predictor_ms /
-        // audio_decoder_ms` in the bench helper.
+        // start for the first chunk).
         var lastChunkTalkerForwardMS = 0
         var lastChunkCodePredictorMS = 0
         var lastChunkStreamingDecoderMS = 0
         // Mode-agnostic accumulators for the three Phase 2a sub-stages
         // — eval cadence, EOS read, and audio-chunk eval. Existing
-        // mode-specific `design*` / `custom*` / `clone*` totals (above)
-        // stay populated for the end-of-generation `BenchmarkSample`
-        // telemetry; these aggregate the same work mode-agnostically
-        // so the per-chunk delta logic can read a single counter
-        // without branching on mode.
+        // mode-specific `design*` / `custom*` / `clone*` totals (above);
+        // these aggregate the same work mode-agnostically so the per-chunk
+        // delta logic can read a single counter without branching on mode.
         var streamStepEvalTotalMS = 0
         var streamStepEOSReadTotalMS = 0
         var audioChunkEvalTotalMS = 0

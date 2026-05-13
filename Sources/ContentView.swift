@@ -70,27 +70,6 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         }
     }
 
-#if QW_TEST_SUPPORT
-    init?(testScreenID: String) {
-        switch testScreenID.replacingOccurrences(of: "screen_", with: "") {
-        case "customVoice":
-            self = .customVoice
-        case "voiceDesign":
-            self = .voiceDesign
-        case "voiceCloning":
-            self = .voiceCloning
-        case "history":
-            self = .history
-        case "voices", "savedVoices":
-            self = .voices
-        case "models", "settings":
-            self = .settings
-        default:
-            return nil
-        }
-    }
-#endif
-
     enum Section: String, CaseIterable {
         case generate = "Generate"
         case library = "Library"

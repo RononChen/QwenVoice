@@ -18,36 +18,14 @@ enum AppEngineSelection: Equatable {
         self
     }
 
-#if QW_TEST_SUPPORT
-    func effectiveSelection(isStubBackendMode _: Bool = UITestAutomationSupport.isStubBackendMode) -> Self {
-        self
-    }
-#endif
-
     func requiresManualInitialization() -> Bool {
         true
     }
-
-#if QW_TEST_SUPPORT
-    func requiresManualInitialization(isStubBackendMode _: Bool = UITestAutomationSupport.isStubBackendMode) -> Bool {
-        true
-    }
-#endif
 
     @MainActor
     func makeEngine() -> any MacTTSEngine {
         return XPCNativeEngineClient()
     }
-
-#if QW_TEST_SUPPORT
-    @MainActor
-    func makeEngine(isStubBackendMode: Bool = UITestAutomationSupport.isStubBackendMode) -> any MacTTSEngine {
-        if isStubBackendMode {
-            return UITestStubMacEngine()
-        }
-        return XPCNativeEngineClient()
-    }
-#endif
 
     @MainActor
     func resolveSidebarStatus(
@@ -66,16 +44,6 @@ enum AppEngineSelection: Equatable {
     ) {
         ttsEngineStore.clearVisibleError()
     }
-
-#if QW_TEST_SUPPORT
-    @MainActor
-    func clearSidebarError(
-        ttsEngineStore: TTSEngineStore,
-        isStubBackendMode _: Bool = UITestAutomationSupport.isStubBackendMode
-    ) {
-        ttsEngineStore.clearVisibleError()
-    }
-#endif
 
     private static func nativeSidebarStatus(
         from snapshot: TTSEngineSnapshot,

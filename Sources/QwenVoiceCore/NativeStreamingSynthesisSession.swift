@@ -10,8 +10,7 @@ import OSLog
 //
 // `NativeStreamingSynthesisSession` is now owned by `QwenVoiceCore` and is
 // shared by the active macOS XPC service and iPhone engine-extension paths.
-// Keep behavior changes here aligned with the shared runtime tests and the
-// platform host adapters described in `CLAUDE.md`.
+// Keep behavior changes here aligned with the platform host adapters.
 
 protocol NativeStreamingSessionRunning {
     func run(eventSink: @escaping @MainActor @Sendable (GenerationEvent) -> Void) async throws -> GenerationResult
@@ -201,8 +200,7 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
                 text: request.text,
                 language: language,
                 voiceClonePrompt: voiceClonePrompt,
-                streamingInterval: streamingInterval,
-                benchmarkOptions: request.benchmarkOptions
+                streamingInterval: streamingInterval
             )
         case .custom(let speakerID, let deliveryStyle):
             let language = GenerationSemantics.qwenLanguageHint(for: request)
@@ -212,8 +210,7 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
                 language: language,
                 speaker: speaker,
                 instruct: GenerationSemantics.customInstruction(for: request),
-                streamingInterval: streamingInterval,
-                benchmarkOptions: request.benchmarkOptions
+                streamingInterval: streamingInterval
             )
         case .design(let voiceDescription, let deliveryStyle):
             let language = GenerationSemantics.qwenLanguageHint(for: request)
@@ -225,8 +222,7 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
                         voiceDescription: voiceDescription,
                         emotion: deliveryStyle ?? ""
                     ),
-                streamingInterval: streamingInterval,
-                benchmarkOptions: request.benchmarkOptions
+                streamingInterval: streamingInterval
             )
         }
     }
@@ -471,18 +467,6 @@ struct PCM16StreamLimiter: Sendable {
         var processedSamples = 0
         var minimumAppliedGain: Float = 1
 
-        var benchmarkTimingFields: [String: Int] {
-            [
-                "audio_raw_peak_ppm": Self.partsPerMillion(rawPeak),
-                "audio_limited_peak_ppm": Self.partsPerMillion(limitedPeak),
-                "audio_samples_above_ceiling": samplesAboveCeiling,
-                "audio_samples_outside_unit_range": samplesOutsideUnitRange,
-                "audio_slew_limited_samples": slewLimitedSamples,
-                "audio_processed_samples": processedSamples,
-                "audio_min_gain_ppm": Self.partsPerMillion(minimumAppliedGain),
-            ]
-        }
-
         private static func partsPerMillion(_ value: Float) -> Int {
             Int((Double(value) * 1_000_000).rounded())
         }
@@ -660,64 +644,6 @@ private final class IncrementalPCM16WAVFileWriter {
     }
 }
 
-enum NativeBenchmarkPostRequestCachePolicy: String {
-    case current
-    case always
-    case failureOnly = "failure-only"
-    case never
-
-    private enum GenerationSpeedProfile: String {
-        case current
-        case legacy123Memory = "legacy123-memory"
-        case adaptiveFailureOnly = "adaptive-failure-only"
-        case balancedAllModes = "balanced-all-modes"
-    }
-
-    static func resolve(_ options: GenerationRequest.BenchmarkOptions?) -> NativeBenchmarkPostRequestCachePolicy {
-        if let rawValue = options?.postRequestCachePolicy?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased(),
-           !rawValue.isEmpty,
-           let policy = NativeBenchmarkPostRequestCachePolicy(rawValue: rawValue) {
-            return policy
-        }
-
-        guard let rawProfile = options?.generationSpeedProfile?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased(),
-              let profile = GenerationSpeedProfile(rawValue: rawProfile) else {
-            return .current
-        }
-
-        switch profile {
-        case .current:
-            return .current
-        case .legacy123Memory, .adaptiveFailureOnly, .balancedAllModes:
-            return .failureOnly
-        }
-    }
-
-    func clearsAfterSuccess(memoryPolicy: NativeMemoryPolicy) -> Bool {
-        switch self {
-        case .current:
-            return memoryPolicy.clearCacheAfterGeneration
-        case .always:
-            return true
-        case .failureOnly, .never:
-            return false
-        }
-    }
-
-    var clearsAfterFailure: Bool {
-        switch self {
-        case .current, .always, .failureOnly:
-            return true
-        case .never:
-            return false
-        }
-    }
-}
-
 private struct StreamingExecutionContext: Sendable {
     let requestID: Int
     let request: GenerationRequest
@@ -745,10 +671,9 @@ private struct StreamingExecutionContext: Sendable {
         }
 
         let startedAt = ContinuousClock.now
-        let postRequestCachePolicy = NativeBenchmarkPostRequestCachePolicy.resolve(request.benchmarkOptions)
         let outputURL = URL(fileURLWithPath: request.outputPath)
         let sampleRate = model.sampleRate
-        let telemetryMode = NativeTelemetryMode.current(benchmarkOptions: request.benchmarkOptions)
+        let telemetryMode = NativeTelemetryMode.current()
         let telemetrySampler = telemetryMode.sampleIntervalMS.map {
             NativeTelemetrySampler(
                 startUptimeSeconds: ProcessInfo.processInfo.systemUptime,
@@ -784,9 +709,7 @@ private struct StreamingExecutionContext: Sendable {
                 telemetrySampler,
                 stageMarks: await telemetryRecorder?.snapshot() ?? []
             )
-            if postRequestCachePolicy.clearsAfterFailure {
-                Memory.clearCache()
-            }
+            Memory.clearCache()
             throw error
         }
 
@@ -800,9 +723,7 @@ private struct StreamingExecutionContext: Sendable {
                 telemetrySampler,
                 stageMarks: await telemetryRecorder?.snapshot() ?? []
             )
-            if postRequestCachePolicy.clearsAfterFailure {
-                Memory.clearCache()
-            }
+            Memory.clearCache()
             throw Self.error(for: finishReason)
         }
 
@@ -815,9 +736,7 @@ private struct StreamingExecutionContext: Sendable {
             materializeSignpost
         )
         guard !samples.isEmpty else {
-            if postRequestCachePolicy.clearsAfterFailure {
-                Memory.clearCache()
-            }
+            Memory.clearCache()
             throw MLXTTSEngineError.generationFailed("The native engine did not produce final audio.")
         }
 
@@ -830,7 +749,6 @@ private struct StreamingExecutionContext: Sendable {
             "Native PCM Limiter Convert",
             limiterSignpost
         )
-        let finalWriteMS: Int
         do {
             let finalWriteSignpost = NativeStreamingSignposts.signposter.beginInterval(
                 "Native Final WAV Write"
@@ -841,110 +759,28 @@ private struct StreamingExecutionContext: Sendable {
                     finalWriteSignpost
                 )
             }
-            let finalWriteStartedAt = ContinuousClock.now
             try AtomicPCM16WAVWriter.write(
                 pcmSamples: pcmSamples,
                 sampleRate: sampleRate,
                 outputURL: outputURL
             )
-            finalWriteMS = finalWriteStartedAt.elapsedMilliseconds
         } catch {
-            if postRequestCachePolicy.clearsAfterFailure {
-                Memory.clearCache()
-            }
+            Memory.clearCache()
             throw error
         }
         mlxMemorySnapshots["after_final_write"] = NativeMemoryPolicyResolver.snapshot()
-        let postRequestCacheClearApplied = postRequestCachePolicy.clearsAfterSuccess(memoryPolicy: memoryPolicy)
+        let postRequestCacheClearApplied = memoryPolicy.clearCacheAfterGeneration
         if postRequestCacheClearApplied {
             Memory.clearCache()
             mlxMemorySnapshots["after_generation_trim"] = NativeMemoryPolicyResolver.snapshot()
         }
 
-        let generationMS = startedAt.duration(to: .now).roundedMilliseconds
         let durationSeconds = Double(pcmSamples.count) / Double(sampleRate)
-        let stageMarks = await telemetryRecorder?.snapshot() ?? []
-        let telemetryCapture = await Self.stopTelemetrySampler(
+        _ = await Self.stopTelemetrySampler(
             telemetrySampler,
-            stageMarks: stageMarks
+            stageMarks: await telemetryRecorder?.snapshot() ?? []
         )
         await telemetryRecorder?.mark(stage: .streamCompleted)
-
-        var timingsMS = timingOverridesMS
-        for (key, value) in model.latestPreparationTimingsMS {
-            timingsMS[key] = value
-        }
-        for (key, value) in scratchBuffer.limiterMetrics.benchmarkTimingFields {
-            timingsMS[key] = value
-        }
-        timingsMS["generation"] = generationMS
-        timingsMS["final_write"] = finalWriteMS
-        timingsMS["stream_chunk_count"] = 0
-        timingsMS["quality_first_final_audio"] = 1
-        timingsMS["post_request_cache_clear_applied"] = postRequestCacheClearApplied ? 1 : 0
-
-        var finalBooleanFlags = mergedBooleanFlags()
-        finalBooleanFlags["quality_first_final_audio"] = true
-        finalBooleanFlags["generation_ended_by_eos"] = true
-        finalBooleanFlags["generation_hit_token_cap"] = false
-
-        var finalStringFlags = mergedStringFlags(
-            telemetryMode: telemetryMode,
-            streamingOutputPolicy: .pcmPreview,
-            postRequestCachePolicy: postRequestCachePolicy.rawValue
-        )
-        finalStringFlags["generation_finish_reason"] = finishReason.rawValue
-        finalStringFlags["backend_provenance_upstream_tag"] = QwenVoiceBackendProvenance.upstreamTag
-        finalStringFlags["backend_provenance_upstream_commit"] = QwenVoiceBackendProvenance.upstreamCommit
-        finalStringFlags["backend_text_conditioning"] = "full_text_non_streaming"
-
-        let info = completion.info
-        let telemetrySummary = telemetryCapture.summary
-        let audioSecondsPerWallSecond = generationMS > 0
-            ? durationSeconds / (Double(generationMS) / 1_000)
-            : nil
-        let benchmarkSample = BenchmarkSample(
-            engineKind: .nativeMLX,
-            warmState: warmState,
-            tokenCount: info.map { $0.promptTokenCount + $0.generationTokenCount },
-            processingTimeSeconds: info.map { $0.prefillTime + $0.generateTime },
-            peakMemoryUsage: info?.peakMemoryUsage,
-            streamingUsed: false,
-            preparedCloneUsed: cloneConditioning?.preparedCloneUsed,
-            cloneCacheHit: cloneConditioning?.cloneCacheHit,
-            firstChunkMs: nil,
-            peakResidentMB: telemetrySummary.residentPeakMB,
-            peakPhysFootprintMB: telemetrySummary.physFootprintPeakMB,
-            residentStartMB: telemetrySummary.residentStartMB,
-            residentEndMB: telemetrySummary.residentEndMB,
-            compressedPeakMB: telemetrySummary.compressedPeakMB,
-            headroomStartMB: telemetrySummary.headroomStartMB,
-            headroomEndMB: telemetrySummary.headroomEndMB,
-            headroomMinMB: telemetrySummary.headroomMinMB,
-            gpuAllocatedPeakMB: telemetrySummary.gpuAllocatedPeakMB,
-            gpuRecommendedWorkingSetMB: telemetrySummary.gpuRecommendedWorkingSetMB,
-            telemetryEnabled: telemetryMode != .off,
-            telemetrySamples: telemetryMode == .benchmarkFull ? telemetryCapture.samples : nil,
-            telemetryStageMarks: stageMarks,
-            timingsMS: timingsMS,
-            booleanFlags: finalBooleanFlags,
-            stringFlags: finalStringFlags,
-            backendPerformance: NativeBackendPerformanceSample(
-                coldLoadMS: timingsMS["load_model"],
-                warmGenerationMS: generationMS,
-                timeToFirstAudioMS: nil,
-                audioSecondsPerWallSecond: audioSecondsPerWallSecond,
-                chunkWriteTotalMS: 0,
-                chunkWriteMaxMS: 0,
-                eventDispatchMS: 0,
-                finalWriteMS: finalWriteMS,
-                mlxMemoryByStage: mlxMemorySnapshots,
-                loadCapabilityProfile: loadCapabilityProfile.rawValue,
-                memoryPolicyName: memoryPolicy.name,
-                streamingTransport: "quality_first_final_audio",
-                telemetryMode: telemetryMode.rawValue
-            )
-        )
 
         shouldRetainOutput = true
         try? FileManager.default.removeItem(at: sessionDirectory)
@@ -952,7 +788,7 @@ private struct StreamingExecutionContext: Sendable {
             audioPath: outputURL.path,
             durationSeconds: durationSeconds,
             streamSessionDirectory: nil,
-            benchmarkSample: benchmarkSample,
+            usedStreaming: false,
             finishReason: finishReason
         )
     }
@@ -977,16 +813,14 @@ private struct StreamingExecutionContext: Sendable {
             return try await model.generateVoiceClone(
                 text: request.text,
                 language: language,
-                voiceClonePrompt: voiceClonePrompt,
-                benchmarkOptions: request.benchmarkOptions
+                voiceClonePrompt: voiceClonePrompt
             )
         case .custom(let speakerID, let deliveryStyle):
             return try await model.generateCustomVoice(
                 text: request.text,
                 language: GenerationSemantics.qwenLanguageHint(for: request),
                 speaker: speakerID.trimmingCharacters(in: .whitespacesAndNewlines),
-                instruct: GenerationSemantics.customInstruction(for: request),
-                benchmarkOptions: request.benchmarkOptions
+                instruct: GenerationSemantics.customInstruction(for: request)
             )
         case .design(let voiceDescription, let deliveryStyle):
             return try await model.generateVoiceDesign(
@@ -996,8 +830,7 @@ private struct StreamingExecutionContext: Sendable {
                     ?? GenerationSemantics.designInstruction(
                         voiceDescription: voiceDescription,
                         emotion: deliveryStyle ?? ""
-                    ),
-                benchmarkOptions: request.benchmarkOptions
+                    )
             )
         }
     }
@@ -1037,11 +870,9 @@ private struct StreamingExecutionContext: Sendable {
         defer {
             NativeStreamingSignposts.signposter.endInterval("Native Generation Stream", generationSignpost)
         }
-        let startedAt = ContinuousClock.now
-        let postRequestCachePolicy = NativeBenchmarkPostRequestCachePolicy.resolve(request.benchmarkOptions)
         let outputURL = URL(fileURLWithPath: request.outputPath)
         let sampleRate = model.sampleRate
-        let telemetryMode = NativeTelemetryMode.current(benchmarkOptions: request.benchmarkOptions)
+        let telemetryMode = NativeTelemetryMode.current()
         let telemetrySampler = telemetryMode.sampleIntervalMS.map {
             NativeTelemetrySampler(
                 startUptimeSeconds: ProcessInfo.processInfo.systemUptime,
@@ -1067,27 +898,8 @@ private struct StreamingExecutionContext: Sendable {
             }
         }
 
-        var generationInfo: AudioGenerationInfo?
         var chunkIndex = 0
-        var firstAudioReadyMS: Int?
         var totalFramesWritten: Int64 = 0
-        var totalChunkFrames = 0
-        var maxChunkFrames = 0
-        var chunkWriteTotalMS = 0
-        var chunkWriteMaxMS = 0
-        var finalWriteMS = 0
-        var eventDispatchMS = 0
-        // Cross-layer probe (`[Probe.Engine]`): captures the
-        // ContinuousClock instant after each chunk struct is constructed
-        // so the next chunk can record `inferMS` as the duration of its
-        // own production work since the previous emit.
-        var lastChunkEmittedAt: ContinuousClock.Instant?
-        // Engine probe Phase 1: per-chunk sub-stage timings emitted by
-        // Qwen3TTS as a `.chunkTimings(...)` event ALWAYS immediately
-        // before the matching `.audio(...)` chunk. We stash the most
-        // recent timings so the next audio event can attach them to its
-        // probe metadata.
-        var pendingChunkSubstageTimings: ChunkSubstageTimings?
         var mlxMemorySnapshots = initialMLXMemorySnapshots
         mlxMemorySnapshots["before_stream"] = NativeMemoryPolicyResolver.snapshot()
         let streamingOutputPolicy = NativeStreamingOutputPolicy.current()
@@ -1127,19 +939,15 @@ private struct StreamingExecutionContext: Sendable {
                 switch event {
                 case .token:
                     continue
-                case .chunkTimings(let timings):
-                    // Stash for the next `.audio(...)` event. Qwen3TTS
-                    // guarantees these arrive paired (timings → audio).
-                    pendingChunkSubstageTimings = timings
+                case .chunkTimings:
                     continue
-                case .info(let info):
-                    generationInfo = info
+                case .info:
+                    continue
                 case .audio(let samples):
                     let chunkSamples = samples.asArray(Float.self)
                     guard !chunkSamples.isEmpty else { continue }
 
-                    if firstAudioReadyMS == nil {
-                        firstAudioReadyMS = startedAt.duration(to: .now).roundedMilliseconds
+                    if chunkIndex == 0 {
                         NativeStreamingSignposts.signposter.emitEvent("Native First Audio Chunk")
                         await telemetryRecorder?.mark(
                             stage: .firstChunk,
@@ -1158,62 +966,24 @@ private struct StreamingExecutionContext: Sendable {
                             in: sessionDirectory,
                             chunkIndex: chunkIndex
                         )
-                        let chunkWriteMS = try autoreleasepool { () throws -> Int in
-                            let chunkWriteStartedAt = ContinuousClock.now
+                        try autoreleasepool {
                             try chunkWriter.write(
                                 pcmSamples: pcmSamples,
                                 to: chunkURL
                             )
-                            return chunkWriteStartedAt.elapsedMilliseconds
                         }
                         chunkPath = chunkURL.path
-                        chunkWriteTotalMS += chunkWriteMS
-                        chunkWriteMaxMS = max(chunkWriteMaxMS, chunkWriteMS)
                     }
 
-                    let appendMS = try autoreleasepool { () throws -> Int in
-                        let finalAppendStartedAt = ContinuousClock.now
+                    try autoreleasepool {
                         try finalWriter.append(pcmSamples: pcmSamples)
-                        return finalAppendStartedAt.elapsedMilliseconds
                     }
-                    finalWriteMS += appendMS
 
                     chunkIndex += 1
                     totalFramesWritten += Int64(pcmSamples.count)
-                    totalChunkFrames += pcmSamples.count
-                    maxChunkFrames = max(maxChunkFrames, pcmSamples.count)
 
                     let chunkDurationSeconds = Double(pcmSamples.count) / Double(sampleRate)
                     let cumulativeDurationSeconds = Double(totalFramesWritten) / Double(sampleRate)
-
-                    // Cross-layer probe metadata. `inferMS` is wall time
-                    // spent producing this chunk (delta from the previous
-                    // chunk's emit, or 0 for the first chunk). `engine
-                    // EmittedAtMS` is wall-clock since epoch so the app
-                    // process can compute cross-process XPC latency.
-                    let chunkEmitInstant = ContinuousClock.now
-                    let probeInferMS: Double
-                    if let last = lastChunkEmittedAt {
-                        let elapsed = chunkEmitInstant - last
-                        probeInferMS = Double(elapsed.components.seconds) * 1000.0
-                            + Double(elapsed.components.attoseconds) / 1e15
-                    } else {
-                        probeInferMS = 0
-                    }
-                    lastChunkEmittedAt = chunkEmitInstant
-                    let chunkSubstageTimings = pendingChunkSubstageTimings
-                    pendingChunkSubstageTimings = nil
-                    let probeMetadata = ChunkProbeMetadata(
-                        seq: chunkIndex,
-                        engineEmittedAtMS: Date().timeIntervalSince1970 * 1000.0,
-                        inferMS: probeInferMS,
-                        talkerForwardMS: chunkSubstageTimings?.talkerForwardMS,
-                        codePredictorMS: chunkSubstageTimings?.codePredictorMS,
-                        audioDecoderMS: chunkSubstageTimings?.audioDecoderMS,
-                        streamStepEvalMS: chunkSubstageTimings?.streamStepEvalMS,
-                        streamStepEOSReadMS: chunkSubstageTimings?.streamStepEOSReadMS,
-                        audioChunkEvalMS: chunkSubstageTimings?.audioChunkEvalMS
-                    )
 
                     let chunkEvent = GenerationEvent.chunk(
                         GenerationChunk(
@@ -1232,14 +1002,11 @@ private struct StreamingExecutionContext: Sendable {
                                 frameCount: pcmSamples.count,
                                 pcm16LE: previewData,
                                 isFinal: false
-                            ),
-                            probeMetadata: probeMetadata
+                            )
                         )
                     )
 
-                    let dispatchStartedAt = ContinuousClock.now
                     await eventSink(chunkEvent)
-                    eventDispatchMS += dispatchStartedAt.elapsedMilliseconds
                 }
             }
         } catch {
@@ -1254,9 +1021,7 @@ private struct StreamingExecutionContext: Sendable {
             finalWriter.finish()
             try? FileManager.default.removeItem(at: outputURL)
             try? FileManager.default.removeItem(at: sessionDirectory)
-            if postRequestCachePolicy.clearsAfterFailure {
-                Memory.clearCache()
-            }
+            Memory.clearCache()
             throw error
         }
 
@@ -1269,51 +1034,23 @@ private struct StreamingExecutionContext: Sendable {
             )
         }
 
-        let finalizeStartedAt = ContinuousClock.now
         let finalWriteSignpost = NativeStreamingSignposts.signposter.beginInterval("Native Final WAV Finish")
         finalWriter.finish()
         NativeStreamingSignposts.signposter.endInterval("Native Final WAV Finish", finalWriteSignpost)
-        finalWriteMS += finalizeStartedAt.elapsedMilliseconds
         mlxMemorySnapshots["after_final_write"] = NativeMemoryPolicyResolver.snapshot()
 
-        let generationMS = startedAt.duration(to: .now).roundedMilliseconds
         let durationSeconds = Double(totalFramesWritten) / Double(sampleRate)
         let stageMarks = await telemetryRecorder?.snapshot() ?? []
-        let telemetryCapture = await Self.stopTelemetrySampler(
+        _ = await Self.stopTelemetrySampler(
             telemetrySampler,
             stageMarks: stageMarks
         )
-        let telemetrySummary = telemetryCapture.summary
         mlxMemorySnapshots["after_stream"] = NativeMemoryPolicyResolver.snapshot()
-        let postRequestCacheClearApplied = postRequestCachePolicy.clearsAfterSuccess(memoryPolicy: memoryPolicy)
+        let postRequestCacheClearApplied = memoryPolicy.clearCacheAfterGeneration
         if postRequestCacheClearApplied {
             Memory.clearCache()
             mlxMemorySnapshots["after_generation_trim"] = NativeMemoryPolicyResolver.snapshot()
         }
-        let limiterMetrics = scratchBuffer.limiterMetrics
-        let benchmarkSample = makeBenchmarkSample(
-            generationInfo: generationInfo,
-            firstAudioReadyMS: firstAudioReadyMS,
-            generationMS: generationMS,
-            finalWriteMS: finalWriteMS,
-            chunkWriteTotalMS: chunkWriteTotalMS,
-            chunkWriteMaxMS: chunkWriteMaxMS,
-            eventDispatchMS: eventDispatchMS,
-            streamChunkCount: chunkIndex,
-            averageChunkFrames: chunkIndex > 0 ? (totalChunkFrames / chunkIndex) : 0,
-            maxChunkFrames: maxChunkFrames,
-            streamingInterval: streamingInterval,
-            telemetrySummary: telemetrySummary,
-            telemetrySamples: telemetryCapture.samples,
-            telemetryStageMarks: stageMarks,
-            mlxMemorySnapshots: mlxMemorySnapshots,
-            telemetryMode: telemetryMode,
-            streamingOutputPolicy: streamingOutputPolicy,
-            durationSeconds: durationSeconds,
-            limiterMetrics: limiterMetrics,
-            postRequestCachePolicy: postRequestCachePolicy.rawValue,
-            postRequestCacheClearApplied: postRequestCacheClearApplied
-        )
         await telemetryRecorder?.mark(stage: .streamCompleted)
 
         shouldRetainSession = true
@@ -1321,167 +1058,11 @@ private struct StreamingExecutionContext: Sendable {
             audioPath: outputURL.path,
             durationSeconds: durationSeconds,
             streamSessionDirectory: sessionDirectory.path,
-            benchmarkSample: benchmarkSample,
+            usedStreaming: true,
             finishReason: model.latestPreparationStringFlags["generation_end_reason"] == "token_cap"
                 ? .maxTokens
                 : .eos
         )
-    }
-
-    private func makeBenchmarkSample(
-        generationInfo: AudioGenerationInfo?,
-        firstAudioReadyMS: Int?,
-        generationMS: Int,
-        finalWriteMS: Int,
-        chunkWriteTotalMS: Int,
-        chunkWriteMaxMS: Int,
-        eventDispatchMS: Int,
-        streamChunkCount: Int,
-        averageChunkFrames: Int,
-        maxChunkFrames: Int,
-        streamingInterval: Double,
-        telemetrySummary: TelemetrySummary,
-        telemetrySamples: [TelemetrySample],
-        telemetryStageMarks: [NativeTelemetryStageMark],
-        mlxMemorySnapshots: [String: NativeMLXMemorySnapshot],
-        telemetryMode: NativeTelemetryMode,
-        streamingOutputPolicy: NativeStreamingOutputPolicy,
-        durationSeconds: Double,
-        limiterMetrics: PCM16StreamLimiter.Metrics,
-        postRequestCachePolicy: String,
-        postRequestCacheClearApplied: Bool
-    ) -> BenchmarkSample {
-        var timingsMS = timingOverridesMS
-        for (key, value) in model.latestPreparationTimingsMS {
-            timingsMS[key] = value
-        }
-        for (key, value) in limiterMetrics.benchmarkTimingFields {
-            timingsMS[key] = value
-        }
-        timingsMS["generation"] = generationMS
-        timingsMS["final_write"] = finalWriteMS
-        timingsMS["chunk_write_total"] = chunkWriteTotalMS
-        timingsMS["chunk_write_max"] = chunkWriteMaxMS
-        timingsMS["event_dispatch_ms"] = eventDispatchMS
-        timingsMS["stream_chunk_count"] = streamChunkCount
-        timingsMS["avg_chunk_frames"] = averageChunkFrames
-        timingsMS["max_chunk_frames"] = maxChunkFrames
-        timingsMS["streaming_interval_ms"] = Int((streamingInterval * 1_000).rounded())
-        timingsMS["post_request_cache_clear_applied"] = postRequestCacheClearApplied ? 1 : 0
-        timingsMS["telemetry_sample_count"] = telemetrySamples.count
-        if let firstAudioReadyMS {
-            timingsMS["first_audio_ready"] = firstAudioReadyMS
-            timingsMS["first_stream_chunk"] = firstAudioReadyMS
-        }
-
-        let tokenCount = generationInfo.map { $0.promptTokenCount + $0.generationTokenCount }
-        let processingTimeSeconds = generationInfo.map { $0.prefillTime + $0.generateTime }
-        let audioSecondsPerWallSecond = generationMS > 0
-            ? durationSeconds / (Double(generationMS) / 1_000)
-            : nil
-
-        return BenchmarkSample(
-            engineKind: .nativeMLX,
-            warmState: warmState,
-            tokenCount: tokenCount,
-            processingTimeSeconds: processingTimeSeconds,
-            peakMemoryUsage: generationInfo?.peakMemoryUsage,
-            streamingUsed: true,
-            preparedCloneUsed: cloneConditioning?.preparedCloneUsed,
-            cloneCacheHit: cloneConditioning?.cloneCacheHit,
-            firstChunkMs: firstAudioReadyMS,
-            peakResidentMB: telemetrySummary.residentPeakMB,
-            peakPhysFootprintMB: telemetrySummary.physFootprintPeakMB,
-            residentStartMB: telemetrySummary.residentStartMB,
-            residentEndMB: telemetrySummary.residentEndMB,
-            compressedPeakMB: telemetrySummary.compressedPeakMB,
-            headroomStartMB: telemetrySummary.headroomStartMB,
-            headroomEndMB: telemetrySummary.headroomEndMB,
-            headroomMinMB: telemetrySummary.headroomMinMB,
-            gpuAllocatedPeakMB: telemetrySummary.gpuAllocatedPeakMB,
-            gpuRecommendedWorkingSetMB: telemetrySummary.gpuRecommendedWorkingSetMB,
-            telemetryEnabled: telemetryMode != .off,
-            telemetrySamples: telemetryMode == .benchmarkFull ? telemetrySamples : nil,
-            telemetryStageMarks: telemetryStageMarks,
-            timingsMS: timingsMS,
-            booleanFlags: mergedBooleanFlags(),
-            stringFlags: mergedStringFlags(
-                telemetryMode: telemetryMode,
-                streamingOutputPolicy: streamingOutputPolicy,
-                postRequestCachePolicy: postRequestCachePolicy
-            ),
-            backendPerformance: NativeBackendPerformanceSample(
-                coldLoadMS: timingsMS["load_model"],
-                warmGenerationMS: generationMS,
-                timeToFirstAudioMS: firstAudioReadyMS,
-                audioSecondsPerWallSecond: audioSecondsPerWallSecond,
-                chunkWriteTotalMS: chunkWriteTotalMS,
-                chunkWriteMaxMS: chunkWriteMaxMS,
-                eventDispatchMS: eventDispatchMS,
-                finalWriteMS: finalWriteMS,
-                mlxMemoryByStage: mlxMemorySnapshots,
-                loadCapabilityProfile: loadCapabilityProfile.rawValue,
-                memoryPolicyName: memoryPolicy.name,
-                streamingTransport: streamingOutputPolicy.rawValue,
-                telemetryMode: telemetryMode.rawValue
-            )
-        )
-    }
-
-    private func mergedBooleanFlags() -> [String: Bool] {
-        var merged = booleanFlags
-        for (key, value) in model.latestPreparationBooleanFlags {
-            merged[key] = value
-        }
-        if let cloneConditioning {
-            merged["used_temp_reference"] = cloneConditioning.usedTemporaryReference
-            merged["primed"] = wasPrimed
-            merged["clone_conditioning_reused"] =
-                (merged["clone_conditioning_reused"] ?? false)
-                || cloneConditioning.cloneConditioningReused
-            merged["reused_normalized_reference"] = cloneConditioning.reusedNormalizedReference
-            merged["reused_decoded_reference"] = cloneConditioning.reusedDecodedReference
-            merged["normalized_reference_reused"] = cloneConditioning.reusedNormalizedReference
-            merged["decoded_reference_reused"] = cloneConditioning.reusedDecodedReference
-            if let cloneCacheHit = cloneConditioning.cloneCacheHit {
-                merged["prepared_clone_cache_hit"] = cloneCacheHit
-            }
-            if let clonePromptCacheHit = cloneConditioning.clonePromptCacheHit {
-                merged["clone_prompt_cache_hit"] = clonePromptCacheHit
-            }
-            if cloneConditioning.voiceClonePrompt != nil {
-                merged["clone_prompt_used"] = true
-            }
-        }
-        if request.mode == .clone {
-            merged["clone_batch_has_batch_sampling"] = false
-            merged["clone_batch_has_batch_decode"] = false
-            merged["clone_batch_fast_path_available"] = false
-        }
-        return merged
-    }
-
-    private func mergedStringFlags(
-        telemetryMode: NativeTelemetryMode,
-        streamingOutputPolicy: NativeStreamingOutputPolicy,
-        postRequestCachePolicy: String
-    ) -> [String: String] {
-        var merged = stringFlags
-        merged["native_load_capability_profile"] = loadCapabilityProfile.rawValue
-        merged["memory_policy"] = memoryPolicy.name
-        merged["streaming_transport"] = streamingOutputPolicy.rawValue
-        merged["telemetry_mode"] = telemetryMode.rawValue
-        merged["post_request_cache_policy"] = postRequestCachePolicy
-        for (key, value) in model.latestPreparationStringFlags {
-            merged[key] = value
-        }
-        if let cloneConditioning {
-            merged["resolved_transcript_mode"] = cloneConditioning.transcriptMode.rawValue
-        }
-        if request.mode == .clone {
-            merged["clone_batch_fast_path_status"] = "sequential_only_missing_swift_batch_primitives"
-        }
-        return merged
     }
 
     private static func adaptiveStreamingInterval(

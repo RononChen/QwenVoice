@@ -473,43 +473,8 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
             audioPath: result.audioPath,
             durationSeconds: result.durationSeconds,
             streamSessionDirectory: nil,
-            benchmarkSample: normalizedBatchBenchmarkSample(from: result.benchmarkSample),
+            usedStreaming: false,
             finishReason: result.finishReason
-        )
-    }
-
-    private static func normalizedBatchBenchmarkSample(
-        from benchmarkSample: BenchmarkSample?
-    ) -> BenchmarkSample? {
-        guard let benchmarkSample else { return nil }
-        return BenchmarkSample(
-            engineKind: benchmarkSample.engineKind,
-            routingPolicy: benchmarkSample.routingPolicy,
-            warmState: benchmarkSample.warmState,
-            tokenCount: benchmarkSample.tokenCount,
-            processingTimeSeconds: benchmarkSample.processingTimeSeconds,
-            peakMemoryUsage: benchmarkSample.peakMemoryUsage,
-            streamingUsed: false,
-            preparedCloneUsed: benchmarkSample.preparedCloneUsed,
-            cloneCacheHit: benchmarkSample.cloneCacheHit,
-            firstChunkMs: nil,
-            peakResidentMB: benchmarkSample.peakResidentMB,
-            peakPhysFootprintMB: benchmarkSample.peakPhysFootprintMB,
-            residentStartMB: benchmarkSample.residentStartMB,
-            residentEndMB: benchmarkSample.residentEndMB,
-            compressedPeakMB: benchmarkSample.compressedPeakMB,
-            headroomStartMB: benchmarkSample.headroomStartMB,
-            headroomEndMB: benchmarkSample.headroomEndMB,
-            headroomMinMB: benchmarkSample.headroomMinMB,
-            gpuAllocatedPeakMB: benchmarkSample.gpuAllocatedPeakMB,
-            gpuRecommendedWorkingSetMB: benchmarkSample.gpuRecommendedWorkingSetMB,
-            telemetryEnabled: benchmarkSample.telemetryEnabled,
-            telemetrySamples: benchmarkSample.telemetrySamples,
-            telemetryStageMarks: benchmarkSample.telemetryStageMarks,
-            timingsMS: benchmarkSample.timingsMS,
-            booleanFlags: benchmarkSample.booleanFlags,
-            stringFlags: benchmarkSample.stringFlags,
-            backendPerformance: benchmarkSample.backendPerformance
         )
     }
 }

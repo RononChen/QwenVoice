@@ -717,26 +717,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
         succeeded: Bool,
         cleanupMS: Int?
     ) -> GenerationResult {
-        var timings: [String: Int] = [:]
-        if let cleanupMS {
-            timings["allocation_retry_cleanup_ms"] = cleanupMS
-        }
-        let flags = [
-            "allocation_retry_attempted": attempted,
-            "allocation_retry_succeeded": succeeded,
-        ]
-        let strings = attempted ? ["allocation_retry_reason": "mlx_allocation_failure"] : [:]
-        let sample = result.benchmarkSample?.mergingBenchmarkFields(
-            timingsMS: timings,
-            booleanFlags: flags,
-            stringFlags: strings
-        ) ?? BenchmarkSample(
-            streamingUsed: streamingUsed,
-            timingsMS: timings,
-            booleanFlags: flags,
-            stringFlags: strings
-        )
-        return result.withBenchmarkSample(sample)
+        result
     }
 
     nonisolated private static func isRetryableAllocationFailure(_ error: Error) -> Bool {

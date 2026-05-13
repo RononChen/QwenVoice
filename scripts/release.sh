@@ -184,11 +184,8 @@ echo ""
 
 if [ "$PREFLIGHT" = "full" ]; then
     STEP_START="$(date +%s)"
-    echo "[preflight] Running QA and build proof gates..."
-    "$SCRIPT_DIR/qa.sh" validate
-    "$SCRIPT_DIR/qa.sh" test --layer contract
-    "$SCRIPT_DIR/qa.sh" test --layer swift
-    "$SCRIPT_DIR/qa.sh" test --layer native
+    echo "[preflight] Running project input and foundation build gates..."
+    "$SCRIPT_DIR/check_project_inputs.sh"
     "$SCRIPT_DIR/build_foundation_targets.sh" macos
     "$SCRIPT_DIR/build_foundation_targets.sh" ios
     echo "[preflight] Full preflight — done ($(step_time "$STEP_START"))"

@@ -30,22 +30,6 @@ schemes:
     archive:
       config: Release
 
-  QwenVoice Foundation:
-    build:
-      targets:
-        QwenVoice: all
-    test:
-      config: Debug
-      gatherCoverageData: false
-      testPlans:
-        - path: tests/Plans/QwenVoiceSource.xctestplan
-          defaultPlan: true
-        - path: tests/Plans/QwenVoiceRuntime.xctestplan
-    run:
-      config: Debug
-    archive:
-      config: Release
-
   VocelloiOS:
     build:
       targets:
@@ -54,35 +38,6 @@ schemes:
       config: Debug
     archive:
       config: Release
-
-  VocelloiOS Foundation:
-    build:
-      targets:
-        VocelloiOS: all
-    test:
-      config: Debug
-      gatherCoverageData: false
-      testPlans:
-        - path: tests/Plans/VocelloiOSFoundation.xctestplan
-          defaultPlan: true
-    run:
-      config: Debug
-    archive:
-      config: Release
-
-  Vocello UI:
-    build:
-      targets:
-        QwenVoice: all
-        VocelloUITests: test
-    test:
-      config: Debug
-      gatherCoverageData: false
-      testPlans:
-        - path: tests/Plans/VocelloUISmoke.xctestplan
-          defaultPlan: true
-    run:
-      config: Debug
 
 targets:
   QwenVoice:
@@ -149,7 +104,7 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
       configs:
         Debug:
-          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) QW_UI_LIQUID QW_TEST_SUPPORT"
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: QW_UI_LIQUID
         Release:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: QW_UI_LIQUID
     dependencies:
@@ -179,9 +134,6 @@ targets:
         SWIFT_VERSION: "6"
         MACOSX_DEPLOYMENT_TARGET: "26.0"
         GENERATE_INFOPLIST_FILE: YES
-      configs:
-        Debug:
-          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) QW_TEST_SUPPORT"
     dependencies:
       - target: QwenVoiceCore
       - target: QwenVoiceEngineSupport
@@ -207,9 +159,6 @@ targets:
         SWIFT_VERSION: "6"
         MACOSX_DEPLOYMENT_TARGET: "26.0"
         GENERATE_INFOPLIST_FILE: YES
-      configs:
-        Debug:
-          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) QW_TEST_SUPPORT"
     dependencies:
       - target: QwenVoiceCore
       - package: MLXAudio
@@ -299,36 +248,6 @@ targets:
       - package: SwiftHuggingFace
         product: HuggingFace
 
-  QwenVoiceTests:
-    type: bundle.unit-test
-    platform: macOS
-    sources:
-      - path: QwenVoiceTests
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.qwenvoice.tests
-        SWIFT_VERSION: "6"
-        MACOSX_DEPLOYMENT_TARGET: "26.0"
-        GENERATE_INFOPLIST_FILE: YES
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Vocello.app/Contents/MacOS/Vocello"
-        BUNDLE_LOADER: "$(TEST_HOST)"
-    dependencies:
-      - target: QwenVoice
-      - target: QwenVoiceBackendCore
-      - target: QwenVoiceCore
-      - target: QwenVoiceNative
-      - target: QwenVoiceEngineSupport
-      - package: MLXAudio
-        product: MLXAudioCore
-      - package: MLXAudio
-        product: MLXAudioTTS
-      - package: MLXAudio
-        product: MLXAudioSTT
-      - package: MLXSwift
-        product: MLX
-      - package: SwiftHuggingFace
-        product: HuggingFace
-
   VocelloEngineExtension:
     type: extensionkit-extension
     platform: iOS
@@ -399,9 +318,6 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SUPPORTS_MACCATALYST: NO
         TARGETED_DEVICE_FAMILY: "1"
-      configs:
-        Debug:
-          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) QW_TEST_SUPPORT"
     dependencies:
       - package: GRDB
       - target: QwenVoiceCore
@@ -416,40 +332,3 @@ targets:
       - package: SwiftHuggingFace
         product: HuggingFace
 
-  VocelloUITests:
-    type: bundle.ui-testing
-    platform: macOS
-    sources:
-      - path: VocelloUITests
-    resources:
-      - path: Sources/Resources/qwenvoice_contract.json
-        buildPhase: resources
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.qwenvoice.uitests
-        SWIFT_VERSION: "6"
-        MACOSX_DEPLOYMENT_TARGET: "26.0"
-        GENERATE_INFOPLIST_FILE: YES
-        TEST_TARGET_NAME: QwenVoice
-    dependencies:
-      - target: QwenVoice
-
-  VocelloiOSTests:
-    type: bundle.unit-test
-    platform: iOS
-    sources:
-      - path: VocelloiOSTests
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.qvoice.ios.tests
-        CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: $(QWENVOICE_DEVELOPMENT_TEAM)
-        SWIFT_VERSION: "6"
-        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
-        GENERATE_INFOPLIST_FILE: YES
-        TEST_TARGET_NAME: VocelloiOS
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Vocello.app/Vocello"
-        BUNDLE_LOADER: "$(TEST_HOST)"
-    dependencies:
-      - target: VocelloiOS
-      - target: QwenVoiceCore

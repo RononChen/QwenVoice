@@ -13,35 +13,53 @@ fi
 
 echo "==> Validating checked-in project inputs..."
 
-REQUIRED_QA_SURFACES=(
-    "scripts/qa.sh"
+REQUIRED_SURFACES=(
     "scripts/check_qwen3_backend_only.sh"
-    "QwenVoiceTests"
-    "VocelloUITests"
-    "VocelloiOSTests"
-    "tests/Plans/QwenVoiceSource.xctestplan"
-    "tests/Plans/QwenVoiceRuntime.xctestplan"
-    "tests/Plans/VocelloiOSFoundation.xctestplan"
-    "tests/Plans/VocelloUISmoke.xctestplan"
+    "scripts/check_backend_resource_contract.sh"
+    "scripts/regenerate_project.sh"
+    "scripts/build_foundation_targets.sh"
+    "scripts/release.sh"
+    "scripts/release_ios_testflight.sh"
+    "Sources/Resources/qwenvoice_contract.json"
+    "config/apple-platform-capability-matrix.json"
+    "project.yml"
 )
 
-for required_surface in "${REQUIRED_QA_SURFACES[@]}"; do
+for required_surface in "${REQUIRED_SURFACES[@]}"; do
     if [ ! -e "$PROJECT_DIR/$required_surface" ]; then
-        echo "error: required QA surface is missing: $required_surface" >&2
+        echo "error: required surface is missing: $required_surface" >&2
         exit 1
     fi
 done
 
 PROHIBITED_SURFACES=(
     "QVoiceBenchmarkUI""Tests"
+    "QwenVoiceTests"
+    "VocelloUITests"
+    "VocelloiOSTests"
+    "tests/Plans"
+    "tests/fixtures"
     "tests/perf"
     "tests/screenshots"
     "third_party_patches/mlx-audio-swift/""Tests"
+    "scripts/qa.sh"
+    "scripts/bench_ui_generation.sh"
+    "scripts/bench_instruments_trace.sh"
+    "scripts/compare_perf_manifest.sh"
+    "scripts/compare_ui_bench_runs.sh"
+    "scripts/summarize_instruments_signposts.py"
+    "scripts/perf-baseline-manifest.json"
+    "scripts/perf-baseline-manifest-quality.json"
+    "scripts/bootstrap_audio_review_models.sh"
+    "scripts/rescue_gate.sh"
+    "docs/reference/live-testing.md"
+    "docs/reference/instruments-profiling.md"
+    "docs/reference/backend-hardening-validation-evidence.md"
 )
 
 for prohibited_surface in "${PROHIBITED_SURFACES[@]}"; do
     if [ -e "$PROJECT_DIR/$prohibited_surface" ]; then
-        echo "error: prohibited QA surface is present: $prohibited_surface" >&2
+        echo "error: prohibited surface is present: $prohibited_surface" >&2
         exit 1
     fi
 done
@@ -51,10 +69,12 @@ PROHIBITED_REFERENCE_PATTERNS=(
     "third_party_patches/mlx-audio-swift/""Tests"
     "tests/screenshots"
     "tests/perf"
-    "docs/reference/testing.md"
+    "docs/reference/testing\.md"
+    "docs/reference/live-testing\.md"
+    "docs/reference/instruments-profiling\.md"
+    "docs/reference/backend-hardening-validation-evidence\.md"
     "QwenVoice-macos15.dmg"
     "build/QwenVoice.app"
-    ".claude/worktrees"
     "scripts/harness\.py"
     "scripts/harness_lib"
     "scripts/run_generation_benchmark\.py"
@@ -65,6 +85,34 @@ PROHIBITED_REFERENCE_PATTERNS=(
     "scripts/check_qwen3_backend_only\.py"
     "scripts/check_ios_catalog\.py"
     "scripts/refresh_readme_screenshots\.py"
+    "scripts/qa\.sh"
+    "scripts/bench_ui_generation\.sh"
+    "scripts/bench_instruments_trace\.sh"
+    "scripts/compare_perf_manifest\.sh"
+    "scripts/compare_ui_bench_runs\.sh"
+    "scripts/summarize_instruments_signposts\.py"
+    "scripts/perf-baseline-manifest"
+    "scripts/bootstrap_audio_review_models\.sh"
+    "scripts/rescue_gate\.sh"
+    "scripts/requirements-audio-review-bootstrap\.txt"
+    "scripts/requirements-perf-bootstrap\.txt"
+    '\$SCRIPT_DIR/qa\.sh'
+    "QW_TEST_SUPPORT"
+    "UITestAutomationSupport"
+    "UITestStubMacEngine"
+    "UITestWindowSizeConfigurator"
+    "BenchmarkRunner"
+    "CustomVoiceUIPerformanceTrace"
+    "BenchmarkSample"
+    "GenerationRequest\\.BenchmarkOptions"
+    "benchmarkOptions"
+    "ChunkProbeMetadata"
+    "probeMetadata"
+    "QWENVOICE_UI_PERF_AUDIT"
+    "QWENVOICE_AUDIO_QC_LIVE"
+    "QWENVOICE_QWEN3_BENCHMARK"
+    "logProbeEvent"
+    "\\[Probe\\."
 )
 
 for removed_pattern in "${PROHIBITED_REFERENCE_PATTERNS[@]}"; do

@@ -111,13 +111,6 @@ final class VoiceCloningCoordinator: ObservableObject {
 
         guard let model = cloneModel else {
             errorMessage = "Model configuration not found"
-            CustomVoiceUIPerformanceTrace.beginGeneration(
-                mode: .voiceCloning,
-                modelID: "missing-model",
-                snapshotLoadState: CustomVoiceUIPerformanceTrace.loadStateDescription(for: ttsEngineStore.loadState),
-                isEngineReady: ttsEngineStore.isReady
-            )
-            CustomVoiceUIPerformanceTrace.finish(status: "failed_missing_model")
             return
         }
 
@@ -128,27 +121,12 @@ final class VoiceCloningCoordinator: ObservableObject {
         }
         guard let refPath = currentDraft.referenceAudioPath else {
             errorMessage = "Select a reference audio file before generating."
-            CustomVoiceUIPerformanceTrace.beginGeneration(
-                mode: .voiceCloning,
-                modelID: model.id,
-                snapshotLoadState: CustomVoiceUIPerformanceTrace.loadStateDescription(for: ttsEngineStore.loadState),
-                isEngineReady: ttsEngineStore.isReady
-            )
-            CustomVoiceUIPerformanceTrace.finish(status: "failed_missing_reference")
             return
         }
 
-        // All preconditions satisfied — commit. Trace begins, isGenerating
-        // flips true exactly once.
-        CustomVoiceUIPerformanceTrace.beginGeneration(
-            mode: .voiceCloning,
-            modelID: model.id,
-            snapshotLoadState: CustomVoiceUIPerformanceTrace.loadStateDescription(for: ttsEngineStore.loadState),
-            isEngineReady: ttsEngineStore.isReady
-        )
+        // All preconditions satisfied; flip isGenerating true exactly once.
         isGenerating = true
         errorMessage = nil
-        CustomVoiceUIPerformanceTrace.mark(.coordinatorStarted)
 
         Task { @MainActor in
             do {
@@ -188,31 +166,7 @@ final class VoiceCloningCoordinator: ObservableObject {
                 ) else {
                     throw VoiceCloningCoordinatorError.requestConstructionFailed
                 }
-                CustomVoiceUIPerformanceTrace.mark(.previewSetupStarted)
-
-                CustomVoiceUIPerformanceTrace.mark(
-                    .engineRequestStarted,
-                    metadata: [
-                        "model_id": model.id,
-                        "primed_reference_matches": primedReferenceMatches ? "true" : "false",
-                        "has_saved_voice": currentDraft.selectedSavedVoiceID == nil ? "false" : "true",
-                    ],
-                    metrics: [
-                        "text_characters": currentDraft.text.count,
-                        "reference_transcript_characters": currentDraft.referenceTranscript.count,
-                    ]
-                )
                 let result = try await ttsEngineStore.generate(generationRequest)
-                CustomVoiceUIPerformanceTrace.attachBenchmarkSample(result.benchmarkSample)
-                CustomVoiceUIPerformanceTrace.mark(
-                    .engineRequestFinished,
-                    metadata: [
-                        "used_streaming": result.usedStreaming ? "true" : "false",
-                    ],
-                    metrics: [
-                        "duration_ms": Int(result.durationSeconds * 1_000),
-                    ]
-                )
 
                 let voiceName = selectedVoice?.name
                     ?? URL(fileURLWithPath: refPath).deletingPathExtension().lastPathComponent
@@ -234,19 +188,12 @@ final class VoiceCloningCoordinator: ObservableObject {
                     audioPlayer: audioPlayer,
                     caller: "VoiceCloningCoordinator"
                 )
-                CustomVoiceUIPerformanceTrace.finish(
-                    status: "success",
-                    outputPath: result.audioPath,
-                    durationSeconds: result.durationSeconds
-                )
             } catch is CancellationError {
                 audioPlayer.abortLivePreviewIfNeeded()
                 errorMessage = nil
-                CustomVoiceUIPerformanceTrace.finish(status: "cancelled")
             } catch {
                 audioPlayer.abortLivePreviewIfNeeded()
                 errorMessage = error.localizedDescription
-                CustomVoiceUIPerformanceTrace.finish(status: "failed")
             }
 
             isGenerating = false
@@ -256,8 +203,7 @@ final class VoiceCloningCoordinator: ObservableObject {
     static func makeGenerationRequest(
         draft: VoiceCloningDraft,
         model: TTSModel,
-        outputPath: String,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        outputPath: String
     ) -> GenerationRequest? {
         guard let referenceAudioPath = draft.referenceAudioPath else { return nil }
         guard draft.hasText else { return nil }
@@ -267,7 +213,6 @@ final class VoiceCloningCoordinator: ObservableObject {
             outputPath: outputPath,
             shouldStream: false,
             streamingTitle: String(draft.text.prefix(40)),
-            benchmarkOptions: MacGenerationBenchmarkOptions.requestOptions(environment: environment),
             payload: .clone(
                 reference: CloneReference(
                     audioPath: referenceAudioPath,

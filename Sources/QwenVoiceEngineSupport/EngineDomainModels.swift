@@ -9,7 +9,6 @@ public typealias CloneReference = QwenVoiceCore.CloneReference
 public typealias PreparedVoice = QwenVoiceCore.PreparedVoice
 public typealias PreparedVoiceQualityWarning = QwenVoiceCore.PreparedVoiceQualityWarning
 public typealias NativeTelemetryStageMark = QwenVoiceCore.NativeTelemetryStageMark
-public typealias BenchmarkSample = QwenVoiceCore.BenchmarkSample
 public typealias GenerationEvent = QwenVoiceCore.GenerationEvent
 public typealias GenerationRequest = QwenVoiceCore.GenerationRequest
 public typealias GenerationResult = QwenVoiceCore.GenerationResult

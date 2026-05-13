@@ -105,12 +105,3 @@ final class SavedVoicesViewModel: ObservableObject {
 @MainActor private enum SavedVoicesSessionCache {
     static var voices: [Voice] = []
 }
-
-#if QW_TEST_SUPPORT
-@MainActor
-extension SavedVoicesViewModel {
-    static func resetSessionCacheForTesting() {
-        SavedVoicesSessionCache.voices = []
-    }
-}
-#endif

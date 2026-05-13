@@ -138,9 +138,8 @@ Useful checks:
 
 ```sh
 ./scripts/check_project_inputs.sh
-./scripts/qa.sh validate
-./scripts/qa.sh test --layer contract
-./scripts/qa.sh test --layer swift
+./scripts/build_foundation_targets.sh macos
+./scripts/build_foundation_targets.sh ios
 ```
 
 More technical details live in the maintained docs:

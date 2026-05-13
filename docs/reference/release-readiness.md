@@ -48,9 +48,9 @@ Public messaging rules:
 
 Two-track macOS hardware proof:
 
-- `Mac mini M2, 8 GB RAM` is the active development and bench-capture host. Wall-clock perf baselines (`scripts/perf-baseline-manifest.json`, `scripts/perf-baseline-manifest-quality.json`) are captured on this hardware and regression tracking is **local-only** via `./scripts/qa.sh test --layer perf` + `./scripts/compare_perf_manifest.sh`. There is no CI mirror for the perf lane.
-- `Mac mini M1, 8 GB RAM` remains the documented official minimum, but engine-level findings captured on M1 have not been re-verified on M2. The M1-saturation conclusion in `docs/reference/instruments-profiling.md` (Step Eval Flush ≈62 % of generation, irreducible without quantization or hardware change) was reached on M1; M2's wider memory bandwidth and more capable GPU cores mean the saturation profile may differ. Re-verify via Instruments on M2 before citing the finding as M2-bound.
-- Do not claim the M1 floor is fully verified as of the dual-variant catalog (`d5b3c61`, 2026-05-05); the current bench evidence reflects M2 8 GB. See [`CLAUDE.md`'s Performance Findings section](../../CLAUDE.md#performance-findings) for the agent-discoverable form.
+- `Mac mini M2, 8 GB RAM` is the active development and bench-capture host. Perf is verified manually after material engine changes; the automated baselines + comparator were retired with the rest of the test/bench surface in May 2026.
+- `Mac mini M1, 8 GB RAM` remains the documented official minimum, but engine-level findings captured on M1 have not been re-verified on M2. The M1-saturation conclusion (Step Eval Flush ≈62 % of generation, irreducible without quantization or hardware change) was reached on M1; M2's wider memory bandwidth and more capable GPU cores mean the saturation profile may differ. Re-verify via manual Instruments capture on M2 before citing the finding as M2-bound.
+- Do not claim the M1 floor is fully verified as of the dual-variant catalog (`d5b3c61`, 2026-05-05). Re-verify the floor-device finding before citing it for current M2 behavior.
 
 ### iPhone
 
@@ -91,10 +91,12 @@ Release-facing metadata and docs should record:
 
 ## Current Signoff Tiers
 
-The current `macOS-first release track` uses three proof tiers. **All three are local-only** since the CI surface was retired in May 2026.
+The current `macOS-first release track` uses three proof tiers. **All three are local-only** since the CI surface and the test/bench harness were retired in May 2026.
 
 1. Build and validation proof
-   - local `check_project_inputs`, `qa.sh validate`, `contract`, `swift`, `native`, `build_foundation_targets.sh macos`, and `build_foundation_targets.sh ios`
+   - `scripts/check_project_inputs.sh` (static validation)
+   - `scripts/build_foundation_targets.sh macos` + `scripts/build_foundation_targets.sh ios` (compile proof)
+   - manual smoke of `build/Vocello.app` on the affected paths
 2. macOS ship gate
    - local unsigned macOS packaging and verification via `scripts/release.sh` + `scripts/verify_release_bundle.sh` + `scripts/verify_packaged_dmg.sh`
    - signed/notarized DMG produced by `scripts/release.sh --preflight full` against the project owner's Apple developer credentials (local Keychain)
@@ -108,11 +110,11 @@ Only tiers 1 and 2 block the current public release milestone.
 
 | Tier | Primary local commands |
 |---|---|
-| 1. Build and validation proof | `./scripts/check_project_inputs.sh` + `./scripts/qa.sh validate` + `./scripts/qa.sh test --layer contract\|swift\|native` + `./scripts/build_foundation_targets.sh macos\|ios` |
+| 1. Build and validation proof | `./scripts/check_project_inputs.sh` + `./scripts/build_foundation_targets.sh macos\|ios` + manual app smoke |
 | 2. macOS ship gate | `./scripts/release.sh` + `./scripts/verify_release_bundle.sh` + `./scripts/verify_packaged_dmg.sh` |
 | 3. Deferred iPhone release | `./scripts/check_ios_catalog.sh` + `./scripts/release_ios_testflight.sh` + `./scripts/verify_ios_release_archive.sh` |
 
-Only tiers 1 and 2 block the current public release milestone. Tier 3 is maintained but deferred from public signoff until the iPhone re-entry conditions below are met. Behavioral test layers (`contract`, `swift`, `native`, `e2e`, `perf-static`, `perf`) and UI benches (`bench_ui_generation.sh`) all run on Mac mini M2 — see the "Default Local macOS Signoff Loop" section below.
+Only tiers 1 and 2 block the current public release milestone. Tier 3 is maintained but deferred from public signoff until the iPhone re-entry conditions below are met. There are no automated test layers; manual smoke is the regression check.
 
 ## Program Priorities
 
@@ -130,10 +132,6 @@ The default local release-readiness loop for the current milestone is:
 
 ```sh
 ./scripts/check_project_inputs.sh
-./scripts/qa.sh validate
-./scripts/qa.sh test --layer contract
-./scripts/qa.sh test --layer swift
-./scripts/qa.sh test --layer native
 ./scripts/build_foundation_targets.sh macos
 ./scripts/build_foundation_targets.sh ios
 ./scripts/release.sh
@@ -141,11 +139,7 @@ The default local release-readiness loop for the current milestone is:
 ./scripts/verify_packaged_dmg.sh build/Vocello-macos26.dmg build/release-metadata.txt
 ```
 
-Controlled-machine UI signoff:
-
-```sh
-QWENVOICE_E2E_STRICT=1 ./scripts/qa.sh test --layer e2e
-```
+Then launch `build/Vocello.app` and exercise the affected user-facing paths by hand. There is no automated UI smoke or e2e harness; manual verification is the regression check.
 
 ## CI Proof Surface
 

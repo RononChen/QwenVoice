@@ -42,6 +42,3 @@ build_log*.txt
 
 # Code coverage artifacts
 *.profraw
-
-# Agent session-local scratch
-.claude/scheduled_tasks.lock

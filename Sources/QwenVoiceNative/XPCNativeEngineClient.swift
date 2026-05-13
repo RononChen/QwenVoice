@@ -282,7 +282,6 @@ actor XPCNativeEngineCoordinator {
             case .snapshot(let snapshot):
                 onSnapshot(snapshot)
             case .generationChunk(let generationEvent):
-                emitChunkProbeEvents(for: generationEvent)
                 onChunk(generationEvent)
             case .batchProgress(let update):
                 guard let handler = batchProgressHandlers[update.commandID] else { return }
@@ -298,52 +297,6 @@ actor XPCNativeEngineCoordinator {
                 message: "The engine service sent an unreadable event: \(error.localizedDescription)"
             )
         }
-    }
-
-    /// Cross-layer chunk probes: emit `[Probe.Engine] event=chunk_emitted`
-    /// using the embedded engine timestamp + `[Probe.Transport] event=chunk_delivered`
-    /// using the wall-clock at receive time. The bench helper joins these
-    /// with `[Probe.UI] event=chunk_consumed` (emitted by AudioPlayerViewModel)
-    /// on `seq` to produce per-chunk cross-layer latency aggregates.
-    private func emitChunkProbeEvents(for generationEvent: GenerationEvent) {
-        guard let probe = generationEvent.probeMetadata else { return }
-        let transportAtMS = Date().timeIntervalSince1970 * 1000.0
-        let audioSeconds = generationEvent.chunkDurationSeconds ?? 0
-        var engineDetails: [(String, String)] = [
-            ("seq", "\(probe.seq)"),
-            ("audio_s", String(format: "%.3f", audioSeconds)),
-            ("infer_ms", String(format: "%.3f", probe.inferMS)),
-            ("engine_at_ms", String(format: "%.3f", probe.engineEmittedAtMS)),
-        ]
-        // Engine probe Phase 1: per-chunk sub-stage breakdown when
-        // available. Fields elide cleanly for legacy chunks / non-Qwen3
-        // backends (probe metadata exists but sub-stages are nil).
-        if let talker = probe.talkerForwardMS {
-            engineDetails.append(("talker_forward_ms", String(format: "%.3f", talker)))
-        }
-        if let codePredictor = probe.codePredictorMS {
-            engineDetails.append(("code_predictor_ms", String(format: "%.3f", codePredictor)))
-        }
-        if let audioDecoder = probe.audioDecoderMS {
-            engineDetails.append(("audio_decoder_ms", String(format: "%.3f", audioDecoder)))
-        }
-        // Engine probe Phase 2a: eval cadence + EOS read + audio
-        // chunk eval — the work between the Phase 1 stages.
-        if let streamStepEval = probe.streamStepEvalMS {
-            engineDetails.append(("stream_step_eval_ms", String(format: "%.3f", streamStepEval)))
-        }
-        if let streamStepEOSRead = probe.streamStepEOSReadMS {
-            engineDetails.append(("stream_step_eos_read_ms", String(format: "%.3f", streamStepEOSRead)))
-        }
-        if let audioChunkEval = probe.audioChunkEvalMS {
-            engineDetails.append(("audio_chunk_eval_ms", String(format: "%.3f", audioChunkEval)))
-        }
-        logProbeEvent("Engine", event: "chunk_emitted", orderedDetails: engineDetails)
-        logProbeEvent("Transport", event: "chunk_delivered", details: [
-            "seq": "\(probe.seq)",
-            "transport_at_ms": String(format: "%.3f", transportAtMS),
-            "xpc_latency_ms": String(format: "%.3f", transportAtMS - probe.engineEmittedAtMS),
-        ])
     }
 
     func handleRemoteError(_ error: Error, from connectionID: UUID) {
@@ -369,18 +322,6 @@ actor XPCNativeEngineCoordinator {
             message: EngineTransportError.invalidated.localizedDescription
         )
     }
-
-#if QW_TEST_SUPPORT
-    func invalidateForTesting(shouldReconnect: Bool = false) {
-        guard let connectionID = activeConnection?.id else { return }
-        handleDisconnect(
-            connectionID: connectionID,
-            transportError: .invalidated,
-            message: EngineTransportError.invalidated.localizedDescription,
-            allowsRecovery: shouldReconnect
-        )
-    }
-#endif
 
     private func ensureConnection() -> ActiveConnection {
         if let activeConnection {
@@ -877,12 +818,6 @@ public final class XPCNativeEngineClient: MacTTSEngine, @unchecked Sendable {
         }
     }
 
-#if QW_TEST_SUPPORT
-    func debugInvalidateConnectionForTesting(shouldReconnect: Bool = false) async {
-        await coordinator.invalidateForTesting(shouldReconnect: shouldReconnect)
-    }
-#endif
-
     private static func remappedTransportError(_ error: Error) -> Error {
         guard let remoteError = error as? RemoteErrorPayload,
               remoteError.code == .cancelled else {
@@ -946,57 +881,3 @@ private extension EngineCommand {
         }
     }
 }
-
-#if DEBUG
-/// Mirror of `AudioPlayerViewModel.logLivePreviewEvent`. Writes a
-/// `[Probe.<layer>] event=<name> key=value ...` line to stderr
-/// (line-buffered) so the desktop-UI bench helper picks up cross-layer
-/// chunk timings in the same `nohup Vocello > /tmp/vocello-bench.log`
-/// stream that already captures the `[LivePreview]` trace. DEBUG-only
-/// — release builds compile to a no-op.
-fileprivate func logProbeEvent(
-    _ layer: String,
-    event: String,
-    details: KeyValuePairs<String, String> = [:]
-) {
-    var line = "[Probe.\(layer)] event=\(event)"
-    for (key, value) in details {
-        line += " \(key)=\(value)"
-    }
-    line += "\n"
-    if let data = line.data(using: .utf8) {
-        FileHandle.standardError.write(data)
-    }
-}
-
-/// Variant for callers that need to assemble the field set dynamically
-/// (e.g. Engine probe Phase 1 — sub-stage timings only included when
-/// the chunk metadata carries them). Uses `[(String, String)]` because
-/// `KeyValuePairs` is literal-only.
-fileprivate func logProbeEvent(
-    _ layer: String,
-    event: String,
-    orderedDetails: [(String, String)]
-) {
-    var line = "[Probe.\(layer)] event=\(event)"
-    for (key, value) in orderedDetails {
-        line += " \(key)=\(value)"
-    }
-    line += "\n"
-    if let data = line.data(using: .utf8) {
-        FileHandle.standardError.write(data)
-    }
-}
-#else
-fileprivate func logProbeEvent(
-    _ layer: String,
-    event: String,
-    details: KeyValuePairs<String, String> = [:]
-) {}
-
-fileprivate func logProbeEvent(
-    _ layer: String,
-    event: String,
-    orderedDetails: [(String, String)]
-) {}
-#endif

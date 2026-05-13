@@ -157,10 +157,6 @@ Frontend work should treat the backend as frozen only when these maintained proo
 
 ```sh
 ./scripts/check_project_inputs.sh
-./scripts/qa.sh validate
-./scripts/qa.sh test --layer contract
-./scripts/qa.sh test --layer swift
-./scripts/qa.sh test --layer native
 ./scripts/build_foundation_targets.sh macos
 ./scripts/build_foundation_targets.sh ios
 ./scripts/release.sh
@@ -168,7 +164,7 @@ Frontend work should treat the backend as frozen only when these maintained proo
 ./scripts/verify_packaged_dmg.sh build/Vocello-macos26.dmg build/release-metadata.txt
 ```
 
-There is no CI proof. All build, packaging, signing, notarization, and TestFlight-prep work runs locally on Mac mini M2 via the `scripts/` tooling; the prior CI surface was retired in May 2026.
+Then exercise the affected user-facing paths in `build/Vocello.app` by hand. There is no automated test layer and no CI proof as of May 2026; manual smoke is the regression check.
 
 The explicit build-gate acceptance checklist lives in:
 
@@ -180,7 +176,6 @@ Any backend change that alters one of the stable state surfaces above is a contr
 
 When that happens, update:
 
-- `CLAUDE.md`
 - `docs/README.md`
 - `docs/reference/current-state.md`
 - `docs/reference/engineering-status.md`

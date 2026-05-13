@@ -2,16 +2,16 @@
 
 This document defines the source, integration, build, and unsigned-release gate that must stay green before release-hardening work is treated as reviewable.
 
-The "gate" is **entirely local** as of May 2026: `qa.sh validate`, contract/swift/native/e2e/perf-static test layers, foundation builds, unsigned + signed/notarized release packaging, and iPhone archive/export all run on Mac mini M2 via the `scripts/` tooling. There is no CI counterpart; the prior GitHub workflows were retired in a deliberate reset.
+The "gate" is **entirely local** as of May 2026: project-input validation, foundation builds, unsigned + signed/notarized release packaging, and iPhone archive/export all run on Mac mini M2 via the `scripts/` tooling. There is no CI counterpart; the prior GitHub workflows were retired in a deliberate reset.
 
 ## Purpose
 
-The gate keeps the native Apple-platform codebase aligned with the current `macOS-first release track` using project-input validation, repo-owned QA layers, deterministic builds, and release-verification checks.
+The gate keeps the native Apple-platform codebase aligned with the current `macOS-first release track` using project-input validation, deterministic builds, and release-verification checks.
 
 It protects against:
 
 - stale project generation
-- accidental reintroduction of removed Python, CLI, vendored-test, screenshot, or benchmark-UI surfaces
+- accidental reintroduction of removed Python, CLI, vendored-test, screenshot, or automation surfaces
 - source/runtime regression drift that should be caught before packaging
 - macOS or iPhone compile drift
 - release artifact drift around `Vocello.app` and `Vocello-macos26.dmg`
@@ -57,25 +57,15 @@ See:
 
 The gate is green only when the maintained checks below are green for the current change.
 
-### Local Harness And Build Proof
+### Local Build Proof
 
 ```sh
 ./scripts/check_project_inputs.sh
-./scripts/qa.sh validate
-./scripts/qa.sh test --layer contract
-./scripts/qa.sh test --layer swift
-./scripts/qa.sh test --layer native
 ./scripts/build_foundation_targets.sh macos
 ./scripts/build_foundation_targets.sh ios
 ```
 
-The `ios` QA layer remains available but requires an installed iPhone simulator. A structured simulator-missing skip does not replace the generic iPhone compile proof from `build_foundation_targets.sh ios`.
-
-Strict release-machine UI proof:
-
-```sh
-QWENVOICE_E2E_STRICT=1 ./scripts/qa.sh test --layer e2e
-```
+After a clean foundation build, exercise the affected paths in `build/Vocello.app` by hand. There is no automated XCTest harness as of May 2026; manual smoke is the regression check.
 
 ### Local Unsigned Release Proof
 
@@ -109,19 +99,18 @@ Treat frontend work as unblocked only when these statements are true:
 - app-facing engine state is consumed through `TTSEngineFrontendState`, not transport-specific state.
 - app-facing delivery state is consumed through `IOSModelDeliverySnapshot`, not URLSession or staging internals.
 - macOS model catalog exposes variant-specific Speed and Quality rows with hardware-based Recommended defaults and per-mode Active selection; iPhone model catalog remains Speed-only.
-- capability, bundle identity, entitlement, and packaged-resource drift are caught by `scripts/check_project_inputs.sh` and `./scripts/qa.sh validate`.
-- contract, macOS source, and native-runtime QA layers pass.
+- capability, bundle identity, entitlement, and packaged-resource drift are caught by `scripts/check_project_inputs.sh`.
 - macOS and iPhone compile through the maintained foundation build script.
-- the maintained local and CI proof lanes above are green for the current change.
+- the maintained local proof lanes above are green for the current change.
 
 ## Current Explicit Non-Blockers
 
-These items remain important, but they do not block the current macOS-first QA gate by themselves:
+These items remain important, but they do not block the current macOS-first release gate by themselves:
 
 - official `iPhone 15 Pro` minimum-device evidence is still pending while owned-device proof continues on newer local hardware
 - iPhone release/TestFlight proof is deferred from the current macOS-first public release milestone
 - upstream MLX and package warning noise may still appear in `.xcresult` bundles as long as repo-owned targets compile
-- hosted CI e2e can soft-skip first-time TCC/window activation failures; controlled-machine strict e2e remains required for release signoff
+- controlled-machine manual acceptance remains required for release signoff
 
 ## Current Explicit Follow-Ons
 
@@ -137,7 +126,6 @@ When one of these changes, treat it as a backend contract review:
 
 Update these docs together when the gate changes:
 
-- `CLAUDE.md`
 - `docs/README.md`
 - `docs/reference/current-state.md`
 - `docs/reference/engineering-status.md`

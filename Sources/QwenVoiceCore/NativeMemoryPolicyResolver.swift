@@ -99,9 +99,6 @@ public enum NativeMemoryPolicyResolver {
         guard let requested else {
             return adaptiveInterval
         }
-        guard request.benchmarkOptions == nil else {
-            return requested
-        }
         guard policy.deviceClass == .floor8GBMac || policy.deviceClass == .iPhonePro || request.batchTotal != nil else {
             return requested
         }

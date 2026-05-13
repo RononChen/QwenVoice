@@ -44,16 +44,6 @@ enum GenerationPersistence {
         caller: String
     ) {
         AppPerformanceSignposts.emit("Final File Ready")
-        CustomVoiceUIPerformanceTrace.mark(
-            .finalFileReady,
-            metadata: [
-                "caller": caller,
-                "used_streaming": result.usedStreaming ? "true" : "false",
-            ],
-            metrics: [
-                "duration_ms": Int(result.durationSeconds * 1_000),
-            ]
-        )
 
         if result.usedStreaming {
             audioPlayer.completeStreamingPreview(
@@ -93,11 +83,6 @@ enum GenerationPersistence {
             print("[Performance][\(caller)] db_save_wall_ms=\(saveMS) (off-main)")
             #endif
             await MainActor.run {
-                CustomVoiceUIPerformanceTrace.mark(
-                    .databaseSaveFinished,
-                    metrics: ["wall_ms": saveMS]
-                )
-
                 let notificationStart = DispatchTime.now().uptimeNanoseconds
                 #if canImport(QwenVoiceNative)
                 GenerationLibraryEvents.shared.announceGenerationAppended(savedGeneration)
@@ -107,11 +92,6 @@ enum GenerationPersistence {
                 #if DEBUG
                 print("[Performance][\(caller)] history_notification_wall_ms=\(elapsedMs(since: notificationStart))")
                 #endif
-                CustomVoiceUIPerformanceTrace.mark(
-                    .historyNotificationFinished,
-                    metrics: ["wall_ms": elapsedMs(since: notificationStart)]
-                )
-                CustomVoiceUIPerformanceTrace.mark(.persistenceFinished)
             }
         }
     }
