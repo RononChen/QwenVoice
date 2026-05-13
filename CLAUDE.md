@@ -215,6 +215,8 @@ Disk cleanup:
 ./scripts/clean_build_caches.sh --dry-run
 ```
 
+Shell pipeline exit codes: when piping `qa.sh`, `bench_ui_generation.sh`, or `compare_perf_manifest.sh` output through `tee`, `head`, `grep`, etc., bash's default pipeline exit is the **last** command's status (usually 0), so an upstream non-zero exit becomes invisible. When exit code matters, use `set -o pipefail`, read `${PIPESTATUS[0]}` instead of `$?`, capture to a tempfile (`cmd > /tmp/out.log 2>&1`), or drop the pipe entirely.
+
 ## CI Workflows
 
 - `.github/workflows/project-inputs.yml` → `Project Inputs`
