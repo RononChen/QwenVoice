@@ -483,6 +483,15 @@ public struct NativeAudioPreparationService: AudioPreparationService, Hashable, 
         } catch let error as AudioPreparationError {
             throw error
         } catch {
+            // The AVAudioFile initializer can block long enough for the
+            // normalization deadline to expire mid-call. When that
+            // happens the AVFoundation-level failure is the symptom, not
+            // the cause; re-check the deadline so the timeout surfaces
+            // as `.decodeTimedOut` instead of being remapped to
+            // `.failedToCreateOutput`. The parallel `AVAssetReader`
+            // catch above has the same structural risk; apply the same
+            // idiom there if a flake surfaces.
+            try deadline.check()
             throw AudioPreparationError.failedToCreateOutput(outputURL.path)
         }
 
