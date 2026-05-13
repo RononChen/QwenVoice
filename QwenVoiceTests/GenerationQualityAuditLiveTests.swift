@@ -269,6 +269,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         let cloneTranscript: String?
         let repeatCount: Int?
         let benchmarkProfile: String?
+        let repeatVariant: String?
         let coldRuns: Int?
         let warmRuns: Int?
         let streamingIntervalOverride: Double?
@@ -298,6 +299,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         let cloneTranscript: String?
         let repeatCount: Int
         let benchmarkProfile: BenchmarkProfile
+        let repeatVariant: AuditVariant?
         let coldRuns: Int
         let warmRuns: Int
         let streamingIntervalOverride: Double?
@@ -328,6 +330,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             cloneTranscript: nil,
             repeatCount: 1,
             benchmarkProfile: .warmFocus,
+            repeatVariant: nil,
             coldRuns: 2,
             warmRuns: 10,
             streamingIntervalOverride: nil,
@@ -373,6 +376,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             cloneTranscript: "Reference speech",
             repeatCount: 1,
             benchmarkProfile: .exhaustive,
+            repeatVariant: nil,
             coldRuns: 3,
             warmRuns: 5,
             streamingIntervalOverride: nil,
@@ -420,6 +424,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             cloneTranscript: nil,
             repeatCount: 1,
             benchmarkProfile: .customUICold,
+            repeatVariant: nil,
             coldRuns: 5,
             warmRuns: 5,
             streamingIntervalOverride: 0.4,
@@ -532,6 +537,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             cloneTranscript: "Reference speech",
             repeatCount: 1,
             benchmarkProfile: .deliveryMatrix,
+            repeatVariant: nil,
             coldRuns: 2,
             warmRuns: 3,
             streamingIntervalOverride: nil,
@@ -577,6 +583,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             cloneTranscript: nil,
             repeatCount: 1,
             benchmarkProfile: .deliveryMatrix,
+            repeatVariant: nil,
             coldRuns: 2,
             warmRuns: 3,
             streamingIntervalOverride: nil,
@@ -628,6 +635,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             cloneTranscript: nil,
             repeatCount: 1,
             benchmarkProfile: .deliveryMatrix,
+            repeatVariant: nil,
             coldRuns: 2,
             warmRuns: 3,
             streamingIntervalOverride: nil,
@@ -861,11 +869,27 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         appSupportRoot: URL,
         generatedRoot: URL
     ) async throws -> [AuditArtifact] {
-        let initialized = try await makeInitializedClient(
-            modes: modes,
-            modelsRoot: modelsRoot,
-            appSupportRoot: appSupportRoot
-        )
+        // When `configuration.repeatVariant` is set (via
+        // QWENVOICE_AUDIO_QC_REPEAT_VARIANT), mirror only the
+        // variant-specific model folders (e.g. pro_custom_quality) so
+        // the engine receives the requested variant. Otherwise fall
+        // through to the variant-less mirror and let the engine apply
+        // its hardware-recommendation policy (Speed on 8 GB hardware).
+        let initialized: InitializedAuditClient
+        if let variant = configuration.repeatVariant {
+            let modelIDs = modes.compactMap { auditModel(mode: $0, variant: variant)?.id }
+            initialized = try await makeInitializedClient(
+                modelIDs: modelIDs,
+                modelsRoot: modelsRoot,
+                appSupportRoot: appSupportRoot
+            )
+        } else {
+            initialized = try await makeInitializedClient(
+                modes: modes,
+                modelsRoot: modelsRoot,
+                appSupportRoot: appSupportRoot
+            )
+        }
         let client = initialized.client
         defer {
             Task {
@@ -877,6 +901,9 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         var pendingInitializationTimings = initialized.timingsMS
         for iteration in 1...configuration.repeatCount {
             for mode in modes {
+                let modelIDOverride = configuration.repeatVariant.flatMap {
+                    auditModel(mode: mode, variant: $0)?.id
+                }
                 artifacts.append(
                     try await generateArtifact(
                         client: client,
@@ -889,7 +916,8 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
                         appSupportRoot: appSupportRoot,
                         generatedRoot: generatedRoot,
                         configuration: configuration,
-                        extraTimingsMS: pendingInitializationTimings
+                        extraTimingsMS: pendingInitializationTimings,
+                        modelIDOverride: modelIDOverride
                     )
                 )
                 pendingInitializationTimings = [:]
@@ -1802,7 +1830,8 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         configuration: LiveAuditConfiguration,
         extraTimingsMS: [String: Int] = [:],
         extraBooleanFlags: [String: Bool] = [:],
-        textOverride: String? = nil
+        textOverride: String? = nil,
+        modelIDOverride: String? = nil
     ) async throws -> AuditArtifact {
         let request = try makeRequest(
             mode: mode,
@@ -1811,7 +1840,8 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             runIndex: runIndex,
             outputRoot: generatedRoot,
             configuration: configuration,
-            textOverride: textOverride
+            textOverride: textOverride,
+            modelIDOverride: modelIDOverride
         )
         let started = DispatchTime.now().uptimeNanoseconds
         let result = try await client.generate(request)
@@ -2055,6 +2085,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
                 cloneTranscript: environment["QWENVOICE_AUDIO_QC_CLONE_TRANSCRIPT"]?.nonEmpty,
                 repeatCount: try parseRepeatCount(environment["QWENVOICE_AUDIO_QC_REPEAT_COUNT"]),
                 benchmarkProfile: benchmarkProfile,
+                repeatVariant: environment["QWENVOICE_AUDIO_QC_REPEAT_VARIANT"]?.nonEmpty.flatMap(AuditVariant.init(rawValue:)),
                 coldRuns: try parseBenchmarkRunCount(
                     environment["QWENVOICE_AUDIO_QC_COLD_RUNS"],
                     name: "cold"
@@ -2121,6 +2152,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             cloneTranscript: request.cloneTranscript?.nonEmpty,
             repeatCount: try parseRepeatCount(request.repeatCount.map { String($0) }),
             benchmarkProfile: benchmarkProfile,
+            repeatVariant: request.repeatVariant?.nonEmpty.flatMap(AuditVariant.init(rawValue:)),
             coldRuns: try parseBenchmarkRunCount(request.coldRuns.map { String($0) }, name: "cold"),
             warmRuns: try parseBenchmarkRunCount(request.warmRuns.map { String($0) }, name: "warm"),
             streamingIntervalOverride: try parseStreamingIntervalOverride(
@@ -2933,7 +2965,8 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
         textOverride: String? = nil,
         outputURLOverride: URL? = nil,
         batchIndex: Int? = nil,
-        batchTotal: Int? = nil
+        batchTotal: Int? = nil,
+        modelIDOverride: String? = nil
     ) throws -> GenerationRequest {
         let runRoot = outputRootForRun(
             mode: mode,
@@ -2956,7 +2989,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             let streamingInterval = configuration.streamingIntervalOverride
                 ?? GenerationSemantics.appStreamingInterval
             return GenerationRequest(
-                modelID: mode.modelID,
+                modelID: modelIDOverride ?? mode.modelID,
                 text: text,
                 outputPath: outputURL.path,
                 shouldStream: false,
@@ -2975,7 +3008,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             let streamingInterval = configuration.streamingIntervalOverride
                 ?? GenerationSemantics.appStreamingInterval
             return GenerationRequest(
-                modelID: mode.modelID,
+                modelID: modelIDOverride ?? mode.modelID,
                 text: text,
                 outputPath: outputURL.path,
                 shouldStream: false,
@@ -2995,7 +3028,7 @@ final class GenerationQualityAuditLiveTests: XCTestCase {
             let streamingInterval = configuration.streamingIntervalOverride
                 ?? GenerationSemantics.appStreamingInterval
             return GenerationRequest(
-                modelID: mode.modelID,
+                modelID: modelIDOverride ?? mode.modelID,
                 text: text,
                 outputPath: outputURL.path,
                 shouldStream: false,

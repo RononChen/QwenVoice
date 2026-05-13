@@ -39,6 +39,7 @@ Environment:
   QWENVOICE_AUDIO_QC_MODELS_ROOT        perf-lane models root (default ~/Library/Application Support/QwenVoice/models)
   QWENVOICE_AUDIO_QC_MODES              perf-lane modes (default CustomVoice,VoiceDesign; VoiceCloning supported)
   QWENVOICE_AUDIO_QC_BENCHMARK_PROFILE  perf-lane profile (repeat|cold-warm|warm-focus|custom-ui-cold|exhaustive|delivery-matrix; default repeat)
+  QWENVOICE_AUDIO_QC_REPEAT_VARIANT     pin the variant used by the `repeat` profile (speed|quality; default empty = hardware-recommended)
   QWENVOICE_AUDIO_QC_VARIANTS           delivery-matrix variants (speed,quality; default both)
   QWENVOICE_AUDIO_QC_DELIVERY_SCOPE     delivery matrix scope (standard|full|known-risk|whisper-risk; default standard)
   QWENVOICE_AUDIO_QC_CLONE_REFERENCES   optional pipe-separated clone reference WAVs for delivery-matrix full scope
@@ -442,6 +443,7 @@ write_live_audit_request() {
     --arg output "$QWENVOICE_AUDIO_QC_OUTPUT_DIR" \
     --arg models "$QWENVOICE_AUDIO_QC_MODELS_ROOT" \
     --arg profile "$QWENVOICE_AUDIO_QC_BENCHMARK_PROFILE" \
+    --arg repeatVariant "${QWENVOICE_AUDIO_QC_REPEAT_VARIANT:-}" \
     --arg expiresAt "$expires_at" \
     --argjson repeatCount "$QWENVOICE_AUDIO_QC_REPEAT_COUNT" \
     --argjson coldRuns "$QWENVOICE_AUDIO_QC_COLD_RUNS" \
@@ -472,6 +474,7 @@ write_live_audit_request() {
       cloneTranscript: (if $cloneTrans == "" then null else $cloneTrans end),
       repeatCount: $repeatCount,
       benchmarkProfile: $profile,
+      repeatVariant: (if $repeatVariant == "" then null else $repeatVariant end),
       coldRuns: $coldRuns,
       warmRuns: $warmRuns,
       streamingIntervalOverride: (if $streamingInterval == "" then null else ($streamingInterval | tonumber) end),
