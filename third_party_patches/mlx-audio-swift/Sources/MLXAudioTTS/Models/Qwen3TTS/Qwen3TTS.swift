@@ -2156,8 +2156,13 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         if isStreaming {
             pendingStreamCodes.reserveCapacity(max(streamingChunkSize, postFirstStreamingChunkSize))
         }
+        var tokenLoopTotalMS = 0
         var talkerForwardTotalMS = 0
+        var sampleFirstCodebookTotalMS = 0
         var codePredictorTotalMS = 0
+        var codePredictorStepTotalMS = 0
+        var samplePredictedCodebookTotalMS = 0
+        var codecEmbeddingAssemblyTotalMS = 0
         var streamingDecoderTotalMS = 0
         var streamingDecoderCallCount = 0
         // Snapshot of the cumulative `*TotalMS` accumulators at the
@@ -2201,6 +2206,38 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         var generationEndReason = "token_cap"
         var emittedStreamChunk = false
         var cacheClearCount = 0
+        func qwenTokenLoopUnattributedMS() -> Int {
+            let attributedMS = talkerForwardTotalMS
+                + sampleFirstCodebookTotalMS
+                + codePredictorTotalMS
+                + codecEmbeddingAssemblyTotalMS
+                + streamStepEvalTotalMS
+                + streamStepEOSReadTotalMS
+                + streamingDecoderTotalMS
+                + audioChunkEvalTotalMS
+            return max(0, tokenLoopTotalMS - attributedMS)
+        }
+
+        func qwenHotLoopTimingsMS() -> [String: Int] {
+            [
+                "qwen_token_loop_total": tokenLoopTotalMS,
+                "qwen_talker_forward_total": talkerForwardTotalMS,
+                "qwen_sample_first_codebook_total": sampleFirstCodebookTotalMS,
+                "qwen_code_predictor_total": codePredictorTotalMS,
+                "qwen_code_predictor_step_total": codePredictorStepTotalMS,
+                "qwen_sample_predicted_codebook_total": samplePredictedCodebookTotalMS,
+                "qwen_codec_embedding_assembly_total": codecEmbeddingAssemblyTotalMS,
+                "qwen_stream_step_eval_total": streamStepEvalTotalMS,
+                "qwen_stream_step_eos_read_total": streamStepEOSReadTotalMS,
+                "qwen_token_loop_unattributed": qwenTokenLoopUnattributedMS(),
+                "qwen_stream_decoder_total": streamingDecoderTotalMS,
+                "qwen_stream_decoder_calls": streamingDecoderCallCount,
+                "qwen_generated_code_count": generatedCodeCount,
+                "cache_clear_count": cacheClearCount,
+                "memory_clear_cadence": memoryClearCadence,
+            ]
+        }
+
         func clearGenerationCache() {
             Memory.clearCache()
             cacheClearCount += 1
@@ -2234,6 +2271,11 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         }
 
         for _ in 0 ..< effectiveMaxTokens {
+            let tokenLoopStartedAt = ContinuousClock.now
+            defer {
+                tokenLoopTotalMS += tokenLoopStartedAt.elapsedMilliseconds
+            }
+
             // Forward pass through talker
             let talkerForwardStartedAt = ContinuousClock.now
             let talkerSignpost = Qwen3Signposts.signposter.beginInterval("Talker Forward")
@@ -2245,6 +2287,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             let activeSuppressTokens = allowsEOS ? suppressTokens : suppressTokens + [eosTokenId]
 
             // Sample first codebook token
+            let sampleFirstCodebookStartedAt = ContinuousClock.now
             let sampleFirstCodebookSignpost =
                 Qwen3Signposts.signposter.beginInterval("Sample First Codebook")
             let nextToken = sampleToken(
@@ -2262,6 +2305,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 "Sample First Codebook",
                 sampleFirstCodebookSignpost
             )
+            sampleFirstCodebookTotalMS += sampleFirstCodebookStartedAt.elapsedMilliseconds
 
             // Defer sync to the eval boundary with inputEmbeds.
             let isEOS = nextToken .== eosTokenArray
@@ -2276,6 +2320,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             let codePredictorStartedAt = ContinuousClock.now
             let codePredictorSignpost = Qwen3Signposts.signposter.beginInterval("Code Predictor Loop")
             for codeIdx in 0 ..< talkerConfig.numCodeGroups - 1 {
+                let codePredictorStepStartedAt = ContinuousClock.now
                 let codePredictorStepSignpost =
                     Qwen3Signposts.signposter.beginInterval("Code Predictor Step")
                 let codeInput: MLXArray
@@ -2293,7 +2338,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     "Code Predictor Step",
                     codePredictorStepSignpost
                 )
+                codePredictorStepTotalMS += codePredictorStepStartedAt.elapsedMilliseconds
 
+                let samplePredictedCodebookStartedAt = ContinuousClock.now
                 let samplePredictedCodebookSignpost =
                     Qwen3Signposts.signposter.beginInterval("Sample Predicted Codebook")
                 let nextCode = sampleToken(
@@ -2307,6 +2354,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     "Sample Predicted Codebook",
                     samplePredictedCodebookSignpost
                 )
+                samplePredictedCodebookTotalMS += samplePredictedCodebookStartedAt.elapsedMilliseconds
                 codeTokens.append(nextCode)
             }
             Qwen3Signposts.signposter.endInterval("Code Predictor Loop", codePredictorSignpost)
@@ -2324,6 +2372,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             }
 
             // Sum all code embeddings for next step
+            let codecEmbeddingStartedAt = ContinuousClock.now
             let codecEmbeddingSignpost =
                 Qwen3Signposts.signposter.beginInterval("Codec Embedding Assembly")
             var codecEmbed = talker.getInputEmbeddings()(nextToken)
@@ -2336,6 +2385,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 "Codec Embedding Assembly",
                 codecEmbeddingSignpost
             )
+            codecEmbeddingAssemblyTotalMS += codecEmbeddingStartedAt.elapsedMilliseconds
             let streamStepEvalStartedAt = ContinuousClock.now
             let stepEvalSignpost = Qwen3Signposts.signposter.beginInterval("Step Eval Flush")
             switch streamStepEvalPolicy {
@@ -2598,15 +2648,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 emittedStreamChunk = true
                 clearGenerationCache()
             }
-            var mergedTimingsMS = [
-                "qwen_talker_forward_total": talkerForwardTotalMS,
-                "qwen_code_predictor_total": codePredictorTotalMS,
-                "qwen_stream_decoder_total": streamingDecoderTotalMS,
-                "qwen_stream_decoder_calls": streamingDecoderCallCount,
-                "qwen_generated_code_count": generatedCodeCount,
-                "cache_clear_count": cacheClearCount,
-                "memory_clear_cadence": memoryClearCadence,
-            ].merging(preparationTimingsMS) { _, rhs in rhs }
+            var mergedTimingsMS = qwenHotLoopTimingsMS()
+                .merging(preparationTimingsMS) { _, rhs in rhs }
             if isPureVoiceDesign {
                 mergedTimingsMS["design_stream_step_eval_total_ms"] = designStreamStepEvalTotalMS
                 mergedTimingsMS["design_stream_step_eos_read_total_ms"] = designStreamStepEOSReadTotalMS
@@ -2675,15 +2718,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         let finalDecodeEvalStartedAt = ContinuousClock.now
         eval(audio)
         clearGenerationCache()
-        var mergedTimingsMS = [
-            "qwen_talker_forward_total": talkerForwardTotalMS,
-            "qwen_code_predictor_total": codePredictorTotalMS,
-            "qwen_stream_decoder_total": streamingDecoderTotalMS,
-            "qwen_stream_decoder_calls": streamingDecoderCallCount,
-            "qwen_generated_code_count": generatedCodeCount,
-            "cache_clear_count": cacheClearCount,
-            "memory_clear_cadence": memoryClearCadence,
-        ].merging(preparationTimingsMS) { _, rhs in rhs }
+        var mergedTimingsMS = qwenHotLoopTimingsMS()
+            .merging(preparationTimingsMS) { _, rhs in rhs }
         if isPureVoiceDesign {
             mergedTimingsMS["design_stream_step_eval_total_ms"] = designStreamStepEvalTotalMS
             mergedTimingsMS["design_stream_step_eos_read_total_ms"] = designStreamStepEOSReadTotalMS

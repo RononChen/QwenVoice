@@ -14,12 +14,34 @@ tool.
 | "Which cells got faster or slower, and did warmup/cache flags explain it?" | `scripts/compare_ui_bench_runs.sh <baseline-run> <candidate-run>` |
 | "How does that wall break down across engine / XPC / UI layers?" | `[Probe.Engine|Transport|UI]` lines in the bench log |
 | "How does per-chunk `infer_ms` break down across talker / code predictor / decoder / eval cadence?" | Phase 1 + Phase 2a fields in the same probe |
+| "Where did quality-first per-token loop time go on a storage-constrained Mac?" | UI audit timing keys from the generation trace JSON |
 | "Inside `talker_forward_ms`, which Metal kernels run, and is the GPU saturated or idle-waiting?" | **Instruments / `xctrace`** (this doc) |
 | "Where does CPU time actually go inside the per-token loop?" | Time Profiler, captured in the same trace |
 | "Is `eval(audioChunk)` waiting on a GPU command buffer, or is it actual compute?" | Metal System Trace, in the same trace |
 
 The probe stops at wall-clock attribution. Instruments crosses into
 GPU-kernel-level visibility.
+
+On the 8 GB development machine, the UI performance trace is the source
+of truth for per-generation hot-loop totals. `Time Profiler` signpost
+exports can collapse repeated per-token intervals into a partial sample,
+while the UI trace carries the engine's own accumulated counters for the
+completed request without keeping a large raw trace bundle.
+
+Current quality-first hot-loop timing keys include:
+
+| Timing key | Meaning |
+|---|---|
+| `qwen_token_loop_total` | full wall time spent inside the Qwen3 per-token loop |
+| `qwen_talker_forward_total` | total time in `talker(inputEmbeds, cache:)` |
+| `qwen_sample_first_codebook_total` | first-codebook sampling time after each talker pass |
+| `qwen_code_predictor_total` | total wall time for the full sequential code-predictor loop |
+| `qwen_code_predictor_step_total` | time inside individual code-predictor forward steps |
+| `qwen_sample_predicted_codebook_total` | sampling time for predicted codebook groups |
+| `qwen_codec_embedding_assembly_total` | codebook embedding lookup and sum for the next token step |
+| `qwen_stream_step_eval_total` | total synchronous eval-boundary time for token/eos materialization |
+| `qwen_stream_step_eos_read_total` | EOS readback time |
+| `qwen_token_loop_unattributed` | token-loop wall time not covered by the explicit stage counters |
 
 ## Signposts In Place
 
@@ -105,6 +127,10 @@ is captured alongside the Vocello main process.
 Use the heavier `System Trace` template only when you need Metal/GPU
 tracks and have enough free disk space. `Time Profiler` or `Logging`
 templates are safer for quick signpost smoke checks.
+
+On storage-constrained Macs, keep only the compact summary plus the UI
+audit JSON. Delete raw `.trace`, XML exports, and `/tmp/qwenvoice_xctrace_*`
+logs after each run, or pass `--cleanup-raw` to the helper.
 
 ## Reading The Trace
 
