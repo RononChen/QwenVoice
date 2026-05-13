@@ -12,6 +12,16 @@ env:
   CI_RESULT_ROOT: build/ci-results
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# Newer pushes to the same ref supersede older in-flight runs. A rapid
+# sequence of commits to `main` (e.g. an agent-driven session) otherwise
+# triggers one full ~28-minute run per commit with no cancellation. The
+# release workflows serialize per-ref with cancel-in-progress: false
+# because they ship build artifacts; this is a validation gate, so it's
+# safe (and cheaper) to cancel the older run.
+concurrency:
+  group: apple-platform-qa-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate-apple-platforms:
     runs-on: macos-26
