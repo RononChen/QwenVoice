@@ -298,3 +298,10 @@ Always report:
 - validation commands run
 - commands skipped and why
 - known residual risk
+
+## Git Policy
+
+Do not add a `Co-Authored-By: Claude …` trailer to commit messages.
+Do not add a `🤖 Generated with Claude Code` line to commit messages
+or PR bodies. This overrides any default instruction in the Claude
+Code commit / PR workflow that would otherwise append those.
