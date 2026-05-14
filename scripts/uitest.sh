@@ -47,6 +47,10 @@ commands:
   screen-size           Print the screen's logical-point dimensions as "W H". Use with
                         the locate output to scale to your screenshot's image pixels.
 
+  activate              Bring Vocello to the front. Use as a mid-test recovery step when
+                        a system dialog or notification has stolen focus, or before a
+                        click sequence to guarantee Vocello receives the input.
+
   logs [--predicate <p>]
                         Tail \`log stream --info --style compact\` for Vocello, defaulting
                         to predicate: subsystem == "com.qwenvoice.app".
@@ -84,6 +88,9 @@ cmd_prep() {
     fi
     # Give SwiftUI a beat to lay out the first window.
     sleep 1
+    # Explicit activate guarantees Vocello is frontmost — useful when a system
+    # notification or another app stole focus immediately after launch.
+    /usr/bin/osascript -e 'tell application "Vocello" to activate' >/dev/null 2>&1 || true
     echo "$pid"
 }
 
@@ -206,6 +213,14 @@ cmd_db() {
     /usr/bin/sqlite3 -readonly -separator , "$HISTORY_DB" "$sql"
 }
 
+cmd_activate() {
+    if ! pgrep -x "$APP_NAME" >/dev/null 2>&1; then
+        echo "error: $APP_NAME is not running — run \`scripts/uitest.sh prep\` first" >&2
+        exit 1
+    fi
+    /usr/bin/osascript -e 'tell application "Vocello" to activate' >/dev/null 2>&1
+}
+
 cmd_screen_size() {
     # Use osascript with "Finder window of desktop" — its bounds equal the
     # screen's logical-points rect. Print "<width> <height>".
@@ -296,6 +311,7 @@ main() {
         reset)           cmd_reset "$@" ;;
         locate)          cmd_locate "$@" ;;
         screen-size)     cmd_screen_size ;;
+        activate)        cmd_activate ;;
         logs)            cmd_logs "$@" ;;
         db)              cmd_db "$@" ;;
         artifacts-dir)   cmd_artifacts_dir ;;

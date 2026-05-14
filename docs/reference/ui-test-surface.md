@@ -11,6 +11,17 @@ Computer-use access is granted per session and is not persisted. At the top of a
 
 The `osascript` calls inside `scripts/uitest.sh locate` rely on the same Accessibility permission and will surface the OS prompt the first time if not yet granted.
 
+## Keyboard shortcuts
+
+Some actions don't have an obvious visible button on the default macOS window size (1280×720 logical points) and are easier to trigger from the keyboard. Discovered shortcuts:
+
+| Shortcut | Effect | Context |
+|---|---|---|
+| `cmd+return` | Trigger Generate on the current generation screen | Custom Voice (confirmed). Likely Voice Design and Voice Cloning too — verify when first used. |
+| `cmd+,` | Open Settings window | Standard macOS convention; the app uses it. |
+
+The runbook prefers `cmd+return` over hunting for a Generate button.
+
 ## Click vocabulary
 
 Every interactive element in the macOS UI has a stable `accessibilityIdentifier`. Resolve any of these names to pixel coordinates with `scripts/uitest.sh locate <ax-id>`. The script prints `cx cy w h` (center coordinates + size). Container/screen identifiers are listed so a session can confirm "I'm on the right screen" before clicking.
@@ -138,7 +149,7 @@ If `locate` exits non-zero ("accessibility identifier not found"), either the sc
 
 ## Completion signals
 
-Three independent ways to confirm a generation finished. Use at least two — they cross-check each other.
+Four independent ways to confirm a generation finished. Use at least two — they cross-check each other.
 
 ### 1. Log signposts
 
@@ -171,7 +182,22 @@ A `.wav` lands at:
 
 `<Subfolder>` is the `TTSModel.outputSubfolder` value — observed values are `CustomVoice/`, `VoiceDesign/`, and `Clones/` (PascalCase, not snake_case). Filenames look like `20260513_21-32-56-544_<first 20 chars of script>.wav`. The file appears once `Final File Ready` has fired. A non-zero byte size confirms a real generation; a current Speed-tier Custom Voice take is RIFF WAVE, 16-bit, mono, 24000 Hz, ~50 KB per second of audio.
 
-### 3. Database
+### 3. Visible UI strings
+
+When the agent can't (or shouldn't) tail logs and just has a screenshot, these stable strings reliably indicate state. They render as on-screen text in the Custom Voice screen and translate identically on the other generation screens.
+
+| Visible state | Meaning |
+|---|---|
+| Script section header reads `Ready` | App is idle, ready to accept Generate |
+| Engine status (sidebar footer) reads `Ready` | Engine warm and idle |
+| Bottom status: `Ready to generate. Ready to generate and save.` | Script text is non-empty, can be submitted |
+| Engine status reads `Starting engine...` | App just launched or model switched; wait before triggering |
+| Script section header reads `Generating` + bottom status: `Generating final audio. Rendering the complete take. The file lands in the player when ready.` | A generation is in flight |
+| Player widget appears in sidebar footer with waveform and `0:NN / 0:NN` duration | Generation completed and autoplay started |
+
+The transition from "Generating" → Player widget visible is the strongest visual completion signal. Use it as a fallback when the log capture is unavailable.
+
+### 4. Database
 
 A row is inserted into `generations` in `~/Library/Application Support/QwenVoice-Debug/history.sqlite` after autoplay starts (slight lag after the `.wav` appears). Query with:
 
@@ -234,3 +260,25 @@ The `build/uitest/` parent is wiped by `scripts/build.sh clean` along with the r
 ```
 
 That flow is the structure every future test runbook should follow.
+
+## Recovery: when clicks miss or focus is stolen
+
+Real macOS sessions throw curve balls. Handle them, don't fight them.
+
+- **macOS notification appeared and stole focus.** `mcp__computer-use__left_click` returns an error naming `UserNotificationCenter` (or another non-allowed app) as frontmost. Recovery: take a fresh screenshot to confirm the notification has self-dismissed, then run `scripts/uitest.sh activate` to re-front Vocello, and retry the click.
+- **Click landed but nothing happened.** Usually means Vocello wasn't frontmost (gray traffic lights in the screenshot are the giveaway — focused windows show red/yellow/green). Run `scripts/uitest.sh activate` and retry.
+- **`locate` returns coords but the click misses by ~15%.** You forgot to scale from logical-points to screenshot-pixels. See the *Locating an element* section.
+- **App opened to the wrong tab (Settings instead of Custom Voice).** Expected — Vocello restores the last-selected sidebar tab from a previous session. Just `locate sidebar_customVoice` and click; the smoke runbook already handles this.
+- **`locate` itself fails with "no front window for Vocello".** Either the app hasn't laid out its window yet (wait 500 ms, retry), or Vocello is hidden behind another window (run `activate` first).
+
+## Debug build internals (for symbol/string introspection)
+
+In Debug builds, Xcode extracts most of the app's compiled code into a separate dylib for faster incremental linking. The on-disk layout is:
+
+```
+build/DerivedData/Build/Products/Debug/Vocello.app/Contents/MacOS/
+  Vocello                  # ~60 KB stub that loads the dylib
+  Vocello.debug.dylib      # all the actual Swift code, strings, and symbols
+```
+
+If you need to verify whether new code landed (e.g. `strings`, `nm`, `otool -L`), inspect `Vocello.debug.dylib`, not the `Vocello` binary. Release builds collapse this back into a single executable.
