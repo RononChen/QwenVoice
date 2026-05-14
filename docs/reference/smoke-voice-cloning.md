@@ -2,18 +2,9 @@
 
 Single-pass functional check for Voice Cloning. Mirrors [`smoke-custom-voice.md`](smoke-custom-voice.md) and [`smoke-voice-design.md`](smoke-voice-design.md). Companion reference: [`ui-test-surface.md`](ui-test-surface.md).
 
-## Prerequisites — important
+## Prerequisites
 
-Voice Cloning needs a **pre-existing saved voice** as its reference. The autonomous session can't drive the file-picker dialog (NSOpenPanel) without computer-use modal handling, so it picks from the Saved Voices list instead. If no saved voice exists, `scripts/uitest.sh smoke-check clone` fails with an actionable message.
-
-To bootstrap once (one-time setup, then the smoke/bench runs are autonomous):
-
-1. `scripts/build.sh run` (launch Vocello manually).
-2. Generate one Custom Voice (or Voice Design) take with a clear, well-recorded sample. The output lands under `~/Library/Application Support/QwenVoice-Debug/outputs/CustomVoice/` (or `VoiceDesign/`).
-3. Click "Save to Saved Voices" / use the Saved Voices library's enrollment flow to register that take as a saved voice. Give it a recognizable name (e.g., `SmokeTest`).
-4. Verify with `scripts/uitest.sh smoke-check clone` — should now exit 0.
-
-A future element can automate this bootstrap (programmatic saved-voice creation requires either an env-var hook the app doesn't expose today or modeling the file picker; both are out of scope here).
+Voice Cloning requires the **`UITestRef`** saved-voice fixture as its reference. If `scripts/uitest.sh smoke-check clone` fails because the fixture is missing, run [`bootstrap-saved-voice.md`](bootstrap-saved-voice.md) first — it takes ~1 minute and produces `voices/UITestRef.wav` autonomously via Voice Design (no file-picker dialog).
 
 Also required:
 
@@ -24,7 +15,7 @@ Also required:
 
 | Field | Value |
 |---|---|
-| Saved voice | The first one returned by the Saved Voices picker (whichever you bootstrapped). |
+| Saved voice | `UITestRef` (created by the bootstrap runbook). |
 | Transcript | leave empty |
 | Script text | `Voice Cloning smoke test. This is a one-sentence sample to verify the path.` |
 | Variant | app default |
@@ -49,9 +40,9 @@ Also required:
    - `read SW SH < <(scripts/uitest.sh screen-size)`
    - `scripts/uitest.sh locate sidebar_voiceCloning` → scale → `left_click`.
    - Verify with `scripts/uitest.sh locate screen_voiceCloning` (exit 0).
-7. **Select a saved voice**:
+7. **Select the `UITestRef` saved voice**:
    - `scripts/uitest.sh locate voiceCloning_savedVoicePicker` → scale → `left_click` to open the dropdown.
-   - Screenshot to see the open menu. Click the first menu item (visual — the menu items themselves don't have stable AX ids).
+   - Screenshot to see the open menu. Click the menu item labeled `UITestRef` (visual — menu items don't have stable AX ids).
    - Confirm by re-running `scripts/uitest.sh locate voiceCloning_activeReference` — exit 0 means a reference is now bound.
 8. **Fill the script text**:
    - `scripts/uitest.sh locate textInput_textEditor` → scale → `left_click`.

@@ -340,33 +340,19 @@ PY
             ;;
     esac
 
-    # Voice Cloning additionally requires at least one saved voice.
+    # Voice Cloning requires the UITestRef saved-voice fixture
+    # (filesystem-canonical; saved voices are not persisted in SQLite).
     if [ "$mode" = "clone" ]; then
-        if [ ! -f "$HISTORY_DB" ]; then
-            echo "smoke-check FAIL: clone mode requires a saved voice; history.sqlite not found" >&2
-            echo "                 launch the app once and enroll a saved voice in the Saved Voices library." >&2
-            exit 1
-        fi
-        # Saved voices table varies in name across releases; try a couple.
-        local n
-        n="$(/usr/bin/sqlite3 -readonly "$HISTORY_DB" "
-            SELECT COALESCE(
-                (SELECT count(*) FROM sqlite_master WHERE type='table' AND name='savedVoices'),
-                0
-            )
-        " 2>/dev/null)"
-        if [ "${n:-0}" != "0" ]; then
-            n="$(/usr/bin/sqlite3 -readonly "$HISTORY_DB" "SELECT count(*) FROM savedVoices" 2>/dev/null || echo 0)"
+        local fixture="$DEBUG_DATA_DIR/voices/UITestRef.wav"
+        if [ -f "$fixture" ]; then
+            echo "smoke-check OK: clone fixture present at $fixture"
         else
-            n="$(/usr/bin/sqlite3 -readonly "$HISTORY_DB" "SELECT count(*) FROM saved_voices" 2>/dev/null || echo 0)"
-        fi
-        local voices_dir_count
-        voices_dir_count="$(/usr/bin/find "$DEBUG_DATA_DIR/voices" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
-        if [ "${n:-0}" -gt 0 ] || [ "${voices_dir_count:-0}" -gt 0 ]; then
-            echo "smoke-check OK: clone has $n saved voice DB row(s), $voices_dir_count voice dir(s)"
-        else
-            echo "smoke-check FAIL: clone mode requires at least one saved voice." >&2
-            echo "                 Open the app -> Saved Voices -> Add a Voice Sample, supply a clean reference clip, then retry." >&2
+            local voices_dir_count
+            voices_dir_count="$(/usr/bin/find "$DEBUG_DATA_DIR/voices" -mindepth 1 -maxdepth 1 -type f -name '*.wav' 2>/dev/null | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
+            echo "smoke-check FAIL: clone mode requires the UITestRef fixture." >&2
+            echo "                 Expected: $fixture" >&2
+            echo "                 Found ${voices_dir_count:-0} other saved-voice .wav(s) in $DEBUG_DATA_DIR/voices/" >&2
+            echo "                 Run the bootstrap: see docs/reference/bootstrap-saved-voice.md" >&2
             exit 1
         fi
     fi

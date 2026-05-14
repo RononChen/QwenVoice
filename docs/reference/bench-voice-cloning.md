@@ -4,9 +4,9 @@ Multi-sample timing harness for Voice Cloning. Same structure as the other two b
 
 Companion docs: [`ui-test-surface.md`](ui-test-surface.md), [`smoke-voice-cloning.md`](smoke-voice-cloning.md), [`bench-custom-voice.md`](bench-custom-voice.md).
 
-## Prerequisites — important
+## Prerequisites
 
-Same saved-voice prerequisite as the smoke runbook — see [`smoke-voice-cloning.md`](smoke-voice-cloning.md) for the one-time bootstrap. `scripts/uitest.sh smoke-check clone` enforces this.
+Requires the **`UITestRef`** saved-voice fixture. If `scripts/uitest.sh smoke-check clone` fails because the fixture is missing, run [`bootstrap-saved-voice.md`](bootstrap-saved-voice.md) first.
 
 Voice Cloning has an extra subtlety for benchmarking: when the **reference clip changes**, the engine re-primes (`VoiceCloningCoordinator.ensureCloneReferencePrimed`). The cold sample for each variant captures this priming cost; warm samples reuse the primed reference. **Do not change the saved-voice selection between warm samples** — that would make every warm sample look cold.
 
@@ -26,7 +26,7 @@ for variant in [speed, quality]:
 
 | Field | Value |
 |---|---|
-| Saved voice | First entry in the Saved Voices picker, same one used for the smoke test |
+| Saved voice | `UITestRef` (created by the bootstrap runbook). |
 | Transcript | leave empty |
 
 Prompts:
@@ -66,7 +66,7 @@ scripts/uitest.sh activate
 - Select variant via the segmented control. First contact:
   1. Try `scripts/uitest.sh locate voiceCloning_variant_speed` / `voiceCloning_variant_quality`. Record what works.
   2. Otherwise click visually.
-- Locate + click `voiceCloning_savedVoicePicker`, screenshot to see the open menu, click the first menu item.
+- Locate + click `voiceCloning_savedVoicePicker`, screenshot to see the open menu, click the `UITestRef` menu item.
 - Verify with `locate voiceCloning_activeReference` (exit 0 means a reference is bound).
 
 #### 1c. Cold sample (medium prompt)
@@ -114,7 +114,7 @@ git commit -m "Update bench baselines: <reason>"
 
 ## Failure handling
 
-- **Saved-voice picker had no items**: `smoke-check clone` should have caught this. If it slipped through, abort the run and bootstrap a saved voice.
+- **Saved-voice picker had no `UITestRef` entry**: `smoke-check clone` should have caught this. If it slipped through, abort the run and run [`bootstrap-saved-voice.md`](bootstrap-saved-voice.md).
 - **Warm sample looks unexpectedly slow**: the saved-voice selection may have been re-touched (re-primes the reference). Don't click the picker between warm samples.
 - **Quality warning badge on the active reference**: degraded audio possible but doesn't affect bench timings. Note in `result.json` for awareness.
 - Everything else is identical to `bench-custom-voice.md` — see there for `bench-wait` timeouts, missing `Final File Ready`, DB row lag.

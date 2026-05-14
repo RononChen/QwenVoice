@@ -105,6 +105,8 @@ Variant toggle uses `GenerationVariantSelector` with prefix `voiceDesign` — li
 
 Voice Cloning requires a pre-existing saved voice for autonomous runs (the alternative is the file-picker dialog, which can't be driven through `type`). The Saved Voices enrollment fields (`voicesEnroll_*`) are documented in the Saved Voices section above.
 
+**Saved-voice store is filesystem-canonical**: `~/Library/Application Support/QwenVoice-Debug/voices/<name>.wav` (+ optional `<name>.txt`). There is no SQLite table — `MLXTTSEngine.listPreparedVoices` just enumerates the directory. The autonomous test rollout uses one well-known fixture named **`UITestRef`**, created by [`bootstrap-saved-voice.md`](bootstrap-saved-voice.md) via the Voice Design → Save to Saved Voices flow (no file picker). `scripts/uitest.sh smoke-check clone` verifies this exact file at `voices/UITestRef.wav`.
+
 ### History
 
 | Identifier | Kind | Purpose |

@@ -74,7 +74,11 @@ Smoke runbooks (one per generation mode):
 
 - `docs/reference/smoke-custom-voice.md`
 - `docs/reference/smoke-voice-design.md`
-- `docs/reference/smoke-voice-cloning.md` (requires at least one saved voice; bootstrap once manually)
+- `docs/reference/smoke-voice-cloning.md` (requires the `UITestRef` saved-voice fixture — see bootstrap below)
+
+Saved-voice fixture bootstrap (one-time, autonomous):
+
+- `docs/reference/bootstrap-saved-voice.md` — generates `voices/UITestRef.wav` via Voice Design → Save to Saved Voices, no file picker needed
 
 Benchmark runbooks share the bench-* harness (`bench-wait`, `bench-record <mode> <variant> <coldwarm> <bucket>`, `bench-summarize`, `bench-compare`, `bench-update-baselines`):
 
