@@ -26,21 +26,6 @@ Preferred entrypoint for day-to-day work — wraps the steps below and skips reg
 ./scripts/build.sh clean                  # rm -rf build/
 ```
 
-Caches live at `build/.cache/` (`project.yml.sha256`, `Package.resolved.sha256.<context>`) and self-heal — delete the directory to force a cold rebuild. `xcodebuild` output is piped through `xcbeautify` when it's on `PATH` and stdout is a TTY.
-
-Single-resident build policy: every successful `build.sh debug` and `build.sh release` (or direct `scripts/release.sh`) finishes by pruning the previous build of the same kind, so only one Debug `.app` and one Release `.app` + `.dmg` exist under `build/` at any time. Release pruning also removes the intermediate `.app` inside `build/foundation/macos-release-derived-data/`. Pruning is automatic with no opt-out; if `Vocello` is running it is quit (SIGTERM, then SIGKILL after a short grace period) before deletion. Failed builds skip pruning so previous artifacts stay intact for inspection.
-
-### Runtime data folders
-
-Release and Debug builds intentionally write to different Application Support folders so that Release behaves like a real end-user first launch while Debug accumulates state across rebuilds:
-
-- Release: `~/Library/Application Support/QwenVoice/` (end-user-equivalent; not used for routine testing)
-- Debug: `~/Library/Application Support/QwenVoice-Debug/` (persistent across rebuilds — models, `history.sqlite`, outputs, voices, stream-session caches all live here)
-
-The split is compile-time inside `Sources/Services/AppPaths.swift` via `#if DEBUG`, so it holds regardless of launch method (Finder, Xcode Run, `build.sh run`, lldb). The first Debug launch under this policy renames an existing `QwenVoice/` folder to `QwenVoice-Debug/` automatically (no env-var override set, target folder absent, legacy folder present). The `QWENVOICE_APP_SUPPORT_DIR` env var still overrides the root in either configuration and disables auto-migration when set.
-
-Release builds therefore start with an empty `QwenVoice/` after the first Debug launch — that's intentional. To exercise Release with realistic data, copy/symlink data into `~/Library/Application Support/QwenVoice/` manually or use the env-var override.
-
 Lower-level scripts (still supported, used by `build.sh` internally):
 
 ```sh
@@ -59,6 +44,27 @@ Lower-level scripts (still supported, used by `build.sh` internally):
 ```
 
 There is no SwiftFormat / SwiftLint config. There is no lint or typecheck command — the build is the typecheck.
+
+### Build cache
+
+Sha256 fingerprints at `build/.cache/` (`project.yml.sha256`, `Package.resolved.sha256.<context>`) let `build.sh` skip XcodeGen and SwiftPM resolve when their inputs are unchanged. The directory self-heals — delete it (or run `build.sh clean`) to force a cold rebuild. `xcodebuild` output is piped through `xcbeautify` when it's on `PATH` and stdout is a TTY.
+
+### Single-resident build policy
+
+At most one Debug `.app` and one Release `.app` + `.dmg` exist under `build/` at any time. Every successful `build.sh debug` and `build.sh release` (or direct `scripts/release.sh`) prunes the previous build of the same kind, including the intermediate Release `.app` inside `build/foundation/macos-release-derived-data/` and any older-named DMGs. Pruning is automatic with no opt-out; if `Vocello` is running it is quit (SIGTERM, then SIGKILL after a short grace period) before deletion. Failed builds skip pruning so previous artifacts stay intact for inspection.
+
+### Runtime data folders
+
+Release and Debug builds intentionally write to different Application Support folders so that Release behaves like a real end-user first launch while Debug accumulates state across rebuilds:
+
+- Release: `~/Library/Application Support/QwenVoice/` (end-user-equivalent; not used for routine testing)
+- Debug: `~/Library/Application Support/QwenVoice-Debug/` (persistent across rebuilds — models, `history.sqlite`, outputs, voices, stream-session caches all live here)
+
+The split is compile-time inside `Sources/Services/AppPaths.swift` via `#if DEBUG`, so it holds regardless of launch method (Finder, Xcode Run, `build.sh run`, lldb). This works because the QwenVoice macOS target's Debug config in `project.yml` includes `DEBUG` in `SWIFT_ACTIVE_COMPILATION_CONDITIONS` — do not remove it without also moving the data-folder logic to a custom flag.
+
+The first Debug launch under this policy renames an existing `QwenVoice/` folder to `QwenVoice-Debug/` automatically (no env-var override set, target folder absent, legacy folder present). The `QWENVOICE_APP_SUPPORT_DIR` env var still overrides the root in either configuration and disables auto-migration when set.
+
+Release builds therefore start with an empty `QwenVoice/` after the first Debug launch — that's intentional. To exercise Release with realistic data, copy/symlink data into `~/Library/Application Support/QwenVoice/` manually or use the env-var override.
 
 ## Testing policy — important
 
