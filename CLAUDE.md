@@ -68,7 +68,9 @@ Release builds therefore start with an empty `QwenVoice/` after the first Debug 
 
 ### Autonomous UI testing
 
-The Debug build is drivable by a Claude Code session via the computer-use MCP. Entry point is `scripts/uitest.sh` (subcommands: `prep`, `reset [--include-voices|--full]`, `locate <ax-id>`, `logs`, `db <sql>`, `artifacts-dir`, `smoke-check`). The agent's reference for what's clickable and how to verify generation completion lives at `docs/reference/ui-test-surface.md`; the first end-to-end runbook is `docs/reference/smoke-custom-voice.md`. Test artifacts land in `build/uitest/<timestamp>/` and are wiped by `scripts/build.sh clean`.
+The Debug build is drivable by a Claude Code session via the computer-use MCP. Entry point is `scripts/uitest.sh` (subcommands: `prep`, `reset [--include-voices|--full]`, `locate <ax-id>`, `screen-size`, `activate`, `logs`, `db <sql>`, `artifacts-dir`, `smoke-check`, plus the bench-* family). The agent's reference for what's clickable and how to verify generation completion lives at `docs/reference/ui-test-surface.md`; the first end-to-end runbook is `docs/reference/smoke-custom-voice.md`. Test artifacts land in `build/uitest/<timestamp>/` and are wiped by `scripts/build.sh clean`.
+
+Benchmarking uses `bench-wait`, `bench-record`, `bench-summarize`, `bench-compare`, `bench-update-baselines` to measure Custom Voice generation across cold/warm × Speed/Quality × prompt-length (runbook: `docs/reference/bench-custom-voice.md`). Committed baselines live at `docs/reference/benchmark-baselines.json` so regressions show up in `git diff`.
 
 ## Testing policy — important
 

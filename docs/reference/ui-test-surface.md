@@ -271,6 +271,20 @@ Real macOS sessions throw curve balls. Handle them, don't fight them.
 - **App opened to the wrong tab (Settings instead of Custom Voice).** Expected — Vocello restores the last-selected sidebar tab from a previous session. Just `locate sidebar_customVoice` and click; the smoke runbook already handles this.
 - **`locate` itself fails with "no front window for Vocello".** Either the app hasn't laid out its window yet (wait 500 ms, retry), or Vocello is hidden behind another window (run `activate` first).
 
+## Benchmark anchors
+
+For multi-sample timing across cold/warm × variant × prompt-length, see [`bench-custom-voice.md`](bench-custom-voice.md). Element 2 of the autonomous-testing rollout adds five subcommands to `scripts/uitest.sh` that build on the same signpost+DB plumbing the smoke test verified:
+
+| Subcommand | Purpose |
+|---|---|
+| `bench-wait [--since <ts>] [--timeout <sec>]` | Block until the next `Final File Ready` signpost after `<ts>`. |
+| `bench-record <variant> <coldwarm> <bucket> --artifacts-dir <dir>` | Append one sample (timings, audio file, DB row, RTF) to `<dir>/bench-samples.jsonl`. |
+| `bench-summarize <artifacts-dir>` | Group samples and emit `<dir>/bench-result.json` with count/mean/median/p95/min/max/stdev per (variant, phase, bucket, metric). |
+| `bench-compare <artifacts-dir> [--baseline <path>]` | Diff a result against `docs/reference/benchmark-baselines.json`; emit a Markdown table; exit 1 on ±15 % breach. |
+| `bench-update-baselines [--from <path>]` | Overwrite the committed baseline with the latest summary (review `git diff` before committing). |
+
+The primary metrics tracked across runs are `ms_engine_start_to_final` (wall-clock from XPC engine-begin to `Final File Ready`) and `rtf` (audio seconds per generation second — higher is better). All five subcommands are pure shell + `python3` + `sqlite3` — no new dependencies.
+
 ## Debug build internals (for symbol/string introspection)
 
 In Debug builds, Xcode extracts most of the app's compiled code into a separate dylib for faster incremental linking. The on-disk layout is:
