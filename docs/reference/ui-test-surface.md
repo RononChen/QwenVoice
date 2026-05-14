@@ -114,15 +114,25 @@ Field-level identifiers for the script text area, voice/emotion pickers, and Gen
 
 ```sh
 scripts/uitest.sh locate sidebar_customVoice
-# example output:
-# 86 320 192 36
+# example output (logical-points coordinate space, see caveat below):
+# 413 221 202 34
 ```
 
-The output is `cx cy w h` — the center already computed. Click via computer-use:
+The output is `cx cy w h` — center already computed — in **macOS logical-points space** (what `osascript` System Events reports). The computer-use screenshot you see may use a **different image pixel space**: on this Mac the screen is 1280×720 logical points but the captured screenshot renders at ~1456×816 image pixels, a ratio of ~1.138×. `mcp__computer-use__left_click` expects coordinates in screenshot-image pixels.
 
-```
-mcp__computer-use__left_click(x=86, y=320)
-```
+Two ways to handle this:
+
+1. **Scale before clicking** (preferred when you know both sizes):
+   ```
+   image_width  = <from your most recent screenshot>
+   image_height = <from your most recent screenshot>
+   screen_w_h   = `scripts/uitest.sh screen-size`   # "1280 720" on this Mac
+   sx = locate_cx * image_width  / screen_logical_w
+   sy = locate_cy * image_height / screen_logical_h
+   ```
+2. **Visual-fallback click**: take a screenshot, find the target visually, and click the center of its visible rectangle. Use this when scaling is awkward (e.g., elements whose `accessibilityIdentifier` isn't yet catalogued in the click vocabulary).
+
+The smoke runbook uses (2) for the script text area and Generate trigger (Cmd+Return), and (1) for the sidebar navigation.
 
 If `locate` exits non-zero ("accessibility identifier not found"), either the screen isn't mounted yet (give SwiftUI another half-second and retry) or the identifier doesn't exist on the current screen. A screenshot will tell you which.
 
@@ -132,27 +142,34 @@ Three independent ways to confirm a generation finished. Use at least two — th
 
 ### 1. Log signposts
 
-Subsystem `com.qwenvoice.app`. Tail with `scripts/uitest.sh logs`, redirect to a file in the artifacts directory, then grep for stable substrings emitted by `AppPerformanceSignposts` (`Sources/Services/AppPerformanceSignposts.swift`):
+Subsystem `com.qwenvoice.app`. The key milestones are `OSSignposter` events (not regular `os.log` messages) — they only appear with `--signpost` enabled, which `scripts/uitest.sh logs` already passes to `log stream`. If you call `log stream` directly, include `--signpost` or the events will be silently dropped.
+
+Sample line:
+
+```
+2026-05-13 21:33:06.295 Sp Vocello[93368:53c81] [com.qwenvoice.app:performance] [spid excl, process, event] Final File Ready
+```
+
+Stable substrings emitted by `AppPerformanceSignposts` (`Sources/Services/AppPerformanceSignposts.swift`):
 
 | Substring | Meaning |
 |---|---|
+| `XPC Engine Command` begin/end | One round-trip to the engine XPC service (begin/end pair, category `xpc`) |
 | `Preview To First Chunk` | First audio chunk decoded — TTS pipeline has started producing audio |
 | `Final File Ready` | The on-disk `.wav` is fully written (emitted in `Sources/SharedSupport/Services/GenerationPersistence.swift`) |
 | `Autoplay Start` | Playback has begun |
-| `[Performance][CustomVoiceCoordinator] autoplay_start_wall_ms=...` | Click-to-autoplay wall time (Debug only) |
-| `[Performance][CustomVoiceCoordinator] db_save_wall_ms=...` | DB row write time (Debug only) |
 
-`Final File Ready` is the canonical "generation complete" marker. Poll for that substring in the log capture file.
+`Final File Ready` is the canonical "generation complete" marker. Poll for that substring in the log capture file. Note that `[Performance][...] autoplay_start_wall_ms=...` and similar lines go through `print()` (stderr), not OSLog — they only appear when the app's stderr is captured (e.g., launching the binary directly from a terminal), not from `log stream`.
 
 ### 2. File system
 
 A `.wav` lands at:
 
 ```
-~/Library/Application Support/QwenVoice-Debug/outputs/<mode>/<uuid>.wav
+~/Library/Application Support/QwenVoice-Debug/outputs/<Subfolder>/<filename>.wav
 ```
 
-Where `<mode>` is `custom_voice`, `voice_design`, or `voice_cloning` (the values of `TTSModel.outputSubfolder`). The file appears once `Final File Ready` has fired. A non-zero byte size confirms a real generation.
+`<Subfolder>` is the `TTSModel.outputSubfolder` value — observed values are `CustomVoice/`, `VoiceDesign/`, and `Clones/` (PascalCase, not snake_case). Filenames look like `20260513_21-32-56-544_<first 20 chars of script>.wav`. The file appears once `Final File Ready` has fired. A non-zero byte size confirms a real generation; a current Speed-tier Custom Voice take is RIFF WAVE, 16-bit, mono, 24000 Hz, ~50 KB per second of audio.
 
 ### 3. Database
 
@@ -201,16 +218,19 @@ The `build/uitest/` parent is wiped by `scripts/build.sh clean` along with the r
 2. scripts/build.sh debug                 # if Debug build is stale or missing
 3. scripts/uitest.sh smoke-check          # confirm prerequisites
 4. scripts/uitest.sh reset                # known-clean baseline
-5. ART=$(scripts/uitest.sh artifacts-dir)
-6. scripts/uitest.sh logs > "$ART/log.txt" &     # background log capture
-7. scripts/uitest.sh prep                 # launch app
-8. mcp__computer-use__screenshot          # save as $ART/pre.png
-9. <drive UI: locate → left_click → type → ...>
-10. <poll $ART/log.txt for "Final File Ready">
-11. scripts/uitest.sh db "SELECT ..."     # verify DB row
-12. mcp__computer-use__screenshot         # save as $ART/post.png
-13. kill the background log PID; write $ART/result.json
-14. Report $ART path + pass/fail to the user.
+5. read SW SH < <(scripts/uitest.sh screen-size)   # for coord scaling
+6. ART=$(scripts/uitest.sh artifacts-dir)
+7. (scripts/uitest.sh logs > "$ART/log.txt" 2>&1 &)   # background, signpost-aware
+8. scripts/uitest.sh prep                 # launch app
+9. mcp__computer-use__open_application(app: "Vocello")   # ensure frontmost
+10. /usr/sbin/screencapture -x "$ART/pre.png"
+11. mcp__computer-use__screenshot         # for the agent's reasoning
+12. <drive UI: locate → scale by (IW/SW, IH/SH) → left_click → type → cmd+return>
+13. <poll $ART/log.txt for "Final File Ready">
+14. scripts/uitest.sh db "SELECT ..."     # verify DB row
+15. /usr/sbin/screencapture -x "$ART/post.png"
+16. kill the background log PID; write $ART/result.json
+17. Report $ART path + pass/fail + measured timings to the user.
 ```
 
 That flow is the structure every future test runbook should follow.

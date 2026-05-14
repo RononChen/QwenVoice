@@ -41,7 +41,11 @@ commands:
 
   locate <ax-id>        Look up a SwiftUI accessibilityIdentifier in Vocello's front
                         window and print "cx cy w h" — center coordinates and size —
-                        ready for computer-use left_click. Exits non-zero if not found.
+                        in macOS logical-points space. See docs/reference/ui-test-surface.md
+                        for the screenshot-pixel scaling caveat. Exits non-zero if not found.
+
+  screen-size           Print the screen's logical-point dimensions as "W H". Use with
+                        the locate output to scale to your screenshot's image pixels.
 
   logs [--predicate <p>]
                         Tail \`log stream --info --style compact\` for Vocello, defaulting
@@ -180,7 +184,11 @@ cmd_logs() {
         fi
         predicate="$2"
     fi
-    exec /usr/bin/log stream --info --style compact --predicate "$predicate"
+    # --signpost is required to capture OSSignposter events. The app's key
+    # generation milestones (Final File Ready, Autoplay Start, Preview To
+    # First Chunk) are signposts under category "performance" — they do
+    # NOT appear in a plain `log stream --info` stream.
+    exec /usr/bin/log stream --info --signpost --style compact --predicate "$predicate"
 }
 
 cmd_db() {
@@ -196,6 +204,15 @@ cmd_db() {
         exit 1
     fi
     /usr/bin/sqlite3 -readonly -separator , "$HISTORY_DB" "$sql"
+}
+
+cmd_screen_size() {
+    # Use osascript with "Finder window of desktop" — its bounds equal the
+    # screen's logical-points rect. Print "<width> <height>".
+    /usr/bin/osascript -e 'tell application "Finder" to set b to bounds of window of desktop
+return ((item 3 of b) - (item 1 of b)) & " " & ((item 4 of b) - (item 2 of b))' 2>/dev/null \
+        | /usr/bin/tr ',' ' ' \
+        | /usr/bin/awk '{print $1, $2}'
 }
 
 cmd_artifacts_dir() {
@@ -278,6 +295,7 @@ main() {
         prep)            cmd_prep "$@" ;;
         reset)           cmd_reset "$@" ;;
         locate)          cmd_locate "$@" ;;
+        screen-size)     cmd_screen_size ;;
         logs)            cmd_logs "$@" ;;
         db)              cmd_db "$@" ;;
         artifacts-dir)   cmd_artifacts_dir ;;
