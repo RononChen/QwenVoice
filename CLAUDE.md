@@ -66,6 +66,10 @@ The first Debug launch under this policy renames an existing `QwenVoice/` folder
 
 Release builds therefore start with an empty `QwenVoice/` after the first Debug launch — that's intentional. To exercise Release with realistic data, copy/symlink data into `~/Library/Application Support/QwenVoice/` manually or use the env-var override.
 
+### Autonomous UI testing
+
+The Debug build is drivable by a Claude Code session via the computer-use MCP. Entry point is `scripts/uitest.sh` (subcommands: `prep`, `reset [--include-voices|--full]`, `locate <ax-id>`, `logs`, `db <sql>`, `artifacts-dir`, `smoke-check`). The agent's reference for what's clickable and how to verify generation completion lives at `docs/reference/ui-test-surface.md`; the first end-to-end runbook is `docs/reference/smoke-custom-voice.md`. Test artifacts land in `build/uitest/<timestamp>/` and are wiped by `scripts/build.sh clean`.
+
 ## Testing policy — important
 
 This repo intentionally has **no XCTest targets, no automated test harness, and no CI** as of May 2026. Behavioral validation is **manual**: after a clean foundation build, launch `build/Vocello.app` and exercise the affected paths by hand. Do not reintroduce test bundles, QA shell scripts, agent configs, benchmark harnesses, or any GitHub Actions workflow without an explicit maintainer decision — `scripts/check_project_inputs.sh` enforces this with a prohibited-paths list and a regex sweep of the working tree. Inspect that script for the current list rather than quoting names here (its patterns also trip on any file that mentions the banned names verbatim).
