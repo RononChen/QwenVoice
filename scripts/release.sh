@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+ROOT_DIR="$PROJECT_DIR"
 PROJECT_FILE="$PROJECT_DIR/QwenVoice.xcodeproj"
 SCHEME="QwenVoice"
 CONFIGURATION="Release"
@@ -13,6 +14,9 @@ DERIVED_DATA_PATH="$FOUNDATION_BUILD_ROOT/macos-release-derived-data"
 BUILD_RESULT_BUNDLE_PATH="$FOUNDATION_BUILD_ROOT/macos-release-build.xcresult"
 DEFAULT_OUTPUT_NAME="Vocello-macos26"
 TOTAL_START="$(date +%s)"
+
+# shellcheck source=lib/build_cache.sh
+. "$SCRIPT_DIR/lib/build_cache.sh"
 
 SKIP_BUILD=false
 OUTPUT_NAME="$DEFAULT_OUTPUT_NAME"
@@ -177,9 +181,9 @@ mkdir -p "$FOUNDATION_BUILD_ROOT" "$SOURCE_PACKAGES_DIR"
 SHOW_BUILD_SETTINGS_LOG="$BUILD_DIR/release-build-settings.log"
 
 STEP_START="$(date +%s)"
-echo "[1/7] Regenerating Xcode project..."
-"$SCRIPT_DIR/regenerate_project.sh"
-echo "[1/7] Regenerate project — done ($(step_time "$STEP_START"))"
+echo "[1/7] Ensuring Xcode project is up to date..."
+ensure_project_regenerated
+echo "[1/7] Project up to date — done ($(step_time "$STEP_START"))"
 echo ""
 
 if [ "$PREFLIGHT" = "full" ]; then
@@ -193,13 +197,9 @@ if [ "$PREFLIGHT" = "full" ]; then
 fi
 
 STEP_START="$(date +%s)"
-echo "[2/7] Resolving pinned Swift packages..."
-xcodebuild -project "$PROJECT_FILE" \
-    -scheme "$SCHEME" \
-    -destination "platform=macOS,arch=arm64" \
-    -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-    -resolvePackageDependencies
-echo "[2/7] Resolve pinned Swift packages — done ($(step_time "$STEP_START"))"
+echo "[2/7] Ensuring Swift packages are resolved..."
+ensure_spm_resolved "$DERIVED_DATA_PATH" "$SOURCE_PACKAGES_DIR" release
+echo "[2/7] Swift packages ready — done ($(step_time "$STEP_START"))"
 echo ""
 
 STEP_START="$(date +%s)"
@@ -217,6 +217,7 @@ else
         -destination "platform=macOS,arch=arm64" \
         -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
         -disableAutomaticPackageResolution \
+        -onlyUsePackageVersionsFromResolvedFile \
         -derivedDataPath "$DERIVED_DATA_PATH" \
         -resultBundlePath "$BUILD_RESULT_BUNDLE_PATH" \
         -resultBundleVersion 3 \
@@ -243,6 +244,7 @@ xcodebuild -project "$PROJECT_FILE" \
     -destination "platform=macOS,arch=arm64" \
     -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
     -disableAutomaticPackageResolution \
+    -onlyUsePackageVersionsFromResolvedFile \
     -derivedDataPath "$DERIVED_DATA_PATH" \
     QWENVOICE_DEVELOPMENT_TEAM="$RELEASE_TEAM_ID" \
     -showBuildSettings > "$SHOW_BUILD_SETTINGS_LOG"
@@ -346,3 +348,5 @@ echo "  App:      $APP_PATH"
 echo "  DMG:      $DMG_PATH"
 echo "  Metadata: $METADATA_PATH"
 echo "  Total:    ${TOTAL_ELAPSED}s"
+
+prune_stale_release_builds "$OUTPUT_NAME"
