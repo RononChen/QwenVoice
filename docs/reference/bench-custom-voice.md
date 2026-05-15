@@ -68,38 +68,37 @@ scripts/uitest.sh activate         # ensure frontmost
   1. `scripts/uitest.sh locate customVoice_variantSpeed` and `customVoice_variantQuality`. If either succeeds, record both in `ui-test-surface.md` and reuse.
   2. Otherwise screenshot, find the Speed / Quality buttons visually (top-right of the Configuration card), and click. Note the coordinates in the run's `result.json` notes so a future calibration step can codify them.
 
+**Verify variant first.** After clicking Speed or Quality, take a screenshot and confirm the desired button is gold-highlighted. There is no programmatic way to query the selected variant — `GenerationVariantSelector` uses `.accessibilityElement(children: .contain)` which collapses the segment buttons from external accessibility queries (see `ui-test-surface.md`). If the visual doesn't match what the runbook expects, abort and re-click.
+
+**Initial T0.** Before the first generation in a `(mode, variant)` pass, prime the T0 file:
+
+```sh
+python3 -c "import datetime as dt; d=dt.datetime.now(); print(d.strftime('%Y-%m-%d %H:%M:%S.')+d.strftime('%f')[:3])" > /tmp/uitest_bench_t0
+```
+
 #### 1c. Cold sample (medium prompt)
 
 The first generation after launch hits the model-load path. Treat it as one cold sample.
 
-```sh
-# Capture the moment we start the generation
-T0=$(date +"%Y-%m-%d %H:%M:%S.%3N")
-```
-
-Then issue ONE `computer_batch` containing: click into the script field (visual click — also not in the AX vocabulary), type the medium prompt, send `cmd+return`.
+Issue ONE `computer_batch` containing: click the script field (`textInput_textEditor`), type the medium prompt, send `cmd+return`.
 
 ```sh
-scripts/uitest.sh bench-wait --since "$T0" --timeout 180   # cold includes model load; first live run saw ~8.7-9.5 s
-scripts/uitest.sh bench-record custom "$variant" cold medium --artifacts-dir "$ART"
+scripts/uitest.sh bench-step custom "$variant" cold medium --artifacts-dir "$ART" --timeout 180
 ```
 
-`bench-record` prints the recorded sample as JSON to stdout (for the agent to inspect) and appends to `$ART/bench-samples.jsonl`.
+`bench-step` reads `/tmp/uitest_bench_t0` for the previous T0, waits for `Final File Ready`, records the sample, and writes a fresh T0 for the next call. No manual `date` capture between samples.
 
 #### 1d. Warm samples
 
 For each `bucket` in `[short, medium, long]`, repeat 3 times:
 
-```sh
-T0=$(date +"%Y-%m-%d %H:%M:%S.%3N")
-```
-
-Then `computer_batch`: click script field → `cmd+a` → `delete` → type bucket prompt → `cmd+return`.
+`computer_batch`: click `textInput_textEditor` → `cmd+a` → `delete` → type bucket prompt → `cmd+return`.
 
 ```sh
-scripts/uitest.sh bench-wait --since "$T0" --timeout 90
-scripts/uitest.sh bench-record custom "$variant" warm "$bucket" --artifacts-dir "$ART"
+scripts/uitest.sh bench-step custom "$variant" warm "$bucket" --artifacts-dir "$ART"
 ```
+
+**Warm-short variance note.** The warm/short bucket (~1 s of audio per sample) has the highest per-sample jitter. n=3 samples is rarely enough to keep the warm/short mean within ±15 % of baseline. Bump to ≥10 samples if `bench-compare` flags warm/short repeatedly and you need to distinguish noise from real regression.
 
 ### 2. Summarize + compare
 

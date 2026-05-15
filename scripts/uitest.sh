@@ -55,6 +55,13 @@ commands:
                         and emits "cx cy w h" already in screenshot-image space —
                         ready to pass directly to left_click without manual math.
 
+  bench-step <mode> <variant> <coldwarm> <bucket> --artifacts-dir <dir> [--timeout <s>]
+                        One-shot wrapper for the per-sample loop. Reads the previous
+                        T0 from /tmp/uitest_bench_t0, calls bench-wait, then bench-record,
+                        then writes a fresh T0 back for the next sample. Removes the
+                        skip-the-record footgun. Default --timeout is 90s for warm
+                        and 180s for cold; pass explicitly to override.
+
   activate              Bring Vocello to the front. Use as a mid-test recovery step when
                         a system dialog or notification has stolen focus, or before a
                         click sequence to guarantee Vocello receives the input.
@@ -289,6 +296,47 @@ sxw = int(round(w * iw / sw))
 sxh = int(round(h * ih / sh))
 print(f"{sx} {sy} {sxw} {sxh}")
 '
+}
+
+T0_FILE="/tmp/uitest_bench_t0"
+
+cmd_bench_step() {
+    local mode="" variant="" coldwarm="" bucket="" artifacts_dir="" timeout=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --artifacts-dir) artifacts_dir="$2"; shift 2 ;;
+            --timeout)       timeout="$2"; shift 2 ;;
+            custom|design|clone) [ -z "$mode" ] && mode="$1" || { echo "error: mode set twice" >&2; exit 2; }; shift ;;
+            speed|quality)       [ -z "$variant" ] && variant="$1" || { echo "error: variant set twice" >&2; exit 2; }; shift ;;
+            cold|warm)           [ -z "$coldwarm" ] && coldwarm="$1" || { echo "error: cold/warm set twice" >&2; exit 2; }; shift ;;
+            short|medium|long)   [ -z "$bucket" ] && bucket="$1" || { echo "error: bucket set twice" >&2; exit 2; }; shift ;;
+            *) echo "error: unknown arg '$1'" >&2; exit 2 ;;
+        esac
+    done
+    [ -n "$mode" ] && [ -n "$variant" ] && [ -n "$coldwarm" ] && [ -n "$bucket" ] && [ -n "$artifacts_dir" ] || {
+        echo "error: bench-step requires <mode> <variant> <coldwarm> <bucket> --artifacts-dir <dir>" >&2
+        exit 2
+    }
+    if [ -z "$timeout" ]; then
+        if [ "$coldwarm" = "cold" ]; then timeout=180; else timeout=90; fi
+    fi
+    if [ ! -f "$T0_FILE" ]; then
+        echo "error: $T0_FILE missing — capture an initial T0 before the first bench-step (e.g. python3 -c 'import datetime...' > $T0_FILE)" >&2
+        exit 1
+    fi
+    local t0
+    t0="$(cat "$T0_FILE")"
+    /usr/bin/python3 -c "
+import datetime as dt, sys
+try:
+    dt.datetime.strptime(sys.argv[1], '%Y-%m-%d %H:%M:%S.%f')
+except Exception as e:
+    sys.exit(f'invalid T0 in $T0_FILE: {e}')
+" "$t0" || exit 1
+    scripts/uitest.sh bench-wait --since "$t0" --timeout "$timeout" >/dev/null
+    scripts/uitest.sh bench-record "$mode" "$variant" "$coldwarm" "$bucket" --artifacts-dir "$artifacts_dir" >/dev/null
+    /usr/bin/python3 -c "import datetime as dt; d=dt.datetime.now(); print(d.strftime('%Y-%m-%d %H:%M:%S.')+d.strftime('%f')[:3])" > "$T0_FILE"
+    echo "ok: ${mode}/${variant}/${coldwarm}/${bucket} (next T0=$(cat "$T0_FILE"))"
 }
 
 cmd_screen_size() {
@@ -842,6 +890,7 @@ main() {
         reset)           cmd_reset "$@" ;;
         locate)          cmd_locate "$@" ;;
         scaled-locate)   cmd_scaled_locate "$@" ;;
+        bench-step)      cmd_bench_step "$@" ;;
         screen-size)     cmd_screen_size ;;
         activate)        cmd_activate ;;
         logs)            cmd_logs "$@" ;;

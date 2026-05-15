@@ -70,33 +70,35 @@ scripts/uitest.sh activate
   2. Otherwise click visually (top-right of the configuration card) and note the coordinates.
 - Locate + click `voiceDesign_voiceDescriptionField`, then `mcp__computer-use__type` the fixed description.
 
-#### 1c. Cold sample (medium prompt)
+**Verify variant first** via screenshot (see `bench-custom-voice.md` — same caveat applies; `GenerationVariantSelector` button-level AX ids aren't queryable).
+
+**Initial T0.** Before the first generation in a `(mode, variant)` pass:
 
 ```sh
-T0=$(date +"%Y-%m-%d %H:%M:%S.%3N")
+python3 -c "import datetime as dt; d=dt.datetime.now(); print(d.strftime('%Y-%m-%d %H:%M:%S.')+d.strftime('%f')[:3])" > /tmp/uitest_bench_t0
 ```
+
+#### 1c. Cold sample (medium prompt)
 
 `computer_batch`: click `textInput_textEditor` → type medium prompt → `cmd+return`.
 
 ```sh
-scripts/uitest.sh bench-wait --since "$T0" --timeout 240   # VD/Quality cold has been seen >180s on M2; pad the budget
-scripts/uitest.sh bench-record design "$variant" cold medium --artifacts-dir "$ART"
+scripts/uitest.sh bench-step design "$variant" cold medium --artifacts-dir "$ART" --timeout 240
 ```
+
+VD/Quality cold has been seen taking >180 s on Apple M2 — the 240 s timeout gives headroom.
 
 #### 1d. Warm samples
 
 For each `bucket` in `[short, medium, long]`, repeat 3 times:
 
-```sh
-T0=$(date +"%Y-%m-%d %H:%M:%S.%3N")
-```
-
-`computer_batch`: click `textInput_textEditor` → `cmd+a` → `delete` → type bucket prompt → `cmd+return`. **Do not** clear or re-type the voice description; it persists between samples and we want to bench the steady-state generate path, not the description-typing path.
+`computer_batch`: click `textInput_textEditor` → `cmd+a` → `delete` → type bucket prompt → `cmd+return`. **Do not** clear or re-type the voice description; it persists between samples and we want to bench the steady-state generate path.
 
 ```sh
-scripts/uitest.sh bench-wait --since "$T0" --timeout 90
-scripts/uitest.sh bench-record design "$variant" warm "$bucket" --artifacts-dir "$ART"
+scripts/uitest.sh bench-step design "$variant" warm "$bucket" --artifacts-dir "$ART"
 ```
+
+**Warm-short variance**: ≥10 samples recommended if you need to distinguish noise from real regression in the warm/short bucket.
 
 ### 2. Summarize + compare
 
