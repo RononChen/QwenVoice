@@ -461,10 +461,19 @@ cmd_bench_wait() {
         since="$(date +"%Y-%m-%d %H:%M:%S.%3N")"
     fi
     local deadline=$(($(date +%s) + timeout))
+    local log_show_failed=0
     while [ "$(date +%s)" -lt "$deadline" ]; do
-        local found
-        found="$(/usr/bin/log show --signpost --predicate "$BENCH_LOG_PREDICATE" --last 3m --style compact 2>/dev/null \
-            | SINCE="$since" /usr/bin/python3 -c '
+        local found log_buf
+        # Per-iteration log show; keep stderr silenced so the polling
+        # loop doesn't spam, but track whether log show ever produced
+        # output so a true `log show` outage shows up in the timeout
+        # diagnostic below instead of being misattributed to "no
+        # Final File Ready event."
+        log_buf="$(/usr/bin/log show --signpost --predicate "$BENCH_LOG_PREDICATE" --last 3m --style compact 2>/dev/null)"
+        if [ -z "$log_buf" ]; then
+            log_show_failed=1
+        fi
+        found="$(printf '%s' "$log_buf" | SINCE="$since" /usr/bin/python3 -c '
 import os, re, sys
 since = os.environ["SINCE"]
 last = None
@@ -488,7 +497,11 @@ sys.exit(1)
         fi
         sleep 0.5
     done
-    echo "error: timeout after ${timeout}s waiting for Final File Ready since $since" >&2
+    if [ "$log_show_failed" = "1" ]; then
+        echo "error: timeout after ${timeout}s waiting for Final File Ready since $since (note: \`log show --signpost --predicate $BENCH_LOG_PREDICATE\` produced no output during the polling window — check log show permissions or that signposts are being emitted by Vocello)" >&2
+    else
+        echo "error: timeout after ${timeout}s waiting for Final File Ready since $since" >&2
+    fi
     return 1
 }
 
@@ -515,17 +528,36 @@ cmd_bench_record() {
     [ -n "$artifacts_dir" ] || { echo "error: --artifacts-dir required" >&2; exit 2; }
     [ -d "$artifacts_dir" ] || { echo "error: artifacts dir not found: $artifacts_dir" >&2; exit 1; }
 
-    local log_buf
-    log_buf="$(/usr/bin/log show --signpost --predicate "$BENCH_LOG_PREDICATE" --last 3m --style compact 2>/dev/null || true)"
+    # Single-shot signpost capture for this sample. If `log show` itself
+    # fails (permission revocation, system update, signpost subsystem
+    # disabled) the downstream parser will report "no Final File Ready"
+    # — surface the underlying cause here so the operator can disambiguate.
+    local log_buf log_show_stderr
+    log_show_stderr="$(mktemp -t bench-record-logshow)"
+    if ! log_buf="$(/usr/bin/log show --signpost --predicate "$BENCH_LOG_PREDICATE" --last 3m --style compact 2>"$log_show_stderr")"; then
+        echo "warn: \`log show --signpost --predicate $BENCH_LOG_PREDICATE\` failed; signpost-derived timings will be missing from this sample" >&2
+        if [ -s "$log_show_stderr" ]; then
+            sed 's/^/warn:   /' "$log_show_stderr" >&2
+        fi
+        log_buf=""
+    fi
+    rm -f "$log_show_stderr"
 
     # Wait up to 2 s for the DB row to land (saveGenerationAsync is detached).
     local db_row=""
+    local sqlite_failed=0
     for _ in 1 2 3 4 5 6 7 8; do
-        db_row="$(/usr/bin/sqlite3 -readonly -separator $'\t' "$HISTORY_DB" \
-            "SELECT id, audioPath, duration FROM generations ORDER BY createdAt DESC LIMIT 1" 2>/dev/null || true)"
+        if ! db_row="$(/usr/bin/sqlite3 -readonly -separator $'\t' "$HISTORY_DB" \
+            "SELECT id, audioPath, duration FROM generations ORDER BY createdAt DESC LIMIT 1" 2>/dev/null)"; then
+            sqlite_failed=1
+            db_row=""
+        fi
         [ -n "$db_row" ] && break
         sleep 0.25
     done
+    if [ -z "$db_row" ] && [ "$sqlite_failed" = "1" ]; then
+        echo "warn: sqlite3 query against $HISTORY_DB failed across 8 retries (db locked or missing) — db-derived fields will be missing from this sample" >&2
+    fi
 
     # RSS at this moment (single-point sample at FFR). The model lives in
     # the XPC engine service, not the main Vocello process, so we sum
