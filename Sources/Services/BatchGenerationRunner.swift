@@ -875,7 +875,12 @@ final class BatchGenerationRunner {
 
                     do {
                         try store.saveGeneration(&generation)
-                        generationEvents.announceGenerationSaved()
+                        // Use the payload-carrying announce so HistoryView
+                        // (which only subscribes to `generationAppended`)
+                        // refreshes live during batch runs. The helper
+                        // still fires the legacy `generationSaved` event
+                        // for any subscriber that hasn't migrated.
+                        generationEvents.announceGenerationAppended(generation)
                         completedCount += 1
                         items[index].status = .saved(audioPath: result.audioPath)
                         if index + 1 < items.count {
@@ -958,7 +963,9 @@ final class BatchGenerationRunner {
 
                 var generation = request.makeHistoryRecord(for: line, result: result)
                 try store.saveGeneration(&generation)
-                generationEvents.announceGenerationSaved()
+                // See above: payload-carrying announce so HistoryView
+                // appends the new row live.
+                generationEvents.announceGenerationAppended(generation)
                 completedCount += 1
                 items[index].status = .saved(audioPath: result.audioPath)
                 publishItems()

@@ -210,33 +210,42 @@ private struct SidebarRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            Capsule()
-                .fill(selectionIndicatorColor)
-                .frame(width: 3, height: 16)
+        // Wrap the row content in a Button so VoiceOver announces the row
+        // as a button (not just static text), keyboard activation (Space /
+        // Return) works, and AppKit's focus ring lands correctly. The
+        // visual modifiers (background, animation, hover) stay on the
+        // button's label so the look is unchanged. `.disabled(isDisabled)`
+        // gates both activation and accessibility traits via Button's
+        // built-in handling, which is stronger than the prior gesture
+        // gate.
+        Button {
+            selection = item
+        } label: {
+            HStack(spacing: 8) {
+                Capsule()
+                    .fill(selectionIndicatorColor)
+                    .frame(width: 3, height: 16)
 
-            Image(systemName: item.iconName)
-                .font(.system(size: 17, weight: isSelected ? .semibold : .regular))
-                .foregroundStyle(iconColor)
-                .frame(width: 22, alignment: .center)
+                Image(systemName: item.iconName)
+                    .font(.system(size: 17, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(iconColor)
+                    .frame(width: 22, alignment: .center)
 
-            Text(item.rawValue)
-                .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
-                .foregroundStyle(textColor)
-                .lineLimit(1)
+                Text(item.rawValue)
+                    .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(textColor)
+                    .lineLimit(1)
 
-            Spacer(minLength: 0)
-        }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 34)
-            .background(rowBackground)
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .onTapGesture {
-                guard !isDisabled else { return }
-                selection = item
+                Spacer(minLength: 0)
             }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: 34)
+                .background(rowBackground)
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+            .buttonStyle(.plain)
             .onHover { hovering in
                 isHovered = isDisabled ? false : hovering
             }

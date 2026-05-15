@@ -395,8 +395,21 @@ private extension HistoryView {
         panel.allowedContentTypes = [.wav]
         panel.canCreateDirectories = true
         if panel.runModal() == .OK, let url = panel.url {
+            let sourceURL = URL(fileURLWithPath: item.generation.audioPath)
+            let fileManager = FileManager.default
             do {
-                try FileManager.default.copyItem(at: URL(fileURLWithPath: item.generation.audioPath), to: url)
+                // NSSavePanel only stages the destination URL after the
+                // user confirms the overwrite prompt; it doesn't remove
+                // the existing file. `copyItem` then throws
+                // `NSFileWriteFileExistsError` on overwrite. Remove the
+                // pre-existing destination first so confirmed overwrites
+                // succeed. We can't use `replaceItemAt` here because
+                // that moves the source onto the destination — the
+                // history file must remain in place.
+                if fileManager.fileExists(atPath: url.path) {
+                    try fileManager.removeItem(at: url)
+                }
+                try fileManager.copyItem(at: sourceURL, to: url)
             } catch {
                 presentActionAlert(
                     title: "Export Error",
