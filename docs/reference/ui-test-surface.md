@@ -337,7 +337,13 @@ Real macOS sessions throw curve balls. Handle them, don't fight them.
 
 ## Benchmark anchors
 
-For multi-sample timing across cold/warm × variant × prompt-length, see [`bench-custom-voice.md`](bench-custom-voice.md). Element 2 of the autonomous-testing rollout adds five subcommands to `scripts/uitest.sh` that build on the same signpost+DB plumbing the smoke test verified:
+For multi-sample timing across cold/warm × variant × prompt-length, see [`bench-custom-voice.md`](bench-custom-voice.md). Per-sample metrics now extend beyond timing into audio quality and memory footprint (`schema_version: 3`):
+
+- `ms_engine_start_to_final`, `ms_engine_start_to_autoplay`, `audio_duration_s`, `rtf` — timing and pipeline anchors. `bench-compare`'s ±15% flagging logic uses `ms_engine_start_to_final` and `rtf`.
+- `audio_rms_dbfs`, `audio_peak_dbfs` — loudness metrics computed from the WAV via stdlib `wave` + `audioop`. Catches clipping, silent-output, or major level regressions. Informational only — not auto-flagged.
+- `peak_rss_mb` — sum of resident-set-size for Vocello + the `QwenVoiceEngineService` XPC process at the moment `Final File Ready` fires. Captures the real footprint of an active generation (the model lives in the XPC service, not the main app). Per-process breakdown is also retained as `peak_rss_mb_app` and `peak_rss_mb_xpc` for forensics. Informational only.
+
+Element 2 added five subcommands to `scripts/uitest.sh` that build on the same signpost+DB plumbing the smoke test verified:
 
 | Subcommand | Purpose |
 |---|---|

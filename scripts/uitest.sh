@@ -527,8 +527,26 @@ cmd_bench_record() {
         sleep 0.25
     done
 
+    # RSS at this moment (single-point sample at FFR). The model lives in
+    # the XPC engine service, not the main Vocello process, so we sum
+    # both. Captures the real footprint of an active generation pipeline.
+    local rss_kb_app rss_kb_xpc rss_kb_total=""
+    local vocello_pid xpc_pid
+    vocello_pid="$(pgrep -x "$APP_NAME" | head -n 1)"
+    xpc_pid="$(pgrep -fx '.*QwenVoiceEngineService\.xpc/Contents/MacOS/QwenVoiceEngineService' | head -n 1)"
+    if [ -n "$vocello_pid" ]; then
+        rss_kb_app="$(/bin/ps -o rss= -p "$vocello_pid" 2>/dev/null | /usr/bin/tr -d ' ')"
+    fi
+    if [ -n "$xpc_pid" ]; then
+        rss_kb_xpc="$(/bin/ps -o rss= -p "$xpc_pid" 2>/dev/null | /usr/bin/tr -d ' ')"
+    fi
+    if [ -n "$rss_kb_app" ] || [ -n "$rss_kb_xpc" ]; then
+        rss_kb_total=$(( ${rss_kb_app:-0} + ${rss_kb_xpc:-0} ))
+    fi
+
     MODE="$mode" VARIANT="$variant" COLDWARM="$coldwarm" BUCKET="$bucket" \
         ARTIFACTS_DIR="$artifacts_dir" DB_ROW="$db_row" LOG_BUF="$log_buf" \
+        RSS_KB="$rss_kb_total" RSS_KB_APP="${rss_kb_app:-0}" RSS_KB_XPC="${rss_kb_xpc:-0}" \
         /usr/bin/python3 - <<'PY'
 import json
 import os
@@ -619,6 +637,8 @@ audio_path = None
 audio_duration_s = None
 audio_bytes = None
 rtf = None
+audio_rms_dbfs = None
+audio_peak_dbfs = None
 if db_row:
     parts = db_row.split("\t")
     if len(parts) >= 3:
@@ -633,6 +653,42 @@ if db_row:
         if audio_duration_s and ms_engine_to_final:
             rtf = round(audio_duration_s / (ms_engine_to_final / 1000.0), 4)
 
+# Audio quality metrics — RMS + peak in dBFS, computed from the WAV
+# directly. Uses stdlib only (wave + audioop). Vocello writes 16-bit
+# mono PCM at 24 kHz per the Qwen3-TTS contract.
+if audio_path and os.path.isfile(audio_path):
+    try:
+        import math
+        import wave
+        import audioop
+        with wave.open(audio_path, "rb") as w:
+            sampwidth = w.getsampwidth()
+            n = w.getnframes()
+            frames = w.readframes(n)
+        if frames and sampwidth in (1, 2, 3, 4):
+            full_scale = float(1 << (8 * sampwidth - 1))
+            rms_raw = audioop.rms(frames, sampwidth)
+            peak_raw = audioop.max(frames, sampwidth)
+            if rms_raw > 0:
+                audio_rms_dbfs = round(20.0 * math.log10(rms_raw / full_scale), 3)
+            if peak_raw > 0:
+                audio_peak_dbfs = round(20.0 * math.log10(peak_raw / full_scale), 3)
+    except Exception as e:
+        # Don't fail the sample on audio analysis trouble.
+        print(f"warn: audio analysis skipped: {e}", file=sys.stderr)
+
+peak_rss_mb = None
+peak_rss_mb_app = None
+peak_rss_mb_xpc = None
+def _kb_to_mb(env_key):
+    v = os.environ.get(env_key, "")
+    if v.isdigit() and int(v) > 0:
+        return round(int(v) / 1024.0, 1)
+    return None
+peak_rss_mb = _kb_to_mb("RSS_KB")
+peak_rss_mb_app = _kb_to_mb("RSS_KB_APP")
+peak_rss_mb_xpc = _kb_to_mb("RSS_KB_XPC")
+
 sample = {
     "mode": mode,
     "variant": variant,
@@ -641,6 +697,11 @@ sample = {
     "ms_engine_start_to_first_chunk": ms_engine_to_first,
     "ms_engine_start_to_final": ms_engine_to_final,
     "ms_engine_start_to_autoplay": ms_engine_to_play,
+    "audio_rms_dbfs": audio_rms_dbfs,
+    "audio_peak_dbfs": audio_peak_dbfs,
+    "peak_rss_mb": peak_rss_mb,
+    "peak_rss_mb_app": peak_rss_mb_app,
+    "peak_rss_mb_xpc": peak_rss_mb_xpc,
     "audio_path": audio_path,
     "audio_bytes": audio_bytes,
     "audio_duration_s": audio_duration_s,
@@ -688,6 +749,11 @@ METRICS = [
     "ms_engine_start_to_autoplay",
     "audio_duration_s",
     "rtf",
+    # Audio quality (informational; not auto-flagged by bench-compare)
+    "audio_rms_dbfs",
+    "audio_peak_dbfs",
+    # Memory (informational; not auto-flagged)
+    "peak_rss_mb",
 ]
 
 def stat_block(values):
@@ -743,7 +809,7 @@ for mo in results:
                 results[mo][v][cw][b] = summary
 
 out = {
-    "schema_version": 2,
+    "schema_version": 3,
     "generated_at_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "sample_count": len(samples),
     "results": results,
