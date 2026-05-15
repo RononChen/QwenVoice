@@ -339,5 +339,19 @@ enum IOSModelDeliverySupport {
         if !configuration.allowsInsecureTransport, url.scheme?.lowercased() != "https" {
             throw IOSModelDeliveryError.invalidConfiguration("\(label.capitalized) URL must use HTTPS.")
         }
+
+        // Apply the same host allowlist as `validateCatalogURL`. Without
+        // this, a catalog served from an allowed host could redirect
+        // artifact downloads to any HTTPS endpoint. SHA-256 verification
+        // still catches accidental corruption, but if the catalog itself
+        // is compromised the hash and URL come from the same source —
+        // restricting hosts is the only meaningful supply-chain boundary.
+        if let host = url.host?.lowercased(),
+           !configuration.allowedHosts.isEmpty,
+           !configuration.allowedHosts.contains(host) {
+            throw IOSModelDeliveryError.invalidConfiguration(
+                "\(label.capitalized) URL host \(host) is not allowed."
+            )
+        }
     }
 }

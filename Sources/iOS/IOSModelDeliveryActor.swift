@@ -686,7 +686,6 @@ actor IOSModelDeliveryActor {
 
     private func handleTaskCompletion(taskIdentifier: Int, rawTaskDescription: String?, error: Error?) async {
         _ = taskIdentifier
-        _ = rawTaskDescription
         guard let error else {
             await completeBackgroundEventsIfIdle()
             return
@@ -698,6 +697,29 @@ actor IOSModelDeliveryActor {
 
         guard let activeInstall else {
             await failActiveInstall(error)
+            return
+        }
+
+        // Background URLSession can deliver completion callbacks for tasks
+        // that no longer correspond to the active install (app relaunch,
+        // cancel-then-restart, stale tasks from a previous artifact
+        // version). The progress and finished-download paths already
+        // validate the task description against the active install; the
+        // error path previously did not, so a stale task error could
+        // trigger retry/failure logic on whatever install was currently
+        // running. Decode and verify here before mutating state.
+        let taskDescription = decodeTaskDescription(rawTaskDescription)
+        guard let taskDescription else {
+            #if DEBUG
+            print("[IOSModelDeliveryActor] Dropped task error callback — missing or unparseable taskDescription error=\(error.localizedDescription)")
+            #endif
+            return
+        }
+        guard taskDescription.modelID == activeInstall.modelID,
+              taskDescription.relativePath == activeInstall.currentRelativePath else {
+            #if DEBUG
+            print("[IOSModelDeliveryActor] Dropped stale task error callback — taskDescription modelID=\(taskDescription.modelID) path=\(taskDescription.relativePath) activeModelID=\(activeInstall.modelID) activePath=\(activeInstall.currentRelativePath ?? "nil") error=\(error.localizedDescription)")
+            #endif
             return
         }
 

@@ -1001,6 +1001,16 @@ struct IOSVoiceCloningView: View {
     }
 
     private func applyImportedReferenceAudio(from url: URL) {
+        // The `url` argument must originate from a `fileImporter` callback
+        // or another platform picker that hands out a security-scoped URL.
+        // `LocalDocumentIO.importReferenceAudio` wraps the read with
+        // `startAccessingSecurityScopedResource()` / `stopAccessing…`, so
+        // the scope must travel with the URL through the engine indirection
+        // (`ttsEngine.importReferenceAudio(from: url)` passes the URL by
+        // value, preserving its scope context). Do NOT reconstruct the URL
+        // from a `path` String before calling this — the rebuilt URL has
+        // no scope and the import will fail on iCloud / third-party
+        // providers.
         do {
             let imported = try ttsEngine.importReferenceAudio(from: url)
             draft.referenceAudioPath = imported.materializedPath

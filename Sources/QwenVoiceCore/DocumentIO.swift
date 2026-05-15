@@ -81,6 +81,24 @@ public struct LocalDocumentIO: DocumentIO, Hashable, Sendable {
     }
 
     public func importReferenceAudio(from sourceURL: URL) throws -> ImportedReferenceAudio {
+        // iOS `fileImporter` (and macOS NSOpenPanel under a sandboxed
+        // configuration) deliver security-scoped URLs that require an
+        // explicit `startAccessingSecurityScopedResource()` before any
+        // read. macOS today runs with the app sandbox disabled
+        // (`com.apple.security.app-sandbox = false`) so this call is a
+        // no-op there, but iOS is always sandboxed and the import
+        // would otherwise fail silently for files from iCloud Drive,
+        // Files providers, or any other app's container. Pair with a
+        // `defer` to release the grant on every exit path. Wrapping
+        // around the sidecar lookup keeps the `.txt` companion read
+        // inside the same scope.
+        let accessed = sourceURL.startAccessingSecurityScopedResource()
+        defer {
+            if accessed {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: sourceURL.path) else {
             throw DocumentIOError.missingSource(sourceURL.path)
