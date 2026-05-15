@@ -146,6 +146,21 @@ actor NativeEngineRuntime {
     private var activeCloneConditioningKey: String?
     private var nextRequestID = 1
 
+    /// Monitor-style gate that serializes Voice Design / Custom prewarm
+    /// work across actor suspension points. The actor mutex alone
+    /// doesn't suffice because the prewarm body does
+    /// `try await model.prewarm{Custom,VoiceDesign}(...)`, which
+    /// releases exclusive actor access while the upstream MLX call
+    /// runs. Without this gate, two callers (e.g.,
+    /// `prefetchInteractiveReadinessIfNeeded` from the UI's fire-and-
+    /// forget warm-up and `prepareGeneration` from a user submit) can
+    /// both reach MLX's KV cache slice updates simultaneously — the
+    /// cache isn't thread-safe and trips an MLX assertion. See crash
+    /// report `~/Library/Logs/DiagnosticReports/QwenVoiceEngineService-2026-05-15-162429.ips`
+    /// for the failing call stacks.
+    private var prewarmInFlight = false
+    private var prewarmWaiters: [CheckedContinuation<Void, Never>] = []
+
     init(
         loadCoordinator: any MLXModelCoordinating,
         audioPreparationService: any AudioPreparationService,
@@ -658,6 +673,14 @@ actor NativeEngineRuntime {
         if shouldSkipDedicatedCustomPrewarm(for: request, model: model) {
             return [:]
         }
+        // Serialize with any concurrent prewarm in flight. See
+        // `acquirePrewarmSlot` for the rationale. The slot covers the
+        // entire body including the `try await model.prewarm*(...)`
+        // suspension — that's what makes it safe against actor
+        // reentrancy.
+        await acquirePrewarmSlot()
+        defer { releasePrewarmSlot() }
+
         let prewarmSignpost = Self.signposter.beginInterval("Native Explicit Prewarm")
         defer {
             Self.signposter.endInterval("Native Explicit Prewarm", prewarmSignpost)
@@ -740,6 +763,40 @@ actor NativeEngineRuntime {
                 stage: .prewarm,
                 message: "The native runtime could not warm model '\(request.modelID)'"
             )
+        }
+    }
+
+    /// Wait until no other prewarm body is running, then mark the slot
+    /// taken. Pair with `releasePrewarmSlot()` — typically via `defer`
+    /// at the top of the prewarm body.
+    ///
+    /// The actor mutex by itself isn't enough: prewarm bodies suspend
+    /// while waiting on `model.prewarm*(...)` (which calls into MLX
+    /// on a cooperative executor) and the actor is free to dispatch
+    /// another message during that window. Without this gate, two
+    /// callers can both end up inside MLX's KV cache slice updates and
+    /// trip the C++-side assertion that crashed the bench cycle at
+    /// sample #38 (Voice Design / Quality cold 3).
+    private func acquirePrewarmSlot() async {
+        while prewarmInFlight {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                prewarmWaiters.append(continuation)
+            }
+        }
+        prewarmInFlight = true
+    }
+
+    /// Release the prewarm slot and wake every waiter. The first
+    /// waiter to be resumed will see `prewarmInFlight == false`, set
+    /// it back to `true`, and proceed; any remaining waiters will
+    /// loop and re-await. Drain-then-flip is intentional: it preserves
+    /// FIFO-ish wake order without holding extra state.
+    private func releasePrewarmSlot() {
+        prewarmInFlight = false
+        let waiters = prewarmWaiters
+        prewarmWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
         }
     }
 
@@ -872,6 +929,18 @@ actor NativeEngineRuntime {
         model: UnsafeSpeechGenerationModel,
         source: DesignConditioningWarmSource
     ) async throws -> DesignConditioningWarmState {
+        // Acquire the prewarm slot before any model state inspection.
+        // Two paths reach this method concurrently
+        // (`prefetchInteractiveReadinessIfNeeded` and
+        // `prepareGeneration`) and without the slot they race on
+        // MLX's KV cache during `model.prewarmVoiceDesign(...)`. After
+        // we release, the second caller acquires and re-inspects
+        // `activeDesignConditioningWarmKey` — which we'll have set
+        // if we did real prewarm work — so the second caller takes
+        // the cache-hit `reused` path instead of re-running prewarm.
+        await acquirePrewarmSlot()
+        defer { releasePrewarmSlot() }
+
         guard case .design(let voiceDescription, let deliveryStyle) = request.payload else {
             return DesignConditioningWarmState(
                 bucket: .short,
