@@ -76,6 +76,12 @@ struct TTSModel: Identifiable, Hashable, Sendable, Codable {
 
 enum MacModelVariantPreferences {
     private static let keyPrefix = "QwenVoice.MacModelVariantPreference."
+    /// Global override: when set to true, every per-mode variant lookup
+    /// resolves to the Speed (4-bit) variant regardless of the per-mode
+    /// stored choice or the hardware-recommended default. Intended for
+    /// users on memory-constrained Macs who want to pin Speed across
+    /// all three generation modes with one toggle instead of three.
+    static let preferSpeedEverywhereKey = "QwenVoice.PreferSpeedEverywhere"
 
     static func key(for mode: GenerationMode) -> String {
         keyPrefix + mode.rawValue
@@ -107,6 +113,17 @@ enum MacModelVariantPreferences {
         defaults: UserDefaults = .standard
     ) {
         defaults.removeObject(forKey: key(for: mode))
+    }
+
+    static func preferSpeedEverywhere(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: preferSpeedEverywhereKey)
+    }
+
+    static func setPreferSpeedEverywhere(
+        _ value: Bool,
+        defaults: UserDefaults = .standard
+    ) {
+        defaults.set(value, forKey: preferSpeedEverywhereKey)
     }
 }
 

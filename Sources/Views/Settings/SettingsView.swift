@@ -30,6 +30,13 @@ struct SettingsView: View {
 
     @AppStorage("autoPlay") private var autoPlay = true
     @AppStorage("outputDirectory") private var outputDirectory = ""
+    /// Bound to `MacModelVariantPreferences.preferSpeedEverywhereKey`.
+    /// When ON, every generation mode resolves to the Speed (4-bit)
+    /// variant regardless of per-mode preferences or hardware
+    /// recommendations. Useful on memory-constrained Macs where the
+    /// user wants to pin lower-RAM operation with one toggle.
+    @AppStorage(MacModelVariantPreferences.preferSpeedEverywhereKey)
+    private var preferSpeedEverywhere = false
 
     @State private var flashedMode: GenerationMode?
     @State private var modelToDelete: TTSModel?
@@ -62,6 +69,27 @@ struct SettingsView: View {
                     Toggle("Auto-play generated audio", isOn: $autoPlay)
                         .tint(AppTheme.preferences)
                         .accessibilityIdentifier("preferences_autoPlayToggle")
+                }
+
+                Section {
+                    Toggle(isOn: $preferSpeedEverywhere) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Always use Speed (4-bit) models")
+                                .font(.body)
+                            Text(
+                                "Pins every generation mode to the Speed variant — saves memory on lower-RAM Macs. " +
+                                "Speed models are smaller and faster but lower fidelity than Quality (8-bit). " +
+                                "You can still switch per-generation in the mode screens; this toggle just changes the defaults."
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .tint(AppTheme.preferences)
+                    .accessibilityIdentifier("settings_preferSpeedEverywhere")
+                } header: {
+                    Text("Performance")
                 }
 
                 Section("Storage") {

@@ -205,6 +205,18 @@ enum TTSContract {
         let modeModels = models.filter { $0.mode == mode }
         guard !modeModels.isEmpty else { return nil }
         let recommended = recommendedModel(in: models, for: mode) ?? modeModels[0]
+        // Global "prefer Speed everywhere" override. When the user has
+        // toggled this on (e.g., to keep RAM use bounded on an 8 GB
+        // Mac), short-circuit the per-mode preference + hardware-
+        // recommended fallback chain and return the Speed variant if
+        // one exists. Falls back to recommended if no Speed variant is
+        // available for this mode — protects against contract edge
+        // cases where a mode might not have a Speed build.
+        if MacModelVariantPreferences.preferSpeedEverywhere(defaults: defaults) {
+            if let speed = modeModels.first(where: { $0.variantKind == .speed }) {
+                return speed
+            }
+        }
         let selectedVariantID = MacModelVariantPreferences.selectedVariantID(
             for: mode,
             defaultVariantID: recommended.variantID,
