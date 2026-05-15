@@ -14,6 +14,25 @@ This folder contains the current repo-authored documentation for QwenVoice.
 - [`reference/vendoring-runtime.md`](reference/vendoring-runtime.md) — runtime, vendoring, and packaging boundaries
 - [`reference/mlx-audio-swift-patching.md`](reference/mlx-audio-swift-patching.md) — vendor delta under `third_party_patches/mlx-audio-swift/`, rebase procedure, and post-rebase build checklist
 
+### Autonomous UI testing & bench
+
+The Debug build is drivable by a Claude Code session via the computer-use MCP. The harness lives in `scripts/uitest.sh`; runbooks under `reference/` capture the per-scenario flow:
+
+- [`reference/ui-test-surface.md`](reference/ui-test-surface.md) — agent's reference: accessibility-identifier vocabulary by screen, completion signals (signposts + DB + file), per-sample bench metrics, scaling caveats
+- [`reference/bootstrap-saved-voice.md`](reference/bootstrap-saved-voice.md) — one-time autonomous setup of the `UITestRef` saved-voice fixture via Voice Design (no file picker required)
+- Smoke runbooks (one happy-path scenario each):
+  - [`reference/smoke-custom-voice.md`](reference/smoke-custom-voice.md) — Custom Voice generation
+  - [`reference/smoke-voice-design.md`](reference/smoke-voice-design.md) — Voice Design generation
+  - [`reference/smoke-voice-cloning.md`](reference/smoke-voice-cloning.md) — Voice Cloning (uses the `UITestRef` fixture)
+  - [`reference/smoke-settings.md`](reference/smoke-settings.md) — Settings screen renders + model packages show "Ready"
+  - [`reference/smoke-history.md`](reference/smoke-history.md) — History list renders + search filters + row plays
+  - [`reference/smoke-saved-voices.md`](reference/smoke-saved-voices.md) — Saved Voices lists the fixture + row plays
+- Bench runbooks (multi-sample timing + audio quality + memory across cold/warm × variant × prompt-length):
+  - [`reference/bench-custom-voice.md`](reference/bench-custom-voice.md)
+  - [`reference/bench-voice-design.md`](reference/bench-voice-design.md)
+  - [`reference/bench-voice-cloning.md`](reference/bench-voice-cloning.md)
+- [`reference/benchmark-baselines.json`](reference/benchmark-baselines.json) — committed regression baselines (schema v3 once a fresh bench run promotes it; v2 today after the seeding run)
+
 Useful local diagnostics can be exported with:
 
 ```sh
@@ -43,5 +62,5 @@ Supplemental guides are useful, but they are not the primary source of truth for
 
 - Maintained contributor guidance in this checkout lives in `CONTRIBUTING.md` and the maintained reference docs listed above.
 - This repo does not maintain project-scoped QwenVoice skills; contributor guidance lives in the maintained docs above.
-- Current automation surfaces live in `scripts/`. There are no GitHub workflows and no automated test/bench harness — both were retired in May 2026. Builds, packaging, signing, notarization, and TestFlight prep run **locally on Mac mini M2** via `scripts/check_project_inputs.sh`, `scripts/build_foundation_targets.sh`, `scripts/release.sh`, and `scripts/release_ios_testflight.sh`. Behavioral verification is manual: launch the app and exercise the affected paths.
+- Current automation surfaces live in `scripts/`. There are no GitHub workflows and no XCTest target — both were retired in May 2026. Builds, packaging, signing, notarization, and TestFlight prep run **locally on Mac mini M2** via `scripts/check_project_inputs.sh`, `scripts/build_foundation_targets.sh`, `scripts/release.sh`, and `scripts/release_ios_testflight.sh`. Behavioral verification is twofold: (a) manual — launch the app and exercise the affected paths by hand, and (b) agent-driven — a Claude Code session can drive `Vocello.app` via the computer-use MCP, following the smoke and bench runbooks above. The agent-driven harness lives in `scripts/uitest.sh` plus the runbooks under `reference/`; it's distinct from the XCTest / CI / Python-benchmark harnesses `check_project_inputs.sh` actively bans.
 - Generated or vendored dependency documentation is intentionally out of scope for the repo docs.

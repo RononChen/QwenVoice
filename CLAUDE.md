@@ -68,7 +68,7 @@ Release builds therefore start with an empty `QwenVoice/` after the first Debug 
 
 ### Autonomous UI testing
 
-The Debug build is drivable by a Claude Code session via the computer-use MCP. Entry point is `scripts/uitest.sh` (subcommands: `prep`, `reset [--include-voices|--full]`, `locate <ax-id>`, `screen-size`, `activate`, `logs`, `db <sql>`, `artifacts-dir`, `smoke-check [<mode>]`, plus the bench-* family). The agent's reference for what's clickable and how to verify generation completion lives at `docs/reference/ui-test-surface.md`. Test artifacts land in `build/uitest/<timestamp>/` and are wiped by `scripts/build.sh clean`.
+The Debug build is drivable by a Claude Code session via the computer-use MCP. Entry point is `scripts/uitest.sh` (subcommands: `prep`, `reset [--include-voices|--full]`, `locate <ax-id>`, `scaled-locate`, `screen-size`, `activate`, `logs`, `db <sql>`, `artifacts-dir`, `smoke-check [<mode>]`, plus the bench-* family: `bench-wait`, `bench-step`, `bench-record`, `bench-summarize`, `bench-compare`, `bench-update-baselines`). The agent's reference for what's clickable and how to verify generation completion lives at `docs/reference/ui-test-surface.md`. Test artifacts land in `build/uitest/<timestamp>/` and are wiped by `scripts/build.sh clean`.
 
 Smoke runbooks (one per generation mode):
 
@@ -86,13 +86,13 @@ Saved-voice fixture bootstrap (one-time, autonomous):
 
 - `docs/reference/bootstrap-saved-voice.md` — generates `voices/UITestRef.wav` via Voice Design → Save to Saved Voices, no file picker needed
 
-Benchmark runbooks share the bench-* harness (`bench-wait`, `bench-record <mode> <variant> <coldwarm> <bucket>`, `bench-summarize`, `bench-compare`, `bench-update-baselines`):
+Benchmark runbooks share the bench-* harness (`bench-wait`, `bench-step <mode> <variant> <coldwarm> <bucket>` as the one-shot per-sample wrapper, `bench-record` for the raw record-only call, `bench-summarize`, `bench-compare`, `bench-update-baselines`):
 
 - `docs/reference/bench-custom-voice.md`
 - `docs/reference/bench-voice-design.md`
 - `docs/reference/bench-voice-cloning.md`
 
-Committed baselines live at `docs/reference/benchmark-baselines.json` (schema v2, keyed by mode) so regressions show up in `git diff`.
+Committed baselines live at `docs/reference/benchmark-baselines.json` (schema v3 — adds per-sample audio quality `audio_rms_dbfs` / `audio_peak_dbfs` and combined Vocello+XPC `peak_rss_mb` on top of v2's timing tree; keyed by mode at the top level) so regressions show up in `git diff`. Existing v2 baselines compare cleanly against v3 results — the new metrics are additive and `bench-compare`'s ±15 % flagging still uses `ms_engine_start_to_final` and `rtf` only.
 
 ## Testing policy — important
 
