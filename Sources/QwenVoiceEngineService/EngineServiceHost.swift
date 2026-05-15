@@ -76,23 +76,36 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
         category: "EngineServiceHost"
     )
 
-    private static let encodedFailureFallback: Data = {
-        do {
-            return try EngineServiceCodec.encode(
-                EngineReplyEnvelope(
-                    id: UUID(),
-                    reply: .failure(
-                        RemoteErrorPayload(message: "The engine service failed to encode its reply.")
-                    )
+    /// Encodes a failure-shaped reply that preserves the original request id
+    /// so the client can match it to the pending request and resolve the
+    /// in-flight continuation. The previous implementation used a static
+    /// pre-encoded constant with a random `UUID()`, which the client silently
+    /// dropped (no pending request matched the id) — leaving `.generate` and
+    /// `.generateBatch` calls (which carry no transport timeout) hung
+    /// indefinitely whenever response encoding failed (e.g., a non-finite
+    /// numeric metadata field made it into the payload).
+    private static func encodeFailureFallback(for requestID: UUID, underlyingError: Error) -> Data {
+        let fallback = EngineReplyEnvelope(
+            id: requestID,
+            reply: .failure(
+                RemoteErrorPayload(
+                    message: "The engine service failed to encode its reply: \(underlyingError.localizedDescription)"
                 )
             )
+        )
+        do {
+            return try EngineServiceCodec.encode(fallback)
         } catch {
             EngineServiceHost.logger.fault(
-                "Failed to pre-encode engine-service failure fallback: \(error.localizedDescription, privacy: .public)"
+                "Failed to encode engine-service failure fallback for id \(requestID.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
+            // Degenerate path: even a minimal failure envelope failed to
+            // encode. Returning empty Data forces the client into its
+            // `invalidReply` disconnect handler, which is preferable to
+            // silently dropping the reply because the id doesn't match.
             return Data()
         }
-    }()
+    }
 
     private let sessionLock = NSLock()
     private let activeGenerationCoordinator = ServiceActiveGenerationCoordinator()
@@ -143,8 +156,18 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
         Task { @MainActor [weak self, payload] in
             guard let self else { return }
             let response = await self.handleCommandPayload(payload)
-            let encodedResponse = (try? EngineServiceCodec.encode(response))
-                ?? Self.encodedFailureFallback
+            let encodedResponse: Data
+            do {
+                encodedResponse = try EngineServiceCodec.encode(response)
+            } catch {
+                Self.logger.error(
+                    "Failed to encode engine-service reply (id \(response.id.uuidString, privacy: .public)): \(error.localizedDescription, privacy: .public)"
+                )
+                encodedResponse = Self.encodeFailureFallback(
+                    for: response.id,
+                    underlyingError: error
+                )
+            }
             replyHandler.reply(encodedResponse)
         }
     }

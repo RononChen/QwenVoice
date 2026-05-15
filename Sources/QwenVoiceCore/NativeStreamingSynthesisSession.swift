@@ -21,6 +21,15 @@ private enum NativeStreamingSignposts {
         subsystem: "com.qwenvoice.engine",
         category: "generation"
     )
+
+    /// Used to surface model/runtime instability (NaN/Inf samples) caught
+    /// by `PCM16StreamLimiter` before it could poison PCM output or derived
+    /// numeric metadata. Anything non-zero indicates the upstream MLX
+    /// generation produced unstable samples that the limiter scrubbed.
+    static let logger = Logger(
+        subsystem: "com.qwenvoice.engine",
+        category: "generation"
+    )
 }
 
 final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unchecked Sendable {
@@ -243,7 +252,13 @@ private enum PCM16WAVWriter {
 
     static func pcmSamples(from samples: [Float]) -> [Int16] {
         samples.map { sample in
-            let clamped = max(-1.0, min(1.0, sample))
+            // NaN/Inf survive `max/min` comparisons (NaN comparisons always
+            // return false), so without an explicit isFinite guard the Int16
+            // conversion below would trap or produce undefined output and
+            // also taint any derived numeric metadata (RMS, peak, duration)
+            // that flows over IPC and breaks JSON-based encoders.
+            let finiteSample = sample.isFinite ? sample : 0
+            let clamped = max(-1.0, min(1.0, finiteSample))
             return Int16((clamped * Float(Int16.max)).rounded())
         }
     }
@@ -465,6 +480,13 @@ struct PCM16StreamLimiter: Sendable {
         var samplesOutsideUnitRange = 0
         var slewLimitedSamples = 0
         var processedSamples = 0
+        // Count of non-finite (NaN/Inf) samples observed at the limiter's
+        // input. These are replaced with `0` before any gain math runs —
+        // otherwise NaN propagates through the `max/min` clamps (NaN
+        // comparisons always return false) and turns into undefined Int16
+        // output plus non-finite derived metadata that breaks JSON-encoded
+        // IPC payloads downstream.
+        var nonFiniteSamples = 0
         var minimumAppliedGain: Float = 1
 
         private static func partsPerMillion(_ value: Float) -> Int {
@@ -481,7 +503,17 @@ struct PCM16StreamLimiter: Sendable {
     private(set) var metrics = Metrics()
 
     mutating func append(_ samples: [Float], into destination: inout [Int16]) {
-        for sample in samples {
+        for rawSample in samples {
+            // Sanitize NaN/Inf at the source. Anything past this guard is
+            // safe to feed into gain/limiter math without poisoning the
+            // derived metrics or the Int16 conversion below.
+            let sample: Float
+            if rawSample.isFinite {
+                sample = rawSample
+            } else {
+                metrics.nonFiniteSamples += 1
+                sample = 0
+            }
             let rawMagnitude = abs(sample)
             metrics.rawPeak = max(metrics.rawPeak, rawMagnitude)
             metrics.processedSamples += 1
@@ -749,6 +781,10 @@ private struct StreamingExecutionContext: Sendable {
             "Native PCM Limiter Convert",
             limiterSignpost
         )
+        Self.warnIfNonFiniteSamplesObserved(
+            metrics: scratchBuffer.limiterMetrics,
+            context: "quality-first final audio"
+        )
         do {
             let finalWriteSignpost = NativeStreamingSignposts.signposter.beginInterval(
                 "Native Final WAV Write"
@@ -863,6 +899,24 @@ private struct StreamingExecutionContext: Sendable {
                 "Qwen3-TTS failed before producing a complete final audio result."
             )
         }
+    }
+
+    /// Logs a warning when the PCM limiter had to scrub NaN/Inf samples
+    /// from the model output. Non-zero counts here are a signal that the
+    /// upstream MLX runtime produced unstable values — the limiter
+    /// replaced them with `0` so they couldn't corrupt the PCM output
+    /// or downstream IPC-encoded numeric metadata, but the underlying
+    /// instability is worth surfacing.
+    private static func warnIfNonFiniteSamplesObserved(
+        metrics: PCM16StreamLimiter.Metrics,
+        context: String
+    ) {
+        let nonFinite = metrics.nonFiniteSamples
+        guard nonFinite > 0 else { return }
+        let total = metrics.processedSamples
+        NativeStreamingSignposts.logger.warning(
+            "PCM limiter scrubbed \(nonFinite, privacy: .public) non-finite sample(s) out of \(total, privacy: .public) (\(context, privacy: .public)). Upstream MLX generation produced NaN/Inf values."
+        )
     }
 
     func run(eventSink: @escaping @MainActor @Sendable (GenerationEvent) -> Void) async throws -> GenerationResult {
@@ -1024,6 +1078,11 @@ private struct StreamingExecutionContext: Sendable {
             Memory.clearCache()
             throw error
         }
+
+        Self.warnIfNonFiniteSamplesObserved(
+            metrics: scratchBuffer.limiterMetrics,
+            context: "streaming chunks"
+        )
 
         guard totalFramesWritten > 0 else {
             throw MLXTTSEngineError.generationFailed("The native engine did not emit any audio chunks.")

@@ -71,25 +71,29 @@ final class VocelloEngineExtensionHost: NSObject, VocelloEngineExtensionXPCProto
         category: "VocelloEngineExtensionHost"
     )
 
-    private static let encodedFailureFallback: Data = {
-        do {
-            return try ExtensionEngineCodec.encode(
-                ExtensionEngineReplyEnvelope(
-                    id: UUID(),
-                    reply: .failure(
-                        ExtensionRemoteErrorPayload(
-                            message: "The Vocello engine extension failed to encode its reply."
-                        )
-                    )
+    /// Encodes a failure-shaped reply that preserves the original request id
+    /// so the iPhone client matches the reply to its pending request and
+    /// resolves the in-flight continuation. Mirrors the macOS host's
+    /// `encodeFailureFallback(for:underlyingError:)` — see that helper for
+    /// the full rationale.
+    private static func encodeFailureFallback(for requestID: UUID, underlyingError: Error) -> Data {
+        let fallback = ExtensionEngineReplyEnvelope(
+            id: requestID,
+            reply: .failure(
+                ExtensionRemoteErrorPayload(
+                    message: "The Vocello engine extension failed to encode its reply: \(underlyingError.localizedDescription)"
                 )
             )
+        )
+        do {
+            return try ExtensionEngineCodec.encode(fallback)
         } catch {
             VocelloEngineExtensionHost.logger.fault(
-                "Failed to pre-encode engine-extension failure fallback: \(error.localizedDescription, privacy: .public)"
+                "Failed to encode engine-extension failure fallback for id \(requestID.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
             return Data()
         }
-    }()
+    }
 
     private let sessionLock = NSLock()
     private let activeGenerationCoordinator = ExtensionActiveGenerationCoordinator()
@@ -139,8 +143,18 @@ final class VocelloEngineExtensionHost: NSObject, VocelloEngineExtensionXPCProto
         let replyHandler = ExtensionReplyHandlerBox(reply: reply)
         Task { @MainActor in
             let response = await handleCommandPayload(payload)
-            let encodedResponse = (try? ExtensionEngineCodec.encode(response))
-                ?? Self.encodedFailureFallback
+            let encodedResponse: Data
+            do {
+                encodedResponse = try ExtensionEngineCodec.encode(response)
+            } catch {
+                Self.logger.error(
+                    "Failed to encode engine-extension reply (id \(response.id.uuidString, privacy: .public)): \(error.localizedDescription, privacy: .public)"
+                )
+                encodedResponse = Self.encodeFailureFallback(
+                    for: response.id,
+                    underlyingError: error
+                )
+            }
             replyHandler.reply(encodedResponse)
         }
     }
