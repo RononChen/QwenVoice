@@ -109,23 +109,32 @@ Voice Cloning requires a pre-existing saved voice for autonomous runs (the alter
 
 ### History
 
+`<id>` below is a generation row id from `history.sqlite` (`SELECT id FROM generations`). Read the latest id with `scripts/uitest.sh db "SELECT id FROM generations ORDER BY createdAt DESC LIMIT 1"`.
+
 | Identifier | Kind | Purpose |
 |---|---|---|
 | `screen_history` | container | History screen container |
 | `history_searchField` | text field | Filter history rows |
 | `history_sortPicker` | picker | Newest / oldest order |
+| `historyRow_<id>` | row | One generation row (keyed by generation id) |
+| `historyRow_play_<id>` | button | Play the generated audio |
+| `historyRow_saveAs_<id>` | button | Export the audio to a chosen path |
+| `historyRow_delete_<id>` | button | Delete the row + audio |
+| `historyRow_saveVoice_<id>` | button | Save this generation as a new saved voice (only present for modes that can produce one) |
 
 ### Saved Voices
+
+`<voiceID>` below is the saved voice's name-derived id (e.g. `UITestRef`) — same value `enrollPreparedVoice` returns as `PreparedVoice.id`.
 
 | Identifier | Kind | Purpose |
 |---|---|---|
 | `screen_voices` | container | Saved Voices screen container |
 | `voices_enrollButton` | button | Add a new saved voice |
 | `voices_retryButton` | button | Retry after a load failure |
-| `voicesRow_<voiceID>` | row | One saved voice row (keyed by UUID) |
-| `voicesRow_<voiceID>_use` | button | Use this voice in cloning |
-| `voicesRow_<voiceID>_play` | button | Play a preview |
-| `voicesRow_<voiceID>_delete` | button | Delete this voice |
+| `voicesRow_<voiceID>` | row | One saved voice row |
+| `voicesRow_use_<voiceID>` | button | Use this voice in cloning |
+| `voicesRow_play_<voiceID>` | button | Play a preview |
+| `voicesRow_delete_<voiceID>` | button | Delete this voice |
 | `voicesRow_<voiceID>_qualityWarning` | badge | Quality warning visible |
 | `voicesRow_<voiceID>_replaceReference` | button | Replace reference clip |
 

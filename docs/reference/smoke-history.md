@@ -44,8 +44,8 @@ Before testing, ensure ≥ 1 generation row exists. The runbook does this by run
    - Verify with `scripts/uitest.sh locate screen_history` (exit 0).
    - `/usr/sbin/screencapture -x "$ART/pre.png"`.
 8. **Verify a row is visible**:
-   - Screenshot inspection: at least one row in the list (text matching `Hello world.` should be visible).
-   - The row-level accessibility id pattern isn't catalogued yet. Try `locate history_row_0` or `historyRow_0` and add what you find to `ui-test-surface.md`. Fall back to visual click otherwise.
+   - Read the seeded generation's id: `GEN_ID=$(scripts/uitest.sh db "SELECT id FROM generations ORDER BY createdAt DESC LIMIT 1")`.
+   - `scripts/uitest.sh locate historyRow_$GEN_ID` should return non-empty coords — that anchors the row by canonical id.
 9. **Use the search field**:
    - `scaled-locate history_searchField 1456 816` → click.
    - Type `Hello` (no `cmd+return` — search filters live).
@@ -54,19 +54,18 @@ Before testing, ensure ≥ 1 generation row exists. The runbook does this by run
     - Click search field → `cmd+a` → `delete`.
     - Screenshot — all rows should be back.
 11. **Click play on the (first) row**:
-    - Row play affordance ID not yet catalogued; visually find and click the play icon.
+    - `scripts/uitest.sh locate historyRow_play_$GEN_ID` → `mcp__computer-use__left_click(coordinate=[cx,cy])`.
     - Verify playback by checking the Player section in the sidebar shows the seeded prompt text.
 12. **Post-screenshot + tear down**: `/usr/sbin/screencapture -x "$ART/post.png"`, then `kill "$LOG_PID" 2>/dev/null || true`.
 13. **Write `$ART/result.json`** with:
-    - `pass`: true if (a) at least one row visible after seed, (b) search-filter narrows visible rows, (c) play affordance launches the audio player
+    - `pass`: true if (a) `historyRow_<id>` and `historyRow_play_<id>` both resolve, (b) search-filter narrows visible rows, (c) play affordance launches the audio player
     - `screen`: `history`
     - `rows_before_search`, `rows_after_search`: counts (from screenshot or DB query)
-    - `discovered_ax_ids`: any new identifiers found for history rows / play buttons / search affordance
     - `timestamp`
-14. **Report** $ART/, pass/fail, and any new AX IDs to add to the surface doc.
+14. **Report** $ART/ and pass/fail to the user.
 
 ## Notes
 
 - The seeded generation uses Custom Voice for speed/simplicity. If Custom Voice models aren't installed, the runbook aborts at step 1.
 - This is a happy-path smoke. It does NOT test delete, multi-row sorting under load, or rapid filtering edge cases.
-- The History row AX id pattern may need code-side instrumentation to be queryable. Document findings; visual fallback is acceptable.
+- Row-level + per-row-action AX ids are now canonical (`historyRow_<id>`, `historyRow_play_<id>`, `historyRow_saveAs_<id>`, `historyRow_delete_<id>`, `historyRow_saveVoice_<id>`). Visual fallback is no longer expected — if `locate` fails for a known id, treat that as a regression.

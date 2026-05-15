@@ -534,14 +534,14 @@ private struct HistoryRowActions: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .disabled(!audioFileExists)
-            .accessibilityIdentifier("historyRow_saveAs")
+            .accessibilityIdentifier("historyRow_saveAs_\(itemID)")
 
             Button(role: .destructive, action: onDelete) {
                 Image(systemName: "trash")
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .accessibilityIdentifier("historyRow_delete")
+            .accessibilityIdentifier("historyRow_delete_\(itemID)")
         }
     }
 }
@@ -572,11 +572,11 @@ private struct HistoryRow: View {
             .controlSize(.small)
             .disabled(!item.audioFileExists)
             .accessibilityLabel(item.audioFileExists ? "Play generation" : "Audio unavailable")
-            .accessibilityIdentifier("historyRow_play")
+            .accessibilityIdentifier("historyRow_play_\(item.id)")
             .accessibilityRepresentation {
                 Button(item.audioFileExists ? "Play generation" : "Audio unavailable", action: onPlay)
                     .disabled(!item.audioFileExists)
-                    .accessibilityIdentifier("historyRow_play")
+                    .accessibilityIdentifier("historyRow_play_\(item.id)")
             }
 
             VStack(alignment: .leading, spacing: 6) {
