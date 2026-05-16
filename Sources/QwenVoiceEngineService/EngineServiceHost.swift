@@ -322,10 +322,25 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
                 deviceClass: NativeMemoryPolicyResolver.deviceClass(),
                 includeBaseAliases: true
             )
+        // Skip the dedicated custom-prewarm step on floor8GBMac to
+        // match the iOS extension's policy (which has done this since
+        // launch — see VocelloEngineExtensionHost. The prewarm cost
+        // moves into the generation proper rather than running upfront,
+        // and on a memory-constrained Mac that's the right trade:
+        // model load completes faster, peak RSS at startup is lower,
+        // and steady-state warm-medium RTF is essentially unaffected
+        // (the prewarm work happens once at first generation anyway).
+        // mid16GBMac and higher keep `.eager` — there's no benefit
+        // to deferring on machines with headroom.
+        let customPrewarmPolicy: NativeCustomPrewarmPolicy =
+            NativeMemoryPolicyResolver.deviceClass() == .floor8GBMac
+                ? .skipDedicatedCustomPrewarm
+                : .eager
         let runtime = try NativeRuntimeFactory.make(
             registry: registry,
             paths: .rooted(at: appSupportDirectory),
-            storeVersionSeed: Self.storeVersionSeed()
+            storeVersionSeed: Self.storeVersionSeed(),
+            customPrewarmPolicy: customPrewarmPolicy
         )
         let runtimeContext = RuntimeContext(
             appSupportDirectory: appSupportDirectory,
