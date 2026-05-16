@@ -138,6 +138,13 @@ final class CausalConv1d: Module {
     let effectiveKernelSize: Int
     let dilation: Int
     let paddingAmount: Int
+    // `streamBuffer` holds the last `paddingAmount` input samples seen so far —
+    // i.e. it's the overlap-and-discard input context for this causal conv.
+    // `step([streamBuffer, x])` produces output bit-identical to batch-mode
+    // `callAsFunction([... full sequence ...])` at the corresponding positions
+    // (stride=1, dilation=any), so this layer is chunk-size invariant by
+    // construction. No Phase 2-style refactor needed — the pattern is here
+    // already, just under a different name than `DecoderBlockUpsample.inputContext`.
     var streamBuffer: MLXArray?
 
     // Use either regular conv or depthwise weight
@@ -533,12 +540,24 @@ final class DecoderResidualUnit: Module {
 final class DecoderBlockUpsample: Module {
     @ModuleInfo var conv: ConvTransposed1d
     let trimRight: Int
-    var overflow: MLXArray?
+    let upsampleRate: Int
+    // Vocello patch (May 2026): replaced output-side `overflow` accumulator with
+    // input-side `inputContext` history buffer. The prior overlap-and-add pattern
+    // ( h[..<overlapLen] + overflow ) is mathematically equivalent to batch-mode
+    // conv in integer arithmetic but accumulates LSB-level float drift across
+    // chunk boundaries. With ~25× more boundaries on short streaming chunks
+    // (12 tokens) vs the canonical 300-token non-streaming chunks, the drift
+    // amplifies through SnakeBeta + downstream blocks to >1 dB peak deviation
+    // (bench-rejected May 2026). The overlap-and-discard pattern below makes
+    // each emitted sample a slice of a single `callAsFunction(composed)` call,
+    // matching batch-mode parenthesisation regardless of chunk size.
+    var inputContext: MLXArray?
 
     init(inDim: Int, outDim: Int, upsampleRate: Int) {
         let kernelSize = 2 * upsampleRate
         _conv.wrappedValue = ConvTransposed1d(inputChannels: inDim, outputChannels: outDim, kernelSize: kernelSize, stride: upsampleRate, padding: 0)
         self.trimRight = kernelSize - upsampleRate
+        self.upsampleRate = upsampleRate
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
@@ -551,32 +570,47 @@ final class DecoderBlockUpsample: Module {
     }
 
     func step(_ x: MLXArray) -> MLXArray {
-        var h = conv(x.transposed(0, 2, 1)).transposed(0, 2, 1)
-
-        if let overflow {
-            let overlapLen = overflow.dim(2)
-            let overlap = h[0..., 0..., ..<overlapLen] + overflow
-            let tailStart = min(overlapLen, h.dim(2))
-            if tailStart < h.dim(2) {
-                let tail = h[0..., 0..., tailStart...]
-                h = concatenated([overlap, tail], axis: -1)
-            } else {
-                h = overlap
-            }
+        // Overlap-and-discard streaming pattern (chunk-size invariant).
+        //
+        // For transposed conv with stride = upsampleRate and kernel = 2*upsampleRate,
+        // each output position depends on at most 2 input positions. By keeping the
+        // last input sample as left-context, the next call's `callAsFunction(composed)`
+        // produces outputs whose first `inputContext.count * upsampleRate` samples are
+        // recomputations of the previous call's emissions — we discard them. The
+        // remaining samples are bit-identical (modulo MLX backend float precision)
+        // to the corresponding slice of `callAsFunction(full_input_sequence)`,
+        // regardless of how the inputs were chunked across step() calls.
+        let composed: MLXArray
+        let dropOutputSamples: Int
+        if let inputContext {
+            composed = concatenated([inputContext, x], axis: -1)
+            dropOutputSamples = inputContext.dim(-1) * upsampleRate
+        } else {
+            composed = x
+            dropOutputSamples = 0
         }
 
-        if trimRight > 0 {
-            let split = max(0, h.dim(2) - trimRight)
-            overflow = h[0..., 0..., split...]
-            h = h[0..., 0..., ..<split]
+        let h = self.callAsFunction(composed)
+
+        // Stash the trailing input sample as left-context for the next call.
+        // One input sample is sufficient for kernel = 2 * upsampleRate (the
+        // receptive field of any new output position spans at most 2 inputs).
+        let leftContextInputs = 1
+        let totalLen = composed.dim(-1)
+        if totalLen >= leftContextInputs {
+            inputContext = composed[0..., 0..., (totalLen - leftContextInputs)...]
         } else {
-            overflow = nil
+            inputContext = composed
+        }
+
+        if dropOutputSamples > 0 {
+            return h[0..., 0..., dropOutputSamples...]
         }
         return h
     }
 
     func resetState() {
-        overflow = nil
+        inputContext = nil
     }
 }
 
