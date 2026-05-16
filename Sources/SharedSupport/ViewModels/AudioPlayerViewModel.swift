@@ -647,7 +647,11 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
 
     private func handleGenerationChunk(_ chunk: ChunkInfo) {
         let sessionID = String(chunk.requestID)
-        guard !completedLiveSessionIDs.contains(sessionID) else { return }
+        AppPerformanceSignposts.emit("Chunk Received")
+        guard !completedLiveSessionIDs.contains(sessionID) else {
+            AppPerformanceSignposts.emit("Chunk Dropped Completed")
+            return
+        }
 
         let sessionDirectory = chunk.sessionDirectory
         let cumulativeDuration = chunk.cumulativeDuration
@@ -679,6 +683,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     private func recordCompletedLiveSessionID(_ sessionID: String?) {
         guard let sessionID, !sessionID.hasPrefix("pending-") else { return }
         guard completedLiveSessionIDs.insert(sessionID).inserted else { return }
+        AppPerformanceSignposts.emit("Session Completed Recorded")
         completedLiveSessionOrder.append(sessionID)
 
         let maximumRetainedSessionIDs = 16
@@ -689,6 +694,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     }
 
     private func startLiveSession(id: String, title: String, sessionDirectory: String?, autoPlay: Bool) {
+        AppPerformanceSignposts.emit("Live Session Start")
         teardownLivePlayback(clearSession: true)
         stopFilePlayback(clearPlayer: true)
 
@@ -873,6 +879,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
                 }
                 livePlayerNode.play()
                 livePlaybackStarted = true
+                AppPerformanceSignposts.emit("Live Engine Play")
             }
             isPlaying = true
             setLivePreviewPhase(.playing)
@@ -988,6 +995,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
 
     private func switchToFinalFilePlayback(preserveCurrentTime: TimeInterval, autoPlay: Bool) {
         guard let finalFilePath = liveFinalFilePath else { return }
+        AppPerformanceSignposts.emit("Switch To File Playback")
         setLivePreviewPhase(.finalizing)
 
         do {
@@ -1036,6 +1044,21 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             liveAutoplayEnabled = false
             isLiveStream = false
             setLivePreviewPhase(.idle)
+            // Phase 4 fix: nil out the audio graph so the next session's
+            // first chunk triggers `configureLiveEngine` to rebuild a
+            // fresh engine + player node. Without this, `liveEngine.reset()`
+            // (in `stopLivePlayback` above) leaves the engine in a state
+            // where `liveEngine.start()` throws on the next session — the
+            // catch block in `attemptLivePlay` silently sets `playbackError`
+            // and the user falls through to file playback once generation
+            // ends, losing the perceived-speed win.
+            //
+            // The reference-counted detach is intentional: `livePlayerNode`
+            // is attached to `liveEngine`. Letting both go to nil triggers
+            // ARC teardown of the attached nodes, avoiding stale-graph
+            // assertions on the next attach.
+            livePlayerNode = nil
+            liveEngine = nil
         }
     }
 
