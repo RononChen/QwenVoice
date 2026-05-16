@@ -138,7 +138,10 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         estimatedRTF: Double? = nil,
         predictivePrebufferEnabled: Bool = false
     ) -> Bool {
-        guard autoplayEnabled else { return false }
+        guard autoplayEnabled else {
+            AppPerformanceSignposts.emit("Should Start Reject Autoplay")
+            return false
+        }
         guard !finalFileAvailable else { return true }
 
         // Policy 1 — diagnostic predictive prebuffer.
@@ -226,7 +229,11 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         )
         let scaledDuration = minimumBufferedDuration * multiplier
 
-        return queuedChunks >= scaledChunks && queuedDuration >= scaledDuration
+        let pass = queuedChunks >= scaledChunks && queuedDuration >= scaledDuration
+        if !pass {
+            AppPerformanceSignposts.emit("Should Start Reject Buffer")
+        }
+        return pass
     }
 
     private var playbackMode: PlaybackMode = .none
@@ -762,6 +769,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             configureLiveEngine(with: fileFormat)
         }
 
+        AppPerformanceSignposts.emit("Chunk Decoded")
         let chunkAudioSeconds = TimeInterval(buffer.frameLength) / fileFormat.sampleRate
         liveScheduledCount += 1
         liveBufferDurations.append(chunkAudioSeconds)
@@ -815,6 +823,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             configureLiveEngine(with: format)
         }
 
+        AppPerformanceSignposts.emit("Chunk Decoded")
         let chunkAudioSeconds = TimeInterval(buffer.frameLength) / format.sampleRate
         liveScheduledCount += 1
         liveBufferDurations.append(chunkAudioSeconds)
@@ -920,11 +929,20 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     }
 
     private func scheduleLiveBuffer(_ buffer: AVAudioPCMBuffer) {
+        // Capture the session ID at scheduling time. The completion callback
+        // is hopped to MainActor via a `Task`, which can be delayed — by the
+        // time it runs, `liveSessionID` may have moved on to a new session
+        // (warm-after-cold). Without this tag, stale completions from cold
+        // wrongly decrement warm's `liveScheduledCount` and remove warm's
+        // entries from `liveBufferDurations`, leaving the buffer math
+        // permanently low → `shouldStartLivePlayback` never returns true →
+        // warm falls back to file playback at the end of generation.
+        let scheduleSessionID = liveSessionID
         livePlayerNode?.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { @Sendable [weak self] _ in
             // AVFAudio invokes completion handlers on its own queue, so keep
             // the callback nonisolated and hop back to MainActor explicitly.
             Task { @MainActor [weak self] in
-                self?.handleLiveBufferPlaybackCompletion()
+                self?.handleLiveBufferPlaybackCompletion(sessionID: scheduleSessionID)
             }
         }
     }
@@ -938,8 +956,20 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         livePlayerNode.scheduleBuffer(silentBuffer)
     }
 
-    private func handleLiveBufferPlaybackCompletion() {
+    private func handleLiveBufferPlaybackCompletion(sessionID: String? = nil) {
         guard playbackMode == .live else { return }
+        // Phase 5 fix: reject stale completions from a previous session.
+        // AVAudioEngine's completion callback hops to MainActor via Task,
+        // which can be delayed long enough that a new session has already
+        // started. Without this guard, those stale decrements clobber the
+        // new session's buffer bookkeeping (liveScheduledCount /
+        // liveQueuedAudioSeconds / liveBufferDurations), causing
+        // shouldStartLivePlayback's Policy 2 to never trigger.
+        // sessionID == nil means "legacy caller" (none today) — allow.
+        if let scheduledID = sessionID, scheduledID != liveSessionID {
+            AppPerformanceSignposts.emit("Stale Completion Dropped")
+            return
+        }
         liveScheduledCount = max(0, liveScheduledCount - 1)
         // Decrement the audio-second queue depth in lock-step with
         // `liveScheduledCount`. AVAudioEngine plays scheduled
