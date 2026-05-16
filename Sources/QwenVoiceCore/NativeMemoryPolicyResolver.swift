@@ -108,7 +108,17 @@ public enum NativeMemoryPolicyResolver {
     public static func cloneCacheCapacity(deviceClass: NativeDeviceMemoryClass = deviceClass()) -> Int {
         switch deviceClass {
         case .floor8GBMac, .iPhonePro:
-            return 2
+            // Down from 2 to 1 on the lowest-RAM tier. Holding two
+            // primed clone references in memory simultaneously costs
+            // ~200-400 MB of peak RSS during the second reference's
+            // prime, which on an 8 GB Mac can be the difference
+            // between a smooth generation and an OOM-bound stall.
+            // The on-disk clone-normalization cache (introduced in
+            // a sibling commit) covers the case where a user toggles
+            // between two references repeatedly — they pay the prime
+            // again on switch but the audio normalization step
+            // (the bulkier one) reuses cached parquet.
+            return 1
         case .mid16GBMac:
             return 8
         case .highMemoryMac:

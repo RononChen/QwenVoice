@@ -150,7 +150,19 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
         cancelIdleUnload()
         guard let policyDelay = policy.unloadAfterIdleSeconds else { return }
 
-        let delay = max(idleUnloadDelayOverride ?? policyDelay, 0)
+        // Adaptive shortening: if the system is currently under memory
+        // pressure (the macOS DispatchSource monitor has flagged it),
+        // shorten the idle-unload window so we release the model
+        // sooner. floor8GBMac's policy delay is 120s and we shrink it
+        // to 30s under guarded pressure or 10s under critical — the
+        // user re-pays the model-load cost (~500-700ms) on their next
+        // generation, which is the right trade when memory is tight.
+        // Override (used by tests) still wins over the adaptive value.
+        let adaptiveDelay = adaptiveIdleUnloadDelay(
+            policyDelay: policyDelay,
+            deviceClass: policy.deviceClass
+        )
+        let delay = max(idleUnloadDelayOverride ?? adaptiveDelay, 0)
         let token = UUID()
         idleUnloadToken = token
         idleUnloadTask = Task { [weak self] in
@@ -160,6 +172,26 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
             }
             guard !Task.isCancelled else { return }
             await self?.performIdleUnloadIfStillIdle(modelID: modelID, token: token)
+        }
+    }
+
+    private func adaptiveIdleUnloadDelay(
+        policyDelay: Double,
+        deviceClass: NativeDeviceMemoryClass
+    ) -> Double {
+        // Only the floor8GBMac tier reacts to pressure for idle-unload.
+        // mid16GBMac has a 10-minute baseline; even under pressure we'd
+        // rather keep the model warm than churn loads.
+        // highMemoryMac has no policyDelay (nil).
+        // iPhonePro already runs at a 30s baseline.
+        guard deviceClass == .floor8GBMac else { return policyDelay }
+        switch memoryPressureMonitor.currentLevel {
+        case .softTrim:
+            return min(policyDelay, 30.0)
+        case .hardTrim, .fullUnload:
+            return min(policyDelay, 10.0)
+        case nil:
+            return policyDelay
         }
     }
 
