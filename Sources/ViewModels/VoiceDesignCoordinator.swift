@@ -188,7 +188,7 @@ final class VoiceDesignCoordinator: ObservableObject {
             modelID: model.id,
             text: draft.text,
             outputPath: outputPath,
-            shouldStream: false,
+            shouldStream: true,
             streamingTitle: String(draft.text.prefix(40)),
             payload: .design(
                 voiceDescription: draft.voiceDescription,

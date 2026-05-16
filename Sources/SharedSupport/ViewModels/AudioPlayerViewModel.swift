@@ -697,6 +697,15 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         liveSessionDirectory = sessionDirectory
         liveFinalFilePath = nil
         liveAutoplayEnabled = autoPlay
+        // When `startLiveSession` fires from `handleGenerationChunk` (the
+        // auto-init path used by every streaming generation today), nothing
+        // upstream sets `pendingAutoplaySignpost`. Without it, the
+        // "Autoplay Start" signpost never fires when live playback begins
+        // — even though playback is actually happening. The bench harness
+        // (and any forensic latency analysis) can't see the perceived-speed
+        // gain. Set it here so the signpost mirrors the live engine's
+        // play() call when autoplay is enabled for this session.
+        pendingAutoplaySignpost = autoPlay
         liveScheduledCount = 0
         liveQueuedAudioSeconds = 0
         liveBufferDurations.removeAll(keepingCapacity: true)

@@ -103,7 +103,7 @@ final class CustomVoiceCoordinator: ObservableObject {
             modelID: model.id,
             text: draft.text,
             outputPath: outputPath,
-            shouldStream: false,
+            shouldStream: true,
             streamingInterval: QwenVoiceCore.GenerationSemantics.appStreamingInterval,
             streamingTitle: Swift.String(draft.text.prefix(40)),
             payload: .custom(

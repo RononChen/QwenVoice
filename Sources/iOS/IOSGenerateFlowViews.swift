@@ -21,7 +21,7 @@ enum IOSPrefetchRequestFactory {
             modelID: model.id,
             text: text,
             outputPath: "",
-            shouldStream: false,
+            shouldStream: true,
             streamingInterval: GenerationSemantics.appStreamingInterval,
             payload: .custom(
                 speakerID: draft.selectedSpeaker,
@@ -45,7 +45,7 @@ enum IOSPrefetchRequestFactory {
             modelID: model.id,
             text: text,
             outputPath: "",
-            shouldStream: false,
+            shouldStream: true,
             streamingInterval: GenerationSemantics.appStreamingInterval,
             payload: .design(
                 voiceDescription: voiceDescription,
