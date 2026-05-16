@@ -644,13 +644,34 @@ for i in range(final_idx - 1, -1, -1):
     if engine_begin_ts and first_chunk_ts:
         break
 
-# Autoplay Start usually fires AFTER Final File Ready (per
-# GenerationPersistence.swift). Walk forward from final_idx.
+# Autoplay Start. Non-streaming generation fires it AFTER Final File
+# Ready (playFile path in GenerationPersistence.swift). Streaming fires
+# it BEFORE Final File Ready (live engine plays the first chunk as soon
+# as it arrives, then generation continues). Search both directions and
+# take the one matching the current generation — defined as the closest
+# Autoplay Start to engine_begin_ts on either side of final_idx.
+autoplay_candidates = []
 for i in range(final_idx + 1, len(lines)):
     if "Autoplay Start" in lines[i]:
-        autoplay_ts = parse_ts(lines[i])
-        if autoplay_ts:
-            break
+        ts = parse_ts(lines[i])
+        if ts:
+            autoplay_candidates.append(ts)
+            break  # first one after final is the right one for the non-streaming case
+for i in range(final_idx - 1, -1, -1):
+    if "Autoplay Start" in lines[i]:
+        ts = parse_ts(lines[i])
+        if ts:
+            # Only accept if it's after engine_begin (else it's a prior generation's autoplay).
+            if engine_begin_ts is None or to_dt(ts) >= to_dt(engine_begin_ts):
+                autoplay_candidates.append(ts)
+            break  # most recent before final is the right one for streaming
+if autoplay_candidates:
+    # Pick the candidate closest to engine_begin_ts (or just earliest if no engine_begin).
+    if engine_begin_ts:
+        eb = to_dt(engine_begin_ts)
+        autoplay_ts = min(autoplay_candidates, key=lambda t: abs((to_dt(t) - eb).total_seconds()))
+    else:
+        autoplay_ts = min(autoplay_candidates, key=to_dt)
 
 def ms_between(a, b):
     if a is None or b is None:
