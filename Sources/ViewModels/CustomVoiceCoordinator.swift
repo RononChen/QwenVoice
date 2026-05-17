@@ -8,6 +8,7 @@ final class CustomVoiceCoordinator: ObservableObject {
     @Published var isGenerating = false
     @Published var errorMessage: String?
     @Published var presentedSheet: CustomVoicePresentedSheet?
+    private var generationTask: Task<Void, Never>?
 
     func presentBatch(draft: CustomVoiceDraft) {
         presentedSheet = .batch(.custom(draft: draft))
@@ -31,7 +32,7 @@ final class CustomVoiceCoordinator: ObservableObject {
         audioPlayer: AudioPlayerViewModel,
         modelManager: ModelManagerViewModel
     ) {
-        guard !isGenerating else { return }
+        guard !isGenerating, !ttsEngineStore.hasActiveGeneration else { return }
         guard draft.hasText, ttsEngineStore.isReady else { return }
 
         if let model = activeModel, !isModelAvailable {
@@ -47,11 +48,14 @@ final class CustomVoiceCoordinator: ObservableObject {
         isGenerating = true
         errorMessage = nil
 
-        Task {
+        generationTask = Task { @MainActor in
+            defer {
+                self.isGenerating = false
+                self.generationTask = nil
+            }
             do {
                 guard let model = activeModel else {
                     self.errorMessage = "Model configuration not found"
-                    self.isGenerating = false
                     return
                 }
 
@@ -89,8 +93,21 @@ final class CustomVoiceCoordinator: ObservableObject {
                 audioPlayer.abortLivePreviewIfNeeded()
                 self.errorMessage = error.localizedDescription
             }
+        }
+    }
 
+    func cancelGeneration(
+        ttsEngineStore: TTSEngineStore,
+        audioPlayer: AudioPlayerViewModel
+    ) {
+        guard isGenerating || generationTask != nil else { return }
+        generationTask?.cancel()
+        Task { @MainActor in
+            try? await ttsEngineStore.cancelActiveGeneration()
+            audioPlayer.abortLivePreviewIfNeeded()
+            self.errorMessage = nil
             self.isGenerating = false
+            self.generationTask = nil
         }
     }
 

@@ -81,6 +81,7 @@ struct NativeRuntimeError: LocalizedError, Sendable {
 }
 
 struct NativePreparedGeneration: Sendable {
+    let generationID: UUID
     let requestID: Int
     let model: UnsafeSpeechGenerationModel
     let warmState: EngineWarmState
@@ -485,6 +486,7 @@ actor NativeEngineRuntime {
         )
 
         return NativePreparedGeneration(
+            generationID: UUID(),
             requestID: takeNextRequestID(),
             model: model,
             warmState: loadResult.didLoad ? .cold : .warm,

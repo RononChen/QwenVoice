@@ -280,6 +280,9 @@ actor ExtensionEngineCoordinator {
         let error = ExtensionEngineTransportError.timedOut(commandName: pendingRequest.commandName)
         Self.logger.error("\(error.localizedDescription, privacy: .public)")
         pendingRequest.resume(.failure(error))
+        if pendingRequest.commandName == "generate" {
+            fireAndForget(.cancelActiveGeneration)
+        }
     }
 
     private func handleDisconnect(

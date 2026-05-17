@@ -59,6 +59,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
     static let supportedSavedVoiceAudioExtensions: Set<String> = ["wav", "mp3", "aiff", "m4a"]
 
     typealias StreamingSessionFactory = (
+        UUID,
         Int,
         GenerationRequest,
         UnsafeSpeechGenerationModel,
@@ -102,7 +103,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
     private let eventStreamContinuation: AsyncStream<GenerationEvent>.Continuation
 
     public var isReady: Bool {
-        isInitialized
+        isInitialized && activeModelOperation?.kind.isGeneration != true && loadState.isReady
     }
 
     public var sidebarStatus: EngineLoadState {
@@ -209,11 +210,50 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
     private func canIdleUnload(modelID: String) -> Bool {
         guard case .loaded(let loadedModelID) = loadState,
               loadedModelID == modelID,
+              activeModelOperation == nil,
               clonePreparationState.phase == .idle
         else {
             return false
         }
         return true
+    }
+
+    private func beginUserModelOperation(_ kind: ModelOperationKind) async throws -> UUID {
+        try Task.checkCancellation()
+        while let active = activeModelOperation {
+            if active.kind.isGeneration {
+                throw MLXTTSEngineError.generationFailed(
+                    "The engine is already working on audio. Wait for it to finish or cancel it before starting another generation."
+                )
+            }
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                modelOperationWaiters.append(continuation)
+            }
+            try Task.checkCancellation()
+        }
+        let id = UUID()
+        objectWillChange.send()
+        activeModelOperation = ActiveModelOperation(id: id, kind: kind)
+        return id
+    }
+
+    private func beginProactiveModelOperation(_ kind: ModelOperationKind) -> UUID? {
+        guard activeModelOperation == nil else { return nil }
+        let id = UUID()
+        objectWillChange.send()
+        activeModelOperation = ActiveModelOperation(id: id, kind: kind)
+        return id
+    }
+
+    private func finishModelOperation(id: UUID) {
+        guard activeModelOperation?.id == id else { return }
+        objectWillChange.send()
+        activeModelOperation = nil
+        let waiters = modelOperationWaiters
+        modelOperationWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 
     public private(set) var visibleErrorMessage: String?
@@ -232,6 +272,32 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
     private var allowsProactiveWarmOperations = true
     private var idleUnloadTask: Task<Void, Never>?
     private var idleUnloadToken: UUID?
+    private var activeModelOperation: ActiveModelOperation?
+    private var modelOperationWaiters: [CheckedContinuation<Void, Never>] = []
+
+    private enum ModelOperationKind: String {
+        case generation
+        case batchGeneration
+        case explicitLoad
+        case explicitUnload
+        case proactiveLoad
+        case proactivePrewarm
+        case clonePriming
+
+        var isGeneration: Bool {
+            switch self {
+            case .generation, .batchGeneration:
+                return true
+            case .explicitLoad, .explicitUnload, .proactiveLoad, .proactivePrewarm, .clonePriming:
+                return false
+            }
+        }
+    }
+
+    private struct ActiveModelOperation {
+        let id: UUID
+        let kind: ModelOperationKind
+    }
 
     /// macOS-side memory pressure monitor. On 8 GB and 16 GB Macs this
     /// subscribes to kernel pressure events and forwards them as trim
@@ -472,6 +538,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
 
     public func loadModel(id: String) async throws {
         try ensureInitialized()
+        let operationID = try await beginUserModelOperation(.explicitLoad)
+        defer { finishModelOperation(id: operationID) }
         cancelIdleUnload()
         do {
             loadState = .starting
@@ -581,6 +649,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
     }
 
     public func unloadModel() async throws {
+        let operationID = try await beginUserModelOperation(.explicitUnload)
+        defer { finishModelOperation(id: operationID) }
         cancelIdleUnload()
         await runtime.unloadModel()
         loadState = .idle
@@ -593,6 +663,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
     }
 
     public func ensureModelLoadedIfNeeded(id: String) async {
+        guard let operationID = beginProactiveModelOperation(.proactiveLoad) else { return }
+        defer { finishModelOperation(id: operationID) }
         cancelIdleUnload()
         do {
             applyMemoryPolicyIfKnown(modelID: id, isBatch: false)
@@ -607,6 +679,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
     public func prewarmModelIfNeeded(for request: GenerationRequest) async {
         guard allowsProactiveWarmOperations else { return }
         guard case .supported = supportDecision(for: request) else { return }
+        guard let operationID = beginProactiveModelOperation(.proactivePrewarm) else { return }
+        defer { finishModelOperation(id: operationID) }
         cancelIdleUnload()
         do {
             try ensureInitialized()
@@ -638,6 +712,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
     ) async -> InteractivePrefetchDiagnostics? {
         guard allowsProactiveWarmOperations else { return nil }
         guard case .supported = supportDecision(for: request) else { return nil }
+        guard let operationID = beginProactiveModelOperation(.proactivePrewarm) else { return nil }
+        defer { finishModelOperation(id: operationID) }
         cancelIdleUnload()
         do {
             try ensureInitialized()
@@ -668,6 +744,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
     public func ensureCloneReferencePrimed(modelID: String, reference: CloneReference) async throws {
         guard allowsProactiveWarmOperations else { return }
         try ensureInitialized()
+        guard let operationID = beginProactiveModelOperation(.clonePriming) else { return }
+        defer { finishModelOperation(id: operationID) }
         cancelIdleUnload()
 
         let requestedTranscript = NativePreparedCloneConditioningCache.normalizedTranscript(
@@ -724,7 +802,9 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
     }
 
     public func generate(_ request: GenerationRequest) async throws -> GenerationResult {
-        try await generate(request, allowsBatchRequest: false)
+        let operationID = try await beginUserModelOperation(.generation)
+        defer { finishModelOperation(id: operationID) }
+        return try await generate(request, allowsBatchRequest: false)
     }
 
     public func generateBatch(
@@ -733,6 +813,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
     ) async throws -> [GenerationResult] {
         try ensureInitialized()
         guard !requests.isEmpty else { return [] }
+        let operationID = try await beginUserModelOperation(.batchGeneration)
+        defer { finishModelOperation(id: operationID) }
         cancelIdleUnload()
         let firstKey = Self.generationSessionKey(for: requests[0])
         guard requests.allSatisfy({ Self.generationSessionKey(for: $0) == firstKey }) else {
@@ -858,6 +940,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
 
         let prepared = try await runtime.prepareGeneration(for: request)
         let session = streamingSessionFactory(
+            prepared.generationID,
             prepared.requestID,
             request,
             prepared.model,
@@ -1116,15 +1199,19 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
         if let normalizedTranscript,
            let activeCloneModelID = loadState.currentModelID,
            modelRegistry.model(id: activeCloneModelID)?.mode == .clone {
-            let runtime = runtime
             let cloneReference = CloneReference(
                 audioPath: audioDestinationURL.path,
                 transcript: normalizedTranscript,
                 preparedVoiceID: safeName
             )
             if allowsProactiveWarmOperations {
-                Task.detached(priority: .utility) {
-                    await runtime.prebuildSavedVoiceClonePrompt(
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          let operationID = self.beginProactiveModelOperation(.clonePriming) else {
+                        return
+                    }
+                    defer { self.finishModelOperation(id: operationID) }
+                    await self.runtime.prebuildSavedVoiceClonePrompt(
                         modelID: activeCloneModelID,
                         reference: cloneReference
                     )
@@ -1249,6 +1336,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
     }
 
     private static func defaultStreamingSessionFactory(
+        generationID: UUID,
         requestID: Int,
         request: GenerationRequest,
         model: UnsafeSpeechGenerationModel,
@@ -1265,6 +1353,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
         mlxMemorySnapshots: [String: NativeMLXMemorySnapshot]
     ) -> any NativeStreamingSessionRunning {
         NativeStreamingSynthesisSession(
+            generationID: generationID,
             requestID: requestID,
             request: request,
             model: model,

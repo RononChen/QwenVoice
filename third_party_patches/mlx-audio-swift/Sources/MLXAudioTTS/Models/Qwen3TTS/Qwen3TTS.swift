@@ -1583,9 +1583,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         streamingInterval: Double
     ) -> AsyncThrowingStream<AudioGeneration, Error> {
         let (stream, continuation) = AsyncThrowingStream<AudioGeneration, Error>.makeStream()
-        Task { @Sendable [weak self] in
+        let producerTask = Task { @Sendable [weak self] in
             guard let self else { return }
             do {
+                try Task.checkCancellation()
                 guard speechTokenizer != nil else {
                     throw AudioGenerationError.modelNotInitialized("Speech tokenizer not loaded")
                 }
@@ -1618,15 +1619,19 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     generationSpeedProfile: nil,
                     memoryClearCadence: nil,
                     onToken: { tokenId in
+                        guard !Task.isCancelled else { return }
                         continuation.yield(.token(tokenId))
                     },
                     onInfo: { info in
+                        guard !Task.isCancelled else { return }
                         continuation.yield(.info(info))
                     },
                     onAudioChunk: { chunk in
+                        guard !Task.isCancelled else { return }
                         continuation.yield(.audio(chunk))
                     },
                     onAudioChunkTimings: { timings in
+                        guard !Task.isCancelled else { return }
                         continuation.yield(.chunkTimings(timings))
                     }
                 )
@@ -1634,6 +1639,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             } catch {
                 continuation.finish(throwing: error)
             }
+        }
+        continuation.onTermination = { @Sendable _ in
+            producerTask.cancel()
         }
         return stream
     }
@@ -1767,9 +1775,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         memoryClearCadence: Int?
     ) -> AsyncThrowingStream<AudioGeneration, Error> {
         let (stream, continuation) = AsyncThrowingStream<AudioGeneration, Error>.makeStream()
-        Task { @Sendable [weak self] in
+        let producerTask = Task { @Sendable [weak self] in
             guard let self else { return }
             do {
+                try Task.checkCancellation()
                 _ = try generateVoiceDesign(
                     text: text,
                     instruct: instruct,
@@ -1788,15 +1797,30 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     streamStepEvalPolicy: streamStepEvalPolicy,
                     generationSpeedProfile: generationSpeedProfile,
                     memoryClearCadence: memoryClearCadence,
-                    onToken: { continuation.yield(.token($0)) },
-                    onInfo: { continuation.yield(.info($0)) },
-                    onAudioChunk: { continuation.yield(.audio($0)) },
-                    onAudioChunkTimings: { continuation.yield(.chunkTimings($0)) }
+                    onToken: {
+                        guard !Task.isCancelled else { return }
+                        continuation.yield(.token($0))
+                    },
+                    onInfo: {
+                        guard !Task.isCancelled else { return }
+                        continuation.yield(.info($0))
+                    },
+                    onAudioChunk: {
+                        guard !Task.isCancelled else { return }
+                        continuation.yield(.audio($0))
+                    },
+                    onAudioChunkTimings: {
+                        guard !Task.isCancelled else { return }
+                        continuation.yield(.chunkTimings($0))
+                    }
                 )
                 continuation.finish()
             } catch {
                 continuation.finish(throwing: error)
             }
+        }
+        continuation.onTermination = { @Sendable _ in
+            producerTask.cancel()
         }
         return stream
     }
@@ -1812,9 +1836,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         memoryClearCadence: Int?
     ) -> AsyncThrowingStream<AudioGeneration, Error> {
         let (stream, continuation) = AsyncThrowingStream<AudioGeneration, Error>.makeStream()
-        Task { @Sendable [weak self] in
+        let producerTask = Task { @Sendable [weak self] in
             guard let self else { return }
             do {
+                try Task.checkCancellation()
                 _ = try generateVoiceDesign(
                     text: text,
                     instruct: voiceDescription,
@@ -1831,15 +1856,30 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     streamStepEvalPolicy: streamStepEvalPolicy,
                     generationSpeedProfile: generationSpeedProfile,
                     memoryClearCadence: memoryClearCadence,
-                    onToken: { continuation.yield(.token($0)) },
-                    onInfo: { continuation.yield(.info($0)) },
-                    onAudioChunk: { continuation.yield(.audio($0)) },
-                    onAudioChunkTimings: { continuation.yield(.chunkTimings($0)) }
+                    onToken: {
+                        guard !Task.isCancelled else { return }
+                        continuation.yield(.token($0))
+                    },
+                    onInfo: {
+                        guard !Task.isCancelled else { return }
+                        continuation.yield(.info($0))
+                    },
+                    onAudioChunk: {
+                        guard !Task.isCancelled else { return }
+                        continuation.yield(.audio($0))
+                    },
+                    onAudioChunkTimings: {
+                        guard !Task.isCancelled else { return }
+                        continuation.yield(.chunkTimings($0))
+                    }
                 )
                 continuation.finish()
             } catch {
                 continuation.finish(throwing: error)
             }
+        }
+        continuation.onTermination = { @Sendable _ in
+            producerTask.cancel()
         }
         return stream
     }
@@ -1855,9 +1895,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         memoryClearCadence: Int?
     ) -> AsyncThrowingStream<AudioGeneration, Error> {
         let (stream, continuation) = AsyncThrowingStream<AudioGeneration, Error>.makeStream()
-        Task { @Sendable [weak self] in
+        let producerTask = Task { @Sendable [weak self] in
             guard let self else { return }
             do {
+                try Task.checkCancellation()
                 _ = try generateVoiceDesign(
                     text: text,
                     instruct: nil,
@@ -1876,15 +1917,30 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     streamStepEvalPolicy: streamStepEvalPolicy,
                     generationSpeedProfile: generationSpeedProfile,
                     memoryClearCadence: memoryClearCadence,
-                    onToken: { continuation.yield(.token($0)) },
-                    onInfo: { continuation.yield(.info($0)) },
-                    onAudioChunk: { continuation.yield(.audio($0)) },
-                    onAudioChunkTimings: { continuation.yield(.chunkTimings($0)) }
+                    onToken: {
+                        guard !Task.isCancelled else { return }
+                        continuation.yield(.token($0))
+                    },
+                    onInfo: {
+                        guard !Task.isCancelled else { return }
+                        continuation.yield(.info($0))
+                    },
+                    onAudioChunk: {
+                        guard !Task.isCancelled else { return }
+                        continuation.yield(.audio($0))
+                    },
+                    onAudioChunkTimings: {
+                        guard !Task.isCancelled else { return }
+                        continuation.yield(.chunkTimings($0))
+                    }
                 )
                 continuation.finish()
             } catch {
                 continuation.finish(throwing: error)
             }
+        }
+        continuation.onTermination = { @Sendable _ in
+            producerTask.cancel()
         }
         return stream
     }
@@ -2239,6 +2295,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         }
 
         for _ in 0 ..< effectiveMaxTokens {
+            try Task.checkCancellation()
             let tokenLoopStartedAt = ContinuousClock.now
             defer {
                 tokenLoopTotalMS += tokenLoopStartedAt.elapsedMilliseconds
@@ -2408,6 +2465,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     ? postFirstStreamingChunkSize
                     : streamingChunkSize
                 if pendingStreamCodes.count >= requiredStreamChunkSize {
+                    try Task.checkCancellation()
                     let codesChunk = stacked(pendingStreamCodes, axis: 1)
                     let codesForDecoder = codesChunk.transposed(0, 2, 1)
                     if isPureVoiceDesign, designGenerationStepsBeforeFirstChunk == nil {
@@ -2476,6 +2534,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                         lastChunkAudioChunkEvalMS = audioChunkEvalTotalMS
                         onAudioChunkTimings(timings)
                     }
+                    try Task.checkCancellation()
                     onAudioChunk(audioChunk)
                     emittedStreamChunk = true
                     clearGenerationCache()
@@ -2543,6 +2602,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         // Streaming path: yield remaining tokens and return early
         if let onAudioChunk {
             if !pendingStreamCodes.isEmpty {
+                try Task.checkCancellation()
                 let codesChunk = stacked(pendingStreamCodes, axis: 1)
                 let codesForDecoder = codesChunk.transposed(0, 2, 1)
                 let streamDecoderStartedAt = ContinuousClock.now
@@ -2612,6 +2672,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     lastChunkAudioChunkEvalMS = audioChunkEvalTotalMS
                     onAudioChunkTimings(timings)
                 }
+                try Task.checkCancellation()
                 onAudioChunk(audioChunk)
                 emittedStreamChunk = true
                 clearGenerationCache()

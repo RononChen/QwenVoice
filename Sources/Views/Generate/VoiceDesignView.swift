@@ -32,12 +32,18 @@ struct VoiceDesignView: View {
             && isModelAvailable
             && draft.hasText
             && draft.hasVoiceDescription
+            && !ttsEngineStore.hasActiveGeneration
     }
 
     private var canRunBatch: Bool {
         ttsEngineStore.isReady
             && isModelAvailable
             && draft.hasVoiceDescription
+            && !ttsEngineStore.hasActiveGeneration
+    }
+
+    private var isGenerationActive: Bool {
+        coordinator.isGenerating || ttsEngineStore.hasActiveGeneration
     }
 
     private var currentSavedVoiceCandidate: VoiceDesignSavedVoiceCandidate? {
@@ -150,7 +156,7 @@ private extension VoiceDesignView {
             modelManager: modelManager,
             accentColor: AppTheme.voiceDesign,
             accessibilityPrefix: "voiceDesign",
-            isDisabled: coordinator.isGenerating
+            isDisabled: isGenerationActive
         )
     }
 
@@ -159,19 +165,22 @@ private extension VoiceDesignView {
             title: "Script",
             iconName: "text.alignleft",
             accentColor: AppTheme.voiceDesign,
-            trailingText: coordinator.isGenerating ? "Generating" : (canGenerate ? "Ready" : nil),
+            trailingText: isGenerationActive ? "Generating" : (canGenerate ? "Ready" : nil),
             fillsAvailableHeight: true,
             accessibilityIdentifier: "voiceDesign_script"
         ) {
             VStack(alignment: .leading, spacing: LayoutConstants.generationConfigurationRowSpacing) {
                 TextInputView(
                     text: $draft.text,
-                    isGenerating: coordinator.isGenerating,
+                    isGenerating: isGenerationActive,
                     placeholder: "Type or paste your script",
                     buttonColor: AppTheme.voiceDesign,
                     batchAction: { coordinator.presentBatch(draft: draft) },
                     batchDisabled: !canRunBatch,
-                    generateDisabled: !ttsEngineStore.isReady || !isModelAvailable || !draft.hasVoiceDescription,
+                    generateDisabled: !ttsEngineStore.isReady
+                        || !isModelAvailable
+                        || !draft.hasVoiceDescription
+                        || ttsEngineStore.hasActiveGeneration,
                     isEmbedded: true,
                     usesFlexibleEmbeddedHeight: true,
                     onGenerate: {
@@ -182,6 +191,12 @@ private extension VoiceDesignView {
                             ttsEngineStore: ttsEngineStore,
                             audioPlayer: audioPlayer,
                             modelManager: modelManager
+                        )
+                    },
+                    onCancel: {
+                        coordinator.cancelGeneration(
+                            ttsEngineStore: ttsEngineStore,
+                            audioPlayer: audioPlayer
                         )
                     }
                 )
@@ -217,11 +232,11 @@ private extension VoiceDesignView {
 
     var generationReadiness: some View {
         WorkflowReadinessNote(
-            isReady: canGenerate && !coordinator.isGenerating,
-            title: coordinator.isGenerating ? "Generating final audio" : (canGenerate ? "Ready to generate" : readinessTitle),
-            detail: coordinator.isGenerating ? "Rendering the complete take. The file lands in the player when ready." : readinessDetail,
+            isReady: canGenerate && !isGenerationActive,
+            title: isGenerationActive ? "Generating final audio" : (canGenerate ? "Ready to generate" : readinessTitle),
+            detail: isGenerationActive ? "Rendering the complete take. The file lands in the player when ready." : readinessDetail,
             accentColor: AppTheme.voiceDesign,
-            isBusy: coordinator.isGenerating,
+            isBusy: isGenerationActive,
             accessibilityIdentifier: "voiceDesign_readiness"
         )
     }

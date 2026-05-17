@@ -15,7 +15,7 @@ As of `main` commit `63a5e02` (`Guard macOS UI observation boundaries`), the rep
 - prior local full release proof passed from `c6beacd` with `./scripts/release.sh`, `./scripts/verify_release_bundle.sh build/Vocello.app`, and `./scripts/verify_packaged_dmg.sh build/Vocello-macos26.dmg build/release-metadata.txt`; the hosted QA gate re-proved the unsigned release-artifact lane for `63a5e02`
 - controlled local macOS acceptance on April 26, 2026 launched `build/Vocello.app`, switched Custom Voice / Voice Design / Voice Cloning, typed a Custom Voice script, generated a 2-second preview, played it through the sidebar player, and persisted the output under `~/Library/Application Support/QwenVoice/outputs/CustomVoice/`
 
-The next recovery work should keep this baseline stable: native SwiftUI only, no broad visual redesign, no speculative model work from screen mount, and no overlapping heavy build/packaging commands on the 8 GB local development machine. Manual app acceptance confirms the app can complete the primary Custom Voice path locally; that is the current regression check (the automated XCTest harness was retired in May 2026).
+The next recovery work should keep this baseline stable: native SwiftUI only, no broad visual redesign, no speculative model work from screen mount, and no overlapping heavy build/packaging commands on the 8 GB local development machine. Manual app acceptance and targeted Codex-driven smoke runs confirm the app can complete primary generation paths locally; the automated XCTest/CI surfaces were retired in May 2026.
 
 ## Current Strengths
 
@@ -35,6 +35,7 @@ The next recovery work should keep this baseline stable: native SwiftUI only, no
 - An explicit public-homepage posture that keeps GitHub landing-page messaging aligned with the currently shipped `QwenVoice v1.2.3` build, with `Vocello` framed as the forward rebrand that lands with the next macOS release
 - An agent-driven autonomous testing and benchmarking harness (`scripts/uitest.sh` + the runbooks under `docs/reference/`) with committed regression baselines at `docs/reference/benchmark-baselines.json` (schema v3, 24 cells × n=3 on Apple M2, May 2026). `bench-compare` flags timing/RTF drift past ±15 %; depth metrics (audio RMS/peak dBFS and combined Vocello + XPC peak RSS) are stored per cell for forensic comparison.
 - A runtime-side prewarm gate in `NativeEngineRuntime` (`acquirePrewarmSlot` / `releasePrewarmSlot`) that serializes `prewarmVoiceDesign` / `prewarmCustomVoice` / `prewarmVoiceClone` across actor suspension points — closes the actor-reentrancy race that previously let two threads enter MLX's KV cache slice updates concurrently and trip an upstream assertion (crash report May 15, 2026).
+- A broader generation-ownership hardening layer now serializes model-mutating work through `MLXTTSEngine`, exposes `hasActiveGeneration` through the macOS/iPhone app stores, rejects concurrent host generations, carries UUID-backed streaming identity, and cancels vendored Qwen stream producers when consumers stop.
 
 ## Current Caveats
 

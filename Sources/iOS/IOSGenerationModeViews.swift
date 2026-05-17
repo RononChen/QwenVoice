@@ -11,6 +11,7 @@ struct IOSCustomVoiceView: View {
     @Binding var draft: CustomVoiceDraft
     @Binding var primaryAction: IOSGeneratePrimaryActionDescriptor
     @State private var isGenerating = false
+    @State private var generationTask: Task<Void, Never>?
     @State private var isScriptFocused = false
     @State private var errorMessage: String?
 
@@ -52,10 +53,11 @@ struct IOSCustomVoiceView: View {
             && isModelAvailable
             && !scriptLimitState.trimmedIsEmpty
             && !scriptLimitState.isOverLimit
+            && !ttsEngine.hasActiveGeneration
     }
 
     private var chromeOpacity: Double {
-        isGenerating ? 0.76 : 1
+        isGenerationActive ? 0.76 : 1
     }
 
     private var setupMessage: String? {
@@ -73,7 +75,11 @@ struct IOSCustomVoiceView: View {
     }
 
     private var primaryActionToken: String {
-        "\(isGenerating)-\(isSimulatorPreview || canGenerate)"
+        "\(isGenerationActive)-\(isSimulatorPreview || canGenerate)"
+    }
+
+    private var isGenerationActive: Bool {
+        isGenerating || ttsEngine.hasActiveGeneration
     }
 
     var body: some View {
@@ -129,7 +135,7 @@ struct IOSCustomVoiceView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .opacity(chromeOpacity)
-        .animation(IOSSelectionMotion.modeCrossfade, value: isGenerating)
+        .animation(IOSSelectionMotion.modeCrossfade, value: isGenerationActive)
         .onChange(of: draft.text) { _, newValue in
             let clamped = IOSGenerationTextLimitPolicy.clamped(newValue, mode: .custom)
             if clamped != newValue {
@@ -139,11 +145,23 @@ struct IOSCustomVoiceView: View {
     }
 
     private func publishPrimaryAction() {
+        if isGenerationActive {
+            primaryAction = IOSGeneratePrimaryActionDescriptor(
+                title: "Cancel",
+                systemImage: "stop.fill",
+                tint: .red,
+                isRunning: false,
+                isEnabled: true,
+                accessibilityIdentifier: "textInput_cancelButton",
+                action: cancelGeneration
+            )
+            return
+        }
         primaryAction = IOSGeneratePrimaryActionDescriptor(
             title: "Create",
             systemImage: IOSGenerationSection.custom.primaryActionSystemImage,
             tint: IOSGenerationSection.custom.primaryActionTint,
-            isRunning: isGenerating,
+            isRunning: isGenerationActive,
             isEnabled: isSimulatorPreview || canGenerate,
             accessibilityIdentifier: "textInput_generateButton",
             action: generate
@@ -155,7 +173,7 @@ struct IOSCustomVoiceView: View {
             errorMessage = nil
             return
         }
-        guard !scriptLimitState.trimmedIsEmpty, ttsEngine.isReady else { return }
+        guard !scriptLimitState.trimmedIsEmpty, ttsEngine.isReady, !ttsEngine.hasActiveGeneration else { return }
         guard !scriptLimitState.isOverLimit else {
             errorMessage = scriptLimitState.warningMessage
             return
@@ -169,7 +187,13 @@ struct IOSCustomVoiceView: View {
         isGenerating = true
         errorMessage = nil
 
-        Task {
+        generationTask = Task {
+            defer {
+                Task { @MainActor in
+                    isGenerating = false
+                    generationTask = nil
+                }
+            }
             let outputPath = makeOutputPath(subfolder: model.outputSubfolder, text: promptText)
             do {
                 let result = try await ttsEngine.generate(
@@ -205,13 +229,27 @@ struct IOSCustomVoiceView: View {
                     caller: "IOSCustomVoiceView"
                 )
                 IOSHaptics.success()
+            } catch is CancellationError {
+                audioPlayer.abortLivePreviewIfNeeded()
+                errorMessage = nil
             } catch {
                 audioPlayer.abortLivePreviewIfNeeded()
                 errorMessage = error.localizedDescription
                 IOSHaptics.warning()
             }
+        }
+    }
 
-            isGenerating = false
+    private func cancelGeneration() {
+        generationTask?.cancel()
+        Task {
+            try? await ttsEngine.cancelActiveGeneration()
+            await MainActor.run {
+                audioPlayer.abortLivePreviewIfNeeded()
+                errorMessage = nil
+                isGenerating = false
+                generationTask = nil
+            }
         }
     }
 }
@@ -226,6 +264,7 @@ struct IOSVoiceDesignView: View {
     @Binding var draft: VoiceDesignDraft
     @Binding var primaryAction: IOSGeneratePrimaryActionDescriptor
     @State private var isGenerating = false
+    @State private var generationTask: Task<Void, Never>?
     @State private var isScriptFocused = false
     @State private var errorMessage: String?
     @State private var saveSheetAudioPath: String?
@@ -277,10 +316,11 @@ struct IOSVoiceDesignView: View {
             && !draft.voiceDescription.isEmpty
             && !scriptLimitState.trimmedIsEmpty
             && !scriptLimitState.isOverLimit
+            && !ttsEngine.hasActiveGeneration
     }
 
     private var chromeOpacity: Double {
-        isGenerating ? 0.76 : 1
+        isGenerationActive ? 0.76 : 1
     }
 
     private var setupMessage: String? {
@@ -302,7 +342,11 @@ struct IOSVoiceDesignView: View {
     }
 
     private var primaryActionToken: String {
-        "\(isGenerating)-\(isSimulatorPreview || canGenerate)"
+        "\(isGenerationActive)-\(isSimulatorPreview || canGenerate)"
+    }
+
+    private var isGenerationActive: Bool {
+        isGenerating || ttsEngine.hasActiveGeneration
     }
 
     var body: some View {
@@ -461,7 +505,7 @@ struct IOSVoiceDesignView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .opacity(chromeOpacity)
-        .animation(IOSSelectionMotion.modeCrossfade, value: isGenerating)
+        .animation(IOSSelectionMotion.modeCrossfade, value: isGenerationActive)
         .onChange(of: draft.text) { _, newValue in
             let clamped = IOSGenerationTextLimitPolicy.clamped(newValue, mode: .design)
             if clamped != newValue {
@@ -471,11 +515,23 @@ struct IOSVoiceDesignView: View {
     }
 
     private func publishPrimaryAction() {
+        if isGenerationActive {
+            primaryAction = IOSGeneratePrimaryActionDescriptor(
+                title: "Cancel",
+                systemImage: "stop.fill",
+                tint: .red,
+                isRunning: false,
+                isEnabled: true,
+                accessibilityIdentifier: "textInput_cancelButton",
+                action: cancelGeneration
+            )
+            return
+        }
         primaryAction = IOSGeneratePrimaryActionDescriptor(
             title: "Create",
             systemImage: IOSGenerationSection.design.primaryActionSystemImage,
             tint: IOSGenerationSection.design.primaryActionTint,
-            isRunning: isGenerating,
+            isRunning: isGenerationActive,
             isEnabled: isSimulatorPreview || canGenerate,
             accessibilityIdentifier: "textInput_generateButton",
             action: generate
@@ -508,7 +564,13 @@ struct IOSVoiceDesignView: View {
         isGenerating = true
         errorMessage = nil
 
-        Task {
+        generationTask = Task {
+            defer {
+                Task { @MainActor in
+                    isGenerating = false
+                    generationTask = nil
+                }
+            }
             let outputPath = makeOutputPath(subfolder: model.outputSubfolder, text: promptText)
             do {
                 let result = try await ttsEngine.generate(
@@ -545,12 +607,27 @@ struct IOSVoiceDesignView: View {
                 )
                 saveSheetAudioPath = result.audioPath
                 IOSHaptics.success()
+            } catch is CancellationError {
+                audioPlayer.abortLivePreviewIfNeeded()
+                errorMessage = nil
             } catch {
                 audioPlayer.abortLivePreviewIfNeeded()
                 errorMessage = error.localizedDescription
                 IOSHaptics.warning()
             }
-            isGenerating = false
+        }
+    }
+
+    private func cancelGeneration() {
+        generationTask?.cancel()
+        Task {
+            try? await ttsEngine.cancelActiveGeneration()
+            await MainActor.run {
+                audioPlayer.abortLivePreviewIfNeeded()
+                errorMessage = nil
+                isGenerating = false
+                generationTask = nil
+            }
         }
     }
 }
@@ -567,6 +644,7 @@ struct IOSVoiceCloningView: View {
     @Binding var pendingSavedVoiceHandoff: PendingVoiceCloningHandoff?
 
     @State private var isGenerating = false
+    @State private var generationTask: Task<Void, Never>?
     @State private var errorMessage: String?
     @State private var transcriptLoadError: String?
     @State private var hydratedSavedVoiceID: String?
@@ -658,6 +736,7 @@ struct IOSVoiceCloningView: View {
             && draft.referenceAudioPath != nil
             && !scriptLimitState.trimmedIsEmpty
             && !scriptLimitState.isOverLimit
+            && !ttsEngine.hasActiveGeneration
     }
 
     private var setupMessage: String? {
@@ -690,7 +769,11 @@ struct IOSVoiceCloningView: View {
     }
 
     private var primaryActionToken: String {
-        "\(isGenerating)-\(isSimulatorPreview || canGenerate)"
+        "\(isGenerationActive)-\(isSimulatorPreview || canGenerate)"
+    }
+
+    private var isGenerationActive: Bool {
+        isGenerating || ttsEngine.hasActiveGeneration
     }
 
     var body: some View {
@@ -802,11 +885,23 @@ struct IOSVoiceCloningView: View {
     }
 
     private func publishPrimaryAction() {
+        if isGenerationActive {
+            primaryAction = IOSGeneratePrimaryActionDescriptor(
+                title: "Cancel",
+                systemImage: "stop.fill",
+                tint: .red,
+                isRunning: false,
+                isEnabled: true,
+                accessibilityIdentifier: "textInput_cancelButton",
+                action: cancelGeneration
+            )
+            return
+        }
         primaryAction = IOSGeneratePrimaryActionDescriptor(
             title: "Create",
             systemImage: IOSGenerationSection.clone.primaryActionSystemImage,
             tint: IOSGenerationSection.clone.primaryActionTint,
-            isRunning: isGenerating,
+            isRunning: isGenerationActive,
             isEnabled: isSimulatorPreview || canGenerate,
             accessibilityIdentifier: "textInput_generateButton",
             action: generate
@@ -830,7 +925,7 @@ struct IOSVoiceCloningView: View {
             errorMessage = nil
             return
         }
-        guard !scriptLimitState.trimmedIsEmpty, ttsEngine.isReady else { return }
+        guard !scriptLimitState.trimmedIsEmpty, ttsEngine.isReady, !ttsEngine.hasActiveGeneration else { return }
         guard !scriptLimitState.isOverLimit else {
             errorMessage = scriptLimitState.warningMessage
             return
@@ -844,7 +939,13 @@ struct IOSVoiceCloningView: View {
         isGenerating = true
         errorMessage = nil
 
-        Task {
+        generationTask = Task {
+            defer {
+                Task { @MainActor in
+                    isGenerating = false
+                    generationTask = nil
+                }
+            }
             do {
                 ensureSelectedSavedVoiceHydratedIfNeeded()
                 guard let refPath = draft.referenceAudioPath else {
@@ -903,17 +1004,32 @@ struct IOSVoiceCloningView: View {
                     caller: "IOSVoiceCloningView"
                 )
                 IOSHaptics.success()
+            } catch is CancellationError {
+                audioPlayer.abortLivePreviewIfNeeded()
+                errorMessage = nil
             } catch {
                 audioPlayer.abortLivePreviewIfNeeded()
                 errorMessage = error.localizedDescription
                 IOSHaptics.warning()
             }
-            isGenerating = false
+        }
+    }
+
+    private func cancelGeneration() {
+        generationTask?.cancel()
+        Task {
+            try? await ttsEngine.cancelActiveGeneration()
+            await MainActor.run {
+                audioPlayer.abortLivePreviewIfNeeded()
+                errorMessage = nil
+                isGenerating = false
+                generationTask = nil
+            }
         }
     }
 
     private func syncCloneReferencePriming() async {
-        guard !isGenerating else { return }
+        guard !isGenerationActive else { return }
         guard allowsExecution else {
             await ttsEngine.cancelClonePreparationIfNeeded()
             return

@@ -13,6 +13,7 @@ struct TextInputView: View {
     var isEmbedded: Bool = false
     var usesFlexibleEmbeddedHeight: Bool = false
     var onGenerate: () -> Void
+    var onCancel: (() -> Void)? = nil
 
     @State private var isEditorFocused = false
 
@@ -64,24 +65,28 @@ struct TextInputView: View {
                     .accessibilityIdentifier("textInput_batchButton")
                 }
 
-                Button {
-                    onGenerate()
-                } label: {
-                    // Audit Batch 5a/b: `sparkles` is the SaaS-AI category
-                    // reflex; `waveform` ties the icon directly to the
-                    // audio output the button produces. The label swaps to
-                    // "Generating…" while busy so the most-watched element
-                    // on the screen reflects the actual state.
-                    Label(
-                        isGenerating ? "Generating…" : "Generate",
-                        systemImage: "waveform"
-                    )
-                    .frame(minWidth: 100)
+                if isGenerating, let onCancel {
+                    Button {
+                        onCancel()
+                    } label: {
+                        Label("Cancel", systemImage: "stop.fill")
+                            .frame(minWidth: 100)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .accessibilityIdentifier("textInput_cancelButton")
+                } else {
+                    Button {
+                        onGenerate()
+                    } label: {
+                        Label("Generate", systemImage: "waveform")
+                            .frame(minWidth: 100)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(buttonColor)
+                    .disabled(isTextEmptyForGeneration || isGenerating || generateDisabled)
+                    .accessibilityIdentifier("textInput_generateButton")
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(buttonColor)
-                .disabled(isTextEmptyForGeneration || isGenerating || generateDisabled)
-                .accessibilityIdentifier("textInput_generateButton")
             }
 
             Spacer(minLength: 0)

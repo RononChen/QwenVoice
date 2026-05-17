@@ -48,7 +48,7 @@ Public messaging rules:
 
 Two-track macOS hardware proof:
 
-- `Mac mini M2, 8 GB RAM` is the active development and bench-capture host. Perf is verified manually after material engine changes; the automated baselines + comparator were retired with the rest of the test/bench surface in May 2026.
+- `Mac mini M2, 8 GB RAM` is the active development and bench-capture host. Perf is verified locally after material engine changes with targeted manual checks and, when appropriate, the maintained Codex-driven `scripts/uitest.sh` bench harness.
 - `Mac mini M1, 8 GB RAM` remains the documented official minimum, but engine-level findings captured on M1 have not been re-verified on M2. The M1-saturation conclusion (Step Eval Flush ≈62 % of generation, irreducible without quantization or hardware change) was reached on M1; M2's wider memory bandwidth and more capable GPU cores mean the saturation profile may differ. Re-verify via manual Instruments capture on M2 before citing the finding as M2-bound.
 - Do not claim the M1 floor is fully verified as of the dual-variant catalog (`d5b3c61`, 2026-05-05). Re-verify the floor-device finding before citing it for current M2 behavior.
 
@@ -91,12 +91,12 @@ Release-facing metadata and docs should record:
 
 ## Current Signoff Tiers
 
-The current `macOS-first release track` uses three proof tiers. **All three are local-only** since the CI surface and the test/bench harness were retired in May 2026.
+The current `macOS-first release track` uses three proof tiers. **All three are local-only** since the CI, XCTest, and legacy Python/automation surfaces were retired in May 2026.
 
 1. Build and validation proof
    - `scripts/check_project_inputs.sh` (static validation)
    - `scripts/build_foundation_targets.sh macos` + `scripts/build_foundation_targets.sh ios` (compile proof)
-   - manual smoke of `build/Vocello.app` on the affected paths
+   - Debug behavioral smoke with `./scripts/build.sh run` or `scripts/uitest.sh prep`; use manual acceptance and targeted `scripts/uitest.sh` runbooks for affected paths
 2. macOS ship gate
    - local unsigned macOS packaging and verification via `scripts/release.sh` + `scripts/verify_release_bundle.sh` + `scripts/verify_packaged_dmg.sh`
    - signed/notarized DMG produced by `scripts/release.sh --preflight full` against the project owner's Apple developer credentials (local Keychain)
@@ -114,7 +114,7 @@ Only tiers 1 and 2 block the current public release milestone.
 | 2. macOS ship gate | `./scripts/release.sh` + `./scripts/verify_release_bundle.sh` + `./scripts/verify_packaged_dmg.sh` |
 | 3. Deferred iPhone release | `./scripts/check_ios_catalog.sh` + `./scripts/release_ios_testflight.sh` + `./scripts/verify_ios_release_archive.sh` |
 
-Only tiers 1 and 2 block the current public release milestone. Tier 3 is maintained but deferred from public signoff until the iPhone re-entry conditions below are met. There are no automated test layers; manual smoke is the regression check.
+Only tiers 1 and 2 block the current public release milestone. Tier 3 is maintained but deferred from public signoff until the iPhone re-entry conditions below are met. There are no CI or XCTest proof layers; local manual smoke and the maintained Codex harness are the behavioral regression checks.
 
 ## Program Priorities
 
@@ -139,7 +139,7 @@ The default local release-readiness loop for the current milestone is:
 ./scripts/verify_packaged_dmg.sh build/Vocello-macos26.dmg build/release-metadata.txt
 ```
 
-Then launch `build/Vocello.app` and exercise the affected user-facing paths by hand. There is no automated UI smoke or e2e harness; manual verification is the regression check.
+Then launch `build/Vocello.app` and exercise the affected user-facing paths by hand. For Debug behavior before release packaging, use `./scripts/build.sh run` or `scripts/uitest.sh prep` and follow the targeted `scripts/uitest.sh` smoke/bench runbooks when the change affects generation, playback, or benchmarked latency.
 
 ## CI Proof Surface
 

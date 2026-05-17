@@ -26,7 +26,7 @@ Some actions don't have an obvious visible button on the default macOS window si
 
 | Shortcut | Effect | Context |
 |---|---|---|
-| `super+Return` | Trigger Generate on the current generation screen | Custom Voice (confirmed). Likely Voice Design and Voice Cloning too — verify when first used. |
+| `super+Return` | Trigger Generate on the current generation screen | Shared by Custom Voice, Voice Design, and Voice Cloning through `TextInputView`. |
 | `super+a` | Select text in the focused field | Useful before replacing prompt text between samples. |
 | `BackSpace` | Delete selected text | Use after `super+a`; Codex key syntax uses `BackSpace`, not `delete`. |
 | `super+comma` | Open Settings window | Standard macOS convention; the app uses it. |
@@ -67,10 +67,11 @@ All three generation screens embed `TextInputView`, which exposes the same ident
 |---|---|---|
 | `textInput_textEditor` | text field | The script text area. Click center, then `type_text` to populate. |
 | `textInput_generateButton` | button | Generate (Computer Use key: `super+Return`; macOS shortcut: Cmd+Return). |
+| `textInput_cancelButton` | button | Cancel active generation. Visible only while the shared active-generation state is true. |
 | `textInput_batchButton` | button | Batch generation mode toggle. |
 | `textInput_charCount` | label | Character count display. |
 
-This is the most useful identifier for autonomous driving — the script field finally has an AX id (it was the visual-fallback gap in element 1's smoke test).
+This is the most useful identifier for autonomous driving — the script field finally has an AX id (it was the visual-fallback gap in element 1's smoke test). During generation, the variant selector and generation controls are disabled and `get_app_state` should show `textInput_cancelButton` instead of an enabled Generate button.
 
 #### Custom Voice fields
 

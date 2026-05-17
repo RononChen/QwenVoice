@@ -64,7 +64,14 @@ struct VoiceCloningView: View {
     }
 
     private var canRunBatch: Bool {
-        ttsEngineStore.isReady && draft.referenceAudioPath != nil && isModelAvailable
+        ttsEngineStore.isReady
+            && draft.referenceAudioPath != nil
+            && isModelAvailable
+            && !ttsEngineStore.hasActiveGeneration
+    }
+
+    private var isGenerationActive: Bool {
+        coordinator.isGenerating || ttsEngineStore.hasActiveGeneration
     }
 
     private var clonePrimingRequestKey: String? {
@@ -331,7 +338,7 @@ private extension VoiceCloningView {
             modelManager: modelManager,
             accentColor: AppTheme.voiceCloning,
             accessibilityPrefix: "voiceCloning",
-            isDisabled: coordinator.isGenerating
+            isDisabled: isGenerationActive
         )
     }
 
@@ -340,19 +347,23 @@ private extension VoiceCloningView {
             title: "Script",
             iconName: "text.alignleft",
             accentColor: AppTheme.voiceCloning,
-            trailingText: coordinator.isGenerating ? "Generating" : readinessDescriptor.trailingText,
+            trailingText: isGenerationActive ? "Generating" : readinessDescriptor.trailingText,
             fillsAvailableHeight: true,
             accessibilityIdentifier: "voiceCloning_script"
         ) {
             VStack(alignment: .leading, spacing: LayoutConstants.generationConfigurationRowSpacing) {
                 TextInputView(
                     text: $draft.text,
-                    isGenerating: coordinator.isGenerating,
+                    isGenerating: isGenerationActive,
                     placeholder: "Type the line for the cloned voice",
                     buttonColor: AppTheme.voiceCloning,
                     batchAction: { coordinator.presentBatch(draft: draft) },
                     batchDisabled: !canRunBatch,
-                    generateDisabled: !ttsEngineStore.isReady || !isModelAvailable || draft.referenceAudioPath == nil || !draft.hasText,
+                    generateDisabled: !ttsEngineStore.isReady
+                        || !isModelAvailable
+                        || draft.referenceAudioPath == nil
+                        || !draft.hasText
+                        || ttsEngineStore.hasActiveGeneration,
                     isEmbedded: true,
                     usesFlexibleEmbeddedHeight: true,
                     onGenerate: {
@@ -366,6 +377,12 @@ private extension VoiceCloningView {
                             audioPlayer: audioPlayer,
                             modelManager: modelManager
                         )
+                    },
+                    onCancel: {
+                        coordinator.cancelGeneration(
+                            ttsEngineStore: ttsEngineStore,
+                            audioPlayer: audioPlayer
+                        )
                     }
                 )
 
@@ -373,7 +390,7 @@ private extension VoiceCloningView {
                     isReadyForFastGenerate: readinessDescriptor.noteIsReady,
                     readinessTitle: readinessDescriptor.title,
                     readinessDetail: readinessDescriptor.detail,
-                    isGenerating: coordinator.isGenerating,
+                    isGenerating: isGenerationActive,
                     errorMessage: coordinator.errorMessage
                 )
             }

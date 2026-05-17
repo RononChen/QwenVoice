@@ -45,7 +45,7 @@ Then run the relevant build proof:
 ./scripts/build_foundation_targets.sh ios
 ```
 
-Behavioral testing: **manual only.** The repo has no XCTest targets and no automated test harness as of May 2026. After a clean foundation build, launch `build/Vocello.app` and exercise the affected paths by hand. Any reintroduction of automated tests should be a deliberate, scoped decision.
+Behavioral testing is local-only. The repo has no CI and no XCTest targets as of May 2026, but it does maintain a Codex-driven smoke/bench harness in `scripts/uitest.sh` plus the runbooks under `docs/reference/`. For Debug behavior, launch with `./scripts/build.sh run` or `scripts/uitest.sh prep`; for release behavior, launch `build/Vocello.app` only after `./scripts/release.sh`. Any new test framework, CI workflow, QA shell surface, or parallel benchmark harness should be a deliberate, scoped decision.
 
 For current macOS release signoff, the maintained local loop is documented in `docs/reference/release-readiness.md`.
 

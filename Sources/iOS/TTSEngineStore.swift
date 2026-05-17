@@ -186,6 +186,11 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
             throw MLXTTSEngineError.unsupportedRequest(reason)
         }
         try guardModelAdmission(shouldSurfaceError: true)
+        guard !hasActiveGeneration else {
+            throw MLXTTSEngineError.generationFailed(
+                "The engine is already generating audio. Wait for it to finish or cancel it before starting another generation."
+            )
+        }
         activeGenerationDepth += 1
         hasActiveGeneration = activeGenerationDepth > 0
         defer {
@@ -299,6 +304,17 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         if extensionLifecycleState != retainedSnapshot.lifecycleState {
             extensionLifecycleState = retainedSnapshot.lifecycleState
         }
+        let snapshotHasActiveGeneration: Bool
+        if case .running(_, let label, _) = retainedSnapshot.loadState,
+           label != EngineActivityLabels.preparingVoiceReference {
+            snapshotHasActiveGeneration = true
+        } else {
+            snapshotHasActiveGeneration = false
+        }
+        let nextHasActiveGeneration = activeGenerationDepth > 0 || snapshotHasActiveGeneration
+        if hasActiveGeneration != nextHasActiveGeneration {
+            hasActiveGeneration = nextHasActiveGeneration
+        }
         applyMemoryPolicyContext(for: currentMemorySnapshot())
 
         guard let latestEvent = rawLatestEvent,
@@ -312,7 +328,15 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
             NotificationCenter.default.post(
                 name: .generationChunkReceived,
                 object: self,
-                userInfo: ["chunk": chunk]
+                userInfo: [
+                    "chunk": chunk,
+                    "generationID": chunk.generationID as Any,
+                    "requestID": chunk.requestID as Any,
+                    "title": chunk.title,
+                    "chunkPath": chunk.chunkPath as Any,
+                    "streamSessionDirectory": chunk.streamSessionDirectory as Any,
+                    "cumulativeDurationSeconds": chunk.cumulativeDurationSeconds as Any,
+                ]
             )
         }
     }

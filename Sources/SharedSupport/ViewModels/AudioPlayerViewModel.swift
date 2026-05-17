@@ -595,6 +595,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     // MARK: - Notifications
 
     private struct ChunkInfo: Sendable {
+        let generationID: UUID?
         let requestID: Int
         let title: String
         let chunkPath: String?
@@ -617,6 +618,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
                       let title = event.title,
                       event.chunkPath != nil || event.previewAudio != nil else { return }
                 let chunk = ChunkInfo(
+                    generationID: event.generationID,
                     requestID: requestID,
                     title: title,
                     chunkPath: event.chunkPath,
@@ -632,19 +634,35 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let userInfo = notification.userInfo,
-                  let requestID = userInfo["requestID"] as? Int,
-                  let title = userInfo["title"] as? String,
-                  let chunkPath = userInfo["chunkPath"] as? String
-            else { return }
-            let chunk = ChunkInfo(
-                requestID: requestID,
-                title: title,
-                chunkPath: chunkPath,
-                previewAudio: nil,
-                sessionDirectory: userInfo["streamSessionDirectory"] as? String,
-                cumulativeDuration: userInfo["cumulativeDurationSeconds"] as? Double
-            )
+            guard let userInfo = notification.userInfo else { return }
+            let chunk: ChunkInfo?
+            if let generationChunk = userInfo["chunk"] as? GenerationChunk,
+               let requestID = generationChunk.requestID {
+                chunk = ChunkInfo(
+                    generationID: generationChunk.generationID,
+                    requestID: requestID,
+                    title: generationChunk.title,
+                    chunkPath: generationChunk.chunkPath,
+                    previewAudio: generationChunk.previewAudio,
+                    sessionDirectory: generationChunk.streamSessionDirectory,
+                    cumulativeDuration: generationChunk.cumulativeDurationSeconds
+                )
+            } else if let requestID = userInfo["requestID"] as? Int,
+                      let title = userInfo["title"] as? String,
+                      let chunkPath = userInfo["chunkPath"] as? String {
+                chunk = ChunkInfo(
+                    generationID: userInfo["generationID"] as? UUID,
+                    requestID: requestID,
+                    title: title,
+                    chunkPath: chunkPath,
+                    previewAudio: nil,
+                    sessionDirectory: userInfo["streamSessionDirectory"] as? String,
+                    cumulativeDuration: userInfo["cumulativeDurationSeconds"] as? Double
+                )
+            } else {
+                chunk = nil
+            }
+            guard let chunk else { return }
             Task { @MainActor [weak self] in
                 self?.handleGenerationChunk(chunk)
             }
@@ -653,7 +671,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     }
 
     private func handleGenerationChunk(_ chunk: ChunkInfo) {
-        let sessionID = String(chunk.requestID)
+        let sessionID = chunk.generationID?.uuidString ?? String(chunk.requestID)
         AppPerformanceSignposts.emit("Chunk Received")
         guard !completedLiveSessionIDs.contains(sessionID) else {
             AppPerformanceSignposts.emit("Chunk Dropped Completed")

@@ -36,9 +36,11 @@ Lower-level scripts (still supported, used by `build.sh` internally):
 ./scripts/build_foundation_targets.sh all     # both
 ./scripts/build_and_run.sh                # legacy debug build → install → launch
 ./scripts/release.sh                      # macOS release packaging (ad-hoc signed DMG by default)
+./scripts/check_ios_catalog.sh            # iOS catalog/static sanity check
 ./scripts/release_ios_testflight.sh       # iOS TestFlight build/sign/notarize/upload
 ./scripts/clean_build_caches.sh           # nuke build caches
 ./scripts/export_diagnostics.sh           # collect diagnostics bundle
+./scripts/verify_ios_release_archive.sh <archive>  # verify iOS release archive
 ./scripts/verify_packaged_dmg.sh <dmg>    # verify a packaged DMG
 ./scripts/verify_release_bundle.sh <app>  # verify .app signing/entitlements
 ```
@@ -96,7 +98,9 @@ Committed baselines live at `docs/reference/benchmark-baselines.json` (schema v3
 
 ## Testing policy — important
 
-This repo intentionally has **no XCTest targets, no automated test harness, and no CI** as of May 2026. Behavioral validation is **manual**: after a clean foundation build, launch `build/Vocello.app` and exercise the affected paths by hand. Do not reintroduce test bundles, QA shell scripts, agent configs, benchmark harnesses, or any GitHub Actions workflow without an explicit maintainer decision — `scripts/check_project_inputs.sh` enforces this with a prohibited-paths list and a regex sweep of the working tree. Inspect that script for the current list rather than quoting names here (its patterns also trip on any file that mentions the banned names verbatim).
+This repo intentionally has **no CI, no XCTest targets, and no legacy Python/CI benchmark harnesses** as of May 2026. Behavioral validation is local-only and two-track: manual app acceptance plus the maintained Codex-driven `scripts/uitest.sh` smoke/bench harness above. For Debug behavior, use `./scripts/build.sh run` or `scripts/uitest.sh prep` (Debug app path: `build/DerivedData/Build/Products/Debug/Vocello.app`). For release signoff, launch `build/Vocello.app` only after `./scripts/release.sh` has produced the Release bundle.
+
+Do not reintroduce test bundles, QA shell scripts, agent configs, GitHub Actions workflows, or a parallel benchmark harness without an explicit maintainer decision. `scripts/check_project_inputs.sh` enforces the retired surfaces with a prohibited-paths list and a regex sweep of the working tree. Inspect that script for the current list rather than quoting names here (its patterns also trip on any file that mentions the banned names verbatim).
 
 Recent commits that establish this stance: *"Retire all CI workflows; reset to local-only operation"*, *"Remove test harness and agent config"*, *"Scope CI to building and packaging validations only"*.
 
@@ -147,6 +151,12 @@ Non-obvious runtime behavior added across the May 2026 Phase 1+2+3 rollout. Futu
 
 The fix is a monitor-style gate: `prewarmInFlight: Bool` + `prewarmWaiters: [CheckedContinuation<Void, Never>]` with `acquirePrewarmSlot()` / `releasePrewarmSlot()` helpers. Both ensure* methods call `await acquirePrewarmSlot()` first and `defer { releasePrewarmSlot() }`. **Do not remove the gate or restructure the prewarm path without preserving this serialization.**
 
+### Generation ownership and cancellation (CRITICAL)
+
+`MLXTTSEngine` owns admission for model-mutating work. Generation, batch generation, explicit load/unload, proactive warmup/prefetch, and clone priming must go through its model-operation gate so only one operation mutates model/runtime state at a time. Proactive warm operations skip/defer when the lease is occupied; user-triggered generation rejects cleanly when another generation is active.
+
+The macOS and iOS app-facing stores expose `hasActiveGeneration`, and generation UIs must use that shared state to disable cross-mode controls and show cancellation. The macOS XPC host and iOS extension host reject concurrent generation instead of replacing active handles. Streaming chunks carry a UUID `generationID`; numeric `requestID` remains useful for logs/signposts but must not be the sole playback-session identity across service/runtime restarts. Vendored Qwen streaming producers must cancel their producer `Task` from `AsyncThrowingStream` termination and check cancellation inside token/decode loops so orphaned consumers cannot leave MLX generation running.
+
 ### Quality → Speed OOM fallback on floor8GBMac
 
 `MLXTTSEngine.loadModel(id:)` catches load failures on floor8GBMac. If the failed model was a Quality variant AND the error matches OOM heuristics (NSError localizedDescription contains "memory" / "allocate" / "allocation", or NSPOSIXErrorDomain ENOMEM), the engine retries with the Speed sibling derived via the registry. `visibleErrorMessage` surfaces "Switched to Speed (4-bit) — Quality didn't fit in memory." If the fallback ALSO fails, the original error propagates (no cascade).
@@ -165,7 +175,7 @@ Two OSSignposter events in `NativeEngineRuntime` for bench/forensics: `"Native P
 
 ### Headless-workload env vars
 
-- `QWENVOICE_STREAMING_PREVIEW_DATA=off` (or `skip` / `false` / `0` / `no`) — skips per-chunk `previewAudio.pcm16LE` Data allocation. Default emits. For bench/CI/batch where nobody is listening to live preview.
+- `QWENVOICE_STREAMING_PREVIEW_DATA=off` (or `skip` / `false` / `0` / `no`) — skips per-chunk `previewAudio.pcm16LE` Data allocation. Default emits. For headless bench/batch work where nobody is listening to live preview.
 - `QWENVOICE_STREAMING_OUTPUT_POLICY=file` — adds per-chunk file artifacts alongside the PCM preview. Default `pcm_preview` (PCM preview only, no per-chunk files).
 
 ## Known traps

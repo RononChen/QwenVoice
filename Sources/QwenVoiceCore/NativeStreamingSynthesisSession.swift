@@ -33,6 +33,7 @@ private enum NativeStreamingSignposts {
 }
 
 final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unchecked Sendable {
+    private let generationID: UUID
     private let requestID: Int
     private let request: GenerationRequest
     private let model: UnsafeSpeechGenerationModel
@@ -50,6 +51,7 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
     private let pcmScratchBuffer: PCM16ScratchBuffer?
 
     init(
+        generationID: UUID,
         requestID: Int,
         request: GenerationRequest,
         model: UnsafeSpeechGenerationModel,
@@ -66,6 +68,7 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
         mlxMemorySnapshots: [String: NativeMLXMemorySnapshot],
         pcmScratchBuffer: PCM16ScratchBuffer? = nil
     ) {
+        self.generationID = generationID
         self.requestID = requestID
         self.request = request
         self.model = model
@@ -88,6 +91,7 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
             let sessionDirectory = try makeSessionDirectory()
             let execution = StreamingExecutionContext(
                 requestID: requestID,
+                generationID: generationID,
                 request: request,
                 model: model,
                 sessionDirectory: sessionDirectory,
@@ -118,6 +122,7 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
         let sessionDirectory = try makeSessionDirectory()
         let execution = StreamingExecutionContext(
             requestID: requestID,
+            generationID: generationID,
             request: request,
             model: model,
             sessionDirectory: sessionDirectory,
@@ -709,6 +714,7 @@ private final class IncrementalPCM16WAVFileWriter {
 
 private struct StreamingExecutionContext: Sendable {
     let requestID: Int
+    let generationID: UUID
     let request: GenerationRequest
     let model: UnsafeSpeechGenerationModel
     let sessionDirectory: URL
@@ -1095,6 +1101,7 @@ private struct StreamingExecutionContext: Sendable {
 
                     let chunkEvent = GenerationEvent.chunk(
                         GenerationChunk(
+                            generationID: generationID,
                             requestID: requestID,
                             mode: request.modeIdentifier,
                             title: previewTitle,
@@ -1104,6 +1111,7 @@ private struct StreamingExecutionContext: Sendable {
                             cumulativeDurationSeconds: cumulativeDurationSeconds,
                             streamSessionDirectory: sessionDirectory.path,
                             previewAudio: StreamingAudioChunk(
+                                generationID: generationID,
                                 requestID: requestID,
                                 sampleRate: sampleRate,
                                 frameOffset: frameOffset,

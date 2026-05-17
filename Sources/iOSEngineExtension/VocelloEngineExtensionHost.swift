@@ -19,7 +19,12 @@ private actor ExtensionActiveGenerationCoordinator {
 
     private var activeGeneration: ActiveGeneration?
 
-    func register(cancel: @escaping @Sendable () -> Void) -> UUID {
+    func register(cancel: @escaping @Sendable () -> Void) throws -> UUID {
+        guard activeGeneration == nil else {
+            throw TTSEngineError.generationFailed(
+                "The engine is already generating audio. Wait for it to finish or cancel it before starting another generation."
+            )
+        }
         let id = UUID()
         activeGeneration = ActiveGeneration(id: id, cancel: cancel)
         return id
@@ -233,8 +238,14 @@ final class VocelloEngineExtensionHost: NSObject, VocelloEngineExtensionXPCProto
             let generationTask = Task { @MainActor in
                 try await runtimeContext.engine.generate(request)
             }
-            let generationID = await activeGenerationCoordinator.register {
+            let generationID: UUID
+            do {
+                generationID = try await activeGenerationCoordinator.register {
+                    generationTask.cancel()
+                }
+            } catch {
                 generationTask.cancel()
+                throw error
             }
             defer {
                 Task {

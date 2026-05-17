@@ -609,6 +609,7 @@ public enum NativeStreamingPreviewDataPolicy: String, Hashable, Codable, Sendabl
 }
 
 public struct StreamingAudioChunk: Hashable, Codable, Sendable {
+    public let generationID: UUID?
     public let requestID: Int?
     public let sampleRate: Int
     public let frameOffset: Int64
@@ -617,6 +618,7 @@ public struct StreamingAudioChunk: Hashable, Codable, Sendable {
     public let isFinal: Bool
 
     public init(
+        generationID: UUID? = nil,
         requestID: Int? = nil,
         sampleRate: Int,
         frameOffset: Int64,
@@ -624,6 +626,7 @@ public struct StreamingAudioChunk: Hashable, Codable, Sendable {
         pcm16LE: Data,
         isFinal: Bool
     ) {
+        self.generationID = generationID
         self.requestID = requestID
         self.sampleRate = sampleRate
         self.frameOffset = frameOffset
@@ -941,6 +944,7 @@ public struct GenerationProgress: Hashable, Codable, Sendable {
 }
 
 public struct GenerationChunk: Hashable, Codable, Sendable {
+    public let generationID: UUID?
     public let requestID: Int?
     public let mode: String
     public let title: String
@@ -952,6 +956,7 @@ public struct GenerationChunk: Hashable, Codable, Sendable {
     public let previewAudio: StreamingAudioChunk?
 
     public init(
+        generationID: UUID? = nil,
         requestID: Int? = nil,
         mode: String,
         title: String,
@@ -962,6 +967,7 @@ public struct GenerationChunk: Hashable, Codable, Sendable {
         streamSessionDirectory: String?,
         previewAudio: StreamingAudioChunk? = nil
     ) {
+        self.generationID = generationID
         self.requestID = requestID
         self.mode = mode
         self.title = title
@@ -975,6 +981,7 @@ public struct GenerationChunk: Hashable, Codable, Sendable {
 
     public func withoutPreviewAudioPayload() -> GenerationChunk {
         GenerationChunk(
+            generationID: generationID,
             requestID: requestID,
             mode: mode,
             title: title,
@@ -989,6 +996,7 @@ public struct GenerationChunk: Hashable, Codable, Sendable {
 
     public var deliveryIdentity: GenerationChunkDeliveryIdentity {
         GenerationChunkDeliveryIdentity(
+            generationID: generationID,
             requestID: requestID,
             mode: mode,
             title: title,
@@ -997,6 +1005,7 @@ public struct GenerationChunk: Hashable, Codable, Sendable {
             chunkDurationSeconds: chunkDurationSeconds,
             cumulativeDurationSeconds: cumulativeDurationSeconds,
             streamSessionDirectory: streamSessionDirectory,
+            previewAudioGenerationID: previewAudio?.generationID,
             previewAudioRequestID: previewAudio?.requestID,
             previewAudioSampleRate: previewAudio?.sampleRate,
             previewAudioFrameOffset: previewAudio?.frameOffset,
@@ -1007,6 +1016,7 @@ public struct GenerationChunk: Hashable, Codable, Sendable {
 }
 
 public struct GenerationChunkDeliveryIdentity: Hashable, Sendable {
+    public let generationID: UUID?
     public let requestID: Int?
     public let mode: String
     public let title: String
@@ -1015,6 +1025,7 @@ public struct GenerationChunkDeliveryIdentity: Hashable, Sendable {
     public let chunkDurationSeconds: Double?
     public let cumulativeDurationSeconds: Double?
     public let streamSessionDirectory: String?
+    public let previewAudioGenerationID: UUID?
     public let previewAudioRequestID: Int?
     public let previewAudioSampleRate: Int?
     public let previewAudioFrameOffset: Int64?
@@ -1037,6 +1048,7 @@ public enum GenerationEvent: Hashable, Codable, Sendable {
 
     public init(
         kind: Kind,
+        generationID: UUID? = nil,
         requestID: Int,
         mode: String,
         title: String,
@@ -1050,6 +1062,7 @@ public enum GenerationEvent: Hashable, Codable, Sendable {
         precondition(kind == .streamChunk, "This initializer only supports chunk events.")
         self = .chunk(
             GenerationChunk(
+                generationID: generationID,
                 requestID: requestID,
                 mode: mode,
                 title: title,
@@ -1079,6 +1092,11 @@ public enum GenerationEvent: Hashable, Codable, Sendable {
     public var requestID: Int? {
         guard case .chunk(let chunk) = self else { return nil }
         return chunk.requestID
+    }
+
+    public var generationID: UUID? {
+        guard case .chunk(let chunk) = self else { return nil }
+        return chunk.generationID
     }
 
     public var mode: String? {

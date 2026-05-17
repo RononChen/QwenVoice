@@ -149,20 +149,26 @@ struct CustomVoiceView: View {
             activeModelID: activeModel?.id,
             isModelAvailable: isModelAvailable,
             hasText: draft.hasText,
-            isGenerating: coordinator.isGenerating,
+            isGenerating: isGenerationActive,
             modelDisplayName: modelDisplayName
         )
+    }
+
+    private var isGenerationActive: Bool {
+        coordinator.isGenerating || ttsEngineStore.hasActiveGeneration
     }
 
     private var canGenerate: Bool {
         ttsEngineStore.isReady
             && isModelAvailable
             && draft.hasText
+            && !ttsEngineStore.hasActiveGeneration
     }
 
     private var canRunBatch: Bool {
         ttsEngineStore.isReady
             && isModelAvailable
+            && !ttsEngineStore.hasActiveGeneration
     }
 
     init(
@@ -252,7 +258,7 @@ private extension CustomVoiceView {
             modelManager: modelManager,
             accentColor: AppTheme.customVoice,
             accessibilityPrefix: "customVoice",
-            isDisabled: coordinator.isGenerating
+            isDisabled: isGenerationActive
         )
     }
 
@@ -268,12 +274,12 @@ private extension CustomVoiceView {
             VStack(alignment: .leading, spacing: LayoutConstants.generationConfigurationRowSpacing) {
                 TextInputView(
                     text: $draft.text,
-                    isGenerating: coordinator.isGenerating,
+                    isGenerating: isGenerationActive,
                     placeholder: "Type or paste your script",
                     buttonColor: AppTheme.customVoice,
                     batchAction: { coordinator.presentBatch(draft: draft) },
                     batchDisabled: !canRunBatch,
-                    generateDisabled: !ttsEngineStore.isReady || !isModelAvailable,
+                    generateDisabled: !ttsEngineStore.isReady || !isModelAvailable || ttsEngineStore.hasActiveGeneration,
                     isEmbedded: true,
                     usesFlexibleEmbeddedHeight: true,
                     onGenerate: {
@@ -284,6 +290,12 @@ private extension CustomVoiceView {
                             ttsEngineStore: ttsEngineStore,
                             audioPlayer: audioPlayer,
                             modelManager: modelManager
+                        )
+                    },
+                    onCancel: {
+                        coordinator.cancelGeneration(
+                            ttsEngineStore: ttsEngineStore,
+                            audioPlayer: audioPlayer
                         )
                     }
                 )

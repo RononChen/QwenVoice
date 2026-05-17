@@ -22,6 +22,7 @@ final class VoiceCloningCoordinator: ObservableObject {
     @Published var hydratedSavedVoiceID: String?
     @Published var isDragOver = false
     @Published var presentedSheet: VoiceCloningPresentedSheet?
+    private var generationTask: Task<Void, Never>?
 
     func presentBatch(draft: VoiceCloningDraft) {
         presentedSheet = .batch(.clone(draft: draft))
@@ -77,7 +78,7 @@ final class VoiceCloningCoordinator: ObservableObject {
         // to "Ready" while the engine quietly proceeded. Custom
         // Voice and Voice Design already follow this discipline; this
         // aligns Voice Cloning with them.
-        guard !isGenerating else { return }
+        guard !isGenerating, !ttsEngineStore.hasActiveGeneration else { return }
         guard draft.wrappedValue.hasText else { return }
         guard ttsEngineStore.isReady else { return }
 
@@ -128,7 +129,11 @@ final class VoiceCloningCoordinator: ObservableObject {
         isGenerating = true
         errorMessage = nil
 
-        Task { @MainActor in
+        generationTask = Task { @MainActor in
+            defer {
+                isGenerating = false
+                generationTask = nil
+            }
             do {
                 let primedReferenceMatches = ttsEngineStore.clonePreparationState.isPrimed
                     && ttsEngineStore.clonePreparationState.key == clonePrimingRequestKey
@@ -195,8 +200,21 @@ final class VoiceCloningCoordinator: ObservableObject {
                 audioPlayer.abortLivePreviewIfNeeded()
                 errorMessage = error.localizedDescription
             }
+        }
+    }
 
-            isGenerating = false
+    func cancelGeneration(
+        ttsEngineStore: TTSEngineStore,
+        audioPlayer: AudioPlayerViewModel
+    ) {
+        guard isGenerating || generationTask != nil else { return }
+        generationTask?.cancel()
+        Task { @MainActor in
+            try? await ttsEngineStore.cancelActiveGeneration()
+            audioPlayer.abortLivePreviewIfNeeded()
+            self.errorMessage = nil
+            self.isGenerating = false
+            self.generationTask = nil
         }
     }
 
@@ -230,7 +248,7 @@ final class VoiceCloningCoordinator: ObservableObject {
         clonePrimingRequestKey: String?,
         ttsEngineStore: TTSEngineStore
     ) async {
-        guard !isGenerating else { return }
+        guard !isGenerating, !ttsEngineStore.hasActiveGeneration else { return }
         guard let model = cloneModel,
               isModelAvailable,
               let refPath = draft.referenceAudioPath,

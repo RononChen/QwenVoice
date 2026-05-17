@@ -21,6 +21,7 @@ public final class TTSEngineStore: ObservableObject {
     @Published public private(set) var snapshot: TTSEngineSnapshot
     @Published public private(set) var frontendState: TTSEngineFrontendState
     @Published public private(set) var latestEvent: GenerationEvent?
+    @Published public private(set) var hasActiveGeneration = false
 
     public var isReady: Bool { snapshot.isReady }
     public var loadState: EngineLoadState { snapshot.loadState }
@@ -31,6 +32,7 @@ public final class TTSEngineStore: ObservableObject {
     private let engine: any MacTTSEngine
     private var snapshotCancellable: AnyCancellable?
     private var chunkCancellable: AnyCancellable?
+    private var activeGenerationDepth = 0
 
     public init(engine: any MacTTSEngine) {
         self.engine = engine
@@ -101,13 +103,17 @@ public final class TTSEngineStore: ObservableObject {
     }
 
     public func generate(_ request: GenerationRequest) async throws -> GenerationResult {
-        try await engine.generate(request)
+        try beginActiveGeneration()
+        defer { finishActiveGeneration() }
+        return try await engine.generate(request)
     }
 
     public func generateBatch(
         _ requests: [GenerationRequest],
         progressHandler: ((Double?, String) -> Void)? = nil
     ) async throws -> [GenerationResult] {
+        try beginActiveGeneration()
+        defer { finishActiveGeneration() }
         let progressRelay = progressHandler.map { BatchProgressRelay(handler: $0) }
         let forwardedHandler = progressRelay.map { relay in
             { @Sendable (fraction: Double?, message: String) in
@@ -118,6 +124,10 @@ public final class TTSEngineStore: ObservableObject {
     }
 
     public func cancelActiveGeneration() async throws {
+        defer {
+            activeGenerationDepth = 0
+            hasActiveGeneration = Self.snapshotHasActiveGeneration(snapshot)
+        }
         try await engine.cancelActiveGeneration()
     }
 
@@ -146,10 +156,37 @@ public final class TTSEngineStore: ObservableObject {
             snapshot: snapshot,
             latestEvent: latestEvent?.withoutPreviewAudioPayload()
         )
-        guard self.snapshot != snapshot || frontendState != nextFrontendState else {
+        let nextHasActiveGeneration = activeGenerationDepth > 0 || Self.snapshotHasActiveGeneration(snapshot)
+        guard self.snapshot != snapshot
+            || frontendState != nextFrontendState
+            || hasActiveGeneration != nextHasActiveGeneration else {
             return
         }
         self.snapshot = snapshot
         frontendState = nextFrontendState
+        hasActiveGeneration = nextHasActiveGeneration
+    }
+
+    private func beginActiveGeneration() throws {
+        guard !hasActiveGeneration else {
+            throw TTSEngineError.generationFailed(
+                "The engine is already generating audio. Wait for it to finish or cancel it before starting another generation."
+            )
+        }
+        activeGenerationDepth += 1
+        hasActiveGeneration = true
+    }
+
+    private func finishActiveGeneration() {
+        activeGenerationDepth = max(activeGenerationDepth - 1, 0)
+        hasActiveGeneration = activeGenerationDepth > 0 || Self.snapshotHasActiveGeneration(snapshot)
+    }
+
+    private static func snapshotHasActiveGeneration(_ snapshot: TTSEngineSnapshot) -> Bool {
+        if case .running(_, let label, _) = snapshot.loadState,
+           label != EngineActivityLabels.preparingVoiceReference {
+            return true
+        }
+        return false
     }
 }

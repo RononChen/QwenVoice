@@ -160,6 +160,7 @@ actor XPCNativeEngineCoordinator {
     private var batchProgressHandlers: [UUID: BatchProgressHandlerBox] = [:]
     private var pendingRequests: [UUID: PendingRequestBox] = [:]
     private var inFlightBestEffortKeys: Set<String> = []
+    private var pendingFireAndForgetTasks: [UUID: Task<Void, Never>] = [:]
     private let reconnectDelays: [Duration]
     private var reconnectAttempt = 0
     private var reconnectTask: Task<Void, Never>?
@@ -245,26 +246,45 @@ actor XPCNativeEngineCoordinator {
             }
         }
 
-        Task { [command, deduplicationKey] in
-            await performBestEffort(command, deduplicationKey: deduplicationKey)
+        let taskID = UUID()
+        let task = Task { [weak self, command, deduplicationKey] in
+            guard let self else { return }
+            await self.performBestEffort(
+                command,
+                taskID: taskID,
+                deduplicationKey: deduplicationKey
+            )
         }
+        pendingFireAndForgetTasks[taskID] = task
     }
 
     private func performBestEffort(
         _ command: EngineCommand,
+        taskID: UUID,
         deduplicationKey: String?
     ) async {
         defer {
             if let deduplicationKey {
                 inFlightBestEffortKeys.remove(deduplicationKey)
             }
+            pendingFireAndForgetTasks.removeValue(forKey: taskID)
         }
         do {
             _ = try await send(command)
+        } catch is CancellationError {
+            // Transport was invalidated/replaced; the command was best-effort.
         } catch {
             Self.logger.error(
                 "Best-effort command '\(command.transportName, privacy: .public)' failed: \(error.localizedDescription, privacy: .public)"
             )
+        }
+    }
+
+    private func cancelAllFireAndForgetTasks() {
+        let tasks = pendingFireAndForgetTasks.values
+        pendingFireAndForgetTasks.removeAll()
+        for task in tasks {
+            task.cancel()
         }
     }
 
@@ -444,6 +464,9 @@ actor XPCNativeEngineCoordinator {
         let error = EngineTransportError.timedOut(commandName: pendingRequest.commandName)
         Self.logger.error("\(error.localizedDescription, privacy: .public)")
         pendingRequest.resume(.failure(error))
+        if pendingRequest.commandName == "generate" || pendingRequest.commandName == "generateBatch" {
+            fireAndForget(.cancelActiveGeneration)
+        }
     }
 
     private func handleDisconnect(
@@ -462,6 +485,7 @@ actor XPCNativeEngineCoordinator {
         didInitializeCurrentConnection = false
         batchProgressHandlers.removeAll()
         inFlightBestEffortKeys.removeAll()
+        cancelAllFireAndForgetTasks()
 
         let pendingRequestBoxes = pendingRequests.values
         pendingRequests.removeAll()
@@ -904,8 +928,10 @@ private extension EngineCommand {
 
     var transportTimeout: Duration? {
         switch self {
-        case .generate, .generateBatch:
-            nil
+        case .generate:
+            .seconds(600)
+        case .generateBatch:
+            .seconds(3_600)
         case .initialize, .loadModel, .unloadModel, .ensureModelLoadedIfNeeded,
              .prewarmModelIfNeeded, .prefetchInteractiveReadinessIfNeeded, .ensureCloneReferencePrimed:
             .seconds(180)

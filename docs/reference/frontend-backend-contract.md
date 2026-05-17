@@ -47,9 +47,12 @@ Frontend code may also rely on the shared semantic types already owned by `QwenV
 - `EngineLoadState`
 - `ClonePreparationState`
 - `GenerationEvent`
+- `GenerationChunkDeliveryIdentity`
 - `GenerationResult`
 - `PreparedVoice`
 - `CloneReference`
+
+Streaming chunk events carry a UUID `generationID`. Frontend playback/session logic should prefer that identity over the numeric `requestID`; the numeric value remains useful for logs, signposts, and session-directory naming but can restart with the runtime.
 
 ## Stable Delivery State
 
@@ -119,6 +122,8 @@ These stores are the UI-facing boundaries for:
 - lifecycle state
 - load state
 - clone-preparation state
+- active generation state (`hasActiveGeneration`)
+- generation cancellation (`cancelActiveGeneration`)
 - latest generation event
 - visible backend error state
 - app-owned memory coordination
@@ -164,7 +169,7 @@ Frontend work should treat the backend as frozen only when these maintained proo
 ./scripts/verify_packaged_dmg.sh build/Vocello-macos26.dmg build/release-metadata.txt
 ```
 
-Then exercise the affected user-facing paths in `build/Vocello.app` by hand. There is no automated test layer and no CI proof as of May 2026; manual smoke is the regression check.
+Then exercise the affected user-facing paths locally. Use Debug (`./scripts/build.sh run` or `scripts/uitest.sh prep`) for development smoke, and use `build/Vocello.app` after `./scripts/release.sh` for release behavior. There is no CI or XCTest proof layer as of May 2026; manual smoke and the maintained Codex-driven `scripts/uitest.sh` runbooks are the behavioral regression checks.
 
 The explicit build-gate acceptance checklist lives in:
 

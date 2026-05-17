@@ -127,7 +127,7 @@ Project and automation source of truth:
 - `scripts/`
 - `config/apple-platform-capability-matrix.json`
 
-There are no GitHub workflows and no automated test/bench harness. Both were retired in May 2026 after harness-driven churn made them unreliable; all builds, packaging, signing, notarization, and TestFlight prep happen locally on Mac mini M2 via the `scripts/` tooling. Behavioral verification is manual: launch `build/Vocello.app` and exercise the affected paths.
+There are no GitHub workflows, no XCTest targets, and no legacy Python/CI benchmark harnesses. Those surfaces were retired in May 2026 after harness-driven churn made them unreliable; all builds, packaging, signing, notarization, and TestFlight prep happen locally on Mac mini M2 via the `scripts/` tooling. Behavioral verification is local-only and two-track: manual app acceptance plus the maintained Codex-driven `scripts/uitest.sh` smoke/bench harness. Debug app checks use `./scripts/build.sh run` or `scripts/uitest.sh prep`; release app checks use `build/Vocello.app` after `./scripts/release.sh`.
 
 Key local checks:
 
@@ -140,6 +140,7 @@ xcodebuild -project QwenVoice.xcodeproj -scheme VocelloiOS -destination 'generic
 ./scripts/check_ios_catalog.sh
 ./scripts/release.sh
 ./scripts/release_ios_testflight.sh
+./scripts/verify_ios_release_archive.sh
 ```
 
 For deterministic local compile proof, prefer `./scripts/build_foundation_targets.sh` over a shared-DerivedData signed debug build. The deterministic script uses isolated derived-data and `.xcresult` roots so stale build artifacts cannot pollute app codesigning.

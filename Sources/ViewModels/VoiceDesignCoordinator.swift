@@ -39,6 +39,7 @@ final class VoiceDesignCoordinator: ObservableObject {
     @Published var presentedSheet: VoiceDesignPresentedSheet?
     @Published var actionAlert: VoiceDesignActionAlert?
     @Published var latestSavedVoiceCandidate: VoiceDesignSavedVoiceCandidate?
+    private var generationTask: Task<Void, Never>?
 
     func currentSavedVoiceCandidate(for draft: VoiceDesignDraft) -> VoiceDesignSavedVoiceCandidate? {
         guard let latestSavedVoiceCandidate,
@@ -99,7 +100,7 @@ final class VoiceDesignCoordinator: ObservableObject {
         audioPlayer: AudioPlayerViewModel,
         modelManager: ModelManagerViewModel
     ) {
-        guard !isGenerating else { return }
+        guard !isGenerating, !ttsEngineStore.hasActiveGeneration else { return }
         guard draft.hasText, draft.hasVoiceDescription, ttsEngineStore.isReady else { return }
 
         if let model = activeModel, !isModelAvailable {
@@ -120,11 +121,14 @@ final class VoiceDesignCoordinator: ObservableObject {
         let voiceDescription = draft.voiceDescription
         let emotion = draft.emotion
 
-        Task {
+        generationTask = Task { @MainActor in
+            defer {
+                self.isGenerating = false
+                self.generationTask = nil
+            }
             do {
                 guard let model = activeModel else {
                     self.errorMessage = "Model configuration not found"
-                    self.isGenerating = false
                     return
                 }
 
@@ -174,8 +178,21 @@ final class VoiceDesignCoordinator: ObservableObject {
                 audioPlayer.abortLivePreviewIfNeeded()
                 self.errorMessage = error.localizedDescription
             }
+        }
+    }
 
+    func cancelGeneration(
+        ttsEngineStore: TTSEngineStore,
+        audioPlayer: AudioPlayerViewModel
+    ) {
+        guard isGenerating || generationTask != nil else { return }
+        generationTask?.cancel()
+        Task { @MainActor in
+            try? await ttsEngineStore.cancelActiveGeneration()
+            audioPlayer.abortLivePreviewIfNeeded()
+            self.errorMessage = nil
             self.isGenerating = false
+            self.generationTask = nil
         }
     }
 
