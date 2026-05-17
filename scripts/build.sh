@@ -22,9 +22,13 @@ SCHEME_NAME="QwenVoice"
 BUNDLE_ID="com.qwenvoice.app"
 DESTINATION="platform=macOS,arch=arm64"
 
-DEBUG_DERIVED_DATA="$ROOT_DIR/build/DerivedData"
-DEBUG_APP_BUNDLE="$DEBUG_DERIVED_DATA/Build/Products/Debug/$APP_NAME.app"
+BUILD_ROOT="$ROOT_DIR/build"
+DEBUG_DIR="$BUILD_ROOT/Debug"
+DEBUG_DERIVED_DATA="$DEBUG_DIR/DerivedData"
+DEBUG_XCODEBUILD_APP="$DEBUG_DERIVED_DATA/Build/Products/Debug/$APP_NAME.app"
+DEBUG_APP_BUNDLE="$DEBUG_DIR/$APP_NAME.app"
 DEBUG_APP_BINARY="$DEBUG_APP_BUNDLE/Contents/MacOS/$APP_NAME"
+BUILD_CACHE_DIR="$DEBUG_DIR/.cache"
 
 # shellcheck source=lib/build_cache.sh
 . "$SCRIPT_DIR/lib/build_cache.sh"
@@ -38,10 +42,10 @@ commands:
   run [--logs|--telemetry|--verify|--debug]
                         Debug build, then launch $APP_NAME.app. Mode flags mirror build_and_run.sh.
   release [args...]     Run scripts/release.sh with the shared regen/SPM cache active.
-  clean                 Remove build/ (DerivedData, foundation builds, caches, DMG output).
+  clean                 Remove build/ (Debug and Release folders).
   help                  Show this message.
 
-caches live in build/.cache/ and self-heal — delete the directory to force a full rebuild.
+caches live under build/Debug/.cache/ and build/Release/.cache/ and self-heal — delete build/ to force a full rebuild.
 EOF
 }
 
@@ -61,10 +65,15 @@ build_debug() {
         CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION=YES \
         build
 
-    if [ ! -d "$DEBUG_APP_BUNDLE" ]; then
-        echo "error: built app bundle not found at $DEBUG_APP_BUNDLE" >&2
+    if [ ! -d "$DEBUG_XCODEBUILD_APP" ]; then
+        echo "error: built app bundle not found at $DEBUG_XCODEBUILD_APP" >&2
         exit 1
     fi
+    if [ -d "$DEBUG_APP_BUNDLE" ]; then
+        quit_app_if_running
+        rm -rf "$DEBUG_APP_BUNDLE"
+    fi
+    cp -a "$DEBUG_XCODEBUILD_APP" "$DEBUG_APP_BUNDLE"
     if [ ! -x "$DEBUG_APP_BINARY" ]; then
         echo "error: built app binary not found at $DEBUG_APP_BINARY" >&2
         exit 1

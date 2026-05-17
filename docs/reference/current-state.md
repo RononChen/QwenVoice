@@ -127,7 +127,7 @@ Project and automation source of truth:
 - `scripts/`
 - `config/apple-platform-capability-matrix.json`
 
-There are no GitHub workflows, no XCTest targets, and no legacy Python/CI benchmark harnesses. Those surfaces were retired in May 2026 after harness-driven churn made them unreliable; all builds, packaging, signing, notarization, and TestFlight prep happen locally on Mac mini M2 via the `scripts/` tooling. Behavioral verification is local-only and two-track: manual app acceptance plus the maintained Codex-driven `scripts/uitest.sh` smoke/bench harness. Debug app checks use `./scripts/build.sh run` or `scripts/uitest.sh prep`; release app checks use `build/Vocello.app` after `./scripts/release.sh`.
+There are no GitHub workflows, no XCTest targets, and no legacy Python/CI benchmark harnesses. Those surfaces were retired in May 2026 after harness-driven churn made them unreliable; all builds, packaging, signing, notarization, and TestFlight prep happen locally on Mac mini M2 via the `scripts/` tooling. Behavioral verification is local-only and two-track: manual app acceptance plus the maintained Codex-driven `scripts/uitest.sh` smoke/bench harness. Debug app checks use `./scripts/build.sh run` or `scripts/uitest.sh prep` against the persistent `QwenVoice-Debug` store. Release app checks use `build/Release/Vocello.app` after `./scripts/release.sh`; that repo-local app gets a fresh release-id-specific app-support folder and preferences suite.
 
 Key local checks:
 
@@ -145,10 +145,10 @@ xcodebuild -project QwenVoice.xcodeproj -scheme VocelloiOS -destination 'generic
 
 For deterministic local compile proof, prefer `./scripts/build_foundation_targets.sh` over a shared-DerivedData signed debug build. The deterministic script uses isolated derived-data and `.xcresult` roots so stale build artifacts cannot pollute app codesigning.
 
-The maintained foundation paths now use:
+The maintained local build layout now uses only two top-level folders under `build/`:
 
-- explicit release build roots under `build/foundation/`
-- explicit archive/release `.xcresult` bundles under `build/foundation/` for the maintained local release paths
+- `build/Debug/` for development builds, Debug DerivedData, foundation compile-proof output, diagnostics, and Codex smoke/bench artifacts.
+- `build/Release/` for macOS GitHub release artifacts, release DerivedData, release logs/metadata, source packages, `.xcresult` bundles, and iOS TestFlight archive/export output.
 
 ## Current Documentation Boundaries
 

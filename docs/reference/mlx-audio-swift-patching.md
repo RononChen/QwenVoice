@@ -70,8 +70,8 @@ When you want to advance the vendored copy to a newer upstream revision:
 5. **Eyeball the release bundle.** An unsigned packaging run is cheap and catches bundle-shape regressions:
    ```bash
    ./scripts/release.sh --output-name Vocello-macos26-rebase
-   ./scripts/verify_release_bundle.sh build/Vocello.app
-   ./scripts/verify_packaged_dmg.sh build/Vocello-macos26-rebase.dmg build/release-metadata.txt
+   ./scripts/verify_release_bundle.sh build/Release/Vocello.app
+   ./scripts/verify_packaged_dmg.sh build/Release/Vocello-macos26-rebase.dmg build/Release/release-metadata.txt
    ```
 
 ## Build Checklist After A Rebase

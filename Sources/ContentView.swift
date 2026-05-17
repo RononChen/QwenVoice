@@ -123,10 +123,10 @@ struct ContentView: View {
     static let lastSidebarItemKey = "QwenVoice.LastSelectedSidebarItem"
     static let lastVoiceCloningSavedVoiceIDKey = "QwenVoice.LastVoiceCloningSavedVoiceID"
 
-    @AppStorage(ContentView.lastSidebarItemKey)
+    @AppStorage(ContentView.lastSidebarItemKey, store: AppDefaults.store)
     private var persistedSidebarItem: SidebarItem = .customVoice
 
-    @AppStorage(ContentView.lastVoiceCloningSavedVoiceIDKey)
+    @AppStorage(ContentView.lastVoiceCloningSavedVoiceIDKey, store: AppDefaults.store)
     private var persistedVoiceCloningSavedVoiceID: String = ""
 
     @State private var selectedItem: SidebarItem?
@@ -189,19 +189,19 @@ struct ContentView: View {
 
         // When a launch override is active (UI tests / debug screen pinning) we
         // ignore the persisted sidebar + VC reference state so test runs stay
-        // hermetic. The override-less case reads UserDefaults directly here
+        // hermetic. The override-less case reads through AppDefaults directly
         // because @AppStorage isn't materialised inside `init` yet.
         let initialSelection: SidebarItem
         var initialDraft = VoiceCloningDraft()
         if let launchSidebarOverride {
             initialSelection = launchSidebarOverride
         } else {
-            let storedSidebar = UserDefaults.standard
+            let storedSidebar = AppDefaults.store
                 .string(forKey: ContentView.lastSidebarItemKey)
                 .flatMap(SidebarItem.init(rawValue:))
             initialSelection = storedSidebar ?? SidebarItem.defaultInitialSelection(launchOverride: nil)
 
-            let storedVoiceID = UserDefaults.standard
+            let storedVoiceID = AppDefaults.store
                 .string(forKey: ContentView.lastVoiceCloningSavedVoiceIDKey)
             if let storedVoiceID, !storedVoiceID.isEmpty {
                 initialDraft.selectedSavedVoiceID = storedVoiceID

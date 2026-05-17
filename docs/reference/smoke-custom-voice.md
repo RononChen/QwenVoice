@@ -6,7 +6,7 @@ Companion reference: [`ui-test-surface.md`](ui-test-surface.md).
 
 ## Prerequisites
 
-- Vocello Debug build exists at `build/DerivedData/Build/Products/Debug/Vocello.app`. If not, run `scripts/build.sh debug`.
+- Vocello Debug build exists at `build/Debug/Vocello.app`. If not, run `scripts/build.sh debug`.
 - At least one Custom Voice model variant is installed (the runbook checks via `scripts/uitest.sh smoke-check`).
 - macOS Accessibility permission granted to Codex.
 
@@ -23,7 +23,7 @@ The runbook does not adjust pickers — it tests the minimum-effort generate pat
 ## Steps
 
 1. **Precondition: build present, models installed.**
-   - If `[ -d build/DerivedData/Build/Products/Debug/Vocello.app ]` is false → `scripts/build.sh debug`.
+   - If `[ -d build/Debug/Vocello.app ]` is false → `scripts/build.sh debug`.
    - `scripts/uitest.sh smoke-check` — abort the run if it exits non-zero.
 
 2. **Reset to a known-clean state.**

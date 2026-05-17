@@ -47,30 +47,33 @@ Lower-level scripts (still supported, used by `build.sh` internally):
 
 There is no SwiftFormat / SwiftLint config. There is no lint or typecheck command — the build is the typecheck.
 
-### Build cache
+### Build layout and cache
 
-Sha256 fingerprints at `build/.cache/` (`project.yml.sha256`, `Package.resolved.sha256.<context>`) let `build.sh` skip XcodeGen and SwiftPM resolve when their inputs are unchanged. The directory self-heals — delete it (or run `build.sh clean`) to force a cold rebuild. `xcodebuild` output is piped through `xcbeautify` when it's on `PATH` and stdout is a TTY.
+Only two maintained top-level folders belong under `build/`: `build/Debug/` and `build/Release/`. Debug is the default development/testing/debugging area; Release is the GitHub-release packaging area. Do not add new sibling folders under `build/`.
+
+Sha256 fingerprints under `build/Debug/.cache/` and `build/Release/.cache/` (`project.yml.sha256`, `Package.resolved.sha256.<context>`) let `build.sh` skip XcodeGen and SwiftPM resolve when their inputs are unchanged. These directories self-heal — delete `build/` (or run `build.sh clean`) to force a cold rebuild. `xcodebuild` output is piped through `xcbeautify` when it's on `PATH` and stdout is a TTY.
 
 ### Single-resident build policy
 
-At most one Debug `.app` and one Release `.app` + `.dmg` exist under `build/` at any time. Every successful `build.sh debug` and `build.sh release` (or direct `scripts/release.sh`) prunes the previous build of the same kind, including the intermediate Release `.app` inside `build/foundation/macos-release-derived-data/` and any older-named DMGs. Pruning is automatic with no opt-out; if `Vocello` is running it is quit (SIGTERM, then SIGKILL after a short grace period) before deletion. Failed builds skip pruning so previous artifacts stay intact for inspection.
+At most one published Debug `.app` and one published Release `.app` + `.dmg` exist under `build/` at any time: `build/Debug/Vocello.app`, `build/Release/Vocello.app`, and `build/Release/Vocello-macos26.dmg`. Xcode incremental products stay nested under the owning folder's `DerivedData/`; UI/benchmark artifacts live under `build/Debug/uitest/`; release logs, metadata, source packages, result bundles, and package outputs live under `build/Release/`. Pruning is automatic with no opt-out; if `Vocello` is running it is quit (SIGTERM, then SIGKILL after a short grace period) before deletion. Failed builds skip pruning so previous artifacts stay intact for inspection.
 
 ### Runtime data folders
 
-Release and Debug builds intentionally write to different Application Support folders so that Release behaves like a real end-user first launch while Debug accumulates state across rebuilds:
+Debug and local Release builds intentionally write to different Application Support folders so Debug keeps day-to-day development state while each repo-local Release package starts clean:
 
-- Release: `~/Library/Application Support/QwenVoice/` (end-user-equivalent; not used for routine testing)
 - Debug: `~/Library/Application Support/QwenVoice-Debug/` (persistent across rebuilds — models, `history.sqlite`, outputs, voices, stream-session caches all live here)
+- Repo-local Release: `~/Library/Application Support/QwenVoice-Release-Local/<release-data-id>/` (fresh per successful `scripts/release.sh` packaging)
+- Installed/public Release: `~/Library/Application Support/QwenVoice/` (normal end-user storage once copied outside repo-local `build/Release/`)
 
-The split is compile-time inside `Sources/Services/AppPaths.swift` via `#if DEBUG`, so it holds regardless of launch method (Finder, Xcode Run, `build.sh run`, lldb). This works because the QwenVoice macOS target's Debug config in `project.yml` includes `DEBUG` in `SWIFT_ACTIVE_COMPILATION_CONDITIONS` — do not remove it without also moving the data-folder logic to a custom flag.
+Debug selection is compile-time inside `Sources/Services/AppPaths.swift` via `#if DEBUG`. Repo-local Release selection is runtime-gated by the signed `QwenVoiceLocalReleaseDataID` Info.plist value and the bundle path ending in `build/Release/Vocello.app`; copying the app elsewhere makes it use the installed/public Release store. This works because the QwenVoice macOS target's Debug config in `project.yml` includes `DEBUG` in `SWIFT_ACTIVE_COMPILATION_CONDITIONS` — do not remove it without also moving the data-folder logic to a custom flag.
 
 The first Debug launch under this policy renames an existing `QwenVoice/` folder to `QwenVoice-Debug/` automatically (no env-var override set, target folder absent, legacy folder present). The `QWENVOICE_APP_SUPPORT_DIR` env var still overrides the root in either configuration and disables auto-migration when set.
 
-Release builds therefore start with an empty `QwenVoice/` after the first Debug launch — that's intentional. To exercise Release with realistic data, copy/symlink data into `~/Library/Application Support/QwenVoice/` manually or use the env-var override.
+Local Release defaults are isolated too: `AppDefaults` uses a release-id-specific preferences suite for repo-local Release apps, while Debug and installed/public Release use normal app preferences. To exercise Release with realistic data, copy/symlink data into the local release folder or use the env-var override.
 
 ### Autonomous UI testing
 
-The Debug build is drivable by a Codex session via the computer-use MCP. Entry point is `scripts/uitest.sh` (subcommands: `prep`, `reset [--include-voices|--full]`, `locate <ax-id>`, `window-locate <ax-id> [image-w image-h]`, `scaled-locate`, `screen-size`, `activate`, `logs`, `db <sql>`, `artifacts-dir`, `smoke-check [<mode>]`, plus the bench-* family: `bench-wait`, `bench-step`, `bench-record`, `bench-summarize`, `bench-compare`, `bench-update-baselines`). The agent's reference for what's clickable and how to verify generation completion lives at `docs/reference/ui-test-surface.md`. Test artifacts land in `build/uitest/<timestamp>/` and are wiped by `scripts/build.sh clean`.
+The Debug build is drivable by a Codex session via the computer-use MCP. Entry point is `scripts/uitest.sh` (subcommands: `prep`, `reset [--include-voices|--full]`, `locate <ax-id>`, `window-locate <ax-id> [image-w image-h]`, `scaled-locate`, `screen-size`, `activate`, `logs`, `db <sql>`, `artifacts-dir`, `smoke-check [<mode>]`, plus the bench-* family: `bench-wait`, `bench-step`, `bench-record`, `bench-summarize`, `bench-compare`, `bench-update-baselines`). The agent's reference for what's clickable and how to verify generation completion lives at `docs/reference/ui-test-surface.md`. Test artifacts land in `build/Debug/uitest/<timestamp>/` and are wiped by `scripts/build.sh clean`.
 
 Smoke runbooks (one per generation mode):
 
@@ -98,7 +101,7 @@ Committed baselines live at `docs/reference/benchmark-baselines.json` (schema v3
 
 ## Testing policy — important
 
-This repo intentionally has **no CI, no XCTest targets, and no legacy Python/CI benchmark harnesses** as of May 2026. Behavioral validation is local-only and two-track: manual app acceptance plus the maintained Codex-driven `scripts/uitest.sh` smoke/bench harness above. For Debug behavior, use `./scripts/build.sh run` or `scripts/uitest.sh prep` (Debug app path: `build/DerivedData/Build/Products/Debug/Vocello.app`). For release signoff, launch `build/Vocello.app` only after `./scripts/release.sh` has produced the Release bundle.
+This repo intentionally has **no CI, no XCTest targets, and no legacy Python/CI benchmark harnesses** as of May 2026. Behavioral validation is local-only and two-track: manual app acceptance plus the maintained Codex-driven `scripts/uitest.sh` smoke/bench harness above. For Debug behavior, use `./scripts/build.sh run` or `scripts/uitest.sh prep` (Debug app path: `build/Debug/Vocello.app`). For release signoff, launch `build/Release/Vocello.app` only after `./scripts/release.sh` has produced the Release bundle.
 
 Do not reintroduce test bundles, QA shell scripts, agent configs, GitHub Actions workflows, or a parallel benchmark harness without an explicit maintainer decision. `scripts/check_project_inputs.sh` enforces the retired surfaces with a prohibited-paths list and a regex sweep of the working tree. Inspect that script for the current list rather than quoting names here (its patterns also trip on any file that mentions the banned names verbatim).
 
@@ -209,7 +212,7 @@ Mean gain across all 6 cells: **+4.5 s** saved on time-to-first-sound.
    - **Race A (engine retention, fixed in `6c2ea52`)**: `teardownLivePlayback(clearSession: true)` left `liveEngine` and `livePlayerNode` references non-nil after `.reset()`ing the engine. The next session's `appendLiveChunk` skipped `configureLiveEngine` (guard `if liveEngine == nil || livePlayerNode == nil` was false), and `attemptLivePlay`'s `liveEngine.start()` threw — silently swallowed. Fix: nil out the references in the clearSession block. Closed custom/warm and design/warm.
    - **Race B (stale buffer completions, fixed in `be4dbcf`)**: AVAudioEngine's per-buffer completion callback hops to MainActor via `Task { @MainActor in ... }`. Cold's late-firing tasks landed AFTER warm's `startLiveSession` had reset `liveScheduledCount = 0` and `liveQueuedAudioSeconds = 0`, then decremented warm's freshly-incremented counters and removed warm's entries from `liveBufferDurations`. `shouldStartLivePlayback`'s Policy 2 then could never trigger for warm. The `guard playbackMode == .live` was too coarse (warm IS .live). Fix: capture `liveSessionID` at `scheduleLiveBuffer` time and reject completions in `handleLiveBufferPlaybackCompletion` whose sessionID doesn't match the current `liveSessionID`.
    
-   Verification (`build/uitest/20260516-153215`): 10 streaming samples across 3 modes (3 clone cold/warm pairs + 1 custom pair + 1 design pair) — **10/10 engaged streaming, 0 fallbacks**. Pre-fix repro rate on clone/warm back-to-back pairs was ~50 %.
+   Verification (`build/Debug/uitest/20260516-153215`): 10 streaming samples across 3 modes (3 clone cold/warm pairs + 1 custom pair + 1 design pair) — **10/10 engaged streaming, 0 fallbacks**. Pre-fix repro rate on clone/warm back-to-back pairs was ~50 %.
    
    Production signposts at every streaming state transition (`Chunk Received`, `Chunk Decoded`, `Live Session Start`, `Live Engine Play`, `Session Completed Recorded`, `Switch To File Playback`, `Should Start Reject Autoplay`, `Should Start Reject Buffer`, `Stale Completion Dropped`) — together they reconstruct the streaming state machine's complete trace in `log show --signpost`; useful for any future regression triage.
 

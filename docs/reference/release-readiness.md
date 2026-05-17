@@ -75,7 +75,7 @@ Two-track proof policy:
 - iPhone official minimum-device proof: pending until `iPhone 15 Pro` evidence is recorded
 - Rescue baseline: `main` commit `63a5e02` passed the historical GitHub workflows on April 26, 2026 local time. Those workflows (`Project Inputs`, `Apple Platform QA Gate` later renamed `Apple Platform Build Gate`, `Vocello macOS Release`, `Vocello iOS TestFlight`) were retired in May 2026; all proof now lives locally on Mac mini M2.
 - Latest local release proof: unsigned `Vocello.app` and `Vocello-macos26.dmg` built and verified from `c6beacd`; GitHub re-proved the unsigned macOS release-artifact lane for `63a5e02`
-- Latest local manual macOS smoke: launched `build/Vocello.app`, switched generation modes, generated and played a short Custom Voice preview, and confirmed the output was written to the app-support outputs folder
+- Latest local manual macOS smoke: launched the local Release app, switched generation modes, generated and played a short Custom Voice preview, and confirmed the output was written to that release app's app-support outputs folder
 
 ## Release Evidence Expectations
 
@@ -135,11 +135,11 @@ The default local release-readiness loop for the current milestone is:
 ./scripts/build_foundation_targets.sh macos
 ./scripts/build_foundation_targets.sh ios
 ./scripts/release.sh
-./scripts/verify_release_bundle.sh build/Vocello.app
-./scripts/verify_packaged_dmg.sh build/Vocello-macos26.dmg build/release-metadata.txt
+./scripts/verify_release_bundle.sh build/Release/Vocello.app
+./scripts/verify_packaged_dmg.sh build/Release/Vocello-macos26.dmg build/Release/release-metadata.txt
 ```
 
-Then launch `build/Vocello.app` and exercise the affected user-facing paths by hand. For Debug behavior before release packaging, use `./scripts/build.sh run` or `scripts/uitest.sh prep` and follow the targeted `scripts/uitest.sh` smoke/bench runbooks when the change affects generation, playback, or benchmarked latency.
+Then launch `build/Release/Vocello.app` and exercise the affected user-facing paths by hand; each packaged repo-local Release app starts from a fresh release-id-specific app-support folder and preferences suite. For Debug behavior before release packaging, use `./scripts/build.sh run` or `scripts/uitest.sh prep` and follow the targeted `scripts/uitest.sh` smoke/bench runbooks when the change affects generation, playback, or benchmarked latency.
 
 ## CI Proof Surface
 
@@ -149,7 +149,7 @@ Historical CI evidence (kept for the audit trail; not a current gate):
 
 - GitHub `Project Inputs`: passed for `63a5e02`, run `24973916220` (workflow retired)
 - GitHub `Apple Platform QA Gate` later renamed `Apple Platform Build Gate`: passed for `63a5e02`, run `24973916195` (workflow retired)
-- Local unsigned release proof: `./scripts/release.sh`, `./scripts/verify_release_bundle.sh build/Vocello.app`, and `./scripts/verify_packaged_dmg.sh build/Vocello-macos26.dmg build/release-metadata.txt`
+- Local unsigned release proof: `./scripts/release.sh`, `./scripts/verify_release_bundle.sh build/Release/Vocello.app`, and `./scripts/verify_packaged_dmg.sh build/Release/Vocello-macos26.dmg build/Release/release-metadata.txt`
 
 ## iPhone Re-entry Conditions
 

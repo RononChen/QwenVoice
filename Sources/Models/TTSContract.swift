@@ -76,7 +76,7 @@ enum TTSContract {
         activeModel(
             in: loadState.manifest.models,
             for: mode,
-            defaults: .standard
+            defaults: AppDefaults.store
         )
     }
 

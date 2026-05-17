@@ -3,7 +3,7 @@ import Foundation
 /// Utility functions for audio file management.
 enum AudioService {
     private static var defaults: UserDefaults {
-        .standard
+        AppDefaults.store
     }
 
     static var shouldAutoPlay: Bool {

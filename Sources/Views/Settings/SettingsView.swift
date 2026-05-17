@@ -28,14 +28,14 @@ struct SettingsView: View {
     /// current generation selection.
     @Binding var highlightedMode: GenerationMode?
 
-    @AppStorage("autoPlay") private var autoPlay = true
-    @AppStorage("outputDirectory") private var outputDirectory = ""
+    @AppStorage("autoPlay", store: AppDefaults.store) private var autoPlay = true
+    @AppStorage("outputDirectory", store: AppDefaults.store) private var outputDirectory = ""
     /// Bound to `MacModelVariantPreferences.preferSpeedEverywhereKey`.
     /// When ON, every generation mode resolves to the Speed (4-bit)
     /// variant regardless of per-mode preferences or hardware
     /// recommendations. Useful on memory-constrained Macs where the
     /// user wants to pin lower-RAM operation with one toggle.
-    @AppStorage(MacModelVariantPreferences.preferSpeedEverywhereKey)
+    @AppStorage(MacModelVariantPreferences.preferSpeedEverywhereKey, store: AppDefaults.store)
     private var preferSpeedEverywhere = false
 
     @State private var flashedMode: GenerationMode?

@@ -355,7 +355,7 @@ scripts/uitest.sh db "SELECT id, mode, audioPath, duration FROM generations ORDE
 | `--include-voices` | above + `voices/` directory | models, preferences | ~1 s |
 | `--full` | the entire `QwenVoice-Debug/` folder | nothing | <1 s rm, but next launch re-downloads ~5+ GB of models |
 
-Default mode is the right choice between every test run. `--full` is for "I'm starting truly from scratch" scenarios.
+Default mode is the right choice between every test run. `--full` is exceptional because Debug intentionally shares this persistent development store across rebuilds; deleting it removes installed models and saved harness fixtures.
 
 ## Artifact conventions
 
@@ -363,7 +363,7 @@ Every UI-driven run should anchor on a single directory from `scripts/uitest.sh 
 
 ```sh
 ART=$(scripts/uitest.sh artifacts-dir)
-# returns: /Users/.../build/uitest/20260513-201500
+# returns: /Users/.../build/Debug/uitest/20260513-201500
 ```
 
 Convention for what to drop in `$ART/`:
@@ -373,7 +373,7 @@ Convention for what to drop in `$ART/`:
 - `log.txt` — captured `log stream` output for the run window
 - `result.json` — structured outcome (pass/fail booleans, timings, paths, db row ids)
 
-The `build/uitest/` parent is wiped by `scripts/build.sh clean` along with the rest of `build/`. Don't put anything load-bearing in there.
+The `build/Debug/uitest/` parent is wiped by `scripts/build.sh clean` along with the rest of `build/`. Don't put anything load-bearing in there.
 
 ## Session flow (typical)
 
@@ -435,7 +435,7 @@ The primary metrics tracked across runs are `ms_engine_start_to_final` (wall-clo
 In Debug builds, Xcode extracts most of the app's compiled code into a separate dylib for faster incremental linking. The on-disk layout is:
 
 ```
-build/DerivedData/Build/Products/Debug/Vocello.app/Contents/MacOS/
+build/Debug/Vocello.app/Contents/MacOS/
   Vocello                  # ~60 KB stub that loads the dylib
   Vocello.debug.dylib      # all the actual Swift code, strings, and symbols
 ```

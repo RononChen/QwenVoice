@@ -14,7 +14,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_DIR="$ROOT_DIR/scripts"
 
 APP_NAME="Vocello"
-DEBUG_APP_BUNDLE="$ROOT_DIR/build/DerivedData/Build/Products/Debug/$APP_NAME.app"
+DEBUG_APP_BUNDLE="$ROOT_DIR/build/Debug/$APP_NAME.app"
 DEBUG_DATA_DIR="$HOME/Library/Application Support/QwenVoice-Debug"
 HISTORY_DB="$DEBUG_DATA_DIR/history.sqlite"
 CONTRACT_JSON="$ROOT_DIR/Sources/Resources/qwenvoice_contract.json"
@@ -38,8 +38,8 @@ commands:
                         Default: clear the generations table from history.sqlite and
                           delete every file under outputs/<mode>/.
                         --include-voices also rm -rfs the voices/ subdirectory.
-                        --full rm -rfs the entire Debug data folder (forces model
-                          re-download on next launch).
+                        --full rm -rfs the entire persistent Debug data folder
+                          (exceptional; forces model re-download on next launch).
 
   locate <ax-id>        Look up a SwiftUI accessibilityIdentifier in Vocello's front
                         window and print "cx cy w h" — center coordinates and size —
@@ -78,7 +78,7 @@ commands:
 
   db <sql>              Run a read-only SELECT against history.sqlite and print CSV.
 
-  artifacts-dir         Create build/uitest/<timestamp>/ and print its absolute path.
+  artifacts-dir         Create build/Debug/uitest/<timestamp>/ and print its absolute path.
 
   smoke-check [<mode>]  Confirm prerequisites for generation. mode ∈ {custom, design,
                         clone}; defaults to custom. Custom/Design checks for installed
@@ -108,7 +108,7 @@ commands:
   bench-update-baselines [--from <bench-result.json>]
                         Overwrite docs/reference/benchmark-baselines.json with the
                         summary from a bench-result.json (default: most recent under
-                        build/uitest/). Review \`git diff\` before committing.
+                        build/Debug/uitest/). Review \`git diff\` before committing.
 
   help                  Show this message.
 EOF
@@ -432,7 +432,7 @@ return ((item 3 of b) - (item 1 of b)) & " " & ((item 4 of b) - (item 2 of b))' 
 cmd_artifacts_dir() {
     local ts
     ts="$(date +%Y%m%d-%H%M%S)"
-    local dir="$ROOT_DIR/build/uitest/$ts"
+    local dir="$ROOT_DIR/build/Debug/uitest/$ts"
     mkdir -p "$dir"
     echo "$dir"
 }
@@ -1041,7 +1041,7 @@ cmd_bench_update_baselines() {
         esac
     done
     if [ -z "$source" ]; then
-        source="$(/usr/bin/find "$ROOT_DIR/build/uitest" -name bench-result.json -type f 2>/dev/null \
+        source="$(/usr/bin/find "$ROOT_DIR/build/Debug/uitest" -name bench-result.json -type f 2>/dev/null \
             | /usr/bin/awk '{print $0}' \
             | /usr/bin/xargs -I {} stat -f "%m %N" {} 2>/dev/null \
             | sort -nr | head -n 1 | awk '{print $2}')"

@@ -165,11 +165,11 @@ Frontend work should treat the backend as frozen only when these maintained proo
 ./scripts/build_foundation_targets.sh macos
 ./scripts/build_foundation_targets.sh ios
 ./scripts/release.sh
-./scripts/verify_release_bundle.sh build/Vocello.app
-./scripts/verify_packaged_dmg.sh build/Vocello-macos26.dmg build/release-metadata.txt
+./scripts/verify_release_bundle.sh build/Release/Vocello.app
+./scripts/verify_packaged_dmg.sh build/Release/Vocello-macos26.dmg build/Release/release-metadata.txt
 ```
 
-Then exercise the affected user-facing paths locally. Use Debug (`./scripts/build.sh run` or `scripts/uitest.sh prep`) for development smoke, and use `build/Vocello.app` after `./scripts/release.sh` for release behavior. There is no CI or XCTest proof layer as of May 2026; manual smoke and the maintained Codex-driven `scripts/uitest.sh` runbooks are the behavioral regression checks.
+Then exercise the affected user-facing paths locally. Use Debug (`./scripts/build.sh run` or `scripts/uitest.sh prep`) for persistent development smoke, and use `build/Release/Vocello.app` after `./scripts/release.sh` for fresh repo-local release behavior. There is no CI or XCTest proof layer as of May 2026; manual smoke and the maintained Codex-driven `scripts/uitest.sh` runbooks are the behavioral regression checks.
 
 The explicit build-gate acceptance checklist lives in:
 

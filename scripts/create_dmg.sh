@@ -3,11 +3,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+RELEASE_DIR="$PROJECT_DIR/build/Release"
 
-APP_PATH="${1:-$PROJECT_DIR/build/Vocello.app}"
+APP_PATH="${1:-$RELEASE_DIR/Vocello.app}"
 DMG_BASENAME="${2:-Vocello-macos26}"
 DISPLAY_NAME="${QWENVOICE_DMG_DISPLAY_NAME:-Vocello}"
-DMG_OUTPUT="$PROJECT_DIR/build/${DMG_BASENAME}.dmg"
+DMG_OUTPUT="$RELEASE_DIR/${DMG_BASENAME}.dmg"
 
 echo "=== Vocello: Create DMG ==="
 echo ""
@@ -23,7 +24,7 @@ if [[ "$DMG_BASENAME" == *"/"* ]]; then
     exit 1
 fi
 
-mkdir -p "$PROJECT_DIR/build"
+mkdir -p "$RELEASE_DIR"
 rm -f "$DMG_OUTPUT"
 
 echo "[1/3] Creating DMG staging directory..."

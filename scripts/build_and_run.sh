@@ -11,8 +11,10 @@ DESTINATION="platform=macOS,arch=arm64"
 BUNDLE_ID="com.qwenvoice.app"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DERIVED_DATA_PATH="$ROOT_DIR/build/DerivedData"
-APP_BUNDLE="$DERIVED_DATA_PATH/Build/Products/$CONFIGURATION/$APP_NAME.app"
+DEBUG_DIR="$ROOT_DIR/build/Debug"
+DERIVED_DATA_PATH="$DEBUG_DIR/DerivedData"
+XCODEBUILD_APP_BUNDLE="$DERIVED_DATA_PATH/Build/Products/$CONFIGURATION/$APP_NAME.app"
+APP_BUNDLE="$DEBUG_DIR/$APP_NAME.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
 usage() {
@@ -41,10 +43,13 @@ build_app() {
     CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION=YES \
     build
 
-  if [[ ! -d "$APP_BUNDLE" ]]; then
-    echo "error: built app bundle not found at $APP_BUNDLE" >&2
+  if [[ ! -d "$XCODEBUILD_APP_BUNDLE" ]]; then
+    echo "error: built app bundle not found at $XCODEBUILD_APP_BUNDLE" >&2
     exit 1
   fi
+
+  rm -rf "$APP_BUNDLE"
+  cp -a "$XCODEBUILD_APP_BUNDLE" "$APP_BUNDLE"
 
   if [[ ! -x "$APP_BINARY" ]]; then
     echo "error: built app binary not found at $APP_BINARY" >&2

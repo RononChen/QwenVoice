@@ -90,7 +90,7 @@ enum MacModelVariantPreferences {
     static func selectedVariantID(
         for mode: GenerationMode,
         defaultVariantID: String?,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = AppDefaults.store
     ) -> String? {
         let stored = defaults.string(forKey: key(for: mode))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -103,25 +103,25 @@ enum MacModelVariantPreferences {
     static func setSelectedVariantID(
         _ variantID: String,
         for mode: GenerationMode,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = AppDefaults.store
     ) {
         defaults.set(variantID, forKey: key(for: mode))
     }
 
     static func clearSelectedVariantID(
         for mode: GenerationMode,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = AppDefaults.store
     ) {
         defaults.removeObject(forKey: key(for: mode))
     }
 
-    static func preferSpeedEverywhere(defaults: UserDefaults = .standard) -> Bool {
+    static func preferSpeedEverywhere(defaults: UserDefaults = AppDefaults.store) -> Bool {
         defaults.bool(forKey: preferSpeedEverywhereKey)
     }
 
     static func setPreferSpeedEverywhere(
         _ value: Bool,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = AppDefaults.store
     ) {
         defaults.set(value, forKey: preferSpeedEverywhereKey)
     }
