@@ -233,6 +233,7 @@ Mean gain across all 6 cells: **+4.5 s** saved on time-to-first-sound.
 - Animations route through `appAnimation` / `AppLaunchConfiguration.performAnimated` so Reduced Motion is honored; Liquid Glass surfaces must fall back to solid fills when Reduce Transparency is on. Both are non-negotiable per `PRODUCT.md`.
 - Do not propose reintroducing a Python backend, a standalone CLI, or bundled model weights.
 - Keep macOS release artifacts named `Vocello.app` and `Vocello-macos26.dmg`.
+- Do not use `/ultraplan` on this project. Claude Code runs here inside the Claude.app desktop helper, which injects `ANTHROPIC_BASE_URL` pointing at its internal proxy — the cloud-teleport route `/ultraplan` requires (POST `/v1/sessions` against `api.anthropic.com` with OAuth subscription auth) doesn't work through that proxy, and `ANTHROPIC_API_KEY` shows up empty-but-set in the env, which trips the auth precedence. Use local plan mode (`Shift+Tab`) instead; it produces the same plan-quality without the cloud handshake.
 
 ## Where to find more
 
