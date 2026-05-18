@@ -1,122 +1,60 @@
 # Bench Runbook: Voice Cloning across cold/warm × variant × prompt-length
 
-Multi-sample timing harness for Voice Cloning. Same structure as the other two bench runbooks, passing `clone` as the mode argument.
+Multi-sample timing harness for Voice Cloning. Same structure as [`bench-custom-voice.md`](bench-custom-voice.md), passing `clone` as the mode argument.
 
-Companion docs: [`ui-test-surface.md`](ui-test-surface.md), [`smoke-voice-cloning.md`](smoke-voice-cloning.md), [`bench-custom-voice.md`](bench-custom-voice.md).
+Follows the [Standard bench skeleton](ui-test-surface.md#standard-bench-skeleton). This file documents the Voice Cloning deltas.
 
-## Prerequisites
+## Prerequisite
 
 Requires the **`UITestRef`** saved-voice fixture. If `scripts/uitest.sh smoke-check clone` fails because the fixture is missing, run [`bootstrap-saved-voice.md`](bootstrap-saved-voice.md) first.
 
-Voice Cloning has an extra subtlety for benchmarking: when the **reference clip changes**, the engine re-primes (`VoiceCloningCoordinator.ensureCloneReferencePrimed`). The cold sample for each variant captures this priming cost; warm samples reuse the primed reference. **Do not change the saved-voice selection between warm samples** — that would make every warm sample look cold.
+Voice Cloning has an extra subtlety: when the **reference clip changes**, the engine re-primes (`VoiceCloningCoordinator.ensureCloneReferencePrimed`). The cold sample for each variant captures this priming cost; warm samples reuse the primed reference. **Do not change the saved-voice selection between warm samples** — that would make every warm sample look cold.
 
-## Run plan
-
-```
-for variant in [speed, quality]:
-    3 × cold sample   (medium prompt, fresh-launch + re-prime between each)
-    3 × warm short
-    3 × warm medium
-    3 × warm long
-```
-
-24 samples total (12 per variant). See `bench-custom-voice.md`'s "Cold sample count" note for the n=1 → n=3 rationale. For cloning specifically, each cold sample requires re-priming the reference clip, so the cold-cohort budget is closer to ~4 minutes per sample.
-
-## Fixed inputs
+## Mode-specific inputs
 
 | Field | Value |
 |---|---|
-| Saved voice | `UITestRef` (created by the bootstrap runbook). |
+| Saved voice | `UITestRef` (created by the bootstrap runbook) |
 | Transcript | leave empty |
+| smoke-check arg | `clone` |
 
-Prompts:
+### Fixed prompts
 
-| Bucket | Length | Text |
-|---|---|---|
-| `short` | 12 chars | `Hello world.` |
-| `medium` | 74 chars | `This is a Vocello smoke test. The quick brown fox jumps over the lazy dog.` |
-| `long` | ~300 chars | `The MLX framework lets local language and speech models run efficiently on Apple silicon, which is exactly what Vocello uses for its native Qwen3-TTS pipeline. This longer paragraph exercises the streaming synthesis path across a larger token budget and gives the steady-state real-time factor a chance to settle.` |
+Same as [`bench-custom-voice.md`](bench-custom-voice.md). Held byte-identical so baselines remain comparable across modes.
 
-## Steps
-
-### 0. Setup
-
-```sh
-ART=$(scripts/uitest.sh artifacts-dir)
-mcp__computer-use__request_access(apps: ["Vocello"], reason: "Voice Cloning bench")
-mcp__computer-use__open_application(app: "Vocello")
-SHOT = mcp__computer-use__screenshot()   # record IW × IH for the scaled-locate calls below
-```
-
-### 1. Variant loop
+## Mode-specific deltas (skeleton step 1b)
 
 For each `variant` in `[speed, quality]`:
 
-#### 1a. Fresh launch
+- **Sidebar AX id**: `sidebar_voiceCloning`
+- **Screen mount check**: `scripts/uitest.sh locate screen_voiceCloning` (exit 0)
+- **Variant button AX ids**: `voiceCloning_speedVariantButton`, `voiceCloning_qualityVariantButton`. Container anchors: `voiceCloning_modelVariantPicker`, `voiceCloning_modelVariantSelector`.
+- **Extra step (saved-voice bind)**: click `voiceCloning_savedVoicePicker`, screenshot the open menu, click the `UITestRef` menu item visually. Confirm with `scripts/uitest.sh locate voiceCloning_activeReference` (exit 0).
 
-```sh
-scripts/uitest.sh reset
-scripts/uitest.sh prep
-scripts/uitest.sh activate
-```
-
-#### 1b. Navigate, select variant, bind saved voice
-
-- `scripts/uitest.sh scaled-locate sidebar_voiceCloning $IW $IH` → `mcp__computer-use__left_click`.
-- Verify with `locate screen_voiceCloning`.
-- Select variant via the segmented control. First contact:
-  1. Try `scripts/uitest.sh scaled-locate voiceCloning_speedVariantButton $IW $IH` / `voiceCloning_qualityVariantButton`.
-  2. If direct button IDs fail, try `voiceCloning_modelVariantPicker` and `voiceCloning_modelVariantSelector` as anchors.
-  3. Otherwise click visually.
-- `scripts/uitest.sh scaled-locate voiceCloning_savedVoicePicker $IW $IH` → `mcp__computer-use__left_click`, screenshot to see the open menu, click the `UITestRef` menu item.
-- Verify with `locate voiceCloning_activeReference` (exit 0 means a reference is bound).
-
-**Verify variant first** via screenshot (see `bench-custom-voice.md` — same caveat).
-
-**Initial T0.** Before the first generation in a `(mode, variant)` pass:
-
-```sh
-python3 -c "import datetime as dt; d=dt.datetime.now(); print(d.strftime('%Y-%m-%d %H:%M:%S.')+d.strftime('%f')[:3])" > /tmp/uitest_bench_t0
-```
-
-#### 1c. Cold sample (medium prompt)
-
-In order: click `textInput_textEditor` → type medium prompt → `cmd+Return`.
+`bench-step` invocations:
 
 ```sh
 scripts/uitest.sh bench-step clone "$variant" cold medium --artifacts-dir "$ART" --timeout 180
+scripts/uitest.sh bench-step clone "$variant" warm short  --artifacts-dir "$ART"
+scripts/uitest.sh bench-step clone "$variant" warm medium --artifacts-dir "$ART"
+scripts/uitest.sh bench-step clone "$variant" warm long   --artifacts-dir "$ART"
 ```
 
-#### 1d. Warm samples
+Each cold sample requires fresh-launch + re-bind, so the cold-cohort budget is closer to ~4 minutes per sample (vs ~3 minutes for Custom Voice / Voice Design).
 
-For each `bucket` in `[short, medium, long]`, repeat 3 times:
+## Mode-specific failure handling
 
-In order: click `textInput_textEditor` → `cmd+a` → `delete` → type bucket prompt → `cmd+Return`. **Don't touch the saved-voice picker** between warm samples.
-
-```sh
-scripts/uitest.sh bench-step clone "$variant" warm "$bucket" --artifacts-dir "$ART"
-```
-
-**Warm-short variance**: ≥10 samples recommended if you need to distinguish noise from real regression in the warm/short bucket.
-
-### 2. Summarize + compare
-
-```sh
-scripts/uitest.sh bench-summarize "$ART"
-scripts/uitest.sh bench-compare "$ART"
-```
-
-### 3. Promote to baseline (only when deliberate)
-
-```sh
-scripts/uitest.sh bench-update-baselines
-git diff docs/reference/benchmark-baselines.json
-git commit -m "Update bench baselines: <reason>"
-```
-
-## Failure handling
-
-- **Saved-voice picker had no `UITestRef` entry**: `smoke-check clone` should have caught this. If it slipped through, abort the run and run [`bootstrap-saved-voice.md`](bootstrap-saved-voice.md).
+- **Saved-voice picker has no `UITestRef` entry**: `smoke-check clone` should have caught this. If it slipped through, abort and run [`bootstrap-saved-voice.md`](bootstrap-saved-voice.md).
 - **Warm sample looks unexpectedly slow**: the saved-voice selection may have been re-touched (re-primes the reference). Don't click the picker between warm samples.
-- **Quality warning badge on the active reference**: degraded audio possible but doesn't affect bench timings. Note in `result.json` for awareness.
-- Everything else is identical to `bench-custom-voice.md` — see there for `bench-wait` timeouts, missing `Final File Ready`, DB row lag.
+- **Quality warning badge on the active reference**: degraded audio possible but doesn't affect bench timings. Note in run notes; baseline timings stay valid.
+
+## Optional perceptual review of a bench sample
+
+Identity-coherence regressions are perceptual-only — the bench can't catch them:
+
+```sh
+scripts/uitest.sh gemini-review \
+    "$(ls -t "$HOME/Library/Application Support/QwenVoice-Debug/outputs/Clones/"*.wav | head -1)"
+```
+
+The script auto-fills `saved_voice` from `generations.voice` so you don't need to pass it explicitly.

@@ -8,6 +8,20 @@ Use this when:
 - You want comparable cross-sample reviews with one fixed prompt template.
 - You want Gemini to act as the multimodal/audio reviewer while Claude Code prepares context and records the result.
 
+## When to run this (vs the bench / smoke layers)
+
+This is the **perceptual review** layer of the three-layer testing pyramid documented in [`testing-overview.md`](testing-overview.md). The full decision table is there; the quick version:
+
+| What changed | Run perceptual review? |
+|---|---|
+| Audio-path code (PCM limiter, AVAudioFile writer, streaming preview) | **Yes — primary signal**. RMS/peak gates can't catch identity-coherence or tone regressions. |
+| Engine code (decoder, vocoder, KV cache) | Yes — alongside smoke + bench. |
+| Voice description / prompt tone work | Yes — bench is blind to whether the take matches the description. |
+| UI/view code that doesn't touch audio | No. Smoke is enough. |
+| Bench-baseline-affecting perf change | Yes — confirm no audio-quality regression alongside the new timing numbers. |
+
+Per-mode bench and smoke runbooks each have an "Optional perceptual review" callout that fires the same `scripts/uitest.sh gemini-review` call documented below.
+
 ## Two paths
 
 Prefer the **CLI path**. It is fully automated, leaves no browser-state footprint, and produces the same `build/Debug/voice-reviews/<UTC-ts>-<mode>-<basename>/` bundle the browser path used to. The **browser path** is a fallback for when the CLI is unavailable, when you want the multi-turn Gemini chat UI, or when you need to inspect the response interactively.

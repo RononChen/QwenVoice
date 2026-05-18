@@ -1,37 +1,19 @@
 # Bench Runbook: Voice Design across cold/warm × variant × prompt-length
 
-Multi-sample timing harness for Voice Design generations. Same structure as [`bench-custom-voice.md`](bench-custom-voice.md), passing `design` as the mode argument to `bench-record`.
+Multi-sample timing harness for Voice Design. Same structure as [`bench-custom-voice.md`](bench-custom-voice.md), passing `design` as the mode argument.
 
-Companion docs: [`ui-test-surface.md`](ui-test-surface.md), [`smoke-voice-design.md`](smoke-voice-design.md).
+Follows the [Standard bench skeleton](ui-test-surface.md#standard-bench-skeleton). This file documents the Voice Design deltas.
 
-## Run plan
+## Mode-specific inputs
 
-```
-for variant in [speed, quality]:
-    3 × cold sample   (medium prompt, fresh-launch between each)
-    3 × warm short
-    3 × warm medium
-    3 × warm long
-```
+| Field | Value |
+|---|---|
+| Voice description (held constant across all samples) | `A calm, deep documentary narrator with a measured pace.` |
+| smoke-check arg | `design` |
 
-24 samples total (12 per variant). See `bench-custom-voice.md`'s "Cold sample count" note for why cold is now n=3 instead of n=1.
+### Fixed prompts
 
-## Prerequisites
-
-- Debug build present.
-- `scripts/uitest.sh smoke-check design` exits 0.
-- macOS Accessibility granted.
-- 5–10 minutes of uninterrupted Vocello time.
-
-## Fixed inputs
-
-Voice description (held constant across all samples in a run):
-
-```
-A calm, deep documentary narrator with a measured pace.
-```
-
-Prompts:
+Same as [`bench-custom-voice.md`](bench-custom-voice.md):
 
 | Bucket | Length | Text |
 |---|---|---|
@@ -39,87 +21,36 @@ Prompts:
 | `medium` | 74 chars | `This is a Vocello smoke test. The quick brown fox jumps over the lazy dog.` |
 | `long` | ~300 chars | `The MLX framework lets local language and speech models run efficiently on Apple silicon, which is exactly what Vocello uses for its native Qwen3-TTS pipeline. This longer paragraph exercises the streaming synthesis path across a larger token budget and gives the steady-state real-time factor a chance to settle.` |
 
-## Steps
-
-### 0. Setup
-
-```sh
-ART=$(scripts/uitest.sh artifacts-dir)
-mcp__computer-use__request_access(apps: ["Vocello"], reason: "Voice Design bench")
-mcp__computer-use__open_application(app: "Vocello")
-SHOT = mcp__computer-use__screenshot()   # record IW × IH for the scaled-locate calls below
-```
-
-### 1. Variant loop
+## Mode-specific deltas (skeleton step 1b)
 
 For each `variant` in `[speed, quality]`:
 
-#### 1a. Fresh launch
+- **Sidebar AX id**: `sidebar_voiceDesign`
+- **Screen mount check**: `scripts/uitest.sh locate screen_voiceDesign` (exit 0)
+- **Variant button AX ids**: `voiceDesign_speedVariantButton`, `voiceDesign_qualityVariantButton`. Container anchors: `voiceDesign_modelVariantPicker`, `voiceDesign_modelVariantSelector`.
+- **Extra step**: after variant select, click `voiceDesign_voiceDescriptionField` and type the fixed description. The description persists across warm samples — **do not** clear/re-type it between samples; we want steady-state generate-path numbers.
 
-```sh
-scripts/uitest.sh reset
-scripts/uitest.sh prep
-scripts/uitest.sh activate
-```
-
-#### 1b. Navigate to Voice Design + select variant + fill description
-
-- `scripts/uitest.sh scaled-locate sidebar_voiceDesign $IW $IH` → `mcp__computer-use__left_click`.
-- Verify with `locate screen_voiceDesign` (exit 0).
-- Select variant via the segmented control:
-  1. Use `scripts/uitest.sh scaled-locate voiceDesign_speedVariantButton $IW $IH` and `voiceDesign_qualityVariantButton` first; these are the canonical button IDs.
-  2. If direct button IDs fail, try `voiceDesign_modelVariantPicker` and `voiceDesign_modelVariantSelector` as anchors.
-  3. Otherwise click visually (top-right of the configuration card) and note the coordinates.
-- `scripts/uitest.sh scaled-locate voiceDesign_voiceDescriptionField $IW $IH` → `mcp__computer-use__left_click`, then `mcp__computer-use__type(text: "<fixed description>")`.
-
-**Verify variant first** via screenshot (see `bench-custom-voice.md`).
-
-**Initial T0.** Before the first generation in a `(mode, variant)` pass:
-
-```sh
-python3 -c "import datetime as dt; d=dt.datetime.now(); print(d.strftime('%Y-%m-%d %H:%M:%S.')+d.strftime('%f')[:3])" > /tmp/uitest_bench_t0
-```
-
-#### 1c. Cold sample (medium prompt)
-
-In order: click `textInput_textEditor` → type medium prompt → `cmd+Return`.
+`bench-step` invocations:
 
 ```sh
 scripts/uitest.sh bench-step design "$variant" cold medium --artifacts-dir "$ART" --timeout 240
+scripts/uitest.sh bench-step design "$variant" warm short  --artifacts-dir "$ART"
+scripts/uitest.sh bench-step design "$variant" warm medium --artifacts-dir "$ART"
+scripts/uitest.sh bench-step design "$variant" warm long   --artifacts-dir "$ART"
 ```
 
-VD/Quality cold has been seen taking >180 s on Apple M2 — the 240 s timeout gives headroom.
+(VD/Quality cold has been seen taking >180 s on Apple M2 — use `--timeout 240` for cold.)
 
-#### 1d. Warm samples
+## Mode-specific failure handling
 
-For each `bucket` in `[short, medium, long]`, repeat 3 times:
+- **Description didn't apply** (field looks empty after typing): the `ContinuousVoiceDescriptionField` wrapper can momentarily lose focus during validation. Click the field once more and retry typing.
 
-In order: click `textInput_textEditor` → `cmd+a` → `delete` → type bucket prompt → `cmd+Return`. **Do not** clear or re-type the voice description; it persists between samples and we want to bench the steady-state generate path.
+## Optional perceptual review of a bench sample
+
+Voice Design is the layer where perceptual review pays back the most — the timing/RMS gates can't tell you whether the take matches the description:
 
 ```sh
-scripts/uitest.sh bench-step design "$variant" warm "$bucket" --artifacts-dir "$ART"
+scripts/uitest.sh gemini-review \
+    "$(ls -t "$HOME/Library/Application Support/QwenVoice-Debug/outputs/VoiceDesign/"*.wav | head -1)" \
+    --voice-description "A calm, deep documentary narrator with a measured pace."
 ```
-
-**Warm-short variance**: ≥10 samples recommended if you need to distinguish noise from real regression in the warm/short bucket.
-
-### 2. Summarize + compare
-
-```sh
-scripts/uitest.sh bench-summarize "$ART"
-scripts/uitest.sh bench-compare "$ART"
-```
-
-### 3. Promote to baseline (only when deliberate)
-
-```sh
-scripts/uitest.sh bench-update-baselines
-git diff docs/reference/benchmark-baselines.json
-git commit -m "Update bench baselines: <reason>"
-```
-
-The combined baselines file is keyed by mode at the top level (`results.design.<variant>...`), so Voice Design baselines coexist with Custom Voice and Voice Cloning without collision.
-
-## Failure handling
-
-- **Description didn't apply** (the field looks empty after typing): click the field once more and retry typing. Voice Design uses a `ContinuousVoiceDescriptionField` wrapper that can momentarily lose focus during validation.
-- Everything else is identical to `bench-custom-voice.md` — see there for `bench-wait` timeouts, missing `Final File Ready`, DB row lag, and the rest.

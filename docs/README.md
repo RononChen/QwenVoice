@@ -14,24 +14,39 @@ This folder contains the current repo-authored documentation for QwenVoice.
 - [`reference/vendoring-runtime.md`](reference/vendoring-runtime.md) — runtime, vendoring, and packaging boundaries
 - [`reference/mlx-audio-swift-patching.md`](reference/mlx-audio-swift-patching.md) — vendor delta under `third_party_patches/mlx-audio-swift/`, rebase procedure, and post-rebase build checklist
 
-### Autonomous UI testing & bench
+### Autonomous UI testing, bench, and perceptual review
 
-The Debug build is drivable by a Claude Code session via the computer-use MCP. The harness lives in `scripts/uitest.sh`; runbooks under `reference/` capture the per-scenario flow:
+The Debug build is drivable by a Claude Code session via the computer-use MCP. The harness lives in `scripts/uitest.sh`. Testing is three-layered: functional smoke → timing bench → perceptual review.
 
-- [`reference/ui-test-surface.md`](reference/ui-test-surface.md) — agent's reference: accessibility-identifier vocabulary by screen, completion signals (signposts + DB + file), per-sample bench metrics, scaling caveats
-- [`reference/bootstrap-saved-voice.md`](reference/bootstrap-saved-voice.md) — one-time autonomous setup of the `UITestRef` saved-voice fixture via Voice Design (no file picker required)
-- Smoke runbooks (one happy-path scenario each):
-  - [`reference/smoke-custom-voice.md`](reference/smoke-custom-voice.md) — Custom Voice generation
-  - [`reference/smoke-voice-design.md`](reference/smoke-voice-design.md) — Voice Design generation
-  - [`reference/smoke-voice-cloning.md`](reference/smoke-voice-cloning.md) — Voice Cloning (uses the `UITestRef` fixture)
-  - [`reference/smoke-settings.md`](reference/smoke-settings.md) — Settings screen renders + model packages show "Ready"
-  - [`reference/smoke-history.md`](reference/smoke-history.md) — History list renders + search filters + row plays
-  - [`reference/smoke-saved-voices.md`](reference/smoke-saved-voices.md) — Saved Voices lists the fixture + row plays
-- Bench runbooks (multi-sample timing + audio quality + memory across cold/warm × variant × prompt-length):
-  - [`reference/bench-custom-voice.md`](reference/bench-custom-voice.md)
-  - [`reference/bench-voice-design.md`](reference/bench-voice-design.md)
-  - [`reference/bench-voice-cloning.md`](reference/bench-voice-cloning.md)
+**Start here:**
+
+- [`reference/testing-overview.md`](reference/testing-overview.md) — the three-layer pyramid + "what test should I run when I change X" decision table.
+- [`reference/testing-cheatsheet.md`](reference/testing-cheatsheet.md) — single-page command card with copy/paste recipes.
+
+**Agent reference (read once, refer back):**
+
+- [`reference/ui-test-surface.md`](reference/ui-test-surface.md) — accessibility-id vocabulary, completion signals (signposts + DB + file), the Standard smoke + bench + perceptual-review skeletons that the per-mode runbooks delta against.
+- [`reference/bootstrap-saved-voice.md`](reference/bootstrap-saved-voice.md) — one-time setup of the `UITestRef` saved-voice fixture used by every Voice Cloning test.
+
+**Layer 1 — Functional smoke** (per scenario, ~1 min each):
+
+- [`reference/smoke-custom-voice.md`](reference/smoke-custom-voice.md) — Custom Voice generation
+- [`reference/smoke-voice-design.md`](reference/smoke-voice-design.md) — Voice Design generation
+- [`reference/smoke-voice-cloning.md`](reference/smoke-voice-cloning.md) — Voice Cloning (uses the `UITestRef` fixture)
+- [`reference/smoke-settings.md`](reference/smoke-settings.md) — Settings screen renders + model packages show "Ready"
+- [`reference/smoke-history.md`](reference/smoke-history.md) — History list renders + search filters + row plays
+- [`reference/smoke-saved-voices.md`](reference/smoke-saved-voices.md) — Saved Voices lists the fixture + row plays
+
+**Layer 2 — Timing bench** (per mode, ~12 min each, 24 samples × cold/warm × variant × prompt-length):
+
+- [`reference/bench-custom-voice.md`](reference/bench-custom-voice.md)
+- [`reference/bench-voice-design.md`](reference/bench-voice-design.md)
+- [`reference/bench-voice-cloning.md`](reference/bench-voice-cloning.md)
 - [`reference/benchmark-baselines.json`](reference/benchmark-baselines.json) — committed regression baselines, schema v3, regression-ready (24 cells × n=3 on Apple M2, May 2026). `bench-compare` flags timing/RTF drift past ±15 %; depth metrics (audio RMS/peak dBFS, peak RSS combined + app/XPC split) are stored for forensic comparison.
+
+**Layer 3 — Perceptual review** (per WAV, ~30 s each):
+
+- [`reference/gemini-voice-review.md`](reference/gemini-voice-review.md) — Gemini 3.1 Pro CLI workflow (preferred) + browser fallback. Adds naturalness, emotion match, pronunciation, pacing, and artifact dimensions the bench's RMS/peak gates can't catch.
 
 Useful local diagnostics can be exported with:
 

@@ -1,73 +1,60 @@
 # Smoke Runbook: History surface renders, searches, plays
 
-Lightweight functional smoke that exercises the History screen: at least one row visible after a seed generation, search-filter narrows the visible rows, and clicking the row's play affordance triggers playback.
+Lightweight functional smoke for the History screen: at least one row visible after a seed generation, search-filter narrows the visible rows, clicking the row's play affordance triggers playback.
 
-Companion reference: [`ui-test-surface.md`](ui-test-surface.md).
+Follows the [Standard smoke skeleton](ui-test-surface.md#standard-smoke-skeleton) for setup + teardown. This file documents the History-specific drive sequence (skeleton Phase 4) and verify steps (skeleton Phase 5 doesn't apply — this smoke doesn't trigger a fresh generation through the standard verify path).
 
-## Prerequisites
-
-- Debug build present.
-- macOS Accessibility permission granted to Claude Code.
-- At least one row in `history.sqlite` `generations` table. This runbook seeds one if empty, so no external setup needed.
-
-## Seed strategy
-
-Before testing, ensure ≥ 1 generation row exists. The runbook does this by running one short Custom Voice generation inline (~3 s) if needed.
-
-## Fixed inputs
+## Mode-specific inputs
 
 | Field | Value |
 |---|---|
-| Seed prompt (if needed) | `Hello world.` (short — fast to generate) |
+| Seed prompt (if no rows exist) | `Hello world.` (short — fast to generate) |
 | Search fragment | `Hello` (matches the seed) |
+| smoke-check arg | `custom` (the seed uses Custom Voice; this smoke aborts if Custom Voice models aren't installed) |
 
-## Steps
+## Mode-specific deltas
 
-1. **Precondition**: `scripts/uitest.sh smoke-check custom`. Abort on non-zero — we can't seed without a Custom Voice model.
-2. **Reset**: `scripts/uitest.sh reset` (clears existing generations + outputs so this run is repeatable).
-3. **Artifacts + log capture**:
-   ```sh
-   ART=$(scripts/uitest.sh artifacts-dir)
-   (scripts/uitest.sh logs > "$ART/log.txt" 2>&1 &)
-   LOG_PID=$!
-   ```
-4. **Launch**: `scripts/uitest.sh prep`.
-5. **Front the app and capture state**:
-   - `mcp__computer-use__request_access(apps: ["Vocello"], reason: "Run History smoke")` (once per session).
-   - `mcp__computer-use__open_application(app: "Vocello")`.
-   - `SHOT = mcp__computer-use__screenshot()` — record `IW × IH` for the `scaled-locate` calls below.
-6. **Seed one generation** via Custom Voice:
-   - `scripts/uitest.sh scaled-locate sidebar_customVoice $IW $IH` → `mcp__computer-use__left_click`.
-   - `scripts/uitest.sh scaled-locate textInput_textEditor $IW $IH` → `mcp__computer-use__left_click` → `mcp__computer-use__type(text: "Hello world.")` → `mcp__computer-use__key(text: "cmd+Return")`.
-   - `python3 -c "import datetime as dt; ..." > /tmp/uitest_bench_t0` is not needed here; the alternative is `bench-wait --since <ts>` but for this smoke we just sleep ~5 s and verify the DB row.
-   - Wait ~5 s, then `scripts/uitest.sh db "SELECT count(*) FROM generations"` should be ≥ 1. If not, retry the generation once.
-7. **Navigate to History**:
-   - `scripts/uitest.sh scaled-locate sidebar_history $IW $IH` → `mcp__computer-use__left_click`.
-   - Verify with `scripts/uitest.sh locate screen_history` (exit 0).
-   - `/usr/sbin/screencapture -x "$ART/pre.png"`.
-8. **Verify a row is visible**:
-   - Read the seeded generation's id: `GEN_ID=$(scripts/uitest.sh db "SELECT id FROM generations ORDER BY createdAt DESC LIMIT 1")`.
-   - `scripts/uitest.sh locate historyRow_$GEN_ID` should return non-empty coords — that anchors the row by canonical id.
-9. **Use the search field**:
-   - `scripts/uitest.sh scaled-locate history_searchField $IW $IH` → `mcp__computer-use__left_click`.
-   - `mcp__computer-use__type(text: "Hello")` (no `cmd+Return` — search filters live).
-   - Wait 1 s, screenshot — the row should still be visible (search matched).
-10. **Clear search and verify all rows return**:
-    - Click search field → `mcp__computer-use__key(text: "cmd+a")` → `mcp__computer-use__key(text: "delete")`.
-    - Screenshot — all rows should be back.
-11. **Click play on the (first) row**:
-    - `scripts/uitest.sh scaled-locate historyRow_play_$GEN_ID $IW $IH` → `mcp__computer-use__left_click`.
-    - Verify playback by checking the Player section in the sidebar shows the seeded prompt text.
-12. **Post-screenshot + tear down**: `/usr/sbin/screencapture -x "$ART/post.png"`, then `kill "$LOG_PID" 2>/dev/null || true`.
-13. **Write `$ART/result.json`** with:
-    - `pass`: true if (a) `historyRow_<id>` and `historyRow_play_<id>` both resolve, (b) search-filter narrows visible rows, (c) play affordance launches the audio player
-    - `screen`: `history`
-    - `rows_before_search`, `rows_after_search`: counts (from screenshot or DB query)
-    - `timestamp`
-14. **Report** $ART/ and pass/fail to the user.
+This smoke has two unusual properties vs the generate-mode smokes:
+
+1. It **seeds** a generation inline if `history.sqlite` has no rows (since the History screen needs at least one row to assert against).
+2. It **verifies UI behavior** (search filter, play button), not just a generation's WAV + DB row.
+
+### Drive sequence
+
+Skeleton Phases 1–3 are unchanged. In Phase 4:
+
+1. **Seed if needed** — run one short Custom Voice generation:
+   - Click `sidebar_customVoice` → click `textInput_textEditor` → type `Hello world.` → `cmd+Return`.
+   - Sleep ~5 s, then `scripts/uitest.sh db "SELECT count(*) FROM generations"` should be ≥ 1.
+2. **Navigate to History**: click `sidebar_history`. Confirm with `scripts/uitest.sh locate screen_history` (exit 0).
+3. **Verify a row is visible**:
+   - `GEN_ID=$(scripts/uitest.sh db "SELECT id FROM generations ORDER BY createdAt DESC LIMIT 1")`
+   - `scripts/uitest.sh locate historyRow_$GEN_ID` should return non-empty coords.
+4. **Search filter**: click `history_searchField`, type `Hello`, wait 1 s, screenshot — the row should still be visible.
+5. **Clear search**: click search field, `cmd+a` → `delete`, screenshot — all rows back.
+6. **Play**: click `historyRow_play_$GEN_ID`. Verify by inspecting the sidebar Player section for the seeded prompt text.
+
+### Skipping `verify-generation`
+
+This smoke doesn't end with `verify-generation`. Instead it writes its own `result.json` in Phase 5:
+
+```sh
+cat > "$ART/result.json" <<JSON
+{
+  "pass": true,
+  "screen": "history",
+  "rows_before_search": <count>,
+  "rows_after_search": <count>,
+  "gen_id": "$GEN_ID",
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+JSON
+```
+
+Set `"pass": false` and add `"reason"` on any failed assertion.
 
 ## Notes
 
-- The seeded generation uses Custom Voice for speed/simplicity. If Custom Voice models aren't installed, the runbook aborts at step 1.
-- This is a happy-path smoke. It does NOT test delete, multi-row sorting under load, or rapid filtering edge cases.
-- Row-level + per-row-action AX ids are now canonical (`historyRow_<id>`, `historyRow_play_<id>`, `historyRow_saveAs_<id>`, `historyRow_delete_<id>`, `historyRow_saveVoice_<id>`). Visual fallback is no longer expected — if `locate` fails for a known id, treat that as a regression.
+- Row-level + per-row-action AX ids are canonical (`historyRow_<id>`, `historyRow_play_<id>`, `historyRow_saveAs_<id>`, `historyRow_delete_<id>`, `historyRow_saveVoice_<id>`). Visual fallback is no longer expected — if `locate` fails for a known id, treat that as a regression.
+- This is the happy-path smoke. It does NOT exercise delete, multi-row sorting under load, or rapid filtering edge cases.
+- Perceptual review doesn't apply here (no new audio characteristics to evaluate — just a UI behavior check).

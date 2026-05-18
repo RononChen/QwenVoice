@@ -125,6 +125,16 @@ commands:
                         summary from a bench-result.json (default: most recent under
                         build/Debug/uitest/). Review \`git diff\` before committing.
 
+  verify-generation <mode> --artifacts-dir <dir> --since <ts> [--timeout <s>] [--text <text>]
+                        Post-generate verification used by the smoke runbooks:
+                        wait for Final File Ready, find the new WAV under the
+                        mode's output subfolder (CustomVoice|VoiceDesign|Clones),
+                        verify the latest history.sqlite row matches, and write
+                        <dir>/result.json with the canonical pass/fail shape.
+                        Default --timeout is 90 s for custom/design, 120 s for
+                        clone. --text is optional and stored verbatim in the
+                        result.json for cross-run comparison.
+
   gemini-review <wav-path> [--mode ...] [--text ...] [--voice-description ...]
                           [--speaker ...] [--delivery ...] [--saved-voice ...]
                           [--commit ...] [--out-dir ...]
@@ -134,7 +144,7 @@ commands:
                         bench timing/RMS gates with subjective dimensions.
                         Auto-fills mode/text/speaker/delivery from
                         history.sqlite when the WAV matches a row's audioPath.
-                        Writes a review bundle to build/voice-reviews/.
+                        Writes a review bundle to build/Debug/voice-reviews/.
 
   help                  Show this message.
 EOF
@@ -406,6 +416,173 @@ print(f"{sx} {sy} {sxw} {sxh}")
 }
 
 T0_FILE="/tmp/uitest_bench_t0"
+
+# Encapsulates the post-generate verification sequence that every smoke
+# runbook used to inline: wait for Final File Ready → find the matching
+# WAV under the mode's output subfolder → query history.sqlite for the
+# matching row → write <art>/result.json with the canonical shape.
+cmd_verify_generation() {
+    local mode="" artifacts_dir="" since="" timeout="" text=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --artifacts-dir) artifacts_dir="$2"; shift 2 ;;
+            --since)         since="$2"; shift 2 ;;
+            --timeout)       timeout="$2"; shift 2 ;;
+            --text)          text="$2"; shift 2 ;;
+            custom|design|clone)
+                [ -z "$mode" ] && mode="$1" || { echo "error: mode set twice" >&2; exit 2; }
+                shift ;;
+            *) echo "error: unknown arg '$1'" >&2; exit 2 ;;
+        esac
+    done
+    [ -n "$mode" ] || { echo "error: verify-generation requires <mode>" >&2; exit 2; }
+    [ -n "$artifacts_dir" ] || { echo "error: verify-generation requires --artifacts-dir" >&2; exit 2; }
+    [ -n "$since" ] || { echo "error: verify-generation requires --since" >&2; exit 2; }
+    [ -d "$artifacts_dir" ] || { echo "error: --artifacts-dir not a directory: $artifacts_dir" >&2; exit 2; }
+    if [ -z "$timeout" ]; then
+        case "$mode" in clone) timeout=120 ;; *) timeout=90 ;; esac
+    fi
+
+    # Mode → output subfolder. Source-of-truth: Sources/Models/TTSModel.swift
+    # `outputSubfolder` accessor; these PascalCase values are stable.
+    local subfolder
+    case "$mode" in
+        custom) subfolder="CustomVoice" ;;
+        design) subfolder="VoiceDesign" ;;
+        clone)  subfolder="Clones" ;;
+    esac
+    local outputs_dir="$DEBUG_DATA_DIR/outputs/$subfolder"
+
+    # Step 1: wait for Final File Ready.
+    local final_ts
+    if ! final_ts="$(cmd_bench_wait --since "$since" --timeout "$timeout" 2>&1)"; then
+        ARTIFACTS_DIR="$artifacts_dir" MODE="$mode" TEXT="$text" \
+            SINCE="$since" REASON="$final_ts" \
+            /usr/bin/python3 - <<'PY' || true
+import json, os, pathlib, datetime as dt
+out = {
+    "pass": False,
+    "mode": os.environ["MODE"],
+    "reason": os.environ["REASON"].replace("error: ", "", 1),
+    "since": os.environ["SINCE"],
+    "text": os.environ.get("TEXT") or None,
+    "timestamp": dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+}
+pathlib.Path(os.environ["ARTIFACTS_DIR"], "result.json").write_text(json.dumps(out, indent=2) + "\n")
+PY
+        echo "FAIL: $final_ts" >&2
+        return 1
+    fi
+
+    # Step 2: find the latest WAV in the mode's output subfolder created
+    # after the artifact directory itself (which was created before the
+    # generation kicked off).
+    local audio_path
+    audio_path="$(/usr/bin/find "$outputs_dir" -type f -name '*.wav' -newer "$artifacts_dir" 2>/dev/null | /usr/bin/sort -r | /usr/bin/head -1 || true)"
+
+    # Step 3 + 4: verify DB row + write result.json + summarize. One Python
+    # heredoc handles the rest since the JSON shape is non-trivial.
+    ARTIFACTS_DIR="$artifacts_dir" MODE="$mode" SUBFOLDER="$subfolder" \
+        AUDIO_PATH="$audio_path" FINAL_TS="$final_ts" \
+        TEXT="$text" SINCE="$since" DB="$HISTORY_DB" \
+        /usr/bin/python3 - <<'PY'
+import json, os, pathlib, sqlite3, sys, datetime as dt
+
+art = pathlib.Path(os.environ["ARTIFACTS_DIR"])
+mode = os.environ["MODE"]
+subfolder = os.environ["SUBFOLDER"]
+audio_path = os.environ["AUDIO_PATH"] or None
+final_ts = os.environ["FINAL_TS"]
+text = os.environ.get("TEXT") or None
+db = os.environ["DB"]
+
+def write(out):
+    (art / "result.json").write_text(json.dumps(out, indent=2) + "\n")
+
+if not audio_path or not os.path.isfile(audio_path) or os.path.getsize(audio_path) == 0:
+    write({
+        "pass": False,
+        "mode": mode,
+        "reason": f"no new WAV under outputs/{subfolder}/ after the bench-wait",
+        "final_file_ready_ts": final_ts,
+        "text": text,
+        "timestamp": dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
+    print(f"FAIL: no new WAV under outputs/{subfolder}/", file=sys.stderr)
+    sys.exit(1)
+
+audio_bytes = os.path.getsize(audio_path)
+
+con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+row = con.execute(
+    "SELECT id, mode, audioPath, duration FROM generations "
+    "ORDER BY createdAt DESC LIMIT 1"
+).fetchone()
+con.close()
+
+if row is None:
+    write({
+        "pass": False,
+        "mode": mode,
+        "reason": "history.sqlite has no rows",
+        "final_file_ready_ts": final_ts,
+        "audio_path": audio_path,
+        "audio_bytes": audio_bytes,
+        "text": text,
+        "timestamp": dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
+    print("FAIL: history.sqlite has no rows", file=sys.stderr)
+    sys.exit(1)
+
+db_id, db_mode, db_audio_path, db_duration = row
+
+if db_audio_path != audio_path:
+    write({
+        "pass": False,
+        "mode": mode,
+        "reason": f"latest DB row's audioPath does not match the new WAV (db={db_audio_path}, file={audio_path})",
+        "final_file_ready_ts": final_ts,
+        "audio_path": audio_path,
+        "audio_bytes": audio_bytes,
+        "db_id": db_id,
+        "db_audio_path": db_audio_path,
+        "text": text,
+        "timestamp": dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
+    print(f"FAIL: DB row points at {db_audio_path}, but file system has {audio_path}", file=sys.stderr)
+    sys.exit(1)
+
+if not db_duration or db_duration <= 0:
+    write({
+        "pass": False,
+        "mode": mode,
+        "reason": f"db_duration is null or non-positive ({db_duration})",
+        "final_file_ready_ts": final_ts,
+        "audio_path": audio_path,
+        "audio_bytes": audio_bytes,
+        "db_id": db_id,
+        "db_duration": db_duration,
+        "text": text,
+        "timestamp": dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
+    print(f"FAIL: db_duration={db_duration}", file=sys.stderr)
+    sys.exit(1)
+
+write({
+    "pass": True,
+    "mode": mode,
+    "final_file_ready_ts": final_ts,
+    "audio_path": audio_path,
+    "audio_bytes": audio_bytes,
+    "db_id": db_id,
+    "db_mode": db_mode,
+    "db_duration": db_duration,
+    "text": text,
+    "timestamp": dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+})
+print(f"ok: {mode} pass=true final={final_ts} audio={audio_path} ({audio_bytes} B) db_id={db_id} db_duration={db_duration}")
+PY
+}
 
 cmd_bench_step() {
     local mode="" variant="" coldwarm="" bucket="" artifacts_dir="" timeout=""
@@ -1293,6 +1470,7 @@ main() {
         bench-summarize)         cmd_bench_summarize "$@" ;;
         bench-compare)           cmd_bench_compare "$@" ;;
         bench-update-baselines)  cmd_bench_update_baselines "$@" ;;
+        verify-generation)       cmd_verify_generation "$@" ;;
         gemini-review)           cmd_gemini_review "$@" ;;
         help|-h|--help)  usage ;;
         *)

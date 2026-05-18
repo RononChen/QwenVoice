@@ -50,6 +50,176 @@ Some actions don't have an obvious visible button on the default macOS window si
 
 The runbook prefers `cmd+Return` over hunting for a Generate button.
 
+## Standard smoke skeleton
+
+Every smoke runbook follows the same five-phase flow. The per-mode runbooks only document **deltas** (sidebar AX id, output subfolder, fixed inputs, extra steps before generate). Everything below is the universal scaffolding — keep it in your head once and don't re-read the per-mode files looking for it.
+
+### Phase 1 — Precondition
+
+```sh
+[ -d build/Debug/Vocello.app ] || scripts/build.sh debug
+scripts/uitest.sh smoke-check <mode>      # exits non-zero if the mode's prerequisites are missing
+```
+
+For Voice Cloning the prerequisite includes the `UITestRef` saved-voice fixture (see [`bootstrap-saved-voice.md`](bootstrap-saved-voice.md)).
+
+### Phase 2 — Setup (artifact dir + log capture + launch)
+
+```sh
+ART=$(scripts/uitest.sh artifacts-dir)
+(scripts/uitest.sh logs > "$ART/log.txt" 2>&1 &)
+LOG_PID=$!
+scripts/uitest.sh reset                   # quit Vocello, wipe generations + outputs
+scripts/uitest.sh prep                    # relaunch into a fresh window; prints PID
+```
+
+### Phase 3 — Front the app + record screenshot dimensions
+
+```text
+mcp__computer-use__request_access(apps: ["Vocello"], reason: "Run <mode> smoke")
+mcp__computer-use__open_application(app: "Vocello")
+SHOT = mcp__computer-use__screenshot()    # record IW × IH (image-pixel dims) for scaled-locate
+```
+
+`request_access` only prompts once per session — subsequent calls no-op for already-granted apps. Claude Code's screenshot is downsampled, **not** Retina-native — on a 1280×720 logical screen it returns 1456×819. Pass those dimensions to every `scaled-locate` call. See "Locating an element" below for the canonical numbers.
+
+`/usr/sbin/screencapture -x "$ART/pre.png"` is optional for the artifact bundle (the agent's screenshot already has the visual state).
+
+### Phase 4 — Drive the UI (mode-specific deltas)
+
+The per-mode runbook documents this phase exclusively. Every flow boils down to:
+
+1. Click `sidebar_<mode>` via `scaled-locate <id> $IW $IH` → `mcp__computer-use__left_click(coordinate: [cx, cy])`.
+2. Confirm the right screen is mounted: `scripts/uitest.sh locate screen_<mode>` (exit 0).
+3. Mode-specific setup (Voice Design: fill the description field; Voice Cloning: pick the saved voice; Custom Voice: leave the default speaker).
+4. Click `textInput_textEditor`, type the fixed script text, fire `cmd+Return`. Batch in one round-trip:
+   ```text
+   mcp__computer-use__computer_batch([
+     {action:"left_click", coordinate:[cx, cy]},
+     {action:"type", text:"<fixed script>"},
+     {action:"key", text:"cmd+Return"}
+   ])
+   ```
+5. Capture `T0` **just before** the `cmd+Return` lands:
+   ```sh
+   T0="$(/usr/bin/python3 -c 'import datetime; print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])')"
+   ```
+
+### Phase 5 — Verify + teardown
+
+One command does the wait + WAV-search + DB-check + `result.json`:
+
+```sh
+scripts/uitest.sh verify-generation <mode> \
+    --artifacts-dir "$ART" --since "$T0" --text "<fixed script>"
+```
+
+Exits 0 on pass, non-zero on fail; either way `$ART/result.json` is written with the canonical shape (`pass`, `mode`, `final_file_ready_ts`, `audio_path`, `audio_bytes`, `db_id`, `db_mode`, `db_duration`, `text`, `timestamp`). Then:
+
+```sh
+/usr/sbin/screencapture -x "$ART/post.png"
+kill "$LOG_PID" 2>/dev/null || true
+```
+
+Report `$ART/result.json`'s `pass` field + the recorded latency to the user.
+
+## Standard bench skeleton
+
+The bench runbooks loop 24 samples through one matrix per mode: 2 variants × (3 cold/medium + 3 warm short + 3 warm medium + 3 warm long). The per-mode bench runbooks only document the mode-specific nav + variant-select + (clone) saved-voice-bind steps. Everything below is universal.
+
+### Phase 0 — Setup
+
+```sh
+ART=$(scripts/uitest.sh artifacts-dir)
+echo "$ART"
+```
+```text
+mcp__computer-use__request_access(apps: ["Vocello"], reason: "<mode> bench")
+mcp__computer-use__open_application(app: "Vocello")
+SHOT = mcp__computer-use__screenshot()    # record IW × IH for the scaled-locate calls below
+```
+
+### Phase 1 — Per-variant loop
+
+For each `variant` in `[speed, quality]`:
+
+#### 1a. Fresh launch (resets engine warm state)
+
+```sh
+scripts/uitest.sh reset
+scripts/uitest.sh prep
+scripts/uitest.sh activate
+```
+
+#### 1b. Mode-specific: nav + variant select + (clone) saved-voice bind
+
+Documented in the per-mode bench runbook. Variant-select uses this canonical three-fallback ladder:
+
+1. **Direct button id** — try `scaled-locate <mode>_speedVariantButton $IW $IH` (or `…_qualityVariantButton`). Click via `left_click`.
+2. **Container anchor** — if direct IDs aren't queryable, `scaled-locate <mode>_modelVariantPicker $IW $IH` (or `…_modelVariantSelector`) as a positional anchor; click visually inside that control.
+3. **Pure visual** — screenshot, find the gold-highlighted Speed / Quality buttons at the top-right of the Configuration card, click visually. Record the coordinates in the run notes.
+
+**Always verify after clicking.** Take a screenshot; the desired button should be gold-highlighted. Abort the bench if the visual doesn't match.
+
+#### 1c. Initial T0 (before the first generation in this variant)
+
+```sh
+python3 -c "import datetime as dt; d=dt.datetime.now(); print(d.strftime('%Y-%m-%d %H:%M:%S.')+d.strftime('%f')[:3])" > /tmp/uitest_bench_t0
+```
+
+#### 1d. Cold samples (n=3, medium prompt only)
+
+For each of three cold samples:
+
+1. (Skip on the first iteration — the fresh launch from 1a counts.) `scripts/uitest.sh reset && scripts/uitest.sh prep && scripts/uitest.sh activate`.
+2. Re-do step 1b (re-nav + re-select variant + (clone) re-bind saved voice). Visual verification still required.
+3. Drive the UI for one generation: click `textInput_textEditor`, type the medium prompt, fire `cmd+Return` — batched via `computer_batch`.
+4. Record the sample:
+   ```sh
+   scripts/uitest.sh bench-step <mode> "$variant" cold medium --artifacts-dir "$ART" --timeout 180
+   ```
+
+`bench-step` reads `/tmp/uitest_bench_t0`, waits for `Final File Ready`, calls `bench-record`, and writes a fresh T0 for the next call. No manual `date` capture between samples.
+
+#### 1e. Warm samples (n=3 per bucket)
+
+For each `bucket` in `[short, medium, long]`, repeat 3 times:
+
+Click `textInput_textEditor` → `cmd+a` → `delete` → type the bucket's prompt → `cmd+Return` (batched).
+
+```sh
+scripts/uitest.sh bench-step <mode> "$variant" warm "$bucket" --artifacts-dir "$ART"
+```
+
+For Voice Cloning specifically: **do not** touch the saved-voice picker between warm samples — that re-primes the reference and makes every warm sample look cold.
+
+### Phase 2 — Summarize + compare
+
+```sh
+scripts/uitest.sh bench-summarize "$ART"      # writes $ART/bench-result.json
+scripts/uitest.sh bench-compare "$ART"        # Markdown table; exit 1 if any ±15 % breach
+```
+
+### Phase 3 — Promote to baseline (only when intentional)
+
+```sh
+scripts/uitest.sh bench-update-baselines      # overwrites docs/reference/benchmark-baselines.json
+git diff docs/reference/benchmark-baselines.json
+git commit -m "Update bench baselines: <reason>"
+```
+
+The committed baseline is source-of-truth. Update only when the new numbers are intentional (faster path, expected regression with a known cause).
+
+## Standard perceptual-review handoff
+
+For any generation that produced a WAV, the perceptual layer adds subjective dimensions the bench's RMS/peak gates can't catch (naturalness, emotion match, pronunciation, pacing, artifacts):
+
+```sh
+scripts/uitest.sh gemini-review <audio_path>
+```
+
+Auto-fills mode/text/speaker/delivery from `history.sqlite` by matching the WAV's `audioPath`. Writes a bundle to `build/Debug/voice-reviews/<UTC-ts>-<mode>-<basename>/` containing `review.md`, `metadata.json`, the exact prompt sent, and the raw/clean Gemini response. Full procedure in [`gemini-voice-review.md`](gemini-voice-review.md). When to run it vs the smoke/bench is in [`testing-overview.md`](testing-overview.md)'s decision table.
+
 ## Click vocabulary
 
 Every interactive element in the macOS UI has a stable `accessibilityIdentifier`. Resolve any of these names to pixel coordinates with `scripts/uitest.sh locate <ax-id>`. The script prints `cx cy w h` (center coordinates + size). Container/screen identifiers are listed so a session can confirm "I'm on the right screen" before clicking.
