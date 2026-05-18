@@ -18,6 +18,8 @@ The layers complement each other:
 
 No single layer is sufficient; the bench's RMS/peak gates are deliberately wide (±15 % alongside informational depth metrics) because the underlying LM sampling has run-to-run variance that the gates must tolerate. The perceptual review is the gate against subjective-but-real regressions.
 
+> **Reading bench flags.** `bench-compare` flags `ms_engine_start_to_final` and `rtf` independently at ±15 %, but treat them as a paired signal. If `ms` flags and `rtf` stays within gate, the latency change is LM output-length variance (the model occasionally emits a longer/shorter take for the same prompt), not engine throughput regression. `rtf` (audio-seconds per generation-second) normalizes out output-length and is the correct gate for engine throughput. Full reading rules + worked example in [`ui-test-surface.md`](ui-test-surface.md#reading-the-bench-compare-output--ms-vs-rtf-as-paired-signals).
+
 ## Decision table — what to run when X changes
 
 | What changed | Smoke | Bench | Perceptual |

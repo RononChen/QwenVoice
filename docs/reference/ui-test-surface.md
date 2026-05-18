@@ -200,6 +200,18 @@ scripts/uitest.sh bench-summarize "$ART"      # writes $ART/bench-result.json
 scripts/uitest.sh bench-compare "$ART"        # Markdown table; exit 1 if any ±15 % breach
 ```
 
+#### Reading the bench-compare output — `ms` vs `rtf` as paired signals
+
+`bench-compare` flags both `ms_engine_start_to_final` and `rtf` independently at ±15 %, but they are not independent metrics. When investigating a flag, read them together:
+
+- **Both `ms` AND `rtf` drift in the SAME direction (one slower, one faster)** → real engine throughput change. A regression (or improvement) worth taking seriously.
+- **`ms` flagged but `rtf` within gate** → the latency change is driven by **LM output-length variance** (the model occasionally emitted a longer/shorter take for the same prompt), not engine slowdown. Inspect `audio_duration_s` in the per-sample JSONL for outliers. The `rtf` metric (audio-seconds per generation-second) normalizes out output-length, so it's the correct gate for engine throughput.
+- **`rtf` flagged but `ms` within gate** → unusual; almost always real. Investigate.
+
+Concrete example (May 18, 2026 follow-up bench): `design/quality/cold/medium` flagged with `ms_engine_start_to_final` +25 % at n=10, but `rtf` stayed within ±15 %. Inspection of the per-sample JSONL showed one outlier where the model emitted 12.24 s of audio for the same medium prompt that produced 4.8–6.5 s in the other 9 samples — pure LM sampling variance, no engine regression.
+
+The ±15 % gate on raw `ms_engine_start_to_final` is deliberately conservative for catching obvious regressions, but it's noisy at n=3. For a "confirmed regression" verdict, prefer `rtf` and require n≥10 samples.
+
 ### Phase 3 — Promote to baseline (only when intentional)
 
 ```sh
