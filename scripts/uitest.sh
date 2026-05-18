@@ -125,6 +125,17 @@ commands:
                         summary from a bench-result.json (default: most recent under
                         build/Debug/uitest/). Review \`git diff\` before committing.
 
+  gemini-review <wav-path> [--mode ...] [--text ...] [--voice-description ...]
+                          [--speaker ...] [--delivery ...] [--saved-voice ...]
+                          [--commit ...] [--out-dir ...]
+                        Perceptual voice-quality + tone/emotion review of a
+                        Vocello-generated WAV via the Gemini CLI
+                        (gemini-3.1-pro-preview default). Complements the
+                        bench timing/RMS gates with subjective dimensions.
+                        Auto-fills mode/text/speaker/delivery from
+                        history.sqlite when the WAV matches a row's audioPath.
+                        Writes a review bundle to build/voice-reviews/.
+
   help                  Show this message.
 EOF
 }
@@ -1206,6 +1217,10 @@ sys.exit(1 if breaches else 0)
 PY
 }
 
+cmd_gemini_review() {
+    exec "$SCRIPT_DIR/gemini_voice_review.sh" "$@"
+}
+
 cmd_bench_update_baselines() {
     local source=""
     while [ $# -gt 0 ]; do
@@ -1278,6 +1293,7 @@ main() {
         bench-summarize)         cmd_bench_summarize "$@" ;;
         bench-compare)           cmd_bench_compare "$@" ;;
         bench-update-baselines)  cmd_bench_update_baselines "$@" ;;
+        gemini-review)           cmd_gemini_review "$@" ;;
         help|-h|--help)  usage ;;
         *)
             echo "error: unknown command '$command'" >&2
