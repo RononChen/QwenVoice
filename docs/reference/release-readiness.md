@@ -48,7 +48,7 @@ Public messaging rules:
 
 Two-track macOS hardware proof:
 
-- `Mac mini M2, 8 GB RAM` is the active development and bench-capture host. Perf is verified locally after material engine changes with targeted manual checks and, when appropriate, the maintained Codex-driven `scripts/uitest.sh` bench harness.
+- `Mac mini M2, 8 GB RAM` is the active development and bench-capture host. Perf is verified locally after material engine changes with targeted manual checks and, when appropriate, the maintained Claude Code–driven `scripts/uitest.sh` bench harness.
 - `Mac mini M1, 8 GB RAM` remains the documented official minimum, but engine-level findings captured on M1 have not been re-verified on M2. The M1-saturation conclusion (Step Eval Flush ≈62 % of generation, irreducible without quantization or hardware change) was reached on M1; M2's wider memory bandwidth and more capable GPU cores mean the saturation profile may differ. Re-verify via manual Instruments capture on M2 before citing the finding as M2-bound.
 - Do not claim the M1 floor is fully verified as of the dual-variant catalog (`d5b3c61`, 2026-05-05). Re-verify the floor-device finding before citing it for current M2 behavior.
 
@@ -114,7 +114,7 @@ Only tiers 1 and 2 block the current public release milestone.
 | 2. macOS ship gate | `./scripts/release.sh` + `./scripts/verify_release_bundle.sh` + `./scripts/verify_packaged_dmg.sh` |
 | 3. Deferred iPhone release | `./scripts/check_ios_catalog.sh` + `./scripts/release_ios_testflight.sh` + `./scripts/verify_ios_release_archive.sh` |
 
-Only tiers 1 and 2 block the current public release milestone. Tier 3 is maintained but deferred from public signoff until the iPhone re-entry conditions below are met. There are no CI or XCTest proof layers; local manual smoke and the maintained Codex harness are the behavioral regression checks.
+Only tiers 1 and 2 block the current public release milestone. Tier 3 is maintained but deferred from public signoff until the iPhone re-entry conditions below are met. There are no CI or XCTest proof layers; local manual smoke and the maintained Claude Code harness are the behavioral regression checks.
 
 ## Program Priorities
 

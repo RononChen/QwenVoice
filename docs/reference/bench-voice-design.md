@@ -45,7 +45,9 @@ Prompts:
 
 ```sh
 ART=$(scripts/uitest.sh artifacts-dir)
-mcp__computer_use__get_app_state(app: "Vocello")
+mcp__computer-use__request_access(apps: ["Vocello"], reason: "Voice Design bench")
+mcp__computer-use__open_application(app: "Vocello")
+SHOT = mcp__computer-use__screenshot()   # record IW × IH for the scaled-locate calls below
 ```
 
 ### 1. Variant loop
@@ -62,13 +64,13 @@ scripts/uitest.sh activate
 
 #### 1b. Navigate to Voice Design + select variant + fill description
 
-- `scripts/uitest.sh window-locate sidebar_voiceDesign` → `mcp__computer_use__click`.
+- `scripts/uitest.sh scaled-locate sidebar_voiceDesign $IW $IH` → `mcp__computer-use__left_click`.
 - Verify with `locate screen_voiceDesign` (exit 0).
 - Select variant via the segmented control:
-  1. Use `scripts/uitest.sh window-locate voiceDesign_speedVariantButton` and `voiceDesign_qualityVariantButton` first; these are the canonical button IDs.
+  1. Use `scripts/uitest.sh scaled-locate voiceDesign_speedVariantButton $IW $IH` and `voiceDesign_qualityVariantButton` first; these are the canonical button IDs.
   2. If direct button IDs fail, try `voiceDesign_modelVariantPicker` and `voiceDesign_modelVariantSelector` as anchors.
   3. Otherwise click visually (top-right of the configuration card) and note the coordinates.
-- `scripts/uitest.sh window-locate voiceDesign_voiceDescriptionField` → `mcp__computer_use__click`, then `mcp__computer_use__type_text(app: "Vocello", text: "<fixed description>")`.
+- `scripts/uitest.sh scaled-locate voiceDesign_voiceDescriptionField $IW $IH` → `mcp__computer-use__left_click`, then `mcp__computer-use__type(text: "<fixed description>")`.
 
 **Verify variant first** via screenshot (see `bench-custom-voice.md`).
 
@@ -80,7 +82,7 @@ python3 -c "import datetime as dt; d=dt.datetime.now(); print(d.strftime('%Y-%m-
 
 #### 1c. Cold sample (medium prompt)
 
-In order: click `textInput_textEditor` → type medium prompt → `super+Return`.
+In order: click `textInput_textEditor` → type medium prompt → `cmd+Return`.
 
 ```sh
 scripts/uitest.sh bench-step design "$variant" cold medium --artifacts-dir "$ART" --timeout 240
@@ -92,7 +94,7 @@ VD/Quality cold has been seen taking >180 s on Apple M2 — the 240 s timeout gi
 
 For each `bucket` in `[short, medium, long]`, repeat 3 times:
 
-In order: click `textInput_textEditor` → `super+a` → `BackSpace` → type bucket prompt → `super+Return`. **Do not** clear or re-type the voice description; it persists between samples and we want to bench the steady-state generate path.
+In order: click `textInput_textEditor` → `cmd+a` → `delete` → type bucket prompt → `cmd+Return`. **Do not** clear or re-type the voice description; it persists between samples and we want to bench the steady-state generate path.
 
 ```sh
 scripts/uitest.sh bench-step design "$variant" warm "$bucket" --artifacts-dir "$ART"

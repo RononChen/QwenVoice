@@ -8,7 +8,7 @@ Companion reference: [`ui-test-surface.md`](ui-test-surface.md).
 
 - Vocello Debug build exists at `build/Debug/Vocello.app`. If not, run `scripts/build.sh debug`.
 - At least one Custom Voice model variant is installed (the runbook checks via `scripts/uitest.sh smoke-check`).
-- macOS Accessibility permission granted to Codex.
+- macOS Accessibility permission granted to Claude Code.
 
 ## Fixed inputs
 
@@ -38,25 +38,27 @@ The runbook does not adjust pickers — it tests the minimum-effort generate pat
 4. **Launch the app.**
    - `scripts/uitest.sh prep` — prints the Vocello PID once the window is up.
 
-5. **Computer Use: refresh app state and screenshot.**
-   - `mcp__computer_use__get_app_state(app: "Vocello")`
+5. **Front the app, capture state, archive pre-screenshot.**
+   - `mcp__computer-use__request_access(apps: ["Vocello"], reason: "Run Custom Voice smoke")` (once per session — subsequent calls in the same session no-op for already-granted apps).
+   - `mcp__computer-use__open_application(app: "Vocello")` to ensure frontmost.
+   - `SHOT = mcp__computer-use__screenshot()` — record `IW × IH` from the result and reuse them in every `scaled-locate` call below.
    - `/usr/sbin/screencapture -x "$ART/pre.png"` for the artifact bundle.
 
 6. **Navigate to Custom Voice.**
-   - `scripts/uitest.sh window-locate sidebar_customVoice` → parse `cx cy w h`.
-   - `mcp__computer_use__click(app: "Vocello", x: cx, y: cy)`.
-   - If Vocello isn't frontmost, the click won't dispatch — run `scripts/uitest.sh activate`, refresh with `get_app_state`, then retry.
+   - `scripts/uitest.sh scaled-locate sidebar_customVoice $IW $IH` → parse `cx cy w h`.
+   - `mcp__computer-use__left_click(coordinate: [cx, cy])`.
+   - If Vocello isn't frontmost, the click won't dispatch — run `mcp__computer-use__open_application(app: "Vocello")` (or `scripts/uitest.sh activate`), re-take `mcp__computer-use__screenshot()`, then retry.
 
 7. **Confirm Custom Voice screen is mounted.**
    - `scripts/uitest.sh locate screen_customVoice` — exit code 0 means the screen is up. If non-zero, screenshot, wait 500 ms, retry once.
 
 8. **Enter the script text.**
    - The script-text field has accessibility identifier `textInput_textEditor` (shared across all three generation modes via `TextInputView`).
-   - `scripts/uitest.sh window-locate textInput_textEditor` → `mcp__computer_use__click`.
-   - `mcp__computer_use__type_text(app: "Vocello", text: "<fixed script text>")`.
+   - `scripts/uitest.sh scaled-locate textInput_textEditor $IW $IH` → `mcp__computer-use__left_click`.
+   - `mcp__computer-use__type(text: "<fixed script text>")`.
 
 9. **Trigger Generate.**
-   - Send `mcp__computer_use__press_key(app: "Vocello", key: "super+Return")` while the script field is focused. `super+Return` maps to the macOS Cmd+Return shortcut. There is no dedicated "Generate" button visible in the default Custom Voice viewport on a 1280×720 display.
+   - Send `mcp__computer-use__key(text: "cmd+Return")` while the script field is focused. `cmd+Return` is the macOS Cmd+Return shortcut. There is no dedicated "Generate" button visible in the default Custom Voice viewport on a 1280×720 display.
    - Immediately before pressing the key, record `T0` in the signpost timestamp format:
      ```sh
      T0="$(/usr/bin/python3 -c 'import datetime; print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])')"
@@ -76,7 +78,7 @@ The runbook does not adjust pickers — it tests the minimum-effort generate pat
     - `scripts/uitest.sh db "SELECT id, audioPath, duration FROM generations ORDER BY createdAt DESC LIMIT 1"` should print one CSV line. Parse `DB_ID` (first field), `DB_AUDIO_PATH` (second), `DB_DURATION` (third). Assert `DB_AUDIO_PATH == AUDIO_PATH` and `DB_DURATION > 0`.
 
 13. **Final screenshot, stop log capture.**
-    - `mcp__computer_use__get_app_state(app: "Vocello")` for visual inspection, then `/usr/sbin/screencapture -x "$ART/post.png"`.
+    - `mcp__computer-use__screenshot()` for visual inspection, then `/usr/sbin/screencapture -x "$ART/post.png"`.
     - `kill "$LOG_PID" 2>/dev/null || true`.
 
 14. **Write the result file.**

@@ -24,7 +24,7 @@ Cold runs capture model-load + first-generation latency. Warm runs hit the stead
 
 - Debug build present (`scripts/build.sh debug` if missing).
 - `scripts/uitest.sh smoke-check` exits 0 (Custom Voice model variants installed).
-- macOS Accessibility permission granted to Codex.
+- macOS Accessibility permission granted to Claude Code.
 - 5–10 minutes of uninterrupted Vocello time.
 
 ## Fixed prompts
@@ -44,10 +44,12 @@ Speaker stays at the app default (Aiden); Delivery stays `Neutral` / `Subtle`. D
 ```sh
 ART=$(scripts/uitest.sh artifacts-dir)
 echo "$ART"
-mcp__computer_use__get_app_state(app: "Vocello")
+mcp__computer-use__request_access(apps: ["Vocello"], reason: "Custom Voice bench")
+mcp__computer-use__open_application(app: "Vocello")
+SHOT = mcp__computer-use__screenshot()   # record IW × IH for the scaled-locate calls below
 ```
 
-Record `$ART` — you'll reuse it throughout.
+Record `$ART` — you'll reuse it throughout. Record `IW × IH` from the screenshot — every `scaled-locate` call in the loop uses them.
 
 ### 1. Variant loop
 
@@ -63,10 +65,10 @@ scripts/uitest.sh activate         # ensure frontmost
 
 #### 1b. Navigate to Custom Voice + select variant
 
-- `scripts/uitest.sh window-locate sidebar_customVoice` → `mcp__computer_use__click`.
+- `scripts/uitest.sh scaled-locate sidebar_customVoice $IW $IH` → `mcp__computer-use__left_click`.
 - Verify with `scripts/uitest.sh locate screen_customVoice` (exit 0 = on the right screen).
 - Select the variant via the segmented control at the top-right of the Configuration card:
-  1. Use `scripts/uitest.sh window-locate customVoice_speedVariantButton` and `customVoice_qualityVariantButton` first; these are the canonical button IDs.
+  1. Use `scripts/uitest.sh scaled-locate customVoice_speedVariantButton $IW $IH` and `customVoice_qualityVariantButton` first; these are the canonical button IDs.
   2. If direct button IDs fail, try the container IDs `customVoice_modelVariantPicker` and `customVoice_modelVariantSelector` as anchors.
   3. Otherwise screenshot, find the Speed / Quality buttons visually (top-right of the Configuration card), and click. Note the coordinates in the run's `result.json` notes so a future calibration step can codify them.
 
@@ -86,7 +88,7 @@ For each of three cold samples:
 
 1. (Skip on the first iteration; the fresh launch from step 1a counts.) `scripts/uitest.sh reset && scripts/uitest.sh prep && scripts/uitest.sh activate` — quit, wipe state, relaunch.
 2. Re-navigate to Custom Voice + re-select variant per step 1b (visual verification still required).
-3. In order: `window-locate textInput_textEditor` → `mcp__computer_use__click`; `mcp__computer_use__type_text(app: "Vocello", text: "<medium prompt>")`; `mcp__computer_use__press_key(app: "Vocello", key: "super+Return")`.
+3. In order: `scaled-locate textInput_textEditor $IW $IH` → batched `mcp__computer-use__computer_batch([{action:"left_click", coordinate:[cx, cy]}, {action:"type", text:"<medium prompt>"}, {action:"key", text:"cmd+Return"}])`.
 4. `scripts/uitest.sh bench-step custom "$variant" cold medium --artifacts-dir "$ART" --timeout 180`.
 
 `bench-step` reads `/tmp/uitest_bench_t0` for the previous T0, waits for `Final File Ready`, records the sample, and writes a fresh T0 for the next call. No manual `date` capture between samples.
@@ -95,7 +97,7 @@ For each of three cold samples:
 
 For each `bucket` in `[short, medium, long]`, repeat 3 times:
 
-In order: click `textInput_textEditor` → `super+a` → `BackSpace` → type bucket prompt → `super+Return`.
+In order: click `textInput_textEditor` → `cmd+a` → `delete` → type bucket prompt → `cmd+Return`.
 
 ```sh
 scripts/uitest.sh bench-step custom "$variant" warm "$bucket" --artifacts-dir "$ART"

@@ -43,7 +43,9 @@ Prompts:
 
 ```sh
 ART=$(scripts/uitest.sh artifacts-dir)
-mcp__computer_use__get_app_state(app: "Vocello")
+mcp__computer-use__request_access(apps: ["Vocello"], reason: "Voice Cloning bench")
+mcp__computer-use__open_application(app: "Vocello")
+SHOT = mcp__computer-use__screenshot()   # record IW × IH for the scaled-locate calls below
 ```
 
 ### 1. Variant loop
@@ -60,13 +62,13 @@ scripts/uitest.sh activate
 
 #### 1b. Navigate, select variant, bind saved voice
 
-- `scripts/uitest.sh window-locate sidebar_voiceCloning` → `mcp__computer_use__click`.
+- `scripts/uitest.sh scaled-locate sidebar_voiceCloning $IW $IH` → `mcp__computer-use__left_click`.
 - Verify with `locate screen_voiceCloning`.
 - Select variant via the segmented control. First contact:
-  1. Try `scripts/uitest.sh window-locate voiceCloning_speedVariantButton` / `voiceCloning_qualityVariantButton`.
+  1. Try `scripts/uitest.sh scaled-locate voiceCloning_speedVariantButton $IW $IH` / `voiceCloning_qualityVariantButton`.
   2. If direct button IDs fail, try `voiceCloning_modelVariantPicker` and `voiceCloning_modelVariantSelector` as anchors.
   3. Otherwise click visually.
-- `scripts/uitest.sh window-locate voiceCloning_savedVoicePicker` → `mcp__computer_use__click`, screenshot to see the open menu, click the `UITestRef` menu item.
+- `scripts/uitest.sh scaled-locate voiceCloning_savedVoicePicker $IW $IH` → `mcp__computer-use__left_click`, screenshot to see the open menu, click the `UITestRef` menu item.
 - Verify with `locate voiceCloning_activeReference` (exit 0 means a reference is bound).
 
 **Verify variant first** via screenshot (see `bench-custom-voice.md` — same caveat).
@@ -79,7 +81,7 @@ python3 -c "import datetime as dt; d=dt.datetime.now(); print(d.strftime('%Y-%m-
 
 #### 1c. Cold sample (medium prompt)
 
-In order: click `textInput_textEditor` → type medium prompt → `super+Return`.
+In order: click `textInput_textEditor` → type medium prompt → `cmd+Return`.
 
 ```sh
 scripts/uitest.sh bench-step clone "$variant" cold medium --artifacts-dir "$ART" --timeout 180
@@ -89,7 +91,7 @@ scripts/uitest.sh bench-step clone "$variant" cold medium --artifacts-dir "$ART"
 
 For each `bucket` in `[short, medium, long]`, repeat 3 times:
 
-In order: click `textInput_textEditor` → `super+a` → `BackSpace` → type bucket prompt → `super+Return`. **Don't touch the saved-voice picker** between warm samples.
+In order: click `textInput_textEditor` → `cmd+a` → `delete` → type bucket prompt → `cmd+Return`. **Don't touch the saved-voice picker** between warm samples.
 
 ```sh
 scripts/uitest.sh bench-step clone "$variant" warm "$bucket" --artifacts-dir "$ART"

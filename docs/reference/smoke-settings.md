@@ -7,7 +7,7 @@ Mirrors the structure of [`smoke-custom-voice.md`](smoke-custom-voice.md). Compa
 ## Prerequisites
 
 - Debug build present (`scripts/build.sh debug` if missing).
-- macOS Accessibility permission granted to Codex.
+- macOS Accessibility permission granted to Claude Code.
 - At least one Custom Voice variant installed (`scripts/uitest.sh smoke-check custom` exits 0). This is the smoke test's anchor — without it, Settings will show "not installed" instead of "Ready" and the assertion fails.
 
 ## Fixed inputs
@@ -29,13 +29,15 @@ Mirrors the structure of [`smoke-custom-voice.md`](smoke-custom-voice.md). Compa
    LOG_PID=$!
    ```
 4. **Launch**: `scripts/uitest.sh prep`.
-5. **Access + pre-screenshot**:
+5. **Front the app, capture state, archive pre-screenshot**:
    ```
-   mcp__computer_use__get_app_state(app: "Vocello")
+   mcp__computer-use__request_access(apps: ["Vocello"], reason: "Run Settings smoke")
+   mcp__computer-use__open_application(app: "Vocello")
+   SHOT = mcp__computer-use__screenshot()   # record IW × IH for the scaled-locate calls below
    ```
    Then `/usr/sbin/screencapture -x "$ART/pre.png"`.
 6. **Navigate to Settings**:
-   - `scripts/uitest.sh window-locate sidebar_settings` → `mcp__computer_use__click(app: "Vocello", x: cx, y: cy)`.
+   - `scripts/uitest.sh scaled-locate sidebar_settings $IW $IH` → `mcp__computer-use__left_click(coordinate: [cx, cy])`.
    - Verify with `scripts/uitest.sh locate screen_settings` (exit 0 = on the right screen).
 7. **Verify Custom Voice model package renders**:
    - `scripts/uitest.sh locate settings_packageStatus_pro_custom` should succeed.

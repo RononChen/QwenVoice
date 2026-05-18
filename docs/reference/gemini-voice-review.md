@@ -6,20 +6,20 @@ Use this when:
 
 - Audio-path code changed and RMS/peak alone cannot prove the sample still sounds right.
 - You want comparable cross-sample reviews with one fixed prompt template.
-- You want Gemini to act as the multimodal/audio reviewer while Codex prepares context and records the result.
+- You want Gemini to act as the multimodal/audio reviewer while Claude Code prepares context and records the result.
 
 ## Policy
 
-Uploading a generated WAV to Gemini transmits local data to Google. Codex must get explicit user confirmation at action time before uploading a file through Chrome. If upload automation is flaky, stop and use the manual fallback instead of spending a long session fighting the web UI.
+Uploading a generated WAV to Gemini transmits local data to Google. Claude Code must get explicit user confirmation at action time before uploading a file through Chrome. If upload automation is flaky, stop and use the manual fallback instead of spending a long session fighting the web UI.
 
-Do not make any repo workflow depend on a Claude subscription or a Claude-specific browser MCP. Codex may prepare the review prompt, locate the WAV, open Gemini, and save the returned review, but the upload/review step must remain explicit and reproducible.
+Claude Code may prepare the review prompt, locate the WAV, open Gemini, and save the returned review, but the upload/review step must remain explicit and reproducible.
 
 ## Prerequisites
 
 | Requirement | How to satisfy |
 |---|---|
 | Chrome signed into Gemini | `https://gemini.google.com/app` opens to the prompt UI. |
-| Codex Chrome control available | Use the Chrome plugin / `mcp__chrome_devtools__*` tools when browser automation is needed. |
+| Claude in Chrome extension installed and connected | Required for `mcp__Claude_in_Chrome__*` tools (DOM-aware browser automation). If the extension is not connected, stop and ask the user to install it — do NOT fall back to pixel-level `mcp__computer-use__left_click` on Chrome, which is gated to tier "read" (clicks are blocked). |
 | Vocello WAV file present on disk | Defaults under `~/Library/Application Support/QwenVoice-Debug/outputs/<Mode>/<timestamp>_<text-prefix>.wav`. |
 | Sample context known | Mode, exact script text, delivery, speaker/voice description, and commit hash. |
 
@@ -32,18 +32,18 @@ Do not make any repo workflow depend on a Claude subscription or a Claude-specif
    - Record metadata: mode, prompt text, delivery, speaker/voice context, audio duration, `git rev-parse --short HEAD`.
 
 2. **Open Gemini in Chrome.**
-   - Use `mcp__chrome_devtools__new_page(url: "https://gemini.google.com/app")` or select an existing Gemini tab.
-   - Use `mcp__chrome_devtools__take_snapshot()` to find the prompt field, model selector, upload affordance, and send button.
+   - Use `mcp__Claude_in_Chrome__navigate(url: "https://gemini.google.com/app")` or `mcp__Claude_in_Chrome__tabs_create_mcp(...)` for a new tab; select an existing Gemini tab via `mcp__Claude_in_Chrome__list_connected_browsers` + `mcp__Claude_in_Chrome__switch_browser` if one is already open.
+   - Use `mcp__Claude_in_Chrome__read_page()` to get the DOM snapshot, then `mcp__Claude_in_Chrome__find` to resolve the prompt field, model selector, upload affordance, and send button to specific element handles.
    - Prefer a Gemini model that accepts audio and gives thoughtful multimodal review. If the product renames models, record the visible model name in the saved review.
 
 3. **Upload the WAV only after confirmation.**
    - Ask the user to confirm the exact file path and Gemini destination immediately before upload.
-   - First try `mcp__chrome_devtools__upload_file(filePath: "<absolute WAV path>", uid: "<upload control uid>")` if the snapshot exposes an upload control.
+   - First try `mcp__Claude_in_Chrome__file_upload(filePath: "<absolute WAV path>", ...)` against the upload control's element handle from `find`.
    - If Gemini uses a native picker or the upload control is not automatable, use the manual fallback: ask the user to drag the WAV from Finder onto Gemini's prompt bar, then confirm when the file chip appears.
 
 4. **Submit the review prompt.**
-   - Fill the prompt text with `mcp__chrome_devtools__fill(...)` or focus the prompt field and use `mcp__chrome_devtools__type_text(...)`.
-   - Click the send button with `mcp__chrome_devtools__click(...)`.
+   - Fill the prompt text with `mcp__Claude_in_Chrome__form_input(...)` against the prompt field's element handle (or, if the field is contenteditable rather than a form control, fall back to `mcp__Claude_in_Chrome__computer` for raw keystrokes).
+   - Click the send button via the element handle returned by `mcp__Claude_in_Chrome__find`.
    - Wait until the response stops changing and any thinking/progress indicator is gone.
 
 5. **Save the review.**
@@ -55,10 +55,10 @@ Do not make any repo workflow depend on a Claude subscription or a Claude-specif
 
 Use this whenever Chrome upload automation cannot see a real file input or reliable upload control:
 
-1. Codex opens Gemini and prepares the prompt.
-2. Codex prints the exact WAV path.
+1. Claude Code opens Gemini and prepares the prompt.
+2. Claude Code prints the exact WAV path.
 3. The user drags the WAV from Finder onto Gemini's prompt bar.
-4. Codex waits for the visible uploaded-file chip, then fills and submits the prompt.
+4. Claude Code waits for the visible uploaded-file chip, then fills and submits the prompt.
 
 This is the preferred fallback. It is faster and safer than trying to force native picker automation.
 
@@ -149,7 +149,7 @@ Files:
 **Vocello commit**: <git short hash at time of generation>
 
 **Reviewer**: Gemini <visible model name>
-**Upload method**: <Codex Chrome upload | manual drag-drop>
+**Upload method**: <Claude Code Chrome upload | manual drag-drop>
 **Reviewed at**: 2026-MM-DDTHH:MM:SSZ
 **Procedure version**: 2.0 (docs/reference/gemini-voice-review.md)
 
@@ -168,6 +168,6 @@ Files:
 
 ## Cross-references
 
-- `AGENTS.md` — Vocello project root, including `shouldStream: true` enable status and bench-baseline conventions.
+- `CLAUDE.md` — Vocello project root, including `shouldStream: true` enable status and bench-baseline conventions.
 - `docs/reference/ui-test-surface.md` — how to know what text was generated for a given WAV, per-mode AX ids, and streaming-state signposts.
 - `docs/reference/benchmark-baselines.json` — the timing/RMS/peak baselines this review pairs with.

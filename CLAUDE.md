@@ -1,6 +1,6 @@
-# AGENTS.md
+# CLAUDE.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## What this repo is
 
@@ -73,7 +73,7 @@ Local Release defaults are isolated too: `AppDefaults` uses a release-id-specifi
 
 ### Autonomous UI testing
 
-The Debug build is drivable by a Codex session via the computer-use MCP. Entry point is `scripts/uitest.sh` (subcommands: `prep`, `reset [--include-voices|--full]`, `locate <ax-id>`, `window-locate <ax-id> [image-w image-h]`, `scaled-locate`, `screen-size`, `activate`, `logs`, `db <sql>`, `artifacts-dir`, `smoke-check [<mode>]`, plus the bench-* family: `bench-wait`, `bench-step`, `bench-record`, `bench-summarize`, `bench-compare`, `bench-update-baselines`). The agent's reference for what's clickable and how to verify generation completion lives at `docs/reference/ui-test-surface.md`. Test artifacts land in `build/Debug/uitest/<timestamp>/` and are wiped by `scripts/build.sh clean`.
+The Debug build is drivable by a Claude Code session via the computer-use MCP. Entry point is `scripts/uitest.sh` (subcommands: `prep`, `reset [--include-voices|--full]`, `locate <ax-id>`, `window-locate <ax-id> [image-w image-h]`, `scaled-locate`, `screen-size`, `activate`, `logs`, `db <sql>`, `artifacts-dir`, `smoke-check [<mode>]`, plus the bench-* family: `bench-wait`, `bench-step`, `bench-record`, `bench-summarize`, `bench-compare`, `bench-update-baselines`). The agent's reference for what's clickable and how to verify generation completion lives at `docs/reference/ui-test-surface.md`. Test artifacts land in `build/Debug/uitest/<timestamp>/` and are wiped by `scripts/build.sh clean`.
 
 Smoke runbooks (one per generation mode):
 
@@ -101,7 +101,7 @@ Committed baselines live at `docs/reference/benchmark-baselines.json` (schema v3
 
 ## Testing policy — important
 
-This repo intentionally has **no CI, no XCTest targets, and no legacy Python/CI benchmark harnesses** as of May 2026. Behavioral validation is local-only and two-track: manual app acceptance plus the maintained Codex-driven `scripts/uitest.sh` smoke/bench harness above. For Debug behavior, use `./scripts/build.sh run` or `scripts/uitest.sh prep` (Debug app path: `build/Debug/Vocello.app`). For release signoff, launch `build/Release/Vocello.app` only after `./scripts/release.sh` has produced the Release bundle.
+This repo intentionally has **no CI, no XCTest targets, and no legacy Python/CI benchmark harnesses** as of May 2026. Behavioral validation is local-only and two-track: manual app acceptance plus the maintained Claude Code–driven `scripts/uitest.sh` smoke/bench harness above. For Debug behavior, use `./scripts/build.sh run` or `scripts/uitest.sh prep` (Debug app path: `build/Debug/Vocello.app`). For release signoff, launch `build/Release/Vocello.app` only after `./scripts/release.sh` has produced the Release bundle.
 
 Do not reintroduce test bundles, QA shell scripts, agent configs, GitHub Actions workflows, or a parallel benchmark harness without an explicit maintainer decision. `scripts/check_project_inputs.sh` enforces the retired surfaces with a prohibited-paths list and a regex sweep of the working tree. Inspect that script for the current list rather than quoting names here (its patterns also trip on any file that mentions the banned names verbatim).
 

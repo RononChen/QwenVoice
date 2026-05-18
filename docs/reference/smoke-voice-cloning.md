@@ -9,7 +9,7 @@ Voice Cloning requires the **`UITestRef`** saved-voice fixture as its reference.
 Also required:
 
 - Debug build present (`scripts/build.sh debug` if missing).
-- macOS Accessibility permission granted to Codex.
+- macOS Accessibility permission granted to Claude Code.
 
 ## Fixed inputs
 
@@ -31,22 +31,24 @@ Also required:
    LOG_PID=$!
    ```
 4. **Launch**: `scripts/uitest.sh prep`.
-5. **Access + pre-screenshot**:
+5. **Front the app, capture state, archive pre-screenshot**:
    ```
-   mcp__computer_use__get_app_state(app: "Vocello")
+   mcp__computer-use__request_access(apps: ["Vocello"], reason: "Run Voice Cloning smoke")
+   mcp__computer-use__open_application(app: "Vocello")
+   SHOT = mcp__computer-use__screenshot()   # record IW × IH for the scaled-locate calls below
    ```
    Then `/usr/sbin/screencapture -x "$ART/pre.png"`.
 6. **Navigate to Voice Cloning**:
-   - `scripts/uitest.sh window-locate sidebar_voiceCloning` → `mcp__computer_use__click`.
+   - `scripts/uitest.sh scaled-locate sidebar_voiceCloning $IW $IH` → `mcp__computer-use__left_click`.
    - Verify with `scripts/uitest.sh locate screen_voiceCloning` (exit 0).
 7. **Select the `UITestRef` saved voice**:
-   - `scripts/uitest.sh window-locate voiceCloning_savedVoicePicker` → `mcp__computer_use__click` to open the dropdown.
+   - `scripts/uitest.sh scaled-locate voiceCloning_savedVoicePicker $IW $IH` → `mcp__computer-use__left_click` to open the dropdown.
    - Screenshot to see the open menu. Click the menu item labeled `UITestRef` (visual — menu items don't have stable AX ids).
    - Confirm by re-running `scripts/uitest.sh locate voiceCloning_activeReference` — exit 0 means a reference is now bound.
 8. **Fill the script text**:
-   - `scripts/uitest.sh window-locate textInput_textEditor` → `mcp__computer_use__click`.
-   - `mcp__computer_use__type_text(app: "Vocello", text: "<fixed script>")`.
-9. **Trigger Generate**: record `T0="$(/usr/bin/python3 -c 'import datetime; print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])')"` then `mcp__computer_use__press_key(app: "Vocello", key: "super+Return")`. `super+Return` maps to macOS Cmd+Return.
+   - `scripts/uitest.sh scaled-locate textInput_textEditor $IW $IH` → `mcp__computer-use__left_click`.
+   - `mcp__computer-use__type(text: "<fixed script>")`.
+9. **Trigger Generate**: record `T0="$(/usr/bin/python3 -c 'import datetime; print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])')"` then `mcp__computer-use__key(text: "cmd+Return")`. `cmd+Return` is the macOS Cmd+Return shortcut.
 10. **Wait for completion**: `scripts/uitest.sh bench-wait --since "$T0" --timeout 120` (clone priming adds a few seconds vs. Custom Voice). The printed timestamp is the matching `Final File Ready` event.
 11. **Verify output file**:
     - `find "$HOME/Library/Application Support/QwenVoice-Debug/outputs/Clones" -type f -name '*.wav' -newer "$ART/pre.png"` should print exactly one path (note: the subfolder is `Clones/`, not `VoiceCloning/`). Confirm non-zero size.

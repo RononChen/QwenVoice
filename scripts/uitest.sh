@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Foundation for autonomous UI-driven testing of the Vocello Debug build.
 #
-# A Codex session uses the computer-use MCP to drive Vocello like a
+# A Claude Code session uses the computer-use MCP to drive Vocello like a
 # person; this script provides the deterministic pieces that don't make
 # sense to do via screenshots — launch, state reset, AXIdentifier lookup,
 # log tailing, DB queries, artifact directory creation.
@@ -50,16 +50,25 @@ commands:
                         the locate output to scale to your screenshot's image pixels.
 
   scaled-locate <ax-id> <image-w> <image-h>
-                        Legacy full-screen coordinate helper. Like locate but
-                        pre-scaled against the full screen. Takes screenshot pixel
-                        dimensions and emits "cx cy w h" in screenshot-image space.
+                        Claude Code computer-use coordinate helper. Pre-scales
+                        locate's logical-point output to the screenshot's
+                        image-pixel space. image-w and image-h are the actual
+                        dimensions of the image returned by
+                        mcp__computer-use__screenshot (NOT the Retina pixel
+                        size — Claude Code downsamples; on a 1280x720 logical
+                        screen the image is 1456x819, not 2560x1440). Emits
+                        "cx cy w h" in screenshot-image space — pass directly
+                        to mcp__computer-use__left_click(coordinate: [cx, cy]).
 
   window-locate <ax-id> [image-w image-h]
-                        Codex Computer Use coordinate helper. Look up an AX id,
-                        subtract Vocello's front-window origin, and print
-                        "cx cy w h" relative to the window. If image dimensions
-                        are provided, scale against the front-window size so the
-                        result can be passed directly to mcp__computer_use__click.
+                        Legacy window-relative helper from the Codex era
+                        (Codex's get_app_state returned a window-scoped
+                        screenshot, so window-relative coords matched).
+                        Preserved for backward compatibility with older
+                        runbooks; new Claude Code runbooks should prefer
+                        scaled-locate. Looks up an AX id, subtracts Vocello's
+                        front-window origin, and prints "cx cy w h" relative
+                        to the window.
 
   bench-step <mode> <variant> <coldwarm> <bucket> --artifacts-dir <dir> [--timeout <s>]
                         One-shot wrapper for the per-sample loop. Reads the previous
@@ -94,6 +103,12 @@ commands:
                         size to <dir>/bench-samples.jsonl. mode ∈ {custom, design,
                         clone}, variant ∈ {speed, quality}, coldwarm ∈ {cold, warm},
                         bucket ∈ {short, medium, long}.
+
+  streaming-preview-check [--since <ts>] [--timeout <sec>] [--artifacts-dir <dir>]
+                        Wait for Final File Ready, then assert the live preview
+                        was healthy: Live Engine Play and Autoplay Start happened
+                        before Final File Ready, no Live Preview Underrun / Chunk Gap
+                        signposts fired, and the latest DB row points at a valid WAV.
 
   bench-summarize <artifacts-dir>
                         Group <dir>/bench-samples.jsonl by (mode, variant, coldwarm,
@@ -584,6 +599,165 @@ sys.exit(1)
         echo "error: timeout after ${timeout}s waiting for Final File Ready since $since" >&2
     fi
     return 1
+}
+
+cmd_streaming_preview_check() {
+    local since=""
+    local timeout=90
+    local artifacts_dir=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --since) since="$2"; shift 2 ;;
+            --timeout) timeout="$2"; shift 2 ;;
+            --artifacts-dir) artifacts_dir="$2"; shift 2 ;;
+            *) echo "error: unknown arg '$1'" >&2; exit 2 ;;
+        esac
+    done
+    if [ -z "$since" ]; then
+        since="$(date +"%Y-%m-%d %H:%M:%S.%3N")"
+    fi
+    if [ -n "$artifacts_dir" ] && [ ! -d "$artifacts_dir" ]; then
+        echo "error: artifacts dir not found: $artifacts_dir" >&2
+        exit 1
+    fi
+
+    local final_ts
+    final_ts="$(cmd_bench_wait --since "$since" --timeout "$timeout")" || return $?
+
+    local log_buf log_show_stderr
+    log_show_stderr="$(mktemp -t streaming-preview-logshow)"
+    if ! log_buf="$(/usr/bin/log show --signpost --predicate "$BENCH_LOG_PREDICATE" --last 5m --style compact 2>"$log_show_stderr")"; then
+        echo "error: \`log show --signpost --predicate $BENCH_LOG_PREDICATE\` failed" >&2
+        if [ -s "$log_show_stderr" ]; then
+            sed 's/^/error:   /' "$log_show_stderr" >&2
+        fi
+        rm -f "$log_show_stderr"
+        return 1
+    fi
+    rm -f "$log_show_stderr"
+
+    local db_row=""
+    for _ in 1 2 3 4 5 6 7 8; do
+        db_row="$(/usr/bin/sqlite3 -readonly -separator $'\t' "$HISTORY_DB" \
+            "SELECT id, audioPath, duration FROM generations ORDER BY createdAt DESC LIMIT 1" 2>/dev/null || true)"
+        [ -n "$db_row" ] && break
+        sleep 0.25
+    done
+
+    SINCE="$since" FINAL_TS="$final_ts" LOG_BUF="$log_buf" DB_ROW="$db_row" \
+        ARTIFACTS_DIR="$artifacts_dir" /usr/bin/python3 - <<'PY'
+import datetime as dt
+import json
+import os
+import re
+import sys
+import wave
+from pathlib import Path
+
+since = os.environ["SINCE"]
+final_ts = os.environ["FINAL_TS"]
+lines = os.environ.get("LOG_BUF", "").splitlines()
+db_row = os.environ.get("DB_ROW", "")
+artifacts_dir = os.environ.get("ARTIFACTS_DIR", "")
+
+TS_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}\.\d+)")
+
+def parse_ts(line):
+    m = TS_RE.match(line)
+    if not m:
+        return None
+    return f"{m.group(1)} {m.group(2)}"
+
+window = []
+for line in lines:
+    ts = parse_ts(line)
+    if ts is None:
+        continue
+    if since < ts <= final_ts:
+        window.append((ts, line))
+
+def hits(name):
+    return [(ts, line) for ts, line in window if name in line]
+
+chunk_received = hits("Chunk Received")
+chunk_decoded = hits("Chunk Decoded")
+live_session_start = hits("Live Session Start")
+live_engine_play = hits("Live Engine Play")
+autoplay_start = hits("Autoplay Start")
+switch_to_file = hits("Switch To File Playback")
+underrun = hits("Live Preview Underrun")
+chunk_gap = hits("Live Preview Chunk Gap")
+
+db_id = None
+audio_path = None
+db_duration_s = None
+audio_bytes = None
+wav_duration_s = None
+if db_row:
+    parts = db_row.split("\t")
+    if len(parts) >= 3:
+        db_id = parts[0]
+        audio_path = parts[1]
+        try:
+            db_duration_s = float(parts[2])
+        except ValueError:
+            db_duration_s = None
+        if audio_path and os.path.isfile(audio_path):
+            audio_bytes = os.path.getsize(audio_path)
+            try:
+                with wave.open(audio_path, "rb") as wav:
+                    frames = wav.getnframes()
+                    rate = wav.getframerate()
+                    if rate > 0:
+                        wav_duration_s = frames / float(rate)
+            except Exception:
+                wav_duration_s = None
+
+checks = {
+    "chunk_received": len(chunk_received) > 0,
+    "chunk_decoded": len(chunk_decoded) > 0,
+    "single_live_session_start": len(live_session_start) == 1,
+    "live_engine_play_before_final": len(live_engine_play) > 0,
+    "autoplay_start_before_final": len(autoplay_start) > 0,
+    "no_live_preview_underrun": len(underrun) == 0,
+    "no_live_preview_chunk_gap": len(chunk_gap) == 0,
+    "final_wav_exists": bool(audio_path and audio_bytes and audio_bytes > 44),
+    "final_wav_has_duration": bool((db_duration_s and db_duration_s > 0) or (wav_duration_s and wav_duration_s > 0)),
+    "db_row_landed": db_id is not None,
+}
+
+failures = [name for name, passed in checks.items() if not passed]
+result = {
+    "pass": not failures,
+    "failures": failures,
+    "since": since,
+    "final_ts": final_ts,
+    "counts": {
+        "chunk_received": len(chunk_received),
+        "chunk_decoded": len(chunk_decoded),
+        "live_session_start": len(live_session_start),
+        "live_engine_play": len(live_engine_play),
+        "autoplay_start": len(autoplay_start),
+        "switch_to_file_playback": len(switch_to_file),
+        "live_preview_underrun": len(underrun),
+        "live_preview_chunk_gap": len(chunk_gap),
+    },
+    "db_id": db_id,
+    "audio_path": audio_path,
+    "audio_bytes": audio_bytes,
+    "db_duration_s": db_duration_s,
+    "wav_duration_s": wav_duration_s,
+    "timestamp_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+}
+
+if artifacts_dir:
+    out = Path(artifacts_dir) / "streaming-preview-checks.jsonl"
+    with out.open("a") as f:
+        f.write(json.dumps(result) + "\n")
+
+print(json.dumps(result, indent=2))
+sys.exit(0 if result["pass"] else 1)
+PY
 }
 
 cmd_bench_record() {
@@ -1099,6 +1273,7 @@ main() {
         artifacts-dir)   cmd_artifacts_dir ;;
         smoke-check)     cmd_smoke_check "$@" ;;
         bench-wait)              cmd_bench_wait "$@" ;;
+        streaming-preview-check) cmd_streaming_preview_check "$@" ;;
         bench-record)            cmd_bench_record "$@" ;;
         bench-summarize)         cmd_bench_summarize "$@" ;;
         bench-compare)           cmd_bench_compare "$@" ;;

@@ -53,23 +53,25 @@ LOG_PID=$!
 scripts/uitest.sh reset
 scripts/uitest.sh prep
 scripts/uitest.sh activate
-mcp__computer_use__get_app_state(app: "Vocello")
+mcp__computer-use__request_access(apps: ["Vocello"], reason: "Bootstrap UITestRef saved voice")
+mcp__computer-use__open_application(app: "Vocello")
+SHOT = mcp__computer-use__screenshot()   # record IW × IH for the scaled-locate calls below
 ```
 
 ### 4. Navigate to Voice Design
 
-- `scripts/uitest.sh window-locate sidebar_voiceDesign` → `mcp__computer_use__click`.
+- `scripts/uitest.sh scaled-locate sidebar_voiceDesign $IW $IH` → `mcp__computer-use__left_click`.
 - Verify with `scripts/uitest.sh locate screen_voiceDesign` (exit 0 = on the right screen).
 
 ### 5. Fill voice description
 
-- `scripts/uitest.sh window-locate voiceDesign_voiceDescriptionField` → `mcp__computer_use__click` to focus.
-- `mcp__computer_use__type_text(app: "Vocello", text: "<fixed description>")` with the fixed description string from above.
+- `scripts/uitest.sh scaled-locate voiceDesign_voiceDescriptionField $IW $IH` → `mcp__computer-use__left_click` to focus.
+- `mcp__computer-use__type(text: "<fixed description>")` with the fixed description string from above.
 
 ### 6. Fill the script
 
-- `scripts/uitest.sh window-locate textInput_textEditor` → `mcp__computer_use__click` to focus.
-- `mcp__computer_use__type_text(app: "Vocello", text: "<fixed script>")` with the fixed script string from above.
+- `scripts/uitest.sh scaled-locate textInput_textEditor $IW $IH` → `mcp__computer-use__left_click` to focus.
+- `mcp__computer-use__type(text: "<fixed script>")` with the fixed script string from above.
 
 ### 7. Trigger generate
 
@@ -77,7 +79,7 @@ mcp__computer_use__get_app_state(app: "Vocello")
 T0=$(date +"%Y-%m-%d %H:%M:%S.%3N")
 ```
 
-`mcp__computer_use__press_key(app: "Vocello", key: "super+Return")`.
+`mcp__computer-use__key(text: "cmd+Return")`.
 
 ### 8. Wait for Final File Ready
 
@@ -87,26 +89,26 @@ scripts/uitest.sh bench-wait --since "$T0" --timeout 120
 
 ### 9. Click "Save to Saved Voices"
 
-- `scripts/uitest.sh window-locate voiceDesign_saveVoiceButton` → `mcp__computer_use__click`.
+- `scripts/uitest.sh scaled-locate voiceDesign_saveVoiceButton $IW $IH` → `mcp__computer-use__left_click`.
 - The `SavedVoiceSheet` opens with `audioPath`, `nameField`, and `transcriptField` all pre-filled by the app — no file picker.
 
 ### 10. Replace the suggested name with `UITestRef`
 
-- `scripts/uitest.sh window-locate voicesEnroll_nameField` → `mcp__computer_use__click` (focus the field).
-- `mcp__computer_use__press_key(app: "Vocello", key: "super+a")` (select the pre-filled name).
-- `mcp__computer_use__press_key(app: "Vocello", key: "BackSpace")`.
-- `mcp__computer_use__type_text(app: "Vocello", text: "UITestRef")`.
+- `scripts/uitest.sh scaled-locate voicesEnroll_nameField $IW $IH` → `mcp__computer-use__left_click` (focus the field).
+- `mcp__computer-use__key(text: "cmd+a")` (select the pre-filled name).
+- `mcp__computer-use__key(text: "delete")`.
+- `mcp__computer-use__type(text: "UITestRef")`.
 
 ### 11. Submit
 
-- `scripts/uitest.sh window-locate voicesEnroll_confirmButton` → `mcp__computer_use__click`.
+- `scripts/uitest.sh scaled-locate voicesEnroll_confirmButton $IW $IH` → `mcp__computer-use__left_click`.
 
 ### 12. Handle the quality-warning fallback (if it appears)
 
 The engine runs a quality heuristic on the saved reference. For test-fixture purposes we accept either outcome:
 
 - If the sheet just closes and `scripts/uitest.sh locate voiceDesign_saveVoiceCompleted` eventually returns exit 0 → done.
-- If `scripts/uitest.sh window-locate voicesEnroll_keepDespiteWarning` returns exit 0 → `mcp__computer_use__click`. The sheet then closes.
+- If `scripts/uitest.sh scaled-locate voicesEnroll_keepDespiteWarning $IW $IH` returns exit 0 → `mcp__computer-use__left_click`. The sheet then closes.
 
 Poll either of those AX ids on a 250 ms interval, up to 10 s.
 

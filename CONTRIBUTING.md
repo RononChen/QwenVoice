@@ -45,7 +45,7 @@ Then run the relevant build proof:
 ./scripts/build_foundation_targets.sh ios
 ```
 
-Behavioral testing is local-only. The repo has no CI and no XCTest targets as of May 2026, but it does maintain a Codex-driven smoke/bench harness in `scripts/uitest.sh` plus the runbooks under `docs/reference/`. For Debug behavior, launch with `./scripts/build.sh run` or `scripts/uitest.sh prep`; Debug uses the persistent `QwenVoice-Debug` store so models and history survive rebuilds. For fresh local release behavior, launch `build/Release/Vocello.app` only after `./scripts/release.sh`; each packaged local Release app receives its own clean app-support folder and preferences suite. Any new test framework, CI workflow, QA shell surface, or parallel benchmark harness should be a deliberate, scoped decision.
+Behavioral testing is local-only. The repo has no CI and no XCTest targets as of May 2026, but it does maintain a Claude Code–driven smoke/bench harness in `scripts/uitest.sh` plus the runbooks under `docs/reference/`. For Debug behavior, launch with `./scripts/build.sh run` or `scripts/uitest.sh prep`; Debug uses the persistent `QwenVoice-Debug` store so models and history survive rebuilds. For fresh local release behavior, launch `build/Release/Vocello.app` only after `./scripts/release.sh`; each packaged local Release app receives its own clean app-support folder and preferences suite. Any new test framework, CI workflow, QA shell surface, or parallel benchmark harness should be a deliberate, scoped decision.
 
 For current macOS release signoff, the maintained local loop is documented in `docs/reference/release-readiness.md`.
 

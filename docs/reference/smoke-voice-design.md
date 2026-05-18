@@ -8,7 +8,7 @@ Mirrors [`smoke-custom-voice.md`](smoke-custom-voice.md). Companion reference: [
 
 - Debug build present (`scripts/build.sh debug` if missing).
 - `scripts/uitest.sh smoke-check design` exits 0 (Voice Design model variants installed).
-- macOS Accessibility permission granted to Codex.
+- macOS Accessibility permission granted to Claude Code.
 
 ## Fixed inputs
 
@@ -29,21 +29,23 @@ Mirrors [`smoke-custom-voice.md`](smoke-custom-voice.md). Companion reference: [
    LOG_PID=$!
    ```
 4. **Launch**: `scripts/uitest.sh prep`.
-5. **Access + pre-screenshot**:
+5. **Front the app, capture state, archive pre-screenshot**:
    ```
-   mcp__computer_use__get_app_state(app: "Vocello")
+   mcp__computer-use__request_access(apps: ["Vocello"], reason: "Run Voice Design smoke")
+   mcp__computer-use__open_application(app: "Vocello")
+   SHOT = mcp__computer-use__screenshot()   # record IW × IH for the scaled-locate calls below
    ```
    Then `/usr/sbin/screencapture -x "$ART/pre.png"`.
 6. **Navigate to Voice Design**:
-   - `scripts/uitest.sh window-locate sidebar_voiceDesign` → `mcp__computer_use__click`.
+   - `scripts/uitest.sh scaled-locate sidebar_voiceDesign $IW $IH` → `mcp__computer-use__left_click`.
    - Verify with `scripts/uitest.sh locate screen_voiceDesign` (exit 0 = on the right screen).
 7. **Fill the voice description**:
-   - `scripts/uitest.sh window-locate voiceDesign_voiceDescriptionField` → `mcp__computer_use__click` to focus.
-   - `mcp__computer_use__type_text(app: "Vocello", text: "<fixed description>")`.
+   - `scripts/uitest.sh scaled-locate voiceDesign_voiceDescriptionField $IW $IH` → `mcp__computer-use__left_click` to focus.
+   - `mcp__computer-use__type(text: "<fixed description>")`.
 8. **Fill the script text**:
-   - `scripts/uitest.sh window-locate textInput_textEditor` → `mcp__computer_use__click` to focus.
-   - `mcp__computer_use__type_text(app: "Vocello", text: "<fixed script>")`.
-9. **Trigger Generate**: record `T0="$(/usr/bin/python3 -c 'import datetime; print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])')"` then `mcp__computer_use__press_key(app: "Vocello", key: "super+Return")`. `super+Return` maps to macOS Cmd+Return, and the shortcut works on all three generation screens.
+   - `scripts/uitest.sh scaled-locate textInput_textEditor $IW $IH` → `mcp__computer-use__left_click` to focus.
+   - `mcp__computer-use__type(text: "<fixed script>")`.
+9. **Trigger Generate**: record `T0="$(/usr/bin/python3 -c 'import datetime; print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])')"` then `mcp__computer-use__key(text: "cmd+Return")`. `cmd+Return` is the macOS Cmd+Return shortcut, and the shortcut works on all three generation screens.
 10. **Wait for completion**: `scripts/uitest.sh bench-wait --since "$T0" --timeout 90`. The printed timestamp is the matching `Final File Ready` event.
 11. **Verify output file**:
     - `find "$HOME/Library/Application Support/QwenVoice-Debug/outputs/VoiceDesign" -type f -name '*.wav' -newer "$ART/pre.png"` should print exactly one path. Confirm non-zero size.
