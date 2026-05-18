@@ -381,12 +381,11 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
             }
             .store(in: &runtimeContext.cancellables)
 
-        // Chunk delivery via the engine's bounded AsyncStream. The
+        // Chunk delivery via the engine's ordered AsyncStream. The
         // producer (`MLXTTSEngine`'s
         // `eventSink` callback) yields every event into
         // `engine.events`; this Task drains the stream serially while
-        // active. If this consumer stalls, the engine keeps the newest
-        // events and may drop older diagnostic preview payloads. No
+        // active. Preview-audio chunks are never dropped here. No
         // slot-sampling, no dedup, no race window.
         let engine = runtime.engine
         runtimeContext.eventForwardingTask = Task { [weak self, weak runtimeContext] in
@@ -394,7 +393,7 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
                 guard let self, let runtimeContext else { return }
                 await MainActor.run {
                     self.publish(.generationChunk(event))
-                    runtimeContext.lastPublishedEvent = event
+                    runtimeContext.lastPublishedEvent = event.withoutPreviewAudioPayload()
                 }
             }
         }

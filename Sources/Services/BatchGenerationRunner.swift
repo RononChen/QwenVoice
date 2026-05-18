@@ -260,10 +260,14 @@ struct BatchGenerationItemState: Identifiable, Equatable {
 
 @MainActor
 protocol GenerationPersisting {
-    func saveGeneration(_ generation: inout Generation) throws
+    func saveGeneration(_ generation: Generation) async throws -> Generation
 }
 
-extension DatabaseService: GenerationPersisting { }
+extension DatabaseService: GenerationPersisting {
+    func saveGeneration(_ generation: Generation) async throws -> Generation {
+        try await saveGenerationAsync(generation)
+    }
+}
 
 struct BatchGenerationRequest {
     let mode: GenerationMode
@@ -871,16 +875,16 @@ final class BatchGenerationRunner {
                     publishProgress(activeItemIndex: index, message: "Saving item \(index + 1)/\(total)...")
 
                     let (line, result) = pair
-                    var generation = request.makeHistoryRecord(for: line, result: result)
+                    let generation = request.makeHistoryRecord(for: line, result: result)
 
                     do {
-                        try store.saveGeneration(&generation)
+                        let savedGeneration = try await store.saveGeneration(generation)
                         // Use the payload-carrying announce so HistoryView
                         // (which only subscribes to `generationAppended`)
                         // refreshes live during batch runs. The helper
                         // still fires the legacy `generationSaved` event
                         // for any subscriber that hasn't migrated.
-                        generationEvents.announceGenerationAppended(generation)
+                        generationEvents.announceGenerationAppended(savedGeneration)
                         completedCount += 1
                         items[index].status = .saved(audioPath: result.audioPath)
                         if index + 1 < items.count {
@@ -961,11 +965,11 @@ final class BatchGenerationRunner {
 
                 publishProgress(activeItemIndex: index, message: "Saving item \(index + 1)/\(total)...")
 
-                var generation = request.makeHistoryRecord(for: line, result: result)
-                try store.saveGeneration(&generation)
+                let generation = request.makeHistoryRecord(for: line, result: result)
+                let savedGeneration = try await store.saveGeneration(generation)
                 // See above: payload-carrying announce so HistoryView
                 // appends the new row live.
-                generationEvents.announceGenerationAppended(generation)
+                generationEvents.announceGenerationAppended(savedGeneration)
                 completedCount += 1
                 items[index].status = .saved(audioPath: result.audioPath)
                 publishItems()

@@ -137,32 +137,9 @@ private struct IOSHistoryLibrarySection: View {
     @State private var modeFilter: IOSHistoryModeFilter = .all
     @State private var searchQuery: String = ""
     @State private var debouncedQuery: String = ""
-
-    private var filteredItems: [Generation] {
-        let trimmed = debouncedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        return items.filter { item in
-            guard modeFilter.matches(item) else { return false }
-            guard !trimmed.isEmpty else { return true }
-            if item.text.localizedCaseInsensitiveContains(trimmed) { return true }
-            if let voice = item.voice, voice.localizedCaseInsensitiveContains(trimmed) { return true }
-            if item.mode.localizedCaseInsensitiveContains(trimmed) { return true }
-            return false
-        }
-    }
-
-    private var groupedItems: [(bucket: IOSHistoryBucket, items: [Generation])] {
-        let reference = Date()
-        let calendar = Calendar.current
-        var map: [IOSHistoryBucket: [Generation]] = [:]
-        for item in filteredItems {
-            let bucket = IOSHistoryBucket.bucket(for: item.createdAt, reference: reference, calendar: calendar)
-            map[bucket, default: []].append(item)
-        }
-        return IOSHistoryBucket.allCases.compactMap { bucket in
-            guard let rows = map[bucket], !rows.isEmpty else { return nil }
-            return (bucket, rows)
-        }
-    }
+    @State private var groupedItems: [(bucket: IOSHistoryBucket, items: [Generation])] = []
+    @State private var filteredItemCount = 0
+    @State private var reloadTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -193,7 +170,7 @@ private struct IOSHistoryLibrarySection: View {
                             symbolName: "clock.arrow.circlepath",
                             tint: IOSBrandTheme.library
                         )
-                    } else if filteredItems.isEmpty {
+                    } else if filteredItemCount == 0 {
                         IOSEmptyStateCard(
                             title: "No matches",
                             message: "Nothing matches this filter or search. Try widening it.",
@@ -228,6 +205,16 @@ private struct IOSHistoryLibrarySection: View {
         .onReceive(NotificationCenter.default.publisher(for: .generationSaved)) { _ in
             reload()
         }
+        .onDisappear {
+            reloadTask?.cancel()
+            reloadTask = nil
+        }
+        .onChange(of: modeFilter) { _, _ in
+            recomputePresentation()
+        }
+        .onChange(of: debouncedQuery) { _, _ in
+            recomputePresentation()
+        }
         .task(id: searchQuery) {
             try? await Task.sleep(for: .milliseconds(150))
             guard !Task.isCancelled else { return }
@@ -236,12 +223,62 @@ private struct IOSHistoryLibrarySection: View {
     }
 
     private func reload() {
-        do {
-            items = try DatabaseService.shared.fetchAllGenerations()
-            errorMessage = nil
-        } catch {
-            items = []
-            errorMessage = error.localizedDescription
+        reloadTask?.cancel()
+        reloadTask = Task {
+            do {
+                let loadedItems = try await Task.detached(priority: .userInitiated) {
+                    try DatabaseService.shared.fetchAllGenerations()
+                }.value
+                guard !Task.isCancelled else { return }
+                items = loadedItems
+                errorMessage = nil
+                recomputePresentation()
+            } catch {
+                guard !Task.isCancelled else { return }
+                items = []
+                groupedItems = []
+                filteredItemCount = 0
+                errorMessage = error.localizedDescription
+            }
+            reloadTask = nil
+        }
+    }
+
+    private func recomputePresentation() {
+        let grouped = Self.makeGroupedItems(
+            items: items,
+            modeFilter: modeFilter,
+            query: debouncedQuery
+        )
+        groupedItems = grouped
+        filteredItemCount = grouped.reduce(0) { $0 + $1.items.count }
+    }
+
+    private static func makeGroupedItems(
+        items: [Generation],
+        modeFilter: IOSHistoryModeFilter,
+        query: String
+    ) -> [(bucket: IOSHistoryBucket, items: [Generation])] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filteredItems = items.filter { item in
+            guard modeFilter.matches(item) else { return false }
+            guard !trimmed.isEmpty else { return true }
+            if item.text.localizedCaseInsensitiveContains(trimmed) { return true }
+            if let voice = item.voice, voice.localizedCaseInsensitiveContains(trimmed) { return true }
+            if item.mode.localizedCaseInsensitiveContains(trimmed) { return true }
+            return false
+        }
+
+        let reference = Date()
+        let calendar = Calendar.current
+        var map: [IOSHistoryBucket: [Generation]] = [:]
+        for item in filteredItems {
+            let bucket = IOSHistoryBucket.bucket(for: item.createdAt, reference: reference, calendar: calendar)
+            map[bucket, default: []].append(item)
+        }
+        return IOSHistoryBucket.allCases.compactMap { bucket in
+            guard let rows = map[bucket], !rows.isEmpty else { return nil }
+            return (bucket, rows)
         }
     }
 

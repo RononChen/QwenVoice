@@ -16,6 +16,56 @@ typealias PlaybackGenerationResult = QwenVoiceNative.GenerationResult
 typealias PlaybackGenerationResult = QwenVoiceCore.GenerationResult
 #endif
 
+struct LivePreviewEstimate: Equatable, Sendable {
+    let estimatedAudioDuration: TimeInterval
+
+    init?(text: String) {
+        let estimate = Self.estimatedAudioDuration(for: text)
+        guard estimate > 0 else { return nil }
+        estimatedAudioDuration = estimate
+    }
+
+    func requiredBufferDuration(
+        minimumBufferedDuration: TimeInterval,
+        maximumBufferedDuration: TimeInterval = 8,
+        fraction: Double = 0.35
+    ) -> TimeInterval {
+        guard estimatedAudioDuration > 0 else { return 0 }
+        let smoothBuffer = max(
+            minimumBufferedDuration,
+            min(maximumBufferedDuration, estimatedAudioDuration * fraction)
+        )
+        return min(estimatedAudioDuration, smoothBuffer)
+    }
+
+    private static func estimatedAudioDuration(for text: String) -> TimeInterval {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return 0 }
+
+        let words = trimmed
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .count
+        let nonWhitespaceCharacters = trimmed.reduce(into: 0) { count, character in
+            if !character.isWhitespace {
+                count += 1
+            }
+        }
+        let punctuationPauses = trimmed.reduce(into: 0) { count, character in
+            if ".!?;:,\n".contains(character) {
+                count += 1
+            }
+        }
+
+        let wordsPerSecond = 2.45
+        let charactersPerSecond = 16.0
+        let wordEstimate = Double(words) / wordsPerSecond
+        let characterEstimate = Double(nonWhitespaceCharacters) / charactersPerSecond
+        let pauseEstimate = Double(punctuationPauses) * 0.08
+        return max(0.8, max(wordEstimate, characterEstimate) + pauseEstimate)
+    }
+}
+
 /// Manages playback state for the persistent sidebar player bar.
 @MainActor
 final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
@@ -97,7 +147,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             let parsedDuration = rawDuration.flatMap(Double.init).map { min(max($0, 0), 8) }
             return LivePreviewConfiguration(
                 prebufferThreshold: parsedThreshold ?? 3,
-                minimumBufferedDuration: parsedDuration ?? 2.25
+                minimumBufferedDuration: parsedDuration ?? 3.25
             )
         }
     }
@@ -107,25 +157,16 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     ///
     /// Two policies, picked per-call:
     ///
-    /// 1. **Predictive (diagnostic, has session estimate)** —
-    ///    Computes the production deficit `expectedAudio × (RTF − 1)`
-    ///    and requires the queue to hold at least that much buffered
-    ///    audio before starting. Once playback begins, the queue
-    ///    monotonically drains to zero exactly at generation end —
-    ///    no underruns. TTFA grows with text length. Cap the buffer
-    ///    at `expectedAudio` so unrealistic deficits (e.g. 5-min
-    ///    scripts) effectively wait for completion rather than
-    ///    overshooting.
+    /// 1. **Smooth-first estimate** — production generation passes an
+    ///    estimated audio duration before streaming begins. The preview
+    ///    waits for a conservative queue depth:
+    ///    `max(3.25s, min(8s, estimatedDuration * 0.35))`, capped by
+    ///    the estimated duration for short clips.
     ///
-    /// 2. **Adaptive (default, fallback)** — Each underrun multiplies
+    /// 2. **Adaptive fallback** — when no estimate exists, each underrun multiplies
     ///    the prebuffer requirement by +75 % up to a 4× cap. Trades
     ///    fast first-audio for periodic mid-playback pauses that
     ///    grow further apart on subsequent resumes.
-    ///
-    /// The `expectedAudioDuration`/`estimatedRTF` parameters are retained
-    /// for diagnostic streaming callers. Production generation is final-file
-    /// first, so normal app playback does not expose a user preview-buffering
-    /// switch.
     private static func shouldStartLivePlayback(
         autoplayEnabled: Bool,
         queuedChunks: Int,
@@ -134,9 +175,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         minimumBufferedDuration: TimeInterval,
         finalFileAvailable: Bool,
         underrunCount: Int = 0,
-        expectedAudioDuration: TimeInterval? = nil,
-        estimatedRTF: Double? = nil,
-        predictivePrebufferEnabled: Bool = false
+        estimate: LivePreviewEstimate? = nil
     ) -> Bool {
         guard autoplayEnabled else {
             AppPerformanceSignposts.emit("Should Start Reject Autoplay")
@@ -144,84 +183,22 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         }
         guard !finalFileAvailable else { return true }
 
-        // Policy 1 — diagnostic predictive prebuffer.
-        if predictivePrebufferEnabled,
-           let expected = expectedAudioDuration,
-           expected > 0,
-           let rtf = estimatedRTF,
-           rtf > 1.0 {
-            let safetyMargin: TimeInterval = 1.0
-            let deficit = expected * (rtf - 1.0) + safetyMargin
-            // Secondary cap at 60 % of expected audio length keeps
-            // the predictive diagnostic path usable for high-RTF modes (Voice Cloning
-            // ~2.3×, Custom Voice ~2.0× warm). Without this cap the
-            // raw `deficit` saturates against the `expected_audio`
-            // ceiling for any RTF ≥ 2, which means predictive buffering
-            // degenerates into "wait for full generation". The 0.6
-            // factor caps user-perceived TTFA at roughly 60 % of
-            // audio length × RTF (i.e. the user always starts
-            // hearing within ~60 % of the audio's wall-time). May
-            // 2026 bench: VC long ON had TTFA 53 s for 41 s of
-            // audio under the old cap; this trims to a bounded
-            // smooth-ish UX rather than a "no-streaming" outcome.
-            let usableCap = expected * 0.6
-            let requiredBuffer = min(deficit, usableCap, expected)
-            return queuedDuration >= requiredBuffer
-        }
-
-        // Policy 1b — default light predictive prebuffer derived
-        // from queue dynamics. Even when explicit predictive buffering is disabled, when an
-        // estimated RTF + audio duration are available we can
-        // size the prebuffer so the AVAudioEngine queue does NOT
-        // run dry mid-playback. The minimum buffer that survives a
-        // generation at RTF `r` for audio length `D` is exactly:
-        //
-        //     B_min = D × (1 - 1/r)        (= D × (r-1)/r)
-        //
-        // Derivation: playback drains at 1× real-time; generation
-        // produces at 1/r real-time; net queue drain = (r-1)/r
-        // audio-seconds per wall-second; buffer must last for the
-        // full audio length ⇒ B_min = D × (r-1)/r.
-        //
-        // The pre-Phase 2c-investigation code path here was Policy 2
-        // (3 chunks AND 2.25 s), which under-provisioned for any
-        // medium+ script: a 21.76 s CV cold gen at observed RTF
-        // 1.56× needs B_min = 7.81 s; Policy 2 started at 3.2 s and
-        // the buffer drained empty at audio_played_s = 6.7 s,
-        // triggering a 5 s `underrun_paused` stall while the engine
-        // caught up — repeating later in the script. The user heard
-        // these stalls as the live preview "getting interrupted."
-        //
-        // Cap at 35 % of audio length so TTFA stays usable for very
-        // long scripts (TTFA ≈ requiredBuffer × r). For a 60 s clip
-        // at RTF 1.56× that ceilings TTFA at 60 × 0.35 × 1.56 ≈ 33 s
-        // rather than the unbounded ~22 s of accurate B_min × r.
-        // Floor at `minimumBufferedDuration` (2.25 s default) so
-        // micro / short scripts still get the existing chunk-burst
-        // start-up behavior.
-        if let expected = expectedAudioDuration, expected > 0,
-           let rtf = estimatedRTF, rtf > 1.0 {
-            let exactBuffer = expected * (rtf - 1.0) / rtf
-            let usableCap = expected * 0.35
-            // Outer `min(..., expected)` ensures `requiredBuffer`
-            // never exceeds the audio length itself — important for
-            // micro / short scripts where `minimumBufferedDuration`
-            // (2.25 s default) would otherwise demand a buffer
-            // larger than the entire clip and gate playback on the
-            // `finalFileAvailable` short-circuit at the top of this
-            // function.
-            let requiredBuffer = min(
-                expected,
-                max(minimumBufferedDuration, min(exactBuffer, usableCap))
+        if let estimate {
+            let requiredBuffer = estimate.requiredBufferDuration(
+                minimumBufferedDuration: minimumBufferedDuration
             )
-            return queuedDuration >= requiredBuffer
+            let pass = queuedDuration >= requiredBuffer
+            if !pass {
+                AppPerformanceSignposts.emit("Should Start Reject Buffer")
+            }
+            return pass
         }
 
         // Policy 2 — fallback adaptive scaling (no estimate).
         // Reached when `setLivePreviewEstimate` was not called or
-        // returned 0 / RTF ≤ 1. Keeps the historical chunk-count +
-        // duration thresholds with underrun-driven scaling so a
-        // session that does drain dry adapts after the first stall.
+        // returned nil. Keeps the historical chunk-count + duration
+        // thresholds with underrun-driven scaling so a session that
+        // does drain dry adapts after the first stall.
         let multiplier = min(1.0 + 0.75 * Double(max(underrunCount, 0)), 4.0)
         let scaledChunks = max(
             prebufferThreshold,
@@ -257,14 +234,12 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     private var liveQueuedAudioSeconds: TimeInterval = 0
     private var liveBufferDurations: [TimeInterval] = []
     private var liveFormat: AVAudioFormat?
-    // Predictive prebuffer state — set by setLivePreviewEstimate
-    // before generation starts, picked up by startLiveSession,
-    // cleared at session end. See `shouldStartLivePlayback` policy 1.
-    private var pendingExpectedAudioDuration: TimeInterval?
-    private var pendingEstimatedRTF: Double?
-    private var liveExpectedAudioDuration: TimeInterval?
-    private var liveEstimatedRTF: Double?
-    private static let diagnosticPredictivePrebufferEnabled = false
+    // Smooth-first prebuffer state — set before generation starts,
+    // picked up by startLiveSession, cleared at session end.
+    private var pendingLivePreviewEstimate: LivePreviewEstimate?
+    private var livePreviewEstimate: LivePreviewEstimate?
+    private var liveExpectedFrameOffset: Int64?
+    private var livePreviewDisabledSessionID: String?
     private var liveSessionID: String?
     private var liveSessionDirectory: String?
     private var liveFinalFilePath: String?
@@ -458,17 +433,20 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         play()
     }
 
-    /// Sets a forecast for diagnostic live-preview sessions so
-    /// `shouldStartLivePlayback` can size the preview buffer. The app now
-    /// runs final-file production generation, but diagnostic streaming
-    /// callers still feed this for preview experiments. Pass `nil` for
-    /// either value to opt out and fall back to adaptive scaling.
-    func setLivePreviewEstimate(audioDuration: TimeInterval?, rtf: Double?) {
-        pendingExpectedAudioDuration = audioDuration
-        pendingEstimatedRTF = rtf
+    /// Sets a prompt-derived forecast so `shouldStartLivePlayback` can
+    /// size the live-preview buffer before the first chunk arrives.
+    /// Pass nil to fall back to adaptive chunk-count buffering for future
+    /// sessions; an active live session keeps the estimate it already
+    /// captured.
+    func setLivePreviewEstimate(_ estimate: LivePreviewEstimate?) {
+        pendingLivePreviewEstimate = estimate
     }
 
     func prepareStreamingPreview(title: String, shouldAutoPlay: Bool) {
+        let sessionEstimate = pendingLivePreviewEstimate
+            ?? livePreviewEstimate
+            ?? LivePreviewEstimate(text: title)
+
         teardownLivePlayback(clearSession: true)
         stopFilePlayback(clearPlayer: true)
         clearPendingFirstChunkInterval()
@@ -481,11 +459,17 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         pendingAutoplaySignpost = shouldAutoPlay
         pendingFirstChunkInterval = AppPerformanceSignposts.begin("Preview To First Chunk")
         liveScheduledCount = 0
+        liveQueuedAudioSeconds = 0
+        liveBufferDurations.removeAll(keepingCapacity: true)
         livePlaybackStarted = false
         livePreviewDuration = 0
         livePlaybackTimeOffset = 0
         liveUnderrunCount = 0
         liveFormat = nil
+        livePreviewEstimate = sessionEstimate
+        pendingLivePreviewEstimate = nil
+        liveExpectedFrameOffset = 0
+        livePreviewDisabledSessionID = nil
         currentTitle = title
         currentFilePath = nil
         duration = 0
@@ -588,6 +572,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     }
 
     func abortLivePreviewIfNeeded() {
+        pendingLivePreviewEstimate = nil
         guard playbackMode == .live || liveSessionID != nil else { return }
         dismiss()
     }
@@ -689,6 +674,10 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
                 autoPlay: AudioService.shouldAutoPlay
             )
         }
+        guard livePreviewDisabledSessionID != sessionID else {
+            AppPerformanceSignposts.emit("Chunk Dropped Preview Disabled")
+            return
+        }
 
         if let previewAudio = chunk.previewAudio {
             appendLiveChunk(
@@ -719,6 +708,10 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     }
 
     private func startLiveSession(id: String, title: String, sessionDirectory: String?, autoPlay: Bool) {
+        let sessionEstimate = pendingLivePreviewEstimate
+            ?? livePreviewEstimate
+            ?? LivePreviewEstimate(text: title)
+
         AppPerformanceSignposts.emit("Live Session Start")
         teardownLivePlayback(clearSession: true)
         stopFilePlayback(clearPlayer: true)
@@ -745,14 +738,14 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         livePlaybackTimeOffset = 0
         liveUnderrunCount = 0
         liveFormat = nil
-        // Predictive prebuffer estimate handoff: pending values
+        // Smooth-first prebuffer estimate handoff: pending values
         // captured pre-generation become the active session's
         // estimate, then are cleared so a future session that arrives
         // without a fresh estimate falls back to adaptive scaling.
-        liveExpectedAudioDuration = pendingExpectedAudioDuration
-        liveEstimatedRTF = pendingEstimatedRTF
-        pendingExpectedAudioDuration = nil
-        pendingEstimatedRTF = nil
+        livePreviewEstimate = sessionEstimate
+        pendingLivePreviewEstimate = nil
+        liveExpectedFrameOffset = 0
+        livePreviewDisabledSessionID = nil
         currentTitle = title
         currentFilePath = nil
         duration = 0
@@ -813,9 +806,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             minimumBufferedDuration: livePreviewConfiguration.minimumBufferedDuration,
             finalFileAvailable: liveFinalFilePath != nil,
             underrunCount: liveUnderrunCount,
-            expectedAudioDuration: liveExpectedAudioDuration,
-            estimatedRTF: liveEstimatedRTF,
-            predictivePrebufferEnabled: Self.diagnosticPredictivePrebufferEnabled
+            estimate: livePreviewEstimate
         ) {
             attemptLivePlay()
         } else {
@@ -831,8 +822,51 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         cleanupLiveSessionDirectoryIfEmpty()
     }
 
+    private func validatePreviewAudioChunk(_ previewAudio: StreamingAudioChunk) -> Bool {
+        guard previewAudio.sampleRate > 0,
+              previewAudio.frameOffset >= 0,
+              previewAudio.frameCount > 0,
+              previewAudio.frameCount <= Int.max / MemoryLayout<Int16>.stride else {
+            stopLivePreviewForChunkContinuityFailure()
+            return false
+        }
+
+        let expectedByteCount = previewAudio.frameCount * MemoryLayout<Int16>.stride
+        guard previewAudio.pcm16LE.count == expectedByteCount else {
+            stopLivePreviewForChunkContinuityFailure()
+            return false
+        }
+
+        if let expectedFrameOffset = liveExpectedFrameOffset,
+           previewAudio.frameOffset != expectedFrameOffset {
+            stopLivePreviewForChunkContinuityFailure()
+            return false
+        }
+
+        liveExpectedFrameOffset = previewAudio.frameOffset + Int64(previewAudio.frameCount)
+        return true
+    }
+
+    private func stopLivePreviewForChunkContinuityFailure() {
+        AppPerformanceSignposts.emit("Live Preview Chunk Gap")
+        livePreviewDisabledSessionID = liveSessionID
+        stopLivePlayback(resetCurrentTime: true)
+        liveScheduledCount = 0
+        liveQueuedAudioSeconds = 0
+        liveBufferDurations.removeAll(keepingCapacity: true)
+        livePlaybackStarted = false
+        livePreviewDuration = 0
+        livePlaybackTimeOffset = 0
+        liveUnderrunCount = 0
+        liveExpectedFrameOffset = nil
+        setLivePreviewQueueDepth(0)
+        setLivePreviewPhase(.buffering)
+    }
+
     private func appendLiveChunk(_ previewAudio: StreamingAudioChunk, cumulativeDuration: TimeInterval?) {
+        guard validatePreviewAudioChunk(previewAudio) else { return }
         guard let (buffer, format) = makePCMBuffer(from: previewAudio) else {
+            stopLivePreviewForChunkContinuityFailure()
             playbackError = "Live audio preview could not decode the latest chunk."
             return
         }
@@ -867,9 +901,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             minimumBufferedDuration: livePreviewConfiguration.minimumBufferedDuration,
             finalFileAvailable: liveFinalFilePath != nil,
             underrunCount: liveUnderrunCount,
-            expectedAudioDuration: liveExpectedAudioDuration,
-            estimatedRTF: liveEstimatedRTF,
-            predictivePrebufferEnabled: Self.diagnosticPredictivePrebufferEnabled
+            estimate: livePreviewEstimate
         ) {
             attemptLivePlay()
         } else {
@@ -988,6 +1020,9 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             AppPerformanceSignposts.emit("Stale Completion Dropped")
             return
         }
+        if livePreviewDisabledSessionID == liveSessionID {
+            return
+        }
         liveScheduledCount = max(0, liveScheduledCount - 1)
         // Decrement the audio-second queue depth in lock-step with
         // `liveScheduledCount`. AVAudioEngine plays scheduled
@@ -1006,6 +1041,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             finishLivePlaybackAfterDrainingBuffers()
         } else if liveScheduledCount == 0 {
             liveUnderrunCount += 1
+            AppPerformanceSignposts.emit("Live Preview Underrun")
             livePlayerNode?.pause()
             isPlaying = false
             stopTimer()
@@ -1079,8 +1115,8 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         livePlaybackTimeOffset = 0
         liveUnderrunCount = 0
         liveFormat = nil
-        liveExpectedAudioDuration = nil
-        liveEstimatedRTF = nil
+        livePreviewEstimate = nil
+        liveExpectedFrameOffset = nil
         setLivePreviewQueueDepth(0)
         clearPendingFirstChunkInterval()
 
@@ -1090,6 +1126,8 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             liveSessionDirectory = nil
             liveFinalFilePath = nil
             liveAutoplayEnabled = false
+            pendingLivePreviewEstimate = nil
+            livePreviewDisabledSessionID = nil
             isLiveStream = false
             setLivePreviewPhase(.idle)
             // Phase 4 fix: nil out the audio graph so the next session's
@@ -1177,7 +1215,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
 
     private func makePCMBuffer(from previewAudio: StreamingAudioChunk) -> (AVAudioPCMBuffer, AVAudioFormat)? {
         guard previewAudio.frameCount > 0,
-              previewAudio.pcm16LE.count >= previewAudio.frameCount * MemoryLayout<Int16>.stride,
+              previewAudio.pcm16LE.count == previewAudio.frameCount * MemoryLayout<Int16>.stride,
               let format = AVAudioFormat(
                   commonFormat: .pcmFormatInt16,
                   sampleRate: Double(previewAudio.sampleRate),
@@ -1227,6 +1265,9 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             livePlaybackTimeOffset = 0
             liveUnderrunCount = 0
             liveFormat = nil
+            livePreviewEstimate = nil
+            liveExpectedFrameOffset = nil
+            livePreviewDisabledSessionID = nil
             cleanupLiveSessionDirectory()
             liveSessionID = nil
             liveSessionDirectory = nil

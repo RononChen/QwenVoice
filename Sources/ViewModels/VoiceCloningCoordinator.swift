@@ -131,6 +131,7 @@ final class VoiceCloningCoordinator: ObservableObject {
 
         generationTask = Task { @MainActor in
             defer {
+                audioPlayer.setLivePreviewEstimate(nil)
                 isGenerating = false
                 generationTask = nil
             }
@@ -171,6 +172,9 @@ final class VoiceCloningCoordinator: ObservableObject {
                 ) else {
                     throw VoiceCloningCoordinatorError.requestConstructionFailed
                 }
+                audioPlayer.setLivePreviewEstimate(
+                    LivePreviewEstimate(text: currentDraft.text)
+                )
                 let result = try await ttsEngineStore.generate(generationRequest)
 
                 let voiceName = selectedVoice?.name

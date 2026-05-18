@@ -50,6 +50,7 @@ final class CustomVoiceCoordinator: ObservableObject {
 
         generationTask = Task { @MainActor in
             defer {
+                audioPlayer.setLivePreviewEstimate(nil)
                 self.isGenerating = false
                 self.generationTask = nil
             }
@@ -64,6 +65,9 @@ final class CustomVoiceCoordinator: ObservableObject {
                     draft: draft,
                     model: model,
                     outputPath: outputPath
+                )
+                audioPlayer.setLivePreviewEstimate(
+                    LivePreviewEstimate(text: draft.text)
                 )
                 let result = try await ttsEngineStore.generate(generationRequest)
 

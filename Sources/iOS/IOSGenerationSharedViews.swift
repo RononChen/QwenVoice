@@ -3,40 +3,41 @@ import UIKit
 
 struct IOSGenerateModeViewport<Custom: View, Design: View, Clone: View>: View {
     let selection: IOSGenerationSection
-    let custom: Custom
-    let design: Design
-    let clone: Clone
+    let custom: () -> Custom
+    let design: () -> Design
+    let clone: () -> Clone
 
     init(
         selection: IOSGenerationSection,
-        @ViewBuilder custom: () -> Custom,
-        @ViewBuilder design: () -> Design,
-        @ViewBuilder clone: () -> Clone
+        @ViewBuilder custom: @escaping () -> Custom,
+        @ViewBuilder design: @escaping () -> Design,
+        @ViewBuilder clone: @escaping () -> Clone
     ) {
         self.selection = selection
-        self.custom = custom()
-        self.design = design()
-        self.clone = clone()
+        self.custom = custom
+        self.design = design
+        self.clone = clone
     }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            layer(custom, isVisible: selection == .custom)
-            layer(design, isVisible: selection == .design)
-            layer(clone, isVisible: selection == .clone)
+        Group {
+            switch selection {
+            case .custom:
+                layer(custom())
+            case .design:
+                layer(design())
+            case .clone:
+                layer(clone())
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .clipped()
         .animation(IOSSelectionMotion.modeCrossfade, value: selection)
     }
 
-    private func layer<Content: View>(_ content: Content, isVisible: Bool) -> some View {
+    private func layer<Content: View>(_ content: Content) -> some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .opacity(isVisible ? 1 : 0)
-            .allowsHitTesting(isVisible)
-            .accessibilityHidden(!isVisible)
-            .zIndex(isVisible ? 1 : 0)
     }
 }
 

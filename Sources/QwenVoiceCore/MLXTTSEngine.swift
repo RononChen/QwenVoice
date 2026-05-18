@@ -44,7 +44,6 @@ public typealias MLXTTSEngineError = TTSEngineError
 @MainActor
 public final class MLXTTSEngine: TTSEngineRuntimeControlling {
     private static let lightweightWarmupText = "Hi."
-    public static let eventStreamBufferLimit = 64
     public static var lightweightWarmupTextForUI: String { lightweightWarmupText }
 
     /// Audio extensions the saved-voice store accepts on disk. Mirrors the
@@ -94,11 +93,10 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
     /// audio chunk of every streaming generation.
     @Published public private(set) var latestEvent: GenerationEvent?
 
-    /// Bounded stream of `GenerationEvent` values for transport consumers.
-    /// Active consumers receive events in the order they are yielded. If a
-    /// consumer stalls, the stream keeps the newest `eventStreamBufferLimit`
-    /// events and may drop older diagnostic preview payloads to keep memory
-    /// bounded.
+    /// Ordered stream of `GenerationEvent` values for transport consumers.
+    /// This is the playback chunk-delivery path, so it must not drop
+    /// `.chunk` events carrying preview audio. Snapshot consumers still use
+    /// `latestEvent`, which strips preview payloads before retaining state.
     public let events: AsyncStream<GenerationEvent>
     private let eventStreamContinuation: AsyncStream<GenerationEvent>.Continuation
 
@@ -419,11 +417,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
         self.telemetryRecorder = telemetryRecorder
         self.diagnosticAppSupportBox = diagnosticAppSupportBox
         self.idleUnloadDelayOverride = idleUnloadDelayOverride
-        // Keep enough event history for the XPC forwarder to survive short
-        // scheduling stalls, but bound the buffer so diagnostic preview PCM
-        // payloads cannot accumulate without limit if the consumer is blocked.
         var capturedContinuation: AsyncStream<GenerationEvent>.Continuation!
-        self.events = AsyncStream(bufferingPolicy: .bufferingNewest(Self.eventStreamBufferLimit)) { continuation in
+        self.events = AsyncStream(bufferingPolicy: .unbounded) { continuation in
             capturedContinuation = continuation
         }
         self.eventStreamContinuation = capturedContinuation
@@ -957,11 +952,11 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
             prepared.mlxMemorySnapshots
         )
         return try await session.run { [weak self] event in
-            // Yield to the bounded AsyncStream BEFORE the @Published
+            // Yield to the ordered AsyncStream BEFORE the @Published
             // slot. The stream is the chunk-delivery transport; the
             // slot is for snapshot consumers.
             self?.eventStreamContinuation.yield(event)
-            self?.latestEvent = event
+            self?.latestEvent = event.withoutPreviewAudioPayload()
         }
     }
 

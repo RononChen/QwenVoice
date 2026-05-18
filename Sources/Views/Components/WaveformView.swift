@@ -6,28 +6,35 @@ struct WaveformView: View {
     var progress: Double = 0
 
     var body: some View {
-        GeometryReader { geometry in
+        Canvas { context, size in
             let barWidth: CGFloat = 3
             let spacing: CGFloat = 2
             let totalBarWidth = barWidth + spacing
-            let barCount = min(samples.count, Int(geometry.size.width / totalBarWidth))
+            let barCount = min(samples.count, max(0, Int(size.width / totalBarWidth)))
+            guard barCount > 0, size.height > 0 else { return }
 
-            HStack(alignment: .center, spacing: spacing) {
-                ForEach(0..<barCount, id: \.self) { index in
-                    let sampleIndex = samples.count > barCount
-                        ? index * samples.count / barCount
-                        : index
-                    let height = max(2, CGFloat(samples[safe: sampleIndex] ?? 0) * geometry.size.height)
-                    let progressFraction = barCount > 0 ? Double(index) / Double(barCount) : 0
+            let clampedProgress = max(0, min(1, progress))
+            let totalWidth = CGFloat(barCount) * barWidth + CGFloat(max(barCount - 1, 0)) * spacing
+            let startX = max(0, (size.width - totalWidth) / 2)
 
-                    RoundedRectangle(cornerRadius: 1.5)
-                        .fill(progressFraction <= progress
-                              ? AppTheme.waveformColor(at: Double(index) / Double(max(barCount - 1, 1)))
-                              : Color.primary.opacity(0.12))
-                        .frame(width: barWidth, height: height)
-                }
+            for index in 0..<barCount {
+                let sampleIndex = samples.count > barCount
+                    ? index * samples.count / barCount
+                    : index
+                let sample = CGFloat(samples[safe: sampleIndex] ?? 0)
+                let height = max(2, min(size.height, sample * size.height))
+                let x = startX + CGFloat(index) * totalBarWidth
+                let y = (size.height - height) / 2
+                let rect = CGRect(x: x, y: y, width: barWidth, height: height)
+                let progressFraction = Double(index) / Double(max(barCount - 1, 1))
+                let color = progressFraction <= clampedProgress
+                    ? AppTheme.waveformColor(at: progressFraction)
+                    : Color.primary.opacity(0.12)
+                context.fill(
+                    Path(roundedRect: rect, cornerRadius: 1.5),
+                    with: .color(color)
+                )
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }

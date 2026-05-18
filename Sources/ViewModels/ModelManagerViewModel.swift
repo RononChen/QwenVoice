@@ -78,7 +78,7 @@ final class ModelManagerViewModel: ObservableObject {
         }
     }
 
-    private struct InstallMetadata: Codable, Equatable {
+    private struct InstallMetadata: Codable, Equatable, Sendable {
         let schemaVersion: Int
         let modelID: String
         let huggingFaceRepo: String
@@ -658,12 +658,17 @@ final class ModelManagerViewModel: ObservableObject {
     }
 
     private func performRefresh() async {
-        let snapshots = fetchSnapshots()
+        let modelsDirectory = modelsDirectory
+        let snapshots = await Task.detached(priority: .utility) {
+            Self.fetchSnapshots(in: modelsDirectory)
+        }.value
         applySnapshots(snapshots)
     }
 
-    private func fetchSnapshots() -> [ModelInfo] {
-        return TTSModel.all.map(localModelInfo)
+    private nonisolated static func fetchSnapshots(in modelsDirectory: URL) -> [ModelInfo] {
+        TTSModel.all.map { model in
+            localModelInfo(for: model, modelsDirectory: modelsDirectory)
+        }
     }
 
     private func applySnapshots(_ snapshots: [ModelInfo]) {
@@ -712,6 +717,14 @@ final class ModelManagerViewModel: ObservableObject {
     }
 
     private func localModelInfo(for model: TTSModel) -> ModelInfo {
+        Self.localModelInfo(for: model, modelsDirectory: modelsDirectory)
+    }
+
+    private nonisolated static func localModelInfo(
+        for model: TTSModel,
+        modelsDirectory: URL
+    ) -> ModelInfo {
+        let fileManager = FileManager.default
         let modelDirectory = model.installDirectory(in: modelsDirectory)
         let rootExists = fileManager.fileExists(atPath: modelDirectory.path)
         let missingRequiredPaths = rootExists
@@ -720,7 +733,15 @@ final class ModelManagerViewModel: ObservableObject {
             }
             : []
         let complete = rootExists && missingRequiredPaths.isEmpty
-        let sizeBytes = rootExists ? Self.directorySize(url: modelDirectory) : 0
+        let metadata = rootExists ? readInstallMetadata(for: model, in: modelDirectory) : nil
+        let sizeBytes: Int
+        if complete,
+           let metadata,
+           metadataMatchesCurrentModel(metadata, model: model, resolvedPath: modelDirectory.path) {
+            sizeBytes = metadata.sizeBytes
+        } else {
+            sizeBytes = rootExists ? Self.directorySize(url: modelDirectory) : 0
+        }
 
         return ModelInfo(
             id: model.id,
@@ -768,6 +789,13 @@ final class ModelManagerViewModel: ObservableObject {
     }
 
     private func installMetadataURL(for model: TTSModel) -> URL {
+        Self.installMetadataURL(for: model, modelsDirectory: modelsDirectory)
+    }
+
+    private nonisolated static func installMetadataURL(
+        for model: TTSModel,
+        modelsDirectory: URL
+    ) -> URL {
         model.installDirectory(in: modelsDirectory)
             .appendingPathComponent(Self.installMetadataFilename, isDirectory: false)
     }
@@ -784,7 +812,7 @@ final class ModelManagerViewModel: ObservableObject {
             resolvedPath: resolvedPath,
             sizeBytes: snapshot.sizeBytes,
             requiredRelativePaths: model.requiredRelativePaths,
-            downloadedRelativePaths: downloadedRelativePaths(in: model.installDirectory(in: modelsDirectory)),
+            downloadedRelativePaths: model.requiredRelativePaths,
             missingRequiredPaths: snapshot.missingRequiredPaths
         )
 
@@ -794,6 +822,29 @@ final class ModelManagerViewModel: ObservableObject {
 
     private func removeInstallMetadata(for model: TTSModel) {
         try? fileManager.removeItem(at: installMetadataURL(for: model))
+    }
+
+    private nonisolated static func readInstallMetadata(
+        for model: TTSModel,
+        in modelDirectory: URL
+    ) -> InstallMetadata? {
+        let url = modelDirectory.appendingPathComponent(installMetadataFilename, isDirectory: false)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(InstallMetadata.self, from: data)
+    }
+
+    private nonisolated static func metadataMatchesCurrentModel(
+        _ metadata: InstallMetadata,
+        model: TTSModel,
+        resolvedPath: String
+    ) -> Bool {
+        metadata.schemaVersion == 1
+            && metadata.modelID == model.id
+            && metadata.huggingFaceRepo == model.huggingFaceRepo
+            && metadata.huggingFaceRevision == model.huggingFaceRevision
+            && metadata.resolvedPath == resolvedPath
+            && metadata.requiredRelativePaths == model.requiredRelativePaths
+            && metadata.missingRequiredPaths.isEmpty
     }
 
     private func downloadedRelativePaths(in directory: URL) -> [String] {

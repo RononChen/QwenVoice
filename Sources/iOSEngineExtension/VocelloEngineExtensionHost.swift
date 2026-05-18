@@ -323,7 +323,7 @@ final class VocelloEngineExtensionHost: NSObject, VocelloEngineExtensionXPCProto
             }
             .store(in: &runtimeContext.cancellables)
 
-        // Chunk-capable diagnostic delivery via the engine's bounded
+        // Chunk-capable diagnostic delivery via the engine's ordered
         // AsyncStream. Mirrors the macOS `EngineServiceHost` transport:
         // the previous `objectWillChange.sink` slot-sampler could drop
         // a trailing diagnostic `.chunk` when `NativeStreamingSynthesisSession.run`
@@ -331,15 +331,15 @@ final class VocelloEngineExtensionHost: NSObject, VocelloEngineExtensionXPCProto
         // `lastPublishedEvent != engine.latestEvent` saw the slot
         // already overwritten by `.completed` and suppressed the
         // chunk read. The AsyncStream consumer drains the stream
-        // serially while active; stalled consumers keep the newest
-        // diagnostic events only. No slot-sampling, no dedup, no race window.
+        // serially while active. Preview-audio chunks are never
+        // dropped here. No slot-sampling, no dedup, no race window.
         let engine = runtime.engine
         runtimeContext.eventForwardingTask = Task { [weak self, weak runtimeContext] in
             for await event in engine.events {
                 guard let self, let runtimeContext else { return }
                 await MainActor.run {
                     self.publish(.generationChunk(event))
-                    runtimeContext.lastPublishedEvent = event
+                    runtimeContext.lastPublishedEvent = event.withoutPreviewAudioPayload()
                 }
             }
         }

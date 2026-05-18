@@ -31,7 +31,6 @@ public final class TTSEngineStore: ObservableObject {
 
     private let engine: any MacTTSEngine
     private var snapshotCancellable: AnyCancellable?
-    private var chunkCancellable: AnyCancellable?
     private var activeGenerationDepth = 0
 
     public init(engine: any MacTTSEngine) {
@@ -42,25 +41,6 @@ public final class TTSEngineStore: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] snapshot in
                 self?.apply(snapshot: snapshot)
-            }
-        chunkCancellable = GenerationChunkBroker.shared.publisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] latestEvent in
-                guard let self else { return }
-                let retainedEvent = latestEvent.withoutPreviewAudioPayload()
-                // Consolidate the per-chunk state fan-out into a single
-                // `frontendState` assignment. SwiftUI now sees one
-                // invalidation per chunk instead of two, which keeps
-                // streaming playback smooth on older Macs (Tier 2.3).
-                let nextFrontendState = TTSEngineFrontendState(
-                    snapshot: self.snapshot,
-                    latestEvent: retainedEvent
-                )
-                guard self.latestEvent != retainedEvent || self.frontendState != nextFrontendState else {
-                    return
-                }
-                self.latestEvent = retainedEvent
-                self.frontendState = nextFrontendState
             }
     }
 

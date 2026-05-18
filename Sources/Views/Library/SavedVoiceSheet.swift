@@ -3,7 +3,7 @@ import QwenVoiceNative
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct SavedVoiceSheetConfiguration: Identifiable {
+struct SavedVoiceSheetConfiguration: Identifiable, Sendable {
     let id = UUID()
     let title: String
     let subtitle: String

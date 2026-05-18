@@ -3,7 +3,7 @@ import QwenVoiceNative
 import SwiftUI
 import UniformTypeIdentifiers
 
-private struct HistoryListItem: Identifiable {
+private struct HistoryListItem: Identifiable, Sendable {
     let generation: Generation
     let audioFileExists: Bool
     let textPreview: String
@@ -28,9 +28,16 @@ private struct HistoryListItem: Identifiable {
         self.generation = generation
         self.audioFileExists = FileManager.default.fileExists(atPath: generation.audioPath)
         self.textPreview = generation.textPreview
-        self.formattedDate = generation.formattedDate
+        self.formattedDate = Self.formattedDate(for: generation.createdAt)
         self.searchKey = "\(generation.text)\n\(generation.voice ?? "")".lowercased()
         self.saveVoiceConfiguration = Self.makeSaveVoiceConfiguration(for: generation)
+    }
+
+    private static func formattedDate(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 
     private static func makeSaveVoiceConfiguration(for generation: Generation) -> SavedVoiceSheetConfiguration? {
@@ -335,8 +342,10 @@ private extension HistoryView {
             }
 
             do {
-                let generations = try DatabaseService.shared.fetchAllGenerations()
-                let loadedItems = generations.map(HistoryListItem.init)
+                let loadedItems = try await Task.detached(priority: .userInitiated) {
+                    let generations = try DatabaseService.shared.fetchAllGenerations()
+                    return generations.map(HistoryListItem.init)
+                }.value
 
                 guard !Task.isCancelled else { return }
                 await MainActor.run {

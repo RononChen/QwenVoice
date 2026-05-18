@@ -285,9 +285,25 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
     }
 
     private func syncFromSnapshot(_ snapshot: TTSEngineFrontendState) {
-        let retainedSnapshot = snapshot.withoutPreviewAudioPayload()
-        let retainedLatestEvent = retainedSnapshot.latestEvent
         let rawLatestEvent = snapshot.latestEvent
+        let retainedLatestEvent: GenerationEvent?
+        if case .chunk = rawLatestEvent {
+            // Streaming chunks are forwarded below through NotificationCenter
+            // for playback. Publishing each one through this app-wide
+            // ObservableObject invalidates every screen that observes engine
+            // readiness, even when only the player needs the audio chunk.
+            retainedLatestEvent = latestEvent
+        } else {
+            retainedLatestEvent = rawLatestEvent?.withoutPreviewAudioPayload()
+        }
+        let retainedSnapshot = TTSEngineFrontendState(
+            isReady: snapshot.isReady,
+            lifecycleState: snapshot.lifecycleState,
+            loadState: snapshot.loadState,
+            clonePreparationState: snapshot.clonePreparationState,
+            latestEvent: retainedLatestEvent,
+            visibleErrorMessage: snapshot.visibleErrorMessage
+        )
 
         if frontendState != retainedSnapshot {
             frontendState = retainedSnapshot

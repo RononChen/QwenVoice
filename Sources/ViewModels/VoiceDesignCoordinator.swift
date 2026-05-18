@@ -123,6 +123,7 @@ final class VoiceDesignCoordinator: ObservableObject {
 
         generationTask = Task { @MainActor in
             defer {
+                audioPlayer.setLivePreviewEstimate(nil)
                 self.isGenerating = false
                 self.generationTask = nil
             }
@@ -141,6 +142,9 @@ final class VoiceDesignCoordinator: ObservableObject {
                     ),
                     model: model,
                     outputPath: outputPath
+                )
+                audioPlayer.setLivePreviewEstimate(
+                    LivePreviewEstimate(text: text)
                 )
                 let result = try await ttsEngineStore.generate(generationRequest)
 

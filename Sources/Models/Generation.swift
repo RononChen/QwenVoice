@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 
 /// A record of a single TTS generation, stored in SQLite via GRDB.
-struct Generation: Identifiable, Codable, Hashable {
+struct Generation: Identifiable, Codable, Hashable, Sendable {
     var id: Int64?
     var text: String
     var mode: String            // "custom", "design", "clone"
@@ -13,7 +13,7 @@ struct Generation: Identifiable, Codable, Hashable {
     var audioPath: String
     var duration: Double?
     var createdAt: Date
-    private static let dateFormatter: DateFormatter = {
+    nonisolated(unsafe) private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .medium
         f.timeStyle = .short
