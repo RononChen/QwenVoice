@@ -525,9 +525,18 @@ actor NativePreparedCloneConditioningCache {
 
     static func referenceQualityWarnings(for result: AudioNormalizationResult) -> [String] {
         var warnings: [String] = []
+        // Duration tiers (see PreparedVoiceQualityWarning.summary doc for
+        // the source of these thresholds — Alibaba Cloud Model Studio's
+        // hosted Qwen-TTS API guidance, not a documented Qwen3-TTS cliff):
+        //   <10 s            → short (likely insufficient speaker info)
+        //   10–30 s          → no warning (10–20 s is the sweet spot)
+        //   30–60 s          → long (outside sweet spot, soft warn)
+        //   >60 s            → excessive (hard cap, blocks Keep voice)
         if result.durationSeconds < 10 {
             warnings.append("reference_duration_short")
-        } else if result.durationSeconds > 20 {
+        } else if result.durationSeconds > 60 {
+            warnings.append("reference_duration_excessive")
+        } else if result.durationSeconds > 30 {
             warnings.append("reference_duration_long")
         }
         if abs(result.sampleRate - 24_000) > 0.001 {

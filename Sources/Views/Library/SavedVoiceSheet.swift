@@ -324,17 +324,22 @@ struct SavedVoiceSheet: View {
             errorMessage = nil
         }
         .alert(
-            "Reference quality may be poor",
+            "Reference outside recommended range",
             isPresented: Binding(
                 get: { pendingVoiceForReview != nil },
                 set: { if !$0 { pendingVoiceForReview = nil } }
             ),
             presenting: pendingVoiceForReview
         ) { voice in
-            Button("Keep voice") {
-                acceptPendingVoice()
+            // Hard-block tier (>60 s) hides the "Keep voice" button so
+            // the user has to discard or cancel; soft-warn tier keeps
+            // all three buttons.
+            if !PreparedVoiceQualityWarning.isHardBlocking(voice.qualityWarnings) {
+                Button("Keep voice") {
+                    acceptPendingVoice()
+                }
+                .accessibilityIdentifier("voicesEnroll_keepDespiteWarning")
             }
-            .accessibilityIdentifier("voicesEnroll_keepDespiteWarning")
             Button("Discard and re-record", role: .destructive) {
                 discardPendingVoice()
             }

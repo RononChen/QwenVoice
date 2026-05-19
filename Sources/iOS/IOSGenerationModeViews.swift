@@ -418,23 +418,28 @@ struct IOSVoiceDesignView: View {
                 }
             }
             .alert(
-                "Reference quality may be poor",
+                "Reference outside recommended range",
                 isPresented: Binding(
                     get: { pendingVoiceForReview != nil },
                     set: { if !$0 { pendingVoiceForReview = nil } }
                 ),
                 presenting: pendingVoiceForReview
             ) { voice in
-                Button("Keep voice") {
-                    pendingVoiceForReview = nil
-                    savedVoicesViewModel.insertOrReplace(voice)
-                    isSaveSheetPresented = false
-                    saveSheetSuggestedName = ""
-                    saveSheetTranscript = ""
-                    saveError = nil
-                    Task { await savedVoicesViewModel.refresh(using: ttsEngine) }
+                // Hard-block tier (>60 s) hides the "Keep voice" button
+                // so the user has to discard or cancel; soft-warn tier
+                // keeps all three buttons.
+                if !PreparedVoiceQualityWarning.isHardBlocking(voice.qualityWarnings) {
+                    Button("Keep voice") {
+                        pendingVoiceForReview = nil
+                        savedVoicesViewModel.insertOrReplace(voice)
+                        isSaveSheetPresented = false
+                        saveSheetSuggestedName = ""
+                        saveSheetTranscript = ""
+                        saveError = nil
+                        Task { await savedVoicesViewModel.refresh(using: ttsEngine) }
+                    }
+                    .accessibilityIdentifier("voicesEnroll_keepDespiteWarning")
                 }
-                .accessibilityIdentifier("voicesEnroll_keepDespiteWarning")
                 Button("Discard and re-record", role: .destructive) {
                     let voiceID = voice.id
                     pendingVoiceForReview = nil

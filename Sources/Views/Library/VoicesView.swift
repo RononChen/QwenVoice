@@ -472,7 +472,7 @@ private struct VoiceRowMetadata: View {
     private var warningChip: some View {
         let token = qualityWarnings.first ?? ""
         let label = PreparedVoiceQualityWarning.shortLabel(for: token)
-            ?? "Reference may be poor"
+            ?? "Reference outside range"
 
         return Button {
             showsWarningDetails = true
@@ -509,7 +509,7 @@ private struct VoiceRowMetadata: View {
 
     private var warningDetailsPopover: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Reference quality may be poor", systemImage: "exclamationmark.triangle.fill")
+            Label("Reference outside recommended range", systemImage: "exclamationmark.triangle.fill")
                 .font(.headline)
                 .foregroundStyle(.orange)
 

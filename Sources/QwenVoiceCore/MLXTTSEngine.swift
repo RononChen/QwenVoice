@@ -1078,7 +1078,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
     /// this path skips the full audio-normalization (resample, trim,
     /// peak/RMS analysis) — those finer warnings come back via
     /// `clone_reference_warnings` at generation time. Thresholds match
-    /// NativeCloneSupport: <10 s = short, >20 s = long.
+    /// NativeCloneSupport: <10 s = short, >30 s = long, >60 s = excessive.
     nonisolated static func savedReferenceQualityWarnings(forAudioAt path: String) -> [String] {
         var warnings: [String] = []
         guard let durationSeconds = referenceAudioDurationSeconds(at: path) else {
@@ -1087,7 +1087,9 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
         }
         if durationSeconds < 10 {
             warnings.append("reference_duration_short")
-        } else if durationSeconds > 20 {
+        } else if durationSeconds > 60 {
+            warnings.append("reference_duration_excessive")
+        } else if durationSeconds > 30 {
             warnings.append("reference_duration_long")
         }
         return warnings

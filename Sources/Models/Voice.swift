@@ -10,6 +10,7 @@ struct Voice: Identifiable, Hashable {
     /// Forwarded from `PreparedVoice.qualityWarnings`. Tokens come from
     /// `MLXTTSEngine.savedReferenceQualityWarnings(forAudioAt:)` —
     /// e.g. `reference_duration_short`, `reference_duration_long`,
+    /// `reference_duration_excessive` (hard-block, >60 s),
     /// `reference_quality_unreadable`. UI surfaces these via warning
     /// dialogs at enrollment + indicator badges in the saved-voices
     /// list.

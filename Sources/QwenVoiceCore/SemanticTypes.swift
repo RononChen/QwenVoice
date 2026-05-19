@@ -377,6 +377,22 @@ public struct PreparedVoice: Identifiable, Hashable, Codable, Sendable {
 /// Unknown tokens fall through to `nil` so callers can choose whether to
 /// display a generic warning line or drop it.
 public enum PreparedVoiceQualityWarning {
+    /// Tokens whose presence in a voice's `qualityWarnings` array means
+    /// the voice cannot be kept — the enrollment UI must remove the
+    /// "Keep voice" affordance and force the user to discard or re-pick.
+    /// Currently only the >60 s excessive-duration token blocks (matches
+    /// Alibaba Cloud Model Studio's 60 s hard cap on the hosted Qwen-TTS
+    /// API). Soft-warn tokens are reported but do not block keeping.
+    public static let hardBlockingTokens: Set<String> = ["reference_duration_excessive"]
+
+    /// True if any token in the array hits a hard-block tier (currently
+    /// just `reference_duration_excessive`). Use this in the enrollment
+    /// alert to skip the "Keep voice" button and message the user that
+    /// the reference must be replaced.
+    public static func isHardBlocking(_ tokens: [String]) -> Bool {
+        !Set(tokens).isDisjoint(with: hardBlockingTokens)
+    }
+
     /// Sentence-length explanation. Used in the enrollment alert body
     /// and any place the row has room for full prose.
     public static func headline(for token: String) -> String? {
@@ -384,7 +400,9 @@ public enum PreparedVoiceQualityWarning {
         case "reference_duration_short":
             return "Reference is shorter than recommended (under 10 seconds)."
         case "reference_duration_long":
-            return "Reference is longer than recommended (over 20 seconds)."
+            return "Reference is longer than recommended (over 30 seconds)."
+        case "reference_duration_excessive":
+            return "Reference exceeds the 60 second maximum supported for cloning."
         case "reference_quality_unreadable":
             return "Reference audio could not be read."
         default:
@@ -402,6 +420,8 @@ public enum PreparedVoiceQualityWarning {
             return "Reference too short"
         case "reference_duration_long":
             return "Reference too long"
+        case "reference_duration_excessive":
+            return "Reference exceeds 60 s"
         case "reference_quality_unreadable":
             return "Reference unreadable"
         default:
@@ -410,14 +430,25 @@ public enum PreparedVoiceQualityWarning {
     }
 
     /// Multi-line summary suitable for a warning dialog body.
+    ///
+    /// The 10–20 s recommended window is a product heuristic sourced
+    /// from Alibaba Cloud Model Studio's hosted Qwen-TTS API guidance.
+    /// Qwen3-TTS itself does not publish a documented degradation
+    /// threshold for long references, so the soft-warn wording stays
+    /// neutral rather than promising a specific quality cliff. The 60 s
+    /// hard cap also mirrors that hosted-API limit — and is enforced
+    /// in the enrollment UI by `isHardBlocking(_:)`.
     public static func summary(for tokens: [String]) -> String {
         let lines = tokens.compactMap { headline(for: $0) }
         if lines.isEmpty {
             return "Voice cloning works best with 10–20 seconds of clean speech."
         }
+        let trailer = isHardBlocking(tokens)
+            ? "Pick a clip that is 60 seconds or shorter to use it for cloning."
+            : "Clones from references outside this range still work, but may sound less consistent."
         return "Voice cloning works best with 10–20 seconds of clean speech.\n\n" +
             lines.map { "• \($0)" }.joined(separator: "\n") +
-            "\n\nKeeping this voice may produce lower-quality clones."
+            "\n\n" + trailer
     }
 }
 
