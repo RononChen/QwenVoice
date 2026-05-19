@@ -504,6 +504,13 @@ struct GenerationVariantSelector: View {
                     variantSegment(for: kind)
                 }
             }
+            // Match the rest of the app's pickers (EmotionPickerView,
+            // VoiceCloningView transcript + source) — keyboard
+            // focusability stays, only the system blue focus ring is
+            // suppressed so the segment doesn't render a stray
+            // selection halo on first appearance under Full Keyboard
+            // Access.
+            .focusEffectDisabled()
             .padding(3)
             .background(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)

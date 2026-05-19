@@ -551,53 +551,48 @@ private struct CloneReferenceStatus: View {
     let clearReference: () -> Void
     let accentColor: Color
 
+    @State private var showsWarningDetails = false
+
     var body: some View {
         if let path = referenceAudioPath {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(accentColor)
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(accentColor)
 
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(URL(fileURLWithPath: path).lastPathComponent)
-                            .font(.system(size: 12, weight: .semibold))
-                            .lineLimit(1)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(URL(fileURLWithPath: path).lastPathComponent)
+                        .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1)
 
+                    // When a quality warning is present, the second
+                    // line in this VStack becomes a tappable chip
+                    // instead of the "Saved voice ready" caption, so
+                    // the saved-voice panel stays a single row and the
+                    // Transcript field below it keeps its room inside
+                    // the fixed 184 pt configuration slot. Popover-on-
+                    // tap carries the full headline + summary so the
+                    // user can still see everything the wrapping
+                    // Label used to render inline.
+                    if let token = selectedVoice?.qualityWarnings.first,
+                       let shortLabel = PreparedVoiceQualityWarning.shortLabel(for: token) {
+                        warningChip(token: token, shortLabel: shortLabel)
+                    } else {
                         Text(selectedVoice == nil ? "Imported file ready" : "Saved voice ready")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.secondary)
                     }
-
-                    Spacer(minLength: 0)
-
-                    Button("Clear") {
-                        AppLaunchConfiguration.performAnimated(.default) {
-                            clearReference()
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
                 }
 
-                // Mirror the saved-voices warning so the user gets a
-                // last reminder before generation. Read-only here —
-                // the fix lives in Library → Saved Voices.
-                if let headline = selectedVoice?.qualityHeadline {
-                    Label {
-                        Text(headline)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.orange)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } icon: {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
+                Spacer(minLength: 0)
+
+                Button("Clear") {
+                    AppLaunchConfiguration.performAnimated(.default) {
+                        clearReference()
                     }
-                    .labelStyle(.titleAndIcon)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("voiceCloning_referenceWarning")
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
             .inlinePanel(padding: 8, radius: 10)
             .accessibilityIdentifier("voiceCloning_activeReference")
@@ -612,6 +607,54 @@ private struct CloneReferenceStatus: View {
             }
             .padding(.vertical, 1)
         }
+    }
+
+    @ViewBuilder
+    private func warningChip(token: String, shortLabel: String) -> some View {
+        // Inline (no-capsule) variant of the saved-voices warning chip
+        // — the capsule background + stroke + 3 pt vertical padding
+        // would make this row ~6-10 pt taller than the 10 pt "Saved
+        // voice ready" Text it replaces, which would shift every
+        // element below it (Transcript label, Transcript field) down.
+        // Keeping the row height identical to the no-warning state
+        // means the saved-voice panel renders at a constant total
+        // height regardless of warning presence, so the Transcript
+        // position is invariant.
+        Button {
+            showsWarningDetails = true
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 9))
+                Text(shortLabel)
+                    .font(.system(size: 10, weight: .medium))
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 7, weight: .semibold))
+                    .opacity(0.7)
+            }
+            .foregroundStyle(.orange)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("voiceCloning_referenceWarning")
+        .accessibilityHint(selectedVoice?.qualityHeadline ?? shortLabel)
+        .popover(isPresented: $showsWarningDetails, arrowEdge: .top) {
+            warningDetailsPopover(warnings: selectedVoice?.qualityWarnings ?? [token])
+        }
+    }
+
+    @ViewBuilder
+    private func warningDetailsPopover(warnings: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Reference outside recommended range",
+                  systemImage: "exclamationmark.triangle.fill")
+                .font(.headline)
+                .foregroundStyle(.orange)
+            Text(PreparedVoiceQualityWarning.summary(for: warnings))
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(maxWidth: 340)
     }
 }
 
