@@ -46,7 +46,7 @@ The Debug build is drivable by a Claude Code session via the computer-use MCP. T
 
 **Layer 3 — Perceptual review** (per WAV, ~30 s each):
 
-- [`reference/gemini-voice-review.md`](reference/gemini-voice-review.md) — Gemini 3.1 Pro CLI workflow (preferred) + browser fallback. Adds naturalness, emotion match, pronunciation, pacing, and artifact dimensions the bench's RMS/peak gates can't catch.
+- [`reference/antigravity-voice-review.md`](reference/antigravity-voice-review.md) — Antigravity CLI (`agy`) workflow (preferred) + desktop-app fallback. Adds naturalness, emotion match, pronunciation, pacing, and artifact dimensions the bench's RMS/peak gates can't catch. Replaces the retired Gemini-CLI runbook (kept as a redirect stub at `reference/gemini-voice-review.md` for one release).
 
 Useful local diagnostics can be exported with:
 

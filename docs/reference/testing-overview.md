@@ -8,7 +8,7 @@ Vocello's behavioral testing surface is local-only and three-layered. This doc n
 |---|---|---|---|
 | **Functional smoke** | Did the generate path produce a WAV + DB row? | ~1 min per scenario | [`smoke-*.md`](.) runbooks, `scripts/uitest.sh smoke-check / reset / prep / verify-generation` |
 | **Timing bench** | Is the latency, RTF, RMS, peak, and memory within ±15 % of the committed baseline across cold/warm × variant × prompt-length? | ~12 min per mode (24 samples) | [`bench-*.md`](.) runbooks, `scripts/uitest.sh bench-step / bench-summarize / bench-compare`, [`benchmark-baselines.json`](benchmark-baselines.json) |
-| **Perceptual review** | Does the audio sound right — naturalness, emotion match, pronunciation, pacing, artifacts? | ~30 s per WAV | [`gemini-voice-review.md`](gemini-voice-review.md), `scripts/uitest.sh gemini-review` |
+| **Perceptual review** | Does the audio sound right — naturalness, emotion match, pronunciation, pacing, artifacts? | ~30 s per WAV | [`antigravity-voice-review.md`](antigravity-voice-review.md), `scripts/uitest.sh antigravity-review` |
 
 The layers complement each other:
 
@@ -41,8 +41,8 @@ No single layer is sufficient; the bench's RMS/peak gates are deliberately wide 
 
 - **First-time agent in this repo?** Read [`ui-test-surface.md`](ui-test-surface.md) once for the AX-id vocabulary + standard smoke/bench skeletons + completion signals. Skim [`testing-cheatsheet.md`](testing-cheatsheet.md) for copy-pasteable commands. Then come back here for the decision table.
 - **About to ship a perf-affecting change?** Run the full bench matrix for the affected mode, then promote the baseline if the numbers are intentional. See the per-mode `bench-*.md`.
-- **About to ship an audio-path change?** Generate one sample in each mode, run `gemini-review` on each, compare against a recent baseline review under [`build/Debug/voice-reviews/`](../../build/Debug/voice-reviews/) (gitignored — keep mental notes of typical scores).
-- **Triaging a bug report?** Run the matching smoke first to confirm reproduction. If the smoke passes but the user complains about quality, run `gemini-review` on the offending generation's WAV.
+- **About to ship an audio-path change?** Generate one sample in each mode, run `antigravity-review` on each, compare against a recent baseline review under [`build/Debug/voice-reviews/`](../../build/Debug/voice-reviews/) (gitignored — keep mental notes of typical scores).
+- **Triaging a bug report?** Run the matching smoke first to confirm reproduction. If the smoke passes but the user complains about quality, run `antigravity-review` on the offending generation's WAV.
 
 ## What's not in this layer
 
@@ -56,4 +56,4 @@ No single layer is sufficient; the bench's RMS/peak gates are deliberately wide 
 - [`testing-cheatsheet.md`](testing-cheatsheet.md) — single-page command card.
 - [`ui-test-surface.md`](ui-test-surface.md) — the agent reference (AX ids, signposts, standard skeletons).
 - [`benchmark-baselines.json`](benchmark-baselines.json) — committed bench baselines (24 cells, schema v3, ±15 % gate on `ms_engine_start_to_final` + `rtf`).
-- [`gemini-voice-review.md`](gemini-voice-review.md) — perceptual review procedure.
+- [`antigravity-voice-review.md`](antigravity-voice-review.md) — perceptual review procedure (replaces the retired `gemini-voice-review.md`).

@@ -50,7 +50,7 @@ scripts/uitest.sh bench-step design "$variant" warm long   --artifacts-dir "$ART
 Voice Design is the layer where perceptual review pays back the most — the timing/RMS gates can't tell you whether the take matches the description:
 
 ```sh
-scripts/uitest.sh gemini-review \
+scripts/uitest.sh antigravity-review \
     "$(ls -t "$HOME/Library/Application Support/QwenVoice-Debug/outputs/VoiceDesign/"*.wav | head -1)" \
     --voice-description "A calm, deep documentary narrator with a measured pace."
 ```

@@ -36,10 +36,10 @@ Voice Cloning requires the **`UITestRef`** saved-voice fixture. If `scripts/uite
 Voice Cloning is the most subjective layer — perceptual review catches identity-coherence regressions the bench can't see.
 
 ```sh
-scripts/uitest.sh gemini-review "$(scripts/uitest.sh db "SELECT audioPath FROM generations ORDER BY createdAt DESC LIMIT 1")"
+scripts/uitest.sh antigravity-review "$(scripts/uitest.sh db "SELECT audioPath FROM generations ORDER BY createdAt DESC LIMIT 1")"
 ```
 
-The `--saved-voice` field auto-fills from `generations.voice`. See [`gemini-voice-review.md`](gemini-voice-review.md).
+The `--saved-voice` field auto-fills from `generations.voice`. See [`antigravity-voice-review.md`](antigravity-voice-review.md).
 
 ## Notes
 

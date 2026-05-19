@@ -50,5 +50,5 @@ scripts/uitest.sh bench-step custom "$variant" warm long   --artifacts-dir "$ART
 After the bench run, pick one representative warm/medium sample and run a perceptual check — useful for catching quality regressions a timing-only baseline can't see:
 
 ```sh
-scripts/uitest.sh gemini-review "$(ls -t "$HOME/Library/Application Support/QwenVoice-Debug/outputs/CustomVoice/"*.wav | head -1)"
+scripts/uitest.sh antigravity-review "$(ls -t "$HOME/Library/Application Support/QwenVoice-Debug/outputs/CustomVoice/"*.wav | head -1)"
 ```

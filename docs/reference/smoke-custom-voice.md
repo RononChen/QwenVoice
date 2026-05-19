@@ -25,10 +25,10 @@ Follows the [Standard smoke skeleton](ui-test-surface.md#standard-smoke-skeleton
 After `verify-generation` returns pass=true, optionally add a subjective check:
 
 ```sh
-scripts/uitest.sh gemini-review "$(scripts/uitest.sh db "SELECT audioPath FROM generations ORDER BY createdAt DESC LIMIT 1")"
+scripts/uitest.sh antigravity-review "$(scripts/uitest.sh db "SELECT audioPath FROM generations ORDER BY createdAt DESC LIMIT 1")"
 ```
 
-The review bundle lands under [`build/Debug/voice-reviews/`](../../build/Debug/voice-reviews/). See [`gemini-voice-review.md`](gemini-voice-review.md) for what the structured output looks like and when to add this step.
+The review bundle lands under [`build/Debug/voice-reviews/`](../../build/Debug/voice-reviews/). See [`antigravity-voice-review.md`](antigravity-voice-review.md) for what the structured output looks like and when to add this step.
 
 ## Notes
 

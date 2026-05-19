@@ -53,7 +53,7 @@ Each cold sample requires fresh-launch + re-bind, so the cold-cohort budget is c
 Identity-coherence regressions are perceptual-only — the bench can't catch them:
 
 ```sh
-scripts/uitest.sh gemini-review \
+scripts/uitest.sh antigravity-review \
     "$(ls -t "$HOME/Library/Application Support/QwenVoice-Debug/outputs/Clones/"*.wav | head -1)"
 ```
 

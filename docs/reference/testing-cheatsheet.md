@@ -87,13 +87,13 @@ git diff docs/reference/benchmark-baselines.json
 ## Perceptual review (~30 s per WAV)
 
 ```sh
-scripts/uitest.sh gemini-review <path/to/sample.wav>
+scripts/uitest.sh antigravity-review <path/to/sample.wav>
 ```
 
 Auto-fills mode/text/speaker/delivery from `history.sqlite` by matching `audioPath`. For ad-hoc WAVs outside the harness or for Voice Design, pass explicit context:
 
 ```sh
-scripts/uitest.sh gemini-review sample.wav \
+scripts/uitest.sh antigravity-review sample.wav \
     --mode design \
     --text "..." \
     --voice-description "..." \
@@ -102,11 +102,11 @@ scripts/uitest.sh gemini-review sample.wav \
 
 Output bundle lands at `build/Debug/voice-reviews/<UTC>-<mode>-<basename>/review.md`.
 
-Verify the active model is Gemini 3.1 Pro before a test session:
+Verify the Antigravity CLI is installed + authenticated before a test session:
 
 ```sh
-python3 -c "import json,os; print(json.load(open(os.path.expanduser('~/.gemini/settings.json')))['model']['name'])"
-# → gemini-3.1-pro-preview
+agy --version              # 1.0.0 or newer
+ls /Applications/Antigravity.app >/dev/null  # desktop app present + signed in
 ```
 
 ## Recovery (when computer-use clicks miss)

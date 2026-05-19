@@ -245,5 +245,5 @@ Mean gain across all 6 cells: **+4.5 s** saved on time-to-first-sound.
 - `docs/reference/release-readiness.md` — release signoff gates
 - `docs/reference/privacy-storage.md` — local storage and deletion
 - `docs/qwen_tone.md` — prompt/tone guidance for voice generation
-- `docs/reference/gemini-voice-review.md` — Gemini-backed perceptual review runbook (semi-automated, complements the bench's timing/RMS gates with subjective dimensions)
+- `docs/reference/antigravity-voice-review.md` — Antigravity-CLI-backed perceptual review runbook (semi-automated, complements the bench's timing/RMS gates with subjective dimensions). The legacy `gemini-voice-review.md` is a redirect stub after Google retired Gemini CLI in favor of Antigravity CLI (2026-05-19).
 - `CONTRIBUTING.md` — contributor workflow

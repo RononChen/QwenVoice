@@ -25,11 +25,11 @@ Follows the [Standard smoke skeleton](ui-test-surface.md#standard-smoke-skeleton
 Voice Design is the layer where perceptual review pays back the most — the bench's RMS/peak gates can't tell you whether the take actually sounds like the requested description.
 
 ```sh
-scripts/uitest.sh gemini-review "$(scripts/uitest.sh db "SELECT audioPath FROM generations ORDER BY createdAt DESC LIMIT 1")" \
+scripts/uitest.sh antigravity-review "$(scripts/uitest.sh db "SELECT audioPath FROM generations ORDER BY createdAt DESC LIMIT 1")" \
     --voice-description "A calm, deep documentary narrator with a measured pace."
 ```
 
-The `--voice-description` flag is required (Voice Design's description isn't persisted in `history.sqlite`, so the review script can't auto-fill it). See [`gemini-voice-review.md`](gemini-voice-review.md).
+The `--voice-description` flag is required (Voice Design's description isn't persisted in `history.sqlite`, so the review script can't auto-fill it). See [`antigravity-voice-review.md`](antigravity-voice-review.md).
 
 ## Notes
 
