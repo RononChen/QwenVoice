@@ -27,6 +27,10 @@ SIGNING_MODE="${QWENVOICE_SIGNING_MODE:-ad-hoc}"
 SIGNING_IDENTITY="${QWENVOICE_SIGNING_IDENTITY:-}"
 CODESIGN_KEYCHAIN="${QWENVOICE_CODESIGN_KEYCHAIN:-}"
 RELEASE_TEAM_ID="${QWENVOICE_DEVELOPMENT_TEAM:-${APPLE_TEAM_ID:-}}"
+# Notarization is opt-in. Either pass --notarize or set QWENVOICE_NOTARIZE=1.
+# Only valid with --signing-mode developer-id. Requires APPLE_ID +
+# APPLE_APP_SPECIFIC_PASSWORD env vars plus a Team ID (already read above).
+NOTARIZE="${QWENVOICE_NOTARIZE:-0}"
 
 release_fail() {
     echo "Error: $*" >&2
@@ -35,9 +39,18 @@ release_fail() {
 
 usage() {
     cat >&2 <<EOF
-Usage: $0 [--skip-build] [--output-name <basename>] [--preflight none|full] [--signing-mode ad-hoc|developer-id] [--signing-identity <identity>] [--codesign-keychain <path>]
+Usage: $0 [--skip-build] [--output-name <basename>] [--preflight none|full] [--signing-mode ad-hoc|developer-id] [--signing-identity <identity>] [--codesign-keychain <path>] [--notarize]
 
 Build the macOS Release app, sign it, package it into a DMG, and emit release metadata.
+
+--notarize submits the DMG to Apple's notarization service via the
+App Store Connect API key flow, then staples the ticket. Requires
+--signing-mode developer-id and the three env vars Apple's notarytool
+documents:
+  APPLE_API_KEY_PATH   - path to the AuthKey_XXXXXX.p8 file
+  APPLE_API_KEY_ID     - the 10-char key ID from the .p8 filename
+  APPLE_API_ISSUER_ID  - the App Store Connect "Issuer ID" UUID
+Notarization typically takes 1-5 minutes of wall-clock per DMG.
 EOF
     exit 1
 }
@@ -80,6 +93,10 @@ while [ $# -gt 0 ]; do
             CODESIGN_KEYCHAIN="$2"
             shift 2
             ;;
+        --notarize)
+            NOTARIZE=1
+            shift
+            ;;
         -h|--help)
             usage
             ;;
@@ -106,6 +123,14 @@ case "$SIGNING_MODE" in
         release_fail "Unsupported --signing-mode '$SIGNING_MODE' (expected ad-hoc or developer-id)"
         ;;
 esac
+
+if [ "$NOTARIZE" = "1" ]; then
+    [ "$SIGNING_MODE" = "developer-id" ] || release_fail "--notarize requires --signing-mode developer-id (ad-hoc signatures are not notarizable)"
+    [ -n "${APPLE_API_KEY_PATH:-}" ] || release_fail "APPLE_API_KEY_PATH env var is required for --notarize (path to the AuthKey_*.p8 file)"
+    [ -f "${APPLE_API_KEY_PATH:-/dev/null}" ] || release_fail "APPLE_API_KEY_PATH points to a missing file: $APPLE_API_KEY_PATH"
+    [ -n "${APPLE_API_KEY_ID:-}" ] || release_fail "APPLE_API_KEY_ID env var is required for --notarize"
+    [ -n "${APPLE_API_ISSUER_ID:-}" ] || release_fail "APPLE_API_ISSUER_ID env var is required for --notarize"
+fi
 
 case "$PREFLIGHT" in
     none|full)
@@ -176,6 +201,7 @@ if [ "$SIGNING_MODE" = "developer-id" ]; then
     echo "  signing identity: $SIGNING_IDENTITY"
     echo "  team id: $RELEASE_TEAM_ID"
 fi
+echo "  notarize: $([ "$NOTARIZE" = "1" ] && echo "yes" || echo "no")"
 echo ""
 
 mkdir -p "$BUILD_DIR"
@@ -305,6 +331,24 @@ DMG_PATH="$BUILD_DIR/${OUTPUT_NAME}.dmg"
 [ -f "$DMG_PATH" ] || release_fail "Created DMG is missing: $DMG_PATH"
 run_codesign "$DMG_PATH"
 codesign --verify --verbose=4 "$DMG_PATH"
+
+if [ "$NOTARIZE" = "1" ]; then
+    echo "  Submitting $(basename "$DMG_PATH") to Apple notarization via API key (typically 1-5 min)..."
+    # `notarytool submit --wait` blocks until the submission resolves;
+    # exit code is non-zero on Invalid/Rejected so `set -e` aborts the
+    # release on a failed notarization. On failure, fetch the per-issue
+    # log from Apple with `xcrun notarytool log <submission-id> --key ... --key-id ... --issuer ...`.
+    xcrun notarytool submit "$DMG_PATH" \
+        --key "$APPLE_API_KEY_PATH" \
+        --key-id "$APPLE_API_KEY_ID" \
+        --issuer "$APPLE_API_ISSUER_ID" \
+        --wait
+    echo "  Stapling notarization ticket to DMG..."
+    xcrun stapler staple "$DMG_PATH"
+    xcrun stapler validate "$DMG_PATH"
+    echo "  Notarization OK and ticket stapled."
+fi
+
 echo "[6/7] DMG ready at $DMG_PATH ($(step_time "$STEP_START"))"
 echo ""
 
