@@ -224,7 +224,7 @@ private struct IOSSettingsProminentActionButtonStyle: ButtonStyle {
                     .stroke(tint.opacity(configuration.isPressed ? 0.42 : 0.34), lineWidth: 0.9)
             }
             .opacity(configuration.isPressed ? 0.96 : 1.0)
-            .animation(IOSSelectionMotion.press, value: configuration.isPressed)
+            .iosAppAnimation(IOSSelectionMotion.press, value: configuration.isPressed)
     }
 }
 

@@ -313,7 +313,7 @@ struct IOSVoiceCloningReferenceCard: View {
     }
 
     private func toggleTranscriptExpansion() {
-        withAnimation(IOSSelectionMotion.disclosure) {
+        IOSAccessibleAnimation.perform(IOSSelectionMotion.disclosure) {
             isTranscriptExpanded.toggle()
         }
     }

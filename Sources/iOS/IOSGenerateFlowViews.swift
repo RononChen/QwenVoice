@@ -382,12 +382,12 @@ struct IOSCapsuleSelector<Item: Identifiable & Hashable>: View {
                         }
                 }
                 .buttonStyle(.plain)
-                .animation(IOSSelectionMotion.selectorLabel, value: selection)
+                .iosAppAnimation(IOSSelectionMotion.selectorLabel, value: selection)
                 .accessibilityIdentifier(itemAccessibilityIdentifier(item))
                 .accessibilityAddTraits(item == selection ? .isSelected : [])
             }
         }
-        .animation(IOSSelectionMotion.selectorPill, value: selection)
+        .iosAppAnimation(IOSSelectionMotion.selectorPill, value: selection)
         .padding(2)
         .iosSelectorRailGlass(tint: selectedTint(selection))
         .padding(.vertical, 1)

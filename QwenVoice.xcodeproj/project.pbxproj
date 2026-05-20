@@ -162,6 +162,7 @@
 		C7AAAF166EB69C7C32685A63 /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = 49B72AF8E8AFB85CE902FC6B /* MLX */; };
 		C838C6E3E59717F67F49C45C /* SidebarPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C317D7467D26FD09704CFD81 /* SidebarPlayerView.swift */; };
 		C8B7F513336ADCF7C6508D74 /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = 040444BEBB6ECEEBD1514C41 /* MLX */; };
+		CAC104EFF8BBD01F0674A3FD /* IOSAccessibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 473C7A803F9F31801C56EDE1 /* IOSAccessibility.swift */; };
 		CD601A69A8F0D1F41B8F2BDD /* GenerationSemantics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64B446ABFD75C0AE283E6D66 /* GenerationSemantics.swift */; };
 		CD9DB00F11DDB00BAE9AEE6E /* EmotionPreset.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4377E3144E68AF1ECE1ABCDC /* EmotionPreset.swift */; };
 		CDA31B55F78B96D43385E1E6 /* AppStartupCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40385AC6FD361E190A8E3CE3 /* AppStartupCoordinator.swift */; };
@@ -365,6 +366,7 @@
 		4377E3144E68AF1ECE1ABCDC /* EmotionPreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmotionPreset.swift; sourceTree = "<group>"; };
 		44E29A8F18ADF5E5C68E11E1 /* ModelManagerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelManagerViewModel.swift; sourceTree = "<group>"; };
 		452CA311723F50EB66FFBC4D /* mlx-audio-swift */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "mlx-audio-swift"; path = "third_party_patches/mlx-audio-swift"; sourceTree = SOURCE_ROOT; };
+		473C7A803F9F31801C56EDE1 /* IOSAccessibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSAccessibility.swift; sourceTree = "<group>"; };
 		4A367AAE25201E301F646DCA /* ModelManagerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelManagerViewModel.swift; sourceTree = "<group>"; };
 		4B33472B5B6CE711BEEF3244 /* NativeTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTelemetry.swift; sourceTree = "<group>"; };
 		4EBD9B5E55CB6BD2079E55EE /* AudioQualityGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioQualityGate.swift; sourceTree = "<group>"; };
@@ -846,6 +848,7 @@
 			isa = PBXGroup;
 			children = (
 				1A7DCB41F02A0973410A6027 /* Info.plist */,
+				473C7A803F9F31801C56EDE1 /* IOSAccessibility.swift */,
 				A014ECB4F32BED1D8FE49B68 /* IOSAccessibilityIdentifiers.swift */,
 				9E06F182E0D06AC11E44161D /* IOSAppBootstrap.swift */,
 				F8D4D8DFF4CFC912BE52FF1E /* IOSGenerateFlowViews.swift */,
@@ -1304,6 +1307,7 @@
 				3BDC4AA653F02FBA3C6406D3 /* Generation.swift in Sources */,
 				E8BBD85A6CE7E8CFE9C6877D /* GenerationDrafts.swift in Sources */,
 				B03552F3823AFAD7425C8F3D /* GenerationPersistence.swift in Sources */,
+				CAC104EFF8BBD01F0674A3FD /* IOSAccessibility.swift in Sources */,
 				B937F5E912C7E9B8668BB24B /* IOSAccessibilityIdentifiers.swift in Sources */,
 				63688213A368E98006CB5813 /* IOSAppBootstrap.swift in Sources */,
 				940F6E64A6613D0A4F1CD843 /* IOSGenerateFlowViews.swift in Sources */,

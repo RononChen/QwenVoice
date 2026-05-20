@@ -241,6 +241,8 @@ struct IOSSubtleGlassSurfaceModifier<S: InsettableShape>: ViewModifier {
     let strokeOpacity: Double
     let interactive: Bool
 
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
     @ViewBuilder
     func body(content: Content) -> some View {
         let base = content
@@ -260,7 +262,11 @@ struct IOSSubtleGlassSurfaceModifier<S: InsettableShape>: ViewModifier {
                     .allowsHitTesting(false)
             }
 
-        if interactive {
+        if reduceTransparency {
+            // Solid-fill fallback required by CLAUDE.md when Reduce Transparency
+            // is on. `fill` already paints the base background; skip glassEffect.
+            base
+        } else if interactive {
             base.glassEffect(
                 .regular.tint(IOSAppTheme.subtleGlassTint(tint, intensity: 0.9)).interactive(),
                 in: shape
@@ -1321,7 +1327,7 @@ private struct IOSFieldChromeModifier: ViewModifier {
                     )
                     .allowsHitTesting(false)
             }
-            .animation(IOSSelectionMotion.highlight, value: isFocused)
+            .iosAppAnimation(IOSSelectionMotion.highlight, value: isFocused)
     }
 }
 
@@ -1381,7 +1387,7 @@ private struct IOSSelectionFieldChromeModifier: ViewModifier {
                     .allowsHitTesting(false)
             }
             .shadow(color: tint.opacity(isFocused ? 0.12 : 0.05), radius: isFocused ? 14 : 10, x: 0, y: 4)
-            .animation(IOSSelectionMotion.highlight, value: isFocused)
+            .iosAppAnimation(IOSSelectionMotion.highlight, value: isFocused)
     }
 }
 
@@ -1411,7 +1417,7 @@ private struct IOSCompactTextProminentUtilityButtonStyle: ButtonStyle {
                     .stroke(tint.opacity(configuration.isPressed ? 0.34 : 0.28), lineWidth: 0.9)
             }
             .opacity(configuration.isPressed ? 0.96 : 1.0)
-            .animation(IOSSelectionMotion.press, value: configuration.isPressed)
+            .iosAppAnimation(IOSSelectionMotion.press, value: configuration.isPressed)
     }
 }
 

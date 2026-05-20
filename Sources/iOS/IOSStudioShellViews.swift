@@ -67,7 +67,7 @@ struct IOSStudioShellScreen<Accessory: View, Content: View, BottomAccessory: Vie
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(IOSSelectionMotion.miniPlayerSlide, value: audioPlayer.isShowingNowPlayingRail)
+        .iosAppAnimation(IOSSelectionMotion.miniPlayerSlide, value: audioPlayer.isShowingNowPlayingRail)
         .toolbar(.hidden, for: .navigationBar)
     }
 }
@@ -208,6 +208,37 @@ private struct IOSStudioRootDock: View {
     }
 }
 
+private struct IOSAccessibleAccentTabBackground<S: InsettableShape>: View {
+    let shape: S
+    let tint: Color
+
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        if reduceTransparency {
+            shape
+                .fill(IOSAppTheme.accentFill(tint))
+                .overlay {
+                    shape
+                        .stroke(Color.white.opacity(0.14), lineWidth: 0.8)
+                }
+        } else {
+            shape
+                .fill(IOSAppTheme.accentFill(tint))
+                .glassEffect(
+                    .regular
+                        .tint(IOSAppTheme.subtleGlassTint(tint, intensity: 1.0))
+                        .interactive(),
+                    in: shape
+                )
+                .overlay {
+                    shape
+                        .stroke(Color.white.opacity(0.14), lineWidth: 0.8)
+                }
+        }
+    }
+}
+
 private struct IOSStudioRootDockButton: View {
     let tab: IOSAppTab
     let isSelected: Bool
@@ -237,18 +268,7 @@ private struct IOSStudioRootDockButton: View {
             .background {
                 if isSelected {
                     let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    shape
-                        .fill(IOSAppTheme.accentFill(tab.tint))
-                        .glassEffect(
-                            .regular
-                                .tint(IOSAppTheme.subtleGlassTint(tab.tint, intensity: 1.0))
-                                .interactive(),
-                            in: shape
-                        )
-                        .overlay {
-                            shape
-                                .stroke(Color.white.opacity(0.14), lineWidth: 0.8)
-                        }
+                    IOSAccessibleAccentTabBackground(shape: shape, tint: tab.tint)
                 }
             }
         }

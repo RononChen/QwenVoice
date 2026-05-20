@@ -135,7 +135,7 @@ struct IOSCustomVoiceView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .opacity(chromeOpacity)
-        .animation(IOSSelectionMotion.modeCrossfade, value: isGenerationActive)
+        .iosAppAnimation(IOSSelectionMotion.modeCrossfade, value: isGenerationActive)
         .onChange(of: draft.text) { _, newValue in
             let clamped = IOSGenerationTextLimitPolicy.clamped(newValue, mode: .custom)
             if clamped != newValue {
@@ -510,7 +510,7 @@ struct IOSVoiceDesignView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .opacity(chromeOpacity)
-        .animation(IOSSelectionMotion.modeCrossfade, value: isGenerationActive)
+        .iosAppAnimation(IOSSelectionMotion.modeCrossfade, value: isGenerationActive)
         .onChange(of: draft.text) { _, newValue in
             let clamped = IOSGenerationTextLimitPolicy.clamped(newValue, mode: .design)
             if clamped != newValue {

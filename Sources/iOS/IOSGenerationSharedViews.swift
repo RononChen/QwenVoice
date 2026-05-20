@@ -32,7 +32,7 @@ struct IOSGenerateModeViewport<Custom: View, Design: View, Clone: View>: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .clipped()
-        .animation(IOSSelectionMotion.modeCrossfade, value: selection)
+        .iosAppAnimation(IOSSelectionMotion.modeCrossfade, value: selection)
     }
 
     private func layer<Content: View>(_ content: Content) -> some View {
@@ -315,6 +315,8 @@ struct IOSCompactInlineNotice: View {
     let symbolName: String
     let tint: Color
 
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
 
@@ -332,10 +334,30 @@ struct IOSCompactInlineNotice: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .glassEffect(.regular.tint(tint.opacity(0.06)), in: shape)
+        .background {
+            // Solid-fill backing painted unconditionally so Reduce
+            // Transparency sees a real surface instead of a transparent gap.
+            shape.fill(tint.opacity(reduceTransparency ? 0.18 : 0.06))
+        }
+        .modifier(IOSConditionalGlassEffect(reduceTransparency: reduceTransparency, tint: tint, shape: shape))
         .overlay {
             shape
                 .stroke(Color.white.opacity(0.14), lineWidth: 0.75)
+        }
+    }
+}
+
+private struct IOSConditionalGlassEffect<S: Shape>: ViewModifier {
+    let reduceTransparency: Bool
+    let tint: Color
+    let shape: S
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if reduceTransparency {
+            content
+        } else {
+            content.glassEffect(.regular.tint(tint.opacity(0.06)), in: shape)
         }
     }
 }
