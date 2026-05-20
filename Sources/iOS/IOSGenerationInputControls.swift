@@ -7,6 +7,7 @@ struct IOSDeliveryPicker: View {
     let customAccessibilityIdentifier: String?
 
     @FocusState private var isCustomEditorFocused: Bool
+    @State private var isPresentingPresetSheet: Bool = false
     @ScaledMetric(relativeTo: .body) private var inlineEditorHeight = 76
     @ScaledMetric(relativeTo: .body) private var contentSpacing = 8
 
@@ -40,31 +41,12 @@ struct IOSDeliveryPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: contentSpacing) {
-            Menu {
-                ForEach(EmotionPreset.all, id: \.id) { preset in
-                    Button {
-                        delivery.mode = .preset
-                        delivery.selectedPresetID = preset.id
-                    } label: {
-                        Label(
-                            preset.label,
-                            systemImage: delivery.mode == .preset && delivery.selectedPresetID == preset.id
-                                ? "checkmark"
-                                : ""
-                        )
-                    }
-                }
-
-                Divider()
-
-                Button {
-                    delivery.mode = .custom
-                } label: {
-                    Label(
-                        "Custom delivery…",
-                        systemImage: delivery.mode == .custom ? "checkmark" : ""
-                    )
-                }
+            // Track C continuation: the preset picker now opens the bottom-
+            // sheet from Track F instead of the older system Menu. Selection
+            // is binding-driven, so changes flow back without manual sync.
+            Button {
+                delivery.mode = .preset
+                isPresentingPresetSheet = true
             } label: {
                 HStack(spacing: 10) {
                     Text(selectionLabel)
@@ -82,6 +64,25 @@ struct IOSDeliveryPicker: View {
             .buttonStyle(.plain)
             .iosSelectionFieldChrome(tint: tint, isFocused: isCustomDeliveryEnabled)
             .accessibilityIdentifier(customAccessibilityIdentifier ?? "")
+            .sheet(isPresented: $isPresentingPresetSheet) {
+                IOSDeliveryPickerSheet(
+                    selectedPresetID: Binding(
+                        get: { delivery.selectedPresetID },
+                        set: { newID in
+                            delivery.mode = .preset
+                            delivery.selectedPresetID = newID
+                        }
+                    ),
+                    intensity: $delivery.selectedIntensity,
+                    tint: tint,
+                    onUseCustomTone: {
+                        delivery.mode = .custom
+                    }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.hidden)
+                .presentationBackground(IOSBrandTheme.canvasTop)
+            }
 
             if delivery.supportsIntensity {
                 Picker("Intensity", selection: $delivery.selectedIntensity) {

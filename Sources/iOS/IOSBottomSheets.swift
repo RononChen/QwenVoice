@@ -14,7 +14,14 @@ struct IOSDeliveryPickerSheet: View {
     @Binding var selectedPresetID: String
     @Binding var intensity: EmotionIntensity
     let tint: Color
+    /// Optional escape hatch: when set, a small "Use custom tone…" link sits
+    /// below the intensity row. Tapping it dismisses the sheet and calls the
+    /// closure (callers typically switch their `delivery.mode` to `.custom`
+    /// so the inline custom-text editor activates).
+    var onUseCustomTone: (() -> Void)?
     var onDismiss: (() -> Void)?
+
+    @Environment(\.dismiss) private var dismiss
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
@@ -45,6 +52,33 @@ struct IOSDeliveryPickerSheet: View {
                                 }
                             }
                         }
+                    }
+
+                    if let onUseCustomTone {
+                        Button {
+                            onUseCustomTone()
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "slider.horizontal.3")
+                                    .font(.system(size: 13, weight: .semibold))
+                                Text("Use a custom tone instead")
+                                    .font(.subheadline.weight(.medium))
+                            }
+                            .foregroundStyle(tint)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background {
+                                Capsule(style: .continuous)
+                                    .fill(IOSAppTheme.accentWash(tint).opacity(0.6))
+                            }
+                            .overlay {
+                                Capsule(style: .continuous)
+                                    .stroke(tint.opacity(0.30), lineWidth: 0.9)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("deliveryPickerSheet_customTone")
                     }
                 }
                 .padding(.horizontal, 20)
