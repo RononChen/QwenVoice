@@ -118,6 +118,7 @@
 		98AF262A3789109DF8DDAD46 /* IOSSimulatorTTSEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE7201D32EDE24172A957BE8 /* IOSSimulatorTTSEngine.swift */; };
 		99A480BECDB6DABBD58BCA5F /* MLXAudioTTS in Frameworks */ = {isa = PBXBuildFile; productRef = D98F00F2FF60D6BE90A813A0 /* MLXAudioTTS */; };
 		9AD93240195D2474CD96EB6B /* SavedVoicesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A8A61CE5C27E5BDC4EE04BA /* SavedVoicesViewModel.swift */; };
+		9AE21FC4805C1EFAF94EB80D /* IOSBatchGenerationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA09D7C9DFA513F63AD204E3 /* IOSBatchGenerationCoordinator.swift */; };
 		9C596C12FF2FAF4901655F51 /* GenerationDrafts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7220613AFFBB1E9C0C9AB52F /* GenerationDrafts.swift */; };
 		9C7F54D72E62B1918F56298B /* TTSContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = E56DB3F2A6729473A3816C4C /* TTSContract.swift */; };
 		9D252B7945375066E6E70CAC /* BatchGenerationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C37F7C548405565C230BF8 /* BatchGenerationSheet.swift */; };
@@ -186,6 +187,7 @@
 		ECEE4AE6F2D1AF6BA9EFECAA /* GenerationLibraryEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5D4F51C8BBABFB4246536FD /* GenerationLibraryEvents.swift */; };
 		EE9C991DADF85B8748E2B82B /* AudioPreparation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CA6871405D0795C9867A2F7 /* AudioPreparation.swift */; };
 		EEFE4FE49F13B576053735F5 /* EmotionPreset.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52130E590A4CD0ED7447B159 /* EmotionPreset.swift */; };
+		EFA270BB095642D0FF7084EE /* IOSBatchGenerationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21B62401B4FF89AC662FC81C /* IOSBatchGenerationSheet.swift */; };
 		F0A45F5B19698112952A712D /* MLXAudioCore in Frameworks */ = {isa = PBXBuildFile; productRef = D8A287DB416097B45492FE29 /* MLXAudioCore */; };
 		F14BA3E48111E3B4FF7D087B /* NativeEngineRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67495F1E5B004A4237F787E4 /* NativeEngineRuntime.swift */; };
 		F266C15FA07029E30CE44C0E /* AudioService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 006AC6BD98420562AC6A931C /* AudioService.swift */; };
@@ -347,6 +349,7 @@
 		1AEE16398D08C10B333F02D3 /* NativeMemoryPolicyResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMemoryPolicyResolver.swift; sourceTree = "<group>"; };
 		1F29561FAD2A80235462F4B6 /* MacTTSEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacTTSEngine.swift; sourceTree = "<group>"; };
 		21943A54ED34AAA37626A252 /* StartupDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupDiagnosticsView.swift; sourceTree = "<group>"; };
+		21B62401B4FF89AC662FC81C /* IOSBatchGenerationSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSBatchGenerationSheet.swift; sourceTree = "<group>"; };
 		220CFD2739290441DB6C2732 /* GenerationPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationPersistence.swift; sourceTree = "<group>"; };
 		2315EB98D0887ED3A911EEF2 /* GenerationChunkBroker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationChunkBroker.swift; sourceTree = "<group>"; };
 		297CA448BB4837C19346ECC7 /* BatchGenerationRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchGenerationRunner.swift; sourceTree = "<group>"; };
@@ -447,6 +450,7 @@
 		C5D4F51C8BBABFB4246536FD /* GenerationLibraryEvents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationLibraryEvents.swift; sourceTree = "<group>"; };
 		C69234A301AA6DDDBFDFD7BD /* AppEngineSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEngineSelection.swift; sourceTree = "<group>"; };
 		C9DFF46140E21950EEDD4721 /* MLXModelLoadCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXModelLoadCoordinator.swift; sourceTree = "<group>"; };
+		CA09D7C9DFA513F63AD204E3 /* IOSBatchGenerationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSBatchGenerationCoordinator.swift; sourceTree = "<group>"; };
 		CAC079A66AD5DB1CFDD33485 /* IOSOnboardingCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSOnboardingCard.swift; sourceTree = "<group>"; };
 		CBFD195E3C3F6CFC29D83EC1 /* Generation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Generation.swift; sourceTree = "<group>"; };
 		CC9857BFB390C9E4401ED0FD /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -855,6 +859,8 @@
 				473C7A803F9F31801C56EDE1 /* IOSAccessibility.swift */,
 				A014ECB4F32BED1D8FE49B68 /* IOSAccessibilityIdentifiers.swift */,
 				9E06F182E0D06AC11E44161D /* IOSAppBootstrap.swift */,
+				CA09D7C9DFA513F63AD204E3 /* IOSBatchGenerationCoordinator.swift */,
+				21B62401B4FF89AC662FC81C /* IOSBatchGenerationSheet.swift */,
 				5F8CA939BDEDD6DB1F479C5F /* IOSEngineLifecycleToast.swift */,
 				F8D4D8DFF4CFC912BE52FF1E /* IOSGenerateFlowViews.swift */,
 				8265666E168A61818AB382C1 /* IOSGenerationInputControls.swift */,
@@ -1316,6 +1322,8 @@
 				CAC104EFF8BBD01F0674A3FD /* IOSAccessibility.swift in Sources */,
 				B937F5E912C7E9B8668BB24B /* IOSAccessibilityIdentifiers.swift in Sources */,
 				63688213A368E98006CB5813 /* IOSAppBootstrap.swift in Sources */,
+				9AE21FC4805C1EFAF94EB80D /* IOSBatchGenerationCoordinator.swift in Sources */,
+				EFA270BB095642D0FF7084EE /* IOSBatchGenerationSheet.swift in Sources */,
 				5534D672FF2E267DAFE941E4 /* IOSEngineLifecycleToast.swift in Sources */,
 				940F6E64A6613D0A4F1CD843 /* IOSGenerateFlowViews.swift in Sources */,
 				1F0331F59477C4B2ED745030 /* IOSGenerationInputControls.swift in Sources */,

@@ -656,6 +656,7 @@ struct IOSVoiceCloningView: View {
     @State private var isImporterPresented = false
     @State private var isTranscriptExpanded = false
     @State private var isScriptFocused = false
+    @State private var isBatchSheetPresented = false
 
     private var cloneModel: TTSModel? {
         TTSModel.model(for: .clone)
@@ -828,6 +829,34 @@ struct IOSVoiceCloningView: View {
                     errorMessage = error.localizedDescription
                 }
             }
+            .sheet(isPresented: $isBatchSheetPresented) {
+                IOSBatchGenerationSheet(
+                    mode: .clone,
+                    tint: IOSGenerationSection.clone.primaryActionTint,
+                    requestBuilder: { line in
+                        guard let model = cloneModel,
+                              let refPath = draft.referenceAudioPath
+                        else { return nil }
+                        let outputPath = makeOutputPath(subfolder: model.outputSubfolder, text: line)
+                        let request = GenerationRequest(
+                            mode: .clone,
+                            modelID: model.id,
+                            text: line,
+                            outputPath: outputPath,
+                            shouldStream: false,
+                            streamingInterval: GenerationSemantics.appStreamingInterval,
+                            payload: .clone(
+                                reference: CloneReference(
+                                    audioPath: refPath,
+                                    transcript: draft.referenceTranscript.isEmpty ? nil : draft.referenceTranscript,
+                                    preparedVoiceID: draft.selectedSavedVoiceID
+                                )
+                            )
+                        )
+                        return (request, model)
+                    }
+                )
+            }
     }
 
     @ViewBuilder
@@ -878,6 +907,21 @@ struct IOSVoiceCloningView: View {
                 )
             }
 
+            if isBatchTriggerEnabled {
+                Button {
+                    IOSHaptics.selection()
+                    isBatchSheetPresented = true
+                } label: {
+                    Label("Generate batch…", systemImage: "list.bullet.indent")
+                        .font(.footnote.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.bordered)
+                .tint(IOSGenerationSection.clone.primaryActionTint)
+                .accessibilityIdentifier("textInput_generateBatchButton")
+            }
+
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -887,6 +931,13 @@ struct IOSVoiceCloningView: View {
                 draft.text = clamped
             }
         }
+    }
+
+    private var isBatchTriggerEnabled: Bool {
+        ttsEngine.isReady
+            && !ttsEngine.hasActiveGeneration
+            && isModelAvailable
+            && draft.referenceAudioPath != nil
     }
 
     private func publishPrimaryAction() {

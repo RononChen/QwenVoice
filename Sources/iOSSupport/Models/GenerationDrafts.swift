@@ -12,15 +12,18 @@ struct DeliveryInputState: Equatable {
 
     var mode: DeliveryInputMode = .preset
     var selectedPresetID = DeliveryInputState.neutralPresetID
+    var selectedIntensity: EmotionIntensity = .normal
     var customText = ""
 
     init(
         mode: DeliveryInputMode = .preset,
         selectedPresetID: String = DeliveryInputState.neutralPresetID,
+        selectedIntensity: EmotionIntensity = .normal,
         customText: String = ""
     ) {
         self.mode = mode
         self.selectedPresetID = selectedPresetID
+        self.selectedIntensity = selectedIntensity
         self.customText = customText
     }
 
@@ -32,14 +35,21 @@ struct DeliveryInputState: Equatable {
             return
         }
 
-        if let preset = EmotionPreset.all.first(where: {
-            $0.instruction(for: .normal).caseInsensitiveCompare(trimmedEmotion) == .orderedSame
-        }) {
-            self.init(mode: .preset, selectedPresetID: preset.id)
-            return
+        // Look across all intensities so a saved "strong" instruction round-trips correctly.
+        for preset in EmotionPreset.all {
+            for intensity in EmotionIntensity.allCases {
+                if preset.instruction(for: intensity).caseInsensitiveCompare(trimmedEmotion) == .orderedSame {
+                    self.init(mode: .preset, selectedPresetID: preset.id, selectedIntensity: intensity)
+                    return
+                }
+            }
         }
 
         self.init(mode: .custom, customText: trimmedEmotion)
+    }
+
+    var supportsIntensity: Bool {
+        mode == .preset && selectedPresetID != DeliveryInputState.neutralPresetID
     }
 
     var resolvedDeliveryProfile: DeliveryProfile {
@@ -48,7 +58,7 @@ struct DeliveryInputState: Equatable {
             guard let preset = EmotionPreset.preset(id: selectedPresetID) else {
                 return .neutral
             }
-            return DeliveryProfile.preset(preset, intensity: .normal)
+            return DeliveryProfile.preset(preset, intensity: selectedIntensity)
         case .custom:
             guard let trimmedCustomText = customText.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else {
                 return .neutral
