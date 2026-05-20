@@ -106,8 +106,11 @@ enum IOSBrandTheme {
     static let silver = Color(dark: UIColor(red: 0.68, green: 0.71, blue: 0.76, alpha: 1))
 
     static let custom = accent
-    static let design = Color(dark: UIColor(red: 0.75, green: 0.67, blue: 0.86, alpha: 1))
-    static let clone = Color(dark: UIColor(red: 0.86, green: 0.66, blue: 0.53, alpha: 1))
+    // Mode color: #BFAADC per design_references/Vocello iOS/tokens.css (--mode-design).
+    // Was #BFABDB — 2-channel micro-shift to align with the Claude Design system.
+    static let design = Color(dark: UIColor(red: 0.749, green: 0.667, blue: 0.863, alpha: 1))
+    // Mode color: #DBA887 per design system (--mode-cloning).
+    static let clone = Color(dark: UIColor(red: 0.859, green: 0.659, blue: 0.529, alpha: 1))
     static let library = Color(dark: UIColor(red: 0.75, green: 0.74, blue: 0.71, alpha: 1))
     static let settings = silver
 
