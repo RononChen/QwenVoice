@@ -1,12 +1,12 @@
-# Vocello Beta 1 for macOS 26
+# Vocello for macOS 26
 
-Vocello is the next-generation version of QwenVoice, rebranded for the 2.0 macOS 26 beta.
+Vocello is the next-generation version of QwenVoice, rebranded as the 2.0 macOS 26 release line.
 
-[![Vocello beta](https://img.shields.io/badge/Vocello-2.0%20beta%201-7b61ff?style=flat-square)](https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0-beta.1)
+[![Vocello 2.0.0](https://img.shields.io/badge/Vocello-2.0.0-7b61ff?style=flat-square)](https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0)
 ![macOS 26+](https://img.shields.io/badge/macOS-26%2B-111827?style=flat-square&logo=apple)
 ![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-required-111827?style=flat-square&logo=apple)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
-[![Beta downloads](https://img.shields.io/github/downloads/PowerBeef/QwenVoice/v2.0.0-beta.1/total?label=beta%20downloads&style=flat-square)](https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0-beta.1)
+[![Downloads](https://img.shields.io/github/downloads/PowerBeef/QwenVoice/v2.0.0/total?label=2.0.0%20downloads&style=flat-square)](https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0)
 
 **The easiest way to generate private, high-quality AI voices entirely on your Mac.**
 
@@ -14,8 +14,8 @@ Vocello is a local, private AI voice-generation app for Apple Silicon Macs. Writ
 
 | If you want... | Get this build | Notes |
 | --- | --- | --- |
-| The newest Vocello beta for Apple Silicon Macs | **Vocello 2.0 beta 1** - [Download Beta](https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0-beta.1) | Public beta for macOS 26 testers. |
-| A stable app for macOS 15 or non-beta use | **QwenVoice 1.2.3** - [Download Stable](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3) | Stable fallback before the Vocello 2.0 line. |
+| Vocello 2.0.0 for Apple Silicon Macs (macOS 26+) | **Vocello 2.0.0** - [Download](https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0) | Stable, signed + notarized release. Recommended download. |
+| A build for macOS 15 | **QwenVoice 1.2.3** - [Download Legacy](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3) | Legacy build for macOS 15. No 2.x backport planned. |
 
 <p align="center">
   <img src="docs/readme_banner_vocello.png" alt="Vocello banner with abstract voice waves and the Vocello logo" width="920">
@@ -26,7 +26,7 @@ Vocello is a local, private AI voice-generation app for Apple Silicon Macs. Writ
 - **Private by default.** After models are installed, generation runs locally and your scripts, history, and generated audio stay in local app storage unless you export them.
 - **No subscription meter.** Download the models you want, then generate on your Mac without paying per line or waiting on a cloud queue.
 - **Three voice workflows.** Use a built-in speaker, describe a new voice, or clone from a reference clip you own or have permission to use.
-- **Built for Apple Silicon.** Vocello 2.0 uses a native Swift + MLX backend instead of the older bundled Python runtime, keeping the beta local, private, self-contained, and Mac-like.
+- **Built for Apple Silicon.** Vocello 2.0 uses a native Swift + MLX backend instead of the older bundled Python runtime, keeping it local, private, self-contained, and Mac-like.
 
 ## Screenshots
 
@@ -79,9 +79,9 @@ Generate speech from a short reference clip. Vocello supports WAV, MP3, AIFF, M4
 
 Settings is focused on model packages: download, repair, reveal, or delete Speed and Quality models for each voice mode. Generation screens own the Speed/Quality choice so model management stays out of the way while you write.
 
-## Install The Beta
+## Install
 
-1. Download [`Vocello-macos26.dmg`](https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0-beta.1).
+1. Download [`Vocello-macos26.dmg`](https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0).
 2. Open the DMG and drag `Vocello.app` to `/Applications`.
 3. Open Vocello.
 4. Go to Settings -> Model downloads and install the voice models you want.
@@ -89,11 +89,18 @@ Settings is focused on model packages: download, repair, reveal, or delete Speed
 
 No Python setup or local server is required. Install the app, download models from Settings, and generate locally.
 
-You can verify the download with `Vocello-macos26.dmg.sha256` from the same release.
+The DMG is signed by `Developer ID Application: PATRICE DERY` and Apple-notarized with a stapled ticket, so the first launch opens with a double-click — no right-click bypass needed. If you want to verify out of band:
+
+```sh
+xcrun stapler validate Vocello-macos26.dmg     # "The validate action worked!"
+spctl --assess --type install -vv Vocello-macos26.dmg   # accepted, source=Notarized Developer ID
+```
+
+A `release-metadata.txt` (commit SHA, Xcode version, SDK, marketing version, build number) is attached to the same release for build provenance.
 
 ## Requirements
 
-For Vocello 2.0.0 beta 1:
+For Vocello 2.0.0:
 
 - macOS 26.0+
 - Apple Silicon Mac
@@ -104,13 +111,11 @@ Model downloads come in two sizes:
 - `Speed` models are smaller 4-bit packages for faster startup and lower memory use.
 - `Quality` models are larger 8-bit packages for Macs with more headroom.
 
-For macOS 15 or a stable non-beta build, use [QwenVoice v1.2.3](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3).
+For macOS 15, use [QwenVoice v1.2.3](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3). No 2.x backport to macOS 15 is planned.
 
-## Beta Notes
+## Release Status
 
-Vocello 2.0.0 beta 1 is public beta software. Voice quality, tone control, model downloads, and performance may still be refined before a stable 2.0 release.
-
-The withdrawn 2.0 RC1 build is not restored or advertised. Beta 1 is a newer public beta with backend hardening, clearer model management, Speed/Quality selection on generation screens, and targeted delivery-control fixes.
+Vocello 2.0.0 is the first stable release of the macOS 26 line. Every GitHub Release from here on ships a notarized + stapled DMG, signed by Developer ID Application: PATRICE DERY — installing it is a normal double-click flow, no Gatekeeper workarounds.
 
 The iPhone app is maintained in this repository, but it is not a public download yet. When ready, it will ship through the App Store or TestFlight, not GitHub Releases.
 
@@ -123,9 +128,9 @@ The iPhone app is maintained in this repository, but it is not a public download
 
 ## For Developers
 
-The `main` branch contains the current Vocello codebase. The public beta release is tagged as [`v2.0.0-beta.1`](https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0-beta.1).
+The `main` branch contains the current Vocello codebase. The current stable release is tagged as [`v2.0.0`](https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0).
 
-Vocello 2.0's native Swift + MLX engine is hosted outside the UI process and replaces the legacy Python-backed runtime for the beta line.
+Vocello 2.0's native Swift + MLX engine is hosted outside the UI process and replaces the legacy Python-backed runtime.
 
 ```sh
 git clone https://github.com/PowerBeef/QwenVoice.git
