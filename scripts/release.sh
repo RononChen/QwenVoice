@@ -45,11 +45,13 @@ Build the macOS Release app, sign it, package it into a DMG, and emit release me
 
 --notarize submits the DMG to Apple's notarization service via the
 App Store Connect API key flow, then staples the ticket. Requires
---signing-mode developer-id and the three env vars Apple's notarytool
-documents:
-  APPLE_API_KEY_PATH   - path to the AuthKey_XXXXXX.p8 file
-  APPLE_API_KEY_ID     - the 10-char key ID from the .p8 filename
-  APPLE_API_ISSUER_ID  - the App Store Connect "Issuer ID" UUID
+--signing-mode developer-id and these env vars:
+  APPLE_API_KEY_PATH   - path to the AuthKey_XXXXXX.p8 file (required)
+  APPLE_API_KEY_ID     - the 10-char key ID from the .p8 filename (required)
+  APPLE_API_ISSUER_ID  - the App Store Connect "Issuer ID" UUID. REQUIRED
+                         for Team API keys; omit (or leave empty) for
+                         Individual API keys (notarytool rejects
+                         --issuer with anything non-UUID).
 Notarization typically takes 1-5 minutes of wall-clock per DMG.
 EOF
     exit 1
@@ -129,7 +131,11 @@ if [ "$NOTARIZE" = "1" ]; then
     [ -n "${APPLE_API_KEY_PATH:-}" ] || release_fail "APPLE_API_KEY_PATH env var is required for --notarize (path to the AuthKey_*.p8 file)"
     [ -f "${APPLE_API_KEY_PATH:-/dev/null}" ] || release_fail "APPLE_API_KEY_PATH points to a missing file: $APPLE_API_KEY_PATH"
     [ -n "${APPLE_API_KEY_ID:-}" ] || release_fail "APPLE_API_KEY_ID env var is required for --notarize"
-    [ -n "${APPLE_API_ISSUER_ID:-}" ] || release_fail "APPLE_API_ISSUER_ID env var is required for --notarize"
+    # APPLE_API_ISSUER_ID is required for Team API keys but MUST be
+    # omitted for Individual API keys. We pass --issuer only when the
+    # value looks like a real UUID; otherwise notarytool runs without
+    # it. notarytool itself will fail with a clear error if the key
+    # actually needed an issuer.
 fi
 
 case "$PREFLIGHT" in
@@ -337,12 +343,18 @@ if [ "$NOTARIZE" = "1" ]; then
     # `notarytool submit --wait` blocks until the submission resolves;
     # exit code is non-zero on Invalid/Rejected so `set -e` aborts the
     # release on a failed notarization. On failure, fetch the per-issue
-    # log from Apple with `xcrun notarytool log <submission-id> --key ... --key-id ... --issuer ...`.
-    xcrun notarytool submit "$DMG_PATH" \
-        --key "$APPLE_API_KEY_PATH" \
-        --key-id "$APPLE_API_KEY_ID" \
-        --issuer "$APPLE_API_ISSUER_ID" \
-        --wait
+    # log from Apple with `xcrun notarytool log <submission-id> --key ... --key-id ...`.
+    notarytool_args=(submit "$DMG_PATH" --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY_ID" --wait)
+    # Pass --issuer only when APPLE_API_ISSUER_ID looks like a real
+    # UUID. Required for Team API keys; MUST be omitted for Individual
+    # API keys (notarytool rejects --issuer with anything-non-UUID).
+    if [ -n "${APPLE_API_ISSUER_ID:-}" ] && [[ "$APPLE_API_ISSUER_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+        notarytool_args+=(--issuer "$APPLE_API_ISSUER_ID")
+        echo "  Using Team API key (issuer present)."
+    else
+        echo "  Using Individual API key (no issuer)."
+    fi
+    xcrun notarytool "${notarytool_args[@]}"
     echo "  Stapling notarization ticket to DMG..."
     xcrun stapler staple "$DMG_PATH"
     xcrun stapler validate "$DMG_PATH"
