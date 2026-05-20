@@ -93,13 +93,43 @@ private struct IOSSettingsView: View {
                         )
                     }
 
-                    IOSStudioSectionGroup(title: "Support", tint: IOSBrandTheme.settings) {
-                        IOSHeaderMetricRow(label: "App version", value: IOSSettingsSupportInfo.appVersionLabel)
+                    IOSStudioSectionGroup(title: "Help & support", tint: IOSBrandTheme.settings) {
+                        IOSSettingsLinkRow(
+                            title: "View documentation",
+                            subtitle: "Open the project README on GitHub.",
+                            urlString: "https://github.com/PowerBeef/QwenVoice#readme",
+                            accessibilityIdentifier: "iosSettingsDocsLink"
+                        )
+
+                        Divider()
+                            .overlay(IOSAppTheme.hairlineDivider)
+
+                        IOSSettingsLinkRow(
+                            title: "Report an issue",
+                            subtitle: "File a bug or feature request on GitHub.",
+                            urlString: "https://github.com/PowerBeef/QwenVoice/issues/new",
+                            accessibilityIdentifier: "iosSettingsReportIssueLink"
+                        )
+
+                        Divider()
+                            .overlay(IOSAppTheme.hairlineDivider)
+
+                        IOSSettingsLinkRow(
+                            title: "Privacy & local storage",
+                            subtitle: "Where Vocello keeps generated audio and saved voices.",
+                            urlString: "https://github.com/PowerBeef/QwenVoice/blob/main/docs/reference/privacy-storage.md",
+                            accessibilityIdentifier: "iosSettingsPrivacyLink"
+                        )
 
                         Divider()
                             .overlay(IOSAppTheme.hairlineDivider)
 
                         IOSSettingsSystemPreferencesRow()
+
+                        Divider()
+                            .overlay(IOSAppTheme.hairlineDivider)
+
+                        IOSHeaderMetricRow(label: "App version", value: IOSSettingsSupportInfo.appVersionLabel)
                     }
                 }
                 .padding(.bottom, 8)
@@ -141,6 +171,42 @@ private struct IOSSettingsView: View {
     private func delete(_ model: TTSModel) {
         guard IOSSimulatorPreviewPolicy.allowsModelMutations else { return }
         modelInstaller.delete(model)
+    }
+}
+
+private struct IOSSettingsLinkRow: View {
+    let title: String
+    let subtitle: String
+    let urlString: String
+    let accessibilityIdentifier: String
+
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        Button {
+            guard let url = URL(string: urlString) else { return }
+            openURL(url)
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(IOSAppTheme.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(subtitle)
+                        .font(.footnote)
+                        .foregroundStyle(IOSAppTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 10)
+                Image(systemName: "arrow.up.forward")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(IOSAppTheme.textSecondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 }
 

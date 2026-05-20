@@ -302,6 +302,8 @@ private struct IOSHistoryItemCard: View {
     let onPlay: () -> Void
     let onDelete: () -> Void
 
+    @State private var isConfirmingDelete = false
+
     private var modeText: String {
         switch item.mode.lowercased() {
         case "custom":
@@ -372,13 +374,30 @@ private struct IOSHistoryItemCard: View {
                                 Label("Share", systemImage: "square.and.arrow.up")
                             }
                         }
-                        Button("Delete", role: .destructive, action: onDelete)
+                        Button("Delete", role: .destructive) {
+                            isConfirmingDelete = true
+                        }
                     } label: {
                         Image(systemName: "ellipsis")
                     }
                     .iosAdaptiveUtilityButtonStyle(tint: IOSBrandTheme.library)
+                    .accessibilityIdentifier("historyRowMenu_\(item.historyAccessibilityID)")
                 }
             }
+        }
+        .confirmationDialog(
+            "Delete this take?",
+            isPresented: $isConfirmingDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                IOSHaptics.warning()
+                onDelete()
+            }
+            .accessibilityIdentifier("historyRowDeleteConfirm_\(item.historyAccessibilityID)")
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently removes the generated audio and its history entry.")
         }
     }
 
@@ -475,6 +494,8 @@ private struct IOSSavedVoiceCard: View {
     let onUseInVoiceCloning: () -> Void
     let onDelete: () -> Void
 
+    @State private var isConfirmingDelete = false
+
     var body: some View {
         IOSSurfaceCard(tint: IOSBrandTheme.library) {
             HStack(alignment: .center, spacing: 12) {
@@ -538,13 +559,35 @@ private struct IOSSavedVoiceCard: View {
 
                     Menu {
                         Button("Use in Clone", action: onUseInVoiceCloning)
-                        Button("Delete", role: .destructive, action: onDelete)
+                        if FileManager.default.fileExists(atPath: voice.wavPath) {
+                            ShareLink(item: URL(fileURLWithPath: voice.wavPath)) {
+                                Label("Share reference clip", systemImage: "square.and.arrow.up")
+                            }
+                        }
+                        Button("Delete", role: .destructive) {
+                            isConfirmingDelete = true
+                        }
                     } label: {
                         Image(systemName: "ellipsis")
                     }
                     .iosAdaptiveUtilityButtonStyle(tint: IOSBrandTheme.library)
+                    .accessibilityIdentifier("savedVoiceMenu_\(voice.id)")
                 }
             }
+        }
+        .confirmationDialog(
+            "Delete \(voice.name)?",
+            isPresented: $isConfirmingDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                IOSHaptics.warning()
+                onDelete()
+            }
+            .accessibilityIdentifier("savedVoiceDeleteConfirm_\(voice.id)")
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The saved voice and its reference clip are removed. This cannot be undone.")
         }
     }
 
