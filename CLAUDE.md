@@ -16,6 +16,8 @@ Per `CONTRIBUTING.md`, trust in order: `Sources/` → `project.yml` → `scripts
 
 The Xcode project is generated from `project.yml` via XcodeGen. Edit `project.yml` (not `.xcodeproj`) for structural changes, then regenerate.
 
+**XcodeGen iOS resource gotcha.** The iOS app target lists `Sources/Resources/qwenvoice_contract.json` and `Sources/Assets.xcassets` under its `sources:` block with an explicit `buildPhase: resources` override, not under `resources:`. XcodeGen 2.45.4 silently drops these files from the `VocelloiOS` Resources phase when they're listed under `resources:` directly — iOS builds compile but crash on first launch with `Fatal error: Could not locate bundled qwenvoice_contract.json`. The macOS target is unaffected because it uses the directory pattern (`- path: Sources/Resources` under `resources:`). Workaround landed in Track 0 of commit `287c969` (May 2026); leave the sources-block placement in place when editing `project.yml`.
+
 Preferred entrypoint for day-to-day work — wraps the steps below and skips regen / SPM resolve when their inputs are unchanged:
 
 ```sh
@@ -101,9 +103,27 @@ Committed baselines live at `docs/reference/benchmark-baselines.json` (schema v3
 
 **Reading bench-compare flags — `ms` and `rtf` as paired signals.** The two gates flag independently but are not independent metrics. When `ms_engine_start_to_final` flags but `rtf` stays within ±15 %, the latency change is driven by LM output-length variance (same input prompt occasionally produces a longer/shorter take), not engine throughput regression — inspect `audio_duration_s` in the per-sample JSONL for outliers. The `rtf` metric (audio-seconds per generation-second) normalizes out output-length and is the correct gate for engine throughput. The ±15 % gate on raw `ms` is conservative for catching obvious regressions but is noisy at n=3; for a "confirmed regression" verdict, prefer `rtf` and require n≥10 samples. See `docs/reference/ui-test-surface.md` § "Reading the bench-compare output" for the full reading rules and a May 18 worked example.
 
+### iOS Simulator UI testing
+
+Real MLX generation can't run in the iOS Simulator (no Apple Neural Engine, no real bytes on disk), but every iPhone UI surface is reviewable end-to-end through a stubbed engine and a Simulator-only fake-install path. Quick start:
+
+```sh
+xcodebuild -project QwenVoice.xcodeproj -scheme VocelloiOS \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -derivedDataPath build/Debug/foundation/local-builds/ios-simulator-derived-data \
+  -configuration Debug build
+xcrun simctl boot "iPhone 17 Pro"
+xcrun simctl install booted build/Debug/foundation/local-builds/ios-simulator-derived-data/Build/Products/Debug-iphonesimulator/Vocello.app
+xcrun simctl launch booted com.qvoice.ios
+```
+
+`IOSAppBootstrap.makeBackend` swaps in `IOSSimulatorTTSEngine` (stub) + `IOSSimulatorFakeStatusProvider` (decorates `LocalModelStatusProvider` with a process-wide `IOSSimulatorFakeInstallRegistry`) when running on Simulator. Tapping Download / Delete on a model row in Settings drives a fake ~4.2 s download flow via `simulatorFakeInstall` / `simulatorFakeDelete`; the registry persists the installed state across `modelManager.refresh()` calls, so the Generate tab's onboarding card hides as expected after a fake install. All Simulator paths are gated on `IOSSimulatorRuntimeSupport.isSimulator`; real-hardware behavior is unchanged.
+
+Full runbook at `docs/reference/ios-simulator-testing.md` (covers Reduce Motion / Reduce Transparency toggle review, side-by-side macOS chrome comparison, and known limitations).
+
 ## Testing policy — important
 
-This repo keeps CI **scoped to release packaging only** as of May 2026 — no XCTest targets, no automated bench/smoke/perceptual runs on CI, no legacy Python/CI benchmark harnesses. The sole workflow at `.github/workflows/release.yml` invokes `scripts/release.sh` on `release.published` events (and on manual `workflow_dispatch`) and uploads the same `Vocello-macos26.dmg` that local `scripts/release.sh` produces. Behavioral validation is local-only and two-track: manual app acceptance plus the maintained Claude Code–driven `scripts/uitest.sh` smoke/bench harness above. For Debug behavior, use `./scripts/build.sh run` or `scripts/uitest.sh prep` (Debug app path: `build/Debug/Vocello.app`). For release signoff, launch `build/Release/Vocello.app` only after `./scripts/release.sh` has produced the Release bundle.
+This repo keeps CI **scoped to release packaging only** as of May 2026 — no XCTest targets, no automated bench/smoke/perceptual runs on CI, no legacy Python/CI benchmark harnesses. The sole workflow at `.github/workflows/release.yml` has two parallel jobs on `release.published` (and on manual `workflow_dispatch`): `package` (macOS DMG sign + notarize + staple via `scripts/release.sh`, attached to the GitHub Release) and `compile-ios` (iOS compile-safety only, no signing, no tests, runs `scripts/build_foundation_targets.sh ios`). `compile-ios` failures do not block the macOS DMG; the iOS signed-IPA path requires the entitlement approval + iOS Distribution cert + provisioning profile that don't exist as of v2.0.0 (see [`docs/reference/release-readiness.md`](docs/reference/release-readiness.md) § "iPhone Shipping Plan"). Behavioral validation is local-only and two-track: manual app acceptance plus the maintained Claude Code–driven `scripts/uitest.sh` smoke/bench harness above. For Debug behavior, use `./scripts/build.sh run` or `scripts/uitest.sh prep` (Debug app path: `build/Debug/Vocello.app`). For release signoff, launch `build/Release/Vocello.app` only after `./scripts/release.sh` has produced the Release bundle.
 
 Do not reintroduce test bundles, QA shell scripts, agent configs, additional GitHub Actions workflows beyond `release.yml`, or a parallel benchmark harness without an explicit maintainer decision. `scripts/check_project_inputs.sh` enforces the retired surfaces with a prohibited-paths list and a regex sweep of the working tree. Inspect that script for the current list rather than quoting names here (its patterns also trip on any file that mentions the banned names verbatim).
 
@@ -126,7 +146,9 @@ Two-platform Swift codebase with an out-of-process engine on each platform.
 
 **Engine routing:** `AppEngineSelection.current()` picks the engine per platform — XPC client on macOS, extension-backed engine on iOS.
 
-**Generation flows** (UI side): three coordinators map to the three workflows — `CustomVoiceCoordinator`, `VoiceDesignCoordinator`, `VoiceCloningCoordinator`. Speed (4-bit) vs Quality (8-bit) variant choice lives on the generation screens, not in Settings. iPhone is Speed-only; 8 GB Macs default to Speed, larger Macs default to Quality.
+**Generation flows** (UI side): three coordinators map to the three workflows — `CustomVoiceCoordinator`, `VoiceDesignCoordinator`, `VoiceCloningCoordinator`. Speed (4-bit) vs Quality (8-bit) variant choice lives on the generation screens, not in Settings. iPhone is Speed-only; 8 GB Macs default to Speed, larger Macs default to Quality. iOS exposes an additional 3-segment intensity picker (`Subtle / Normal / Strong`) below the delivery preset selector when a non-neutral preset is chosen; `DeliveryInputState.selectedIntensity` carries the value through to `EmotionPreset.preset(preset, intensity:)`. iOS Voice Cloning also exposes a "Generate batch…" affordance backed by `IOSBatchGenerationCoordinator` (sequential single-call loop, distinct from the macOS `BatchGenerationRunner`) and `IOSBatchGenerationSheet`.
+
+**iOS design tokens align to macOS** (May 2026, commit `287c969`). `IOSAppTheme.subtleGlassTint` is 14% opacity (matches macOS `surfaceGlassTint` dark); `accentStroke` is 34%; `accentWash` is 20%. Neutral palette is warm-tinted (`textSecondary` ~`#C5BFAE`, `textTertiary` ~`#7E7868`) rather than cool blue-gray. Card corner radii unify at 16 pt; chips and badges are flat (no glass) per the macOS May 2026 chip audit. Brand wordmark uses SF Rounded semibold, mirroring `Sources/Views/Sidebar/SidebarView.swift`. When changing iOS colors, check the macOS values first — these are intentionally locked together.
 
 **Entitlements:** App sandbox is **disabled** (`com.apple.security.app-sandbox = false` in `Sources/QwenVoice.entitlements`) — required for MLX. Hardened runtime is on with allow-unsigned-memory and disable-library-validation flags.
 
@@ -242,7 +264,8 @@ Mean gain across all 6 cells: **+4.5 s** saved on time-to-first-sound.
 
 - `docs/README.md` — documentation index
 - `docs/reference/current-state.md` — current repo facts
-- `docs/reference/release-readiness.md` — release signoff gates
+- `docs/reference/release-readiness.md` — release signoff gates + iOS shipping plan
+- `docs/reference/ios-simulator-testing.md` — iOS Simulator UI review + Simulator-only fake install/delete dev affordance
 - `docs/reference/privacy-storage.md` — local storage and deletion
 - `docs/qwen_tone.md` — prompt/tone guidance for voice generation
 - `docs/reference/antigravity-voice-review.md` — Antigravity-CLI-backed perceptual review runbook (semi-automated, complements the bench's timing/RMS gates with subjective dimensions). The legacy `gemini-voice-review.md` is a redirect stub after Google retired Gemini CLI in favor of Antigravity CLI (2026-05-19).

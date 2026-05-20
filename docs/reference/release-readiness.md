@@ -8,15 +8,15 @@ The repo is currently operating on a `macOS-first release track`.
 
 That means:
 
-- the current public beta release target is macOS only
-- `Vocello-macos26.dmg` is the only public beta ship artifact for the current milestone and requires `macOS 26.0` as the minimum
+- the current public release target is macOS only
+- `Vocello-macos26.dmg` is the only public ship artifact for the current milestone and requires `macOS 26.0` as the minimum
 - `macOS 15` was supported only on the already-shipped `QwenVoice v1.2.3` and is retired going forward
 - iPhone remains in active development and stays compile-safe on `main`
 - iPhone TestFlight and owned-device proof stay maintained, but they are deferred from public release signoff until the shared core is proven stable on macOS
 
 ## Public Homepage Posture
 
-The public GitHub landing page now leads with `Vocello 2.0.0 beta 1` for macOS 26 testers. `QwenVoice v1.2.3` remains the stable fallback for macOS 15 users and people who do not want beta software.
+The public GitHub landing page leads with `Vocello 2.0.0` (stable) for macOS 26+ users. `QwenVoice v1.2.3` remains the legacy fallback for macOS 15 users.
 
 Public surfaces:
 
@@ -26,8 +26,8 @@ Public surfaces:
 
 Public messaging rules:
 
-- Lead with `Vocello 2.0.0 beta 1` as the current public macOS 26 beta.
-- Keep `QwenVoice v1.2.3` visible as the stable fallback, especially for macOS 15 users.
+- Lead with `Vocello 2.0.0` as the current public macOS 26+ release.
+- Keep `QwenVoice v1.2.3` visible as the legacy fallback, especially for macOS 15 users.
 - Keep public claims aligned with the current macOS product reality and the active `macOS-first release track`.
 - Do not imply that iPhone is already shipping publicly in this milestone. Present the iPhone app publicly as the in-development "Vocello for iPhone" — standalone, 4-bit, open source in this repo, published via the App Store once ready.
 - Do not advertise a public website until one actually exists.
@@ -67,10 +67,10 @@ Two-track proof policy:
 
 ## Current Status
 
-- Public homepage posture: Vocello-led for the public `v2.0.0-beta.1` macOS 26 beta, with `QwenVoice v1.2.3` retained as the stable fallback
+- Public homepage posture: Vocello-led for the public `v2.0.0` (stable) macOS 26+ release, with `QwenVoice v1.2.3` retained as the legacy macOS 15 fallback
 - macOS source and packaging surfaces: maintained in-repo
 - iPhone archive/export/TestFlight tooling: maintained in-repo
-- Current public beta release milestone: macOS only
+- Current public release milestone: macOS only
 - iPhone owned-device proof: `iPhone 17 Pro` path is the active validation target
 - iPhone official minimum-device proof: pending until `iPhone 15 Pro` evidence is recorded
 - Rescue baseline: `main` commit `63a5e02` passed the historical GitHub workflows on April 26, 2026 local time. Those workflows (`Project Inputs`, `Apple Platform QA Gate` later renamed `Apple Platform Build Gate`, `Vocello macOS Release`, `Vocello iOS TestFlight`) were retired in May 2026; all proof now lives locally on Mac mini M2.
@@ -120,11 +120,11 @@ Only tiers 1 and 2 block the current public release milestone. Tier 3 is maintai
 
 The current execution order is:
 
-1. keep public messaging polished and aligned with `Vocello 2.0.0 beta 1` as the macOS 26 beta and `QwenVoice v1.2.3` as the stable fallback
-2. stabilize the shared core on macOS through beta feedback and follow-up release candidates
+1. keep public messaging polished and aligned with `Vocello 2.0.0` (stable) as the macOS 26+ release and `QwenVoice v1.2.3` as the legacy macOS 15 fallback
+2. stabilize the shared core on macOS through follow-up patch releases
 3. keep iPhone compile proof green on `main` without treating iPhone release proof as blocking for this milestone
 4. maintain separate owned-device and official-minimum iPhone proof states for later re-entry
-5. re-open the iPhone release track only after the macOS-first beta/stable milestone is clean
+5. re-open the iPhone release track only after the macOS-first stable milestone is clean
 
 ## Default Local macOS Signoff Loop
 

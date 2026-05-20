@@ -5,8 +5,8 @@ This document is the shared factual reference for the current QwenVoice reposito
 ## Product Surface
 
 - Repo identity: `QwenVoice`
-- Currently shipped public beta brand: `Vocello` (`v2.0.0-beta.1`)
-- Stable fallback brand: `QwenVoice` (`v1.2.3`)
+- Currently shipped public stable brand: `Vocello` (`v2.0.0`)
+- Legacy fallback brand: `QwenVoice` (`v1.2.3`) — macOS 15 only
 - Platforms in this repo: macOS and iPhone
 - Active public release track: `macOS-first release track`
 - Deployment targets: `macOS 26.0+` and `iOS 26.0+`
@@ -15,17 +15,17 @@ This document is the shared factual reference for the current QwenVoice reposito
   - `iPhone 15 Pro`
 - Version source: `project.yml`
 - Current workspace version/build on `main`: `2.0.0` / `16`
-- Shipped public beta version/build: `2.0.0` / `16`
-- Shipped public stable fallback version/build: `1.2.3` / `15`
+- Shipped public stable version/build: `2.0.0` / `16`
+- Legacy macOS 15 fallback version/build: `1.2.3` / `15`
 
-The iPhone app target is Vocello-branded. The public macOS beta ships as `Vocello.app` inside `Vocello-macos26.dmg` on a hard `macOS 26.0` minimum — completing the public beta rebrand on macOS. The supporting framework/service/runtime modules (`QwenVoiceCore`, `QwenVoiceEngineService`, `QwenVoiceEngineSupport`, `QwenVoiceNative`) keep their `QwenVoice` names internally for continuity.
+The iPhone app target is Vocello-branded. The public macOS release ships as `Vocello.app` inside `Vocello-macos26.dmg` on a hard `macOS 26.0` minimum, signed by `Developer ID Application: PATRICE DERY` and Apple-notarized. The supporting framework/service/runtime modules (`QwenVoiceCore`, `QwenVoiceEngineService`, `QwenVoiceEngineSupport`, `QwenVoiceNative`) keep their `QwenVoice` names internally for continuity.
 
 ## Public Homepage Posture
 
-- `README.md` leads with `Vocello 2.0.0 beta 1` for macOS 26 testers, while keeping `QwenVoice v1.2.3` as the stable fallback for macOS 15 or non-beta users.
-- The GitHub repo description should stay consistent with the README: Vocello is the current public macOS 26 beta, and QwenVoice v1.2.3 is the stable fallback.
+- `README.md` leads with `Vocello 2.0.0` (stable) for macOS 26+ users, while keeping `QwenVoice v1.2.3` as the legacy fallback for macOS 15.
+- The GitHub repo description should stay consistent with the README: Vocello is the current public macOS 26+ release, and QwenVoice v1.2.3 is the legacy macOS 15 fallback.
 - Public copy should stay aligned with the currently shipped macOS reality and the active `macOS-first release track`.
-- The withdrawn `2.0.0` RC1 GitHub release must not be linked or advertised; the public Vocello beta link is `v2.0.0-beta.1`.
+- The withdrawn `2.0.0` RC1 GitHub release must not be linked or advertised; the public Vocello link is `v2.0.0`.
 - Do not present iPhone as a current public release surface until the release-track policy changes. The public framing for iPhone is the in-development "Vocello for iPhone" — standalone, 4-bit, open source in this repo, published via the App Store once ready.
 - The GitHub homepage URL should stay blank unless the repo owner explicitly asks to set it again.
 

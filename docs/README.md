@@ -48,6 +48,10 @@ The Debug build is drivable by a Claude Code session via the computer-use MCP. T
 
 - [`reference/antigravity-voice-review.md`](reference/antigravity-voice-review.md) — Antigravity CLI (`agy`) workflow (preferred) + desktop-app fallback. Adds naturalness, emotion match, pronunciation, pacing, and artifact dimensions the bench's RMS/peak gates can't catch. Replaces the retired Gemini-CLI runbook (kept as a redirect stub at `reference/gemini-voice-review.md` for one release).
 
+**iOS Simulator UI review** (per surface, ~5 min):
+
+- [`reference/ios-simulator-testing.md`](reference/ios-simulator-testing.md) — review iPhone chrome on a Mac without iPhone hardware via the stubbed engine + Simulator-only fake install/delete path. Covers Reduce Motion / Reduce Transparency toggle review and side-by-side chrome comparison against the macOS app. Distinct from the macOS `scripts/uitest.sh` harness because iOS has no equivalent automation surface.
+
 Useful local diagnostics can be exported with:
 
 ```sh
@@ -61,7 +65,7 @@ These are the maintained source-of-truth docs for contributor and repository beh
 - [`../README.md`](../README.md) — public GitHub landing page and end-user overview
 - [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — contributor workflow, source-of-truth order, and validation entrypoints
 
-The public landing page leads with `Vocello` as the next Mac identity while making `QwenVoice v1.2.3` the safe current download. See [`reference/release-readiness.md`](reference/release-readiness.md) for the public-messaging rules.
+The public landing page leads with `Vocello 2.0.0` (stable) as the current Mac download, with `QwenVoice v1.2.3` retained as the legacy macOS 15 fallback. See [`reference/release-readiness.md`](reference/release-readiness.md) for the public-messaging rules.
 
 ## Supplemental Guides
 
@@ -77,5 +81,5 @@ Supplemental guides are useful, but they are not the primary source of truth for
 
 - Maintained contributor guidance in this checkout lives in `CONTRIBUTING.md` and the maintained reference docs listed above.
 - This repo does not maintain project-scoped QwenVoice skills; contributor guidance lives in the maintained docs above.
-- Current automation surfaces live in `scripts/`. There are no GitHub workflows and no XCTest target — both were retired in May 2026. Builds, packaging, signing, notarization, and TestFlight prep run **locally on Mac mini M2** via `scripts/check_project_inputs.sh`, `scripts/build_foundation_targets.sh`, `scripts/release.sh`, and `scripts/release_ios_testflight.sh`. Behavioral verification is twofold: (a) manual — launch the app and exercise the affected paths by hand, and (b) agent-driven — a Claude Code session can drive `Vocello.app` via the computer-use MCP, following the smoke and bench runbooks above. The agent-driven harness lives in `scripts/uitest.sh` plus the runbooks under `reference/`; it's distinct from the XCTest / CI / Python-benchmark harnesses `check_project_inputs.sh` actively bans.
+- Current automation surfaces live in `scripts/` and a single GitHub workflow (`.github/workflows/release.yml`) scoped to release packaging only — two jobs run in parallel on `release.published`: `package` (macOS DMG: sign, notarize, staple, attach to the Release) and `compile-ios` (iOS compile-safety only, no signing, no tests). There is no XCTest target — retired in May 2026 along with the historical CI workflows. Local behavioral validation runs **on Mac mini M2** via `scripts/check_project_inputs.sh`, `scripts/build_foundation_targets.sh`, `scripts/release.sh`, and `scripts/release_ios_testflight.sh`. Behavioral verification is twofold: (a) manual — launch the app and exercise the affected paths by hand, and (b) agent-driven — a Claude Code session can drive `Vocello.app` via the computer-use MCP, following the smoke and bench runbooks above. The agent-driven harness lives in `scripts/uitest.sh` plus the runbooks under `reference/`; it's distinct from the XCTest / Python-benchmark harnesses `check_project_inputs.sh` actively bans.
 - Generated or vendored dependency documentation is intentionally out of scope for the repo docs.
