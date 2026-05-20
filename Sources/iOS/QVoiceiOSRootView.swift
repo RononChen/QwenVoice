@@ -14,6 +14,7 @@ struct QVoiceiOSRootView: View {
     @State private var customPrimaryAction = IOSGeneratePrimaryActionDescriptor.placeholder(for: .custom)
     @State private var designPrimaryAction = IOSGeneratePrimaryActionDescriptor.placeholder(for: .design)
     @State private var clonePrimaryAction = IOSGeneratePrimaryActionDescriptor.placeholder(for: .clone)
+    @State private var isOnboardingPresented: Bool = !IOSAppDefaults.hasCompletedOnboarding
 
     init(modelRegistry: ContractBackedModelRegistry) {
         self.modelRegistry = modelRegistry
@@ -57,6 +58,9 @@ struct QVoiceiOSRootView: View {
                 )
                 .allowsHitTesting(false)
             }
+        }
+        .fullScreenCover(isPresented: $isOnboardingPresented) {
+            IOSOnboardingFlow(isPresented: $isOnboardingPresented)
         }
     }
 

@@ -1,0 +1,32 @@
+import Foundation
+
+/// User-defaults keys for iOS app-level preferences. Lives in iOSSupport so
+/// both the iOS target and the iOS-flavored services can share it.
+public enum IOSAppDefaults {
+    private static var defaults: UserDefaults { .standard }
+
+    private enum Keys {
+        static let hasCompletedOnboarding = "vocello.ios.hasCompletedOnboarding"
+        static let autoplayCompletions = "vocello.ios.autoplayCompletions"
+    }
+
+    /// True once the user has dismissed the first-run onboarding flow.
+    /// Skipped automatically when any model is already installed (returning
+    /// users coming from a build before onboarding shipped).
+    public static var hasCompletedOnboarding: Bool {
+        get { defaults.bool(forKey: Keys.hasCompletedOnboarding) }
+        set { defaults.set(newValue, forKey: Keys.hasCompletedOnboarding) }
+    }
+
+    /// True if generations should auto-play their preview as soon as the
+    /// audio is ready. Default true.
+    public static var autoplayCompletions: Bool {
+        get {
+            if defaults.object(forKey: Keys.autoplayCompletions) == nil {
+                return true
+            }
+            return defaults.bool(forKey: Keys.autoplayCompletions)
+        }
+        set { defaults.set(newValue, forKey: Keys.autoplayCompletions) }
+    }
+}
