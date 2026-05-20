@@ -69,6 +69,7 @@
 		51250E1F1F94E164B9702E30 /* MLXAudioCore in Frameworks */ = {isa = PBXBuildFile; productRef = 9445661C0EDF79BBEAA434C6 /* MLXAudioCore */; };
 		526AB39EEB0CE64693396887 /* QwenVoiceEngineService.xpc in CopyFiles */ = {isa = PBXBuildFile; fileRef = 34A69E43A7FA75DD38753845 /* QwenVoiceEngineService.xpc */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		54701534E4439029374FCA23 /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = 48B30CCCAF9E1C70BAE4C419 /* MLX */; };
+		5534D672FF2E267DAFE941E4 /* IOSEngineLifecycleToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F8CA939BDEDD6DB1F479C5F /* IOSEngineLifecycleToast.swift */; };
 		5582DF3AC1881AE1C07BBBB3 /* TTSEngineStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82A05DAF95ECD80C6A42AD1F /* TTSEngineStore.swift */; };
 		59EF7FDB9556E1860DC2FF67 /* ContinuousVoiceDescriptionField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70E509E03D5758CB0D6C0388 /* ContinuousVoiceDescriptionField.swift */; };
 		5D23FDB4CC008D1E909414A8 /* SidebarStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16357673B0524D933999409E /* SidebarStatusView.swift */; };
@@ -86,6 +87,7 @@
 		6C73192903DFFED166DD93FB /* EmotionPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A9B0840026EFF26202877BF /* EmotionPickerView.swift */; };
 		6D89F84D9EB637ED63D386B2 /* VocelloEngineExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ED82B18D9F24B4F02123281 /* VocelloEngineExtension.swift */; };
 		6F2BABA0C7850D795608204A /* ModelAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F056FE32E688786725FCC8D /* ModelAssets.swift */; };
+		6F6FC142F3627E7B64EA863C /* IOSOnboardingCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAC079A66AD5DB1CFDD33485 /* IOSOnboardingCard.swift */; };
 		6FE8129518C5F51DF294199F /* qwenvoice_contract.json in Resources */ = {isa = PBXBuildFile; fileRef = 617BE72142511CD5043C341E /* qwenvoice_contract.json */; };
 		7197E0B1B11DA77FF707BB2B /* GenerationScreenPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A7E4D67B06F288693FEAC2 /* GenerationScreenPresentation.swift */; };
 		734C58F78D1DD830791C7364 /* IOSModelDeliveryBackgroundEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B7F58AC8D59F087073797F7 /* IOSModelDeliveryBackgroundEvents.swift */; };
@@ -384,6 +386,7 @@
 		5A9B0840026EFF26202877BF /* EmotionPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmotionPickerView.swift; sourceTree = "<group>"; };
 		5ADD468538B8CB0B6E629FB7 /* GenerationWorkflowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationWorkflowView.swift; sourceTree = "<group>"; };
 		5B7F58AC8D59F087073797F7 /* IOSModelDeliveryBackgroundEvents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSModelDeliveryBackgroundEvents.swift; sourceTree = "<group>"; };
+		5F8CA939BDEDD6DB1F479C5F /* IOSEngineLifecycleToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSEngineLifecycleToast.swift; sourceTree = "<group>"; };
 		617BE72142511CD5043C341E /* qwenvoice_contract.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = qwenvoice_contract.json; sourceTree = "<group>"; };
 		623B6EAE78F8B7100D4675F4 /* Voice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice.swift; sourceTree = "<group>"; };
 		637866C95AC607A5E0509956 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
@@ -444,6 +447,7 @@
 		C5D4F51C8BBABFB4246536FD /* GenerationLibraryEvents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationLibraryEvents.swift; sourceTree = "<group>"; };
 		C69234A301AA6DDDBFDFD7BD /* AppEngineSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEngineSelection.swift; sourceTree = "<group>"; };
 		C9DFF46140E21950EEDD4721 /* MLXModelLoadCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXModelLoadCoordinator.swift; sourceTree = "<group>"; };
+		CAC079A66AD5DB1CFDD33485 /* IOSOnboardingCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSOnboardingCard.swift; sourceTree = "<group>"; };
 		CBFD195E3C3F6CFC29D83EC1 /* Generation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Generation.swift; sourceTree = "<group>"; };
 		CC9857BFB390C9E4401ED0FD /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		D2A539A647083CC4810F72FE /* WaveformService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformService.swift; sourceTree = "<group>"; };
@@ -851,6 +855,7 @@
 				473C7A803F9F31801C56EDE1 /* IOSAccessibility.swift */,
 				A014ECB4F32BED1D8FE49B68 /* IOSAccessibilityIdentifiers.swift */,
 				9E06F182E0D06AC11E44161D /* IOSAppBootstrap.swift */,
+				5F8CA939BDEDD6DB1F479C5F /* IOSEngineLifecycleToast.swift */,
 				F8D4D8DFF4CFC912BE52FF1E /* IOSGenerateFlowViews.swift */,
 				8265666E168A61818AB382C1 /* IOSGenerationInputControls.swift */,
 				5A5E5015EC4FD8CE25703210 /* IOSGenerationModeViews.swift */,
@@ -861,6 +866,7 @@
 				4EF5A63343C729E7CA4E694E /* IOSModelDeliveryActor.swift */,
 				5B7F58AC8D59F087073797F7 /* IOSModelDeliveryBackgroundEvents.swift */,
 				FE984BD0115C76214CBAB2F3 /* IOSModelInstallerViewModel.swift */,
+				CAC079A66AD5DB1CFDD33485 /* IOSOnboardingCard.swift */,
 				ECF1A0C732B9920CE8D5889A /* IOSPreviewSupport.swift */,
 				C4A51A054EBF03C0D4E010A6 /* IOSRootNavigationModels.swift */,
 				3837D18DB04238E5D9200B5E /* IOSSettingsViews.swift */,
@@ -1310,6 +1316,7 @@
 				CAC104EFF8BBD01F0674A3FD /* IOSAccessibility.swift in Sources */,
 				B937F5E912C7E9B8668BB24B /* IOSAccessibilityIdentifiers.swift in Sources */,
 				63688213A368E98006CB5813 /* IOSAppBootstrap.swift in Sources */,
+				5534D672FF2E267DAFE941E4 /* IOSEngineLifecycleToast.swift in Sources */,
 				940F6E64A6613D0A4F1CD843 /* IOSGenerateFlowViews.swift in Sources */,
 				1F0331F59477C4B2ED745030 /* IOSGenerationInputControls.swift in Sources */,
 				75FE70A9B451FDA8338941B8 /* IOSGenerationModeViews.swift in Sources */,
@@ -1321,6 +1328,7 @@
 				734C58F78D1DD830791C7364 /* IOSModelDeliveryBackgroundEvents.swift in Sources */,
 				D9CD489105C5ADCF38E6EE96 /* IOSModelDeliverySupport.swift in Sources */,
 				A523FA27DCB8DA8F86F04E56 /* IOSModelInstallerViewModel.swift in Sources */,
+				6F6FC142F3627E7B64EA863C /* IOSOnboardingCard.swift in Sources */,
 				FBBE8417A797550DC677BD06 /* IOSPreviewSupport.swift in Sources */,
 				344EA1CECA3F8F8B111BC547 /* IOSRootNavigationModels.swift in Sources */,
 				0EFABC078A628F459E6E62F7 /* IOSSettingsViews.swift in Sources */,

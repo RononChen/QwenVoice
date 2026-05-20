@@ -59,6 +59,7 @@ struct IOSGenerateContainerView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
     @EnvironmentObject private var ttsEngine: TTSEngineStore
+    @EnvironmentObject private var modelManager: ModelManagerViewModel
     @StateObject private var memoryIndicatorStore = IOSGenerateMemoryIndicatorStore()
     @ScaledMetric(relativeTo: .body) private var selectorRailHeight = 42
 
@@ -84,6 +85,13 @@ struct IOSGenerateContainerView: View {
         }
     }
 
+    private var hasAnyInstalledModel: Bool {
+        modelManager.statuses.values.contains { status in
+            if case .installed = status { return true }
+            return false
+        }
+    }
+
     var body: some View {
         IOSStudioShellScreen(
             selectedTab: $selectedTab,
@@ -105,6 +113,10 @@ struct IOSGenerateContainerView: View {
         } content: {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
+                    if !hasAnyInstalledModel {
+                        IOSFirstRunOnboardingCard(selectedTab: $selectedTab)
+                    }
+
                     IOSGenerationModeSelector(selectedSection: $selectedSection)
                         .frame(height: selectorRailHeight)
 

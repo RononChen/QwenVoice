@@ -67,6 +67,10 @@ struct IOSStudioShellScreen<Accessory: View, Content: View, BottomAccessory: Vie
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            IOSEngineLifecycleToast()
+                .padding(.bottom, 6)
+        }
         .iosAppAnimation(IOSSelectionMotion.miniPlayerSlide, value: audioPlayer.isShowingNowPlayingRail)
         .toolbar(.hidden, for: .navigationBar)
     }
