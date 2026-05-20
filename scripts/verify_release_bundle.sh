@@ -78,6 +78,15 @@ cleanup() {
     [ -n "$TMP_UI_FIXTURE" ] && rm -rf "$TMP_UI_FIXTURE"
     [ -n "$TMP_UI_STDOUT" ] && rm -f "$TMP_UI_STDOUT"
     [ -n "$TMP_UI_STDERR" ] && rm -f "$TMP_UI_STDERR"
+    # bash 3.2 (the macOS system bash) propagates the cleanup function's
+    # last command's exit code as the script's overall exit code from
+    # within an EXIT trap, regardless of whether `exit 0` was called.
+    # Each `[ -n "$EMPTY" ] && ...` above returns 1 when the var is
+    # empty (e.g., when SKIP_LAUNCH_SMOKE=1 short-circuited before the
+    # tmpdirs were created), which made the parent release.sh see this
+    # script as failed even after `[4/4] Release bundle verification
+    # passed`. Explicit `return 0` neutralizes that.
+    return 0
 }
 trap cleanup EXIT
 
