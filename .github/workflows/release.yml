@@ -42,6 +42,15 @@ jobs:
     # inherit write access at the workflow level.
     permissions:
       contents: write
+    env:
+      # Apply to every step in this job. Each individual step starts a
+      # fresh process and would otherwise not see env vars set on the
+      # previous step (release.sh and verify_packaged_dmg.sh each
+      # invoke verify_release_bundle.sh internally — both need the
+      # launch-smoke skip on a macOS-15 runner that can't launch a
+      # macOS-26-targeted app).
+      QWENVOICE_SIGNING_MODE: ad-hoc
+      QWENVOICE_SKIP_LAUNCH_SMOKE: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -77,18 +86,11 @@ jobs:
             spm-${{ runner.os }}-xcode26-
 
       - name: Run scripts/release.sh (ad-hoc DMG)
-        env:
-          # Explicit ad-hoc signing. Matches the local default; produces a
-          # Gatekeeper-blockable DMG. To switch to Developer ID later, set
-          # QWENVOICE_SIGNING_MODE=developer-id + the related secrets and
-          # pass --signing-mode developer-id below.
-          QWENVOICE_SIGNING_MODE: ad-hoc
-          # Skip the [3/4] launch smoke in verify_release_bundle.sh. The
-          # GitHub Actions macOS runner ships Xcode 26 on a macOS-15 image,
-          # so it can build an Apple-Silicon macOS-26 app but cannot
-          # launch one (LSMinimumSystemVersion blocks it). Bundle, signing,
-          # and DMG checks still run.
-          QWENVOICE_SKIP_LAUNCH_SMOKE: "1"
+        # QWENVOICE_SIGNING_MODE + QWENVOICE_SKIP_LAUNCH_SMOKE come from
+        # the job-level env block above (every step needs the launch-
+        # smoke skip — verify_release_bundle.sh is invoked twice in
+        # this pipeline: once by release.sh on the built app, once by
+        # verify_packaged_dmg.sh on the DMG-extracted copy).
         run: |
           if [ -n "${{ inputs.output_name }}" ]; then
             ./scripts/release.sh --preflight none --output-name "${{ inputs.output_name }}"
