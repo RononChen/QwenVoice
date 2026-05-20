@@ -107,7 +107,12 @@ struct IOSCustomVoiceSetupCard: View {
             .pickerStyle(.menu)
             .tint(IOSBrandTheme.custom)
             .iosSelectionFieldChrome(tint: IOSBrandTheme.custom)
-            .frame(width: 146, alignment: .trailing)
+            // No fixed width — let the picker fill the IOSInlineSetupField
+            // content cell so long speaker labels like "Aiden - English
+            // native" render on one line. The 146pt cap was clipping them
+            // mid-word.
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
