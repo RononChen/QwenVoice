@@ -159,16 +159,31 @@ private struct IOSSettingsView: View {
     }
 
     private func install(_ model: TTSModel) {
+        if IOSSimulatorRuntimeSupport.isSimulator {
+            // UI-test only: run a fake download/install state-machine so
+            // testers can exercise the install flow + every downstream
+            // installed-model UI state without real model bytes.
+            modelInstaller.simulatorFakeInstall(model)
+            return
+        }
         guard IOSSimulatorPreviewPolicy.allowsModelMutations else { return }
         modelInstaller.install(model)
     }
 
     private func cancel(_ model: TTSModel) {
+        if IOSSimulatorRuntimeSupport.isSimulator {
+            modelInstaller.simulatorFakeCancel(model)
+            return
+        }
         guard IOSSimulatorPreviewPolicy.allowsModelMutations else { return }
         modelInstaller.cancel(model)
     }
 
     private func delete(_ model: TTSModel) {
+        if IOSSimulatorRuntimeSupport.isSimulator {
+            modelInstaller.simulatorFakeDelete(model)
+            return
+        }
         guard IOSSimulatorPreviewPolicy.allowsModelMutations else { return }
         modelInstaller.delete(model)
     }

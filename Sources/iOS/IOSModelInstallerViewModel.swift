@@ -23,6 +23,7 @@ final class IOSModelInstallerViewModel: ObservableObject {
     private let modelAssetStore: LocalModelAssetStore?
     private let modelManager: ModelManagerViewModel
     private var deliveryActor: IOSModelDeliveryActor?
+    private var fakeInstallTasks: [String: Task<Void, Never>] = [:]
 
     /// Called after a model install completes so the engine can preload it in the background.
     var onModelInstalled: ((_ modelID: String) -> Void)?
@@ -53,12 +54,17 @@ final class IOSModelInstallerViewModel: ObservableObject {
     }
 
     func state(for model: TTSModel) -> OperationState {
-        if let unavailableMessage = IOSNativeDeviceFeatureGate.unavailableMessage(for: model) {
-            return .unavailable(unavailableMessage)
-        }
-
+        // Honor explicit operation-state writes first so the Simulator
+        // fake installer can render its downloading/verifying/installing
+        // phases. On real hardware `unavailableMessage` returns nil for
+        // all supported modes, so this swap is behaviorally neutral
+        // outside Simulator.
         if let state = states[model.id] {
             return state
+        }
+
+        if let unavailableMessage = IOSNativeDeviceFeatureGate.unavailableMessage(for: model) {
+            return .unavailable(unavailableMessage)
         }
 
         switch modelManager.statuses[model.id] {
@@ -161,6 +167,70 @@ final class IOSModelInstallerViewModel: ObservableObject {
                     )
                 )
             }
+        }
+    }
+
+    // MARK: - Simulator-only fake install / delete
+    //
+    // These methods exist so testers can exercise the install / delete UI
+    // flow inside the iOS Simulator, where real model downloads can't run
+    // (no MLX, no real bytes on disk). They run a fake state-machine that
+    // pushes through `.downloading → .verifying → .installing → .installed`
+    // (or `.deleting → notInstalled`) with brief sleeps, and patch
+    // `modelManager.statuses` directly so the rest of the app (Generate
+    // tab's `hasAnyInstalledModel`, primary-action enablement, etc.)
+    // reflects the install. The hops are gated on
+    // `IOSSimulatorRuntimeSupport.isSimulator` and no-op on real hardware.
+
+    func simulatorFakeInstall(_ model: TTSModel) {
+        guard IOSSimulatorRuntimeSupport.isSimulator else { return }
+        fakeInstallTasks[model.id]?.cancel()
+        let totalBytes = model.estimatedDownloadBytes ?? 2_300_000_000
+        let modelID = model.id
+
+        fakeInstallTasks[modelID] = Task { @MainActor in
+            // Slow enough that a human tester can see each phase render.
+            let stepNanos: UInt64 = 600_000_000 // 0.6s per phase
+            let progressSteps: [Double] = [0.05, 0.22, 0.46, 0.71, 0.92]
+            for progress in progressSteps {
+                if Task.isCancelled { return }
+                states[modelID] = .downloading(
+                    progress: progress,
+                    downloadedBytes: Int64(Double(totalBytes) * progress),
+                    totalBytes: totalBytes
+                )
+                try? await Task.sleep(nanoseconds: stepNanos)
+            }
+            if Task.isCancelled { return }
+            states[modelID] = .verifying
+            try? await Task.sleep(nanoseconds: stepNanos)
+            if Task.isCancelled { return }
+            states[modelID] = .installing
+            try? await Task.sleep(nanoseconds: stepNanos)
+            if Task.isCancelled { return }
+            states[modelID] = .installed
+            modelManager.statuses[modelID] = .installed(sizeBytes: Int(totalBytes))
+            fakeInstallTasks[modelID] = nil
+            onModelInstalled?(modelID)
+        }
+    }
+
+    func simulatorFakeCancel(_ model: TTSModel) {
+        guard IOSSimulatorRuntimeSupport.isSimulator else { return }
+        fakeInstallTasks[model.id]?.cancel()
+        fakeInstallTasks[model.id] = nil
+        states[model.id] = .available(estimatedBytes: model.estimatedDownloadBytes)
+        modelManager.statuses[model.id] = .notInstalled
+    }
+
+    func simulatorFakeDelete(_ model: TTSModel) {
+        guard IOSSimulatorRuntimeSupport.isSimulator else { return }
+        let modelID = model.id
+        Task { @MainActor in
+            states[modelID] = .deleting
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            states.removeValue(forKey: modelID)
+            modelManager.statuses[modelID] = .notInstalled
         }
     }
 
