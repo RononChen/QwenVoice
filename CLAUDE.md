@@ -282,4 +282,6 @@ Mean gain across all 6 cells: **+4.5 s** saved on time-to-first-sound.
 - `docs/reference/privacy-storage.md` — local storage and deletion
 - `docs/qwen_tone.md` — prompt/tone guidance for voice generation
 - `docs/reference/antigravity-voice-review.md` — Antigravity-CLI-backed perceptual review runbook (semi-automated, complements the bench's timing/RMS gates with subjective dimensions). The legacy `gemini-voice-review.md` is a redirect stub after Google retired Gemini CLI in favor of Antigravity CLI (2026-05-19).
+- `design_references/Vocello Design System/` — Claude Design system: brand register (SKILL.md), color + type scale (`colors_and_type.css`), preview HTML pages per token family. Read before touching iOS chrome or shipping new mode tints.
+- `design_references/Vocello iOS/` — Claude Design iOS prototype: React + CSS source (`app.css`, `tokens.css`, `chrome.jsx`, `studio.jsx`, `player.jsx`, `sheets.jsx`, `screens.jsx`, `data.js`) plus 64 reference screenshots. Canonical source for the May 2026 iOS redesign tracks.
 - `CONTRIBUTING.md` — contributor workflow
