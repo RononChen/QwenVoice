@@ -55,13 +55,16 @@ enum IOSGenerationSection: String, CaseIterable, Identifiable {
     }
 
     var compactTitle: String {
+        // Mode segmented uses the mode name (per design_references/Vocello iOS/
+        // chrome.jsx ModeSegmented). The longer action-oriented labels live on
+        // the setup-chip pattern; the segmented control itself stays terse.
         switch self {
         case .custom:
-            return "Choose Voice"
+            return "Custom"
         case .design:
-            return "Describe Voice"
+            return "Design"
         case .clone:
-            return "Use Reference"
+            return "Clone"
         }
     }
 }
