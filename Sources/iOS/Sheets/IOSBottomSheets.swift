@@ -220,13 +220,70 @@ struct IOSVoicePickerSheet: View {
     var onDismiss: (() -> Void)?
 
     @State private var search: String = ""
+    /// R3-FU G.2.1 (2026-05-21): selected language tag, or
+    /// `IOSVoicePickerSheet.allFilterID` for "show everything". Matches
+    /// the design's filter-chip behaviour where the first chip ("All")
+    /// is a sentinel value and the rest are concrete language tags.
+    @State private var selectedFilter: String = IOSVoicePickerSheet.allFilterID
+
+    /// Sentinel id for the "All" chip. Real language tags are short
+    /// uppercase strings ("EN", "ZH", …) so any non-matching marker
+    /// works; using a leading "*" keeps it grep-friendly and impossible
+    /// to collide with a future tag.
+    private static let allFilterID = "*all"
+
+    /// Distinct language tags present in the speakers list, sorted in
+    /// stable order. Drives the filter chip row so the sheet
+    /// self-extends when the contract gets a new language.
+    private var distinctLanguageTags: [String] {
+        var seen = Set<String>()
+        var ordered: [String] = []
+        for option in speakers {
+            guard let tag = option.languageTag, !tag.isEmpty else { continue }
+            if seen.insert(tag).inserted {
+                ordered.append(tag)
+            }
+        }
+        return ordered.sorted()
+    }
+
+    /// Filter chip row, including the leading "All" chip.
+    private var availableFilters: [(id: String, label: String)] {
+        var out: [(id: String, label: String)] = [(IOSVoicePickerSheet.allFilterID, "All")]
+        for tag in distinctLanguageTags {
+            out.append((tag, IOSVoicePickerSheet.label(for: tag)))
+        }
+        return out
+    }
+
+    private static func label(for tag: String) -> String {
+        switch tag {
+        case "EN":    return "English"
+        case "EN-UK": return "British"
+        case "ZH":    return "Chinese"
+        case "JA":    return "Japanese"
+        case "KO":    return "Korean"
+        case "ES":    return "Spanish"
+        case "FR":    return "French"
+        case "DE":    return "German"
+        case "IT":    return "Italian"
+        case "PT":    return "Portuguese"
+        default:      return tag    // unknown tag → render verbatim
+        }
+    }
 
     private var filtered: [IOSVoicePickerOption] {
         let q = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return speakers }
         return speakers.filter { option in
-            option.name.lowercased().contains(q)
-                || (option.subtitle ?? "").lowercased().contains(q)
+            if selectedFilter != IOSVoicePickerSheet.allFilterID,
+               option.languageTag != selectedFilter {
+                return false
+            }
+            if !q.isEmpty {
+                return option.name.lowercased().contains(q)
+                    || (option.subtitle ?? "").lowercased().contains(q)
+            }
+            return true
         }
     }
 
@@ -236,7 +293,12 @@ struct IOSVoicePickerSheet: View {
                 IOSSearchField(text: $search, placeholder: "Search voices")
                     .padding(.horizontal, 20)
 
-                if !recents.isEmpty && search.isEmpty {
+                if availableFilters.count > 1 {
+                    filterChipRow
+                        .padding(.horizontal, 20)
+                }
+
+                if !recents.isEmpty && search.isEmpty && selectedFilter == IOSVoicePickerSheet.allFilterID {
                     recentsCarousel
                 }
 
@@ -249,6 +311,24 @@ struct IOSVoicePickerSheet: View {
                     .padding(.horizontal, 20)
                     .padding(.bottom, 24)
                 }
+            }
+        }
+    }
+
+    /// Horizontal filter chip row matching `app.css .vc-filter-row` +
+    /// `.vc-filter-chip` styling (32pt capsule pills, neutral inactive
+    /// surface, white-elevated active surface).
+    private var filterChipRow: some View {
+        HStack(spacing: 8) {
+            ForEach(availableFilters, id: \.id) { filter in
+                IOSVoicePickerFilterChip(
+                    label: filter.label,
+                    isActive: selectedFilter == filter.id,
+                    action: {
+                        selectedFilter = filter.id
+                        IOSHaptics.selection()
+                    }
+                )
             }
         }
     }
@@ -340,6 +420,40 @@ struct IOSVoicePickerSheet: View {
             }
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Filter chip used inside the voice picker sheet's language row.
+/// Mirrors `app.css .vc-filter-chip` styling: 32pt capsule, neutral
+/// background when inactive, white-elevated background when active.
+private struct IOSVoicePickerFilterChip: View {
+    let label: String
+    let isActive: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(isActive ? IOSAppTheme.textPrimary : IOSAppTheme.textSecondary)
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .frame(height: 32)
+                .frame(maxWidth: .infinity)
+                .background {
+                    Capsule(style: .continuous)
+                        .fill(isActive ? Color.white.opacity(0.10) : Color.white.opacity(0.03))
+                }
+                .overlay {
+                    Capsule(style: .continuous)
+                        .stroke(
+                            isActive ? Color.white.opacity(0.18) : Color.white.opacity(0.10),
+                            lineWidth: 0.5
+                        )
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 }
 
