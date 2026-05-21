@@ -131,8 +131,20 @@ private struct IOSSettingsView: View {
 
                         IOSHeaderMetricRow(label: "App version", value: IOSSettingsSupportInfo.appVersionLabel)
                     }
+
+                    #if DEBUG
+                    if IOSSimulatorRuntimeSupport.isSimulator {
+                        IOSStudioSectionGroup(title: "Debug", tint: IOSBrandTheme.settings) {
+                            IOSSettingsSeedHistoryRow()
+                        }
+                    }
+                    #endif
                 }
-                .padding(.bottom, 8)
+                // Extra bottom padding so the bottom-most section clears
+                // the TabDock's gradient fade in RootView. Without this,
+                // long Settings + the Debug section get visually
+                // swallowed by the dock's canvasBottom gradient.
+                .padding(.bottom, 90)
             }
         }
         .task {
@@ -188,6 +200,166 @@ private struct IOSSettingsView: View {
         modelInstaller.delete(model)
     }
 }
+
+#if DEBUG
+/// Simulator-only debug affordance for seeding a fixture `Generation` row.
+///
+/// The iOS Simulator stubs out the TTS engine (`IOSSimulatorTTSEngine`),
+/// so a real generation never produces a History entry. That makes the
+/// full-screen `IOSPlayerSheet` impossible to verify without a real
+/// device. This row writes a 5-second silence WAV into `AppPaths.
+/// outputsDir`, inserts a `Generation` pointing at it, and posts
+/// `.generationSaved` so `IOSHistoryLibrarySection` reloads. The new
+/// row appears in History; tapping it presents the Player sheet at
+/// the design's centered-header / 42-bar-waveform / real-scrubber /
+/// centered-transcript layout.
+///
+/// Three seed presets cycle the three modes — Custom (gold), Design
+/// (lavender), Clone (terracotta) — so the Player sheet's mode tint
+/// surface can be verified end-to-end.
+private struct IOSSettingsSeedHistoryRow: View {
+    @State private var status: String = ""
+    @State private var seedIndex: Int = 0
+
+    private struct Seed {
+        let mode: String
+        let voice: String
+        let text: String
+        let durationSeconds: Double
+    }
+
+    private var seeds: [Seed] {
+        [
+            Seed(
+                mode: "design",
+                voice: "British narrator",
+                text: "Welcome back to the workshop. Today we are building a small wooden box, end to end. The first thing we need to do is measure twice, and cut once.",
+                durationSeconds: 8.5
+            ),
+            Seed(
+                mode: "custom",
+                voice: "Aiden",
+                text: "Hello, this is a sample preview of my voice, generated entirely on this iPhone.",
+                durationSeconds: 6.0
+            ),
+            Seed(
+                mode: "clone",
+                voice: "UITestRef",
+                text: "I cloned this voice from a short reference clip, and now it can speak any text I write.",
+                durationSeconds: 7.0
+            ),
+        ]
+    }
+
+    var body: some View {
+        Button {
+            seedNext()
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Seed sample history")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(IOSAppTheme.textPrimary)
+                    Text(status.isEmpty
+                         ? "Adds a fixture take to History so the Player sheet is reachable in Simulator."
+                         : status)
+                        .font(.footnote)
+                        .foregroundStyle(IOSAppTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 10)
+                Image(systemName: "plus.circle.fill")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(IOSBrandTheme.settings)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("iosSettingsSeedHistory")
+    }
+
+    private func seedNext() {
+        let seed = seeds[seedIndex % seeds.count]
+        seedIndex += 1
+        Task {
+            do {
+                let url = try writeSilenceWAV(durationSeconds: seed.durationSeconds)
+                let generation = Generation(
+                    id: nil,
+                    text: seed.text,
+                    mode: seed.mode,
+                    modelTier: "speed",
+                    voice: seed.voice,
+                    emotion: "neutral",
+                    speed: 1.0,
+                    audioPath: url.path,
+                    duration: seed.durationSeconds,
+                    createdAt: Date()
+                )
+                _ = try await DatabaseService.shared.saveGenerationAsync(generation)
+                await MainActor.run {
+                    status = "Added \(seed.mode.capitalized) take. Tap History to play."
+                    NotificationCenter.default.post(name: .generationSaved, object: nil)
+                    IOSHaptics.selection()
+                }
+            } catch {
+                await MainActor.run {
+                    status = "Seed failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    /// Writes a silence WAV file (24 kHz mono Int16 PCM) into
+    /// `AppPaths.outputsDir`. The audio is silent but the file's
+    /// duration drives the Player sheet's scrubber + karaoke timing.
+    private func writeSilenceWAV(durationSeconds: Double) throws -> URL {
+        try FileManager.default.createDirectory(at: AppPaths.outputsDir, withIntermediateDirectories: true)
+        let outputURL = AppPaths.outputsDir
+            .appendingPathComponent("seed-\(UUID().uuidString.prefix(8)).wav")
+
+        let sampleRate: UInt32 = 24_000
+        let bitsPerSample: UInt16 = 16
+        let numChannels: UInt16 = 1
+        let numSamples = Int((Double(sampleRate) * durationSeconds).rounded())
+        let byteRate = sampleRate * UInt32(numChannels) * UInt32(bitsPerSample / 8)
+        let blockAlign = numChannels * (bitsPerSample / 8)
+        let dataSize = UInt32(numSamples) * UInt32(blockAlign)
+        let fileSizeMinus8 = 36 + dataSize
+
+        var data = Data()
+        data.append(contentsOf: [0x52, 0x49, 0x46, 0x46])                      // "RIFF"
+        data.appendLE(UInt32(fileSizeMinus8))
+        data.append(contentsOf: [0x57, 0x41, 0x56, 0x45])                      // "WAVE"
+        data.append(contentsOf: [0x66, 0x6D, 0x74, 0x20])                      // "fmt "
+        data.appendLE(UInt32(16))                                              // fmt chunk size
+        data.appendLE(UInt16(1))                                               // PCM format
+        data.appendLE(numChannels)
+        data.appendLE(sampleRate)
+        data.appendLE(byteRate)
+        data.appendLE(blockAlign)
+        data.appendLE(bitsPerSample)
+        data.append(contentsOf: [0x64, 0x61, 0x74, 0x61])                      // "data"
+        data.appendLE(dataSize)
+        // Silence: numSamples × 2 bytes of zeros
+        data.append(Data(count: numSamples * Int(blockAlign)))
+
+        try data.write(to: outputURL, options: [.atomic])
+        return outputURL
+    }
+}
+
+private extension Data {
+    mutating func appendLE(_ value: UInt32) {
+        var v = value.littleEndian
+        Swift.withUnsafeBytes(of: &v) { append(contentsOf: $0) }
+    }
+    mutating func appendLE(_ value: UInt16) {
+        var v = value.littleEndian
+        Swift.withUnsafeBytes(of: &v) { append(contentsOf: $0) }
+    }
+}
+#endif
 
 private struct IOSSettingsLinkRow: View {
     let title: String
