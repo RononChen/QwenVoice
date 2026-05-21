@@ -323,7 +323,8 @@ private struct IOSModelRow: View {
     let onCancel: () -> Void
     let onDelete: () -> Void
 
-    @State private var isConfirmingDelete = false
+    @State private var isPresentingInstallSheet = false
+    @State private var isPresentingDeleteSheet = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -345,24 +346,142 @@ private struct IOSModelRow: View {
         .padding(.vertical, 2)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("iosModelRow_\(model.id)")
-        .confirmationDialog(
-            "Delete \(model.name)?",
-            isPresented: $isConfirmingDelete,
-            titleVisibility: .visible
-        ) {
-            Button("Delete", role: .destructive) {
-                IOSHaptics.warning()
-                onDelete()
+        // Track M (2026-05-21): Settings model rows now route Download +
+        // Delete through the design's IOSModelInstallSheet and
+        // IOSDeleteModelSheet rather than the bare iOSAdaptiveUtility
+        // button + system confirmationDialog. The install sheet carries
+        // the design's privacy callout ("Stays on your iPhone") + the
+        // 56pt mode-tinted icon + size / On-device pills, which is
+        // exactly where a user is most likely to want that reassurance.
+        .sheet(isPresented: $isPresentingInstallSheet) {
+            IOSModelInstallSheet(
+                item: installSheetItem,
+                isInstalling: installSheetIsInstalling,
+                progress: installSheetProgress,
+                onInstall: {
+                    IOSHaptics.selection()
+                    onInstall()
+                },
+                onCancel: {
+                    onCancel()
+                    isPresentingInstallSheet = false
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.hidden)
+            .presentationBackground(IOSBrandTheme.canvasTop)
+        }
+        .sheet(isPresented: $isPresentingDeleteSheet) {
+            IOSDeleteModelSheet(
+                modelName: model.name,
+                sizeLabel: deleteSheetSizeLabel,
+                onConfirm: {
+                    onDelete()
+                    isPresentingDeleteSheet = false
+                },
+                onCancel: {
+                    isPresentingDeleteSheet = false
+                }
+            )
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.hidden)
+            .presentationBackground(IOSBrandTheme.canvasTop)
+        }
+        // Auto-dismiss the install sheet once the operation lands
+        // either at `.installed` or back at `.idle` after a cancel.
+        .onChange(of: operationState) { _, newValue in
+            guard isPresentingInstallSheet else { return }
+            switch newValue {
+            case .installed, .idle, .failed, .unavailable:
+                isPresentingInstallSheet = false
+            default:
+                break
             }
-            .accessibilityIdentifier("iosModelDeleteConfirm_\(model.id)")
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This frees several GB but requires a full re-download before you can use this model again.")
         }
     }
 
+    private func requestInstall() {
+        isPresentingInstallSheet = true
+    }
+
     private func requestDelete() {
-        isConfirmingDelete = true
+        isPresentingDeleteSheet = true
+    }
+
+    // MARK: - Install sheet plumbing
+
+    private var installSheetItem: IOSModelInstallSheetItem {
+        IOSModelInstallSheetItem(
+            id: model.id,
+            name: model.name,
+            symbol: "bolt.fill",
+            sizeLabel: estimatedDownloadSizeLabel,
+            description: installSheetDescription(for: model.mode),
+            tint: IOSBrandTheme.modeColor(for: model.mode)
+        )
+    }
+
+    /// Per-mode description that mirrors `design_references/Vocello iOS/
+    /// data.js` `models[].desc`. Hand-wired here to avoid a model-layer
+    /// change.
+    private func installSheetDescription(for mode: GenerationMode) -> String {
+        switch mode {
+        case .custom: return "Built-in speaker presets with controllable emotion and delivery."
+        case .design: return "Describe a voice in natural language and Vocello renders it."
+        case .clone:  return "Speak your text in a saved voice or any 10-20 s reference clip."
+        }
+    }
+
+    private var estimatedDownloadSizeLabel: String {
+        if let estimated = model.estimatedDownloadBytes {
+            return IOSSettingsFormatters.fileSize(estimated)
+        }
+        if case let .installed(sizeBytes) = status {
+            return IOSSettingsFormatters.fileSize(Int64(sizeBytes))
+        }
+        return "—"
+    }
+
+    private var deleteSheetSizeLabel: String {
+        if case let .installed(sizeBytes) = status {
+            return IOSSettingsFormatters.fileSize(Int64(sizeBytes))
+        }
+        if let estimated = model.estimatedDownloadBytes {
+            return IOSSettingsFormatters.fileSize(estimated)
+        }
+        return "several GB"
+    }
+
+    private var installSheetIsInstalling: Binding<Bool> {
+        Binding(
+            get: {
+                switch operationState {
+                case .downloading, .resuming, .restarting, .verifying, .installing:
+                    return true
+                default:
+                    return false
+                }
+            },
+            set: { _ in }   // host-driven; the sheet doesn't toggle this
+        )
+    }
+
+    private var installSheetProgress: Binding<Double> {
+        Binding(
+            get: {
+                switch operationState {
+                case .downloading(let progress, _, _),
+                     .resuming(let progress, _, _),
+                     .restarting(let progress, _, _):
+                    return progress ?? 0
+                case .verifying, .installing:
+                    return 1.0
+                default:
+                    return 0
+                }
+            },
+            set: { _ in }
+        )
     }
 
     private var header: some View {
@@ -410,7 +529,7 @@ private struct IOSModelRow: View {
                 .iosAdaptiveUtilityButtonStyle(tint: .red)
                 .accessibilityIdentifier("iosModelDelete_\(model.id)")
         case .available:
-            Button("Download", action: onInstall)
+            Button("Download", action: requestInstall)
                 .iosSettingsProminentActionButtonStyle(tint: IOSBrandTheme.modeColor(for: model.mode))
                 .accessibilityIdentifier("iosModelDownload_\(model.id)")
         case .downloading, .interrupted, .resuming, .restarting:
