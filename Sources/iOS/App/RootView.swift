@@ -64,43 +64,13 @@ struct RootView: View {
 
         case .voices:
             NavigationStack {
-                IOSVoicesView(
-                    selectedTab: $appModel.tab,
-                    onSelectBuiltInSpeaker: { speaker in
-                        appModel.customVoiceDraft.selectedSpeaker = speaker.id
-                        appModel.studioMode = .custom
-                        appModel.tab = .studio
-                    },
-                    onSelectSavedVoice: { voice in
-                        appModel.pendingVoiceCloningHandoff = PendingVoiceCloningHandoff(
-                            savedVoiceID: voice.id,
-                            wavPath: voice.wavPath,
-                            transcript: (try? voice.loadTranscript()) ?? "",
-                            transcriptLoadError: nil
-                        )
-                        appModel.studioMode = .clone
-                        appModel.tab = .studio
-                    }
-                )
+                VoicesScreen()
             }
             .toolbar(.hidden, for: .navigationBar)
 
         case .history:
             NavigationStack {
-                IOSLibraryContainerView(
-                    selectedTab: $appModel.tab,
-                    selectedSection: .constant(.history),
-                    onUseVoiceInClone: { voice in
-                        appModel.pendingVoiceCloningHandoff = PendingVoiceCloningHandoff(
-                            savedVoiceID: voice.id,
-                            wavPath: voice.wavPath,
-                            transcript: (try? voice.loadTranscript()) ?? "",
-                            transcriptLoadError: nil
-                        )
-                        appModel.studioMode = .clone
-                        appModel.tab = .studio
-                    }
-                )
+                HistoryScreen()
             }
             .toolbar(.hidden, for: .navigationBar)
 
