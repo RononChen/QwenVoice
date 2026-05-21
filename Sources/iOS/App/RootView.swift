@@ -76,7 +76,7 @@ struct RootView: View {
 
         case .settings:
             NavigationStack {
-                IOSSettingsContainerView(selectedTab: $appModel.tab)
+                SettingsScreen()
             }
             .toolbar(.hidden, for: .navigationBar)
         }
