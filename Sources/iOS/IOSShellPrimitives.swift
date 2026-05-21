@@ -114,7 +114,11 @@ enum IOSBrandTheme {
     static let library = Color(dark: UIColor(red: 0.75, green: 0.74, blue: 0.71, alpha: 1))
     static let settings = silver
 
-    static let canvasTop = Color(dark: UIColor(red: 0.055, green: 0.063, blue: 0.078, alpha: 1))
+    // Matches design tokens.css --canvas-bg: #161823. The warm wash
+    // produced by IOSModeBackdrop needs this lighter base to read; a
+    // near-black canvas hides the mode tint below the threshold of
+    // perception.
+    static let canvasTop = Color(dark: UIColor(red: 0.086, green: 0.094, blue: 0.137, alpha: 1))
     static let canvasBottom = Color(dark: UIColor(red: 0.038, green: 0.044, blue: 0.056, alpha: 1))
     static let surface = Color(dark: UIColor(red: 0.105, green: 0.112, blue: 0.132, alpha: 0.86))
     static let surfaceMuted = Color(dark: UIColor(red: 0.145, green: 0.152, blue: 0.174, alpha: 0.74))

@@ -38,19 +38,25 @@ struct RootView: View {
         // own dock; it just hosts the per-screen body and the engine /
         // now-playing toast safe-area insets.
         ZStack {
+            // Base canvas color underneath every tab. On Studio the
+            // mode backdrop sits as a `.background` on the activeScreen
+            // below so it lives in the NavigationStack's compositing
+            // layer — placing it as a sibling in this ZStack lets
+            // NavigationStack's opaque system background cover it.
             Theme.Surface.canvasBottom
                 .ignoresSafeArea()
 
-            if appModel.tab == .studio {
-                IOSModeBackdrop(
-                    tint: appModel.studioMode.primaryActionTint,
-                    intensity: .warm
-                )
-                .ignoresSafeArea()
-                .transition(.opacity)
-            }
-
             activeScreen
+                .background {
+                    if appModel.tab == .studio {
+                        IOSModeBackdrop(
+                            tint: appModel.studioMode.primaryActionTint,
+                            intensity: .warm
+                        )
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+                    }
+                }
         }
         .iosAppAnimation(Theme.Motion.easeOut, value: appModel.tab)
         .iosAppAnimation(Theme.Motion.modePillSlide, value: appModel.studioMode)

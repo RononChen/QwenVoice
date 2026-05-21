@@ -42,9 +42,11 @@ enum IOSDesignMotion {
 
 // MARK: - Mode backdrop
 
-/// Radial wash behind the Studio + Player sheet. Anchored to the top of the
-/// container; intensity fades toward 0 at the bottom. Per
-/// `design_references/Vocello iOS/chrome.jsx` ModeBackdrop.
+/// Warm mode-tinted wash behind the Studio + Player sheet. Anchored to
+/// the top of the container; fades to clear by mid-screen. Mirrors
+/// `.vc-mode-backdrop` (`design_references/Vocello iOS/app.css:36-48`),
+/// including the CSS `mix-blend-mode: plus-lighter` semantics via
+/// `.blendMode(.plusLighter)`.
 struct IOSModeBackdrop: View {
     let tint: Color
     let intensity: Intensity
@@ -56,11 +58,16 @@ struct IOSModeBackdrop: View {
         case warm
         case loud
 
+        /// Top-edge opacity for the tint stop in the linear gradient.
+        /// Calibrated against the reference image: at 1.0 (warm) the
+        /// gold wash reads as clearly warm at the top, fading to dark
+        /// grey by mid-screen, matching the design's intensity-warm
+        /// behavior against the `#161823` canvas base.
         var topOpacity: Double {
             switch self {
-            case .whisper: return 0.06
-            case .warm: return 0.12
-            case .loud: return 0.20
+            case .whisper: return 0.55
+            case .warm:    return 1.0
+            case .loud:    return 1.0
             }
         }
     }
@@ -78,16 +85,17 @@ struct IOSModeBackdrop: View {
         } else {
             ZStack {
                 IOSBrandTheme.canvasTop
-                RadialGradient(
-                    colors: [
-                        tint.opacity(intensity.topOpacity),
-                        tint.opacity(intensity.topOpacity * 0.4),
-                        .clear
+                LinearGradient(
+                    stops: [
+                        .init(color: tint.opacity(intensity.topOpacity), location: 0.0),
+                        .init(color: tint.opacity(intensity.topOpacity * 0.55), location: 0.15),
+                        .init(color: tint.opacity(intensity.topOpacity * 0.20), location: 0.35),
+                        .init(color: .clear, location: 0.60)
                     ],
-                    center: .top,
-                    startRadius: 40,
-                    endRadius: 520
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
+                .allowsHitTesting(false)
             }
             .ignoresSafeArea()
         }
