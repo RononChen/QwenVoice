@@ -220,6 +220,7 @@ struct IOSVoicePickerSheet: View {
     var onDismiss: (() -> Void)?
 
     @State private var search: String = ""
+    @StateObject private var previewer = IOSVoicePreviewPlayer()
     /// R3-FU G.2.1 (2026-05-21): selected language tag, or
     /// `IOSVoicePickerSheet.allFilterID` for "show everything". Matches
     /// the design's filter-chip behaviour where the first chip ("All")
@@ -313,6 +314,12 @@ struct IOSVoicePickerSheet: View {
                 }
             }
         }
+        // Phase 3 (2026-05-21): stop any in-flight preview when the
+        // sheet dismisses or a voice is selected. Without this the
+        // preview audio would keep playing under the studio screen.
+        .onDisappear {
+            previewer.stop()
+        }
     }
 
     /// Horizontal filter chip row matching `app.css .vc-filter-row` +
@@ -367,7 +374,9 @@ struct IOSVoicePickerSheet: View {
 
     private func row(for option: IOSVoicePickerOption) -> some View {
         let isSelected = option.id == selectedID
+        let isPreviewing = previewer.currentlyPlayingID == option.id
         return Button {
+            previewer.stop()
             selectedID = option.id
             IOSHaptics.selection()
         } label: {
@@ -405,6 +414,32 @@ struct IOSVoicePickerSheet: View {
                                 .fill(Color.white.opacity(0.08))
                         }
                 }
+
+                // Phase 3 G.2.3 (2026-05-21): per-row preview play button.
+                // Plays ~2-3 s of a bundled voice sample from
+                // Sources/Resources/voice-previews/{id}.wav. Toggles
+                // play↔pause when the same voice is tapped a second
+                // time. Tapping a different voice's button stops the
+                // current preview and starts the new one.
+                Button {
+                    previewer.toggle(voiceID: option.id)
+                    IOSHaptics.selection()
+                } label: {
+                    Image(systemName: isPreviewing ? "pause.fill" : "play.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(IOSAppTheme.textPrimary)
+                        .frame(width: 32, height: 32)
+                        .background {
+                            Circle()
+                                .fill(Color.white.opacity(isPreviewing ? 0.16 : 0.08))
+                        }
+                        .overlay {
+                            Circle()
+                                .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isPreviewing ? "Stop preview" : "Preview voice")
 
                 if isSelected {
                     Image(systemName: "checkmark")
