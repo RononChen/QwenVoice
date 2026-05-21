@@ -73,6 +73,26 @@ final class AppModel {
     var designPrimaryAction: IOSGeneratePrimaryActionDescriptor
     var clonePrimaryAction: IOSGeneratePrimaryActionDescriptor
 
+    // MARK: - Studio generation coordinators (Phase 3b)
+
+    /// Per-mode generation lifecycle. Per-mode views read state via
+    /// `appModel.coordinator(for: .custom)` instead of holding their
+    /// own scattered `@State` for `isGenerating`, `errorMessage`, and
+    /// `lastCompletedOutput`. The actual engine call (`ttsEngine.generate`)
+    /// still lives in the view body because it has to assemble
+    /// mode-specific payloads from drafts + speakers + delivery.
+    let customCoordinator = StudioGenerationCoordinator(mode: .custom)
+    let designCoordinator = StudioGenerationCoordinator(mode: .design)
+    let cloneCoordinator = StudioGenerationCoordinator(mode: .clone)
+
+    func coordinator(for mode: GenerationMode) -> StudioGenerationCoordinator {
+        switch mode {
+        case .custom: return customCoordinator
+        case .design: return designCoordinator
+        case .clone: return cloneCoordinator
+        }
+    }
+
     // MARK: - Init
 
     init(modelRegistry: ContractBackedModelRegistry) {

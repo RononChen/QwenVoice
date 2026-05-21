@@ -6,21 +6,33 @@ struct IOSCustomVoiceView: View {
     @EnvironmentObject private var ttsEngine: TTSEngineStore
     @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
     @EnvironmentObject private var modelManager: ModelManagerViewModel
+    @Environment(AppModel.self) private var appModel
 
     let isActive: Bool
+    @Binding var selectedTab: IOSAppTab
     @Binding var draft: CustomVoiceDraft
     @Binding var primaryAction: IOSGeneratePrimaryActionDescriptor
-    @State private var isGenerating = false
-    @State private var generationTask: Task<Void, Never>?
     @State private var isScriptFocused = false
-    @State private var errorMessage: String?
-    @State private var lastCompletedOutput: IOSStudioInlinePlayerItem?
     @State private var isVoicePickerPresented: Bool = false
     @State private var isDeliveryPickerPresented: Bool = false
 
+    // Generation lifecycle state lives on AppModel.customCoordinator
+    // (Phase 3b extraction). Keep these computed-property aliases so the
+    // rest of the view body stays readable without churn.
+    private var coordinator: StudioGenerationCoordinator { appModel.customCoordinator }
+    private var isGenerating: Bool {
+        get { coordinator.isGenerating }
+    }
+    private var errorMessage: String? {
+        get { coordinator.errorMessage }
+    }
+    private var lastCompletedOutput: IOSStudioInlinePlayerItem? {
+        get { coordinator.lastCompletedOutput }
+    }
+
     private var studioGenState: IOSStudioGenState {
-        if isGenerating { return .generating }
-        if let output = lastCompletedOutput { return .complete(output) }
+        if coordinator.isGenerating { return .generating }
+        if let output = coordinator.lastCompletedOutput { return .complete(output) }
         return .idle
     }
 
@@ -135,13 +147,13 @@ struct IOSCustomVoiceView: View {
             tint: IOSBrandTheme.custom,
             genState: studioGenState,
             canGenerate: isSimulatorPreview || canGenerate,
-            modelInstalled: true,
+            modelInstalled: isModelAvailable || isSimulatorPreview,
             modelDisplayName: activeModel?.name ?? "Voice model",
             setupChips: { customModeChips },
             onGenerate: generate,
             onCancel: cancelGeneration,
-            onInstallModel: {},
-            onPlayerDismiss: { lastCompletedOutput = nil },
+            onInstallModel: { selectedTab = .settings },
+            onPlayerDismiss: { coordinator.dismissInlinePlayer() },
             onPlayerExpand: nil
         )
         .opacity(chromeOpacity)
@@ -228,28 +240,28 @@ struct IOSCustomVoiceView: View {
 
     private func generate() {
         if isSimulatorPreview {
-            errorMessage = nil
+            coordinator.errorMessage = nil
             return
         }
         guard !scriptLimitState.trimmedIsEmpty, ttsEngine.isReady, !ttsEngine.hasActiveGeneration else { return }
         guard !scriptLimitState.isOverLimit else {
-            errorMessage = scriptLimitState.warningMessage
+            coordinator.fail(scriptLimitState.warningMessage)
             return
         }
         guard let model = activeModel else { return }
         guard isModelAvailable else {
-            errorMessage = "Install \(model.name) in Settings to generate audio."
+            coordinator.fail("Install \(model.name) in Settings to generate audio.")
             return
         }
 
-        isGenerating = true
-        errorMessage = nil
+        coordinator.start()
 
-        generationTask = Task {
+        coordinator.generationTask = Task {
             defer {
                 Task { @MainActor in
-                    isGenerating = false
-                    generationTask = nil
+                    if coordinator.isGenerating {
+                        coordinator.finish()
+                    }
                 }
             }
             let outputPath = makeOutputPath(subfolder: model.outputSubfolder, text: promptText)
@@ -287,36 +299,36 @@ struct IOSCustomVoiceView: View {
                     caller: "IOSCustomVoiceView"
                 )
                 await MainActor.run {
-                    lastCompletedOutput = IOSStudioInlinePlayerItem(
-                        audioURL: URL(fileURLWithPath: result.audioPath),
-                        voiceName: speakerDisplayName,
-                        modeLabel: "Custom",
-                        mode: .custom,
-                        transcript: promptText,
-                        waveformSeed: result.audioPath.hashValue
+                    coordinator.complete(
+                        IOSStudioInlinePlayerItem(
+                            audioURL: URL(fileURLWithPath: result.audioPath),
+                            voiceName: speakerDisplayName,
+                            modeLabel: "Custom",
+                            mode: .custom,
+                            transcript: promptText,
+                            waveformSeed: result.audioPath.hashValue
+                        )
                     )
                 }
                 IOSHaptics.success()
             } catch is CancellationError {
                 audioPlayer.abortLivePreviewIfNeeded()
-                errorMessage = nil
+                coordinator.errorMessage = nil
             } catch {
                 audioPlayer.abortLivePreviewIfNeeded()
-                errorMessage = error.localizedDescription
+                await MainActor.run { coordinator.fail(error.localizedDescription) }
                 IOSHaptics.warning()
             }
         }
     }
 
     private func cancelGeneration() {
-        generationTask?.cancel()
+        coordinator.generationTask?.cancel()
         Task {
             try? await ttsEngine.cancelActiveGeneration()
             await MainActor.run {
                 audioPlayer.abortLivePreviewIfNeeded()
-                errorMessage = nil
-                isGenerating = false
-                generationTask = nil
+                coordinator.finish()
             }
         }
     }
@@ -327,14 +339,13 @@ struct IOSVoiceDesignView: View {
     @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
     @EnvironmentObject private var modelManager: ModelManagerViewModel
     @EnvironmentObject private var savedVoicesViewModel: SavedVoicesViewModel
+    @Environment(AppModel.self) private var appModel
 
     let isActive: Bool
+    @Binding var selectedTab: IOSAppTab
     @Binding var draft: VoiceDesignDraft
     @Binding var primaryAction: IOSGeneratePrimaryActionDescriptor
-    @State private var isGenerating = false
-    @State private var generationTask: Task<Void, Never>?
     @State private var isScriptFocused = false
-    @State private var errorMessage: String?
     @State private var saveSheetAudioPath: String?
     @State private var isSaveSheetPresented = false
     @State private var saveSheetSuggestedName = ""
@@ -344,13 +355,18 @@ struct IOSVoiceDesignView: View {
     /// being asked whether to keep or discard. Mirrors the macOS
     /// SavedVoiceSheet flow.
     @State private var pendingVoiceForReview: PreparedVoice?
-    @State private var lastCompletedOutput: IOSStudioInlinePlayerItem?
     @State private var isDeliveryPickerPresented: Bool = false
     @State private var isBriefEditorPresented: Bool = false
 
+    // Generation lifecycle moved to AppModel.designCoordinator (Phase 3b).
+    private var coordinator: StudioGenerationCoordinator { appModel.designCoordinator }
+    private var isGenerating: Bool { coordinator.isGenerating }
+    private var errorMessage: String? { coordinator.errorMessage }
+    private var lastCompletedOutput: IOSStudioInlinePlayerItem? { coordinator.lastCompletedOutput }
+
     private var studioGenState: IOSStudioGenState {
-        if isGenerating { return .generating }
-        if let output = lastCompletedOutput { return .complete(output) }
+        if coordinator.isGenerating { return .generating }
+        if let output = coordinator.lastCompletedOutput { return .complete(output) }
         return .idle
     }
 
@@ -562,13 +578,13 @@ struct IOSVoiceDesignView: View {
             tint: IOSBrandTheme.design,
             genState: studioGenState,
             canGenerate: isSimulatorPreview || canGenerate,
-            modelInstalled: true,
+            modelInstalled: isModelAvailable || isSimulatorPreview,
             modelDisplayName: activeModel?.name ?? "Voice Design model",
             setupChips: { designModeChips },
             onGenerate: generate,
             onCancel: cancelGeneration,
-            onInstallModel: {},
-            onPlayerDismiss: { lastCompletedOutput = nil },
+            onInstallModel: { selectedTab = .settings },
+            onPlayerDismiss: { coordinator.dismissInlinePlayer() },
             onPlayerExpand: nil
         )
         .opacity(chromeOpacity)
@@ -654,27 +670,27 @@ struct IOSVoiceDesignView: View {
 
     private func generate() {
         if isSimulatorPreview {
-            errorMessage = nil
+            coordinator.errorMessage = nil
             return
         }
         guard let model = activeModel else { return }
         guard canGenerate else {
             if !isModelAvailable {
-                errorMessage = "Install \(model.name) in Settings to generate audio."
+                coordinator.fail("Install \(model.name) in Settings to generate audio.")
             } else if scriptLimitState.isOverLimit {
-                errorMessage = scriptLimitState.warningMessage
+                coordinator.fail(scriptLimitState.warningMessage)
             }
             return
         }
 
-        isGenerating = true
-        errorMessage = nil
+        coordinator.start()
 
-        generationTask = Task {
+        coordinator.generationTask = Task {
             defer {
                 Task { @MainActor in
-                    isGenerating = false
-                    generationTask = nil
+                    if coordinator.isGenerating {
+                        coordinator.finish()
+                    }
                 }
             }
             let outputPath = makeOutputPath(subfolder: model.outputSubfolder, text: promptText)
@@ -713,36 +729,36 @@ struct IOSVoiceDesignView: View {
                 )
                 saveSheetAudioPath = result.audioPath
                 await MainActor.run {
-                    lastCompletedOutput = IOSStudioInlinePlayerItem(
-                        audioURL: URL(fileURLWithPath: result.audioPath),
-                        voiceName: briefChipLabel,
-                        modeLabel: "Design",
-                        mode: .design,
-                        transcript: promptText,
-                        waveformSeed: result.audioPath.hashValue
+                    coordinator.complete(
+                        IOSStudioInlinePlayerItem(
+                            audioURL: URL(fileURLWithPath: result.audioPath),
+                            voiceName: briefChipLabel,
+                            modeLabel: "Design",
+                            mode: .design,
+                            transcript: promptText,
+                            waveformSeed: result.audioPath.hashValue
+                        )
                     )
                 }
                 IOSHaptics.success()
             } catch is CancellationError {
                 audioPlayer.abortLivePreviewIfNeeded()
-                errorMessage = nil
+                await MainActor.run { coordinator.errorMessage = nil }
             } catch {
                 audioPlayer.abortLivePreviewIfNeeded()
-                errorMessage = error.localizedDescription
+                await MainActor.run { coordinator.fail(error.localizedDescription) }
                 IOSHaptics.warning()
             }
         }
     }
 
     private func cancelGeneration() {
-        generationTask?.cancel()
+        coordinator.generationTask?.cancel()
         Task {
             try? await ttsEngine.cancelActiveGeneration()
             await MainActor.run {
                 audioPlayer.abortLivePreviewIfNeeded()
-                errorMessage = nil
-                isGenerating = false
-                generationTask = nil
+                coordinator.finish()
             }
         }
     }
@@ -753,15 +769,14 @@ struct IOSVoiceCloningView: View {
     @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
     @EnvironmentObject private var modelManager: ModelManagerViewModel
     @EnvironmentObject private var savedVoicesViewModel: SavedVoicesViewModel
+    @Environment(AppModel.self) private var appModel
 
     let isActive: Bool
+    @Binding var selectedTab: IOSAppTab
     @Binding var draft: VoiceCloningDraft
     @Binding var primaryAction: IOSGeneratePrimaryActionDescriptor
     @Binding var pendingSavedVoiceHandoff: PendingVoiceCloningHandoff?
 
-    @State private var isGenerating = false
-    @State private var generationTask: Task<Void, Never>?
-    @State private var errorMessage: String?
     @State private var transcriptLoadError: String?
     @State private var hydratedSavedVoiceID: String?
     @State private var isImporterPresented = false
@@ -770,11 +785,16 @@ struct IOSVoiceCloningView: View {
     @State private var isBatchSheetPresented = false
     @State private var isRecorderPresented = false
     @State private var isReferencePickerPresented: Bool = false
-    @State private var lastCompletedOutput: IOSStudioInlinePlayerItem?
+
+    // Generation lifecycle moved to AppModel.cloneCoordinator (Phase 3b).
+    private var coordinator: StudioGenerationCoordinator { appModel.cloneCoordinator }
+    private var isGenerating: Bool { coordinator.isGenerating }
+    private var errorMessage: String? { coordinator.errorMessage }
+    private var lastCompletedOutput: IOSStudioInlinePlayerItem? { coordinator.lastCompletedOutput }
 
     private var studioGenState: IOSStudioGenState {
-        if isGenerating { return .generating }
-        if let output = lastCompletedOutput { return .complete(output) }
+        if coordinator.isGenerating { return .generating }
+        if let output = coordinator.lastCompletedOutput { return .complete(output) }
         return .idle
     }
 
@@ -952,7 +972,7 @@ struct IOSVoiceCloningView: View {
                 case .success(let url):
                     applyImportedReferenceAudio(from: url)
                 case .failure(let error):
-                    errorMessage = error.localizedDescription
+                    coordinator.fail(error.localizedDescription)
                 }
             }
             .sheet(isPresented: $isBatchSheetPresented) {
@@ -1021,13 +1041,13 @@ struct IOSVoiceCloningView: View {
                 tint: IOSBrandTheme.clone,
                 genState: studioGenState,
                 canGenerate: isSimulatorPreview || canGenerate,
-                modelInstalled: true,
+                modelInstalled: isModelAvailable || isSimulatorPreview,
                 modelDisplayName: cloneModel?.name ?? "Voice Cloning model",
                 setupChips: { cloneModeChips },
                 onGenerate: generate,
                 onCancel: cancelGeneration,
-                onInstallModel: {},
-                onPlayerDismiss: { lastCompletedOutput = nil },
+                onInstallModel: { selectedTab = .settings },
+                onPlayerDismiss: { coordinator.dismissInlinePlayer() },
                 onPlayerExpand: nil
             )
 
@@ -1139,28 +1159,28 @@ struct IOSVoiceCloningView: View {
 
     private func generate() {
         if isSimulatorPreview {
-            errorMessage = nil
+            coordinator.errorMessage = nil
             return
         }
         guard !scriptLimitState.trimmedIsEmpty, ttsEngine.isReady, !ttsEngine.hasActiveGeneration else { return }
         guard !scriptLimitState.isOverLimit else {
-            errorMessage = scriptLimitState.warningMessage
+            coordinator.fail(scriptLimitState.warningMessage)
             return
         }
         guard let model = cloneModel else { return }
         guard isModelAvailable else {
-            errorMessage = "Install \(model.name) in Settings to generate audio."
+            coordinator.fail("Install \(model.name) in Settings to generate audio.")
             return
         }
 
-        isGenerating = true
-        errorMessage = nil
+        coordinator.start()
 
-        generationTask = Task {
+        coordinator.generationTask = Task {
             defer {
                 Task { @MainActor in
-                    isGenerating = false
-                    generationTask = nil
+                    if coordinator.isGenerating {
+                        coordinator.finish()
+                    }
                 }
             }
             do {
@@ -1221,36 +1241,36 @@ struct IOSVoiceCloningView: View {
                     caller: "IOSVoiceCloningView"
                 )
                 await MainActor.run {
-                    lastCompletedOutput = IOSStudioInlinePlayerItem(
-                        audioURL: URL(fileURLWithPath: result.audioPath),
-                        voiceName: voiceName,
-                        modeLabel: "Clone",
-                        mode: .clone,
-                        transcript: promptText,
-                        waveformSeed: result.audioPath.hashValue
+                    coordinator.complete(
+                        IOSStudioInlinePlayerItem(
+                            audioURL: URL(fileURLWithPath: result.audioPath),
+                            voiceName: voiceName,
+                            modeLabel: "Clone",
+                            mode: .clone,
+                            transcript: promptText,
+                            waveformSeed: result.audioPath.hashValue
+                        )
                     )
                 }
                 IOSHaptics.success()
             } catch is CancellationError {
                 audioPlayer.abortLivePreviewIfNeeded()
-                errorMessage = nil
+                await MainActor.run { coordinator.errorMessage = nil }
             } catch {
                 audioPlayer.abortLivePreviewIfNeeded()
-                errorMessage = error.localizedDescription
+                await MainActor.run { coordinator.fail(error.localizedDescription) }
                 IOSHaptics.warning()
             }
         }
     }
 
     private func cancelGeneration() {
-        generationTask?.cancel()
+        coordinator.generationTask?.cancel()
         Task {
             try? await ttsEngine.cancelActiveGeneration()
             await MainActor.run {
                 audioPlayer.abortLivePreviewIfNeeded()
-                errorMessage = nil
-                isGenerating = false
-                generationTask = nil
+                coordinator.finish()
             }
         }
     }
@@ -1360,13 +1380,13 @@ struct IOSVoiceCloningView: View {
             draft.selectedSavedVoiceID = nil
             transcriptLoadError = nil
             hydratedSavedVoiceID = nil
-            errorMessage = nil
+            coordinator.errorMessage = nil
             if let transcriptSidecarURL = imported.transcriptSidecarURL,
                let transcript = try? String(contentsOf: transcriptSidecarURL, encoding: .utf8) {
                 draft.referenceTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
             }
         } catch {
-            errorMessage = "Couldn't import the reference audio: \(error.localizedDescription)"
+            coordinator.fail("Couldn't import the reference audio: \(error.localizedDescription)")
         }
     }
 }
