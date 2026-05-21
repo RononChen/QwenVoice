@@ -69,25 +69,16 @@ struct IOSStudioCanvas<SetupChips: View>: View {
     @FocusState private var isScriptFocused: Bool
 
     var body: some View {
-        // R0 (2026-05-21): backdrop now lives at RootView level.
-        // R2 (2026-05-21): drop the trailing Spacer and let composerPad
-        // expand. Per app.css `.vc-composer-pad { flex: 1 }`, the composer
-        // takes all available vertical space so the setup chip row + dock
-        // area sit against the bottom of the screen instead of leaving a
-        // dead band above the tab dock.
-        // R2 (2026-05-21): the design wants `composerPad` to be
-        // `flex: 1`, but TextEditor doesn't honor `frame(maxHeight:
-        // .infinity)` cleanly under the current IOSStudioShellScreen +
-        // IOSGenerateContainerView chain. A middle Spacer flipped the
-        // problem — content pushed past the tab-dock safe-area inset
-        // and the Generate button rendered under the dock.
-        //
-        // Pragmatic compromise: content sits at the top via the
-        // canvas's `.frame(alignment: .topLeading)`, with a small dead
-        // band below the dock area. Composer minimum height (132pt)
-        // gives it editorial presence even when the script is empty.
-        // Revisit once the IOSStudioShellScreen chain is replaced with
-        // a leaner `RootView` body.
+        // Composer height: tried `flex: 1` (R5 first pass) with
+        // `.layoutPriority(1)` + `.frame(maxHeight: .infinity)` and the
+        // TextEditor reliably swallowed the entire canvas, pushing the
+        // Generate CTA under the tab dock. Reverted to a fixed
+        // editorial height of 320 pt (~10 lines at 30-pt line-height)
+        // plus a trailing 0-length Spacer that absorbs the remainder.
+        // Short of replacing IOSStudioShellScreen with a leaner
+        // RootView-owned chain (large rewrite), this is the cleanest
+        // pattern that gives the composer real presence without
+        // overflowing the chip + dock area below it.
         VStack(alignment: .leading, spacing: 14) {
             composerPad
             setupRow
@@ -137,14 +128,12 @@ struct IOSStudioCanvas<SetupChips: View>: View {
                     .scrollContentBackground(.hidden)
                     .padding(.horizontal, -4)      // counter-balance TextEditor's built-in inner inset
                     .padding(.vertical, 4)
-                    // Fixed height keeps the composer from greedily
-                    // expanding and pushing the chip row + Generate CTA
-                    // off the bottom of the canvas. Long scripts scroll
-                    // inside the editor. The 220-pt value comes from
-                    // ~7 lines at 30-pt line-height per app.css
-                    // `.vc-script { font: 500 22px/30px }` plus 8 pt of
-                    // internal padding.
-                    .frame(height: 220)
+                    // Fixed editorial height: ~10 lines at the design's
+                    // 30-pt line-height (app.css `.vc-script`) plus a
+                    // little vertical padding. Longer scripts scroll
+                    // inside the editor; short scripts get the
+                    // placeholder marquee.
+                    .frame(height: 320)
                     .accessibilityIdentifier("textInput_textEditor")
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
