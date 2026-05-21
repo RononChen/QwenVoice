@@ -8,6 +8,16 @@ Vocello (formerly QwenVoice) — a local, private text-to-speech macOS app power
 
 Targets: macOS 26.0+ and iOS 26.0+, Apple Silicon only, Xcode 26.0. No Python runtime. No bundled model weights — models are downloaded from Hugging Face from Settings → Model Downloads on first run.
 
+## Quick start
+
+```sh
+./scripts/build.sh run                       # Debug build → launch Vocello.app
+./scripts/uitest.sh prep                     # Build + launch under autonomous UI testing harness
+./scripts/build_foundation_targets.sh ios    # iOS compile-safety only
+```
+
+First-time setup: install XcodeGen (`brew install xcodegen`) and optionally `xcbeautify` (`brew install xcbeautify`) for pretty-printed build output.
+
 ## Source of truth (when facts disagree)
 
 Per `CONTRIBUTING.md`, trust in order: `Sources/` → `project.yml` → `scripts/` → `docs/reference/` → other prose. `Sources/Resources/qwenvoice_contract.json` is the canonical schema for speakers, models, variants, HF revisions, and required artifacts.
@@ -101,6 +111,8 @@ Benchmark runbooks share the bench-* harness (`bench-wait`, `bench-step <mode> <
 
 Committed baselines live at `docs/reference/benchmark-baselines.json` (schema v3, regression-ready, 24 cells × n=3 on Apple M2 — full coverage of the 3 modes × 2 variants × cold/medium + warm/{short,medium,long} matrix as of May 2026). Every cell carries `ms_engine_start_to_final`, `ms_engine_start_to_autoplay`, `audio_duration_s`, `rtf`, `audio_rms_dbfs`, `audio_peak_dbfs`, `peak_rss_mb` (combined Vocello + XPC), and the `peak_rss_mb_app` / `peak_rss_mb_xpc` split. `bench-compare` flags drift on `ms_engine_start_to_final` and `rtf` at ±15 %; depth metrics are recorded in the baseline for forensic comparison but not gated on directly.
 
+**Perceptual review artifacts.** `./scripts/uitest.sh antigravity-review <wav>` writes a bundle under `build/Debug/voice-reviews/<UTC-ts>-<mode>-<basename>/` containing `review.md` (front matter + body), `review_prompt.md`, `review_body.raw`, `metadata.json`. Bundles are NOT pruned by `build.sh clean`; delete manually when stale.
+
 **Reading bench-compare flags — `ms` and `rtf` as paired signals.** The two gates flag independently but are not independent metrics. When `ms_engine_start_to_final` flags but `rtf` stays within ±15 %, the latency change is driven by LM output-length variance (same input prompt occasionally produces a longer/shorter take), not engine throughput regression — inspect `audio_duration_s` in the per-sample JSONL for outliers. The `rtf` metric (audio-seconds per generation-second) normalizes out output-length and is the correct gate for engine throughput. The ±15 % gate on raw `ms` is conservative for catching obvious regressions but is noisy at n=3; for a "confirmed regression" verdict, prefer `rtf` and require n≥10 samples. See `docs/reference/ui-test-surface.md` § "Reading the bench-compare output" for the full reading rules and a May 18 worked example.
 
 ### iOS Simulator UI testing
@@ -171,7 +183,7 @@ Two-platform Swift codebase with an out-of-process engine on each platform.
 
 **Modern SwiftUI patterns:** `@Observable` + `@Environment(AppModel.self)` + `@Bindable` (no `@StateObject` / `@Published`); `.sheet(item:)`; `@available(iOS 26, *)` gating for Liquid Glass; `sensoryFeedback(_:trigger:)` for haptics; `foregroundStyle(_:)` everywhere; modern `.confirmationDialog` / `.alert`; stable `Identifiable` in every `ForEach`. Per `swiftui-expert-skill/references/latest-apis.md`.
 
-**Legacy files still loaded** (active but slated for retirement as the new screens absorb their bodies): `IOSShellPrimitives.swift`, `IOSDesignSystemPrimitives.swift`, `IOSStudioShellViews.swift`, `IOSGenerateFlowViews.swift`, `IOSGenerationModeViews.swift`, `IOSGenerationSetupCards.swift`, `IOSGenerationInputControls.swift`, `IOSGenerationSharedViews.swift`, `IOSStudioCanvas.swift`, `IOSLibraryViews.swift`, `IOSSettingsViews.swift`, `IOSRootNavigationModels.swift`, `IOSOnboardingCard.swift`. These provide the actual rendering for the per-mode generation flows, library lists, and settings rows. The new screen files are thin AppModel-aware shells around them; future cleanup can collapse the legacy bodies behind the new screens.
+**Legacy file zone.** Any `Sources/iOS/IOS*.swift` directly under the `Sources/iOS/` root (i.e. not in `Theme/`, `App/`, `Studio/`, `Voices/`, `History/`, `Settings/`, `Sheets/`, `Overlays/`) is a legacy body still rendering the per-mode generation flows, library lists, and settings rows. The new screen files are thin AppModel-aware shells around them; future cleanup can collapse the legacy bodies behind the new screens. Keep-list (engine wiring + entry point, not legacy): `QVoiceiOSApp.swift`, `QVoiceiOSRootView.swift`, `TTSEngineStore.swift`, `IOSAppBootstrap.swift`, `IOSEngineExtensionPoint.swift`, `IOSPreviewSupport.swift`, `IOSAccessibility.swift`, `IOSAccessibilityIdentifiers.swift`, `IOSModelInstallerViewModel.swift`, `IOSModelDeliveryActor.swift`, `IOSModelDeliveryBackgroundEvents.swift`, `IOSBatchGenerationCoordinator.swift`, `IOSBatchGenerationSheet.swift`, `IOSSimulatorTTSEngine.swift`, `IOSSimulatorFakeInstallRegistry.swift`, `IOSGenerationTextLimitPolicy.swift`.
 
 **Entitlements:** App sandbox is **disabled** (`com.apple.security.app-sandbox = false` in `Sources/QwenVoice.entitlements`) — required for MLX. Hardened runtime is on with allow-unsigned-memory and disable-library-validation flags.
 
@@ -294,4 +306,5 @@ Mean gain across all 6 cells: **+4.5 s** saved on time-to-first-sound.
 - `docs/reference/antigravity-voice-review.md` — Antigravity-CLI-backed perceptual review runbook (semi-automated, complements the bench's timing/RMS gates with subjective dimensions). The legacy `gemini-voice-review.md` is a redirect stub after Google retired Gemini CLI in favor of Antigravity CLI (2026-05-19).
 - `design_references/Vocello Design System/` — Claude Design system: brand register (SKILL.md), color + type scale (`colors_and_type.css`), preview HTML pages per token family. Read before touching iOS chrome or shipping new mode tints.
 - `design_references/Vocello iOS/` — Claude Design iOS prototype: React + CSS source (`app.css`, `tokens.css`, `chrome.jsx`, `studio.jsx`, `player.jsx`, `sheets.jsx`, `screens.jsx`, `data.js`) plus 64 reference screenshots. Canonical source for the May 2026 iOS redesign tracks.
+- `docs/assets/voice-samples/` — three Quality-variant WAVs (Voice Design / Custom Voice / Voice Cloning) generated for the marketing site's Listen section. Regenerate via the Vocello Debug app and copy into this folder using the existing filenames.
 - `CONTRIBUTING.md` — contributor workflow
