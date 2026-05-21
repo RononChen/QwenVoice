@@ -15,6 +15,7 @@ struct QVoiceiOSRootView: View {
     @State private var designPrimaryAction = IOSGeneratePrimaryActionDescriptor.placeholder(for: .design)
     @State private var clonePrimaryAction = IOSGeneratePrimaryActionDescriptor.placeholder(for: .clone)
     @State private var isOnboardingPresented: Bool = !IOSAppDefaults.hasCompletedOnboarding
+    @State private var playerSheetItem: IOSPlayerSheetItem?
 
     init(modelRegistry: ContractBackedModelRegistry) {
         self.modelRegistry = modelRegistry
@@ -50,6 +51,9 @@ struct QVoiceiOSRootView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .tint(IOSBrandTheme.accent)
+        .environment(\.presentIOSPlayerSheet) { item in
+            playerSheetItem = item
+        }
         .overlay {
             if IOSPreviewRuntime.isEnabled {
                 IOSPreviewCaptureBridge(
@@ -61,6 +65,13 @@ struct QVoiceiOSRootView: View {
         }
         .fullScreenCover(isPresented: $isOnboardingPresented) {
             IOSOnboardingFlow(isPresented: $isOnboardingPresented)
+        }
+        .sheet(item: $playerSheetItem) { item in
+            IOSPlayerSheet(
+                item: item,
+                onDismiss: { playerSheetItem = nil }
+            )
+            .presentationBackground(IOSBrandTheme.canvasTop)
         }
     }
 

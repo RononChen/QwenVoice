@@ -14,6 +14,35 @@ struct IOSCustomVoiceView: View {
     @State private var generationTask: Task<Void, Never>?
     @State private var isScriptFocused = false
     @State private var errorMessage: String?
+    @State private var lastCompletedOutput: IOSStudioInlinePlayerItem?
+    @State private var isVoicePickerPresented: Bool = false
+    @State private var isDeliveryPickerPresented: Bool = false
+
+    private var studioGenState: IOSStudioGenState {
+        if isGenerating { return .generating }
+        if let output = lastCompletedOutput { return .complete(output) }
+        return .idle
+    }
+
+    private var speakerDisplay: SpeakerDescriptor? {
+        TTSContract.speakerDescriptor(id: draft.selectedSpeaker)
+    }
+
+    private var speakerDisplayName: String {
+        speakerDisplay?.displayName ?? draft.selectedSpeaker.capitalized
+    }
+
+    private var deliveryChipLabel: String {
+        let preset = draft.delivery.selectedPresetLabel
+        if draft.delivery.mode == .custom {
+            let trimmed = draft.delivery.customText.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? "Custom delivery" : trimmed
+        }
+        if draft.delivery.supportsIntensity {
+            return "\(preset) · \(draft.delivery.selectedIntensity.label)"
+        }
+        return preset
+    }
 
     private var activeModel: TTSModel? {
         TTSModel.model(for: .custom)
@@ -97,51 +126,80 @@ struct IOSCustomVoiceView: View {
 
     @ViewBuilder
     private var pageContent: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            IOSStudioComposerCard(
-                title: "Use an existing voice",
-                subtitle: "",
-                promptSectionTitle: "Script",
-                setupSectionTitle: "Voice",
-                tint: IOSBrandTheme.custom,
-                helper: promptHelper,
-                text: promptTextBinding,
-                placeholder: "Type the text to speak",
-                isFocused: $isScriptFocused,
-                accessibilityIdentifier: "textInput_textEditor",
-                counterText: scriptLimitState.counterText,
-                counterTone: scriptLimitState.isOverLimit ? .orange : IOSBrandTheme.custom,
-                helperTone: scriptLimitState.isOverLimit ? .orange : IOSAppTheme.textSecondary,
-                notice: errorMessage,
-                noticeTint: .orange,
-                maxCharacterCount: scriptLimitState.limit
-            ) {
-                EmptyView()
-            } setup: {
-                IOSCustomVoiceSetupCard(
-                    selectedSpeaker: $draft.selectedSpeaker,
-                    delivery: $draft.delivery,
-                    setupMessage: setupMessage,
-                    badgeText: nil,
-                    badgeTone: nil,
-                    modelInstallMessage: activeModel.flatMap { model in
-                        guard !isModelAvailable, !isSimulatorPreview else { return nil }
-                        return "Install \(model.name) in Settings."
-                    }
-                )
-            }
-
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        IOSStudioCanvas(
+            mode: .custom,
+            script: promptTextBinding,
+            placeholder: "Type or paste your script.",
+            modeMetaLabel: "Built-in voice",
+            charLimit: scriptLimitState.limit,
+            tint: IOSBrandTheme.custom,
+            genState: studioGenState,
+            canGenerate: isSimulatorPreview || canGenerate,
+            modelInstalled: true,
+            modelDisplayName: activeModel?.name ?? "Voice model",
+            setupChips: { customModeChips },
+            onGenerate: generate,
+            onCancel: cancelGeneration,
+            onInstallModel: {},
+            onPlayerDismiss: { lastCompletedOutput = nil },
+            onPlayerExpand: nil
+        )
         .opacity(chromeOpacity)
         .iosAppAnimation(IOSSelectionMotion.modeCrossfade, value: isGenerationActive)
-        .onChange(of: draft.text) { _, newValue in
-            let clamped = IOSGenerationTextLimitPolicy.clamped(newValue, mode: .custom)
-            if clamped != newValue {
-                draft.text = clamped
-            }
+        .sheet(isPresented: $isVoicePickerPresented) {
+            IOSVoicePickerSheet(
+                speakers: TTSContract.allSpeakerDescriptors.map { spec in
+                    IOSVoicePickerOption(
+                        id: spec.id,
+                        name: spec.displayName,
+                        subtitle: spec.shortDescription ?? spec.nativeLanguage
+                    )
+                },
+                recents: [],
+                selectedID: $draft.selectedSpeaker,
+                tint: IOSBrandTheme.custom
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.hidden)
+            .presentationBackground(IOSBrandTheme.canvasTop)
         }
+        .sheet(isPresented: $isDeliveryPickerPresented) {
+            IOSDeliveryPickerSheet(
+                selectedPresetID: Binding(
+                    get: { draft.delivery.selectedPresetID },
+                    set: { newID in
+                        draft.delivery.mode = .preset
+                        draft.delivery.selectedPresetID = newID
+                    }
+                ),
+                intensity: $draft.delivery.selectedIntensity,
+                tint: IOSBrandTheme.custom,
+                onUseCustomTone: { draft.delivery.mode = .custom }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.hidden)
+            .presentationBackground(IOSBrandTheme.canvasTop)
+        }
+    }
+
+    @ViewBuilder
+    private var customModeChips: some View {
+        IOSStudioSetupChip(
+            eyebrow: "Voice",
+            value: speakerDisplayName,
+            leadingAvatar: AnyView(
+                IOSVoiceAvatar(seed: draft.selectedSpeaker, initials: speakerDisplayName, diameter: 30)
+            ),
+            tint: IOSBrandTheme.custom,
+            action: { isVoicePickerPresented = true }
+        )
+        IOSStudioSetupChip(
+            eyebrow: "Delivery",
+            value: deliveryChipLabel,
+            leadingSymbol: "waveform",
+            tint: IOSBrandTheme.custom,
+            action: { isDeliveryPickerPresented = true }
+        )
     }
 
     private func publishPrimaryAction() {
@@ -228,6 +286,16 @@ struct IOSCustomVoiceView: View {
                     audioPlayer: audioPlayer,
                     caller: "IOSCustomVoiceView"
                 )
+                await MainActor.run {
+                    lastCompletedOutput = IOSStudioInlinePlayerItem(
+                        audioURL: URL(fileURLWithPath: result.audioPath),
+                        voiceName: speakerDisplayName,
+                        modeLabel: "Custom",
+                        mode: .custom,
+                        transcript: promptText,
+                        waveformSeed: result.audioPath.hashValue
+                    )
+                }
                 IOSHaptics.success()
             } catch is CancellationError {
                 audioPlayer.abortLivePreviewIfNeeded()
@@ -276,6 +344,32 @@ struct IOSVoiceDesignView: View {
     /// being asked whether to keep or discard. Mirrors the macOS
     /// SavedVoiceSheet flow.
     @State private var pendingVoiceForReview: PreparedVoice?
+    @State private var lastCompletedOutput: IOSStudioInlinePlayerItem?
+    @State private var isDeliveryPickerPresented: Bool = false
+    @State private var isBriefEditorPresented: Bool = false
+
+    private var studioGenState: IOSStudioGenState {
+        if isGenerating { return .generating }
+        if let output = lastCompletedOutput { return .complete(output) }
+        return .idle
+    }
+
+    private var deliveryChipLabel: String {
+        let preset = draft.delivery.selectedPresetLabel
+        if draft.delivery.mode == .custom {
+            let trimmed = draft.delivery.customText.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? "Custom delivery" : trimmed
+        }
+        if draft.delivery.supportsIntensity {
+            return "\(preset) · \(draft.delivery.selectedIntensity.label)"
+        }
+        return preset
+    }
+
+    private var briefChipLabel: String {
+        let trimmed = draft.voiceDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Describe the voice" : trimmed
+    }
 
     private var activeModel: TTSModel? {
         TTSModel.model(for: .design)
@@ -459,64 +553,71 @@ struct IOSVoiceDesignView: View {
 
     @ViewBuilder
     private var pageContent: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            IOSStudioComposerCard(
-                title: "Describe the voice you want",
-                subtitle: "",
-                promptSectionTitle: "Script",
-                setupSectionTitle: "Voice",
-                tint: IOSBrandTheme.design,
-                helper: promptHelper,
-                text: promptTextBinding,
-                placeholder: "Type the text to speak",
-                isFocused: $isScriptFocused,
-                accessibilityIdentifier: "textInput_textEditor",
-                counterText: scriptLimitState.counterText,
-                counterTone: scriptLimitState.isOverLimit ? .orange : IOSBrandTheme.design,
-                helperTone: scriptLimitState.isOverLimit ? .orange : IOSAppTheme.textSecondary,
-                notice: errorMessage,
-                noticeTint: .orange,
-                maxCharacterCount: scriptLimitState.limit
-            ) {
-                if canSaveVoice {
-                    IOSComposerCardAction(
-                        title: "Save",
-                        systemImage: "person.crop.circle.badge.plus",
-                        tint: IOSBrandTheme.design,
-                        accessibilityIdentifier: "voiceDesign_saveVoiceButton"
-                    ) {
-                        saveSheetSuggestedName = suggestedSavedVoiceName
-                        saveSheetTranscript = promptText
-                        isSaveSheetPresented = true
-                    }
-                } else {
-                    EmptyView()
-                }
-            } setup: {
-                IOSVoiceDesignSetupCard(
-                    voiceDescription: $draft.voiceDescription,
-                    delivery: $draft.delivery,
-                    setupMessage: setupMessage,
-                    badgeText: nil,
-                    badgeTone: nil,
-                    modelInstallMessage: activeModel.flatMap { model in
-                        guard !isModelAvailable, !isSimulatorPreview else { return nil }
-                        return "Install \(model.name) in Settings."
-                    }
-                )
-            }
-
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        IOSStudioCanvas(
+            mode: .design,
+            script: promptTextBinding,
+            placeholder: "Type the lines you want this designed voice to say.",
+            modeMetaLabel: "Designed voice",
+            charLimit: scriptLimitState.limit,
+            tint: IOSBrandTheme.design,
+            genState: studioGenState,
+            canGenerate: isSimulatorPreview || canGenerate,
+            modelInstalled: true,
+            modelDisplayName: activeModel?.name ?? "Voice Design model",
+            setupChips: { designModeChips },
+            onGenerate: generate,
+            onCancel: cancelGeneration,
+            onInstallModel: {},
+            onPlayerDismiss: { lastCompletedOutput = nil },
+            onPlayerExpand: nil
+        )
         .opacity(chromeOpacity)
         .iosAppAnimation(IOSSelectionMotion.modeCrossfade, value: isGenerationActive)
-        .onChange(of: draft.text) { _, newValue in
-            let clamped = IOSGenerationTextLimitPolicy.clamped(newValue, mode: .design)
-            if clamped != newValue {
-                draft.text = clamped
-            }
+        .sheet(isPresented: $isBriefEditorPresented) {
+            IOSVoiceDesignBriefSheet(
+                voiceDescription: $draft.voiceDescription,
+                tint: IOSBrandTheme.design
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.hidden)
+            .presentationBackground(IOSBrandTheme.canvasTop)
         }
+        .sheet(isPresented: $isDeliveryPickerPresented) {
+            IOSDeliveryPickerSheet(
+                selectedPresetID: Binding(
+                    get: { draft.delivery.selectedPresetID },
+                    set: { newID in
+                        draft.delivery.mode = .preset
+                        draft.delivery.selectedPresetID = newID
+                    }
+                ),
+                intensity: $draft.delivery.selectedIntensity,
+                tint: IOSBrandTheme.design,
+                onUseCustomTone: { draft.delivery.mode = .custom }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.hidden)
+            .presentationBackground(IOSBrandTheme.canvasTop)
+        }
+    }
+
+    @ViewBuilder
+    private var designModeChips: some View {
+        IOSStudioSetupChip(
+            eyebrow: "Voice brief",
+            value: briefChipLabel,
+            leadingSymbol: "wand.and.stars",
+            tint: IOSBrandTheme.design,
+            isPlaceholder: draft.voiceDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            action: { isBriefEditorPresented = true }
+        )
+        IOSStudioSetupChip(
+            eyebrow: "Delivery",
+            value: deliveryChipLabel,
+            leadingSymbol: "waveform",
+            tint: IOSBrandTheme.design,
+            action: { isDeliveryPickerPresented = true }
+        )
     }
 
     private func publishPrimaryAction() {
@@ -611,6 +712,16 @@ struct IOSVoiceDesignView: View {
                     caller: "IOSVoiceDesignView"
                 )
                 saveSheetAudioPath = result.audioPath
+                await MainActor.run {
+                    lastCompletedOutput = IOSStudioInlinePlayerItem(
+                        audioURL: URL(fileURLWithPath: result.audioPath),
+                        voiceName: briefChipLabel,
+                        modeLabel: "Design",
+                        mode: .design,
+                        transcript: promptText,
+                        waveformSeed: result.audioPath.hashValue
+                    )
+                }
                 IOSHaptics.success()
             } catch is CancellationError {
                 audioPlayer.abortLivePreviewIfNeeded()
@@ -658,6 +769,20 @@ struct IOSVoiceCloningView: View {
     @State private var isScriptFocused = false
     @State private var isBatchSheetPresented = false
     @State private var isRecorderPresented = false
+    @State private var isReferencePickerPresented: Bool = false
+    @State private var lastCompletedOutput: IOSStudioInlinePlayerItem?
+
+    private var studioGenState: IOSStudioGenState {
+        if isGenerating { return .generating }
+        if let output = lastCompletedOutput { return .complete(output) }
+        return .idle
+    }
+
+    private var referenceChipLabel: String {
+        if let voice = selectedVoice { return voice.name }
+        if draft.referenceAudioPath != nil { return "Imported clip" }
+        return "Choose reference"
+    }
 
     private var cloneModel: TTSModel? {
         TTSModel.model(for: .clone)
@@ -887,66 +1012,24 @@ struct IOSVoiceCloningView: View {
     @ViewBuilder
     private var pageContent: some View {
         VStack(alignment: .leading, spacing: 14) {
-            IOSStudioComposerCard(
-                title: "Use a reference recording",
-                subtitle: "",
-                promptSectionTitle: "Script",
-                setupSectionTitle: "Reference",
+            IOSStudioCanvas(
+                mode: .clone,
+                script: promptTextBinding,
+                placeholder: "Type the new text. The reference voice will speak it.",
+                modeMetaLabel: "Voice cloning",
+                charLimit: scriptLimitState.limit,
                 tint: IOSBrandTheme.clone,
-                helper: promptHelper,
-                text: promptTextBinding,
-                placeholder: "Type the new text to speak",
-                isFocused: $isScriptFocused,
-                accessibilityIdentifier: "textInput_textEditor",
-                counterText: scriptLimitState.counterText,
-                counterTone: scriptLimitState.isOverLimit ? .orange : IOSBrandTheme.clone,
-                helperTone: scriptLimitState.isOverLimit ? .orange : IOSAppTheme.textSecondary,
-                notice: errorMessage,
-                noticeTint: .orange,
-                maxCharacterCount: scriptLimitState.limit
-            ) {
-                EmptyView()
-            } setup: {
-                IOSVoiceCloningReferenceCard(
-                    savedVoices: savedVoices,
-                    selectedSavedVoiceID: draft.selectedSavedVoiceID,
-                    referenceAudioPath: draft.referenceAudioPath,
-                    transcriptLoadError: transcriptLoadError,
-                    setupMessage: setupMessage,
-                    badgeText: nil,
-                    badgeTone: nil,
-                    onSelectSavedVoice: { newValue in
-                        guard let newValue else {
-                            clearReference()
-                            return
-                        }
-                        guard let voice = savedVoices.first(where: { $0.id == newValue }) else { return }
-                        applySavedVoice(voice)
-                    },
-                    onImportReference: {
-                        isImporterPresented = true
-                    },
-                    onClearReference: clearReference,
-                    referenceTranscript: $draft.referenceTranscript,
-                    isTranscriptExpanded: $isTranscriptExpanded
-                )
-            }
-
-            // Track H wiring: record a fresh reference clip on-device via
-            // the new IOSRecordingOverlay. Always available so the user has
-            // a third source alongside saved voices + import.
-            Button {
-                IOSHaptics.selection()
-                isRecorderPresented = true
-            } label: {
-                Label("Record reference clip…", systemImage: "mic.fill")
-                    .font(.footnote.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-            }
-            .buttonStyle(.bordered)
-            .tint(IOSGenerationSection.clone.primaryActionTint)
-            .accessibilityIdentifier("textInput_recordReferenceButton")
+                genState: studioGenState,
+                canGenerate: isSimulatorPreview || canGenerate,
+                modelInstalled: true,
+                modelDisplayName: cloneModel?.name ?? "Voice Cloning model",
+                setupChips: { cloneModeChips },
+                onGenerate: generate,
+                onCancel: cancelGeneration,
+                onInstallModel: {},
+                onPlayerDismiss: { lastCompletedOutput = nil },
+                onPlayerExpand: nil
+            )
 
             if isBatchTriggerEnabled {
                 Button {
@@ -961,17 +1044,54 @@ struct IOSVoiceCloningView: View {
                 .buttonStyle(.bordered)
                 .tint(IOSGenerationSection.clone.primaryActionTint)
                 .accessibilityIdentifier("textInput_generateBatchButton")
+                .padding(.horizontal, 16)
             }
-
-            Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onChange(of: draft.text) { _, newValue in
-            let clamped = IOSGenerationTextLimitPolicy.clamped(newValue, mode: .clone)
-            if clamped != newValue {
-                draft.text = clamped
-            }
+        .sheet(isPresented: $isReferencePickerPresented) {
+            IOSReferenceClipSheet(
+                savedVoices: savedVoices.map { voice in
+                    IOSVoicePickerOption(
+                        id: voice.id,
+                        name: voice.name,
+                        subtitle: "Cloned reference"
+                    )
+                },
+                selectedSavedVoiceID: Binding(
+                    get: { draft.selectedSavedVoiceID },
+                    set: { newValue in
+                        guard let id = newValue,
+                              let voice = savedVoices.first(where: { $0.id == id })
+                        else { return }
+                        applySavedVoice(voice)
+                        isReferencePickerPresented = false
+                    }
+                ),
+                onImportFromFiles: {
+                    isReferencePickerPresented = false
+                    isImporterPresented = true
+                },
+                onRecorded: { url in
+                    isReferencePickerPresented = false
+                    applyRecordedReferenceAudio(at: url)
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.hidden)
+            .presentationBackground(IOSBrandTheme.canvasTop)
         }
+    }
+
+    @ViewBuilder
+    private var cloneModeChips: some View {
+        IOSStudioSetupChip(
+            eyebrow: draft.referenceAudioPath == nil ? "Reference" : "Voice",
+            value: referenceChipLabel,
+            leadingSymbol: draft.referenceAudioPath == nil ? "mic.fill" : "person.wave.2.fill",
+            tint: IOSBrandTheme.clone,
+            isPlaceholder: draft.referenceAudioPath == nil,
+            action: { isReferencePickerPresented = true }
+        )
     }
 
     private var isBatchTriggerEnabled: Bool {
@@ -1100,6 +1220,16 @@ struct IOSVoiceCloningView: View {
                     audioPlayer: audioPlayer,
                     caller: "IOSVoiceCloningView"
                 )
+                await MainActor.run {
+                    lastCompletedOutput = IOSStudioInlinePlayerItem(
+                        audioURL: URL(fileURLWithPath: result.audioPath),
+                        voiceName: voiceName,
+                        modeLabel: "Clone",
+                        mode: .clone,
+                        transcript: promptText,
+                        waveformSeed: result.audioPath.hashValue
+                    )
+                }
                 IOSHaptics.success()
             } catch is CancellationError {
                 audioPlayer.abortLivePreviewIfNeeded()

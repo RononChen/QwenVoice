@@ -96,21 +96,14 @@ struct IOSGenerateContainerView: View {
         IOSStudioShellScreen(
             selectedTab: $selectedTab,
             activeTab: .studio,
-            tint: selectedSection.primaryActionTint
+            tint: selectedSection.primaryActionTint,
+            accessory: {
+                IOSMemoryHeaderAccessory(state: memoryIndicatorStore.state)
+            }
         ) {
-            IOSMemoryHeaderAccessory(state: memoryIndicatorStore.state)
-        } bottomAccessory: {
-            IOSGenerationPrimaryButton(
-                title: activePrimaryAction.title,
-                systemImage: activePrimaryAction.systemImage,
-                tint: activePrimaryAction.tint,
-                isRunning: activePrimaryAction.isRunning,
-                isEnabled: activePrimaryAction.isEnabled,
-                accessibilityIdentifier: activePrimaryAction.accessibilityIdentifier,
-                action: activePrimaryAction.action
-            )
-            .frame(maxWidth: .infinity)
-        } content: {
+            // Studio's CTA / generating waveform / inline player live INSIDE
+            // each per-mode view via IOSStudioCanvas, per design_references/
+            // Vocello iOS/studio.jsx (vc-dock-area). No shell bottomAccessory.
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
                     if !hasAnyInstalledModel {

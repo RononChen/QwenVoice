@@ -310,6 +310,7 @@ private struct IOSHistoryItemCard: View {
     let onDelete: () -> Void
 
     @State private var isConfirmingDelete = false
+    @Environment(\.presentIOSPlayerSheet) private var presentPlayerSheet
 
     private var modeText: String {
         switch item.mode.lowercased() {
@@ -355,47 +356,63 @@ private struct IOSHistoryItemCard: View {
     var body: some View {
         IOSSurfaceCard(tint: modeTint) {
             HStack(alignment: .center, spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(IOSAppTheme.accentSurface(modeTint))
-                        .frame(width: 48, height: 48)
-                    IOSWaveformBars(
-                        seed: thumbnailSeed,
-                        barCount: 12,
-                        tint: modeTint,
-                        progress: 1.0,
-                        isAnimating: false
-                    )
-                    .frame(width: 36, height: 24)
+                // Tap target: thumbnail + text → opens full Player sheet via
+                // the environment closure (Track L). Inline play + menu
+                // buttons keep their own tap regions on the trailing side.
+                Button(action: openPlayerSheet) {
+                    HStack(alignment: .center, spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(IOSAppTheme.accentSurface(modeTint))
+                                .frame(width: 48, height: 48)
+                            IOSWaveformBars(
+                                seed: thumbnailSeed,
+                                barCount: 12,
+                                tint: modeTint,
+                                progress: 1.0,
+                                isAnimating: false
+                            )
+                            .frame(width: 36, height: 24)
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(item.textPreview)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(IOSAppTheme.textPrimary)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .multilineTextAlignment(.leading)
+
+                            Text(historyMetadata)
+                                .font(.caption)
+                                .foregroundStyle(IOSAppTheme.textSecondary)
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(item.textPreview)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(IOSAppTheme.textPrimary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Text(historyMetadata)
-                        .font(.caption)
-                        .foregroundStyle(IOSAppTheme.textSecondary)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 8)
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("historyRowTap_\(item.historyAccessibilityID)")
 
                 HStack(spacing: 8) {
                     Button(action: onPlay) {
                         Image(systemName: "play.fill")
                     }
                     .iosAdaptiveUtilityButtonStyle(prominent: true, tint: modeTint)
+                    .accessibilityIdentifier("historyRowPlay_\(item.historyAccessibilityID)")
 
                     Menu {
+                        Button {
+                            onPlay()
+                        } label: {
+                            Label("Play", systemImage: "play.fill")
+                        }
                         if FileManager.default.fileExists(atPath: item.audioPath) {
                             ShareLink(item: URL(fileURLWithPath: item.audioPath)) {
-                                Label("Share", systemImage: "square.and.arrow.up")
+                                Label("Save audio", systemImage: "square.and.arrow.down")
                             }
                         }
+                        Divider()
                         Button("Delete", role: .destructive) {
                             isConfirmingDelete = true
                         }
@@ -421,6 +438,17 @@ private struct IOSHistoryItemCard: View {
         } message: {
             Text("This permanently removes the generated audio and its history entry.")
         }
+    }
+
+    private func openPlayerSheet() {
+        guard let playerItem = IOSPlayerSheetItem.from(history: item) else {
+            // Audio file missing on disk; fall back to the inline play
+            // path so the user gets the existing error toast.
+            onPlay()
+            return
+        }
+        IOSHaptics.selection()
+        presentPlayerSheet(playerItem)
     }
 
     private var historyMetadata: String {

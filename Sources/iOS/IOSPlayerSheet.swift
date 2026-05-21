@@ -229,7 +229,7 @@ struct IOSPlayerSheet: View {
 
 // MARK: - Player sheet item
 
-struct IOSPlayerSheetItem: Equatable {
+struct IOSPlayerSheetItem: Equatable, Identifiable {
     let audioURL: URL
     let transcript: String
     let voiceName: String
@@ -240,8 +240,63 @@ struct IOSPlayerSheetItem: Equatable {
     let avatarInitials: String
     let waveformSeed: Int
 
+    var id: URL { audioURL }
+
     static func == (lhs: IOSPlayerSheetItem, rhs: IOSPlayerSheetItem) -> Bool {
         lhs.audioURL == rhs.audioURL && lhs.transcript == rhs.transcript
+    }
+
+    /// Helper: build a player-sheet item from a History `Generation` row.
+    /// Returns `nil` when the underlying audio file no longer exists on disk.
+    static func from(history: Generation) -> IOSPlayerSheetItem? {
+        guard FileManager.default.fileExists(atPath: history.audioPath) else {
+            return nil
+        }
+        let modeTint: Color
+        let modeLabel: String
+        switch history.mode.lowercased() {
+        case "custom":
+            modeTint = IOSBrandTheme.custom
+            modeLabel = "Custom"
+        case "design":
+            modeTint = IOSBrandTheme.design
+            modeLabel = "Design"
+        case "clone":
+            modeTint = IOSBrandTheme.clone
+            modeLabel = "Clone"
+        default:
+            modeTint = IOSBrandTheme.library
+            modeLabel = history.mode.capitalized
+        }
+        let voiceName = history.voice ?? "Voice"
+        return IOSPlayerSheetItem(
+            audioURL: URL(fileURLWithPath: history.audioPath),
+            transcript: history.text,
+            voiceName: voiceName,
+            modeLabel: modeLabel,
+            modeTint: modeTint,
+            subtitle: history.formattedDate,
+            avatarSeed: voiceName,
+            avatarInitials: voiceName,
+            waveformSeed: history.id.map { Int(truncatingIfNeeded: $0) } ?? history.audioPath.hashValue
+        )
+    }
+}
+
+// MARK: - Environment plumbing
+
+/// Environment closure for requesting the global Player sheet presentation.
+/// QVoiceiOSRootView injects a closure that sets its `playerSheetItem` state;
+/// any descendant view (History rows, Studio inline player) reads it via
+/// `@Environment(\.presentIOSPlayerSheet)` and calls it with an item.
+struct IOSPlayerSheetPresenterKey: EnvironmentKey {
+    static let defaultValue: @MainActor (IOSPlayerSheetItem) -> Void = { _ in }
+}
+
+extension EnvironmentValues {
+    var presentIOSPlayerSheet: @MainActor (IOSPlayerSheetItem) -> Void {
+        get { self[IOSPlayerSheetPresenterKey.self] }
+        set { self[IOSPlayerSheetPresenterKey.self] = newValue }
     }
 }
 
