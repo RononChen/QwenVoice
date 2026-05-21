@@ -1,150 +1,22 @@
 import SwiftUI
 import QwenVoiceCore
 
+/// Thin shell that owns the `AppModel` lifetime and injects it into the
+/// environment. The real tab routing + screen content lives in
+/// `Sources/iOS/App/RootView.swift`. Kept under this filename so the
+/// existing app entry point + Xcode scheme don't need renaming.
 struct QVoiceiOSRootView: View {
     let modelRegistry: ContractBackedModelRegistry
 
-    @State private var selectedTab: IOSAppTab = .studio
-    @State private var selectedLibrarySection: IOSLibrarySection = .history
-    @State private var selectedGenerationSection: IOSGenerationSection = .custom
-    @State private var customVoiceDraft: CustomVoiceDraft
-    @State private var voiceDesignDraft = VoiceDesignDraft()
-    @State private var voiceCloningDraft = VoiceCloningDraft()
-    @State private var pendingVoiceCloningHandoff: PendingVoiceCloningHandoff?
-    @State private var customPrimaryAction = IOSGeneratePrimaryActionDescriptor.placeholder(for: .custom)
-    @State private var designPrimaryAction = IOSGeneratePrimaryActionDescriptor.placeholder(for: .design)
-    @State private var clonePrimaryAction = IOSGeneratePrimaryActionDescriptor.placeholder(for: .clone)
-    @State private var isOnboardingPresented: Bool = !IOSAppDefaults.hasCompletedOnboarding
-    @State private var playerSheetItem: IOSPlayerSheetItem?
+    @State private var appModel: AppModel
 
     init(modelRegistry: ContractBackedModelRegistry) {
         self.modelRegistry = modelRegistry
-        let previewInitialState = IOSPreviewRuntime.current?.definition.initialState
-
-        var customDraft = CustomVoiceDraft(selectedSpeaker: modelRegistry.defaultSpeaker.id)
-        if let previewCustomDraft = previewInitialState?.customDraft {
-            customDraft = previewCustomDraft
-        }
-
-        var designDraft = VoiceDesignDraft()
-        if let previewDesignDraft = previewInitialState?.designDraft {
-            designDraft = previewDesignDraft
-        }
-
-        var cloneDraft = VoiceCloningDraft()
-        if let previewCloneDraft = previewInitialState?.cloneDraft {
-            cloneDraft = previewCloneDraft
-        }
-
-        _selectedTab = State(initialValue: previewInitialState?.selectedTab ?? .studio)
-        _selectedGenerationSection = State(
-            initialValue: previewInitialState?.selectedGenerationSection ?? .custom
-        )
-        _customVoiceDraft = State(initialValue: customDraft)
-        _voiceDesignDraft = State(initialValue: designDraft)
-        _voiceCloningDraft = State(initialValue: cloneDraft)
+        _appModel = State(initialValue: AppModel(modelRegistry: modelRegistry))
     }
 
     var body: some View {
-        ZStack {
-            activeRootScreen
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .tint(IOSBrandTheme.accent)
-        .environment(\.presentIOSPlayerSheet) { item in
-            playerSheetItem = item
-        }
-        .overlay {
-            if IOSPreviewRuntime.isEnabled {
-                IOSPreviewCaptureBridge(
-                    selectedTab: selectedTab,
-                    selectedGenerationSection: selectedGenerationSection
-                )
-                .allowsHitTesting(false)
-            }
-        }
-        .fullScreenCover(isPresented: $isOnboardingPresented) {
-            IOSOnboardingFlow(isPresented: $isOnboardingPresented)
-        }
-        .sheet(item: $playerSheetItem) { item in
-            IOSPlayerSheet(
-                item: item,
-                onDismiss: { playerSheetItem = nil }
-            )
-            .presentationBackground(IOSBrandTheme.canvasTop)
-        }
-    }
-
-    @ViewBuilder
-    private var activeRootScreen: some View {
-        switch selectedTab {
-        case .studio:
-            NavigationStack {
-                IOSGenerateContainerView(
-                    selectedTab: $selectedTab,
-                    isTabActive: true,
-                    selectedSection: $selectedGenerationSection,
-                    customVoiceDraft: $customVoiceDraft,
-                    voiceDesignDraft: $voiceDesignDraft,
-                    voiceCloningDraft: $voiceCloningDraft,
-                    pendingVoiceCloningHandoff: $pendingVoiceCloningHandoff,
-                    customPrimaryAction: $customPrimaryAction,
-                    designPrimaryAction: $designPrimaryAction,
-                    clonePrimaryAction: $clonePrimaryAction
-                )
-            }
-            .toolbar(.hidden, for: .navigationBar)
-
-        case .voices:
-            NavigationStack {
-                IOSVoicesView(
-                    selectedTab: $selectedTab,
-                    onSelectBuiltInSpeaker: { speaker in
-                        customVoiceDraft.selectedSpeaker = speaker.id
-                        selectedGenerationSection = .custom
-                        selectedTab = .studio
-                    },
-                    onSelectSavedVoice: { voice in
-                        pendingVoiceCloningHandoff = PendingVoiceCloningHandoff(
-                            savedVoiceID: voice.id,
-                            wavPath: voice.wavPath,
-                            transcript: (try? voice.loadTranscript()) ?? "",
-                            transcriptLoadError: nil
-                        )
-                        selectedGenerationSection = .clone
-                        selectedTab = .studio
-                    }
-                )
-            }
-            .toolbar(.hidden, for: .navigationBar)
-
-        case .history:
-            NavigationStack {
-                IOSLibraryContainerView(
-                    selectedTab: $selectedTab,
-                    selectedSection: Binding(
-                        get: { .history },
-                        set: { _ in }
-                    ),
-                    onUseVoiceInClone: { voice in
-                        pendingVoiceCloningHandoff = PendingVoiceCloningHandoff(
-                            savedVoiceID: voice.id,
-                            wavPath: voice.wavPath,
-                            transcript: (try? voice.loadTranscript()) ?? "",
-                            transcriptLoadError: nil
-                        )
-                        selectedGenerationSection = .clone
-                        selectedTab = .studio
-                    }
-                )
-            }
-            .toolbar(.hidden, for: .navigationBar)
-
-        case .settings:
-            NavigationStack {
-                IOSSettingsContainerView(selectedTab: $selectedTab)
-            }
-            .toolbar(.hidden, for: .navigationBar)
-        }
+        RootView()
+            .environment(appModel)
     }
 }

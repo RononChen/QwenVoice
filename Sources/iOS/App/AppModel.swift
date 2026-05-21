@@ -1,0 +1,98 @@
+import Foundation
+import Observation
+import SwiftUI
+import QwenVoiceCore
+
+/// Root state model for the iOS app, replacing the bag of `@State`
+/// properties that lived inside `QVoiceiOSRootView`. Conformant to
+/// `Observable` so views read state via `@Environment(AppModel.self)`
+/// or `@Bindable` rather than the legacy `@StateObject` /
+/// `@ObservableObject` / `@Published` triplet.
+///
+/// Per `references/state-management.md`: prefer `@Observable` over
+/// `ObservableObject` on iOS 17+, and pair with `@Bindable` when a child
+/// view needs to write back. Anything passed by value stays a `let`.
+///
+/// Phases that consume this model:
+/// - Phase 2 (this one): tab, studioMode, drafts, onboarding gate,
+///   player sheet item. Existing screen containers still own the
+///   downstream flows; AppModel is the new source of truth for the
+///   pieces shared across them.
+/// - Phase 3: per-mode generation state (`StudioGenerationCoordinator`)
+///   becomes an Observable property here.
+/// - Phase 5: sheet presentation state (delivery / voice / reference /
+///   model install / delete model) collapses into one
+///   `presentedSheet` enum on this model.
+@MainActor
+@Observable
+final class AppModel {
+    // MARK: - Routing
+
+    /// The bottom-tab destination currently visible. Defaults to Studio.
+    var tab: IOSAppTab = .studio
+
+    /// Which mode the unified Studio screen is currently editing.
+    /// Mirrors the legacy `IOSGenerationSection`; the enum stays
+    /// because `TTSContract` keyed against it.
+    var studioMode: IOSGenerationSection = .custom
+
+    // MARK: - Drafts
+
+    /// Built-in-speaker generation draft (Custom mode).
+    var customVoiceDraft: CustomVoiceDraft
+
+    /// Brief-driven generation draft (Voice Design mode).
+    var voiceDesignDraft = VoiceDesignDraft()
+
+    /// Reference-clip clone draft (Voice Cloning mode).
+    var voiceCloningDraft = VoiceCloningDraft()
+
+    /// Pending hand-off from Voices tap → Studio Clone mode. The
+    /// existing IOSVoiceCloningView consumes this via a binding.
+    var pendingVoiceCloningHandoff: PendingVoiceCloningHandoff?
+
+    // MARK: - Onboarding
+
+    /// True until the user dismisses the first-run flow. Initialized
+    /// from the persisted `IOSAppDefaults.hasCompletedOnboarding` flag.
+    var isOnboardingPresented: Bool
+
+    // MARK: - Global Player sheet
+
+    /// When set, the root view presents the full-screen Player sheet.
+    /// History row taps, Voices preview, and Studio inline-player
+    /// expansion all set this.
+    var playerSheetItem: IOSPlayerSheetItem?
+
+    // MARK: - Legacy primary-action descriptors
+
+    /// Per-mode `IOSGeneratePrimaryActionDescriptor` storage. Used by
+    /// the legacy generation flow; will retire when Phase 3's
+    /// StudioGenerationCoordinator lands.
+    var customPrimaryAction: IOSGeneratePrimaryActionDescriptor
+    var designPrimaryAction: IOSGeneratePrimaryActionDescriptor
+    var clonePrimaryAction: IOSGeneratePrimaryActionDescriptor
+
+    // MARK: - Init
+
+    init(modelRegistry: ContractBackedModelRegistry) {
+        self.customVoiceDraft = CustomVoiceDraft(selectedSpeaker: modelRegistry.defaultSpeaker.id)
+        self.customPrimaryAction = IOSGeneratePrimaryActionDescriptor.placeholder(for: .custom)
+        self.designPrimaryAction = IOSGeneratePrimaryActionDescriptor.placeholder(for: .design)
+        self.clonePrimaryAction = IOSGeneratePrimaryActionDescriptor.placeholder(for: .clone)
+        self.isOnboardingPresented = !IOSAppDefaults.hasCompletedOnboarding
+
+        // Honor preview-runtime overrides for design-time previews.
+        if let preview = IOSPreviewRuntime.current?.definition.initialState {
+            self.tab = preview.selectedTab
+            self.studioMode = preview.selectedGenerationSection
+            self.customVoiceDraft = preview.customDraft
+            self.voiceDesignDraft = preview.designDraft
+            self.voiceCloningDraft = preview.cloneDraft
+        }
+    }
+}
+
+// Injection: `WindowGroup { RootView().environment(appModel) }` at the
+// app entry. Consumers read with `@Environment(AppModel.self) private
+// var appModel` — no key-path environment value needed.
