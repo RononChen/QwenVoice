@@ -69,16 +69,18 @@ struct IOSStudioCanvas<SetupChips: View>: View {
     @FocusState private var isScriptFocused: Bool
 
     var body: some View {
-        // Composer height: tried `flex: 1` (R5 first pass) with
-        // `.layoutPriority(1)` + `.frame(maxHeight: .infinity)` and the
-        // TextEditor reliably swallowed the entire canvas, pushing the
-        // Generate CTA under the tab dock. Reverted to a fixed
-        // editorial height of 320 pt (~10 lines at 30-pt line-height)
-        // plus a trailing 0-length Spacer that absorbs the remainder.
-        // Short of replacing IOSStudioShellScreen with a leaner
-        // RootView-owned chain (large rewrite), this is the cleanest
-        // pattern that gives the composer real presence without
-        // overflowing the chip + dock area below it.
+        // Composer height — landed at fixed 320 pt with a trailing
+        // 0-length Spacer absorbing the leftover canvas space. The
+        // R5 / Phase-2 attempts at the design's
+        // `.vc-composer-pad { flex: 1 }` repeatedly broke layout:
+        // SwiftUI's `TextEditor` + `.frame(maxHeight: .infinity)`
+        // claims the canvas's entire vertical budget regardless of
+        // sibling `.layoutPriority`, pushing the Generate CTA under
+        // the tab dock. Phase 2 lifted the rail + engine-toast
+        // safeAreaInsets up to RootView (still worth it as a chrome-
+        // architecture cleanup) but didn't unlock the TextEditor
+        // sizing — that requires a UITextView wrapper with custom
+        // intrinsicContentSize, a separate batch.
         VStack(alignment: .leading, spacing: 14) {
             composerPad
             setupRow
@@ -128,11 +130,6 @@ struct IOSStudioCanvas<SetupChips: View>: View {
                     .scrollContentBackground(.hidden)
                     .padding(.horizontal, -4)      // counter-balance TextEditor's built-in inner inset
                     .padding(.vertical, 4)
-                    // Fixed editorial height: ~10 lines at the design's
-                    // 30-pt line-height (app.css `.vc-script`) plus a
-                    // little vertical padding. Longer scripts scroll
-                    // inside the editor; short scripts get the
-                    // placeholder marquee.
                     .frame(height: 320)
                     .accessibilityIdentifier("textInput_textEditor")
             }

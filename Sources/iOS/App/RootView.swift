@@ -16,6 +16,9 @@ import QwenVoiceCore
 /// screens (StudioScreen, VoicesScreen, HistoryScreen, SettingsScreen).
 struct RootView: View {
     @Environment(AppModel.self) private var appModel
+    @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
+
+    @ScaledMetric(relativeTo: .body) private var horizontalPadding: CGFloat = 16
 
     var body: some View {
         @Bindable var appModel = appModel
@@ -51,9 +54,28 @@ struct RootView: View {
         }
         .iosAppAnimation(Theme.Motion.easeOut, value: appModel.tab)
         .iosAppAnimation(Theme.Motion.modePillSlide, value: appModel.studioMode)
+        // Phase 2 (2026-05-21): rail + engine-toast safeAreaInsets
+        // moved up here from IOSStudioShellScreen so each screen body
+        // gets one clean height budget. Order matters: the dock owns
+        // the outer-most inset; the rail sits above the dock when
+        // visible; the engine toast sits above the rail. SwiftUI
+        // stacks bottom safeAreaInsets in the order they are applied.
         .safeAreaInset(edge: .bottom, spacing: 0) {
             TabDock()
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if audioPlayer.isShowingNowPlayingRail {
+                IOSGlobalNowPlayingRail()
+                    .padding(.horizontal, horizontalPadding)
+                    .padding(.bottom, 6)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            IOSEngineLifecycleToast()
+                .padding(.bottom, 6)
+        }
+        .iosAppAnimation(IOSSelectionMotion.miniPlayerSlide, value: audioPlayer.isShowingNowPlayingRail)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .tint(Theme.Brand.gold)
         .overlay {

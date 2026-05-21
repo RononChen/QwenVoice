@@ -16,8 +16,6 @@ import SwiftUI
 /// `RootView` level; anything you want at the bottom uses the global
 /// `safeAreaInset(edge: .bottom)` that hosts the new `TabDock`.
 struct IOSStudioShellScreen<Content: View>: View {
-    @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
-
     @Binding var selectedTab: IOSAppTab
 
     let activeTab: IOSAppTab
@@ -40,23 +38,19 @@ struct IOSStudioShellScreen<Content: View>: View {
     }
 
     var body: some View {
+        // Phase 2 (2026-05-21): the now-playing rail + engine-lifecycle
+        // toast `safeAreaInset(.bottom)` modifiers moved up to
+        // `RootView`. Hosting them here gave the canvas's inner VStack
+        // a tight height budget and broke any composer that asked for
+        // `.frame(maxHeight: .infinity)` — the composer would gobble
+        // the canvas and push the Generate CTA under the tab dock.
+        // RootView now owns every bottom-inset stack-up (dock + rail
+        // + toast), so each screen body gets a single clean height
+        // budget it can negotiate against.
         screenContent
             .padding(.horizontal, horizontalPadding)
             .padding(.top, topPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if audioPlayer.isShowingNowPlayingRail {
-                    IOSGlobalNowPlayingRail()
-                        .padding(.horizontal, horizontalPadding)
-                        .padding(.bottom, 6)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                IOSEngineLifecycleToast()
-                    .padding(.bottom, 6)
-            }
-            .iosAppAnimation(IOSSelectionMotion.miniPlayerSlide, value: audioPlayer.isShowingNowPlayingRail)
             .toolbar(.hidden, for: .navigationBar)
     }
 }
