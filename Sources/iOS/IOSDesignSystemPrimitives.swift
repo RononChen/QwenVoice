@@ -59,15 +59,15 @@ struct IOSModeBackdrop: View {
         case loud
 
         /// Top-edge opacity for the tint stop in the linear gradient.
-        /// Calibrated against the reference image: at 1.0 (warm) the
-        /// gold wash reads as clearly warm at the top, fading to dark
-        /// grey by mid-screen, matching the design's intensity-warm
-        /// behavior against the `#161823` canvas base.
+        /// Calibrated against the reference image: at 0.45 (warm) the
+        /// gold tint reads as a subtle warm wash at the top quarter,
+        /// fading to dark grey by mid-screen — matches the design's
+        /// intensity-warm behavior against the `#161823` canvas base.
         var topOpacity: Double {
             switch self {
-            case .whisper: return 0.55
-            case .warm:    return 1.0
-            case .loud:    return 1.0
+            case .whisper: return 0.25
+            case .warm:    return 0.45
+            case .loud:    return 0.70
             }
         }
     }

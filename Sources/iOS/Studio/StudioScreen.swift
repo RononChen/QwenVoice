@@ -35,17 +35,29 @@ struct StudioScreen: View {
     var body: some View {
         @Bindable var appModel = appModel
 
-        IOSGenerateContainerView(
-            selectedTab: $appModel.tab,
-            isTabActive: true,
-            selectedSection: $appModel.studioMode,
-            customVoiceDraft: $appModel.customVoiceDraft,
-            voiceDesignDraft: $appModel.voiceDesignDraft,
-            voiceCloningDraft: $appModel.voiceCloningDraft,
-            pendingVoiceCloningHandoff: $appModel.pendingVoiceCloningHandoff,
-            customPrimaryAction: $appModel.customPrimaryAction,
-            designPrimaryAction: $appModel.designPrimaryAction,
-            clonePrimaryAction: $appModel.clonePrimaryAction
-        )
+        ZStack {
+            // Mode-tinted warm wash. Lives INSIDE the NavigationStack
+            // hosted by RootView so it isn't covered by the system's
+            // opaque navigation background.
+            IOSModeBackdrop(
+                tint: appModel.studioMode.primaryActionTint,
+                intensity: .warm
+            )
+            .ignoresSafeArea()
+            .iosAppAnimation(IOSSelectionMotion.modeCrossfade, value: appModel.studioMode)
+
+            IOSGenerateContainerView(
+                selectedTab: $appModel.tab,
+                isTabActive: true,
+                selectedSection: $appModel.studioMode,
+                customVoiceDraft: $appModel.customVoiceDraft,
+                voiceDesignDraft: $appModel.voiceDesignDraft,
+                voiceCloningDraft: $appModel.voiceCloningDraft,
+                pendingVoiceCloningHandoff: $appModel.pendingVoiceCloningHandoff,
+                customPrimaryAction: $appModel.customPrimaryAction,
+                designPrimaryAction: $appModel.designPrimaryAction,
+                clonePrimaryAction: $appModel.clonePrimaryAction
+            )
+        }
     }
 }
