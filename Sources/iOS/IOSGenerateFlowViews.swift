@@ -320,20 +320,23 @@ struct IOSGenerationModeSelector: View {
 /// Shared 3-way capsule selector used by `IOSGenerationModeSelector`
 /// (Studio mode) and previously by Library / History filter rows.
 ///
-/// R2 (2026-05-21): rewritten to match `design_references/Vocello iOS/
-/// app.css` `.vc-mode-segmented` exactly:
+/// R3 (2026-05-21): matches `design_references/Vocello iOS/app.css`
+/// `.vc-mode-segmented` exactly:
 ///
 ///   rail:  rgba(255,255,255,0.04) fill + 0.5pt rgba(255,255,255,0.08)
 ///          stroke. Neutral, not mode-tinted.
-///   pill:  tint @ 22 % fill + tint @ 36 % stroke + inset white
-///          highlight from the top edge. The hue lives only on the
-///          moving pill, not on the rail.
+///   pill:  white @ 10 % fill + 0.5pt white @ 18 % stroke + inset
+///          white top-edge highlight + 1pt black drop shadow.
+///          Neutral; any warm tint comes from the mode backdrop
+///          bleeding through the translucent pill, not from the pill
+///          itself.
 ///
-/// The previous implementation used `iosSelectorPillGlass(tint:)` +
-/// `iosSelectorRailGlass(tint:)`, which piled a full Liquid-Glass
-/// surface tinted by the mode color over the rail AND the pill —
-/// producing a loud, halo-like result that the audit's A.3 finding
-/// flagged.
+/// R2 (the prior pass) used `tint.opacity(0.22)` fill + `tint.opacity
+/// (0.36)` stroke, which produced a saturated bronze pill on Custom
+/// mode that the user flagged as too loud vs the reference. The
+/// `selectedTint` keypath on `IOSCapsuleSelector` is preserved (call
+/// sites still pass it) for potential future use, but it no longer
+/// reaches the pill.
 struct IOSCapsuleSelector<Item: Identifiable & Hashable>: View {
     let items: [Item]
     @Binding var selection: Item
@@ -364,7 +367,7 @@ struct IOSCapsuleSelector<Item: Identifiable & Hashable>: View {
                         .padding(.horizontal, 4)
                         .background {
                             if item == selection {
-                                IOSCapsuleSelectorPill(tint: selectedTint(item))
+                                IOSCapsuleSelectorPill()
                                     .matchedGeometryEffect(id: "selectionPill", in: selectionPillNamespace)
                             }
                         }
@@ -393,18 +396,18 @@ struct IOSCapsuleSelector<Item: Identifiable & Hashable>: View {
 }
 
 /// The moving capsule pill behind the selected segment.
-/// Mode-tinted at low percent so it reads as hue-tinted glass.
+/// Neutral white-on-glass per `.vc-mode-pill` design CSS; any warm
+/// hint comes from the mode backdrop bleeding through, not the pill.
 private struct IOSCapsuleSelectorPill: View {
-    let tint: Color
-
     var body: some View {
         let shape = Capsule(style: .continuous)
         shape
-            .fill(tint.opacity(0.22))
+            .fill(Color.white.opacity(0.10))
             .overlay {
-                shape.stroke(tint.opacity(0.36), lineWidth: 0.5)
+                shape.stroke(Color.white.opacity(0.18), lineWidth: 0.5)
             }
             .overlay(alignment: .top) {
+                // inset 0 1px 0 rgba(255,255,255,0.10) — top-edge highlight
                 shape
                     .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
                     .mask(
