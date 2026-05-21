@@ -23,6 +23,7 @@ struct HistoryScreen: View {
         IOSLibraryContainerView(
             selectedTab: $appModel.tab,
             selectedSection: .constant(.history),
+            showsHeader: false,
             onUseVoiceInClone: { voice in
                 appModel.pendingVoiceCloningHandoff = PendingVoiceCloningHandoff(
                     savedVoiceID: voice.id,

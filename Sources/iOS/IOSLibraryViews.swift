@@ -6,6 +6,27 @@ struct IOSLibraryContainerView: View {
     @Binding var selectedSection: IOSLibrarySection
     let onUseVoiceInClone: (Voice) -> Void
 
+    /// When true, render the legacy "Library" heading + History/Voices
+    /// section selector. The new 4-tab IA in `RootView` already routes
+    /// History and Voices as their own top-level tabs, so the tab dock
+    /// performs the section switch and the heading is redundant. The
+    /// per-screen entry points (HistoryScreen, VoicesScreen) pass
+    /// `showsHeader: false`. Existing internal call sites that still
+    /// surface the unified Library section can leave it true.
+    let showsHeader: Bool
+
+    init(
+        selectedTab: Binding<IOSAppTab>,
+        selectedSection: Binding<IOSLibrarySection>,
+        showsHeader: Bool = true,
+        onUseVoiceInClone: @escaping (Voice) -> Void
+    ) {
+        self._selectedTab = selectedTab
+        self._selectedSection = selectedSection
+        self.showsHeader = showsHeader
+        self.onUseVoiceInClone = onUseVoiceInClone
+    }
+
     private var activeTab: IOSAppTab {
         switch selectedSection {
         case .voices: return .voices
@@ -20,9 +41,10 @@ struct IOSLibraryContainerView: View {
             tint: IOSBrandTheme.library
         ) {
             VStack(alignment: .leading, spacing: 14) {
-                IOSStudioWorkspaceHeading(title: "Library")
-
-                IOSLibrarySelectorCard(selectedSection: $selectedSection)
+                if showsHeader {
+                    IOSStudioWorkspaceHeading(title: "Library")
+                    IOSLibrarySelectorCard(selectedSection: $selectedSection)
+                }
 
                 Group {
                     switch selectedSection {

@@ -343,48 +343,51 @@ struct IOSStudioSetupChip: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .center, spacing: 10) {
                 if let leadingAvatar {
                     leadingAvatar
-                        .frame(width: 30, height: 30)
+                        .frame(width: 32, height: 32)
                 } else if let leadingSymbol {
                     ZStack {
                         Circle()
-                            .fill(tint.opacity(0.18))
-                            .frame(width: 30, height: 30)
+                            .fill(tint.opacity(0.22))
+                            .frame(width: 32, height: 32)
                         Image(systemName: leadingSymbol)
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(tint)
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 1) {
                     Text(eyebrow.uppercased())
                         .font(.system(size: 10, weight: .semibold))
-                        .tracking(0.8)
-                        .foregroundStyle(IOSAppTheme.textTertiary)
+                        .tracking(0.6)
+                        .foregroundStyle(IOSAppTheme.textSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                     Text(value)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(isPlaceholder ? IOSAppTheme.textTertiary : IOSAppTheme.textPrimary)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                Spacer(minLength: 8)
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(IOSAppTheme.textTertiary)
+                    .padding(.leading, 2)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+            .padding(.leading, 6)
+            .padding(.trailing, 12)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .background {
-                RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
-                    .fill(IOSAppTheme.glassSurfaceFillMuted.opacity(0.72))
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(0.05))
             }
             .overlay {
-                RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
-                    .stroke(Color.white.opacity(0.10), lineWidth: 0.8)
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
             }
         }
         .buttonStyle(.plain)
