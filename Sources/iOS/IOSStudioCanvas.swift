@@ -69,11 +69,25 @@ struct IOSStudioCanvas<SetupChips: View>: View {
     @FocusState private var isScriptFocused: Bool
 
     var body: some View {
-        // R0 (2026-05-21): the canvas previously rendered its own
-        // `IOSModeBackdrop` here. The backdrop now lives at the `RootView`
-        // level (gated on `appModel.tab == .studio`) so it spans the entire
-        // screen — including under the tab dock — instead of being clipped
-        // to the canvas frame. Keep the canvas body a plain VStack.
+        // R0 (2026-05-21): backdrop now lives at RootView level.
+        // R2 (2026-05-21): drop the trailing Spacer and let composerPad
+        // expand. Per app.css `.vc-composer-pad { flex: 1 }`, the composer
+        // takes all available vertical space so the setup chip row + dock
+        // area sit against the bottom of the screen instead of leaving a
+        // dead band above the tab dock.
+        // R2 (2026-05-21): the design wants `composerPad` to be
+        // `flex: 1`, but TextEditor doesn't honor `frame(maxHeight:
+        // .infinity)` cleanly under the current IOSStudioShellScreen +
+        // IOSGenerateContainerView chain. A middle Spacer flipped the
+        // problem — content pushed past the tab-dock safe-area inset
+        // and the Generate button rendered under the dock.
+        //
+        // Pragmatic compromise: content sits at the top via the
+        // canvas's `.frame(alignment: .topLeading)`, with a small dead
+        // band below the dock area. Composer minimum height (132pt)
+        // gives it editorial presence even when the script is empty.
+        // Revisit once the IOSStudioShellScreen chain is replaced with
+        // a leaner `RootView` body.
         VStack(alignment: .leading, spacing: 14) {
             composerPad
             setupRow
@@ -89,38 +103,51 @@ struct IOSStudioCanvas<SetupChips: View>: View {
 
     // MARK: - Composer pad
 
+    // R2 (2026-05-21): composer rewritten to match
+    // `design_references/Vocello iOS/app.css` `.vc-composer-pad` +
+    // `.vc-script`:
+    //
+    //   .vc-composer-pad { flex: 1; padding: 4px 20px 0; min-height: 0 }
+    //   .vc-script       { background: transparent; border: none;
+    //                      font: 500 22px/30px var(--font-display);
+    //                      letter-spacing: -0.01em; padding: 8px 0 }
+    //   .vc-script-meta  { font: 500 12px/14px; color: var(--fg-2);
+    //                      letter-spacing: 0.02em }
+    //
+    // No card background, no border. The composer fills available
+    // vertical space (canvas body removed its trailing Spacer for
+    // exactly this reason). The meta row sits flush below the editor
+    // with the mode label on the left and the counter on the right.
     private var composerPad: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topLeading) {
                 if script.isEmpty {
                     Text(placeholder)
-                        .font(.system(.body))
+                        .font(.system(size: 22, weight: .medium))
+                        .tracking(-0.22)            // letter-spacing -0.01em ≈ -0.22pt at 22pt
                         .foregroundStyle(IOSAppTheme.textTertiary)
                         .padding(.top, 12)
-                        .padding(.horizontal, 14)
+                        .padding(.leading, 4)
                         .allowsHitTesting(false)
                 }
                 TextEditor(text: $script)
                     .focused($isScriptFocused)
-                    .font(.system(.body))
+                    .font(.system(size: 22, weight: .medium))
                     .foregroundStyle(IOSAppTheme.textPrimary)
                     .scrollContentBackground(.hidden)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .frame(minHeight: 132)
+                    .padding(.horizontal, -4)      // counter-balance TextEditor's built-in inner inset
+                    .padding(.vertical, 4)
+                    // Fixed height keeps the composer from greedily
+                    // expanding and pushing the chip row + Generate CTA
+                    // off the bottom of the canvas. Long scripts scroll
+                    // inside the editor. The 220-pt value comes from
+                    // ~7 lines at 30-pt line-height per app.css
+                    // `.vc-script { font: 500 22px/30px }` plus 8 pt of
+                    // internal padding.
+                    .frame(height: 220)
                     .accessibilityIdentifier("textInput_textEditor")
             }
-            .background {
-                RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
-                    .fill(IOSAppTheme.glassSurfaceFillMuted.opacity(0.62))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
-                    .stroke(
-                        isScriptFocused ? tint.opacity(0.34) : Color.white.opacity(0.10),
-                        lineWidth: isScriptFocused ? 1.0 : 0.8
-                    )
-            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
             .onChange(of: script) { _, newValue in
                 let cap = charLimit + 200
                 if newValue.count > cap {
@@ -130,17 +157,19 @@ struct IOSStudioCanvas<SetupChips: View>: View {
 
             HStack {
                 Text(modeMetaLabel)
-                    .font(.system(size: 11, weight: .semibold))
-                    .tracking(0.4)
-                    .foregroundStyle(IOSAppTheme.textTertiary)
+                    .font(.system(size: 12, weight: .medium))
+                    .tracking(0.24)               // letter-spacing 0.02em ≈ 0.24pt at 12pt
+                    .foregroundStyle(IOSAppTheme.textSecondary)
                 Spacer()
                 Text("\(script.count) / \(charLimit)")
-                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    .font(.system(size: 12, weight: .medium).monospacedDigit())
                     .foregroundStyle(script.count > charLimit ? Color.orange : IOSAppTheme.textSecondary)
                     .accessibilityIdentifier("textInput_lengthCount")
             }
-            .padding(.horizontal, 4)
+            .padding(.top, 4)
+            .padding(.bottom, 6)
         }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Setup row

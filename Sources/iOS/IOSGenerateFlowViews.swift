@@ -102,46 +102,45 @@ struct IOSGenerateContainerView: View {
             }
         ) {
             // Studio's CTA / generating waveform / inline player live INSIDE
-            // each per-mode view via IOSStudioCanvas, per design_references/
-            // Vocello iOS/studio.jsx (vc-dock-area). No shell bottomAccessory.
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 16) {
-                    // Per design (design_references/Vocello iOS/app.jsx line
-                    // 82+): Studio has no first-run banner; the dock-area CTA
-                    // inside IOSStudioCanvas reads "Install [Mode] Model"
-                    // when the active model isn't installed.
+            // each per-mode view via IOSStudioCanvas, per
+            // design_references/Vocello iOS/studio.jsx (vc-dock-area).
+            //
+            // R2 (2026-05-21): the body was previously wrapped in a
+            // ScrollView, which sized content to its natural height and
+            // killed the canvas's Spacer-based layout (composer
+            // sticking to top, chips + dock pinned to bottom). Per the
+            // design Studio doesn't scroll — composer fills, chips and
+            // dock sit against the safe-area bottom inset above the
+            // tab dock. Plain VStack reinstates that flow.
+            VStack(alignment: .leading, spacing: 14) {
+                IOSGenerationModeSelector(selectedSection: $selectedSection)
+                    .frame(height: selectorRailHeight)
 
-                    IOSGenerationModeSelector(selectedSection: $selectedSection)
-                        .frame(height: selectorRailHeight)
-
-                    IOSGenerateModeViewport(selection: selectedSection) {
-                        IOSCustomVoiceView(
-                            isActive: selectedSection == .custom,
-                            selectedTab: $selectedTab,
-                            draft: $customVoiceDraft,
-                            primaryAction: $customPrimaryAction
-                        )
-                    } design: {
-                        IOSVoiceDesignView(
-                            isActive: selectedSection == .design,
-                            selectedTab: $selectedTab,
-                            draft: $voiceDesignDraft,
-                            primaryAction: $designPrimaryAction
-                        )
-                    } clone: {
-                        IOSVoiceCloningView(
-                            isActive: selectedSection == .clone,
-                            selectedTab: $selectedTab,
-                            draft: $voiceCloningDraft,
-                            primaryAction: $clonePrimaryAction,
-                            pendingSavedVoiceHandoff: $pendingVoiceCloningHandoff
-                        )
-                    }
-                    .frame(maxWidth: .infinity, alignment: .top)
+                IOSGenerateModeViewport(selection: selectedSection) {
+                    IOSCustomVoiceView(
+                        isActive: selectedSection == .custom,
+                        selectedTab: $selectedTab,
+                        draft: $customVoiceDraft,
+                        primaryAction: $customPrimaryAction
+                    )
+                } design: {
+                    IOSVoiceDesignView(
+                        isActive: selectedSection == .design,
+                        selectedTab: $selectedTab,
+                        draft: $voiceDesignDraft,
+                        primaryAction: $designPrimaryAction
+                    )
+                } clone: {
+                    IOSVoiceCloningView(
+                        isActive: selectedSection == .clone,
+                        selectedTab: $selectedTab,
+                        draft: $voiceCloningDraft,
+                        primaryAction: $clonePrimaryAction,
+                        pendingSavedVoiceHandoff: $pendingVoiceCloningHandoff
+                    )
                 }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .scrollBounceBehavior(.basedOnSize)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .background {
@@ -354,6 +353,23 @@ struct IOSGenerationModeSelector: View {
     }
 }
 
+/// Shared 3-way capsule selector used by `IOSGenerationModeSelector`
+/// (Studio mode) and previously by Library / History filter rows.
+///
+/// R2 (2026-05-21): rewritten to match `design_references/Vocello iOS/
+/// app.css` `.vc-mode-segmented` exactly:
+///
+///   rail:  rgba(255,255,255,0.04) fill + 0.5pt rgba(255,255,255,0.08)
+///          stroke. Neutral, not mode-tinted.
+///   pill:  tint @ 22 % fill + tint @ 36 % stroke + inset white
+///          highlight from the top edge. The hue lives only on the
+///          moving pill, not on the rail.
+///
+/// The previous implementation used `iosSelectorPillGlass(tint:)` +
+/// `iosSelectorRailGlass(tint:)`, which piled a full Liquid-Glass
+/// surface tinted by the mode color over the rail AND the pill —
+/// producing a loud, halo-like result that the audit's A.3 finding
+/// flagged.
 struct IOSCapsuleSelector<Item: Identifiable & Hashable>: View {
     let items: [Item]
     @Binding var selection: Item
@@ -371,12 +387,9 @@ struct IOSCapsuleSelector<Item: Identifiable & Hashable>: View {
                     selection = item
                 } label: {
                     Text(item[keyPath: title])
-                        .font(.subheadline.weight(.semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                        // Selected text now rides on a flat accentWash fill
-                        // (B.4), so textPrimary reads better than the
-                        // accentForeground that targeted the prior gradient.
+                        .minimumScaleFactor(0.85)
                         .foregroundStyle(
                             item == selection
                                 ? IOSAppTheme.textPrimary
@@ -384,11 +397,10 @@ struct IOSCapsuleSelector<Item: Identifiable & Hashable>: View {
                         )
                         .frame(maxWidth: .infinity)
                         .frame(minHeight: 36)
+                        .padding(.horizontal, 4)
                         .background {
                             if item == selection {
-                                Capsule(style: .continuous)
-                                    .fill(Color.clear)
-                                    .iosSelectorPillGlass(tint: selectedTint(item))
+                                IOSCapsuleSelectorPill(tint: selectedTint(item))
                                     .matchedGeometryEffect(id: "selectionPill", in: selectionPillNamespace)
                             }
                         }
@@ -400,12 +412,46 @@ struct IOSCapsuleSelector<Item: Identifiable & Hashable>: View {
             }
         }
         .iosAppAnimation(IOSSelectionMotion.selectorPill, value: selection)
-        .padding(2)
-        .iosSelectorRailGlass(tint: selectedTint(selection))
-        .padding(.vertical, 1)
+        .padding(4)
+        .background {
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        }
+        .overlay {
+            Capsule(style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+        }
+        .frame(height: 44)
         .sensoryFeedback(.selection, trigger: selection)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(controlAccessibilityIdentifier)
+    }
+}
+
+/// The moving capsule pill behind the selected segment.
+/// Mode-tinted at low percent so it reads as hue-tinted glass.
+private struct IOSCapsuleSelectorPill: View {
+    let tint: Color
+
+    var body: some View {
+        let shape = Capsule(style: .continuous)
+        shape
+            .fill(tint.opacity(0.22))
+            .overlay {
+                shape.stroke(tint.opacity(0.36), lineWidth: 0.5)
+            }
+            .overlay(alignment: .top) {
+                shape
+                    .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+                    .mask(
+                        LinearGradient(
+                            colors: [.white, .clear],
+                            startPoint: .top,
+                            endPoint: .center
+                        )
+                    )
+            }
+            .shadow(color: .black.opacity(0.15), radius: 1, x: 0, y: 1)
     }
 }
 
