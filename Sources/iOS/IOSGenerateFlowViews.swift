@@ -56,11 +56,9 @@ enum IOSPrefetchRequestFactory {
 }
 
 struct IOSGenerateContainerView: View {
-    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
     @EnvironmentObject private var ttsEngine: TTSEngineStore
     @EnvironmentObject private var modelManager: ModelManagerViewModel
-    @StateObject private var memoryIndicatorStore = IOSGenerateMemoryIndicatorStore()
     @ScaledMetric(relativeTo: .body) private var selectorRailHeight = 42
 
     @Binding var selectedTab: IOSAppTab
@@ -148,38 +146,7 @@ struct IOSGenerateContainerView: View {
                 voiceDesignDraft: voiceDesignDraft
             )
         }
-        .task {
-            configureMemoryIndicator()
-        }
-        .onChange(of: isTabActive) { _, _ in
-            refreshMemoryIndicatorMonitoring()
-        }
-        .onChange(of: scenePhase) { _, _ in
-            refreshMemoryIndicatorMonitoring()
-        }
-        .onChange(of: ttsEngine.hasActiveGeneration) { _, _ in
-            refreshMemoryIndicatorMonitoring()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ttsEngineMemoryContextDidChange, object: ttsEngine)) { _ in
-            memoryIndicatorStore.requestRefresh()
-        }
         .accessibilityIdentifier("screen_generateStudio")
-    }
-
-    private func configureMemoryIndicator() {
-        memoryIndicatorStore.configure(
-            snapshotProvider: ttsEngine.memoryIndicatorSnapshotProvider,
-            policy: ttsEngine.memoryIndicatorBudgetPolicy
-        )
-        refreshMemoryIndicatorMonitoring()
-    }
-
-    private func refreshMemoryIndicatorMonitoring() {
-        memoryIndicatorStore.updateMonitoring(
-            isGenerateVisible: isTabActive,
-            isSceneActive: scenePhase == .active,
-            isGenerating: ttsEngine.hasActiveGeneration
-        )
     }
 }
 
