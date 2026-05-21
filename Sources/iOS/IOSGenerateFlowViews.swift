@@ -96,10 +96,7 @@ struct IOSGenerateContainerView: View {
         IOSStudioShellScreen(
             selectedTab: $selectedTab,
             activeTab: .studio,
-            tint: selectedSection.primaryActionTint,
-            accessory: {
-                IOSMemoryHeaderAccessory(state: memoryIndicatorStore.state)
-            }
+            tint: selectedSection.primaryActionTint
         ) {
             // Studio's CTA / generating waveform / inline player live INSIDE
             // each per-mode view via IOSStudioCanvas, per

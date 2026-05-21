@@ -1,152 +1,69 @@
 import SwiftUI
 
-struct IOSStudioShellScreen<Accessory: View, Content: View, BottomAccessory: View>: View {
+/// Thin per-screen body container.
+///
+/// History: this used to host the full iOS chrome — `IOSStudioShellCanopy`
+/// rendering the "Vocello" wordmark + a memory-indicator accessory at the
+/// top, and `IOSStudioRootDock` at the bottom via `safeAreaInset`. R0 of
+/// the May 2026 UI audit moved both into `RootView`, so this type is now
+/// just a shell around the per-tab body with the now-playing rail +
+/// engine-lifecycle toast safe-area insets.
+///
+/// The cleanup pass that followed R2 also dropped the `Accessory` +
+/// `BottomAccessory` generics, the canopy + dock structs, and the
+/// `IOSAppTab` extension that powered the legacy dock. Anything you
+/// want at the top of every Studio-style screen now lives at
+/// `RootView` level; anything you want at the bottom uses the global
+/// `safeAreaInset(edge: .bottom)` that hosts the new `TabDock`.
+struct IOSStudioShellScreen<Content: View>: View {
     @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
 
     @Binding var selectedTab: IOSAppTab
 
     let activeTab: IOSAppTab
     let tint: Color
-    let topAccessoryContent: Accessory
-    let bottomAccessoryContent: BottomAccessory
     let screenContent: Content
-    let showsBottomAccessory: Bool
 
     @ScaledMetric(relativeTo: .body) private var horizontalPadding = 16
     @ScaledMetric(relativeTo: .body) private var topPadding = 2
-    @ScaledMetric(relativeTo: .body) private var contentSpacing = 10
-    @ScaledMetric(relativeTo: .body) private var bottomAccessoryTopPadding = 12
 
     init(
         selectedTab: Binding<IOSAppTab>,
         activeTab: IOSAppTab,
         tint: Color,
-        @ViewBuilder accessory: () -> Accessory,
-        @ViewBuilder bottomAccessory: () -> BottomAccessory,
         @ViewBuilder content: () -> Content
     ) {
-        _selectedTab = selectedTab
+        self._selectedTab = selectedTab
         self.activeTab = activeTab
         self.tint = tint
-        self.topAccessoryContent = accessory()
-        self.bottomAccessoryContent = bottomAccessory()
         self.screenContent = content()
-        self.showsBottomAccessory = true
     }
 
     var body: some View {
-        // R0 (2026-05-21): the canopy + bottom dock used to live here. They
-        // moved to `RootView` so every tab shares a single set of chrome and
-        // the new `TabDock` finally renders. This view is now just the screen
-        // body container with the now-playing rail + engine toast overlays.
-        // The `accessory`, `bottomAccessory`, and `activeTab` slots remain
-        // on the type signature for source compatibility with the legacy
-        // container call sites, but the canopy slot is no longer drawn.
-        VStack(alignment: .leading, spacing: contentSpacing) {
-            screenContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-
-            if showsBottomAccessory {
-                bottomAccessoryContent
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, bottomAccessoryTopPadding)
+        screenContent
+            .padding(.horizontal, horizontalPadding)
+            .padding(.top, topPadding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if audioPlayer.isShowingNowPlayingRail {
+                    IOSGlobalNowPlayingRail()
+                        .padding(.horizontal, horizontalPadding)
+                        .padding(.bottom, 6)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
-        }
-        .padding(.horizontal, horizontalPadding)
-        .padding(.top, topPadding)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if audioPlayer.isShowingNowPlayingRail {
-                IOSGlobalNowPlayingRail()
-                    .padding(.horizontal, horizontalPadding)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                IOSEngineLifecycleToast()
                     .padding(.bottom, 6)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            IOSEngineLifecycleToast()
-                .padding(.bottom, 6)
-        }
-        .iosAppAnimation(IOSSelectionMotion.miniPlayerSlide, value: audioPlayer.isShowingNowPlayingRail)
-        .toolbar(.hidden, for: .navigationBar)
+            .iosAppAnimation(IOSSelectionMotion.miniPlayerSlide, value: audioPlayer.isShowingNowPlayingRail)
+            .toolbar(.hidden, for: .navigationBar)
     }
 }
 
-extension IOSStudioShellScreen where Accessory == EmptyView {
-    init(
-        selectedTab: Binding<IOSAppTab>,
-        activeTab: IOSAppTab,
-        tint: Color,
-        @ViewBuilder bottomAccessory: () -> BottomAccessory,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.init(
-            selectedTab: selectedTab,
-            activeTab: activeTab,
-            tint: tint,
-            accessory: { EmptyView() },
-            bottomAccessory: bottomAccessory,
-            content: content
-        )
-    }
-}
-
-extension IOSStudioShellScreen where BottomAccessory == EmptyView {
-    init(
-        selectedTab: Binding<IOSAppTab>,
-        activeTab: IOSAppTab,
-        tint: Color,
-        @ViewBuilder accessory: () -> Accessory,
-        @ViewBuilder content: () -> Content
-    ) {
-        _selectedTab = selectedTab
-        self.activeTab = activeTab
-        self.tint = tint
-        self.topAccessoryContent = accessory()
-        self.bottomAccessoryContent = EmptyView()
-        self.screenContent = content()
-        self.showsBottomAccessory = false
-    }
-}
-
-extension IOSStudioShellScreen where Accessory == EmptyView, BottomAccessory == EmptyView {
-    init(
-        selectedTab: Binding<IOSAppTab>,
-        activeTab: IOSAppTab,
-        tint: Color,
-        @ViewBuilder content: () -> Content
-    ) {
-        _selectedTab = selectedTab
-        self.activeTab = activeTab
-        self.tint = tint
-        self.topAccessoryContent = EmptyView()
-        self.bottomAccessoryContent = EmptyView()
-        self.screenContent = content()
-        self.showsBottomAccessory = false
-    }
-}
-
-private struct IOSStudioShellCanopy<Accessory: View>: View {
-    let accessory: Accessory
-
-    @ScaledMetric(relativeTo: .body) private var verticalPadding = 0
-    @ScaledMetric(relativeTo: .body) private var canopyHeight = 34
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            IOSProductTitleLockup(title: IOSBrandTheme.productName)
-                .layoutPriority(1)
-
-            Spacer(minLength: 10)
-
-            accessory
-        }
-        .padding(.vertical, verticalPadding)
-        .frame(minHeight: canopyHeight, maxHeight: canopyHeight, alignment: .center)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
+/// Per-screen page heading (Library, Settings, etc.).
+/// Sits at the top of a screen body where the design specifies a
+/// large 28-pt title in SF Pro Display.
 struct IOSStudioWorkspaceHeading: View {
     let title: String
 
@@ -159,134 +76,9 @@ struct IOSStudioWorkspaceHeading: View {
     }
 }
 
-private struct IOSStudioRootDock: View {
-    @Binding var selectedTab: IOSAppTab
-
-    let tint: Color
-
-    @ScaledMetric(relativeTo: .body) private var horizontalPadding = 16
-    @ScaledMetric(relativeTo: .body) private var topPadding = 8
-    @ScaledMetric(relativeTo: .body) private var bottomPadding = 10
-    @ScaledMetric(relativeTo: .body) private var dockSpacing = 12
-    @ScaledMetric(relativeTo: .body) private var railPadding = 8
-    @ScaledMetric(relativeTo: .body) private var railRadius = 30
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                ForEach(IOSAppTab.allCases) { tab in
-                    IOSStudioRootDockButton(
-                        tab: tab,
-                        isSelected: selectedTab == tab,
-                        action: {
-                            guard tab != selectedTab else { return }
-                            selectedTab = tab
-                        }
-                    )
-                }
-            }
-            .padding(railPadding)
-            .frame(maxWidth: .infinity)
-            .iosDockGlass(tint: tint, cornerRadius: railRadius)
-            .sensoryFeedback(.selection, trigger: selectedTab)
-            .padding(.horizontal, horizontalPadding)
-            .padding(.top, topPadding)
-            .padding(.bottom, bottomPadding)
-        }
-        .background(
-            LinearGradient(
-                colors: [
-                    IOSBrandTheme.canvasBottom.opacity(0),
-                    IOSBrandTheme.canvasBottom.opacity(0.88),
-                    IOSBrandTheme.canvasBottom
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea(edges: .bottom)
-        )
-    }
-}
-
-private struct IOSAccessibleAccentTabBackground<S: InsettableShape>: View {
-    let shape: S
-    let tint: Color
-
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-
-    // Mirrors the macOS sidebar selection treatment
-    // (Sources/Views/Sidebar/SidebarView.swift): neutral smoked glass
-    // background plus a single mode-tinted accent ring. Replaces the prior
-    // full-gradient gold capsule, which read too loud relative to PRODUCT.md
-    // "Warm without volume".
-    var body: some View {
-        if reduceTransparency {
-            shape
-                .fill(IOSAppTheme.subtleGlassTint(nil))
-                .overlay {
-                    shape
-                        .stroke(tint.opacity(0.42), lineWidth: 1)
-                }
-        } else {
-            shape
-                .fill(IOSAppTheme.subtleGlassTint(nil))
-                .glassEffect(
-                    .regular
-                        .tint(IOSAppTheme.subtleGlassTint(tint, intensity: 0.9))
-                        .interactive(),
-                    in: shape
-                )
-                .overlay {
-                    shape
-                        .stroke(tint.opacity(0.42), lineWidth: 1)
-                }
-        }
-    }
-}
-
-private struct IOSStudioRootDockButton: View {
-    let tab: IOSAppTab
-    let isSelected: Bool
-    let action: () -> Void
-
-    @ScaledMetric(relativeTo: .footnote) private var verticalPadding = 10
-    @ScaledMetric(relativeTo: .footnote) private var horizontalPadding = 12
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 6) {
-                Image(systemName: tab.systemImage)
-                    .font(.system(size: 15, weight: .semibold))
-
-                Text(tab.title)
-                    .font(.caption2.weight(.semibold))
-                    .lineLimit(1)
-            }
-            // Selected state pairs with the new neutral-glass background, so
-            // the label rides on a quiet smoked surface and only the mode-
-            // tinted ring carries the accent signal. accentForeground was
-            // too dark to read on the post-B.3 background.
-            .foregroundStyle(
-                isSelected
-                    ? IOSAppTheme.textPrimary
-                    : IOSAppTheme.textSecondary
-            )
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, verticalPadding)
-            .background {
-                if isSelected {
-                    let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    IOSAccessibleAccentTabBackground(shape: shape, tint: tab.tint)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("rootTab_\(tab.rawValue)")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-}
-
+/// Card-style section wrapper used on Settings + Library surfaces.
+/// Wraps a section's content in a glassy rounded surface tinted by
+/// the per-tab accent.
 struct IOSStudioSectionGroup<Content: View>: View {
     let title: String?
     let tint: Color
@@ -321,47 +113,6 @@ struct IOSStudioSectionGroup<Content: View>: View {
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .iosSectionGlass(tint: tint, cornerRadius: cornerRadius)
-        }
-    }
-}
-
-private extension IOSAppTab {
-    var title: String {
-        switch self {
-        case .studio:
-            return "Studio"
-        case .voices:
-            return "Voices"
-        case .history:
-            return "History"
-        case .settings:
-            return "Settings"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .studio:
-            return "waveform.badge.mic"
-        case .voices:
-            return "person.wave.2.fill"
-        case .history:
-            return "clock.arrow.circlepath"
-        case .settings:
-            return "gearshape"
-        }
-    }
-
-    var tint: Color {
-        switch self {
-        case .studio:
-            return IOSBrandTheme.accent
-        case .voices:
-            return IOSBrandTheme.library
-        case .history:
-            return IOSBrandTheme.library
-        case .settings:
-            return IOSBrandTheme.settings
         }
     }
 }

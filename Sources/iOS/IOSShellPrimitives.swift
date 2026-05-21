@@ -1612,29 +1612,9 @@ extension View {
         )
     }
 
-    // Selected-pill chip treatment. Flat by design — mirrors the macOS chip
-    // audit (May 2026, AppTheme.swift studioChip) which keeps chips flat so
-    // they contrast with the glassy cards behind them. Was previously a
-    // glassy gradient capsule, which collapsed the cards/chips hierarchy.
-    func iosSelectorPillGlass(tint: Color) -> some View {
-        let shape = Capsule(style: .continuous)
-        return self
-            .background {
-                shape.fill(IOSAppTheme.accentWash(tint))
-            }
-            .overlay {
-                shape.stroke(tint.opacity(0.32), lineWidth: 1)
-            }
-    }
-
-    func iosSelectorRailGlass(tint: Color) -> some View {
-        let shape = Capsule(style: .continuous)
-        return self.iosSubtleGlassSurface(
-            in: shape,
-            tint: tint,
-            fill: IOSAppTheme.glassSurfaceFillMuted.opacity(0.78),
-            strokeOpacity: 0.10,
-            interactive: true
-        )
-    }
+    // R2 cleanup (2026-05-21): `iosSelectorPillGlass(tint:)` and
+    // `iosSelectorRailGlass(tint:)` were inlined into `IOSCapsuleSelector`
+    // when its rail / pill recipe was rewritten to match the design's
+    // `.vc-mode-segmented` spec. They had no other callers and have been
+    // removed.
 }
