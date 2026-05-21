@@ -35,30 +35,26 @@ struct IOSStudioShellScreen<Accessory: View, Content: View, BottomAccessory: Vie
     }
 
     var body: some View {
-        ZStack {
-            IOSScreenBackdrop()
+        // R0 (2026-05-21): the canopy + bottom dock used to live here. They
+        // moved to `RootView` so every tab shares a single set of chrome and
+        // the new `TabDock` finally renders. This view is now just the screen
+        // body container with the now-playing rail + engine toast overlays.
+        // The `accessory`, `bottomAccessory`, and `activeTab` slots remain
+        // on the type signature for source compatibility with the legacy
+        // container call sites, but the canopy slot is no longer drawn.
+        VStack(alignment: .leading, spacing: contentSpacing) {
+            screenContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-            VStack(alignment: .leading, spacing: contentSpacing) {
-                IOSStudioShellCanopy(
-                    accessory: topAccessoryContent
-                )
-
-                screenContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-
-                if showsBottomAccessory {
-                    bottomAccessoryContent
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, bottomAccessoryTopPadding)
-                }
+            if showsBottomAccessory {
+                bottomAccessoryContent
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, bottomAccessoryTopPadding)
             }
-            .padding(.horizontal, horizontalPadding)
-            .padding(.top, topPadding)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            IOSStudioRootDock(selectedTab: $selectedTab, tint: tint)
-        }
+        .padding(.horizontal, horizontalPadding)
+        .padding(.top, topPadding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if audioPlayer.isShowingNowPlayingRail {
                 IOSGlobalNowPlayingRail()

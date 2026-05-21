@@ -69,20 +69,21 @@ struct IOSStudioCanvas<SetupChips: View>: View {
     @FocusState private var isScriptFocused: Bool
 
     var body: some View {
-        ZStack {
-            IOSModeBackdrop(tint: tint, intensity: .warm)
-
-            VStack(alignment: .leading, spacing: 14) {
-                composerPad
-                setupRow
-                dockArea
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 4)
-            .padding(.bottom, 8)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // R0 (2026-05-21): the canvas previously rendered its own
+        // `IOSModeBackdrop` here. The backdrop now lives at the `RootView`
+        // level (gated on `appModel.tab == .studio`) so it spans the entire
+        // screen — including under the tab dock — instead of being clipped
+        // to the canvas frame. Keep the canvas body a plain VStack.
+        VStack(alignment: .leading, spacing: 14) {
+            composerPad
+            setupRow
+            dockArea
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .iosAppAnimation(IOSDesignMotion.stateChange, value: genState)
     }
 

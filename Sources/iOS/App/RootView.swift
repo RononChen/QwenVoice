@@ -20,8 +20,39 @@ struct RootView: View {
     var body: some View {
         @Bindable var appModel = appModel
 
+        // R0 (2026-05-21): RootView now owns the entire app chrome the way
+        // `design_references/Vocello iOS/ios-frame.jsx` does in the React
+        // prototype:
+        //
+        //   ZStack:
+        //     canvas color           ← `Theme.Surface.canvasBottom`
+        //     mode backdrop wash     ← radial gradient, Studio only
+        //     activeScreen           ← per-tab body, transparent
+        //   safeAreaInset(.bottom):
+        //     TabDock                ← single source of truth for the dock
+        //
+        // The legacy `IOSStudioShellScreen` no longer paints a canopy or its
+        // own dock; it just hosts the per-screen body and the engine /
+        // now-playing toast safe-area insets.
         ZStack {
+            Theme.Surface.canvasBottom
+                .ignoresSafeArea()
+
+            if appModel.tab == .studio {
+                IOSModeBackdrop(
+                    tint: appModel.studioMode.primaryActionTint,
+                    intensity: .warm
+                )
+                .ignoresSafeArea()
+                .transition(.opacity)
+            }
+
             activeScreen
+        }
+        .iosAppAnimation(Theme.Motion.easeOut, value: appModel.tab)
+        .iosAppAnimation(Theme.Motion.modePillSlide, value: appModel.studioMode)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            TabDock()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .tint(Theme.Brand.gold)
