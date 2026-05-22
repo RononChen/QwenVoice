@@ -169,8 +169,6 @@ private enum IOSHistoryBucket: Int, CaseIterable, Identifiable {
 }
 
 private struct IOSHistoryLibrarySection: View {
-    @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
-
     @State private var items: [Generation] = []
     @State private var errorMessage: String?
     @State private var modeFilter: IOSHistoryModeFilter = .all
@@ -229,13 +227,6 @@ private struct IOSHistoryLibrarySection: View {
                             ForEach(group.items) { item in
                                 IOSHistoryItemCard(
                                     item: item,
-                                    onPlay: {
-                                        audioPlayer.playFile(
-                                            item.audioPath,
-                                            title: item.textPreview,
-                                            presentationContext: .library
-                                        )
-                                    },
                                     onDelete: { delete(item) }
                                 )
                                 .accessibilityElement(children: .contain)
@@ -345,7 +336,6 @@ private struct IOSHistoryLibrarySection: View {
 
 private struct IOSHistoryItemCard: View {
     let item: Generation
-    let onPlay: () -> Void
     let onDelete: () -> Void
 
     @State private var isConfirmingDelete = false
@@ -448,7 +438,7 @@ private struct IOSHistoryItemCard: View {
 
             Menu {
                 Button {
-                    onPlay()
+                    openPlayerSheet()
                 } label: {
                     Label("Play", systemImage: "play.fill")
                 }
@@ -502,12 +492,7 @@ private struct IOSHistoryItemCard: View {
     }
 
     private func openPlayerSheet() {
-        guard let playerItem = IOSPlayerSheetItem.from(history: item) else {
-            // Audio file missing on disk; fall back to the inline play
-            // path so the user gets the existing error toast.
-            onPlay()
-            return
-        }
+        let playerItem = IOSPlayerSheetItem.from(history: item)
         IOSHaptics.selection()
         presentPlayerSheet(playerItem)
     }
@@ -520,8 +505,8 @@ private struct IOSHistoryItemCard: View {
 
 private struct IOSSavedVoicesLibrarySection: View {
     @EnvironmentObject private var ttsEngine: TTSEngineStore
-    @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
     @EnvironmentObject private var savedVoicesViewModel: SavedVoicesViewModel
+    @Environment(\.presentIOSPlayerSheet) private var presentPlayerSheet
 
     let onUseInVoiceCloning: (Voice) -> Void
 
@@ -562,11 +547,11 @@ private struct IOSSavedVoicesLibrarySection: View {
                         IOSSavedVoiceCard(
                             voice: voice,
                             onPlay: {
-                                audioPlayer.playFile(
-                                    voice.wavPath,
-                                    title: voice.name,
-                                    presentationContext: .library
-                                )
+                                guard let item = IOSPlayerSheetItem.from(savedVoice: voice) else {
+                                    return
+                                }
+                                IOSHaptics.selection()
+                                presentPlayerSheet(item)
                             },
                             onUseInVoiceCloning: {
                                 onUseInVoiceCloning(voice)

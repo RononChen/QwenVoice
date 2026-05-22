@@ -46,6 +46,7 @@ final class StudioGenerationCoordinator {
     /// Marks a generation attempt as started. Clears any prior error.
     func start() {
         errorMessage = nil
+        lastCompletedOutput = nil
         isGenerating = true
     }
 

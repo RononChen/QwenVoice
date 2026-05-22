@@ -16,9 +16,10 @@ import QwenVoiceCore
 /// screens (StudioScreen, VoicesScreen, HistoryScreen, SettingsScreen).
 struct RootView: View {
     @Environment(AppModel.self) private var appModel
-    @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
-
-    @ScaledMetric(relativeTo: .body) private var horizontalPadding: CGFloat = 16
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
+    @AppStorage(IOSAppDefaults.reduceMotionEnabledKey) private var appReduceMotion = false
+    @AppStorage(IOSAppDefaults.reduceTransparencyEnabledKey) private var appReduceTransparency = false
 
     var body: some View {
         @Bindable var appModel = appModel
@@ -47,28 +48,17 @@ struct RootView: View {
         }
         .iosAppAnimation(Theme.Motion.easeOut, value: appModel.tab)
         .iosAppAnimation(Theme.Motion.modePillSlide, value: appModel.studioMode)
-        // Phase 2 (2026-05-21): rail + engine-toast safeAreaInsets
-        // moved up here from IOSStudioShellScreen so each screen body
-        // gets one clean height budget. Order matters: the dock owns
-        // the outer-most inset; the rail sits above the dock when
-        // visible; the engine toast sits above the rail. SwiftUI
-        // stacks bottom safeAreaInsets in the order they are applied.
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            TabDock()
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if audioPlayer.isShowingNowPlayingRail {
-                IOSGlobalNowPlayingRail()
-                    .padding(.horizontal, horizontalPadding)
-                    .padding(.bottom, 6)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
+        .environment(\.iosReduceMotionEnabled, effectiveReduceMotion)
+        .environment(\.iosReduceTransparencyEnabled, effectiveReduceTransparency)
+        // The dock is the only persistent bottom chrome. Playback is
+        // presented inline in Studio or through IOSPlayerSheet.
         .safeAreaInset(edge: .bottom, spacing: 0) {
             IOSEngineLifecycleToast()
                 .padding(.bottom, 6)
         }
-        .iosAppAnimation(IOSSelectionMotion.miniPlayerSlide, value: audioPlayer.isShowingNowPlayingRail)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            TabDock()
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .tint(Theme.Brand.gold)
         .overlay {
@@ -80,6 +70,15 @@ struct RootView: View {
                 .allowsHitTesting(false)
             }
         }
+        .iosFocusModalBackdrop(
+            isActive: isFocusBackdropActive,
+            allowsBlur: !effectiveReduceTransparency
+        )
+        .overlay {
+            bottomPanelOverlay
+            deleteModelSheetOverlay
+        }
+        .iosAppAnimation(Theme.Motion.easeOut, value: isFocusBackdropActive)
         .environment(\.presentIOSPlayerSheet) { item in
             appModel.playerSheetItem = item
         }
@@ -91,7 +90,7 @@ struct RootView: View {
                 item: item,
                 onDismiss: { appModel.playerSheetItem = nil }
             )
-            .presentationDetents([.fraction(0.97)])
+            .presentationDetents([.fraction(0.88)])
             .presentationDragIndicator(.hidden)
             .presentationCornerRadius(28)
             .presentationBackground(Color(red: 13 / 255, green: 14 / 255, blue: 18 / 255).opacity(0.96))
@@ -133,5 +132,96 @@ struct RootView: View {
 
     private var activeBackdropTint: Color {
         appModel.tab.dockAccent(studioMode: appModel.studioMode.mode)
+    }
+
+    @ViewBuilder
+    private var deleteModelSheetOverlay: some View {
+        if let item = appModel.deleteModelSheetItem {
+            GeometryReader { proxy in
+                ZStack(alignment: .bottom) {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            dismissDeleteModelSheet()
+                        }
+
+                    IOSDeleteModelSheet(
+                        modelName: item.modelName,
+                        sizeLabel: item.sizeLabel,
+                        presentation: .edgeToEdge(bottomSafeAreaInset: proxy.safeAreaInsets.bottom),
+                        onConfirm: {
+                            item.onConfirm()
+                            dismissDeleteModelSheet()
+                        },
+                        onCancel: {
+                            dismissDeleteModelSheet()
+                        }
+                    )
+                    .frame(maxWidth: .infinity)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                .ignoresSafeArea()
+            }
+            .zIndex(20)
+        }
+    }
+
+    @ViewBuilder
+    private var bottomPanelOverlay: some View {
+        if let item = appModel.bottomPanelItem {
+            GeometryReader { proxy in
+                ZStack(alignment: .bottom) {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            dismissBottomPanel()
+                        }
+
+                    item.content(proxy.safeAreaInsets.bottom, dismissBottomPanel)
+                        .frame(maxWidth: .infinity)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                .ignoresSafeArea()
+            }
+            .zIndex(19)
+        }
+    }
+
+    private var isFocusBackdropActive: Bool {
+        appModel.isFocusBackdropPresented
+            || appModel.bottomPanelItem != nil
+            || appModel.deleteModelSheetItem != nil
+    }
+
+    private func dismissDeleteModelSheet() {
+        appModel.deleteModelSheetItem = nil
+        appModel.isFocusBackdropPresented = false
+    }
+
+    private func dismissBottomPanel() {
+        appModel.dismissBottomPanel()
+    }
+
+    private var effectiveReduceMotion: Bool {
+        systemReduceMotion || appReduceMotion
+    }
+
+    private var effectiveReduceTransparency: Bool {
+        systemReduceTransparency || appReduceTransparency
+    }
+}
+
+private extension View {
+    func iosFocusModalBackdrop(isActive: Bool, allowsBlur: Bool) -> some View {
+        blur(radius: isActive && allowsBlur ? 2.4 : 0)
+            .overlay {
+                if isActive {
+                    Color.black
+                        .opacity(allowsBlur ? 0.10 : 0.34)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
     }
 }

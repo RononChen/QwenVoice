@@ -315,7 +315,7 @@ struct IOSCompactInlineNotice: View {
     let symbolName: String
     let tint: Color
 
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.iosReduceTransparencyEnabled) private var reduceTransparency
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -616,45 +616,36 @@ private struct IOSGenerateMiniPlayerProgressRail: View {
 }
 
 private struct IOSGenerateMiniPlayerButtonChrome: View {
-    @ScaledMetric(relativeTo: .caption) private var controlSize = 34
-    @ScaledMetric(relativeTo: .caption) private var symbolSize = 14
+    @ScaledMetric(relativeTo: .caption) private var controlSize = 40
+    @ScaledMetric(relativeTo: .caption) private var symbolSize = 16
 
     let symbolName: String
 
     var body: some View {
-        let shape = Circle()
-
-        Image(systemName: symbolName)
-            .font(.system(size: symbolSize, weight: .semibold))
-            .foregroundStyle(IOSAppTheme.textPrimary)
-            .frame(width: controlSize, height: controlSize)
-            .iosSubtleGlassSurface(
-                in: shape,
-                tint: IOSBrandTheme.silver,
-                fill: IOSAppTheme.glassSurfaceFillMuted.opacity(0.46),
-                strokeOpacity: 0.14,
-                interactive: true
-            )
+        IOSPlayerIconButtonChrome(
+            symbol: symbolName,
+            size: controlSize,
+            symbolSize: symbolSize
+        )
     }
 }
 
 private struct IOSGenerateMiniPlayerProgressChrome: View {
-    @ScaledMetric(relativeTo: .caption) private var controlSize = 34
+    @ScaledMetric(relativeTo: .caption) private var controlSize = 40
 
     var body: some View {
-        let shape = Circle()
-
         ProgressView()
             .progressViewStyle(.circular)
             .tint(IOSBrandTheme.silver)
             .frame(width: controlSize, height: controlSize)
-            .iosSubtleGlassSurface(
-                in: shape,
-                tint: IOSBrandTheme.silver,
-                fill: IOSAppTheme.glassSurfaceFillMuted.opacity(0.46),
-                strokeOpacity: 0.14,
-                interactive: false
-            )
+            .background {
+                Circle()
+                    .fill(Color.white.opacity(0.06))
+            }
+            .overlay {
+                Circle()
+                    .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+            }
             .accessibilityLabel("Preparing preview")
     }
 }

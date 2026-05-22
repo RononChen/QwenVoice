@@ -1,6 +1,13 @@
 import SwiftUI
 import QwenVoiceCore
 
+private enum IOSStudioCanvasLayout {
+    static let tabDockReservation: CGFloat = 97
+    static let compactDockAreaHeight: CGFloat = 64
+    static let completeDockAreaHeight: CGFloat = 135
+    static let dockBottomPadding: CGFloat = 8
+}
+
 /// Unified Studio surface from design_references/Vocello iOS/studio.jsx.
 /// Lays out (top → bottom): composer pad, setup-chip row, dock area with
 /// idle / generating / complete states. The composer + meta + counter
@@ -20,6 +27,7 @@ struct IOSStudioCanvas<SetupChips: View>: View {
     let charLimit: Int
     let tint: Color
     let genState: IOSStudioGenState
+    let errorMessage: String?
     let canGenerate: Bool
     let modelInstalled: Bool
     let modelDisplayName: String
@@ -38,6 +46,7 @@ struct IOSStudioCanvas<SetupChips: View>: View {
         charLimit: Int = 800,
         tint: Color,
         genState: IOSStudioGenState,
+        errorMessage: String? = nil,
         canGenerate: Bool,
         modelInstalled: Bool,
         modelDisplayName: String,
@@ -55,6 +64,7 @@ struct IOSStudioCanvas<SetupChips: View>: View {
         self.charLimit = charLimit
         self.tint = tint
         self.genState = genState
+        self.errorMessage = errorMessage
         self.canGenerate = canGenerate
         self.modelInstalled = modelInstalled
         self.modelDisplayName = modelDisplayName
@@ -83,21 +93,30 @@ struct IOSStudioCanvas<SetupChips: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             composerPad
                 .frame(maxHeight: .infinity)
+                .layoutPriority(1)
             setupRow
                 .layoutPriority(2)
             dockArea
-                .layoutPriority(2)
                 .padding(.horizontal, 16)
-                .padding(.bottom, 8)
+                .padding(.bottom, IOSStudioCanvasLayout.dockBottomPadding)
+                .frame(height: dockAreaHeight, alignment: .bottom)
+                .layoutPriority(3)
         }
         // Bottom clearance: NavigationStack inside RootView doesn't
-        // propagate the TabDock's safeAreaInset reservation to the
-        // canvas cleanly. 130 pt clears the dock pill (~80 pt visual
-        // + 50 pt breathing room so the Generate CTA's bottom edge
-        // floats clear of the dock).
-        .padding(.bottom, 130)
+        // propagate the bottom chrome's safeAreaInset reservation to
+        // the canvas cleanly. The React reference reserves 97 pt for
+        // the tab dock; Studio's CTA / inline player then bottom-align
+        // immediately above that reservation.
+        .padding(.bottom, IOSStudioCanvasLayout.tabDockReservation)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .iosAppAnimation(IOSDesignMotion.stateChange, value: genState)
+    }
+
+    private var dockAreaHeight: CGFloat {
+        if case .complete = genState {
+            return IOSStudioCanvasLayout.completeDockAreaHeight
+        }
+        return IOSStudioCanvasLayout.compactDockAreaHeight
     }
 
     // MARK: - Composer pad
@@ -182,6 +201,8 @@ struct IOSStudioCanvas<SetupChips: View>: View {
     @ViewBuilder
     private var dockArea: some View {
         switch genState {
+        case .idle where errorMessage != nil:
+            errorBar
         case .idle where !modelInstalled:
             installCTA
         case .idle:
@@ -207,6 +228,53 @@ struct IOSStudioCanvas<SetupChips: View>: View {
             action: onInstallModel
         )
         .accessibilityIdentifier("textInput_installModelButton")
+    }
+
+    private var errorBar: some View {
+        Button {
+            IOSHaptics.impact(.medium)
+            onGenerate()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 34, height: 34)
+                    .background {
+                        Circle().fill(tint.opacity(0.14))
+                    }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Generation failed")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(IOSAppTheme.textPrimary)
+                    Text(errorMessage ?? "Try again.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(IOSAppTheme.textSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(IOSAppTheme.textPrimary.opacity(canGenerate ? 1 : 0.45))
+            }
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background {
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(0.04))
+            }
+            .overlay {
+                Capsule(style: .continuous)
+                    .stroke(tint.opacity(0.30), lineWidth: 0.7)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(!canGenerate)
+        .accessibilityIdentifier("textInput_generationError")
     }
 
     private var generateCTA: some View {
@@ -294,8 +362,23 @@ struct IOSStudioInlinePlayerItem: Equatable {
     let mode: GenerationMode
     let transcript: String
     let waveformSeed: Int
+    let autoplay: Bool
 
     static func == (lhs: IOSStudioInlinePlayerItem, rhs: IOSStudioInlinePlayerItem) -> Bool {
         lhs.audioURL == rhs.audioURL
+    }
+
+    var playerSheetItem: IOSPlayerSheetItem {
+        IOSPlayerSheetItem(
+            audioURL: audioURL,
+            transcript: transcript,
+            voiceName: voiceName,
+            modeLabel: modeLabel,
+            modeTint: IOSBrandTheme.modeColor(for: mode),
+            subtitle: "Just now",
+            avatarSeed: voiceName,
+            avatarInitials: voiceName,
+            waveformSeed: waveformSeed
+        )
     }
 }

@@ -2,12 +2,13 @@ import SwiftUI
 import UIKit
 
 struct IOSDeliveryPicker: View {
+    @Environment(AppModel.self) private var appModel
+
     @Binding var delivery: DeliveryInputState
     let tint: Color
     let customAccessibilityIdentifier: String?
 
     @FocusState private var isCustomEditorFocused: Bool
-    @State private var isPresentingPresetSheet: Bool = false
     @ScaledMetric(relativeTo: .body) private var inlineEditorHeight = 76
     @ScaledMetric(relativeTo: .body) private var contentSpacing = 8
 
@@ -46,7 +47,7 @@ struct IOSDeliveryPicker: View {
             // is binding-driven, so changes flow back without manual sync.
             Button {
                 delivery.mode = .preset
-                isPresentingPresetSheet = true
+                presentPresetSheet()
             } label: {
                 HStack(spacing: 10) {
                     Text(selectionLabel)
@@ -64,26 +65,6 @@ struct IOSDeliveryPicker: View {
             .buttonStyle(.plain)
             .iosSelectionFieldChrome(tint: tint, isFocused: isCustomDeliveryEnabled)
             .accessibilityIdentifier(customAccessibilityIdentifier ?? "")
-            .sheet(isPresented: $isPresentingPresetSheet) {
-                IOSDeliveryPickerSheet(
-                    selectedPresetID: Binding(
-                        get: { delivery.selectedPresetID },
-                        set: { newID in
-                            delivery.mode = .preset
-                            delivery.selectedPresetID = newID
-                        }
-                    ),
-                    intensity: $delivery.selectedIntensity,
-                    tint: tint,
-                    onUseCustomTone: {
-                        delivery.mode = .custom
-                    }
-                )
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.hidden)
-                .presentationCornerRadius(IOSBottomSheetChrome.cornerRadius)
-                .presentationBackground(IOSBottomSheetChrome.background)
-            }
 
             if delivery.supportsIntensity {
                 Picker("Intensity", selection: $delivery.selectedIntensity) {
@@ -140,6 +121,32 @@ struct IOSDeliveryPicker: View {
     private var customEditorAccessibilityIdentifier: String? {
         guard let customAccessibilityIdentifier else { return nil }
         return "\(customAccessibilityIdentifier)_editor"
+    }
+
+    private func presentPresetSheet() {
+        appModel.presentBottomPanel { bottomSafeAreaInset, dismiss in
+            AnyView(
+                IOSDeliveryPickerSheet(
+                    selectedPresetID: Binding(
+                        get: { delivery.selectedPresetID },
+                        set: { newID in
+                            delivery.mode = .preset
+                            delivery.selectedPresetID = newID
+                        }
+                    ),
+                    intensity: $delivery.selectedIntensity,
+                    tint: tint,
+                    onUseCustomTone: {
+                        delivery.mode = .custom
+                    },
+                    onDismiss: dismiss,
+                    presentation: .edgeToEdge(
+                        bottomSafeAreaInset: bottomSafeAreaInset,
+                        height: IOSBottomSheetChrome.deliveryPickerHeight
+                    )
+                )
+            )
+        }
     }
 
     private var intensityAccessibilityIdentifier: String? {

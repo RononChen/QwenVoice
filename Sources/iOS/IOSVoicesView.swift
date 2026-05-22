@@ -9,8 +9,8 @@ import QwenVoiceCore
 /// the existing PendingVoiceCloningHandoff plumbing.
 ///
 /// Wired in QVoiceiOSRootView's `.voices` case. Rows include the reference
-/// play affordance: bundled previews for built-in speakers and saved-voice
-/// playback through the shared `AudioPlayerViewModel`.
+/// play affordance: bundled previews and saved-voice playback present
+/// the full player sheet so no persistent rail appears in app chrome.
 struct IOSVoicesView: View {
     @Binding var selectedTab: IOSAppTab
     let onSelectBuiltInSpeaker: (SpeakerDescriptor) -> Void
@@ -18,11 +18,10 @@ struct IOSVoicesView: View {
 
     @EnvironmentObject private var ttsEngine: TTSEngineStore
     @EnvironmentObject private var savedVoicesViewModel: SavedVoicesViewModel
-    @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
+    @Environment(\.presentIOSPlayerSheet) private var presentPlayerSheet
 
     @State private var search: String = ""
     @State private var filter: VoiceFilter = .all
-    @StateObject private var previewer = IOSVoicePreviewPlayer()
 
     private var builtIn: [SpeakerDescriptor] {
         TTSContract.allSpeakerDescriptors.sorted { lhs, rhs in
@@ -106,9 +105,6 @@ struct IOSVoicesView: View {
                 await savedVoicesViewModel.ensureLoaded(using: ttsEngine)
             }
         }
-        .onDisappear {
-            previewer.stop()
-        }
         .accessibilityIdentifier("screen_voices")
     }
 
@@ -179,7 +175,6 @@ struct IOSVoicesView: View {
     private func builtInRow(_ speaker: SpeakerDescriptor) -> some View {
         HStack(spacing: 12) {
             Button {
-                previewer.stop()
                 IOSHaptics.selection()
                 onSelectBuiltInSpeaker(speaker)
             } label: {
@@ -221,10 +216,12 @@ struct IOSVoicesView: View {
             }
 
             voicePreviewButton(
-                isPlaying: previewer.currentlyPlayingID == speaker.id,
+                isPlaying: false,
                 action: {
-                    previewer.toggle(voiceID: speaker.id)
-                    IOSHaptics.selection()
+                    guard let item = IOSPlayerSheetItem.fromBuiltInPreview(speaker: speaker) else {
+                        return
+                    }
+                    presentPreview(item)
                 }
             )
         }
@@ -247,7 +244,6 @@ struct IOSVoicesView: View {
     private func savedRow(_ voice: Voice) -> some View {
         HStack(spacing: 12) {
             Button {
-                previewer.stop()
                 IOSHaptics.selection()
                 onSelectSavedVoice(voice)
             } label: {
@@ -275,11 +271,10 @@ struct IOSVoicesView: View {
             voicePreviewButton(
                 isPlaying: false,
                 action: {
-                    audioPlayer.playFile(
-                        voice.wavPath,
-                        title: voice.name,
-                        presentationContext: .library
-                    )
+                    guard let item = IOSPlayerSheetItem.from(savedVoice: voice) else {
+                        return
+                    }
+                    presentPreview(item)
                 }
             )
         }
@@ -301,18 +296,15 @@ struct IOSVoicesView: View {
 
     private func voicePreviewButton(isPlaying: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(IOSAppTheme.textPrimary)
-                .frame(width: 40, height: 40)
-                .background {
-                    Circle().fill(Color.white.opacity(isPlaying ? 0.14 : 0.06))
-                }
-                .overlay {
-                    Circle().stroke(Color.white.opacity(0.10), lineWidth: 0.5)
-                }
+            IOSPlayerIconButtonChrome(
+                symbol: isPlaying ? "pause.fill" : "play.fill",
+                isActive: isPlaying,
+                size: 40,
+                symbolSize: 16
+            )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(isPlaying ? "Stop preview" : "Preview voice")
     }
 
     // MARK: - Helpers
@@ -337,6 +329,12 @@ struct IOSVoicesView: View {
     private func matchesSearch(_ voice: Voice) -> Bool {
         guard !search.isEmpty else { return true }
         return voice.name.lowercased().contains(search.lowercased())
+    }
+
+    @MainActor
+    private func presentPreview(_ item: IOSPlayerSheetItem) {
+        IOSHaptics.selection()
+        presentPlayerSheet(item)
     }
 }
 

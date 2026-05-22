@@ -88,6 +88,7 @@ extension QVoiceiOSApp {
             let fakeStatusProvider = IOSSimulatorFakeStatusProvider(
                 wrapping: LocalModelStatusProvider(modelAssetStore: modelAssetStore)
             )
+            IOSSimulatorFakeInstallRegistry.shared.applyEnvironmentSeed(models: registry.models)
             let modelManager = ModelManagerViewModel(
                 modelRegistry: registry,
                 statusProvider: fakeStatusProvider
@@ -107,6 +108,12 @@ extension QVoiceiOSApp {
                 modelAssetStore: modelAssetStore,
                 modelManager: modelManager
             )
+            modelInstaller.onModelInstalled = { [weak engineStore] modelID in
+                guard let engineStore else { return }
+                Task {
+                    try? await engineStore.loadModel(id: modelID)
+                }
+            }
             return SelectedBackend(
                 engineStore: engineStore,
                 modelManager: modelManager,

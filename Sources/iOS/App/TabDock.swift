@@ -99,7 +99,7 @@ private struct TabDockButton: View {
 
 private struct TabDockRailBackground: View {
     let tint: Color
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.iosReduceTransparencyEnabled) private var reduceTransparency
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 28, style: .continuous)
@@ -148,7 +148,7 @@ private struct TabDockRailBackground: View {
 /// pill back to a quiet hue-tinted glass.
 private struct TabDockSelectionBackground: View {
     let tint: Color
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.iosReduceTransparencyEnabled) private var reduceTransparency
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)

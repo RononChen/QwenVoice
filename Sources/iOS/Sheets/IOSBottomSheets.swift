@@ -42,6 +42,7 @@ struct IOSDeliveryPickerSheet: View {
     /// so the inline custom-text editor activates).
     var onUseCustomTone: (() -> Void)?
     var onDismiss: (() -> Void)?
+    var presentation: IOSBottomSheetPresentationStyle = .system
 
     @Environment(\.dismiss) private var dismiss
 
@@ -57,7 +58,7 @@ struct IOSDeliveryPickerSheet: View {
     }
 
     var body: some View {
-        IOSBottomSheet(title: "Delivery", tint: tint, onDismiss: onDismiss) {
+        IOSBottomSheetSurface(title: "Delivery", tint: tint, presentation: presentation, onDismiss: onDismiss) {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     LazyVGrid(columns: columns, spacing: 12) {
@@ -82,7 +83,7 @@ struct IOSDeliveryPickerSheet: View {
                     if let onUseCustomTone {
                         Button {
                             onUseCustomTone()
-                            dismiss()
+                            closeSheet()
                         } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: "slider.horizontal.3")
@@ -110,6 +111,11 @@ struct IOSDeliveryPickerSheet: View {
                 .padding(.bottom, 24)
             }
         }
+    }
+
+    private func closeSheet() {
+        onDismiss?()
+        dismiss()
     }
 
     /// Two-line description per delivery preset, lifted from
@@ -231,6 +237,7 @@ struct IOSVoicePickerSheet: View {
     @Binding var selectedID: String
     let tint: Color
     var onDismiss: (() -> Void)?
+    var presentation: IOSBottomSheetPresentationStyle = .system
 
     @State private var search: String = ""
     @StateObject private var previewer = IOSVoicePreviewPlayer()
@@ -302,7 +309,7 @@ struct IOSVoicePickerSheet: View {
     }
 
     var body: some View {
-        IOSBottomSheet(title: "Voice", tint: tint, onDismiss: onDismiss) {
+        IOSBottomSheetSurface(title: "Voice", tint: tint, presentation: presentation, onDismiss: onDismiss) {
             VStack(alignment: .leading, spacing: 14) {
                 IOSSearchField(text: $search, placeholder: "Search voices")
                     .padding(.horizontal, 20)
@@ -445,18 +452,12 @@ struct IOSVoicePickerSheet: View {
                     previewer.toggle(voiceID: option.id)
                     IOSHaptics.selection()
                 } label: {
-                    Image(systemName: isPreviewing ? "pause.fill" : "play.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(IOSAppTheme.textPrimary)
-                        .frame(width: 32, height: 32)
-                        .background {
-                            Circle()
-                                .fill(Color.white.opacity(isPreviewing ? 0.16 : 0.08))
-                        }
-                        .overlay {
-                            Circle()
-                                .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-                        }
+                    IOSPlayerIconButtonChrome(
+                        symbol: isPreviewing ? "pause.fill" : "play.fill",
+                        isActive: isPreviewing,
+                        size: 40,
+                        symbolSize: 16
+                    )
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(isPreviewing ? "Stop preview" : "Preview voice")
@@ -578,11 +579,17 @@ struct IOSReferenceClipSheet: View {
     var onImportFromFiles: () -> Void
     var onRecorded: (URL) -> Void
     var onDismiss: (() -> Void)?
+    var presentation: IOSBottomSheetPresentationStyle = .system
 
     @State private var isPresentingRecorder: Bool = false
 
     var body: some View {
-        IOSBottomSheet(title: "Reference clip", tint: IOSBrandTheme.clone, onDismiss: onDismiss) {
+        IOSBottomSheetSurface(
+            title: "Reference clip",
+            tint: IOSBrandTheme.clone,
+            presentation: presentation,
+            onDismiss: onDismiss
+        ) {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 14) {
                     sourcePicker
@@ -732,9 +739,15 @@ struct IOSModelInstallSheet: View {
     var onInstall: () -> Void
     var onCancel: () -> Void
     var onDismiss: (() -> Void)?
+    var presentation: IOSBottomSheetPresentationStyle = .system
 
     var body: some View {
-        IOSBottomSheet(title: "Install model", tint: item.tint, onDismiss: onDismiss) {
+        IOSBottomSheetSurface(
+            title: "Install model",
+            tint: item.tint,
+            presentation: presentation,
+            onDismiss: onDismiss
+        ) {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 description
@@ -893,55 +906,133 @@ struct IOSModelInstallSheetItem: Identifiable, Equatable {
 
 // MARK: - Delete model sheet
 
-/// Destructive-confirmation sheet for removing an installed model. Two
-/// stacked buttons; the destructive button takes the orange "Heavy"
-/// status color per the design system.
+/// Destructive-confirmation sheet for removing an installed model.
+/// Matches the reference's compact model row + red destructive CTA.
 struct IOSDeleteModelSheet: View {
     let modelName: String
     let sizeLabel: String
+    var presentation: IOSBottomSheetPresentationStyle = .system
     var onConfirm: () -> Void
     var onCancel: () -> Void
 
+    static let detentHeight: CGFloat = 300
+
     var body: some View {
-        IOSBottomSheet(title: "Delete model?", tint: IOSBrandTheme.memoryGuarded, onDismiss: onCancel) {
-            VStack(alignment: .leading, spacing: 18) {
-                Text("Deleting \(modelName) frees \(sizeLabel). You can re-install it from Settings whenever you want.")
-                    .font(.subheadline)
-                    .foregroundStyle(IOSAppTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                VStack(spacing: 10) {
-                    Button {
-                        IOSHaptics.warning()
-                        onConfirm()
-                    } label: {
-                        Text("Delete \(modelName)")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 52)
-                            .background {
-                                Capsule(style: .continuous)
-                                    .fill(Color.red.opacity(0.88))
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("deleteModelSheet_confirm")
-
-                    Button("Keep model") { onCancel() }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(IOSAppTheme.textPrimary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                        .background {
-                            Capsule(style: .continuous)
-                                .fill(IOSAppTheme.glassSurfaceFillMuted)
-                        }
-                        .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 24)
+        IOSBottomSheetSurface(
+            title: "Delete model?",
+            tint: destructiveRed,
+            presentation: presentation,
+            onDismiss: onCancel
+        ) {
+            sheetContent
         }
+    }
+
+    private var sheetContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            modelSummary
+                .padding(.top, 4)
+                .padding(.bottom, 20)
+
+            VStack(spacing: 10) {
+                deleteButton
+                cancelButton
+            }
+            .padding(.bottom, 8)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 20)
+    }
+
+    private var destructiveRed: Color {
+        Color(red: 255 / 255, green: 69 / 255, blue: 58 / 255)
+    }
+
+    private var destructiveRedDark: Color {
+        Color(red: 197 / 255, green: 37 / 255, blue: 26 / 255)
+    }
+
+    private var modelSummary: some View {
+        HStack(alignment: .center, spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(destructiveRed.opacity(0.12))
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(destructiveRed.opacity(0.32), lineWidth: 0.5)
+                Image(systemName: "trash")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(destructiveRed)
+            }
+            .frame(width: 44, height: 44)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(modelName)
+                    .font(.system(size: 16, weight: .semibold))
+                    .tracking(-0.08)
+                    .foregroundStyle(IOSAppTheme.textPrimary)
+                    .lineLimit(1)
+
+                Text("Frees \(sizeLabel). You can reinstall later from Settings.")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(IOSAppTheme.textSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var deleteButton: some View {
+        Button {
+            IOSHaptics.warning()
+            onConfirm()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "trash")
+                    .font(.system(size: 17, weight: .semibold))
+                Text("Delete model")
+                    .font(.system(size: 17, weight: .semibold))
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background {
+                Capsule(style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [destructiveRed, destructiveRedDark],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            }
+            .overlay {
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("deleteModelSheet_confirm")
+    }
+
+    private var cancelButton: some View {
+        Button {
+            onCancel()
+        } label: {
+            Text("Cancel")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(IOSAppTheme.textPrimary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 56)
+                .background {
+                    Capsule(style: .continuous)
+                        .fill(Color.white.opacity(0.05))
+                }
+                .overlay {
+                    Capsule(style: .continuous)
+                        .stroke(Color.white.opacity(0.14), lineWidth: 0.5)
+                }
+        }
+        .buttonStyle(.plain)
     }
 }

@@ -64,6 +64,24 @@ enum GenerationPersistence {
             #endif
         }
 
+        schedulePersistence(generation, caller: caller)
+    }
+
+    /// Schedules only the SQLite save + history-event broadcast. iOS
+    /// Studio uses this when the generated output is owned by the inline
+    /// player instead of the global now-playing model.
+    static func persist(
+        _ generation: Generation,
+        caller: String
+    ) {
+        AppPerformanceSignposts.emit("Final File Ready")
+        schedulePersistence(generation, caller: caller)
+    }
+
+    private static func schedulePersistence(
+        _ generation: Generation,
+        caller: String
+    ) {
         // Schedule persistence in a detached Task so it doesn't block the
         // main run loop. `DatabaseService` is now non-isolated; its
         // `DatabaseQueue` handles thread-safety internally.

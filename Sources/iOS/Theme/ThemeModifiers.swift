@@ -13,7 +13,7 @@ struct ThemeGlassSurfaceModifier<S: InsettableShape>: ViewModifier {
     let strokeOpacity: Double
     let interactive: Bool
 
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.iosReduceTransparencyEnabled) private var reduceTransparency
 
     @ViewBuilder
     func body(content: Content) -> some View {

@@ -16,33 +16,50 @@ struct IOSPlayerSheet: View {
     var onDismiss: () -> Void
 
     @StateObject private var controller = IOSPlayerSheetController()
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.iosReduceMotionEnabled) private var reduceMotion
+    @Environment(\.iosReduceTransparencyEnabled) private var reduceTransparency
 
     var body: some View {
         ZStack {
-            IOSModeBackdrop(tint: item.modeTint, intensity: .warm)
+            playerSheetBackground
 
             VStack(spacing: 0) {
                 grabber
                 topBar
-                Spacer(minLength: 12)
-                waveform
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 14)
-                header
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 22)
-                transcript
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 18)
-                Spacer(minLength: 0)
-                scrubber
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 18)
-                controls
-                    .padding(.horizontal, 24)
+
+                VStack(spacing: 0) {
+                    waveform
+                        .padding(.top, 14)
+                        .padding(.bottom, 18)
+
+                    header
+                        .padding(.bottom, 14)
+
+                    transcript
+                }
+                .padding(.horizontal, 24)
+                .frame(maxHeight: .infinity, alignment: .top)
+
+                VStack(spacing: 0) {
+                    scrubber
+                        .padding(.bottom, 16)
+                    controls
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 12)
+                .padding(.bottom, 16)
+                .background {
+                    LinearGradient(
+                        colors: [
+                            Color.clear,
+                            sheetBaseColor.opacity(0.45),
+                            sheetBaseColor.opacity(0.92),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
             }
-            .padding(.bottom, 16)
         }
         .preferredColorScheme(.dark)
         .task {
@@ -50,6 +67,37 @@ struct IOSPlayerSheet: View {
         }
         .onDisappear {
             controller.stop()
+        }
+    }
+
+    private var sheetBaseColor: Color {
+        Color(red: 13 / 255, green: 14 / 255, blue: 18 / 255)
+    }
+
+    @ViewBuilder
+    private var playerSheetBackground: some View {
+        sheetBaseColor
+            .ignoresSafeArea()
+
+        if !reduceTransparency {
+            GeometryReader { proxy in
+                let radius = max(proxy.size.width * 0.80, proxy.size.height * 0.44)
+                RadialGradient(
+                    stops: [
+                        .init(color: item.modeTint.opacity(0.38), location: 0),
+                        .init(color: item.modeTint.opacity(0.16), location: 0.34),
+                        .init(color: .clear, location: 0.65),
+                    ],
+                    center: UnitPoint(x: 0.5, y: 0),
+                    startRadius: 0,
+                    endRadius: radius
+                )
+                .scaleEffect(x: 1.55, y: 0.92, anchor: .top)
+                .blendMode(.plusLighter)
+                .opacity(0.70)
+                .allowsHitTesting(false)
+            }
+            .ignoresSafeArea()
         }
     }
 
@@ -68,14 +116,7 @@ struct IOSPlayerSheet: View {
             Button {
                 onDismiss()
             } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(IOSAppTheme.textPrimary)
-                    .frame(width: 36, height: 36)
-                    .background {
-                        Circle()
-                            .fill(IOSAppTheme.glassSurfaceFillMuted.opacity(0.55))
-                    }
+                IOSPlayerIconButtonChrome(symbol: "chevron.down", size: 40, symbolSize: 18)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close")
@@ -93,7 +134,7 @@ struct IOSPlayerSheet: View {
             Spacer()
 
             Color.clear
-                .frame(width: 36, height: 36)
+                .frame(width: 40, height: 40)
         }
         .padding(.horizontal, 16)
         .padding(.top, 0)
@@ -148,7 +189,8 @@ struct IOSPlayerSheet: View {
             tint: item.modeTint,
             progress: controller.progress,
             isAnimating: controller.isPlaying,
-            unplayedColor: Color.white.opacity(0.14)
+            unplayedColor: Color.white.opacity(0.14),
+            style: .big
         )
         .frame(height: 96)
     }
@@ -176,7 +218,10 @@ struct IOSPlayerSheet: View {
                     Capsule(style: .continuous)
                         .fill(
                             LinearGradient(
-                                colors: [item.modeTint.opacity(0.85), item.modeTint],
+                                colors: [
+                                    item.modeTint.mix(with: .black, by: 0.20, in: .perceptual),
+                                    item.modeTint,
+                                ],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
@@ -211,6 +256,7 @@ struct IOSPlayerSheet: View {
                 Text(controller.formatted(time: controller.duration))
             }
             .font(.system(.caption, design: .monospaced).monospacedDigit())
+            .fontWeight(.medium)
             .foregroundStyle(IOSAppTheme.textSecondary)
         }
     }
@@ -233,7 +279,9 @@ struct IOSPlayerSheet: View {
             )
             .frame(maxWidth: .infinity)
         }
-        .frame(maxHeight: 220)
+        .frame(maxHeight: .infinity)
+        .padding(.horizontal, 8)
+        .padding(.bottom, 12)
     }
 
     // MARK: - Controls
@@ -276,7 +324,7 @@ struct IOSPlayerSheet: View {
                     .overlay {
                         Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.5)
                     }
-                    .shadow(color: .black.opacity(0.30), radius: 9, x: 0, y: 6)
+                    .shadow(color: item.modeTint.opacity(0.40), radius: 14, x: 0, y: 12)
             }
             .buttonStyle(.plain)
             .disabled(controller.duration <= 0)
@@ -332,11 +380,9 @@ struct IOSPlayerSheetItem: Equatable, Identifiable {
     }
 
     /// Helper: build a player-sheet item from a History `Generation` row.
-    /// Returns `nil` when the underlying audio file no longer exists on disk.
-    static func from(history: Generation) -> IOSPlayerSheetItem? {
-        guard FileManager.default.fileExists(atPath: history.audioPath) else {
-            return nil
-        }
+    /// The sheet can still present transcript metadata if an older history
+    /// row points at audio that has since disappeared from disk.
+    static func from(history: Generation) -> IOSPlayerSheetItem {
         let modeTint: Color
         let modeLabel: String
         switch history.mode.lowercased() {
@@ -364,6 +410,56 @@ struct IOSPlayerSheetItem: Equatable, Identifiable {
             avatarSeed: voiceName,
             avatarInitials: voiceName,
             waveformSeed: history.id.map { Int(truncatingIfNeeded: $0) } ?? IOSStableVisualHash.int(history.audioPath)
+        )
+    }
+
+    /// Helper: build a player-sheet item from a saved cloned voice.
+    /// Returns `nil` when the prepared WAV is missing on disk.
+    static func from(savedVoice voice: Voice) -> IOSPlayerSheetItem? {
+        guard FileManager.default.fileExists(atPath: voice.wavPath) else {
+            return nil
+        }
+        let transcript = (try? voice.loadTranscript()) ?? "Hi, I'm \(voice.name). Cloned reference."
+        return IOSPlayerSheetItem(
+            audioURL: URL(fileURLWithPath: voice.wavPath),
+            transcript: transcript,
+            voiceName: voice.name,
+            modeLabel: "Clone",
+            modeTint: IOSBrandTheme.clone,
+            subtitle: "Saved voice",
+            avatarSeed: voice.id,
+            avatarInitials: voice.name,
+            waveformSeed: IOSStableVisualHash.int(voice.wavPath)
+        )
+    }
+
+    /// Helper: build a player-sheet item from a bundled built-in preview
+    /// WAV. Missing preview assets intentionally produce no chrome.
+    static func fromBuiltInPreview(speaker: SpeakerDescriptor) -> IOSPlayerSheetItem? {
+        guard let audioURL = Bundle.main.url(
+            forResource: speaker.id,
+            withExtension: "wav",
+            subdirectory: "voice-previews"
+        ) ?? Bundle.main.url(
+            forResource: speaker.id,
+            withExtension: "wav"
+        ) else {
+            return nil
+        }
+
+        let descriptor = speaker.shortDescription
+            ?? speaker.nativeLanguage
+            ?? speaker.group.capitalized
+        return IOSPlayerSheetItem(
+            audioURL: audioURL,
+            transcript: "Hi, I'm \(speaker.displayName). \(descriptor).",
+            voiceName: speaker.displayName,
+            modeLabel: "Custom",
+            modeTint: IOSBrandTheme.custom,
+            subtitle: "Voice preview",
+            avatarSeed: speaker.id,
+            avatarInitials: speaker.displayName,
+            waveformSeed: IOSStableVisualHash.int(speaker.id)
         )
     }
 }
@@ -417,7 +513,7 @@ struct IOSPlayerKaraokeText: View {
                 run.foregroundColor = tint
                 run.font = .system(size: 17, weight: .semibold)
             } else if span.end <= currentTime {
-                run.foregroundColor = IOSAppTheme.textSecondary
+                run.foregroundColor = IOSAppTheme.textPrimary
             } else {
                 run.foregroundColor = IOSAppTheme.textTertiary
             }

@@ -11,11 +11,11 @@ enum IOSSimulatorRuntimeSupport {
     }
 
     static let unsupportedMessage =
-        "Generation is unavailable in the iOS Simulator. Use a real iPhone for MLX generation, playback, and performance validation."
+        "Generation is unavailable in this runtime."
 }
 
 @MainActor
-final class IOSSimulatorTTSEngine: TTSEngine {
+final class IOSSimulatorTTSEngine: TTSEngine, TTSEngineRuntimeControlling, ActiveGenerationCancellable {
     @Published private(set) var loadState: EngineLoadState = .idle
     @Published private(set) var clonePreparationState: ClonePreparationState = .idle
     @Published private(set) var latestEvent: GenerationEvent?
@@ -25,10 +25,14 @@ final class IOSSimulatorTTSEngine: TTSEngine {
     var isReady: Bool { isInitialized }
     private(set) var visibleErrorMessage: String?
 
+    private static let supportedSavedVoiceAudioExtensions: Set<String> = ["wav", "mp3", "aiff", "m4a"]
+
     private let documentIO: any DocumentIO
     private let audioPreparationService: any AudioPreparationService
     private var isInitialized = false
-    private var preparedVoices: [PreparedVoice] = []
+    private var loadedModelID: String?
+    private var cancelRequested = false
+    private var allowsProactiveWarmOperations = true
 
     init(
         modelRegistry: any ModelRegistry,
@@ -40,36 +44,48 @@ final class IOSSimulatorTTSEngine: TTSEngine {
         self.modelRegistry = modelRegistry
         self.documentIO = documentIO
         self.audioPreparationService = audioPreparationService
-        self.visibleErrorMessage = IOSSimulatorRuntimeSupport.unsupportedMessage
     }
 
     func supportDecision(for request: GenerationRequest) -> GenerationSupportDecision {
-        .unsupported(reason: IOSSimulatorRuntimeSupport.unsupportedMessage)
+        guard modelRegistry.model(id: request.modelID) != nil else {
+            return .unsupported(reason: "Unknown simulator model: \(request.modelID)")
+        }
+        return .supported(.nativeMLX)
     }
 
-    func start() {}
+    func start() {
+        if isInitialized {
+            loadState = loadedModelID.map { .loaded(modelID: $0) } ?? .idle
+        }
+    }
 
     func stop() {
         isInitialized = false
+        loadedModelID = nil
         loadState = .idle
         clonePreparationState = .idle
         latestEvent = nil
-        visibleErrorMessage = IOSSimulatorRuntimeSupport.unsupportedMessage
+        visibleErrorMessage = nil
+        cancelRequested = false
     }
 
     func initialize(appSupportDirectory: URL) async throws {
         let fileManager = FileManager.default
-        try fileManager.createDirectory(
-            at: AppPaths.preparedAudioDir,
-            withIntermediateDirectories: true
-        )
-        try fileManager.createDirectory(
-            at: AppPaths.importedReferenceAudioDir,
-            withIntermediateDirectories: true
-        )
+        for directory in [
+            AppPaths.outputsDir,
+            AppPaths.voicesDir,
+            AppPaths.preparedAudioDir,
+            AppPaths.importedReferenceAudioDir,
+            AppPaths.normalizedCloneReferenceDir,
+            AppPaths.streamSessionsDir,
+        ] {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+
         isInitialized = true
-        loadState = .idle
-        visibleErrorMessage = IOSSimulatorRuntimeSupport.unsupportedMessage
+        visibleErrorMessage = nil
+        loadState = loadedModelID.map { .loaded(modelID: $0) } ?? .idle
+        try await seedDataIfRequested()
     }
 
     func ping() async throws -> Bool {
@@ -77,13 +93,14 @@ final class IOSSimulatorTTSEngine: TTSEngine {
     }
 
     func loadModel(id: String) async throws {
-        guard modelRegistry.model(id: id) != nil else {
-            throw MLXTTSEngineError.unknownModel(id)
-        }
-        loadState = .idle
+        try ensureKnownModel(id)
+        loadedModelID = id
+        visibleErrorMessage = nil
+        loadState = .loaded(modelID: id)
     }
 
     func unloadModel() async throws {
+        loadedModelID = nil
         loadState = .idle
         latestEvent = nil
     }
@@ -92,41 +109,203 @@ final class IOSSimulatorTTSEngine: TTSEngine {
         try await audioPreparationService.normalizeAudio(request)
     }
 
-    func ensureModelLoadedIfNeeded(id: String) async {}
+    func ensureModelLoadedIfNeeded(id: String) async {
+        guard modelRegistry.model(id: id) != nil else { return }
+        loadedModelID = id
+        loadState = .loaded(modelID: id)
+    }
 
-    func prewarmModelIfNeeded(for request: GenerationRequest) async {}
+    func prewarmModelIfNeeded(for request: GenerationRequest) async {
+        guard allowsProactiveWarmOperations,
+              modelRegistry.model(id: request.modelID) != nil else { return }
+        loadedModelID = request.modelID
+        loadState = .loaded(modelID: request.modelID)
+    }
 
-    func ensureCloneReferencePrimed(modelID: String, reference: CloneReference) async throws {}
+    func prefetchInteractiveReadinessIfNeeded(
+        for request: GenerationRequest
+    ) async -> InteractivePrefetchDiagnostics? {
+        await prewarmModelIfNeeded(for: request)
+        return nil
+    }
+
+    func ensureCloneReferencePrimed(modelID: String, reference: CloneReference) async throws {
+        try ensureKnownModel(modelID)
+        guard !reference.audioPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw MLXTTSEngineError.generationFailed("Reference audio file not found.")
+        }
+
+        let key = GenerationSemantics.cloneReferenceIdentityKey(
+            modelID: modelID,
+            refAudio: reference.audioPath,
+            refText: reference.transcript
+        )
+        clonePreparationState = .preparing(key: key)
+        try await Task.sleep(nanoseconds: 220_000_000)
+        try Task.checkCancellation()
+        clonePreparationState = .primed(key: key)
+        loadedModelID = modelID
+        loadState = .loaded(modelID: modelID)
+    }
 
     func cancelClonePreparationIfNeeded() async {
         clonePreparationState = .idle
     }
 
     func generate(_ request: GenerationRequest) async throws -> GenerationResult {
-        let message = IOSSimulatorRuntimeSupport.unsupportedMessage
-        latestEvent = .failed(message)
-        visibleErrorMessage = message
-        throw MLXTTSEngineError.unsupportedRequest(message)
+        try ensureInitialized()
+        let model = try ensureKnownModel(request.modelID)
+        try validate(request)
+
+        cancelRequested = false
+        loadedModelID = request.modelID
+        visibleErrorMessage = nil
+
+        let scenario = IOSSimulatorBackendScenario.current
+        let delay = scenario.delay
+        let steps: [(Double, String)] = [
+            (0.12, "Preparing request"),
+            (0.38, "Rendering audio"),
+            (0.72, "Shaping waveform"),
+            (0.94, "Finalizing file"),
+        ]
+        let stepDelay = delay / UInt64(steps.count)
+
+        do {
+            for (fraction, message) in steps {
+                try checkCancelled()
+                loadState = .running(modelID: request.modelID, label: request.engineActivityLabel, fraction: fraction)
+                latestEvent = .progress(GenerationProgress(percent: Int(fraction * 100), message: message))
+                try await Task.sleep(nanoseconds: stepDelay)
+            }
+
+            try checkCancelled()
+
+            if scenario.kind == .fail {
+                let message = "Simulator fake backend failure for \(request.mode.displayName)."
+                visibleErrorMessage = message
+                latestEvent = .failed(message)
+                loadState = .failed(message: message)
+                throw MLXTTSEngineError.generationFailed(message)
+            }
+
+            let result = try IOSSimulatorPreviewAudioFactory.makeResult(
+                mode: request.mode,
+                text: request.text,
+                outputPath: request.outputPath
+            )
+            latestEvent = .completed(result)
+            loadState = .loaded(modelID: model.id)
+            visibleErrorMessage = nil
+            return result
+        } catch is CancellationError {
+            cancelRequested = false
+            latestEvent = nil
+            loadState = .loaded(modelID: model.id)
+            throw CancellationError()
+        }
+    }
+
+    func cancelActiveGeneration() async throws {
+        cancelRequested = true
+        latestEvent = nil
+        loadState = loadedModelID.map { .loaded(modelID: $0) } ?? .idle
     }
 
     func listPreparedVoices() async throws -> [PreparedVoice] {
-        preparedVoices.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        try ensureInitialized()
+        let fileManager = FileManager.default
+        guard let enumerator = fileManager.enumerator(
+            at: AppPaths.voicesDir,
+            includingPropertiesForKeys: nil
+        ) else {
+            return []
+        }
+
+        let files = (enumerator.allObjects as? [URL]) ?? []
+        return files.compactMap { fileURL -> PreparedVoice? in
+            guard Self.supportedSavedVoiceAudioExtensions.contains(fileURL.pathExtension.lowercased()) else {
+                return nil
+            }
+            let voiceID = fileURL.deletingPathExtension().lastPathComponent
+            let transcriptURL = fileURL.deletingPathExtension().appendingPathExtension("txt")
+            return PreparedVoice(
+                id: voiceID,
+                name: voiceID,
+                audioPath: fileURL.path,
+                hasTranscript: fileManager.fileExists(atPath: transcriptURL.path)
+            )
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     func enrollPreparedVoice(name: String, audioPath: String, transcript: String?) async throws -> PreparedVoice {
-        let voice = PreparedVoice(
-            id: UUID().uuidString,
-            name: name,
-            audioPath: audioPath,
-            hasTranscript: !(transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        try ensureInitialized()
+        let fileManager = FileManager.default
+        let sourceURL = URL(fileURLWithPath: audioPath)
+        guard fileManager.fileExists(atPath: sourceURL.path) else {
+            throw MLXTTSEngineError.generationFailed("Reference audio file not found.")
+        }
+
+        let safeName = Self.normalizedSavedVoiceName(name)
+        guard !safeName.isEmpty else {
+            throw MLXTTSEngineError.generationFailed("Invalid saved voice name.")
+        }
+
+        try fileManager.createDirectory(at: AppPaths.voicesDir, withIntermediateDirectories: true)
+        let sourceExtension = sourceURL.pathExtension.lowercased()
+        let destinationExtension = Self.supportedSavedVoiceAudioExtensions.contains(sourceExtension)
+            ? sourceExtension
+            : "wav"
+        let audioDestinationURL = AppPaths.voicesDir.appendingPathComponent("\(safeName).\(destinationExtension)")
+        let transcriptDestinationURL = AppPaths.voicesDir.appendingPathComponent("\(safeName).txt")
+
+        let nameConflictExists = Self.supportedSavedVoiceAudioExtensions.contains { ext in
+            fileManager.fileExists(atPath: AppPaths.voicesDir.appendingPathComponent("\(safeName).\(ext)").path)
+        } || fileManager.fileExists(atPath: transcriptDestinationURL.path)
+        if nameConflictExists {
+            throw MLXTTSEngineError.generationFailed(
+                "A saved voice named \"\(safeName)\" already exists. Choose a different name."
+            )
+        }
+
+        try fileManager.copyItem(at: sourceURL, to: audioDestinationURL)
+        let normalizedTranscript = transcript?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+        if let normalizedTranscript {
+            try normalizedTranscript.write(to: transcriptDestinationURL, atomically: true, encoding: .utf8)
+        }
+
+        return PreparedVoice(
+            id: safeName,
+            name: safeName,
+            audioPath: audioDestinationURL.path,
+            hasTranscript: normalizedTranscript != nil
         )
-        preparedVoices.removeAll { $0.id == voice.id }
-        preparedVoices.append(voice)
-        return voice
     }
 
     func deletePreparedVoice(id: String) async throws {
-        preparedVoices.removeAll { $0.id == id }
+        try ensureInitialized()
+        let fileManager = FileManager.default
+        let audioURLs = Self.supportedSavedVoiceAudioExtensions
+            .map { AppPaths.voicesDir.appendingPathComponent("\(id).\($0)") }
+            .filter { fileManager.fileExists(atPath: $0.path) }
+        guard !audioURLs.isEmpty else {
+            throw MLXTTSEngineError.generationFailed("Voice '\(id)' does not exist.")
+        }
+        for url in audioURLs {
+            try fileManager.removeItem(at: url)
+        }
+
+        let transcriptURL = AppPaths.voicesDir.appendingPathComponent("\(id).txt")
+        if fileManager.fileExists(atPath: transcriptURL.path) {
+            try? fileManager.removeItem(at: transcriptURL)
+        }
+        let clonePromptURL = AppPaths.voicesDir.appendingPathComponent("\(id).clone_prompt", isDirectory: true)
+        if fileManager.fileExists(atPath: clonePromptURL.path) {
+            try? fileManager.removeItem(at: clonePromptURL)
+        }
     }
 
     func importReferenceAudio(from sourceURL: URL) throws -> ImportedReferenceAudio {
@@ -139,10 +318,189 @@ final class IOSSimulatorTTSEngine: TTSEngine {
 
     func clearGenerationActivity() {
         latestEvent = nil
-        loadState = .idle
+        loadState = loadedModelID.map { .loaded(modelID: $0) } ?? .idle
     }
 
     func clearVisibleError() {
         visibleErrorMessage = nil
+        if case .failed = loadState {
+            loadState = loadedModelID.map { .loaded(modelID: $0) } ?? .idle
+        }
+    }
+
+    func setVisibleError(_ message: String?) {
+        visibleErrorMessage = message
+        if let message {
+            loadState = .failed(message: message)
+        }
+    }
+
+    func setAllowsProactiveWarmOperations(_ allow: Bool) {
+        allowsProactiveWarmOperations = allow
+    }
+
+    func trimMemory(level: NativeMemoryTrimLevel, reason: String) async {
+        switch level {
+        case .softTrim:
+            break
+        case .hardTrim, .fullUnload:
+            loadedModelID = nil
+            loadState = .idle
+        }
+    }
+
+    private func validate(_ request: GenerationRequest) throws {
+        guard !request.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw MLXTTSEngineError.generationFailed("Enter a script to generate audio.")
+        }
+        switch request.payload {
+        case .custom:
+            break
+        case .design(let voiceDescription, _):
+            guard !voiceDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw MLXTTSEngineError.generationFailed("Describe the voice before generating.")
+            }
+        case .clone(let reference):
+            guard !reference.audioPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw MLXTTSEngineError.generationFailed("Choose a reference voice before generating.")
+            }
+        }
+    }
+
+    private func checkCancelled() throws {
+        if cancelRequested || Task.isCancelled {
+            cancelRequested = false
+            latestEvent = nil
+            loadState = loadedModelID.map { .loaded(modelID: $0) } ?? .idle
+            throw CancellationError()
+        }
+    }
+
+    private func ensureInitialized() throws {
+        guard isInitialized else {
+            throw MLXTTSEngineError.notInitialized
+        }
+    }
+
+    @discardableResult
+    private func ensureKnownModel(_ id: String) throws -> ModelDescriptor {
+        guard let model = modelRegistry.model(id: id) else {
+            throw MLXTTSEngineError.unknownModel(id)
+        }
+        return model
+    }
+
+    private static func normalizedSavedVoiceName(_ rawName: String) -> String {
+        rawName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(
+                of: #"[\\/:*?"<>|\p{Cc}]"#,
+                with: "",
+                options: .regularExpression
+            )
+    }
+
+    private func seedDataIfRequested() async throws {
+        let tokens = ProcessInfo.processInfo.environment["QVOICE_SIM_SEED_DATA"]?
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() } ?? []
+        guard !tokens.isEmpty else { return }
+
+        if tokens.contains("voices") {
+            try seedSavedVoicesIfNeeded()
+        }
+        if tokens.contains("history") {
+            try await seedHistoryIfNeeded()
+        }
+    }
+
+    private func seedSavedVoicesIfNeeded() throws {
+        let seedURL = AppPaths.voicesDir.appendingPathComponent("Simulator Narrator.wav")
+        guard !FileManager.default.fileExists(atPath: seedURL.path) else { return }
+        _ = try IOSSimulatorPreviewAudioFactory.makeResult(
+            mode: .clone,
+            text: "Simulator saved voice seed",
+            outputPath: seedURL.path
+        )
+        try "A steady simulator reference voice for clone UI review.".write(
+            to: AppPaths.voicesDir.appendingPathComponent("Simulator Narrator.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    private func seedHistoryIfNeeded() async throws {
+        let outputURL = AppPaths.outputsDir
+            .appendingPathComponent("simulator_seed", isDirectory: true)
+            .appendingPathComponent("Simulator History.wav")
+        let result = try IOSSimulatorPreviewAudioFactory.makeResult(
+            mode: .custom,
+            text: "Simulator history seed",
+            outputPath: outputURL.path
+        )
+        let existing = (try? DatabaseService.shared.fetchAllGenerations()) ?? []
+        guard !existing.contains(where: { $0.audioPath == result.audioPath }) else { return }
+        let generation = Generation(
+            text: "This simulator history item lets the player sheet and row menus be tested without running MLX.",
+            mode: GenerationMode.custom.rawValue,
+            modelTier: "Simulator",
+            voice: "Simulator Narrator",
+            emotion: nil,
+            speed: nil,
+            audioPath: result.audioPath,
+            duration: result.durationSeconds,
+            createdAt: Date()
+        )
+        _ = try await DatabaseService.shared.saveGenerationAsync(generation)
+    }
+}
+
+private struct IOSSimulatorBackendScenario {
+    enum Kind {
+        case success
+        case slow
+        case fail
+    }
+
+    let kind: Kind
+    let delay: UInt64
+
+    static var current: IOSSimulatorBackendScenario {
+        let environment = ProcessInfo.processInfo.environment
+        let kind: Kind
+        switch environment["QVOICE_SIM_BACKEND_SCENARIO"]?.lowercased() {
+        case "slow":
+            kind = .slow
+        case "fail", "failure", "error":
+            kind = .fail
+        default:
+            kind = .success
+        }
+
+        let defaultMilliseconds: Int
+        switch kind {
+        case .success:
+            defaultMilliseconds = 900
+        case .slow:
+            defaultMilliseconds = 6_000
+        case .fail:
+            defaultMilliseconds = 900
+        }
+
+        let requestedMilliseconds = environment["QVOICE_SIM_BACKEND_DELAY_MS"]
+            .flatMap(Int.init)
+            .map { min(max($0, 0), 30_000) }
+            ?? defaultMilliseconds
+
+        return IOSSimulatorBackendScenario(
+            kind: kind,
+            delay: UInt64(requestedMilliseconds) * 1_000_000
+        )
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

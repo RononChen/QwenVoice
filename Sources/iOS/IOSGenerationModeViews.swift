@@ -7,14 +7,13 @@ struct IOSCustomVoiceView: View {
     @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
     @EnvironmentObject private var modelManager: ModelManagerViewModel
     @Environment(AppModel.self) private var appModel
+    @Environment(\.presentIOSPlayerSheet) private var presentPlayerSheet
 
     let isActive: Bool
     @Binding var selectedTab: IOSAppTab
     @Binding var draft: CustomVoiceDraft
     @Binding var primaryAction: IOSGeneratePrimaryActionDescriptor
     @State private var isScriptFocused = false
-    @State private var isVoicePickerPresented: Bool = false
-    @State private var isDeliveryPickerPresented: Bool = false
 
     // Generation lifecycle state lives on AppModel.customCoordinator
     // (Phase 3b extraction). Keep these computed-property aliases so the
@@ -34,6 +33,11 @@ struct IOSCustomVoiceView: View {
         if coordinator.isGenerating { return .generating }
         if let output = coordinator.lastCompletedOutput { return .complete(output) }
         return .idle
+    }
+
+    private func expandInlinePlayer() {
+        guard let output = coordinator.lastCompletedOutput else { return }
+        presentPlayerSheet(output.playerSheetItem)
     }
 
     private var speakerDisplay: SpeakerDescriptor? {
@@ -60,12 +64,8 @@ struct IOSCustomVoiceView: View {
         TTSModel.model(for: .custom)
     }
 
-    private var isSimulatorPreview: Bool {
-        IOSSimulatorPreviewPolicy.isSimulatorPreview
-    }
-
     private var allowsExecution: Bool {
-        IOSSimulatorPreviewPolicy.allowsExecution(for: .custom, declaredModes: ttsEngine.supportedModes)
+        ttsEngine.supportsMode(.custom)
     }
 
     private var isModelAvailable: Bool {
@@ -97,12 +97,16 @@ struct IOSCustomVoiceView: View {
             && !ttsEngine.hasActiveGeneration
     }
 
+    private var canGenerateInCurrentRuntime: Bool {
+        canGenerate
+    }
+
     private var chromeOpacity: Double {
         isGenerationActive ? 0.76 : 1
     }
 
     private var setupMessage: String? {
-        if !isModelAvailable, !isSimulatorPreview, let activeModel {
+        if !isModelAvailable, let activeModel {
             return "Install \(activeModel.name) in Settings."
         }
         return nil
@@ -116,7 +120,7 @@ struct IOSCustomVoiceView: View {
     }
 
     private var primaryActionToken: String {
-        "\(isGenerationActive)-\(isSimulatorPreview || canGenerate)"
+        "\(isGenerationActive)-\(canGenerateInCurrentRuntime)"
     }
 
     private var isGenerationActive: Bool {
@@ -146,62 +150,19 @@ struct IOSCustomVoiceView: View {
             charLimit: scriptLimitState.limit,
             tint: IOSBrandTheme.custom,
             genState: studioGenState,
-            canGenerate: isSimulatorPreview || canGenerate,
-            modelInstalled: isModelAvailable || isSimulatorPreview,
+            errorMessage: coordinator.errorMessage,
+            canGenerate: canGenerateInCurrentRuntime,
+            modelInstalled: isModelAvailable,
             modelDisplayName: activeModel?.name ?? "Voice model",
             setupChips: { customModeChips },
             onGenerate: generate,
             onCancel: cancelGeneration,
             onInstallModel: { selectedTab = .settings },
             onPlayerDismiss: { coordinator.dismissInlinePlayer() },
-            onPlayerExpand: nil
+            onPlayerExpand: expandInlinePlayer
         )
         .opacity(chromeOpacity)
         .iosAppAnimation(IOSSelectionMotion.modeCrossfade, value: isGenerationActive)
-        .sheet(isPresented: $isVoicePickerPresented) {
-            IOSVoicePickerSheet(
-                speakers: TTSContract.allSpeakerDescriptors.map { spec in
-                    IOSVoicePickerOption(
-                        id: spec.id,
-                        name: spec.displayName,
-                        subtitle: spec.shortDescription ?? spec.nativeLanguage,
-                        languageTag: IOSVoicePickerLanguage.tag(for: spec.nativeLanguage)
-                    )
-                },
-                recents: TTSContract.allSpeakerDescriptors.prefix(3).map { spec in
-                    IOSVoicePickerOption(
-                        id: spec.id,
-                        name: spec.displayName,
-                        subtitle: spec.shortDescription ?? spec.nativeLanguage,
-                        languageTag: IOSVoicePickerLanguage.tag(for: spec.nativeLanguage)
-                    )
-                },
-                selectedID: $draft.selectedSpeaker,
-                tint: IOSBrandTheme.custom
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.hidden)
-            .presentationCornerRadius(IOSBottomSheetChrome.cornerRadius)
-            .presentationBackground(IOSBottomSheetChrome.background)
-        }
-        .sheet(isPresented: $isDeliveryPickerPresented) {
-            IOSDeliveryPickerSheet(
-                selectedPresetID: Binding(
-                    get: { draft.delivery.selectedPresetID },
-                    set: { newID in
-                        draft.delivery.mode = .preset
-                        draft.delivery.selectedPresetID = newID
-                    }
-                ),
-                intensity: $draft.delivery.selectedIntensity,
-                tint: IOSBrandTheme.custom,
-                onUseCustomTone: { draft.delivery.mode = .custom }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.hidden)
-            .presentationCornerRadius(IOSBottomSheetChrome.cornerRadius)
-            .presentationBackground(IOSBottomSheetChrome.background)
-        }
     }
 
     @ViewBuilder
@@ -213,15 +174,68 @@ struct IOSCustomVoiceView: View {
                 IOSVoiceAvatar(seed: draft.selectedSpeaker, initials: speakerDisplayName, diameter: 32)
             ),
             tint: IOSBrandTheme.custom,
-            action: { isVoicePickerPresented = true }
+            action: presentVoicePicker
         )
         IOSStudioSetupChip(
             eyebrow: "Delivery",
             value: deliveryChipLabel,
             leadingSymbol: "waveform",
             tint: IOSEmotionPresetPalette.dotColor(forID: draft.delivery.selectedPresetID),
-            action: { isDeliveryPickerPresented = true }
+            action: presentDeliveryPicker
         )
+    }
+
+    private func presentVoicePicker() {
+        appModel.presentBottomPanel { bottomSafeAreaInset, dismiss in
+            AnyView(
+                IOSVoicePickerSheet(
+                    speakers: voicePickerOptions,
+                    recents: Array(voicePickerOptions.prefix(3)),
+                    selectedID: $draft.selectedSpeaker,
+                    tint: IOSBrandTheme.custom,
+                    onDismiss: dismiss,
+                    presentation: .edgeToEdge(
+                        bottomSafeAreaInset: bottomSafeAreaInset,
+                        height: IOSBottomSheetChrome.voicePickerHeight
+                    )
+                )
+            )
+        }
+    }
+
+    private func presentDeliveryPicker() {
+        appModel.presentBottomPanel { bottomSafeAreaInset, dismiss in
+            AnyView(
+                IOSDeliveryPickerSheet(
+                    selectedPresetID: Binding(
+                        get: { draft.delivery.selectedPresetID },
+                        set: { newID in
+                            draft.delivery.mode = .preset
+                            draft.delivery.selectedPresetID = newID
+                        }
+                    ),
+                    intensity: $draft.delivery.selectedIntensity,
+                    tint: IOSBrandTheme.custom,
+                    onUseCustomTone: { draft.delivery.mode = .custom },
+                    onDismiss: dismiss,
+                    presentation: .edgeToEdge(
+                        bottomSafeAreaInset: bottomSafeAreaInset,
+                        height: IOSBottomSheetChrome.deliveryPickerHeight
+                    )
+                )
+            )
+        }
+    }
+
+    private var voicePickerOptions: [IOSVoicePickerOption] {
+        TTSContract.allSpeakerDescriptors.map { spec in
+            IOSVoicePickerOption(
+                id: spec.id,
+                name: spec.displayName,
+                subtitle: spec.shortDescription ?? spec.nativeLanguage,
+                languageTag: IOSVoicePickerLanguage.tag(for: spec.nativeLanguage)
+            )
+        }
     }
 
     private func publishPrimaryAction() {
@@ -242,17 +256,13 @@ struct IOSCustomVoiceView: View {
             systemImage: IOSGenerationSection.custom.primaryActionSystemImage,
             tint: IOSGenerationSection.custom.primaryActionTint,
             isRunning: isGenerationActive,
-            isEnabled: isSimulatorPreview || canGenerate,
+            isEnabled: canGenerateInCurrentRuntime,
             accessibilityIdentifier: "textInput_generateButton",
             action: generate
         )
     }
 
     private func generate() {
-        if isSimulatorPreview {
-            coordinator.errorMessage = nil
-            return
-        }
         guard !scriptLimitState.trimmedIsEmpty, ttsEngine.isReady, !ttsEngine.hasActiveGeneration else { return }
         guard !scriptLimitState.isOverLimit else {
             coordinator.fail(scriptLimitState.warningMessage)
@@ -282,7 +292,7 @@ struct IOSCustomVoiceView: View {
                         modelID: model.id,
                         text: promptText,
                         outputPath: outputPath,
-                        shouldStream: true,
+                        shouldStream: false,
                         streamingInterval: GenerationSemantics.appStreamingInterval,
                         payload: .custom(
                             speakerID: draft.selectedSpeaker,
@@ -301,11 +311,8 @@ struct IOSCustomVoiceView: View {
                     duration: result.durationSeconds,
                     createdAt: Date()
                 )
-                GenerationPersistence.persistAndAutoplay(
+                GenerationPersistence.persist(
                     generation,
-                    result: result,
-                    text: promptText,
-                    audioPlayer: audioPlayer,
                     caller: "IOSCustomVoiceView"
                 )
                 await MainActor.run {
@@ -316,7 +323,8 @@ struct IOSCustomVoiceView: View {
                             modeLabel: "Custom",
                             mode: .custom,
                             transcript: promptText,
-                            waveformSeed: IOSStableVisualHash.int(result.audioPath)
+                            waveformSeed: IOSStableVisualHash.int(result.audioPath),
+                            autoplay: AudioService.shouldAutoPlay
                         )
                     )
                 }
@@ -350,6 +358,7 @@ struct IOSVoiceDesignView: View {
     @EnvironmentObject private var modelManager: ModelManagerViewModel
     @EnvironmentObject private var savedVoicesViewModel: SavedVoicesViewModel
     @Environment(AppModel.self) private var appModel
+    @Environment(\.presentIOSPlayerSheet) private var presentPlayerSheet
 
     let isActive: Bool
     @Binding var selectedTab: IOSAppTab
@@ -365,8 +374,6 @@ struct IOSVoiceDesignView: View {
     /// being asked whether to keep or discard. Mirrors the macOS
     /// SavedVoiceSheet flow.
     @State private var pendingVoiceForReview: PreparedVoice?
-    @State private var isDeliveryPickerPresented: Bool = false
-    @State private var isBriefEditorPresented: Bool = false
 
     // Generation lifecycle moved to AppModel.designCoordinator (Phase 3b).
     private var coordinator: StudioGenerationCoordinator { appModel.designCoordinator }
@@ -378,6 +385,11 @@ struct IOSVoiceDesignView: View {
         if coordinator.isGenerating { return .generating }
         if let output = coordinator.lastCompletedOutput { return .complete(output) }
         return .idle
+    }
+
+    private func expandInlinePlayer() {
+        guard let output = coordinator.lastCompletedOutput else { return }
+        presentPlayerSheet(output.playerSheetItem)
     }
 
     private var deliveryChipLabel: String {
@@ -401,12 +413,8 @@ struct IOSVoiceDesignView: View {
         TTSModel.model(for: .design)
     }
 
-    private var isSimulatorPreview: Bool {
-        IOSSimulatorPreviewPolicy.isSimulatorPreview
-    }
-
     private var allowsExecution: Bool {
-        IOSSimulatorPreviewPolicy.allowsExecution(for: .design, declaredModes: ttsEngine.supportedModes)
+        ttsEngine.supportsMode(.design)
     }
 
     private var isModelAvailable: Bool {
@@ -439,12 +447,16 @@ struct IOSVoiceDesignView: View {
             && !ttsEngine.hasActiveGeneration
     }
 
+    private var canGenerateInCurrentRuntime: Bool {
+        canGenerate
+    }
+
     private var chromeOpacity: Double {
         isGenerationActive ? 0.76 : 1
     }
 
     private var setupMessage: String? {
-        if !isModelAvailable, !isSimulatorPreview, let activeModel {
+        if !isModelAvailable, let activeModel {
             return "Install \(activeModel.name) in Settings."
         }
         return nil
@@ -462,7 +474,7 @@ struct IOSVoiceDesignView: View {
     }
 
     private var primaryActionToken: String {
-        "\(isGenerationActive)-\(isSimulatorPreview || canGenerate)"
+        "\(isGenerationActive)-\(canGenerateInCurrentRuntime)"
     }
 
     private var isGenerationActive: Bool {
@@ -587,46 +599,19 @@ struct IOSVoiceDesignView: View {
             charLimit: scriptLimitState.limit,
             tint: IOSBrandTheme.design,
             genState: studioGenState,
-            canGenerate: isSimulatorPreview || canGenerate,
-            modelInstalled: isModelAvailable || isSimulatorPreview,
+            errorMessage: coordinator.errorMessage,
+            canGenerate: canGenerateInCurrentRuntime,
+            modelInstalled: isModelAvailable,
             modelDisplayName: activeModel?.name ?? "Voice Design model",
             setupChips: { designModeChips },
             onGenerate: generate,
             onCancel: cancelGeneration,
             onInstallModel: { selectedTab = .settings },
             onPlayerDismiss: { coordinator.dismissInlinePlayer() },
-            onPlayerExpand: nil
+            onPlayerExpand: expandInlinePlayer
         )
         .opacity(chromeOpacity)
         .iosAppAnimation(IOSSelectionMotion.modeCrossfade, value: isGenerationActive)
-        .sheet(isPresented: $isBriefEditorPresented) {
-            IOSVoiceDesignBriefSheet(
-                voiceDescription: $draft.voiceDescription,
-                tint: IOSBrandTheme.design
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.hidden)
-            .presentationCornerRadius(IOSBottomSheetChrome.cornerRadius)
-            .presentationBackground(IOSBottomSheetChrome.background)
-        }
-        .sheet(isPresented: $isDeliveryPickerPresented) {
-            IOSDeliveryPickerSheet(
-                selectedPresetID: Binding(
-                    get: { draft.delivery.selectedPresetID },
-                    set: { newID in
-                        draft.delivery.mode = .preset
-                        draft.delivery.selectedPresetID = newID
-                    }
-                ),
-                intensity: $draft.delivery.selectedIntensity,
-                tint: IOSBrandTheme.design,
-                onUseCustomTone: { draft.delivery.mode = .custom }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.hidden)
-            .presentationCornerRadius(IOSBottomSheetChrome.cornerRadius)
-            .presentationBackground(IOSBottomSheetChrome.background)
-        }
     }
 
     @ViewBuilder
@@ -637,15 +622,55 @@ struct IOSVoiceDesignView: View {
             leadingSymbol: "wand.and.stars",
             tint: IOSBrandTheme.design,
             isPlaceholder: draft.voiceDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            action: { isBriefEditorPresented = true }
+            action: presentBriefEditor
         )
         IOSStudioSetupChip(
             eyebrow: "Delivery",
             value: deliveryChipLabel,
             leadingSymbol: "waveform",
             tint: IOSEmotionPresetPalette.dotColor(forID: draft.delivery.selectedPresetID),
-            action: { isDeliveryPickerPresented = true }
+            action: presentDesignDeliveryPicker
         )
+    }
+
+    private func presentBriefEditor() {
+        appModel.presentBottomPanel { bottomSafeAreaInset, dismiss in
+            AnyView(
+                IOSVoiceDesignBriefSheet(
+                    voiceDescription: $draft.voiceDescription,
+                    tint: IOSBrandTheme.design,
+                    presentation: .edgeToEdge(
+                        bottomSafeAreaInset: bottomSafeAreaInset,
+                        height: IOSBottomSheetChrome.voiceBriefHeight
+                    ),
+                    onDismiss: dismiss
+                )
+            )
+        }
+    }
+
+    private func presentDesignDeliveryPicker() {
+        appModel.presentBottomPanel { bottomSafeAreaInset, dismiss in
+            AnyView(
+                IOSDeliveryPickerSheet(
+                    selectedPresetID: Binding(
+                        get: { draft.delivery.selectedPresetID },
+                        set: { newID in
+                            draft.delivery.mode = .preset
+                            draft.delivery.selectedPresetID = newID
+                        }
+                    ),
+                    intensity: $draft.delivery.selectedIntensity,
+                    tint: IOSBrandTheme.design,
+                    onUseCustomTone: { draft.delivery.mode = .custom },
+                    onDismiss: dismiss,
+                    presentation: .edgeToEdge(
+                        bottomSafeAreaInset: bottomSafeAreaInset,
+                        height: IOSBottomSheetChrome.deliveryPickerHeight
+                    )
+                )
+            )
+        }
     }
 
     private func publishPrimaryAction() {
@@ -666,7 +691,7 @@ struct IOSVoiceDesignView: View {
             systemImage: IOSGenerationSection.design.primaryActionSystemImage,
             tint: IOSGenerationSection.design.primaryActionTint,
             isRunning: isGenerationActive,
-            isEnabled: isSimulatorPreview || canGenerate,
+            isEnabled: canGenerateInCurrentRuntime,
             accessibilityIdentifier: "textInput_generateButton",
             action: generate
         )
@@ -681,10 +706,6 @@ struct IOSVoiceDesignView: View {
     }
 
     private func generate() {
-        if isSimulatorPreview {
-            coordinator.errorMessage = nil
-            return
-        }
         guard let model = activeModel else { return }
         guard canGenerate else {
             if !isModelAvailable {
@@ -713,7 +734,7 @@ struct IOSVoiceDesignView: View {
                         modelID: model.id,
                         text: promptText,
                         outputPath: outputPath,
-                        shouldStream: true,
+                        shouldStream: false,
                         streamingInterval: GenerationSemantics.appStreamingInterval,
                         payload: .design(
                             voiceDescription: draft.voiceDescription,
@@ -732,11 +753,8 @@ struct IOSVoiceDesignView: View {
                     duration: result.durationSeconds,
                     createdAt: Date()
                 )
-                GenerationPersistence.persistAndAutoplay(
+                GenerationPersistence.persist(
                     generation,
-                    result: result,
-                    text: promptText,
-                    audioPlayer: audioPlayer,
                     caller: "IOSVoiceDesignView"
                 )
                 saveSheetAudioPath = result.audioPath
@@ -748,7 +766,8 @@ struct IOSVoiceDesignView: View {
                             modeLabel: "Design",
                             mode: .design,
                             transcript: promptText,
-                            waveformSeed: IOSStableVisualHash.int(result.audioPath)
+                            waveformSeed: IOSStableVisualHash.int(result.audioPath),
+                            autoplay: AudioService.shouldAutoPlay
                         )
                     )
                 }
@@ -782,6 +801,7 @@ struct IOSVoiceCloningView: View {
     @EnvironmentObject private var modelManager: ModelManagerViewModel
     @EnvironmentObject private var savedVoicesViewModel: SavedVoicesViewModel
     @Environment(AppModel.self) private var appModel
+    @Environment(\.presentIOSPlayerSheet) private var presentPlayerSheet
 
     let isActive: Bool
     @Binding var selectedTab: IOSAppTab
@@ -796,7 +816,6 @@ struct IOSVoiceCloningView: View {
     @State private var isScriptFocused = false
     @State private var isBatchSheetPresented = false
     @State private var isRecorderPresented = false
-    @State private var isReferencePickerPresented: Bool = false
 
     // Generation lifecycle moved to AppModel.cloneCoordinator (Phase 3b).
     private var coordinator: StudioGenerationCoordinator { appModel.cloneCoordinator }
@@ -808,6 +827,11 @@ struct IOSVoiceCloningView: View {
         if coordinator.isGenerating { return .generating }
         if let output = coordinator.lastCompletedOutput { return .complete(output) }
         return .idle
+    }
+
+    private func expandInlinePlayer() {
+        guard let output = coordinator.lastCompletedOutput else { return }
+        presentPlayerSheet(output.playerSheetItem)
     }
 
     private var referenceChipLabel: String {
@@ -872,12 +896,8 @@ struct IOSVoiceCloningView: View {
         IOSGenerationTextLimitPolicy.state(for: promptText, mode: .clone)
     }
 
-    private var isSimulatorPreview: Bool {
-        IOSSimulatorPreviewPolicy.isSimulatorPreview
-    }
-
     private var allowsExecution: Bool {
-        IOSSimulatorPreviewPolicy.allowsExecution(for: .clone, declaredModes: ttsEngine.supportedModes)
+        ttsEngine.supportsMode(.clone)
     }
 
     private var cloneContextStatus: VoiceCloningContextStatus? {
@@ -904,7 +924,7 @@ struct IOSVoiceCloningView: View {
     }
 
     private var setupMessage: String? {
-        if !isModelAvailable, !isSimulatorPreview, let cloneModel {
+        if !isModelAvailable, let cloneModel {
             return "Install \(cloneModel.name) in Settings."
         }
         if draft.referenceAudioPath == nil {
@@ -932,8 +952,12 @@ struct IOSVoiceCloningView: View {
         return scriptLimitState.helperMessage
     }
 
+    private var canGenerateInCurrentRuntime: Bool {
+        canGenerate
+    }
+
     private var primaryActionToken: String {
-        "\(isGenerationActive)-\(isSimulatorPreview || canGenerate)"
+        "\(isGenerationActive)-\(canGenerateInCurrentRuntime)"
     }
 
     private var isGenerationActive: Bool {
@@ -1052,15 +1076,16 @@ struct IOSVoiceCloningView: View {
                 charLimit: scriptLimitState.limit,
                 tint: IOSBrandTheme.clone,
                 genState: studioGenState,
-                canGenerate: isSimulatorPreview || canGenerate,
-                modelInstalled: isModelAvailable || isSimulatorPreview,
+                errorMessage: coordinator.errorMessage,
+                canGenerate: canGenerateInCurrentRuntime,
+                modelInstalled: isModelAvailable,
                 modelDisplayName: cloneModel?.name ?? "Voice Cloning model",
                 setupChips: { cloneModeChips },
                 onGenerate: generate,
                 onCancel: cancelGeneration,
                 onInstallModel: { selectedTab = .settings },
                 onPlayerDismiss: { coordinator.dismissInlinePlayer() },
-                onPlayerExpand: nil
+                onPlayerExpand: expandInlinePlayer
             )
 
             if isBatchTriggerEnabled {
@@ -1080,39 +1105,6 @@ struct IOSVoiceCloningView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .sheet(isPresented: $isReferencePickerPresented) {
-            IOSReferenceClipSheet(
-                savedVoices: savedVoices.map { voice in
-                    IOSVoicePickerOption(
-                        id: voice.id,
-                        name: voice.name,
-                        subtitle: "Cloned reference"
-                    )
-                },
-                selectedSavedVoiceID: Binding(
-                    get: { draft.selectedSavedVoiceID },
-                    set: { newValue in
-                        guard let id = newValue,
-                              let voice = savedVoices.first(where: { $0.id == id })
-                        else { return }
-                        applySavedVoice(voice)
-                        isReferencePickerPresented = false
-                    }
-                ),
-                onImportFromFiles: {
-                    isReferencePickerPresented = false
-                    isImporterPresented = true
-                },
-                onRecorded: { url in
-                    isReferencePickerPresented = false
-                    applyRecordedReferenceAudio(at: url)
-                }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.hidden)
-            .presentationCornerRadius(IOSBottomSheetChrome.cornerRadius)
-            .presentationBackground(IOSBottomSheetChrome.background)
-        }
     }
 
     @ViewBuilder
@@ -1123,8 +1115,51 @@ struct IOSVoiceCloningView: View {
             leadingSymbol: draft.referenceAudioPath == nil ? "mic.fill" : "person.wave.2.fill",
             tint: IOSBrandTheme.clone,
             isPlaceholder: draft.referenceAudioPath == nil,
-            action: { isReferencePickerPresented = true }
+            action: presentReferencePicker
         )
+    }
+
+    private func presentReferencePicker() {
+        appModel.presentBottomPanel { bottomSafeAreaInset, dismiss in
+            AnyView(
+                IOSReferenceClipSheet(
+                    savedVoices: savedVoiceOptions,
+                    selectedSavedVoiceID: Binding(
+                        get: { draft.selectedSavedVoiceID },
+                        set: { newValue in
+                            guard let id = newValue,
+                                  let voice = savedVoices.first(where: { $0.id == id })
+                            else { return }
+                            applySavedVoice(voice)
+                            dismiss()
+                        }
+                    ),
+                    onImportFromFiles: {
+                        dismiss()
+                        isImporterPresented = true
+                    },
+                    onRecorded: { url in
+                        applyRecordedReferenceAudio(at: url)
+                        dismiss()
+                    },
+                    onDismiss: dismiss,
+                    presentation: .edgeToEdge(
+                        bottomSafeAreaInset: bottomSafeAreaInset,
+                        height: IOSBottomSheetChrome.referenceClipHeight
+                    )
+                )
+            )
+        }
+    }
+
+    private var savedVoiceOptions: [IOSVoicePickerOption] {
+        savedVoices.map { voice in
+            IOSVoicePickerOption(
+                id: voice.id,
+                name: voice.name,
+                subtitle: "Cloned reference"
+            )
+        }
     }
 
     private var isBatchTriggerEnabled: Bool {
@@ -1152,7 +1187,7 @@ struct IOSVoiceCloningView: View {
             systemImage: IOSGenerationSection.clone.primaryActionSystemImage,
             tint: IOSGenerationSection.clone.primaryActionTint,
             isRunning: isGenerationActive,
-            isEnabled: isSimulatorPreview || canGenerate,
+            isEnabled: canGenerateInCurrentRuntime,
             accessibilityIdentifier: "textInput_generateButton",
             action: generate
         )
@@ -1171,10 +1206,6 @@ struct IOSVoiceCloningView: View {
     }
 
     private func generate() {
-        if isSimulatorPreview {
-            coordinator.errorMessage = nil
-            return
-        }
         guard !scriptLimitState.trimmedIsEmpty, ttsEngine.isReady, !ttsEngine.hasActiveGeneration else { return }
         guard !scriptLimitState.isOverLimit else {
             coordinator.fail(scriptLimitState.warningMessage)
@@ -1223,7 +1254,7 @@ struct IOSVoiceCloningView: View {
                         modelID: model.id,
                         text: promptText,
                         outputPath: outputPath,
-                        shouldStream: true,
+                        shouldStream: false,
                         streamingInterval: GenerationSemantics.appStreamingInterval,
                         payload: .clone(
                             reference: CloneReference(
@@ -1246,11 +1277,8 @@ struct IOSVoiceCloningView: View {
                     duration: result.durationSeconds,
                     createdAt: Date()
                 )
-                GenerationPersistence.persistAndAutoplay(
+                GenerationPersistence.persist(
                     generation,
-                    result: result,
-                    text: promptText,
-                    audioPlayer: audioPlayer,
                     caller: "IOSVoiceCloningView"
                 )
                 await MainActor.run {
@@ -1261,7 +1289,8 @@ struct IOSVoiceCloningView: View {
                             modeLabel: "Clone",
                             mode: .clone,
                             transcript: promptText,
-                            waveformSeed: IOSStableVisualHash.int(result.audioPath)
+                            waveformSeed: IOSStableVisualHash.int(result.audioPath),
+                            autoplay: AudioService.shouldAutoPlay
                         )
                     )
                 }

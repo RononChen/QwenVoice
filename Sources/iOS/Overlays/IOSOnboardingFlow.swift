@@ -12,7 +12,7 @@ struct IOSOnboardingFlow: View {
     @Binding var isPresented: Bool
 
     @State private var page: Int = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.iosReduceMotionEnabled) private var reduceMotion
 
     private let totalPages = 3
 

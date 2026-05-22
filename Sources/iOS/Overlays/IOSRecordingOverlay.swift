@@ -16,7 +16,7 @@ struct IOSRecordingOverlay: View {
 
     @StateObject private var recorder = IOSReferenceClipRecorder()
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.iosReduceMotionEnabled) private var reduceMotion
 
     var body: some View {
         ZStack {

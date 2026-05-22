@@ -37,11 +37,11 @@ struct IOSSettingsContainerView: View {
 private struct IOSSettingsView: View {
     @EnvironmentObject private var modelManager: ModelManagerViewModel
     @EnvironmentObject private var modelInstaller: IOSModelInstallerViewModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     @Binding var selectedTab: IOSAppTab
     @AppStorage("autoPlay") private var autoPlay = true
+    @AppStorage(IOSAppDefaults.reduceMotionEnabledKey) private var reduceMotionEnabled = false
+    @AppStorage(IOSAppDefaults.reduceTransparencyEnabledKey) private var reduceTransparencyEnabled = false
 
     private var previewSettingsState: IOSPreviewSettingsState? {
         IOSPreviewRuntime.current?.definition.settingsState
@@ -115,18 +115,20 @@ private struct IOSSettingsView: View {
 
                         IOSSettingsReferenceDivider()
 
-                        IOSSettingsReferenceStaticToggleRow(
+                        IOSSettingsReferenceToggleRow(
                             symbol: "sparkles",
                             title: "Reduce Motion",
-                            isOn: reduceMotion
+                            isOn: $reduceMotionEnabled,
+                            tint: IOSBrandTheme.accent
                         )
 
                         IOSSettingsReferenceDivider()
 
-                        IOSSettingsReferenceStaticToggleRow(
+                        IOSSettingsReferenceToggleRow(
                             symbol: "lock.fill",
                             title: "Reduce Transparency",
-                            isOn: reduceTransparency
+                            isOn: $reduceTransparencyEnabled,
+                            tint: IOSBrandTheme.accent
                         )
                     }
 
@@ -151,11 +153,7 @@ private struct IOSSettingsView: View {
             return previewState
         }
 
-        return IOSSimulatorPreviewPolicy.previewOperationState(
-            for: model,
-            status: effectiveStatus(for: model),
-            operationState: modelInstaller.state(for: model)
-        )
+        return modelInstaller.state(for: model)
     }
 
     private func effectiveStatus(for model: TTSModel) -> ModelManagerViewModel.ModelStatus {
@@ -165,32 +163,14 @@ private struct IOSSettingsView: View {
     }
 
     private func install(_ model: TTSModel) {
-        if IOSSimulatorRuntimeSupport.isSimulator {
-            // UI-test only: run a fake download/install state-machine so
-            // testers can exercise the install flow + every downstream
-            // installed-model UI state without real model bytes.
-            modelInstaller.simulatorFakeInstall(model)
-            return
-        }
-        guard IOSSimulatorPreviewPolicy.allowsModelMutations else { return }
         modelInstaller.install(model)
     }
 
     private func cancel(_ model: TTSModel) {
-        if IOSSimulatorRuntimeSupport.isSimulator {
-            modelInstaller.simulatorFakeCancel(model)
-            return
-        }
-        guard IOSSimulatorPreviewPolicy.allowsModelMutations else { return }
         modelInstaller.cancel(model)
     }
 
     private func delete(_ model: TTSModel) {
-        if IOSSimulatorRuntimeSupport.isSimulator {
-            modelInstaller.simulatorFakeDelete(model)
-            return
-        }
-        guard IOSSimulatorPreviewPolicy.allowsModelMutations else { return }
         modelInstaller.delete(model)
     }
 }
@@ -316,54 +296,28 @@ private struct IOSSettingsReferenceToggleRow: View {
     let tint: Color
 
     var body: some View {
-        HStack(spacing: 12) {
-            IOSSettingsUtilityIcon(symbol: symbol)
+        Button {
+            isOn.toggle()
+            IOSHaptics.selection()
+        } label: {
+            HStack(spacing: 12) {
+                IOSSettingsUtilityIcon(symbol: symbol)
 
-            Text(title)
-                .font(.system(size: 16))
-                .foregroundStyle(IOSAppTheme.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(title)
+                    .font(.system(size: 16))
+                    .foregroundStyle(IOSAppTheme.textPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button {
-                isOn.toggle()
-                IOSHaptics.selection()
-            } label: {
                 IOSSettingsReferenceSwitch(isOn: isOn, tint: tint)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(title)
-            .accessibilityValue(isOn ? "On" : "Off")
         }
+        .buttonStyle(.plain)
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct IOSSettingsReferenceStaticToggleRow: View {
-    let symbol: String
-    let title: String
-    let isOn: Bool
-
-    var body: some View {
-        HStack(spacing: 12) {
-            IOSSettingsUtilityIcon(symbol: symbol)
-
-            Text(title)
-                .font(.system(size: 16))
-                .foregroundStyle(IOSAppTheme.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            IOSSettingsReferenceSwitch(
-                isOn: isOn,
-                tint: IOSBrandTheme.accent
-            )
-            .accessibilityLabel(title)
-            .accessibilityValue(isOn ? "On" : "Off")
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .accessibilityLabel(title)
+        .accessibilityValue(isOn ? "On" : "Off")
     }
 }
 
@@ -425,166 +379,6 @@ private struct IOSSettingsBrandFooter: View {
         .opacity(0.78)
     }
 }
-
-#if DEBUG
-/// Simulator-only debug affordance for seeding a fixture `Generation` row.
-///
-/// The iOS Simulator stubs out the TTS engine (`IOSSimulatorTTSEngine`),
-/// so a real generation never produces a History entry. That makes the
-/// full-screen `IOSPlayerSheet` impossible to verify without a real
-/// device. This row writes a 5-second silence WAV into `AppPaths.
-/// outputsDir`, inserts a `Generation` pointing at it, and posts
-/// `.generationSaved` so `IOSHistoryLibrarySection` reloads. The new
-/// row appears in History; tapping it presents the Player sheet at
-/// the design's centered-header / 42-bar-waveform / real-scrubber /
-/// centered-transcript layout.
-///
-/// Three seed presets cycle the three modes — Custom (gold), Design
-/// (lavender), Clone (terracotta) — so the Player sheet's mode tint
-/// surface can be verified end-to-end.
-private struct IOSSettingsSeedHistoryRow: View {
-    @State private var status: String = ""
-    @State private var seedIndex: Int = 0
-
-    private struct Seed {
-        let mode: String
-        let voice: String
-        let text: String
-        let durationSeconds: Double
-    }
-
-    private var seeds: [Seed] {
-        [
-            Seed(
-                mode: "design",
-                voice: "British narrator",
-                text: "Welcome back to the workshop. Today we are building a small wooden box, end to end. The first thing we need to do is measure twice, and cut once.",
-                durationSeconds: 8.5
-            ),
-            Seed(
-                mode: "custom",
-                voice: "Aiden",
-                text: "Hello, this is a sample preview of my voice, generated entirely on this iPhone.",
-                durationSeconds: 6.0
-            ),
-            Seed(
-                mode: "clone",
-                voice: "UITestRef",
-                text: "I cloned this voice from a short reference clip, and now it can speak any text I write.",
-                durationSeconds: 7.0
-            ),
-        ]
-    }
-
-    var body: some View {
-        Button {
-            seedNext()
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Seed sample history")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(IOSAppTheme.textPrimary)
-                    Text(status.isEmpty
-                         ? "Adds a fixture take to History so the Player sheet is reachable in Simulator."
-                         : status)
-                        .font(.footnote)
-                        .foregroundStyle(IOSAppTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 10)
-                Image(systemName: "plus.circle.fill")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(IOSBrandTheme.settings)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("iosSettingsSeedHistory")
-    }
-
-    private func seedNext() {
-        let seed = seeds[seedIndex % seeds.count]
-        seedIndex += 1
-        Task {
-            do {
-                let url = try writeSilenceWAV(durationSeconds: seed.durationSeconds)
-                let generation = Generation(
-                    id: nil,
-                    text: seed.text,
-                    mode: seed.mode,
-                    modelTier: "speed",
-                    voice: seed.voice,
-                    emotion: "neutral",
-                    speed: 1.0,
-                    audioPath: url.path,
-                    duration: seed.durationSeconds,
-                    createdAt: Date()
-                )
-                _ = try await DatabaseService.shared.saveGenerationAsync(generation)
-                await MainActor.run {
-                    status = "Added \(seed.mode.capitalized) take. Tap History to play."
-                    NotificationCenter.default.post(name: .generationSaved, object: nil)
-                    IOSHaptics.selection()
-                }
-            } catch {
-                await MainActor.run {
-                    status = "Seed failed: \(error.localizedDescription)"
-                }
-            }
-        }
-    }
-
-    /// Writes a silence WAV file (24 kHz mono Int16 PCM) into
-    /// `AppPaths.outputsDir`. The audio is silent but the file's
-    /// duration drives the Player sheet's scrubber + karaoke timing.
-    private func writeSilenceWAV(durationSeconds: Double) throws -> URL {
-        try FileManager.default.createDirectory(at: AppPaths.outputsDir, withIntermediateDirectories: true)
-        let outputURL = AppPaths.outputsDir
-            .appendingPathComponent("seed-\(UUID().uuidString.prefix(8)).wav")
-
-        let sampleRate: UInt32 = 24_000
-        let bitsPerSample: UInt16 = 16
-        let numChannels: UInt16 = 1
-        let numSamples = Int((Double(sampleRate) * durationSeconds).rounded())
-        let byteRate = sampleRate * UInt32(numChannels) * UInt32(bitsPerSample / 8)
-        let blockAlign = numChannels * (bitsPerSample / 8)
-        let dataSize = UInt32(numSamples) * UInt32(blockAlign)
-        let fileSizeMinus8 = 36 + dataSize
-
-        var data = Data()
-        data.append(contentsOf: [0x52, 0x49, 0x46, 0x46])                      // "RIFF"
-        data.appendLE(UInt32(fileSizeMinus8))
-        data.append(contentsOf: [0x57, 0x41, 0x56, 0x45])                      // "WAVE"
-        data.append(contentsOf: [0x66, 0x6D, 0x74, 0x20])                      // "fmt "
-        data.appendLE(UInt32(16))                                              // fmt chunk size
-        data.appendLE(UInt16(1))                                               // PCM format
-        data.appendLE(numChannels)
-        data.appendLE(sampleRate)
-        data.appendLE(byteRate)
-        data.appendLE(blockAlign)
-        data.appendLE(bitsPerSample)
-        data.append(contentsOf: [0x64, 0x61, 0x74, 0x61])                      // "data"
-        data.appendLE(dataSize)
-        // Silence: numSamples × 2 bytes of zeros
-        data.append(Data(count: numSamples * Int(blockAlign)))
-
-        try data.write(to: outputURL, options: [.atomic])
-        return outputURL
-    }
-}
-
-private extension Data {
-    mutating func appendLE(_ value: UInt32) {
-        var v = value.littleEndian
-        Swift.withUnsafeBytes(of: &v) { append(contentsOf: $0) }
-    }
-    mutating func appendLE(_ value: UInt16) {
-        var v = value.littleEndian
-        Swift.withUnsafeBytes(of: &v) { append(contentsOf: $0) }
-    }
-}
-#endif
 
 private struct IOSSettingsLinkRow: View {
     let title: String
@@ -704,6 +498,8 @@ private extension View {
 }
 
 private struct IOSModelRow: View {
+    @Environment(AppModel.self) private var appModel
+
     let model: TTSModel
     let status: ModelManagerViewModel.ModelStatus
     let operationState: IOSModelInstallerViewModel.OperationState
@@ -712,7 +508,6 @@ private struct IOSModelRow: View {
     let onDelete: () -> Void
 
     @State private var isPresentingInstallSheet = false
-    @State private var isPresentingDeleteSheet = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -732,49 +527,9 @@ private struct IOSModelRow: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("iosModelRow_\(model.id)")
-        // Track M (2026-05-21): Settings model rows now route Download +
-        // Delete through the design's IOSModelInstallSheet and
-        // IOSDeleteModelSheet rather than the bare iOSAdaptiveUtility
-        // button + system confirmationDialog. The install sheet carries
-        // the design's privacy callout ("Stays on your iPhone") + the
-        // 56pt mode-tinted icon + size / On-device pills, which is
-        // exactly where a user is most likely to want that reassurance.
-        .sheet(isPresented: $isPresentingInstallSheet) {
-            IOSModelInstallSheet(
-                item: installSheetItem,
-                isInstalling: installSheetIsInstalling,
-                progress: installSheetProgress,
-                onInstall: {
-                    IOSHaptics.selection()
-                    onInstall()
-                },
-                onCancel: {
-                    onCancel()
-                    isPresentingInstallSheet = false
-                }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.hidden)
-            .presentationCornerRadius(IOSBottomSheetChrome.cornerRadius)
-            .presentationBackground(IOSBottomSheetChrome.background)
-        }
-        .sheet(isPresented: $isPresentingDeleteSheet) {
-            IOSDeleteModelSheet(
-                modelName: model.name,
-                sizeLabel: deleteSheetSizeLabel,
-                onConfirm: {
-                    onDelete()
-                    isPresentingDeleteSheet = false
-                },
-                onCancel: {
-                    isPresentingDeleteSheet = false
-                }
-            )
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.hidden)
-            .presentationCornerRadius(IOSBottomSheetChrome.cornerRadius)
-            .presentationBackground(IOSBottomSheetChrome.background)
-        }
+        // Model rows route Download through IOSModelInstallSheet and Delete
+        // through RootView's edge-to-edge IOSDeleteModelSheet overlay rather
+        // than the old bare utility button + system confirmationDialog.
         // Auto-dismiss the install sheet once the operation lands
         // either at `.installed` or back at `.idle` after a cancel.
         .onChange(of: operationState) { _, newValue in
@@ -782,18 +537,69 @@ private struct IOSModelRow: View {
             switch newValue {
             case .installed, .idle, .failed, .unavailable:
                 isPresentingInstallSheet = false
+                appModel.dismissBottomPanel()
+                clearFocusBackdrop()
             default:
-                break
+                presentInstallPanel()
+            }
+        }
+        .onDisappear {
+            if isPresentingInstallSheet {
+                appModel.dismissBottomPanel()
+                clearFocusBackdrop()
             }
         }
     }
 
     private func requestInstall() {
+        presentFocusBackdrop()
         isPresentingInstallSheet = true
+        presentInstallPanel()
     }
 
     private func requestDelete() {
-        isPresentingDeleteSheet = true
+        presentFocusBackdrop()
+        appModel.deleteModelSheetItem = IOSDeleteModelSheetPresentation(
+            modelName: model.name,
+            sizeLabel: deleteSheetSizeLabel,
+            onConfirm: {
+                onDelete()
+            }
+        )
+    }
+
+    private func presentFocusBackdrop() {
+        appModel.isFocusBackdropPresented = true
+    }
+
+    private func clearFocusBackdrop() {
+        appModel.isFocusBackdropPresented = false
+    }
+
+    private func presentInstallPanel() {
+        appModel.presentBottomPanel(id: "install-\(model.id)") { bottomSafeAreaInset, dismiss in
+            AnyView(
+                IOSModelInstallSheet(
+                    item: installSheetItem,
+                    isInstalling: installSheetIsInstalling,
+                    progress: installSheetProgress,
+                    onInstall: {
+                        IOSHaptics.selection()
+                        onInstall()
+                    },
+                    onCancel: {
+                        onCancel()
+                        isPresentingInstallSheet = false
+                        dismiss()
+                    },
+                    onDismiss: dismiss,
+                    presentation: .edgeToEdge(
+                        bottomSafeAreaInset: bottomSafeAreaInset,
+                        height: IOSBottomSheetChrome.modelInstallHeight
+                    )
+                )
+            )
+        }
     }
 
     // MARK: - Install sheet plumbing
@@ -1025,12 +831,10 @@ private struct IOSModelRow: View {
                     .foregroundStyle(IOSAppTheme.textSecondary)
             }
         case .failed(let message):
-            if !IOSSimulatorPreviewPolicy.isSimulatorPreview {
-                Text(message)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text(message)
+                .font(.system(size: 12))
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
         case .available, .verifying, .installing, .installed, .deleting, .unavailable, .idle:
             EmptyView()
         }
@@ -1050,7 +854,7 @@ private struct IOSModelRow: View {
         case .downloading, .interrupted, .resuming, .restarting:
             return true
         case .failed:
-            return !IOSSimulatorPreviewPolicy.isSimulatorPreview
+            return true
         default:
             return false
         }
@@ -1090,9 +894,9 @@ private struct IOSModelRow: View {
         case .deleting:
             return "Removing…"
         case .unavailable:
-            return IOSSimulatorPreviewPolicy.isSimulatorPreview ? "Unavailable in Simulator" : "Unavailable"
+            return "Unavailable"
         case .failed:
-            return IOSSimulatorPreviewPolicy.isSimulatorPreview ? "Unavailable in Simulator" : "Retry needed"
+            return "Retry needed"
         }
     }
 

@@ -3,8 +3,8 @@ import QwenVoiceCore
 
 struct IOSBatchGenerationSheet: View {
     @EnvironmentObject private var ttsEngine: TTSEngineStore
-    @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.presentIOSPlayerSheet) private var presentPlayerSheet
 
     let mode: GenerationMode
     let tint: Color
@@ -126,12 +126,11 @@ struct IOSBatchGenerationSheet: View {
                             item: item,
                             tint: tint,
                             onPlay: {
-                                guard let path = item.audioPath else { return }
-                                audioPlayer.playFile(
-                                    path,
-                                    title: String(item.text.prefix(40)),
-                                    presentationContext: .library
-                                )
+                                guard let playerItem = playerSheetItem(for: item) else {
+                                    return
+                                }
+                                IOSHaptics.selection()
+                                presentPlayerSheet(playerItem)
                             }
                         )
                     }
@@ -158,6 +157,24 @@ struct IOSBatchGenerationSheet: View {
                 .font(IOSTypeStyle.footnote.font)
                 .foregroundStyle(IOSAppTheme.textSecondary)
         }
+    }
+
+    private func playerSheetItem(for item: IOSBatchGenerationCoordinator.Item) -> IOSPlayerSheetItem? {
+        guard let audioPath = item.audioPath,
+              FileManager.default.fileExists(atPath: audioPath) else {
+            return nil
+        }
+        return IOSPlayerSheetItem(
+            audioURL: URL(fileURLWithPath: audioPath),
+            transcript: item.text,
+            voiceName: "Batch take",
+            modeLabel: mode.rawValue.capitalized,
+            modeTint: tint,
+            subtitle: "Batch generation",
+            avatarSeed: audioPath,
+            avatarInitials: "Batch",
+            waveformSeed: IOSStableVisualHash.int(audioPath)
+        )
     }
 
     private var headerSubtitle: String {

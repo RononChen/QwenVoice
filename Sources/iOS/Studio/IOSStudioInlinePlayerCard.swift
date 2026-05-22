@@ -20,7 +20,9 @@ struct IOSStudioInlinePlayerCard: View {
     var onExpand: (() -> Void)?
 
     @StateObject private var controller = IOSInlinePlaybackController()
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.iosReduceMotionEnabled) private var reduceMotion
+
+    private let referenceHeight: CGFloat = 127
 
     init(
         item: IOSStudioInlinePlayerItem,
@@ -45,6 +47,7 @@ struct IOSStudioInlinePlayerCard: View {
         .padding(.top, 14)
         .padding(.bottom, 16)
         .frame(maxWidth: .infinity)
+        .frame(height: referenceHeight)
         .background {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .fill(Color(red: 13 / 255, green: 14 / 255, blue: 18 / 255).opacity(0.85))
@@ -56,9 +59,10 @@ struct IOSStudioInlinePlayerCard: View {
         // Softer shadow per the design notes: dropped from `0 12 32 / 0.45`
         // to `0 2 10 / 0.22` so the player floats lightly above the canvas
         // instead of bleeding into the space below the tab dock.
-        .shadow(color: Color.black.opacity(0.22), radius: 5, x: 0, y: 1)
-        .task {
-            await controller.load(url: item.audioURL, autoplay: true)
+        .shadow(color: Color.black.opacity(0.22), radius: 5, x: 0, y: 2)
+        .transition(cardTransition)
+        .task(id: item.audioURL) {
+            await controller.load(url: item.audioURL, autoplay: item.autoplay)
         }
         .onDisappear {
             controller.stop()
@@ -66,14 +70,21 @@ struct IOSStudioInlinePlayerCard: View {
         .accessibilityIdentifier("studio_inlinePlayer")
     }
 
+    private var cardTransition: AnyTransition {
+        if reduceMotion {
+            return .opacity
+        }
+        return .move(edge: .bottom).combined(with: .opacity)
+    }
+
     // MARK: - Waveform row
 
     private var waveformRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 12) {
             Text(controller.formatted(time: controller.currentTime))
-                .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                .font(.system(size: 13, weight: .semibold).monospacedDigit())
                 .foregroundStyle(IOSAppTheme.textSecondary)
-                .frame(width: 32, alignment: .leading)
+                .frame(width: 36, alignment: .leading)
 
             GeometryReader { proxy in
                 IOSWaveformBars(
@@ -82,7 +93,8 @@ struct IOSStudioInlinePlayerCard: View {
                     tint: tint,
                     progress: controller.progress,
                     isAnimating: false,
-                    unplayedColor: Color.white.opacity(0.18)
+                    unplayedColor: Color.white.opacity(0.18),
+                    style: .player
                 )
                 .contentShape(Rectangle())
                 .gesture(scrubGesture(width: proxy.size.width))
@@ -91,9 +103,9 @@ struct IOSStudioInlinePlayerCard: View {
             .frame(height: 36)
 
             Text(controller.formatted(time: controller.duration))
-                .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                .font(.system(size: 13, weight: .semibold).monospacedDigit())
                 .foregroundStyle(IOSAppTheme.textSecondary)
-                .frame(width: 32, alignment: .trailing)
+                .frame(width: 36, alignment: .trailing)
         }
     }
 
@@ -108,20 +120,30 @@ struct IOSStudioInlinePlayerCard: View {
     // MARK: - Controls row
 
     private var controlsRow: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             Button {
                 controller.togglePlayback()
                 IOSHaptics.selection()
             } label: {
                 Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(IOSAppTheme.accentForeground)
                     .frame(width: 48, height: 48)
                     .background {
-                        Circle().fill(LinearGradient(colors: [tint, tint.opacity(0.78)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        tint,
+                                        tint.mix(with: .black, by: 0.20, in: .perceptual),
+                                    ],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
                     }
                     .overlay {
-                        Circle().stroke(Color.white.opacity(0.16), lineWidth: 0.8)
+                        Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.5)
                     }
             }
             .buttonStyle(.plain)
@@ -137,14 +159,17 @@ struct IOSStudioInlinePlayerCard: View {
                     .foregroundStyle(IOSAppTheme.textSecondary)
                     .lineLimit(1)
             }
+            .padding(.leading, 4)
 
             Spacer(minLength: 0)
 
-            // Per design (Vocello iOS chat panel notes): the inline player
-            // exposes Download + Dismiss only; the take is auto-persisted
-            // to History so a separate Save button is redundant. Download
-            // icon is SF Symbol `arrow.down.to.line` (clean down-arrow
-            // pointing to a tray line) with no circle wrapper.
+            iconButton(symbol: "bookmark", label: "Save") {
+                if let onSave {
+                    onSave()
+                } else {
+                    shareWAV()
+                }
+            }
             iconButton(symbol: "arrow.down.to.line", label: "Download") {
                 shareWAV()
             }
@@ -156,10 +181,7 @@ struct IOSStudioInlinePlayerCard: View {
 
     private func iconButton(symbol: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(IOSAppTheme.textSecondary)
-                .frame(width: 34, height: 34)
+            IOSPlayerIconButtonChrome(symbol: symbol, size: 40, symbolSize: 18)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)

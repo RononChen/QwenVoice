@@ -9,7 +9,7 @@ extension Notification.Name {
 enum IOSNativeDeviceFeatureGate {
     static func unsupportedReason(for mode: GenerationMode) -> String? {
 #if targetEnvironment(simulator)
-        return IOSSimulatorRuntimeSupport.unsupportedMessage
+        return nil
 #else
         switch mode {
         case .custom, .design, .clone:

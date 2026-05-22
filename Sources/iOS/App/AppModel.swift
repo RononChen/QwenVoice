@@ -3,6 +3,26 @@ import Observation
 import SwiftUI
 import QwenVoiceCore
 
+struct IOSDeleteModelSheetPresentation: Identifiable {
+    let id = UUID()
+    let modelName: String
+    let sizeLabel: String
+    let onConfirm: @MainActor () -> Void
+}
+
+struct IOSBottomPanelPresentation: Identifiable {
+    let id: String
+    let content: @MainActor (_ bottomSafeAreaInset: CGFloat, _ dismiss: @escaping @MainActor () -> Void) -> AnyView
+
+    init(
+        id: String = UUID().uuidString,
+        content: @escaping @MainActor (_ bottomSafeAreaInset: CGFloat, _ dismiss: @escaping @MainActor () -> Void) -> AnyView
+    ) {
+        self.id = id
+        self.content = content
+    }
+}
+
 /// Root state model for the iOS app, replacing the bag of `@State`
 /// properties that lived inside `QVoiceiOSRootView`. Conformant to
 /// `Observable` so views read state via `@Environment(AppModel.self)`
@@ -64,6 +84,20 @@ final class AppModel {
     /// expansion all set this.
     var playerSheetItem: IOSPlayerSheetItem?
 
+    /// Edge-to-edge model-delete confirmation, hosted by `RootView` so it
+    /// can fill the screen bottom instead of inheriting system sheet insets.
+    var deleteModelSheetItem: IOSDeleteModelSheetPresentation?
+
+    /// Edge-to-edge bottom panel used by Studio and Settings sheets that
+    /// need the reference backdrop + liquid-glass bottom surface.
+    var bottomPanelItem: IOSBottomPanelPresentation?
+
+    // MARK: - Modal backdrop
+
+    /// True while a native bottom sheet wants the app chrome behind it
+    /// blurred/dimmed, matching the reference backdrop-filter focus layer.
+    var isFocusBackdropPresented: Bool = false
+
     // MARK: - Legacy primary-action descriptors
 
     /// Per-mode `IOSGeneratePrimaryActionDescriptor` storage. Used by
@@ -91,6 +125,19 @@ final class AppModel {
         case .design: return designCoordinator
         case .clone: return cloneCoordinator
         }
+    }
+
+    func presentBottomPanel(
+        id: String = UUID().uuidString,
+        content: @escaping @MainActor (_ bottomSafeAreaInset: CGFloat, _ dismiss: @escaping @MainActor () -> Void) -> AnyView
+    ) {
+        isFocusBackdropPresented = true
+        bottomPanelItem = IOSBottomPanelPresentation(id: id, content: content)
+    }
+
+    func dismissBottomPanel() {
+        bottomPanelItem = nil
+        isFocusBackdropPresented = false
     }
 
     // MARK: - Init

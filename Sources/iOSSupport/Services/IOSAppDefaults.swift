@@ -10,6 +10,9 @@ public enum IOSAppDefaults {
         static let autoplayCompletions = "vocello.ios.autoplayCompletions"
     }
 
+    public static let reduceMotionEnabledKey = "vocello.ios.reduceMotionEnabled"
+    public static let reduceTransparencyEnabledKey = "vocello.ios.reduceTransparencyEnabled"
+
     /// True once the user has dismissed the first-run onboarding flow.
     /// Skipped automatically when any model is already installed (returning
     /// users coming from a build before onboarding shipped).
@@ -28,5 +31,19 @@ public enum IOSAppDefaults {
             return defaults.bool(forKey: Keys.autoplayCompletions)
         }
         set { defaults.set(newValue, forKey: Keys.autoplayCompletions) }
+    }
+
+    /// App-level Reduce Motion override used by the in-app Settings toggle.
+    /// The OS accessibility setting is still honored separately at the root.
+    public static var reduceMotionEnabled: Bool {
+        get { defaults.bool(forKey: reduceMotionEnabledKey) }
+        set { defaults.set(newValue, forKey: reduceMotionEnabledKey) }
+    }
+
+    /// App-level Reduce Transparency override used by the in-app Settings toggle.
+    /// The OS accessibility setting is still honored separately at the root.
+    public static var reduceTransparencyEnabled: Bool {
+        get { defaults.bool(forKey: reduceTransparencyEnabledKey) }
+        set { defaults.set(newValue, forKey: reduceTransparencyEnabledKey) }
     }
 }

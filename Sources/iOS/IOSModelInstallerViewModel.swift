@@ -101,6 +101,11 @@ final class IOSModelInstallerViewModel: ObservableObject {
     }
 
     func install(_ model: TTSModel) {
+        if IOSSimulatorRuntimeSupport.isSimulator {
+            simulatorFakeInstall(model)
+            return
+        }
+
         if let unavailableMessage = IOSNativeDeviceFeatureGate.unavailableMessage(for: model) {
             states[model.id] = .unavailable(unavailableMessage)
             return
@@ -129,6 +134,11 @@ final class IOSModelInstallerViewModel: ObservableObject {
     }
 
     func cancel(_ model: TTSModel) {
+        if IOSSimulatorRuntimeSupport.isSimulator {
+            simulatorFakeCancel(model)
+            return
+        }
+
         // Immediately show available state before background refresh
         if let descriptor = modelAssetStore?.descriptor(id: model.id)?.model {
             states[model.id] = .available(estimatedBytes: descriptor.estimatedDownloadBytes)
@@ -143,6 +153,11 @@ final class IOSModelInstallerViewModel: ObservableObject {
     }
 
     func delete(_ model: TTSModel) {
+        if IOSSimulatorRuntimeSupport.isSimulator {
+            simulatorFakeDelete(model)
+            return
+        }
+
         if IOSNativeDeviceFeatureGate.unavailableMessage(for: model) != nil {
             return
         }

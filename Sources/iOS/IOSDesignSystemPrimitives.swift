@@ -51,7 +51,7 @@ struct IOSModeBackdrop: View {
     let tint: Color
     let intensity: Intensity
 
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.iosReduceTransparencyEnabled) private var reduceTransparency
 
     enum Intensity {
         case whisper
@@ -135,12 +135,58 @@ enum IOSStableVisualHash {
 ///
 /// Per `design_references/Vocello iOS/chrome.jsx` MiniWaveform / PlayerWaveform.
 struct IOSWaveformBars: View {
+    enum Style: Equatable {
+        case mini
+        case player
+        case big
+
+        var minimumAmplitude: Double {
+            switch self {
+            case .mini: return 0.16
+            case .player: return 0.12
+            case .big: return 0.15
+            }
+        }
+
+        var maximumAmplitude: Double {
+            switch self {
+            case .mini: return 0.95
+            case .player: return 0.96
+            case .big: return 0.95
+            }
+        }
+
+        var spacing: CGFloat {
+            switch self {
+            case .mini: return 1.5
+            case .player: return 2.0
+            case .big: return 3.5
+            }
+        }
+
+        var cornerRadius: CGFloat {
+            switch self {
+            case .mini: return 1.0
+            case .player: return 1.5
+            case .big: return 2.5
+            }
+        }
+
+        var minimumBarWidth: CGFloat {
+            switch self {
+            case .mini, .player: return 2.0
+            case .big: return 3.0
+            }
+        }
+    }
+
     let seed: Int
     let barCount: Int
     let tint: Color
     let progress: Double
     let isAnimating: Bool
     let unplayedColor: Color?
+    let style: Style
 
     init(
         seed: Int,
@@ -148,7 +194,8 @@ struct IOSWaveformBars: View {
         tint: Color,
         progress: Double = 1.0,
         isAnimating: Bool = false,
-        unplayedColor: Color? = nil
+        unplayedColor: Color? = nil,
+        style: Style = .mini
     ) {
         self.seed = seed
         self.barCount = barCount
@@ -156,6 +203,7 @@ struct IOSWaveformBars: View {
         self.progress = progress
         self.isAnimating = isAnimating
         self.unplayedColor = unplayedColor
+        self.style = style
     }
 
     var body: some View {
@@ -170,17 +218,20 @@ struct IOSWaveformBars: View {
 
     private func bars(phase: TimeInterval) -> some View {
         GeometryReader { geo in
-            let spacing: CGFloat = max(1, geo.size.width * 0.012)
+            let spacing = style.spacing
             let totalSpacing = spacing * CGFloat(barCount - 1)
-            let barWidth = (geo.size.width - totalSpacing) / CGFloat(barCount)
+            let fittedBarWidth = (geo.size.width - totalSpacing) / CGFloat(barCount)
+            let barWidth = resolvedBarWidth(fitted: fittedBarWidth)
             let progressIndex = Int((Double(barCount) * progress).rounded())
 
             HStack(alignment: .center, spacing: spacing) {
                 ForEach(0..<barCount, id: \.self) { i in
-                    let height = barHeight(at: i, container: geo.size.height, phase: phase)
+                    let amplitude = amplitude(at: i, phase: phase)
+                    let height = max(2, geo.size.height * CGFloat(amplitude))
                     let isPast = i < progressIndex
-                    Capsule(style: .continuous)
-                        .fill(isPast ? tint : (unplayedColor ?? tint.opacity(0.35)))
+                    RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous)
+                        .fill(fillStyle(isPast: isPast))
+                        .opacity(opacity(isPast: isPast, amplitude: amplitude))
                         .frame(width: barWidth, height: height)
                 }
             }
@@ -188,23 +239,87 @@ struct IOSWaveformBars: View {
         }
     }
 
-    private func barHeight(at index: Int, container: CGFloat, phase: TimeInterval) -> CGFloat {
-        // Deterministic pseudo-random in [0.18, 1.0] from seed + index.
-        var x = UInt64(bitPattern: Int64(seed &* 1_000_003 &+ index &* 2_654_435_761))
-        x ^= x &>> 33
-        x &*= 0xff51_afd7_ed55_8ccd
-        x ^= x &>> 33
-        x &*= 0xc4ce_b9fe_1a85_ec53
-        x ^= x &>> 33
-        let normalized = Double(x & 0xffff_ffff) / Double(UInt32.max)
-        let base = 0.18 + normalized * 0.82
-        var amplitude = base
-        if isAnimating {
-            let waveA = sin((phase * 2.2 + Double(index) * 0.70))
-            let waveB = sin((phase * 1.35 + Double(index) * 1.40))
-            amplitude = max(0.06, min(1.0, base * (1 + waveA * 0.18 + waveB * 0.10)))
+    private func resolvedBarWidth(fitted: CGFloat) -> CGFloat {
+        if style == .mini {
+            return style.minimumBarWidth
         }
-        return max(2, container * CGFloat(amplitude))
+        return max(style.minimumBarWidth, fitted)
+    }
+
+    private func fillStyle(isPast: Bool) -> AnyShapeStyle {
+        if isPast {
+            let bottomOpacity: Double = style == .big ? 0.60 : 0.70
+            return AnyShapeStyle(
+                LinearGradient(
+                    colors: [
+                        tint,
+                        tint.opacity(bottomOpacity),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+        }
+
+        return AnyShapeStyle(unplayedColor ?? Color.white.opacity(style == .big ? 0.14 : 0.18))
+    }
+
+    private func opacity(isPast: Bool, amplitude: Double) -> Double {
+        switch style {
+        case .mini:
+            return 0.4 + amplitude * 0.5
+        case .player:
+            return isPast ? 1.0 : 0.55
+        case .big:
+            return isPast ? 1.0 : 0.65
+        }
+    }
+
+    private func amplitude(at index: Int, phase: TimeInterval) -> Double {
+        let i = Double(index)
+        let base: Double
+        switch style {
+        case .mini:
+            let raw = sin((Double(seed) * 13 + i * 7.31) * 1.3) * 0.4 + 0.5
+            base = abs(raw) + Double(index % 5) * 0.08
+        case .player:
+            let raw = sin((Double(seed) * 11 + i * 6.7) * 1.6) * 0.45 + 0.5
+            base = abs(raw)
+        case .big:
+            let raw = sin(i * 6.7) * 0.45 + 0.5
+            if isAnimating {
+                let waveSeed = phase * 18
+                let pulse = 1
+                    + sin((waveSeed * 0.5 + i * 0.7)) * 0.18
+                    + sin((waveSeed * 0.3 + i * 1.4)) * 0.10
+                base = abs(raw) * pulse
+            } else {
+                base = abs(raw)
+            }
+        }
+        return max(style.minimumAmplitude, min(style.maximumAmplitude, base))
+    }
+}
+
+struct IOSPlayerIconButtonChrome: View {
+    let symbol: String
+    var isActive: Bool = false
+    var size: CGFloat = 40
+    var symbolSize: CGFloat = 16
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: symbolSize, weight: .semibold))
+            .foregroundStyle(IOSAppTheme.textPrimary)
+            .frame(width: size, height: size)
+            .background {
+                Circle()
+                    .fill(Color.white.opacity(isActive ? 0.16 : 0.06))
+            }
+            .overlay {
+                Circle()
+                    .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+            }
     }
 }
 
@@ -282,6 +397,209 @@ struct IOSModeDot: View {
 enum IOSBottomSheetChrome {
     static let background = Color(red: 20 / 255, green: 22 / 255, blue: 30 / 255).opacity(0.92)
     static let cornerRadius: CGFloat = 22
+    static let voicePickerHeight: CGFloat = 430
+    static let deliveryPickerHeight: CGFloat = 470
+    static let voiceBriefHeight: CGFloat = 520
+    static let referenceClipHeight: CGFloat = 430
+    static let modelInstallHeight: CGFloat = 430
+}
+
+enum IOSBottomSheetPresentationStyle {
+    case system
+    case edgeToEdge(bottomSafeAreaInset: CGFloat, height: CGFloat? = nil)
+}
+
+struct IOSBottomSheetSurface<Content: View>: View {
+    let title: String
+    let tint: Color
+    let presentation: IOSBottomSheetPresentationStyle
+    let onDismiss: (() -> Void)?
+    let content: Content
+
+    init(
+        title: String,
+        tint: Color = IOSBrandTheme.accent,
+        presentation: IOSBottomSheetPresentationStyle = .system,
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.tint = tint
+        self.presentation = presentation
+        self.onDismiss = onDismiss
+        self.content = content()
+    }
+
+    var body: some View {
+        switch presentation {
+        case .system:
+            IOSBottomSheet(title: title, tint: tint, onDismiss: onDismiss) {
+                content
+            }
+        case .edgeToEdge(let bottomSafeAreaInset, let height):
+            IOSBottomEdgeSheet(
+                title: title,
+                tint: tint,
+                bottomSafeAreaInset: bottomSafeAreaInset,
+                height: height,
+                onDismiss: { onDismiss?() }
+            ) {
+                content
+            }
+        }
+    }
+}
+
+struct IOSTopRoundedRectangle: InsettableShape {
+    var cornerRadius: CGFloat
+    var insetAmount: CGFloat = 0
+
+    func path(in rect: CGRect) -> Path {
+        let rect = rect.insetBy(dx: insetAmount, dy: insetAmount)
+        let radius = min(cornerRadius, rect.width / 2, rect.height / 2)
+
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radius))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX + radius, y: rect.minY),
+            control: CGPoint(x: rect.minX, y: rect.minY)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.minY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX, y: rect.minY + radius),
+            control: CGPoint(x: rect.maxX, y: rect.minY)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+
+    func inset(by amount: CGFloat) -> IOSTopRoundedRectangle {
+        var copy = self
+        copy.insetAmount += amount
+        return copy
+    }
+}
+
+struct IOSBottomEdgeSheet<Content: View>: View {
+    let title: String
+    let tint: Color
+    let bottomSafeAreaInset: CGFloat
+    let height: CGFloat?
+    let onDismiss: () -> Void
+    let content: Content
+
+    @Environment(\.iosReduceTransparencyEnabled) private var reduceTransparency
+
+    init(
+        title: String,
+        tint: Color = IOSBrandTheme.accent,
+        bottomSafeAreaInset: CGFloat,
+        height: CGFloat? = nil,
+        onDismiss: @escaping () -> Void,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.tint = tint
+        self.bottomSafeAreaInset = bottomSafeAreaInset
+        self.height = height
+        self.onDismiss = onDismiss
+        self.content = content()
+    }
+
+    var body: some View {
+        let shape = IOSTopRoundedRectangle(cornerRadius: IOSBottomSheetChrome.cornerRadius)
+        let base = VStack(spacing: 0) {
+            grabber
+                .padding(.top, 8)
+
+            header
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 10)
+
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.bottom, resolvedBottomSafeAreaInset)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: height,
+            idealHeight: height,
+            maxHeight: height,
+            alignment: .top
+        )
+        .background {
+            if reduceTransparency {
+                shape.fill(Color(red: 20 / 255, green: 22 / 255, blue: 30 / 255))
+            } else {
+                shape.fill(.ultraThinMaterial)
+                shape.fill(IOSBottomSheetChrome.background)
+            }
+        }
+        .clipShape(shape)
+        .overlay {
+            shape
+                .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                .allowsHitTesting(false)
+        }
+        .overlay {
+            shape
+                .inset(by: 0.7)
+                .stroke(Color.white.opacity(0.07), lineWidth: 0.55)
+                .allowsHitTesting(false)
+        }
+        .shadow(color: Color.black.opacity(0.34), radius: 30, x: 0, y: -10)
+
+        if reduceTransparency {
+            base
+        } else {
+            base.glassEffect(
+                .regular.tint(IOSAppTheme.subtleGlassTint(tint, intensity: 0.45)),
+                in: shape
+            )
+        }
+    }
+
+    private var grabber: some View {
+        Capsule(style: .continuous)
+            .fill(Color.white.opacity(0.20))
+            .frame(width: 36, height: 5)
+    }
+
+    private var resolvedBottomSafeAreaInset: CGFloat {
+        max(bottomSafeAreaInset, 34)
+    }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text(title)
+                .font(.system(size: 22, weight: .bold))
+                .tracking(-0.44)
+                .foregroundStyle(IOSAppTheme.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                onDismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(IOSAppTheme.textPrimary)
+                    .frame(width: 40, height: 40)
+                    .background {
+                        Circle()
+                            .fill(Color.white.opacity(0.06))
+                    }
+                    .overlay {
+                        Circle()
+                            .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close")
+        }
+    }
 }
 
 /// Reusable bottom sheet container. Drag-to-dismiss via a grabber. Uses the
@@ -340,7 +658,7 @@ struct IOSBottomSheet<Content: View>: View {
     private var grabber: some View {
         // 36 × 5 pt per app.css `.vc-sheet-grabber`.
         Capsule(style: .continuous)
-            .fill(IOSAppTheme.textTertiary.opacity(0.45))
+            .fill(Color.white.opacity(0.20))
             .frame(width: 36, height: 5)
     }
 
@@ -357,12 +675,16 @@ struct IOSBottomSheet<Content: View>: View {
                 dismiss()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(IOSAppTheme.textSecondary)
-                    .frame(width: 32, height: 32)
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(IOSAppTheme.textPrimary)
+                    .frame(width: 40, height: 40)
                     .background {
                         Circle()
-                            .fill(IOSAppTheme.glassSurfaceFillMuted.opacity(0.6))
+                            .fill(Color.white.opacity(0.06))
+                    }
+                    .overlay {
+                        Circle()
+                            .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
                     }
             }
             .accessibilityLabel("Close")
@@ -590,7 +912,34 @@ struct IOSPrimaryCTAButton: View {
     let isEnabled: Bool
     let action: () -> Void
 
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.iosReduceTransparencyEnabled) private var reduceTransparency
+
+    private var foregroundInk: Color {
+        Color(red: 13.0 / 255.0, green: 14.0 / 255.0, blue: 18.0 / 255.0)
+    }
+
+    private var backgroundFill: AnyShapeStyle {
+        if reduceTransparency {
+            return AnyShapeStyle(tint)
+        }
+
+        // Matches studio.jsx Generate CTA:
+        //   linear-gradient(180deg, tint 0%,
+        //     color-mix(in oklch, tint 80%, black) 100%)
+        // SwiftUI's Color.mix(with:by:in:) (iOS 18+) gives the
+        // OKLCH darkening; .perceptual is the closest mixing
+        // space SwiftUI exposes.
+        return AnyShapeStyle(
+            LinearGradient(
+                colors: [
+                    tint,
+                    tint.mix(with: .black, by: 0.20, in: .perceptual)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+    }
 
     init(
         title: String,
@@ -613,37 +962,18 @@ struct IOSPrimaryCTAButton: View {
             HStack(alignment: .center, spacing: 8) {
                 if let symbol {
                     Image(systemName: symbol)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 18, weight: .semibold))
                 }
                 Text(title)
                     .font(.system(size: 17, weight: .semibold))
+                    .tracking(-0.17)
             }
-            .foregroundStyle(IOSAppTheme.accentForeground)
+            .foregroundStyle(foregroundInk)
             .frame(maxWidth: .infinity)
             .frame(height: 56)
             .background {
-                if reduceTransparency || !isEnabled {
-                    Capsule(style: .continuous)
-                        .fill(isEnabled ? tint : IOSAppTheme.glassSurfaceFillMuted)
-                } else {
-                    // Matches studio.jsx Generate CTA:
-                    //   linear-gradient(180deg, tint 0%,
-                    //     color-mix(in oklch, tint 80%, black) 100%)
-                    // SwiftUI's Color.mix(with:by:in:) (iOS 18+) gives the
-                    // OKLCH darkening; .perceptual is the closest mixing
-                    // space SwiftUI exposes.
-                    Capsule(style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    tint,
-                                    tint.mix(with: .black, by: 0.20, in: .perceptual)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                }
+                Capsule(style: .continuous)
+                    .fill(backgroundFill)
             }
             .overlay {
                 // border: 0.5px solid rgba(255,255,255,0.18) per .vc-cta
@@ -664,10 +994,10 @@ struct IOSPrimaryCTAButton: View {
             }
             // box-shadow 0 6px 18px rgba(0,0,0,0.30) per .vc-cta
             // (SwiftUI radius ≈ CSS blur / 2 → 9)
-            .shadow(color: .black.opacity(isEnabled ? 0.30 : 0), radius: 9, x: 0, y: 6)
+            .shadow(color: .black.opacity(0.30), radius: 9, x: 0, y: 6)
         }
         .buttonStyle(.plain)
-        .opacity(isEnabled ? 1.0 : 0.55)
+        .opacity(isEnabled ? 1.0 : 0.42)
         .iosAppAnimation(IOSDesignMotion.stateChange, value: isEnabled)
     }
 }
