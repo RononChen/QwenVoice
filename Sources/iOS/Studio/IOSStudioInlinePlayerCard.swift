@@ -41,16 +41,17 @@ struct IOSStudioInlinePlayerCard: View {
             waveformRow
             controlsRow
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 16)
         .frame(maxWidth: .infinity)
         .background {
-            RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
-                .fill(IOSAppTheme.glassSurfaceFillMuted.opacity(0.66))
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(Color(red: 13 / 255, green: 14 / 255, blue: 18 / 255).opacity(0.85))
         }
         .overlay {
-            RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
-                .stroke(tint.opacity(0.30), lineWidth: 0.9)
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
         }
         // Softer shadow per the design notes: dropped from `0 12 32 / 0.45`
         // to `0 2 10 / 0.22` so the player floats lightly above the canvas
@@ -74,17 +75,20 @@ struct IOSStudioInlinePlayerCard: View {
                 .foregroundStyle(IOSAppTheme.textSecondary)
                 .frame(width: 32, alignment: .leading)
 
-            IOSWaveformBars(
-                seed: item.waveformSeed,
-                barCount: 38,
-                tint: tint,
-                progress: controller.progress,
-                isAnimating: false
-            )
-            .frame(height: 32)
-            .contentShape(Rectangle())
-            .gesture(scrubGesture)
-            .onTapGesture { onExpand?() }
+            GeometryReader { proxy in
+                IOSWaveformBars(
+                    seed: item.waveformSeed,
+                    barCount: 38,
+                    tint: tint,
+                    progress: controller.progress,
+                    isAnimating: false,
+                    unplayedColor: Color.white.opacity(0.18)
+                )
+                .contentShape(Rectangle())
+                .gesture(scrubGesture(width: proxy.size.width))
+                .onTapGesture { onExpand?() }
+            }
+            .frame(height: 36)
 
             Text(controller.formatted(time: controller.duration))
                 .font(.system(size: 11, weight: .semibold).monospacedDigit())
@@ -93,11 +97,10 @@ struct IOSStudioInlinePlayerCard: View {
         }
     }
 
-    private var scrubGesture: some Gesture {
+    private func scrubGesture(width: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 4)
             .onChanged { value in
-                let width = max(1, UIScreen.main.bounds.width - 96)
-                let ratio = max(0, min(1, value.location.x / width))
+                let ratio = max(0, min(1, value.location.x / max(1, width)))
                 controller.scrub(to: ratio)
             }
     }
@@ -113,7 +116,7 @@ struct IOSStudioInlinePlayerCard: View {
                 Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(IOSAppTheme.accentForeground)
-                    .frame(width: 40, height: 40)
+                    .frame(width: 48, height: 48)
                     .background {
                         Circle().fill(LinearGradient(colors: [tint, tint.opacity(0.78)], startPoint: .topLeading, endPoint: .bottomTrailing))
                     }

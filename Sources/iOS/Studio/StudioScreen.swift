@@ -9,7 +9,6 @@ import QwenVoiceCore
 /// `design_references/Vocello iOS/studio.jsx`:
 ///
 ///   ┌─────────────────────────────┐
-///   │ wordmark + memory chip      │  ← shell canopy
 ///   │ ModeSegmented               │
 ///   │ per-mode body (IOSStudioCanvas)
 ///   │   composer                  │
@@ -24,40 +23,26 @@ import QwenVoiceCore
 /// generation state into an `@Observable StudioGenerationCoordinator`
 /// so the per-mode views collapse into a single `StudioBody`.
 ///
-/// The memory indicator, prefetch coordinator, and engine signposts
-/// continue to live behind `IOSStudioShellScreen` for now — the shell
-/// gives us the canopy + the engine-lifecycle toast + the now-playing
-/// rail without re-implementing them here. That layer retires in
-/// Phase 6 once the new TabDock owns the bottom chrome.
+/// The prefetch coordinator and engine signposts continue to live in
+/// the existing per-mode bodies. `RootView` owns the bottom chrome,
+/// including the global TabDock, engine toast, and now-playing rail.
 struct StudioScreen: View {
     @Environment(AppModel.self) private var appModel
 
     var body: some View {
         @Bindable var appModel = appModel
 
-        ZStack {
-            // Mode-tinted warm wash. Lives INSIDE the NavigationStack
-            // hosted by RootView so it isn't covered by the system's
-            // opaque navigation background.
-            IOSModeBackdrop(
-                tint: appModel.studioMode.primaryActionTint,
-                intensity: .warm
-            )
-            .ignoresSafeArea()
-            .iosAppAnimation(IOSSelectionMotion.modeCrossfade, value: appModel.studioMode)
-
-            IOSGenerateContainerView(
-                selectedTab: $appModel.tab,
-                isTabActive: true,
-                selectedSection: $appModel.studioMode,
-                customVoiceDraft: $appModel.customVoiceDraft,
-                voiceDesignDraft: $appModel.voiceDesignDraft,
-                voiceCloningDraft: $appModel.voiceCloningDraft,
-                pendingVoiceCloningHandoff: $appModel.pendingVoiceCloningHandoff,
-                customPrimaryAction: $appModel.customPrimaryAction,
-                designPrimaryAction: $appModel.designPrimaryAction,
-                clonePrimaryAction: $appModel.clonePrimaryAction
-            )
-        }
+        IOSGenerateContainerView(
+            selectedTab: $appModel.tab,
+            isTabActive: true,
+            selectedSection: $appModel.studioMode,
+            customVoiceDraft: $appModel.customVoiceDraft,
+            voiceDesignDraft: $appModel.voiceDesignDraft,
+            voiceCloningDraft: $appModel.voiceCloningDraft,
+            pendingVoiceCloningHandoff: $appModel.pendingVoiceCloningHandoff,
+            customPrimaryAction: $appModel.customPrimaryAction,
+            designPrimaryAction: $appModel.designPrimaryAction,
+            clonePrimaryAction: $appModel.clonePrimaryAction
+        )
     }
 }

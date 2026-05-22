@@ -28,8 +28,7 @@ struct RootView: View {
         // prototype:
         //
         //   ZStack:
-        //     canvas color           ← `Theme.Surface.canvasBottom`
-        //     mode backdrop wash     ← radial gradient, Studio only
+        //     tab backdrop wash      ← radial gradient, active tab tint
         //     activeScreen           ← per-tab body, transparent
         //   safeAreaInset(.bottom):
         //     TabDock                ← single source of truth for the dock
@@ -38,8 +37,11 @@ struct RootView: View {
         // own dock; it just hosts the per-screen body and the engine /
         // now-playing toast safe-area insets.
         ZStack {
-            Theme.Surface.canvasBottom
-                .ignoresSafeArea()
+            IOSModeBackdrop(
+                tint: activeBackdropTint,
+                intensity: .warm
+            )
+            .ignoresSafeArea()
 
             activeScreen
         }
@@ -89,7 +91,10 @@ struct RootView: View {
                 item: item,
                 onDismiss: { appModel.playerSheetItem = nil }
             )
-            .presentationBackground(Theme.Surface.canvas)
+            .presentationDetents([.fraction(0.97)])
+            .presentationDragIndicator(.hidden)
+            .presentationCornerRadius(28)
+            .presentationBackground(Color(red: 13 / 255, green: 14 / 255, blue: 18 / 255).opacity(0.96))
         }
     }
 
@@ -124,5 +129,9 @@ struct RootView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
         }
+    }
+
+    private var activeBackdropTint: Color {
+        appModel.tab.dockAccent(studioMode: appModel.studioMode.mode)
     }
 }

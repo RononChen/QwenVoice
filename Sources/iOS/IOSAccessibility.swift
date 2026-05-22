@@ -4,8 +4,8 @@ import UIKit
 // iOS counterpart to the macOS `appAnimation` helper at
 // Sources/Views/Components/AppTheme.swift. Honors Reduce Motion via the
 // SwiftUI environment so animations are skipped when the user has the
-// accessibility setting enabled. CLAUDE.md "Conventions to preserve"
-// requires Reduce Motion to be honored across the app.
+// accessibility setting enabled. AGENTS.md requires Reduce Motion to be
+// honored across the app.
 
 extension View {
     func iosAppAnimation<Value: Equatable>(_ animation: Animation?, value: Value) -> some View {

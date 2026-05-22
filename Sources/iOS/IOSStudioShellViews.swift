@@ -5,9 +5,9 @@ import SwiftUI
 /// History: this used to host the full iOS chrome — `IOSStudioShellCanopy`
 /// rendering the "Vocello" wordmark + a memory-indicator accessory at the
 /// top, and `IOSStudioRootDock` at the bottom via `safeAreaInset`. R0 of
-/// the May 2026 UI audit moved both into `RootView`, so this type is now
-/// just a shell around the per-tab body with the now-playing rail +
-/// engine-lifecycle toast safe-area insets.
+/// the May 2026 UI audit moved both into `RootView`. The shared mode/tab
+/// gradient stays here so it sits inside each `NavigationStack` and remains
+/// visible behind Studio, Voices, History, and Settings content.
 ///
 /// The cleanup pass that followed R2 also dropped the `Accessory` +
 /// `BottomAccessory` generics, the canopy + dock structs, and the
@@ -22,9 +22,6 @@ struct IOSStudioShellScreen<Content: View>: View {
     let tint: Color
     let screenContent: Content
 
-    @ScaledMetric(relativeTo: .body) private var horizontalPadding = 16
-    @ScaledMetric(relativeTo: .body) private var topPadding = 2
-
     init(
         selectedTab: Binding<IOSAppTab>,
         activeTab: IOSAppTab,
@@ -38,20 +35,25 @@ struct IOSStudioShellScreen<Content: View>: View {
     }
 
     var body: some View {
-        // Phase 2 (2026-05-21): the now-playing rail + engine-lifecycle
-        // toast `safeAreaInset(.bottom)` modifiers moved up to
-        // `RootView`. Hosting them here gave the canvas's inner VStack
-        // a tight height budget and broke any composer that asked for
-        // `.frame(maxHeight: .infinity)` — the composer would gobble
-        // the canvas and push the Generate CTA under the tab dock.
-        // RootView now owns every bottom-inset stack-up (dock + rail
-        // + toast), so each screen body gets a single clean height
-        // budget it can negotiate against.
-        screenContent
-            .padding(.horizontal, horizontalPadding)
-            .padding(.top, topPadding)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .toolbar(.hidden, for: .navigationBar)
+        ZStack {
+            IOSModeBackdrop(tint: tint, intensity: .warm)
+                .ignoresSafeArea()
+
+            // Phase 2 (2026-05-21): the now-playing rail + engine-lifecycle
+            // toast `safeAreaInset(.bottom)` modifiers moved up to
+            // `RootView`. Hosting them here gave the canvas's inner VStack
+            // a tight height budget and broke any composer that asked for
+            // `.frame(maxHeight: .infinity)` — the composer would gobble
+            // the canvas and push the Generate CTA under the tab dock.
+            // RootView now owns every bottom-inset stack-up (dock + rail
+            // + toast), so each screen body gets a single clean height
+            // budget it can negotiate against.
+            screenContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .iosAppAnimation(IOSSelectionMotion.modeCrossfade, value: activeTab)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .toolbar(.hidden, for: .navigationBar)
     }
 }
 
@@ -63,9 +65,13 @@ struct IOSStudioWorkspaceHeading: View {
 
     var body: some View {
         Text(title)
-            .font(.title2.weight(.semibold))
+            .font(.system(size: 28, weight: .bold))
+            .tracking(-0.56)
             .foregroundStyle(IOSAppTheme.textPrimary)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 20)
+            .padding(.top, 4)
+            .padding(.bottom, 12)
             .accessibilityAddTraits(.isHeader)
     }
 }
@@ -78,10 +84,6 @@ struct IOSStudioSectionGroup<Content: View>: View {
     let tint: Color
     let content: Content
 
-    @ScaledMetric(relativeTo: .body) private var spacing = 10
-    @ScaledMetric(relativeTo: .body) private var padding = 14
-    @ScaledMetric(relativeTo: .body) private var cornerRadius = 24
-
     init(
         title: String? = nil,
         tint: Color,
@@ -93,20 +95,32 @@ struct IOSStudioSectionGroup<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: spacing) {
+        VStack(alignment: .leading, spacing: 0) {
             if let title, !title.isEmpty {
                 Text(title.uppercased())
-                    .font(.caption2.weight(.semibold))
-                    .tracking(0.7)
-                    .foregroundStyle(IOSAppTheme.textSecondary.opacity(0.92))
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(0.88)
+                    .foregroundStyle(IOSAppTheme.textSecondary)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 14)
+                    .padding(.bottom, 6)
             }
 
-            VStack(alignment: .leading, spacing: spacing) {
+            VStack(alignment: .leading, spacing: 10) {
                 content
             }
-            .padding(padding)
+            .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .iosSectionGlass(tint: tint, cornerRadius: cornerRadius)
+            .background {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.white.opacity(0.04))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 6)
         }
     }
 }

@@ -8,10 +8,9 @@ import QwenVoiceCore
 /// preselected; tapping a saved voice routes to Studio Clone mode with
 /// the existing PendingVoiceCloningHandoff plumbing.
 ///
-/// Wired in QVoiceiOSRootView's `.voices` case (Track D). Track I will add
-/// the dashed "Save a new voice" header card with full preview play, and
-/// hook the per-row Play button into a shared `AudioPlayerViewModel`-
-/// driven preview path.
+/// Wired in QVoiceiOSRootView's `.voices` case. Rows include the reference
+/// play affordance: bundled previews for built-in speakers and saved-voice
+/// playback through the shared `AudioPlayerViewModel`.
 struct IOSVoicesView: View {
     @Binding var selectedTab: IOSAppTab
     let onSelectBuiltInSpeaker: (SpeakerDescriptor) -> Void
@@ -19,9 +18,11 @@ struct IOSVoicesView: View {
 
     @EnvironmentObject private var ttsEngine: TTSEngineStore
     @EnvironmentObject private var savedVoicesViewModel: SavedVoicesViewModel
+    @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
 
     @State private var search: String = ""
     @State private var filter: VoiceFilter = .all
+    @StateObject private var previewer = IOSVoicePreviewPlayer()
 
     private var builtIn: [SpeakerDescriptor] {
         TTSContract.allSpeakerDescriptors.sorted { lhs, rhs in
@@ -49,45 +50,37 @@ struct IOSVoicesView: View {
         IOSStudioShellScreen(
             selectedTab: $selectedTab,
             activeTab: .voices,
-            tint: IOSBrandTheme.library
+            tint: IOSAppTab.voices.dockAccent(studioMode: .custom)
         ) {
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 16) {
-                    header
-
+                VStack(alignment: .leading, spacing: 0) {
                     IOSSearchField(text: $search, placeholder: "Search voices")
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 10)
 
                     IOSFilterChipRow(
                         options: VoiceFilter.allCases,
                         selection: $filter,
                         tint: IOSBrandTheme.library,
-                        label: \.label
+                        label: \.label,
+                        accessibilityIdentifier: { "voicesFilter_\($0.rawValue)" }
                     )
-                    .padding(.horizontal, -16)
 
-                    saveACallCard
+                    if filter != .builtIn {
+                        voicesSectionHeading("Your saved voices")
 
-                    if !filteredSaved.isEmpty {
-                        Text("Saved voices")
-                            .font(.system(size: 10, weight: .semibold))
-                            .tracking(0.7)
-                            .foregroundStyle(IOSAppTheme.textTertiary)
-
-                        VStack(spacing: 8) {
+                        VStack(spacing: 0) {
                             ForEach(filteredSaved, id: \.id) { voice in
                                 savedRow(voice)
                             }
+                            saveACallCard
                         }
                     }
 
-                    if !filteredBuiltIn.isEmpty {
-                        Text("Built-in")
-                            .font(.system(size: 10, weight: .semibold))
-                            .tracking(0.7)
-                            .foregroundStyle(IOSAppTheme.textTertiary)
-                            .padding(.top, 6)
+                    if filter != .saved {
+                        voicesSectionHeading("Built-in speakers")
 
-                        VStack(spacing: 8) {
+                        VStack(spacing: 0) {
                             ForEach(filteredBuiltIn, id: \.id) { speaker in
                                 builtInRow(speaker)
                             }
@@ -101,6 +94,7 @@ struct IOSVoicesView: View {
                             symbolName: "magnifyingglass",
                             tint: IOSBrandTheme.library
                         )
+                        .padding(.horizontal, 20)
                         .padding(.top, 12)
                     }
                 }
@@ -112,19 +106,20 @@ struct IOSVoicesView: View {
                 await savedVoicesViewModel.ensureLoaded(using: ttsEngine)
             }
         }
+        .onDisappear {
+            previewer.stop()
+        }
         .accessibilityIdentifier("screen_voices")
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Voices")
-                .font(.system(.title2, design: .default, weight: .semibold))
-                .foregroundStyle(IOSAppTheme.textPrimary)
-            Text("Built-in speakers and voices you saved from clone takes.")
-                .font(.subheadline)
-                .foregroundStyle(IOSAppTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
+    private func voicesSectionHeading(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.system(size: 11, weight: .semibold))
+            .tracking(0.88)
+            .foregroundStyle(IOSAppTheme.textSecondary)
+            .padding(.horizontal, 20)
+            .padding(.top, 14)
+            .padding(.bottom, 6)
     }
 
     // MARK: - Save-a-voice CTA
@@ -140,18 +135,18 @@ struct IOSVoicesView: View {
             HStack(spacing: 12) {
                 ZStack {
                     Circle()
-                        .strokeBorder(IOSBrandTheme.clone.opacity(0.6), style: StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
+                        .fill(Color.white.opacity(0.06))
                     Image(systemName: "plus")
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.system(size: 20, weight: .bold))
                         .foregroundStyle(IOSBrandTheme.clone)
                 }
-                .frame(width: 38, height: 38)
+                .frame(width: 44, height: 44)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Save a new voice")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(IOSAppTheme.textPrimary)
-                    Text("Open Studio in Clone mode and capture a reference clip.")
+                    Text("Record a 10-20 s reference clip you own.")
                         .font(.caption)
                         .foregroundStyle(IOSAppTheme.textSecondary)
                 }
@@ -162,113 +157,162 @@ struct IOSVoicesView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(IOSAppTheme.textTertiary)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
-                RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
-                    .strokeBorder(IOSBrandTheme.clone.opacity(0.4), style: StrokeStyle(lineWidth: 0.9, dash: [4, 3]))
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
                     .background {
-                        RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
-                            .fill(IOSAppTheme.accentWash(IOSBrandTheme.clone))
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color.white.opacity(0.02))
                     }
             }
         }
         .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
         .accessibilityIdentifier("voices_saveNewVoice")
     }
 
     // MARK: - Rows
 
     private func builtInRow(_ speaker: SpeakerDescriptor) -> some View {
-        Button {
-            IOSHaptics.selection()
-            onSelectBuiltInSpeaker(speaker)
-        } label: {
-            HStack(spacing: 12) {
-                IOSVoiceAvatar(
-                    seed: speaker.id,
-                    initials: speaker.displayName,
-                    diameter: 42
-                )
+        HStack(spacing: 12) {
+            Button {
+                previewer.stop()
+                IOSHaptics.selection()
+                onSelectBuiltInSpeaker(speaker)
+            } label: {
+                HStack(spacing: 12) {
+                    IOSVoiceAvatar(
+                        seed: speaker.id,
+                        initials: speaker.displayName,
+                        diameter: 44
+                    )
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(speaker.displayName)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(IOSAppTheme.textPrimary)
-                    if let detail = builtInSubtitle(for: speaker) {
-                        Text(detail)
-                            .font(.caption)
-                            .foregroundStyle(IOSAppTheme.textSecondary)
-                            .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(speaker.displayName)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(IOSAppTheme.textPrimary)
+                        if let detail = builtInSubtitle(for: speaker) {
+                            Text(detail)
+                                .font(.caption)
+                                .foregroundStyle(IOSAppTheme.textSecondary)
+                                .lineLimit(1)
+                        }
                     }
                 }
+            }
+            .buttonStyle(.plain)
 
-                Spacer(minLength: 8)
+            Spacer(minLength: 8)
 
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(IOSAppTheme.textTertiary)
+            if let tag = IOSVoicePickerLanguage.tag(for: speaker.nativeLanguage) {
+                Text(tag)
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(0.4)
+                    .foregroundStyle(IOSAppTheme.textSecondary)
+                    .padding(.horizontal, 8)
+                    .frame(height: 20)
+                    .background {
+                        Capsule(style: .continuous)
+                            .fill(Color.white.opacity(0.08))
+                    }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
-                    .fill(IOSAppTheme.glassSurfaceFillMuted.opacity(0.55))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
-                    .stroke(Color.white.opacity(0.08), lineWidth: 0.7)
-            }
+
+            voicePreviewButton(
+                isPlaying: previewer.currentlyPlayingID == speaker.id,
+                action: {
+                    previewer.toggle(voiceID: speaker.id)
+                    IOSHaptics.selection()
+                }
+            )
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 6)
         .accessibilityIdentifier("voicesRow_\(speaker.id)")
     }
 
     private func savedRow(_ voice: Voice) -> some View {
-        Button {
-            IOSHaptics.selection()
-            onSelectSavedVoice(voice)
-        } label: {
-            HStack(spacing: 12) {
-                IOSVoiceAvatar(
-                    seed: voice.id,
-                    initials: voice.name,
-                    diameter: 42
-                )
+        HStack(spacing: 12) {
+            Button {
+                previewer.stop()
+                IOSHaptics.selection()
+                onSelectSavedVoice(voice)
+            } label: {
+                HStack(spacing: 12) {
+                    IOSVoiceAvatar(
+                        seed: voice.id,
+                        initials: voice.name,
+                        diameter: 44
+                    )
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(voice.name)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(IOSAppTheme.textPrimary)
-                    Text("Cloned reference")
-                        .font(.caption)
-                        .foregroundStyle(IOSAppTheme.textSecondary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(voice.name)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(IOSAppTheme.textPrimary)
+                        Text("Cloned reference")
+                            .font(.caption)
+                            .foregroundStyle(IOSAppTheme.textSecondary)
+                    }
                 }
-
-                Spacer(minLength: 8)
-
-                IOSStatusBadge(text: "Clone", tone: .accent(IOSBrandTheme.clone))
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(IOSAppTheme.textTertiary)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
-                    .fill(IOSAppTheme.glassSurfaceFillMuted.opacity(0.55))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
-                    .stroke(Color.white.opacity(0.08), lineWidth: 0.7)
-            }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 8)
+
+            voicePreviewButton(
+                isPlaying: false,
+                action: {
+                    audioPlayer.playFile(
+                        voice.wavPath,
+                        title: voice.name,
+                        presentationContext: .library
+                    )
+                }
+            )
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 6)
+        .accessibilityIdentifier("voicesRow_saved_\(voice.id)")
+    }
+
+    private func voicePreviewButton(isPlaying: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(IOSAppTheme.textPrimary)
+                .frame(width: 40, height: 40)
+                .background {
+                    Circle().fill(Color.white.opacity(isPlaying ? 0.14 : 0.06))
+                }
+                .overlay {
+                    Circle().stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+                }
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("voicesRow_saved_\(voice.id)")
     }
 
     // MARK: - Helpers

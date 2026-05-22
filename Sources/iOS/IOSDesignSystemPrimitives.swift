@@ -2,8 +2,8 @@ import SwiftUI
 import UIKit
 import QwenVoiceCore
 
-// Primitives introduced by the May 2026 Vocello iOS redesign (Claude Design
-// system). Lives alongside `IOSShellPrimitives.swift`; that file holds the
+// Primitives introduced by the May 2026 Vocello iOS redesign reference.
+// Lives alongside `IOSShellPrimitives.swift`; that file holds the
 // older chrome (cards, badges, status strips). This one holds the new
 // shared building blocks used by the unified Studio, the Player sheet, the
 // Voices tab, and the bottom-sheet family.
@@ -83,19 +83,25 @@ struct IOSModeBackdrop: View {
             IOSBrandTheme.canvasTop
                 .ignoresSafeArea()
         } else {
-            ZStack {
-                IOSBrandTheme.canvasTop
-                LinearGradient(
-                    stops: [
-                        .init(color: tint.opacity(intensity.topOpacity), location: 0.0),
-                        .init(color: tint.opacity(intensity.topOpacity * 0.55), location: 0.15),
-                        .init(color: tint.opacity(intensity.topOpacity * 0.20), location: 0.35),
-                        .init(color: .clear, location: 0.60)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .allowsHitTesting(false)
+            GeometryReader { proxy in
+                let radius = max(proxy.size.width * 0.72, proxy.size.height * 0.52)
+
+                ZStack {
+                    IOSBrandTheme.canvasTop
+                    RadialGradient(
+                        stops: [
+                            .init(color: tint.opacity(intensity.topOpacity), location: 0.0),
+                            .init(color: tint.opacity(intensity.topOpacity * 0.42), location: 0.34),
+                            .init(color: .clear, location: 0.62)
+                        ],
+                        center: UnitPoint(x: 0.5, y: 0.0),
+                        startRadius: 0,
+                        endRadius: radius
+                    )
+                    .scaleEffect(x: 1.55, y: 0.92, anchor: .top)
+                    .blendMode(.plusLighter)
+                    .allowsHitTesting(false)
+                }
             }
             .ignoresSafeArea()
         }
@@ -103,6 +109,25 @@ struct IOSModeBackdrop: View {
 }
 
 // MARK: - Waveform bars
+
+enum IOSStableVisualHash {
+    static func int(_ value: String) -> Int {
+        Int(truncatingIfNeeded: fnv1a64(value))
+    }
+
+    static func normalized(_ value: String) -> Double {
+        Double(fnv1a64(value) % 10_000) / 10_000.0
+    }
+
+    private static func fnv1a64(_ value: String) -> UInt64 {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x0000_0100_0000_01B3
+        }
+        return hash
+    }
+}
 
 /// Static or playback-driven waveform bars. Deterministic heights from a
 /// seed so repeated renders match. Used by mini-waveform thumbnails
@@ -115,24 +140,35 @@ struct IOSWaveformBars: View {
     let tint: Color
     let progress: Double
     let isAnimating: Bool
-
-    @State private var animationPhase: Double = 0
+    let unplayedColor: Color?
 
     init(
         seed: Int,
         barCount: Int = 24,
         tint: Color,
         progress: Double = 1.0,
-        isAnimating: Bool = false
+        isAnimating: Bool = false,
+        unplayedColor: Color? = nil
     ) {
         self.seed = seed
         self.barCount = barCount
         self.tint = tint
         self.progress = progress
         self.isAnimating = isAnimating
+        self.unplayedColor = unplayedColor
     }
 
     var body: some View {
+        if isAnimating {
+            TimelineView(.animation) { context in
+                bars(phase: context.date.timeIntervalSinceReferenceDate)
+            }
+        } else {
+            bars(phase: 0)
+        }
+    }
+
+    private func bars(phase: TimeInterval) -> some View {
         GeometryReader { geo in
             let spacing: CGFloat = max(1, geo.size.width * 0.012)
             let totalSpacing = spacing * CGFloat(barCount - 1)
@@ -141,10 +177,10 @@ struct IOSWaveformBars: View {
 
             HStack(alignment: .center, spacing: spacing) {
                 ForEach(0..<barCount, id: \.self) { i in
-                    let height = barHeight(at: i, container: geo.size.height)
+                    let height = barHeight(at: i, container: geo.size.height, phase: phase)
                     let isPast = i < progressIndex
                     Capsule(style: .continuous)
-                        .fill(isPast ? tint : tint.opacity(0.35))
+                        .fill(isPast ? tint : (unplayedColor ?? tint.opacity(0.35)))
                         .frame(width: barWidth, height: height)
                 }
             }
@@ -152,7 +188,7 @@ struct IOSWaveformBars: View {
         }
     }
 
-    private func barHeight(at index: Int, container: CGFloat) -> CGFloat {
+    private func barHeight(at index: Int, container: CGFloat, phase: TimeInterval) -> CGFloat {
         // Deterministic pseudo-random in [0.18, 1.0] from seed + index.
         var x = UInt64(bitPattern: Int64(seed &* 1_000_003 &+ index &* 2_654_435_761))
         x ^= x &>> 33
@@ -164,8 +200,9 @@ struct IOSWaveformBars: View {
         let base = 0.18 + normalized * 0.82
         var amplitude = base
         if isAnimating {
-            let wave = sin((animationPhase + Double(index) * 0.35) * .pi * 2)
-            amplitude = max(0.25, base + wave * 0.12)
+            let waveA = sin((phase * 2.2 + Double(index) * 0.70))
+            let waveB = sin((phase * 1.35 + Double(index) * 1.40))
+            amplitude = max(0.06, min(1.0, base * (1 + waveA * 0.18 + waveB * 0.10)))
         }
         return max(2, container * CGFloat(amplitude))
     }
@@ -184,7 +221,12 @@ struct IOSVoiceAvatar: View {
 
     init(seed: String, initials: String, diameter: CGFloat = 44) {
         self.seed = seed
-        self.initials = String(initials.prefix(2)).uppercased()
+        let parts = initials.split(separator: " ")
+        if parts.count >= 2 {
+            self.initials = parts.prefix(2).map { String($0.prefix(1)) }.joined().uppercased()
+        } else {
+            self.initials = String(initials.prefix(1)).uppercased()
+        }
         self.diameter = diameter
     }
 
@@ -206,16 +248,13 @@ struct IOSVoiceAvatar: View {
                 .stroke(Color.white.opacity(0.10), lineWidth: 0.75)
             Text(initials)
                 .font(.system(size: diameter * 0.36, weight: .semibold, design: .rounded))
-                .foregroundStyle(Color.white.opacity(0.92))
+                .foregroundStyle(Color(red: 13 / 255, green: 14 / 255, blue: 18 / 255).opacity(0.85))
         }
         .frame(width: diameter, height: diameter)
     }
 
     private func hueForSeed(_ seed: String) -> Double {
-        var hasher = Hasher()
-        hasher.combine(seed)
-        let raw = UInt64(bitPattern: Int64(hasher.finalize()))
-        return Double(raw % 360) / 360.0
+        IOSStableVisualHash.normalized(seed)
     }
 }
 
@@ -239,6 +278,11 @@ struct IOSModeDot: View {
 }
 
 // MARK: - Bottom sheet
+
+enum IOSBottomSheetChrome {
+    static let background = Color(red: 20 / 255, green: 22 / 255, blue: 30 / 255).opacity(0.92)
+    static let cornerRadius: CGFloat = 22
+}
 
 /// Reusable bottom sheet container. Drag-to-dismiss via a grabber. Uses the
 /// system `.presentationDetents` when presented as a sheet, but the visual
@@ -271,16 +315,20 @@ struct IOSBottomSheet<Content: View>: View {
         VStack(spacing: 0) {
             grabber
                 .padding(.top, 8)
-                .padding(.bottom, 6)
 
             header
                 .padding(.horizontal, 20)
-                .padding(.bottom, 14)
+                .padding(.top, 12)
+                .padding(.bottom, 10)
 
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background {
+            IOSBottomSheetChrome.background
+                .ignoresSafeArea()
+        }
         // R3 G.0 (2026-05-21): the per-sheet `IOSModeBackdrop` was a
         // whisper-intensity radial wash that added a hue to every
         // bottom sheet. Design's `.vc-sheet { background: rgba(20,22,
@@ -299,7 +347,8 @@ struct IOSBottomSheet<Content: View>: View {
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
             Text(title)
-                .font(.system(.title3, design: .default, weight: .semibold))
+                .font(.system(size: 22, weight: .bold))
+                .tracking(-0.44)
                 .foregroundStyle(IOSAppTheme.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -418,30 +467,33 @@ struct IOSFilterChipRow<Option: Hashable & Identifiable>: View {
     let tint: Color
     let label: (Option) -> String
     let leading: ((Option) -> AnyView)?
+    let accessibilityIdentifier: ((Option) -> String)?
 
     init(
         options: [Option],
         selection: Binding<Option>,
         tint: Color,
         label: @escaping (Option) -> String,
-        leading: ((Option) -> AnyView)? = nil
+        leading: ((Option) -> AnyView)? = nil,
+        accessibilityIdentifier: ((Option) -> String)? = nil
     ) {
         self.options = options
         self._selection = selection
         self.tint = tint
         self.label = label
         self.leading = leading
+        self.accessibilityIdentifier = accessibilityIdentifier
     }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(options) { option in
-                    chip(for: option)
-                }
+        HStack(spacing: 8) {
+            ForEach(options) { option in
+                chip(for: option)
             }
-            .padding(.horizontal, 16)
         }
+        .padding(.horizontal, 20)
+        .padding(.top, 4)
+        .padding(.bottom, 12)
     }
 
     private func chip(for option: Option) -> some View {
@@ -458,21 +510,25 @@ struct IOSFilterChipRow<Option: Hashable & Identifiable>: View {
                     leading(option)
                 }
                 Text(label(option))
-                    .font(.subheadline.weight(.medium))
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
             }
             .foregroundStyle(isSelected ? IOSAppTheme.textPrimary : IOSAppTheme.textSecondary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity)
+            .frame(height: 32)
+            .padding(.horizontal, 12)
             .background {
                 Capsule(style: .continuous)
-                    .fill(isSelected ? IOSAppTheme.accentWash(tint) : IOSAppTheme.glassSurfaceFillMuted.opacity(0.5))
+                    .fill(isSelected ? Color.white.opacity(0.10) : Color.white.opacity(0.03))
             }
             .overlay {
                 Capsule(style: .continuous)
-                    .stroke(isSelected ? tint.opacity(0.32) : Color.white.opacity(0.10), lineWidth: 0.8)
+                    .stroke(isSelected ? Color.white.opacity(0.18) : Color.white.opacity(0.10), lineWidth: 0.5)
             }
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(accessibilityIdentifier?(option) ?? "")
     }
 }
 
@@ -490,7 +546,7 @@ struct IOSSearchField: View {
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(IOSAppTheme.textTertiary)
 
             TextField(placeholder, text: $text)
@@ -498,6 +554,7 @@ struct IOSSearchField: View {
                 .textInputAutocapitalization(.never)
                 .submitLabel(.search)
                 .foregroundStyle(IOSAppTheme.textPrimary)
+                .font(.system(size: 15))
 
             if !text.isEmpty {
                 Button {
@@ -511,15 +568,11 @@ struct IOSSearchField: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .frame(height: 40)
         .background {
-            RoundedRectangle(cornerRadius: IOSCornerRadius.input, style: .continuous)
-                .fill(IOSAppTheme.glassSurfaceFillMuted.opacity(0.62))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: IOSCornerRadius.input, style: .continuous)
-                .stroke(isFocused ? IOSBrandTheme.accent.opacity(0.32) : Color.white.opacity(0.10), lineWidth: 0.8)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.06))
         }
         .iosAppAnimation(IOSDesignMotion.stateChange, value: isFocused)
     }

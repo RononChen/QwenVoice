@@ -1,7 +1,7 @@
 import AVFoundation
 import SwiftUI
 
-/// Full-screen reference-clip capture surface from the Claude Design
+/// Full-screen reference-clip capture surface from the iOS design reference
 /// prototype (design_references/Vocello iOS/chrome.jsx RecordingOverlay).
 /// Records a 24 kHz mono PCM WAV using AVAudioRecorder, shows a live
 /// amplitude meter, and gates the "Use this clip" CTA to the 10-20s window
@@ -21,18 +21,19 @@ struct IOSRecordingOverlay: View {
     var body: some View {
         ZStack {
             IOSModeBackdrop(tint: IOSBrandTheme.clone, intensity: .warm)
+            Color(red: 13 / 255, green: 14 / 255, blue: 18 / 255)
+                .opacity(0.70)
+                .ignoresSafeArea()
 
-            VStack(spacing: 28) {
+            VStack(spacing: 0) {
                 topBar
-                Spacer()
-                meter
-                statusText
-                guidance
+                captureStage
                 Spacer()
                 controls
             }
-            .padding(.horizontal, 28)
-            .padding(.vertical, 24)
+            .padding(.horizontal, 24)
+            .padding(.top, 56)
+            .padding(.bottom, 60)
         }
         .preferredColorScheme(.dark)
         .interactiveDismissDisabled(true)
@@ -60,62 +61,31 @@ struct IOSRecordingOverlay: View {
 
     private var topBar: some View {
         HStack {
-            Text("Record reference")
-                .font(.system(.title2, design: .default, weight: .semibold))
-                .foregroundStyle(IOSAppTheme.textPrimary)
-
             Spacer()
 
-            Button("Cancel") {
+            Button {
                 recorder.stopWithoutSaving()
                 onCancel()
-            }
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(IOSAppTheme.textSecondary)
-            .buttonStyle(.plain)
-        }
-    }
-
-    // MARK: - Meter
-
-    private var meter: some View {
-        ZStack {
-            // Outer ring at the validation window upper bound (20s).
-            Circle()
-                .stroke(IOSAppTheme.glassSurfaceFillMuted, lineWidth: 14)
-
-            // Validation-zone ring (10-20s zone).
-            Circle()
-                .trim(from: 0.5, to: 1.0)
-                .stroke(IOSBrandTheme.clone.opacity(0.18), style: StrokeStyle(lineWidth: 14, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-
-            // Live elapsed-time progress.
-            Circle()
-                .trim(from: 0, to: clampedProgress)
-                .stroke(progressColor, style: StrokeStyle(lineWidth: 14, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .iosAppAnimation(.easeOut(duration: 0.18), value: recorder.elapsed)
-
-            // Center: amplitude pulse + elapsed time.
-            VStack(spacing: 6) {
-                Image(systemName: recorder.isRecording ? "mic.fill" : "mic")
-                    .font(.system(size: 36, weight: .semibold))
-                    .foregroundStyle(progressColor)
-                    .scaleEffect(reduceMotion ? 1.0 : (1.0 + recorder.amplitude * 0.4))
-                    .iosAppAnimation(.easeOut(duration: 0.12), value: recorder.amplitude)
-
-                Text(timeString)
-                    .font(.system(.title2, design: .rounded, weight: .semibold).monospacedDigit())
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(IOSAppTheme.textPrimary)
+                    .frame(width: 40, height: 40)
+                    .background {
+                        Circle()
+                            .fill(Color.white.opacity(0.06))
+                    }
+                    .overlay {
+                        Circle()
+                            .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+                    }
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close")
         }
-        .frame(width: 200, height: 200)
     }
 
-    private var clampedProgress: Double {
-        min(1.0, recorder.elapsed / IOSReferenceClipRecorder.maxDuration)
-    }
+    // MARK: - Capture stage
 
     private var progressColor: Color {
         if recorder.elapsed >= IOSReferenceClipRecorder.minDuration && recorder.elapsed <= IOSReferenceClipRecorder.maxDuration {
@@ -127,25 +97,57 @@ struct IOSRecordingOverlay: View {
         return IOSAppTheme.textTertiary
     }
 
-    private var timeString: String {
-        let s = recorder.elapsed
-        let whole = Int(s)
-        let tenth = Int((s - Double(whole)) * 10)
-        return String(format: "%d.%01ds", whole, tenth)
+    private var captureStage: some View {
+        VStack(spacing: 28) {
+            VStack(spacing: 28) {
+                Text(phaseLabel.uppercased())
+                    .font(.system(size: 13, weight: .semibold))
+                    .tracking(1.56)
+                    .foregroundStyle(IOSAppTheme.textSecondary)
+
+                Text(timeString)
+                    .font(.system(size: 56, weight: .bold, design: .monospaced))
+                    .tracking(-1.12)
+                    .foregroundStyle(progressColor)
+                    .monospacedDigit()
+
+                Text("Read 10-20 s of clean, natural speech. Quiet room. One voice.")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(IOSAppTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 280)
+            }
+
+            IOSWaveformBars(
+                seed: 31,
+                barCount: 32,
+                tint: IOSBrandTheme.clone,
+                progress: recorder.isRecording || recorder.elapsed > 0 ? 1.0 : 0.0,
+                isAnimating: recorder.isRecording && !reduceMotion,
+                unplayedColor: Color.white.opacity(0.14)
+            )
+            .frame(height: 96)
+            .opacity(recorder.isRecording || recorder.elapsed > 0 ? 1 : 0.45)
+
+            Text(statusLabel)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(IOSAppTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 280)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Status text
-
-    private var statusText: some View {
-        Text(statusLabel)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(progressColor)
-            .tracking(0.4)
+    private var phaseLabel: String {
+        if recorder.isRecording { return "Recording" }
+        if recorder.elapsed > 0 { return "Captured" }
+        return "Reference clip"
     }
 
     private var statusLabel: String {
         if !recorder.isRecording && recorder.elapsed == 0 {
-            return "Tap the dot to record"
+            return "Tap Record to begin."
         }
         if recorder.elapsed < IOSReferenceClipRecorder.minDuration {
             return "Keep recording. 10 second minimum."
@@ -156,15 +158,9 @@ struct IOSRecordingOverlay: View {
         return "Over 20 seconds. Stop now."
     }
 
-    // MARK: - Guidance
-
-    private var guidance: some View {
-        Text("Read at a natural pace. A varied 10-20 second sample gives the cleanest clone.")
-            .font(.footnote)
-            .foregroundStyle(IOSAppTheme.textSecondary)
-            .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 32)
+    private var timeString: String {
+        let total = max(0, Int(recorder.elapsed.rounded(.down)))
+        return String(format: "%02d:%02d", total / 60, total % 60)
     }
 
     // MARK: - Controls

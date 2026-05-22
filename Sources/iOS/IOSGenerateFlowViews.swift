@@ -59,7 +59,7 @@ struct IOSGenerateContainerView: View {
     @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
     @EnvironmentObject private var ttsEngine: TTSEngineStore
     @EnvironmentObject private var modelManager: ModelManagerViewModel
-    @ScaledMetric(relativeTo: .body) private var selectorRailHeight = 42
+    private let selectorRailHeight: CGFloat = 44
 
     @Binding var selectedTab: IOSAppTab
     let isTabActive: Bool
@@ -107,9 +107,12 @@ struct IOSGenerateContainerView: View {
             // design Studio doesn't scroll — composer fills, chips and
             // dock sit against the safe-area bottom inset above the
             // tab dock. Plain VStack reinstates that flow.
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 0) {
                 IOSGenerationModeSelector(selectedSection: $selectedSection)
                     .frame(height: selectorRailHeight)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 6)
+                    .padding(.bottom, 10)
 
                 IOSGenerateModeViewport(selection: selectedSection) {
                     IOSCustomVoiceView(
@@ -321,22 +324,12 @@ struct IOSGenerationModeSelector: View {
 /// (Studio mode) and previously by Library / History filter rows.
 ///
 /// R3 (2026-05-21): matches `design_references/Vocello iOS/app.css`
-/// `.vc-mode-segmented` exactly:
+/// `.vc-mode-segmented` plus `chrome.jsx`'s active-mode inline style:
 ///
 ///   rail:  rgba(255,255,255,0.04) fill + 0.5pt rgba(255,255,255,0.08)
 ///          stroke. Neutral, not mode-tinted.
-///   pill:  white @ 10 % fill + 0.5pt white @ 18 % stroke + inset
-///          white top-edge highlight + 1pt black drop shadow.
-///          Neutral; any warm tint comes from the mode backdrop
-///          bleeding through the translucent pill, not from the pill
-///          itself.
-///
-/// R2 (the prior pass) used `tint.opacity(0.22)` fill + `tint.opacity
-/// (0.36)` stroke, which produced a saturated bronze pill on Custom
-/// mode that the user flagged as too loud vs the reference. The
-/// `selectedTint` keypath on `IOSCapsuleSelector` is preserved (call
-/// sites still pass it) for potential future use, but it no longer
-/// reaches the pill.
+///   pill:  active tint @ 22 % fill + active tint @ 36 % stroke,
+///          white inset top highlight, and 1pt black drop shadow.
 struct IOSCapsuleSelector<Item: Identifiable & Hashable>: View {
     let items: [Item]
     @Binding var selection: Item
@@ -362,12 +355,11 @@ struct IOSCapsuleSelector<Item: Identifiable & Hashable>: View {
                                 ? IOSAppTheme.textPrimary
                                 : IOSAppTheme.textSecondary
                         )
-                        .frame(maxWidth: .infinity)
                         .frame(minHeight: 36)
-                        .padding(.horizontal, 4)
+                        .padding(.horizontal, 20)
                         .background {
                             if item == selection {
-                                IOSCapsuleSelectorPill()
+                                IOSCapsuleSelectorPill(tint: selectedTint(item))
                                     .matchedGeometryEffect(id: "selectionPill", in: selectionPillNamespace)
                             }
                         }
@@ -378,7 +370,7 @@ struct IOSCapsuleSelector<Item: Identifiable & Hashable>: View {
                 .accessibilityAddTraits(item == selection ? .isSelected : [])
             }
         }
-        .iosAppAnimation(IOSSelectionMotion.selectorPill, value: selection)
+        .iosAppAnimation(IOSDesignMotion.modePillSlide, value: selection)
         .padding(4)
         .background {
             Capsule(style: .continuous)
@@ -389,6 +381,8 @@ struct IOSCapsuleSelector<Item: Identifiable & Hashable>: View {
                 .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
         }
         .frame(height: 44)
+        .fixedSize(horizontal: true, vertical: false)
+        .frame(maxWidth: .infinity, alignment: .center)
         .sensoryFeedback(.selection, trigger: selection)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(controlAccessibilityIdentifier)
@@ -396,15 +390,17 @@ struct IOSCapsuleSelector<Item: Identifiable & Hashable>: View {
 }
 
 /// The moving capsule pill behind the selected segment.
-/// Neutral white-on-glass per `.vc-mode-pill` design CSS; any warm
-/// hint comes from the mode backdrop bleeding through, not the pill.
+/// Tinted per `chrome.jsx`'s `color-mix(in oklch, activeColor 22%)`
+/// override on `.vc-mode-pill`.
 private struct IOSCapsuleSelectorPill: View {
+    let tint: Color
+
     var body: some View {
         let shape = Capsule(style: .continuous)
         shape
-            .fill(Color.white.opacity(0.10))
+            .fill(tint.opacity(0.22))
             .overlay {
-                shape.stroke(Color.white.opacity(0.18), lineWidth: 0.5)
+                shape.stroke(tint.opacity(0.36), lineWidth: 0.5)
             }
             .overlay(alignment: .top) {
                 // inset 0 1px 0 rgba(255,255,255,0.10) — top-edge highlight

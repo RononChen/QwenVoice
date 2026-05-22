@@ -38,7 +38,7 @@ struct IOSLibraryContainerView: View {
         IOSStudioShellScreen(
             selectedTab: $selectedTab,
             activeTab: activeTab,
-            tint: IOSBrandTheme.library
+            tint: activeTab.dockAccent(studioMode: .custom)
         ) {
             VStack(alignment: .leading, spacing: 14) {
                 if showsHeader {
@@ -80,14 +80,17 @@ private struct IOSHistoryFilterChips: View {
     @Binding var selection: IOSHistoryModeFilter
 
     var body: some View {
-        IOSCapsuleSelector(
-            items: IOSHistoryModeFilter.allCases,
+        IOSFilterChipRow(
+            options: IOSHistoryModeFilter.allCases,
             selection: $selection,
-            title: \.title,
-            selectedTint: \.tint,
-            controlAccessibilityIdentifier: "historyModeFilter",
-            itemAccessibilityIdentifier: { "historyModeFilter_\($0.rawValue)" }
+            tint: IOSBrandTheme.library,
+            label: \.title,
+            leading: { filter in
+                AnyView(IOSModeDot(tint: filter.dotColor, diameter: 7))
+            },
+            accessibilityIdentifier: { "historyModeFilter_\($0.rawValue)" }
         )
+        .accessibilityIdentifier("historyModeFilter")
     }
 }
 
@@ -114,6 +117,13 @@ enum IOSHistoryModeFilter: String, CaseIterable, Identifiable, Hashable {
         case .custom: return IOSBrandTheme.custom
         case .design: return IOSBrandTheme.design
         case .clone: return IOSBrandTheme.clone
+        }
+    }
+
+    var dotColor: Color {
+        switch self {
+        case .all: return Color.white.opacity(0.40)
+        case .custom, .design, .clone: return tint
         }
     }
 
@@ -171,17 +181,17 @@ private struct IOSHistoryLibrarySection: View {
     @State private var reloadTask: Task<Void, Never>?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            IOSHistoryFilterChips(selection: $modeFilter)
-
-            TextField("Search history", text: $searchQuery)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled(true)
-                .iosFieldChrome(tint: IOSBrandTheme.library)
+        VStack(alignment: .leading, spacing: 0) {
+            IOSSearchField(text: $searchQuery, placeholder: "Search transcript or voice")
+                .padding(.horizontal, 20)
+                .padding(.bottom, 10)
                 .accessibilityIdentifier("historySearchField")
 
+            IOSHistoryFilterChips(selection: $modeFilter)
+                .padding(.bottom, 0)
+
             ScrollView(showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     if errorMessage != nil, items.isEmpty {
                         IOSEmptyStateCard(
                             title: "Couldn't load history",
@@ -189,8 +199,11 @@ private struct IOSHistoryLibrarySection: View {
                             symbolName: "exclamationmark.triangle",
                             tint: .orange
                         )
+                        .padding(.horizontal, 20)
+                        .padding(.top, 16)
                         Button("Retry", action: reload)
                             .iosAdaptiveUtilityButtonStyle(tint: IOSBrandTheme.library)
+                            .padding(.horizontal, 20)
                             .accessibilityIdentifier("historyRetryButton")
                     } else if items.isEmpty {
                         IOSEmptyStateCard(
@@ -199,6 +212,8 @@ private struct IOSHistoryLibrarySection: View {
                             symbolName: "clock.arrow.circlepath",
                             tint: IOSBrandTheme.library
                         )
+                        .padding(.horizontal, 20)
+                        .padding(.top, 16)
                     } else if filteredItemCount == 0 {
                         IOSEmptyStateCard(
                             title: "No matches",
@@ -206,6 +221,8 @@ private struct IOSHistoryLibrarySection: View {
                             symbolName: "line.3.horizontal.decrease.circle",
                             tint: IOSBrandTheme.library
                         )
+                        .padding(.horizontal, 20)
+                        .padding(.top, 16)
                     } else {
                         ForEach(groupedItems, id: \.bucket.id) { group in
                             IOSSectionHeading(group.bucket.title)
@@ -370,81 +387,103 @@ private struct IOSHistoryItemCard: View {
         // launches. Use the database row id when present, fall back to a
         // stable hash of the audio path.
         if let id = item.id { return Int(truncatingIfNeeded: id) }
-        var hasher = Hasher()
-        hasher.combine(item.audioPath)
-        return hasher.finalize()
+        return IOSStableVisualHash.int(item.audioPath)
     }
 
     var body: some View {
-        IOSSurfaceCard(tint: modeTint) {
-            HStack(alignment: .center, spacing: 12) {
-                // Tap target: thumbnail + text → opens full Player sheet via
-                // the environment closure (Track L). Inline play + menu
-                // buttons keep their own tap regions on the trailing side.
-                Button(action: openPlayerSheet) {
-                    HStack(alignment: .center, spacing: 12) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(IOSAppTheme.accentSurface(modeTint))
-                                .frame(width: 48, height: 48)
-                            IOSWaveformBars(
-                                seed: thumbnailSeed,
-                                barCount: 12,
-                                tint: modeTint,
-                                progress: 1.0,
-                                isAnimating: false
-                            )
-                            .frame(width: 36, height: 24)
-                        }
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(item.textPreview)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(IOSAppTheme.textPrimary)
-                                .lineLimit(2)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .multilineTextAlignment(.leading)
-
-                            Text(historyMetadata)
-                                .font(.caption)
-                                .foregroundStyle(IOSAppTheme.textSecondary)
-                                .lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(alignment: .center, spacing: 12) {
+            Button(action: openPlayerSheet) {
+                HStack(alignment: .center, spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(modeTint.opacity(0.14))
+                            .background {
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(Color.white.opacity(0.02))
+                            }
+                            .frame(width: 48, height: 48)
+                        IOSWaveformBars(
+                            seed: thumbnailSeed,
+                            barCount: 14,
+                            tint: modeTint,
+                            progress: 1.0,
+                            isAnimating: false
+                        )
+                        .frame(width: 34, height: 22)
                     }
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("historyRowTap_\(item.historyAccessibilityID)")
 
-                HStack(spacing: 8) {
-                    Button(action: onPlay) {
-                        Image(systemName: "play.fill")
-                    }
-                    .iosAdaptiveUtilityButtonStyle(prominent: true, tint: modeTint)
-                    .accessibilityIdentifier("historyRowPlay_\(item.historyAccessibilityID)")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.textPreview)
+                            .font(.system(size: 15, weight: .medium))
+                            .tracking(-0.15)
+                            .foregroundStyle(IOSAppTheme.textPrimary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .multilineTextAlignment(.leading)
 
-                    Menu {
-                        Button {
-                            onPlay()
-                        } label: {
-                            Label("Play", systemImage: "play.fill")
-                        }
-                        if FileManager.default.fileExists(atPath: item.audioPath) {
-                            ShareLink(item: URL(fileURLWithPath: item.audioPath)) {
-                                Label("Save audio", systemImage: "square.and.arrow.down")
+                        HStack(spacing: 6) {
+                            IOSModeDot(tint: modeTint)
+                            if let voice = item.voice, !voice.isEmpty {
+                                Text(voice)
+                            } else {
+                                Text(modeText)
+                            }
+                            Text("·")
+                            Text(item.formattedDate)
+                            if let durationText {
+                                Text("·")
+                                Text(durationText)
+                                    .monospacedDigit()
                             }
                         }
-                        Divider()
-                        Button("Delete", role: .destructive) {
-                            isConfirmingDelete = true
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis")
+                        .font(.system(size: 12))
+                        .foregroundStyle(IOSAppTheme.textSecondary)
+                        .lineLimit(1)
                     }
-                    .iosAdaptiveUtilityButtonStyle(tint: IOSBrandTheme.library)
-                    .accessibilityIdentifier("historyRowMenu_\(item.historyAccessibilityID)")
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("historyRowTap_\(item.historyAccessibilityID)")
+
+            Menu {
+                Button {
+                    onPlay()
+                } label: {
+                    Label("Play", systemImage: "play.fill")
+                }
+                if FileManager.default.fileExists(atPath: item.audioPath) {
+                    ShareLink(item: URL(fileURLWithPath: item.audioPath)) {
+                        Label("Save audio", systemImage: "square.and.arrow.down")
+                    }
+                }
+                Divider()
+                Button("Delete", role: .destructive) {
+                    isConfirmingDelete = true
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(IOSAppTheme.textPrimary)
+                    .frame(width: 32, height: 32)
+                    .background {
+                        Circle().fill(Color.white.opacity(0.06))
+                    }
+                    .overlay {
+                        Circle().stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("historyRowMenu_\(item.historyAccessibilityID)")
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 0.5)
+                .padding(.leading, 76)
+                .padding(.trailing, 20)
         }
         .confirmationDialog(
             "Delete this take?",

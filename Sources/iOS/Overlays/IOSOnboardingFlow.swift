@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Full-screen first-run onboarding from the Claude Design prototype
+/// Full-screen first-run onboarding from the iOS design reference
 /// (design_references/Vocello iOS/screens.jsx Onboarding). Three pages:
 /// Welcome → Install pointer → Open Studio. Informational only; the actual
 /// model install happens later in Settings via the existing
@@ -21,13 +21,12 @@ struct IOSOnboardingFlow: View {
             IOSModeBackdrop(tint: IOSBrandTheme.accent, intensity: .warm)
 
             VStack(spacing: 0) {
-                topBar
                 pages
                 pagination
                 ctaButton
             }
             .padding(.horizontal, 24)
-            .padding(.bottom, 32)
+            .padding(.bottom, 40)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .preferredColorScheme(.dark)
@@ -135,39 +134,45 @@ struct IOSOnboardingFlow: View {
 
 private struct IOSOnboardingWelcomePage: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 28) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Welcome to Vocello")
-                    .font(.system(.largeTitle, design: .default, weight: .bold))
-                    .foregroundStyle(IOSAppTheme.textPrimary)
-                    .multilineTextAlignment(.leading)
+        VStack(spacing: 0) {
+            IOSOnboardingIcon(symbol: "sparkles", colors: [IOSBrandTheme.accent, IOSBrandTheme.clone])
+                .padding(.bottom, 32)
 
-                Text("Your voice studio that runs entirely on this iPhone.")
-                    .font(.body)
-                    .foregroundStyle(IOSAppTheme.textSecondary)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text("Vocello")
+                .font(.system(size: 36, weight: .bold))
+                .tracking(-0.90)
+                .foregroundStyle(IOSAppTheme.textPrimary)
+                .multilineTextAlignment(.center)
 
-            VStack(alignment: .leading, spacing: 16) {
+            Text("Studio-quality voice generation. Runs entirely on this iPhone.")
+                .font(.system(size: 17))
+                .foregroundStyle(IOSAppTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 320)
+                .padding(.top, 14)
+
+            VStack(alignment: .leading, spacing: 12) {
                 IOSOnboardingBenefitRow(
                     symbol: "lock.shield",
-                    title: "Private by design",
-                    detail: "Audio stays on this iPhone. No accounts, no uploads."
+                    title: "Nothing leaves your device",
+                    detail: nil
                 )
                 IOSOnboardingBenefitRow(
-                    symbol: "iphone.gen3",
-                    title: "On-device generation",
-                    detail: "Apple Neural Engine renders the voice locally."
+                    symbol: "bolt.fill",
+                    title: "Generation in seconds",
+                    detail: nil
                 )
                 IOSOnboardingBenefitRow(
                     symbol: "waveform.path.ecg",
-                    title: "Three workflows",
-                    detail: "Custom voices, voice design from a brief, or cloning from a clip."
+                    title: "Clone, design, or pick a voice",
+                    detail: nil
                 )
             }
+            .frame(width: 280, alignment: .leading)
+            .padding(.top, 32)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 }
 
@@ -175,39 +180,45 @@ private struct IOSOnboardingWelcomePage: View {
 
 private struct IOSOnboardingInstallPage: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 28) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Install a voice model")
-                    .font(.system(.largeTitle, design: .default, weight: .bold))
-                    .foregroundStyle(IOSAppTheme.textPrimary)
-                    .multilineTextAlignment(.leading)
+        VStack(spacing: 0) {
+            IOSOnboardingIcon(symbol: "arrow.down.circle.fill", colors: [IOSBrandTheme.design, IOSBrandTheme.accent])
+                .padding(.bottom, 32)
 
-                Text("Vocello downloads one of three voice models on first use. They live in the Settings tab. Each model is roughly 1.7 GB and lands once.")
-                    .font(.body)
-                    .foregroundStyle(IOSAppTheme.textSecondary)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text("Install Custom Voice")
+                .font(.system(size: 36, weight: .bold))
+                .tracking(-0.90)
+                .foregroundStyle(IOSAppTheme.textPrimary)
+                .multilineTextAlignment(.center)
+
+            Text("Download the 4-bit Speed model to start generating. Voice Design and Voice Cloning each have their own model; install them later in Settings.")
+                .font(.system(size: 17))
+                .foregroundStyle(IOSAppTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 320)
+                .padding(.top, 14)
 
             VStack(alignment: .leading, spacing: 14) {
                 IOSOnboardingModelHint(
                     tint: IOSBrandTheme.custom,
                     name: "Custom Voice",
-                    detail: "Pick from 12 built-in speakers. Best for narration."
+                    detail: "Built-in speakers and delivery presets."
                 )
                 IOSOnboardingModelHint(
                     tint: IOSBrandTheme.design,
                     name: "Voice Design",
-                    detail: "Describe a voice in a sentence and generate."
+                    detail: "Describe a voice in natural language."
                 )
                 IOSOnboardingModelHint(
                     tint: IOSBrandTheme.clone,
                     name: "Voice Cloning",
-                    detail: "Save voices from a short reference clip you own."
+                    detail: "Use a 10-20 s reference clip you own."
                 )
             }
+            .frame(width: 300, alignment: .leading)
+            .padding(.top, 32)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 }
 
@@ -215,20 +226,24 @@ private struct IOSOnboardingInstallPage: View {
 
 private struct IOSOnboardingReadyPage: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 28) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("You're set.")
-                    .font(.system(.largeTitle, design: .default, weight: .bold))
-                    .foregroundStyle(IOSAppTheme.textPrimary)
+        VStack(spacing: 0) {
+            IOSOnboardingIcon(symbol: "checkmark.circle.fill", colors: [IOSBrandTheme.clone, IOSBrandTheme.design])
+                .padding(.bottom, 32)
 
-                Text("Type a line in Studio, pick a voice or describe one, and tap Generate. Saved takes live in History and Voices.")
-                    .font(.body)
-                    .foregroundStyle(IOSAppTheme.textSecondary)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text("You're ready")
+                .font(.system(size: 36, weight: .bold))
+                .tracking(-0.90)
+                .foregroundStyle(IOSAppTheme.textPrimary)
+                .multilineTextAlignment(.center)
 
-            // Visual: stacked waveform bars in three mode tints.
+            Text("Type a script, pick a voice, generate. Your audio stays here.")
+                .font(.system(size: 17))
+                .foregroundStyle(IOSAppTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 320)
+                .padding(.top, 14)
+
             HStack(spacing: 12) {
                 ForEach(0..<3, id: \.self) { i in
                     let tint: Color = {
@@ -257,17 +272,41 @@ private struct IOSOnboardingReadyPage: View {
                     }
                 }
             }
+            .padding(.top, 32)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 }
 
 // MARK: - Reusable rows
 
+private struct IOSOnboardingIcon: View {
+    let symbol: String
+    let colors: [Color]
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 24, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: colors,
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .frame(width: 96, height: 96)
+            .overlay {
+                Image(systemName: symbol)
+                    .font(.system(size: 48, weight: .semibold))
+                    .foregroundStyle(Color(red: 13 / 255, green: 14 / 255, blue: 18 / 255))
+            }
+            .shadow(color: IOSBrandTheme.accent.opacity(0.30), radius: 18, x: 0, y: 12)
+    }
+}
+
 private struct IOSOnboardingBenefitRow: View {
     let symbol: String
     let title: String
-    let detail: String
+    let detail: String?
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
@@ -282,12 +321,14 @@ private struct IOSOnboardingBenefitRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(IOSAppTheme.textPrimary)
-                Text(detail)
-                    .font(.subheadline)
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(IOSAppTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let detail {
+                    Text(detail)
+                        .font(.subheadline)
+                        .foregroundStyle(IOSAppTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }

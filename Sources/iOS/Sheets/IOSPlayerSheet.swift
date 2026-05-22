@@ -23,21 +23,26 @@ struct IOSPlayerSheet: View {
             IOSModeBackdrop(tint: item.modeTint, intensity: .warm)
 
             VStack(spacing: 0) {
+                grabber
                 topBar
                 Spacer(minLength: 12)
                 waveform
+                    .padding(.horizontal, 24)
                     .padding(.bottom, 14)
                 header
+                    .padding(.horizontal, 24)
                     .padding(.bottom, 22)
                 transcript
+                    .padding(.horizontal, 24)
                     .padding(.bottom, 18)
                 Spacer(minLength: 0)
                 scrubber
+                    .padding(.horizontal, 24)
                     .padding(.bottom, 18)
                 controls
+                    .padding(.horizontal, 24)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 32)
+            .padding(.bottom, 16)
         }
         .preferredColorScheme(.dark)
         .task {
@@ -49,6 +54,14 @@ struct IOSPlayerSheet: View {
     }
 
     // MARK: - Top bar
+
+    private var grabber: some View {
+        Capsule(style: .continuous)
+            .fill(Color.white.opacity(0.20))
+            .frame(width: 36, height: 5)
+            .padding(.top, 6)
+            .padding(.bottom, 6)
+    }
 
     private var topBar: some View {
         HStack {
@@ -69,32 +82,22 @@ struct IOSPlayerSheet: View {
 
             Spacer()
 
-            Text("Now playing")
-                .font(.caption.weight(.semibold))
-                .tracking(0.7)
-                .foregroundStyle(IOSAppTheme.textTertiary)
+            HStack(spacing: 8) {
+                IOSModeDot(tint: item.modeTint)
+                Text(playerEyebrowLabel.uppercased())
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .tracking(0.88)
+            .foregroundStyle(IOSAppTheme.textPrimary)
 
             Spacer()
 
-            Button {
-                controller.shareCurrent()
-            } label: {
-                // Per design: download icon (arrow.down.to.line) replaces
-                // the share-up icon in the Player sheet header for
-                // consistency with the inline-player.
-                Image(systemName: "arrow.down.to.line")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(IOSAppTheme.textPrimary)
-                    .frame(width: 36, height: 36)
-                    .background {
-                        Circle()
-                            .fill(IOSAppTheme.glassSurfaceFillMuted.opacity(0.55))
-                    }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Download")
+            Color.clear
+                .frame(width: 36, height: 36)
         }
-        .padding(.top, 8)
+        .padding(.horizontal, 16)
+        .padding(.top, 0)
+        .padding(.bottom, 4)
     }
 
     // MARK: - Header
@@ -110,28 +113,26 @@ struct IOSPlayerSheet: View {
     private var header: some View {
         VStack(spacing: 4) {
             Text(item.voiceName)
-                .font(.system(size: 22, weight: .semibold))
+                .font(.system(size: 22, weight: .bold))
+                .tracking(-0.44)
                 .foregroundStyle(IOSAppTheme.textPrimary)
                 .lineLimit(1)
 
-            HStack(spacing: 6) {
-                IOSModeDot(tint: item.modeTint)
-                Text(item.modeLabel)
-                if let detail = item.subtitle {
-                    Text("·")
-                        .foregroundStyle(IOSAppTheme.textTertiary)
-                    Text(detail)
-                        .lineLimit(1)
-                }
-                Text("·")
-                    .foregroundStyle(IOSAppTheme.textTertiary)
-                Text(controller.formatted(time: controller.duration))
-                    .monospacedDigit()
-            }
-            .font(.system(size: 13))
-            .foregroundStyle(IOSAppTheme.textSecondary)
+            Text("\(item.subtitle ?? "Just now") · \(controller.formatted(time: controller.duration))")
+                .font(.system(size: 13))
+                .foregroundStyle(IOSAppTheme.textSecondary)
+                .monospacedDigit()
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var playerEyebrowLabel: String {
+        switch item.modeLabel.lowercased() {
+        case "custom": return "Custom Voice"
+        case "design": return "Voice Design"
+        case "clone": return "Voice Cloning"
+        default: return item.modeLabel
+        }
     }
 
     // MARK: - Waveform
@@ -146,7 +147,8 @@ struct IOSPlayerSheet: View {
             barCount: 42,
             tint: item.modeTint,
             progress: controller.progress,
-            isAnimating: false
+            isAnimating: controller.isPlaying,
+            unplayedColor: Color.white.opacity(0.14)
         )
         .frame(height: 96)
     }
@@ -237,41 +239,76 @@ struct IOSPlayerSheet: View {
     // MARK: - Controls
 
     private var controls: some View {
-        HStack(spacing: 14) {
-            Button {
-                controller.skip(by: -5)
-            } label: {
-                Image(systemName: "gobackward.5")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(IOSAppTheme.textPrimary)
-                    .frame(width: 52, height: 52)
-                    .background {
-                        Circle().fill(IOSAppTheme.glassSurfaceFillMuted.opacity(0.55))
+        HStack(spacing: 16) {
+            playerSideButton(
+                title: "Save",
+                symbol: "bookmark",
+                action: {
+                    if let onSave {
+                        onSave()
+                    } else {
+                        controller.shareCurrent()
                     }
-            }
-            .buttonStyle(.plain)
-
-            IOSPrimaryCTAButton(
-                title: controller.isPlaying ? "Pause" : "Play",
-                symbol: controller.isPlaying ? "pause.fill" : "play.fill",
-                tint: item.modeTint,
-                isEnabled: controller.duration > 0,
-                action: { controller.togglePlayback() }
+                }
             )
 
             Button {
-                controller.skip(by: 5)
+                guard controller.duration > 0 else { return }
+                controller.togglePlayback()
             } label: {
-                Image(systemName: "goforward.5")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(IOSAppTheme.textPrimary)
-                    .frame(width: 52, height: 52)
+                Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(IOSAppTheme.accentForeground)
+                    .frame(width: 72, height: 72)
                     .background {
-                        Circle().fill(IOSAppTheme.glassSurfaceFillMuted.opacity(0.55))
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        item.modeTint,
+                                        item.modeTint.mix(with: .black, by: 0.20, in: .perceptual)
+                                    ],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
                     }
+                    .overlay {
+                        Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.5)
+                    }
+                    .shadow(color: .black.opacity(0.30), radius: 9, x: 0, y: 6)
             }
             .buttonStyle(.plain)
+            .disabled(controller.duration <= 0)
+
+            playerSideButton(
+                title: "Download",
+                symbol: "arrow.down.to.line",
+                action: { controller.shareCurrent() }
+            )
         }
+        .padding(.horizontal, 4)
+    }
+
+    private func playerSideButton(
+        title: String,
+        symbol: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: symbol)
+                    .font(.system(size: 19, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(0.22)
+            }
+            .foregroundStyle(IOSAppTheme.textSecondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -326,7 +363,7 @@ struct IOSPlayerSheetItem: Equatable, Identifiable {
             subtitle: history.formattedDate,
             avatarSeed: voiceName,
             avatarInitials: voiceName,
-            waveformSeed: history.id.map { Int(truncatingIfNeeded: $0) } ?? history.audioPath.hashValue
+            waveformSeed: history.id.map { Int(truncatingIfNeeded: $0) } ?? IOSStableVisualHash.int(history.audioPath)
         )
     }
 }
@@ -360,8 +397,9 @@ struct IOSPlayerKaraokeText: View {
 
     var body: some View {
         Text(attributedTranscript)
-            .font(.system(.title3, design: .default, weight: .regular))
-            .lineSpacing(4)
+            .font(.system(size: 17, weight: .medium))
+            .tracking(-0.085)
+            .lineSpacing(5)
             .multilineTextAlignment(alignment)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -377,7 +415,7 @@ struct IOSPlayerKaraokeText: View {
                 run.foregroundColor = IOSAppTheme.textPrimary
             } else if i == activeIndex {
                 run.foregroundColor = tint
-                run.font = .system(.title3, design: .default, weight: .semibold)
+                run.font = .system(size: 17, weight: .semibold)
             } else if span.end <= currentTime {
                 run.foregroundColor = IOSAppTheme.textSecondary
             } else {

@@ -7,31 +7,18 @@ import QwenVoiceCore
 /// uses on Studio.
 ///
 /// Selection lives on `AppModel.tab`. The Studio tab takes the
-/// currently-selected mode color; the other tabs use a fixed neutral
-/// accent.
+/// currently-selected mode color; the other tabs use their reference
+/// dock accents from `design_references/Vocello iOS/chrome.jsx`.
 struct TabDock: View {
     @Environment(AppModel.self) private var appModel
 
-    @ScaledMetric(relativeTo: .body) private var horizontalPadding: CGFloat = 16
-    @ScaledMetric(relativeTo: .body) private var topPadding: CGFloat = 8
-    @ScaledMetric(relativeTo: .body) private var bottomPadding: CGFloat = 10
-    @ScaledMetric(relativeTo: .body) private var railPadding: CGFloat = 8
-    @ScaledMetric(relativeTo: .body) private var railRadius: CGFloat = 30
-
     private var dockTint: Color {
-        switch appModel.tab {
-        case .studio:
-            return Theme.Brand.modeColor(appModel.studioMode.mode)
-        case .voices, .history:
-            return Theme.Brand.silver
-        case .settings:
-            return Theme.Brand.silver
-        }
+        appModel.tab.dockAccent(studioMode: appModel.studioMode.mode)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
+            HStack(spacing: 2) {
                 ForEach(IOSAppTab.allCases) { tab in
                     TabDockButton(
                         tab: tab,
@@ -40,19 +27,13 @@ struct TabDock: View {
                     )
                 }
             }
-            .padding(railPadding)
+            .padding(6)
             .frame(maxWidth: .infinity)
-            .themeGlassSurface(
-                in: RoundedRectangle(cornerRadius: railRadius, style: .continuous),
-                tint: dockTint,
-                fill: Theme.Surface.glassFloating.opacity(0.68),
-                strokeOpacity: 0.12,
-                interactive: true
-            )
+            .background { TabDockRailBackground(tint: dockTint) }
             .sensoryFeedback(.selection, trigger: appModel.tab)
-            .padding(.horizontal, horizontalPadding)
-            .padding(.top, topPadding)
-            .padding(.bottom, bottomPadding)
+            .padding(.horizontal, 14)
+            .padding(.top, 6)
+            .padding(.bottom, 24)
         }
         .background(
             LinearGradient(
@@ -83,32 +64,27 @@ private struct TabDockButton: View {
     let isSelected: Bool
     let action: () -> Void
 
-    @ScaledMetric(relativeTo: .footnote) private var verticalPadding: CGFloat = 10
-    @ScaledMetric(relativeTo: .footnote) private var horizontalPadding: CGFloat = 12
-
     @Environment(AppModel.self) private var appModel
 
     private var accentTint: Color {
-        switch tab {
-        case .studio: return Theme.Brand.modeColor(appModel.studioMode.mode)
-        case .voices, .history: return Theme.Brand.silver
-        case .settings: return Theme.Brand.silver
-        }
+        tab.dockAccent(studioMode: appModel.studioMode.mode)
     }
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 6) {
+            VStack(spacing: 4) {
                 Image(systemName: tab.systemImage)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 22, weight: .semibold))
                 Text(tab.title)
-                    .font(.caption2.weight(.semibold))
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(0.05)
                     .lineLimit(1)
             }
-            .foregroundStyle(isSelected ? Theme.Text.primary : Theme.Text.secondary)
+            .foregroundStyle(isSelected ? accentTint : Color.white.opacity(0.46))
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, verticalPadding)
+            .padding(.horizontal, 4)
+            .padding(.top, 9)
+            .padding(.bottom, 7)
             .background {
                 if isSelected {
                     TabDockSelectionBackground(tint: accentTint)
@@ -118,6 +94,38 @@ private struct TabDockButton: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("rootTab_\(tab.rawValue)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+private struct TabDockRailBackground: View {
+    let tint: Color
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 28, style: .continuous)
+        let fill = Color(red: 16 / 255, green: 18 / 255, blue: 26 / 255)
+            .opacity(reduceTransparency ? 1.0 : 0.98)
+
+        shape
+            .fill(fill)
+            .overlay {
+                shape.stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+            }
+            .overlay(alignment: .top) {
+                shape
+                    .stroke(Color.white.opacity(0.05), lineWidth: 0.6)
+                    .mask(
+                        LinearGradient(
+                            colors: [.white, .clear],
+                            startPoint: .top,
+                            endPoint: .center
+                        )
+                    )
+            }
+            .shadow(color: .black.opacity(0.40), radius: 18, x: 0, y: 14)
+            .overlay {
+                shape.stroke(tint.opacity(0.04), lineWidth: 0.5)
+            }
     }
 }
 
@@ -169,23 +177,32 @@ private struct TabDockSelectionBackground: View {
                 )
             )
 
-        if reduceTransparency {
-            baseFill
-                .overlay { stroke }
-                .overlay { insetHighlight }
-        } else {
-            baseFill
-                .glassEffect(.regular.interactive(), in: shape)
-                .overlay { stroke }
-                .overlay { insetHighlight }
-                .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 2)
-        }
+        baseFill
+            .overlay { stroke }
+            .overlay { insetHighlight }
+            .shadow(color: .black.opacity(reduceTransparency ? 0 : 0.25), radius: 3, x: 0, y: 2)
     }
 }
 
 // MARK: - IOSAppTab presentation helpers
 
-private extension IOSAppTab {
+extension IOSAppTab {
+    func dockAccent(studioMode: GenerationMode) -> Color {
+        switch self {
+        case .studio:
+            return Theme.Brand.modeColor(studioMode)
+        case .voices:
+            // #8AB0C8 — soft dusty blue in the reference dock.
+            return Color(red: 0.541, green: 0.690, blue: 0.784)
+        case .history:
+            // #BFA0AB — muted dusty rose in the reference dock.
+            return Color(red: 0.749, green: 0.627, blue: 0.671)
+        case .settings:
+            // #A1A8B8 — cool slate neutral in the reference dock.
+            return Color(red: 0.631, green: 0.659, blue: 0.722)
+        }
+    }
+
     var title: String {
         switch self {
         case .studio: return "Studio"

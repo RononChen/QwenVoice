@@ -107,7 +107,7 @@ enum IOSBrandTheme {
 
     static let custom = accent
     // Mode color: #BFAADC per design_references/Vocello iOS/tokens.css (--mode-design).
-    // Was #BFABDB — 2-channel micro-shift to align with the Claude Design system.
+    // Was #BFABDB; this aligns with the iOS design reference token.
     static let design = Color(dark: UIColor(red: 0.749, green: 0.667, blue: 0.863, alpha: 1))
     // Mode color: #DBA887 per design system (--mode-cloning).
     static let clone = Color(dark: UIColor(red: 0.859, green: 0.659, blue: 0.529, alpha: 1))
@@ -286,7 +286,7 @@ struct IOSSubtleGlassSurfaceModifier<S: InsettableShape>: ViewModifier {
             }
 
         if reduceTransparency {
-            // Solid-fill fallback required by CLAUDE.md when Reduce Transparency
+            // Solid-fill fallback required by AGENTS.md when Reduce Transparency
             // is on. `fill` already paints the base background; skip glassEffect.
             base
         } else if interactive {
@@ -391,11 +391,6 @@ struct IOSStatusBadge: View {
 }
 
 struct IOSSurfaceCard<Content: View>: View {
-    @ScaledMetric(relativeTo: .body) private var cardPadding = 12
-    @ScaledMetric(relativeTo: .body) private var contentSpacing = 8
-    @ScaledMetric(relativeTo: .body) private var shadowRadius = 6
-    @ScaledMetric(relativeTo: .body) private var shadowOffset = 2
-
     let tint: Color?
     let content: Content
 
@@ -410,16 +405,14 @@ struct IOSSurfaceCard<Content: View>: View {
         VStack(alignment: .leading, spacing: contentSpacing) {
             content
         }
-        .padding(cardPadding)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .iosSubtleGlassSurface(
-            in: shape,
-            tint: tint,
-            fill: IOSAppTheme.glassSurfaceFill,
-            strokeOpacity: 0.10
-        )
+        .background { shape.fill(Color.white.opacity(0.04)) }
+        .overlay { shape.stroke(Color.white.opacity(0.08), lineWidth: 0.5) }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    private var contentSpacing: CGFloat { 8 }
 }
 
 struct IOSSectionHeading: View {
@@ -433,9 +426,10 @@ struct IOSSectionHeading: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(IOSAppTheme.textPrimary)
+            Text(title.uppercased())
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(0.88)
+                .foregroundStyle(IOSAppTheme.textSecondary)
             if let subtitle, !subtitle.isEmpty {
                 Text(subtitle)
                     .font(.caption)
@@ -443,6 +437,9 @@ struct IOSSectionHeading: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .padding(.horizontal, 20)
+        .padding(.top, 20)
+        .padding(.bottom, 6)
     }
 }
 

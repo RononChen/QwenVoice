@@ -168,13 +168,21 @@ struct IOSCustomVoiceView: View {
                         languageTag: IOSVoicePickerLanguage.tag(for: spec.nativeLanguage)
                     )
                 },
-                recents: [],
+                recents: TTSContract.allSpeakerDescriptors.prefix(3).map { spec in
+                    IOSVoicePickerOption(
+                        id: spec.id,
+                        name: spec.displayName,
+                        subtitle: spec.shortDescription ?? spec.nativeLanguage,
+                        languageTag: IOSVoicePickerLanguage.tag(for: spec.nativeLanguage)
+                    )
+                },
                 selectedID: $draft.selectedSpeaker,
                 tint: IOSBrandTheme.custom
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.hidden)
-            .presentationBackground(IOSBrandTheme.canvasTop)
+            .presentationCornerRadius(IOSBottomSheetChrome.cornerRadius)
+            .presentationBackground(IOSBottomSheetChrome.background)
         }
         .sheet(isPresented: $isDeliveryPickerPresented) {
             IOSDeliveryPickerSheet(
@@ -191,7 +199,8 @@ struct IOSCustomVoiceView: View {
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.hidden)
-            .presentationBackground(IOSBrandTheme.canvasTop)
+            .presentationCornerRadius(IOSBottomSheetChrome.cornerRadius)
+            .presentationBackground(IOSBottomSheetChrome.background)
         }
     }
 
@@ -201,7 +210,7 @@ struct IOSCustomVoiceView: View {
             eyebrow: "Voice",
             value: speakerDisplayName,
             leadingAvatar: AnyView(
-                IOSVoiceAvatar(seed: draft.selectedSpeaker, initials: speakerDisplayName, diameter: 30)
+                IOSVoiceAvatar(seed: draft.selectedSpeaker, initials: speakerDisplayName, diameter: 32)
             ),
             tint: IOSBrandTheme.custom,
             action: { isVoicePickerPresented = true }
@@ -281,7 +290,7 @@ struct IOSCustomVoiceView: View {
                         )
                     )
                 )
-                var generation = Generation(
+                let generation = Generation(
                     text: promptText,
                     mode: model.mode.rawValue,
                     modelTier: model.tier,
@@ -307,7 +316,7 @@ struct IOSCustomVoiceView: View {
                             modeLabel: "Custom",
                             mode: .custom,
                             transcript: promptText,
-                            waveformSeed: result.audioPath.hashValue
+                            waveformSeed: IOSStableVisualHash.int(result.audioPath)
                         )
                     )
                 }
@@ -597,7 +606,8 @@ struct IOSVoiceDesignView: View {
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.hidden)
-            .presentationBackground(IOSBrandTheme.canvasTop)
+            .presentationCornerRadius(IOSBottomSheetChrome.cornerRadius)
+            .presentationBackground(IOSBottomSheetChrome.background)
         }
         .sheet(isPresented: $isDeliveryPickerPresented) {
             IOSDeliveryPickerSheet(
@@ -614,7 +624,8 @@ struct IOSVoiceDesignView: View {
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.hidden)
-            .presentationBackground(IOSBrandTheme.canvasTop)
+            .presentationCornerRadius(IOSBottomSheetChrome.cornerRadius)
+            .presentationBackground(IOSBottomSheetChrome.background)
         }
     }
 
@@ -710,7 +721,7 @@ struct IOSVoiceDesignView: View {
                         )
                     )
                 )
-                var generation = Generation(
+                let generation = Generation(
                     text: promptText,
                     mode: model.mode.rawValue,
                     modelTier: model.tier,
@@ -737,7 +748,7 @@ struct IOSVoiceDesignView: View {
                             modeLabel: "Design",
                             mode: .design,
                             transcript: promptText,
-                            waveformSeed: result.audioPath.hashValue
+                            waveformSeed: IOSStableVisualHash.int(result.audioPath)
                         )
                     )
                 }
@@ -1099,7 +1110,8 @@ struct IOSVoiceCloningView: View {
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.hidden)
-            .presentationBackground(IOSBrandTheme.canvasTop)
+            .presentationCornerRadius(IOSBottomSheetChrome.cornerRadius)
+            .presentationBackground(IOSBottomSheetChrome.background)
         }
     }
 
@@ -1223,7 +1235,7 @@ struct IOSVoiceCloningView: View {
                     )
                 )
                 let voiceName = selectedVoice?.name ?? URL(fileURLWithPath: refPath).deletingPathExtension().lastPathComponent
-                var generation = Generation(
+                let generation = Generation(
                     text: promptText,
                     mode: model.mode.rawValue,
                     modelTier: model.tier,
@@ -1249,7 +1261,7 @@ struct IOSVoiceCloningView: View {
                             modeLabel: "Clone",
                             mode: .clone,
                             transcript: promptText,
-                            waveformSeed: result.audioPath.hashValue
+                            waveformSeed: IOSStableVisualHash.int(result.audioPath)
                         )
                     )
                 }

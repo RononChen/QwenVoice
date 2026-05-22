@@ -80,16 +80,16 @@ struct IOSStudioCanvas<SetupChips: View>: View {
         // leftover height via `.layoutPriority(1)` + maxHeight infinity;
         // chips + dock keep their natural sizes and pin against the
         // bottom safe-area inset chain owned by RootView (Phase 2).
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 0) {
             composerPad
                 .frame(maxHeight: .infinity)
             setupRow
                 .layoutPriority(2)
             dockArea
                 .layoutPriority(2)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 4)
         // Bottom clearance: NavigationStack inside RootView doesn't
         // propagate the TabDock's safeAreaInset reservation to the
         // canvas cleanly. 130 pt clears the dock pill (~80 pt visual
@@ -125,8 +125,7 @@ struct IOSStudioCanvas<SetupChips: View>: View {
                         .font(.system(size: 22, weight: .medium))
                         .tracking(-0.22)            // letter-spacing -0.01em ≈ -0.22pt at 22pt
                         .foregroundStyle(IOSAppTheme.textTertiary)
-                        .padding(.top, 12)
-                        .padding(.leading, 4)
+                        .padding(.top, 8)
                         .allowsHitTesting(false)
                 }
                 IOSFlexibleTextEditor(
@@ -161,17 +160,21 @@ struct IOSStudioCanvas<SetupChips: View>: View {
                     .accessibilityIdentifier("textInput_lengthCount")
             }
             .padding(.top, 4)
-            .padding(.bottom, 6)
+            .padding(.bottom, 10)
         }
+        .padding(.horizontal, 20)
+        .padding(.top, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Setup row
 
     private var setupRow: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 8) {
             setupChips
         }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 10)
     }
 
     // MARK: - Dock area
@@ -196,26 +199,13 @@ struct IOSStudioCanvas<SetupChips: View>: View {
     }
 
     private var installCTA: some View {
-        Button(action: onInstallModel) {
-            HStack(spacing: 10) {
-                Image(systemName: "arrow.down.circle.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                Text("Install \(modelDisplayName)")
-                    .font(.system(size: 17, weight: .semibold))
-            }
-            .foregroundStyle(IOSAppTheme.accentForeground)
-            .frame(maxWidth: .infinity)
-            .frame(height: 52)
-            .background {
-                Capsule(style: .continuous)
-                    .fill(LinearGradient(colors: [tint, tint.opacity(0.78)], startPoint: .topLeading, endPoint: .bottomTrailing))
-            }
-            .overlay {
-                Capsule(style: .continuous).stroke(Color.white.opacity(0.18), lineWidth: 0.8)
-            }
-            .shadow(color: tint.opacity(0.30), radius: 14, x: 0, y: 4)
-        }
-        .buttonStyle(.plain)
+        IOSPrimaryCTAButton(
+            title: "Install \(modelDisplayName)",
+            symbol: "arrow.down.circle.fill",
+            tint: tint,
+            isEnabled: true,
+            action: onInstallModel
+        )
         .accessibilityIdentifier("textInput_installModelButton")
     }
 
@@ -267,16 +257,16 @@ struct IOSStudioCanvas<SetupChips: View>: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("textInput_cancelButton")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
         .frame(maxWidth: .infinity)
+        .frame(height: 56)
         .background {
-            RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
-                .fill(IOSAppTheme.glassSurfaceFillMuted.opacity(0.55))
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(0.04))
         }
         .overlay {
-            RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
-                .stroke(tint.opacity(0.28), lineWidth: 0.9)
+            Capsule(style: .continuous)
+                .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
         }
     }
 

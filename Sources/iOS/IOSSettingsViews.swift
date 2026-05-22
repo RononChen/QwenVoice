@@ -37,33 +37,40 @@ struct IOSSettingsContainerView: View {
 private struct IOSSettingsView: View {
     @EnvironmentObject private var modelManager: ModelManagerViewModel
     @EnvironmentObject private var modelInstaller: IOSModelInstallerViewModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     @Binding var selectedTab: IOSAppTab
     @AppStorage("autoPlay") private var autoPlay = true
 
-    private var runtimeDescription: String {
-        IOSSimulatorRuntimeSupport.isSimulator ? "Simulator" : "On-device"
-    }
-
     private var previewSettingsState: IOSPreviewSettingsState? {
         IOSPreviewRuntime.current?.definition.settingsState
+    }
+
+    private var installedModelBytes: Int64 {
+        TTSModel.all.reduce(0) { total, model in
+            guard case let .installed(bytes) = effectiveStatus(for: model) else {
+                return total
+            }
+            return total + Int64(bytes)
+        }
+    }
+
+    private var storageSummaryText: String {
+        installedModelBytes > 0
+            ? "\(IOSSettingsFormatters.fileSize(installedModelBytes)) used"
+            : "0 GB used"
     }
 
     var body: some View {
         IOSStudioShellScreen(
             selectedTab: $selectedTab,
             activeTab: .settings,
-            tint: IOSBrandTheme.settings
+            tint: IOSAppTab.settings.dockAccent(studioMode: .custom)
         ) {
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 14) {
-                    IOSStudioWorkspaceHeading(title: "Settings")
-
-                    IOSStudioSectionGroup(title: "Playback", tint: IOSBrandTheme.settings) {
-                        IOSSettingsPlaybackRow(isOn: $autoPlay)
-                    }
-
-                    IOSStudioSectionGroup(title: "Model Assets", tint: IOSBrandTheme.settings) {
+                VStack(alignment: .leading, spacing: 0) {
+                    IOSSettingsReferenceSection(title: "Voice models") {
                         ForEach(TTSModel.all) { model in
                             IOSModelRow(
                                 model: model,
@@ -75,76 +82,63 @@ private struct IOSSettingsView: View {
                             )
 
                             if model.id != TTSModel.all.last?.id {
-                                Divider()
-                                    .overlay(IOSAppTheme.hairlineDivider)
+                                IOSSettingsReferenceDivider()
                             }
                         }
                     }
 
-                    IOSStudioSectionGroup(title: "Runtime", tint: IOSBrandTheme.settings) {
-                        IOSHeaderMetricRow(label: "Runtime", value: runtimeDescription)
+                    IOSSettingsReferenceSection(title: "Settings") {
+                        IOSSettingsReferenceToggleRow(
+                            symbol: "play.fill",
+                            title: "Autoplay after generate",
+                            isOn: $autoPlay,
+                            tint: IOSBrandTheme.accent
+                        )
 
-                        Divider()
-                            .overlay(IOSAppTheme.hairlineDivider)
+                        IOSSettingsReferenceDivider()
 
-                        IOSHeaderMetricRow(
-                            label: "Minimum supported hardware",
-                            value: "iPhone 15 Pro or newer"
+                        IOSSettingsReferenceValueRow(
+                            symbol: "bookmark",
+                            title: "Saved outputs",
+                            value: "On My iPhone",
+                            showsChevron: true
+                        )
+
+                        IOSSettingsReferenceDivider()
+
+                        IOSSettingsReferenceValueRow(
+                            symbol: "arrow.down.to.line",
+                            title: "Storage",
+                            value: storageSummaryText,
+                            showsChevron: true
+                        )
+
+                        IOSSettingsReferenceDivider()
+
+                        IOSSettingsReferenceStaticToggleRow(
+                            symbol: "sparkles",
+                            title: "Reduce Motion",
+                            isOn: reduceMotion
+                        )
+
+                        IOSSettingsReferenceDivider()
+
+                        IOSSettingsReferenceStaticToggleRow(
+                            symbol: "lock.fill",
+                            title: "Reduce Transparency",
+                            isOn: reduceTransparency
                         )
                     }
 
-                    IOSStudioSectionGroup(title: "Help & support", tint: IOSBrandTheme.settings) {
-                        IOSSettingsLinkRow(
-                            title: "View documentation",
-                            subtitle: "Open the project README on GitHub.",
-                            urlString: "https://github.com/PowerBeef/QwenVoice#readme",
-                            accessibilityIdentifier: "iosSettingsDocsLink"
-                        )
-
-                        Divider()
-                            .overlay(IOSAppTheme.hairlineDivider)
-
-                        IOSSettingsLinkRow(
-                            title: "Report an issue",
-                            subtitle: "File a bug or feature request on GitHub.",
-                            urlString: "https://github.com/PowerBeef/QwenVoice/issues/new",
-                            accessibilityIdentifier: "iosSettingsReportIssueLink"
-                        )
-
-                        Divider()
-                            .overlay(IOSAppTheme.hairlineDivider)
-
-                        IOSSettingsLinkRow(
-                            title: "Privacy & local storage",
-                            subtitle: "Where Vocello keeps generated audio and saved voices.",
-                            urlString: "https://github.com/PowerBeef/QwenVoice/blob/main/docs/reference/privacy-storage.md",
-                            accessibilityIdentifier: "iosSettingsPrivacyLink"
-                        )
-
-                        Divider()
-                            .overlay(IOSAppTheme.hairlineDivider)
-
-                        IOSSettingsSystemPreferencesRow()
-
-                        Divider()
-                            .overlay(IOSAppTheme.hairlineDivider)
-
-                        IOSHeaderMetricRow(label: "App version", value: IOSSettingsSupportInfo.appVersionLabel)
-                    }
-
-                    #if DEBUG
-                    if IOSSimulatorRuntimeSupport.isSimulator {
-                        IOSStudioSectionGroup(title: "Debug", tint: IOSBrandTheme.settings) {
-                            IOSSettingsSeedHistoryRow()
-                        }
-                    }
-                    #endif
+                    IOSSettingsBrandFooter()
                 }
                 // Extra bottom padding so the bottom-most section clears
-                // the TabDock's gradient fade in RootView. Without this,
-                // long Settings + the Debug section get visually
-                // swallowed by the dock's canvasBottom gradient.
+                // the TabDock's gradient fade in RootView.
                 .padding(.bottom, 90)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear
+                    .frame(height: 118)
             }
         }
         .task {
@@ -198,6 +192,237 @@ private struct IOSSettingsView: View {
         }
         guard IOSSimulatorPreviewPolicy.allowsModelMutations else { return }
         modelInstaller.delete(model)
+    }
+}
+
+private struct IOSSettingsReferenceSection<Content: View>: View {
+    let title: String
+    let content: Content
+
+    init(title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title.uppercased())
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(0.88)
+                .foregroundStyle(IOSAppTheme.textSecondary)
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
+                .padding(.bottom, 6)
+
+            VStack(alignment: .leading, spacing: 0) {
+                content
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.white.opacity(0.04))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 6)
+        }
+    }
+}
+
+private struct IOSSettingsUtilityIcon: View {
+    let symbol: String
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(Color.white.opacity(0.06))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+            }
+            .overlay {
+                Image(systemName: symbol)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(IOSAppTheme.textPrimary)
+            }
+            .frame(width: 36, height: 36)
+    }
+}
+
+private struct IOSSettingsReferenceDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.06))
+            .frame(height: 0.5)
+            .padding(.leading, 64)
+    }
+}
+
+private struct IOSSettingsReferenceSwitch: View {
+    let isOn: Bool
+    let tint: Color
+
+    var body: some View {
+        Capsule(style: .continuous)
+            .fill(Color.white.opacity(0.06))
+            .overlay {
+                if isOn {
+                    Capsule(style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    tint,
+                                    tint.mix(with: .black, by: 0.18, in: .perceptual),
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                }
+            }
+            .overlay {
+                Capsule(style: .continuous)
+                    .stroke(isOn ? tint.opacity(0.60) : Color.white.opacity(0.10), lineWidth: 0.5)
+            }
+            .overlay {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.98, green: 0.97, blue: 0.94),
+                                Color(red: 0.86, green: 0.84, blue: 0.79),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .shadow(color: .black.opacity(isOn ? 0.22 : 0.18), radius: 2, x: 0, y: 1)
+                    .frame(width: 21, height: 21)
+                    .frame(maxWidth: .infinity, alignment: isOn ? .trailing : .leading)
+                    .padding(2)
+            }
+            .shadow(color: isOn ? tint.opacity(0.18) : .clear, radius: 8, x: 0, y: 2)
+            .frame(width: 44, height: 26)
+    }
+}
+
+private struct IOSSettingsReferenceToggleRow: View {
+    let symbol: String
+    let title: String
+    @Binding var isOn: Bool
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            IOSSettingsUtilityIcon(symbol: symbol)
+
+            Text(title)
+                .font(.system(size: 16))
+                .foregroundStyle(IOSAppTheme.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                isOn.toggle()
+                IOSHaptics.selection()
+            } label: {
+                IOSSettingsReferenceSwitch(isOn: isOn, tint: tint)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(title)
+            .accessibilityValue(isOn ? "On" : "Off")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct IOSSettingsReferenceStaticToggleRow: View {
+    let symbol: String
+    let title: String
+    let isOn: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            IOSSettingsUtilityIcon(symbol: symbol)
+
+            Text(title)
+                .font(.system(size: 16))
+                .foregroundStyle(IOSAppTheme.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            IOSSettingsReferenceSwitch(
+                isOn: isOn,
+                tint: IOSBrandTheme.accent
+            )
+            .accessibilityLabel(title)
+            .accessibilityValue(isOn ? "On" : "Off")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct IOSSettingsReferenceValueRow: View {
+    let symbol: String
+    let title: String
+    let value: String
+    let showsChevron: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            IOSSettingsUtilityIcon(symbol: symbol)
+
+            Text(title)
+                .font(.system(size: 16))
+                .foregroundStyle(IOSAppTheme.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(value)
+                .font(.system(size: 14))
+                .foregroundStyle(IOSAppTheme.textSecondary)
+                .lineLimit(1)
+
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(IOSAppTheme.textTertiary)
+                    .padding(.leading, 4)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct IOSSettingsBrandFooter: View {
+    var body: some View {
+        VStack(spacing: 2) {
+            Image("VocelloLaunchLogo")
+                .renderingMode(.original)
+                .resizable()
+                .interpolation(.high)
+                .antialiased(true)
+                .scaledToFit()
+                .frame(width: 180)
+                .shadow(color: IOSBrandTheme.accent.opacity(0.18), radius: 14, x: 0, y: 10)
+                .accessibilityHidden(true)
+
+            Text(Theme.Branding.version.uppercased())
+                .font(.system(size: 11, weight: .medium))
+                .tracking(0.66)
+                .foregroundStyle(IOSAppTheme.textTertiary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 20)
+        .padding(.top, 6)
+        .padding(.bottom, 2)
+        .opacity(0.78)
     }
 }
 
@@ -452,29 +677,20 @@ private struct IOSSettingsPlaybackRow: View {
 }
 
 private struct IOSSettingsProminentActionButtonStyle: ButtonStyle {
-    @ScaledMetric(relativeTo: .footnote) private var horizontalPadding = 14
-    @ScaledMetric(relativeTo: .footnote) private var verticalPadding = 6
-
     let tint: Color
 
     func makeBody(configuration: Configuration) -> some View {
         let shape = Capsule(style: .continuous)
 
         configuration.label
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(configuration.isPressed ? IOSAppTheme.accentForegroundPressed : IOSAppTheme.accentForeground)
-            .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, verticalPadding)
-            .iosSubtleGlassSurface(
-                in: shape,
-                tint: tint,
-                fill: tint.opacity(configuration.isPressed ? 0.14 : 0.10),
-                strokeOpacity: configuration.isPressed ? 0.30 : 0.22,
-                interactive: true
-            )
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 16)
+            .frame(height: 36)
+            .background { shape.fill(Color.clear) }
             .overlay {
                 shape
-                    .stroke(tint.opacity(configuration.isPressed ? 0.42 : 0.34), lineWidth: 0.9)
+                    .stroke(tint.opacity(configuration.isPressed ? 0.62 : 0.48), lineWidth: 0.5)
             }
             .opacity(configuration.isPressed ? 0.96 : 1.0)
             .iosAppAnimation(IOSSelectionMotion.press, value: configuration.isPressed)
@@ -499,23 +715,21 @@ private struct IOSModelRow: View {
     @State private var isPresentingDeleteSheet = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 12) {
-                    header
-                    Spacer(minLength: 12)
-                    controlsRow
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    header
-                    controlsRow
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                header
+                Spacer(minLength: 12)
+                controls
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
 
-            statusDetailView
+            if showsStatusDetail {
+                statusDetailView
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 10)
+            }
         }
-        .padding(.vertical, 2)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("iosModelRow_\(model.id)")
         // Track M (2026-05-21): Settings model rows now route Download +
@@ -541,7 +755,8 @@ private struct IOSModelRow: View {
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.hidden)
-            .presentationBackground(IOSBrandTheme.canvasTop)
+            .presentationCornerRadius(IOSBottomSheetChrome.cornerRadius)
+            .presentationBackground(IOSBottomSheetChrome.background)
         }
         .sheet(isPresented: $isPresentingDeleteSheet) {
             IOSDeleteModelSheet(
@@ -557,7 +772,8 @@ private struct IOSModelRow: View {
             )
             .presentationDetents([.medium])
             .presentationDragIndicator(.hidden)
-            .presentationBackground(IOSBrandTheme.canvasTop)
+            .presentationCornerRadius(IOSBottomSheetChrome.cornerRadius)
+            .presentationBackground(IOSBottomSheetChrome.background)
         }
         // Auto-dismiss the install sheet once the operation lands
         // either at `.installed` or back at `.idle` after a cancel.
@@ -657,23 +873,60 @@ private struct IOSModelRow: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(model.name)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(IOSAppTheme.textPrimary)
-            Text(secondaryLineText)
-                .font(.subheadline)
-                .foregroundStyle(IOSAppTheme.textSecondary)
-                .lineLimit(1)
+        HStack(alignment: .center, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(IOSBrandTheme.modeColor(for: model.mode).opacity(0.16))
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(IOSBrandTheme.modeColor(for: model.mode).opacity(0.38), lineWidth: 0.5)
+                Image(systemName: modelIconName)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(IOSBrandTheme.modeColor(for: model.mode))
+            }
+            .frame(width: 36, height: 36)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.mode.displayName)
+                    .font(.system(size: 15, weight: .semibold))
+                    .tracking(-0.075)
+                    .foregroundStyle(IOSAppTheme.textPrimary)
+
+                modelSubtitle
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private var controlsRow: some View {
-        HStack(spacing: 8) {
-            controls
+    private var modelSubtitle: some View {
+        HStack(spacing: 6) {
+            Text(variantDisplayText)
+
+            if let estimatedSizeText {
+                Text("·")
+                Text(estimatedSizeText)
+                    .monospacedDigit()
+            }
+
+            if let statusSummaryText {
+                Text("·")
+                Text(statusSummaryText)
+                    .fontWeight(statusSummaryText == "Active" ? .semibold : .regular)
+                    .foregroundStyle(statusSummaryText == "Active"
+                                     ? IOSBrandTheme.modeColor(for: model.mode)
+                                     : IOSAppTheme.textSecondary)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .trailing)
-        .fixedSize(horizontal: false, vertical: true)
+        .font(.system(size: 12))
+        .foregroundStyle(IOSAppTheme.textSecondary)
+        .lineLimit(1)
+    }
+
+    private var modelIconName: String {
+        switch model.mode {
+        case .custom: return "mic.fill"
+        case .design: return "wand.and.stars"
+        case .clone: return "waveform"
+        }
     }
 
     @ViewBuilder
@@ -682,47 +935,64 @@ private struct IOSModelRow: View {
         case .idle:
             switch status {
             case .installed:
-                Button("Delete", role: .destructive, action: requestDelete)
-                    .controlSize(.small)
-                    .iosAdaptiveUtilityButtonStyle(tint: .red)
-                    .accessibilityIdentifier("iosModelDelete_\(model.id)")
+                installedControls
             case .checking:
                 ProgressView()
             case .notInstalled:
-                EmptyView()
+                installButton(title: "Install", accessibilityIdentifier: "iosModelDownload_\(model.id)")
             case .incomplete, .error:
-                Button("Repair", action: onInstall)
-                    .iosSettingsProminentActionButtonStyle(tint: IOSBrandTheme.modeColor(for: model.mode))
-                    .accessibilityIdentifier("iosModelRepair_\(model.id)")
+                installButton(title: "Repair", action: onInstall, accessibilityIdentifier: "iosModelRepair_\(model.id)")
             }
         case .installed:
-            Button("Delete", role: .destructive, action: requestDelete)
-                .controlSize(.small)
-                .iosAdaptiveUtilityButtonStyle(tint: .red)
-                .accessibilityIdentifier("iosModelDelete_\(model.id)")
+            installedControls
         case .available:
-            Button("Download", action: requestInstall)
-                .iosSettingsProminentActionButtonStyle(tint: IOSBrandTheme.modeColor(for: model.mode))
-                .accessibilityIdentifier("iosModelDownload_\(model.id)")
+            installButton(title: "Install", accessibilityIdentifier: "iosModelDownload_\(model.id)")
         case .downloading, .interrupted, .resuming, .restarting:
-            Button("Cancel", action: onCancel)
-                .controlSize(.small)
-                .iosAdaptiveUtilityButtonStyle(tint: IOSBrandTheme.modeColor(for: model.mode))
-                .accessibilityIdentifier("iosModelCancel_\(model.id)")
+            installButton(title: "Cancel", action: onCancel, accessibilityIdentifier: "iosModelCancel_\(model.id)")
         case .verifying, .installing, .deleting:
             ProgressView()
         case .unavailable:
             if case .incomplete = status {
-                Button("Delete", role: .destructive, action: requestDelete)
-                    .controlSize(.small)
-                    .iosAdaptiveUtilityButtonStyle(tint: .red)
-                    .accessibilityIdentifier("iosModelDelete_\(model.id)")
+                installedControls
             }
         case .failed:
-            Button("Retry", action: onInstall)
-                .iosSettingsProminentActionButtonStyle(tint: IOSBrandTheme.modeColor(for: model.mode))
-                .accessibilityIdentifier("iosModelRetry_\(model.id)")
+            installButton(title: "Retry", action: onInstall, accessibilityIdentifier: "iosModelRetry_\(model.id)")
         }
+    }
+
+    private var installedControls: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(Color(red: 0.19, green: 0.82, blue: 0.35))
+
+            Button(role: .destructive, action: requestDelete) {
+                Image(systemName: "trash")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(IOSAppTheme.textSecondary)
+                    .frame(width: 36, height: 36)
+                    .background {
+                        Circle()
+                            .fill(Color.white.opacity(0.04))
+                    }
+                    .overlay {
+                        Circle()
+                            .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("iosModelDelete_\(model.id)")
+        }
+    }
+
+    private func installButton(
+        title: String,
+        action: (() -> Void)? = nil,
+        accessibilityIdentifier: String
+    ) -> some View {
+        Button(title, action: action ?? requestInstall)
+            .iosSettingsProminentActionButtonStyle(tint: IOSBrandTheme.modeColor(for: model.mode))
+            .accessibilityIdentifier(accessibilityIdentifier)
     }
 
     @ViewBuilder
@@ -731,31 +1001,33 @@ private struct IOSModelRow: View {
         case .downloading(let progress, let downloadedBytes, let totalBytes):
             VStack(alignment: .leading, spacing: 6) {
                 ProgressView(value: progress ?? 0)
+                    .tint(IOSBrandTheme.modeColor(for: model.mode))
                 Text(progressText(downloadedBytes: downloadedBytes, totalBytes: totalBytes))
-                    .font(.footnote)
+                    .font(.system(size: 12))
                     .foregroundStyle(IOSAppTheme.textSecondary)
             }
         case .interrupted(let message, let downloadedBytes, let totalBytes):
             VStack(alignment: .leading, spacing: 6) {
                 Text(message ?? "Download interrupted.")
-                    .font(.footnote)
+                    .font(.system(size: 12))
                     .foregroundStyle(IOSAppTheme.textSecondary)
                 Text(progressText(downloadedBytes: downloadedBytes, totalBytes: totalBytes))
-                    .font(.footnote)
+                    .font(.system(size: 12))
                     .foregroundStyle(IOSAppTheme.textSecondary)
             }
         case .resuming(let progress, let downloadedBytes, let totalBytes),
                 .restarting(let progress, let downloadedBytes, let totalBytes):
             VStack(alignment: .leading, spacing: 6) {
                 ProgressView(value: progress ?? 0)
+                    .tint(IOSBrandTheme.modeColor(for: model.mode))
                 Text(progressText(downloadedBytes: downloadedBytes, totalBytes: totalBytes))
-                    .font(.footnote)
+                    .font(.system(size: 12))
                     .foregroundStyle(IOSAppTheme.textSecondary)
             }
         case .failed(let message):
             if !IOSSimulatorPreviewPolicy.isSimulatorPreview {
                 Text(message)
-                    .font(.footnote)
+                    .font(.system(size: 12))
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -764,10 +1036,24 @@ private struct IOSModelRow: View {
         }
     }
 
-    private var secondaryLineText: String {
-        [model.mode.displayName, model.tier.uppercased(), statusSummaryText]
-            .compactMap { $0 }
-            .joined(separator: " • ")
+    private var variantDisplayText: String {
+        return "4-bit Speed"
+    }
+
+    private var estimatedSizeText: String? {
+        let label = estimatedDownloadSizeLabel
+        return label == "—" ? nil : label
+    }
+
+    private var showsStatusDetail: Bool {
+        switch operationState {
+        case .downloading, .interrupted, .resuming, .restarting:
+            return true
+        case .failed:
+            return !IOSSimulatorPreviewPolicy.isSimulatorPreview
+        default:
+            return false
+        }
     }
 
     private var statusSummaryText: String? {
@@ -777,19 +1063,18 @@ private struct IOSModelRow: View {
             case .checking:
                 return "Checking…"
             case .notInstalled:
-                return "Not installed"
-            case .installed(let sizeBytes):
-                return "Installed \(IOSSettingsFormatters.fileSize(Int64(sizeBytes)))"
+                return nil
+            case .installed:
+                return "Active"
             case .incomplete:
                 return "Repair needed"
             case .error:
                 return "Retry needed"
             }
         case .installed:
-            return "Installed"
-        case .available(let estimatedBytes):
-            guard let estimatedBytes else { return "Download available" }
-            return "Download \(IOSSettingsFormatters.fileSize(estimatedBytes))"
+            return "Active"
+        case .available:
+            return nil
         case .downloading:
             return "Downloading…"
         case .interrupted:

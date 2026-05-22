@@ -81,7 +81,8 @@ struct IOSDeliveryPicker: View {
                 )
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.hidden)
-                .presentationBackground(IOSBrandTheme.canvasTop)
+                .presentationCornerRadius(IOSBottomSheetChrome.cornerRadius)
+                .presentationBackground(IOSBottomSheetChrome.background)
             }
 
             if delivery.supportsIntensity {

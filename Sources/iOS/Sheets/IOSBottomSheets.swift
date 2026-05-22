@@ -355,10 +355,10 @@ struct IOSVoicePickerSheet: View {
 
     private var recentsCarousel: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Recent")
-                .font(.system(size: 10, weight: .semibold))
-                .tracking(0.7)
-                .foregroundStyle(IOSAppTheme.textTertiary)
+            Text("Recently used".uppercased())
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(0.88)
+                .foregroundStyle(IOSAppTheme.textSecondary)
                 .padding(.horizontal, 20)
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -382,6 +382,13 @@ struct IOSVoicePickerSheet: View {
                 }
                 .padding(.horizontal, 20)
             }
+            .padding(.bottom, 16)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color.white.opacity(0.06))
+                    .frame(height: 0.5)
+                    .padding(.horizontal, 20)
+            }
         }
     }
 
@@ -394,7 +401,7 @@ struct IOSVoicePickerSheet: View {
             IOSHaptics.selection()
         } label: {
             HStack(alignment: .center, spacing: 12) {
-                IOSVoiceAvatar(seed: option.id, initials: option.initials, diameter: 40)
+                IOSVoiceAvatar(seed: option.id, initials: option.initials, diameter: 44)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(option.name)
@@ -465,6 +472,11 @@ struct IOSVoicePickerSheet: View {
             .background {
                 RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
                     .fill(isSelected ? IOSAppTheme.accentWash(tint) : Color.clear)
+            }
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color.white.opacity(0.06))
+                    .frame(height: 0.5)
             }
         }
         .buttonStyle(.plain)
