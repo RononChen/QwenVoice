@@ -1,25 +1,25 @@
 # iOS Simulator UI testing
 
-Review every iPhone UI surface on a Mac without iPhone hardware. The engine is stubbed but every clickable chrome path is exercisable end-to-end through a Simulator-only fake-install path.
+Review every iPhone UI surface on a Mac without iPhone hardware. The Simulator uses a fake backend that exercises the normal app paths: fake model install/delete state, fake generation progress, deterministic WAV output, History persistence, Saved Voice files, and the Studio inline player.
 
-Real MLX generation, real model downloads, and real audio synthesis can't run in the iOS Simulator (no Apple Neural Engine, no real bytes on disk). For voice-quality validation, use the maintained on-device validation path documented in [`release-readiness.md`](release-readiness.md) § "iPhone Shipping Plan".
+Real MLX generation, real model downloads, and real voice-quality synthesis still cannot run in the iOS Simulator. The fake backend writes playable review audio, not speech-quality output. For voice-quality validation, use the maintained on-device validation path documented in [`release-readiness.md`](release-readiness.md) § "iPhone Shipping Plan".
 
 ## What works vs what doesn't
 
 | Surface | Works in Simulator | Notes |
 |---|---|---|
-| Generate / Custom Voice | ✅ Full UI | Speaker carousel, delivery picker, intensity segment, primary CTA all live |
-| Generate / Voice Design | ✅ Full UI | Voice description field, delivery picker, primary CTA |
-| Generate / Voice Cloning | ✅ Full UI | Reference picker, transcript field, "Generate batch…" affordance |
-| Library / History | ✅ Full UI | Empty state + filter pills + long-press menus |
-| Library / Saved Voices | ✅ Full UI | Empty state + long-press menus (Share, Delete with confirm) |
-| Settings → Model Downloads | ✅ Full UI | Fake install / delete via the path below |
+| Studio / Custom Voice | ✅ Full UI + fake generation | Voice picker, delivery picker, primary CTA, generating state, fake WAV, History row, inline player |
+| Studio / Voice Design | ✅ Full UI + fake generation | Voice brief, delivery picker, primary CTA, fake WAV, History row, inline player |
+| Studio / Voice Cloning | ✅ Full UI + fake generation | Reference picker, transcript field, batch affordance, fake WAVs, History rows |
+| History | ✅ Full UI | Seedable rows, search/filter UI, row tap, menu Play, Delete |
+| Saved Voices | ✅ Full UI | Seedable voice files, preview/play, delete |
+| Settings → Model Downloads | ✅ Full UI | Fake install / cancel / delete via the path below |
 | Settings → Help & support | ✅ External links open in Safari | All four rows |
-| Onboarding card (Generate tab) | ✅ Renders + hides | Driven by `modelManager.statuses` via fake-install registry |
+| Onboarding card (Studio tab) | ✅ Renders + hides | Driven by `modelManager.statuses` via fake-install registry |
 | Reduce Motion / Reduce Transparency fallbacks | ✅ | Toggle via Simulator Features menu |
-| Actual voice generation | ❌ Stubbed | Engine reports unsupported; primary CTA tap surfaces the Simulator-unavailable message |
+| Actual voice generation | ⚠️ Fake only | Deterministic WAV output exercises UI and persistence; it is not model speech |
 | Real model downloads | ❌ Stubbed | Fake install path produces no real bytes |
-| Engine lifecycle toast | ⚠️ Hard to trigger | Stub engine stays in `.idle`; the `.interrupted` / `.invalidated` / `.failed` paths only fire on the real iOS engine |
+| Engine lifecycle toast | ⚠️ Limited | Most lifecycle failures still require the real iOS engine or targeted injection |
 
 ## Launch sequence
 
@@ -37,12 +37,13 @@ xcrun simctl launch booted com.qvoice.ios
 
 Any recent-enough iPhone Simulator works; iPhone 17 Pro matches the macOS dev machine's existing target. If `qwenvoice_contract.json` is missing from the built `.app` and the app crashes on first launch, check the XcodeGen iOS resource gotcha in [`AGENTS.md`](../../AGENTS.md) under "Project generation and build" — the workaround in `project.yml` must be intact.
 
-## Simulator fake install / delete
+## Simulator fake backend
 
 `IOSAppBootstrap.makeBackend` swaps in:
 
-- `IOSSimulatorTTSEngine` — engine stub. All `generate(...)` calls return `.unsupported(reason: ...)` with the standard Simulator-unavailable message.
-- `IOSSimulatorFakeStatusProvider` — wraps `LocalModelStatusProvider` and overlays a process-wide `IOSSimulatorFakeInstallRegistry`. Any model the fake installer marks as installed returns `.installed(sizeBytes:)` on every subsequent `modelManager.refresh()`, even though no real bytes are on disk.
+- `IOSSimulatorTTSEngine` — functional fake `TTSEngine`. It supports Custom, Design, and Clone requests; validates text/model/reference inputs; emits progress; honors cancellation; writes a deterministic WAV to the requested output path; and returns a normal `GenerationResult`.
+- `IOSSimulatorFakeStatusProvider` — wraps `LocalModelStatusProvider` and overlays `IOSSimulatorFakeInstallRegistry`. Any model the fake installer marks as installed returns `.installed(sizeBytes:)` on subsequent `modelManager.refresh()` calls, even though no real model bytes are on disk.
+- Simulator persistence helpers — write generated outputs, History rows, saved voices, imported references, and fake model state under the Simulator app-support folder.
 
 To exercise the install flow:
 
@@ -53,6 +54,27 @@ To exercise the install flow:
 5. To revert: back to Settings, tap **Delete** on the installed row. ~0.7 s deleting spinner → row reverts to "Download". The registry entry clears; the next `modelManager.refresh()` reports `.notInstalled`; the Generate tab's onboarding card returns.
 
 All paths gated on `IOSSimulatorRuntimeSupport.isSimulator`. Real-hardware behavior is unchanged — the entry-point methods on `IOSModelInstallerViewModel` are `simulatorFakeInstall`, `simulatorFakeCancel`, `simulatorFakeDelete`; non-Simulator builds skip them entirely.
+
+## Scenario controls
+
+For shell launches, prefix env vars with `SIMCTL_CHILD_`:
+
+```sh
+SIMCTL_CHILD_QVOICE_SIM_FAKE_MODELS=all \
+SIMCTL_CHILD_QVOICE_SIM_BACKEND_SCENARIO=success \
+xcrun simctl launch --terminate-running-process booted com.qvoice.ios
+```
+
+Supported controls:
+
+- `QVOICE_SIM_BACKEND_SCENARIO=success|slow|fail` — default is `success`. Use `slow` to verify cancel/Stop states and `fail` to verify errors without saving output.
+- `QVOICE_SIM_BACKEND_DELAY_MS=<milliseconds>` — overrides the fake generation delay.
+- `QVOICE_SIM_FAKE_MODELS=none|all|custom,design,clone|<model-id-list>` — seeds fake installed model state for review and automation.
+- `QVOICE_SIM_SEED_DATA=history,voices` — seeds reviewable History and Saved Voice fixtures into real Simulator stores.
+
+When launching through XcodeBuildMCP, pass the same env names through the simulator launch tool's `env` dictionary. If a screenshot shows "Simulator fake backend failure", relaunch with `QVOICE_SIM_BACKEND_SCENARIO=success` or no scenario.
+
+For visual parity work against the React reference, follow [`ios-reference-ui-workflow.md`](ios-reference-ui-workflow.md).
 
 ## Accessibility toggle review
 
@@ -78,8 +100,8 @@ If a surface diverges in identity, check the design tokens in `Sources/iOS/IOSSh
 
 ## Known limitations
 
-- **Engine lifecycle toast** (interrupted / recovering / invalidated / failed) won't fire naturally because the stub engine never transitions out of `.idle`. To review the toast layout, drive it via a SwiftUI preview or temporarily inject a state in `IOSEngineLifecycleToast.handle(newState:)`.
+- **Engine lifecycle toast** (interrupted / recovering / invalidated / failed) is still hard to trigger naturally because the fake backend does not reproduce every extension failure path. To review the toast layout, drive it via a SwiftUI preview or temporarily inject a state in `IOSEngineLifecycleToast.handle(newState:)`.
 - **Reference clip import** via `.fileImporter` works for the picker UI but the imported file lives in a temporary sandbox dir — it won't survive a relaunch unless explicitly saved to Saved Voices.
-- **Voice cloning generation** can't actually clone a voice in Simulator — the fake install path puts the model in installed state but the engine itself remains stubbed. To validate cloning quality, follow the on-device validation path.
-- **History rows** can't be seeded automatically — to test long-press menus and delete-confirm flows on real-looking data, an XCTest-style fixture isn't in place. Manual hand-seed via the database service if needed.
+- **Voice cloning quality** cannot be validated in Simulator. Clone flows can produce deterministic fake WAVs and History rows, but they do not synthesize from the reference voice.
+- **Audio quality** is fake. Use Simulator for UI, persistence, and controls; use real hardware for MLX output quality and performance.
 - **No screenshots in this runbook by design**. iOS UI moves; screenshot drift is a known docs failure mode. Capture screenshots ad-hoc when needed (`xcrun simctl io booted screenshot path.png`) and store them outside the repo.

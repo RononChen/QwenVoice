@@ -13,6 +13,7 @@ This folder contains the current repo-authored documentation for QwenVoice.
 - [`reference/foundation-projects-audit.md`](reference/foundation-projects-audit.md) — upstream model/runtime/database foundations, current pins, freshness, and local customization status
 - [`reference/vendoring-runtime.md`](reference/vendoring-runtime.md) — runtime, vendoring, and packaging boundaries
 - [`reference/mlx-audio-swift-patching.md`](reference/mlx-audio-swift-patching.md) — vendor delta under `third_party_patches/mlx-audio-swift/`, rebase procedure, and post-rebase build checklist
+- [`reference/ios-reference-ui-workflow.md`](reference/ios-reference-ui-workflow.md) — repeatable workflow for matching the native iOS SwiftUI surface to the interactive `design_references/Vocello iOS/` prototype
 
 ### Autonomous UI testing and bench
 
@@ -46,7 +47,8 @@ The Debug build is drivable by a Codex session via the computer-use MCP. The har
 
 **iOS Simulator UI review** (per surface, ~5 min):
 
-- [`reference/ios-simulator-testing.md`](reference/ios-simulator-testing.md) — review iPhone chrome on a Mac without iPhone hardware via the stubbed engine + Simulator-only fake install/delete path. Covers Reduce Motion / Reduce Transparency toggle review and side-by-side chrome comparison against the macOS app. Distinct from the macOS `scripts/uitest.sh` harness because iOS has no equivalent automation surface.
+- [`reference/ios-reference-ui-workflow.md`](reference/ios-reference-ui-workflow.md) — use the interactive React/CSS reference, measure the target behavior, then implement and verify native SwiftUI parity.
+- [`reference/ios-simulator-testing.md`](reference/ios-simulator-testing.md) — review iPhone chrome on a Mac without iPhone hardware through the Simulator fake backend: fake model install/delete, deterministic generated WAVs, History rows, Saved Voices, and inline player playback. Covers Reduce Motion / Reduce Transparency toggle review and side-by-side chrome comparison against the macOS app.
 
 Useful local diagnostics can be exported with:
 

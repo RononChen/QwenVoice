@@ -25,6 +25,7 @@ The user is the final judge of subjective audio quality (naturalness, emotion ma
 | Engine code (streaming, KV cache, decoder, vocoder, anything under `Sources/QwenVoice*` or `third_party_patches/mlx-audio-swift`) | ✅ | ✅ |
 | Audio-path code (`PCM16StreamLimiter`, `AudioPlayerViewModel`, `GenerationPersistence`, WAV writers) | ✅ | ✅ |
 | UI / view code (`Sources/Views/`, `Sources/iOS/`, coordinators, view models that don't touch audio) | ✅ | — |
+| iOS reference-parity UI (`Sources/iOS/` matching `design_references/Vocello iOS/`) | iOS Simulator + reference workflow | — |
 | Prompt/tone configuration (`docs/qwen_tone.md`, voice-description handling) | — | — |
 | Generation pipeline plumbing (cancellation, gating, request ID) | ✅ | ✅ |
 | Saved-voice fixture changes (re-bootstrap UITestRef) | clone smoke + bootstrap | — |
@@ -40,6 +41,7 @@ The user is the final judge of subjective audio quality (naturalness, emotion ma
 - **First-time agent in this repo?** Read [`ui-test-surface.md`](ui-test-surface.md) once for the AX-id vocabulary + standard smoke/bench skeletons + completion signals. Skim [`testing-cheatsheet.md`](testing-cheatsheet.md) for copy-pasteable commands. Then come back here for the decision table.
 - **About to ship a perf-affecting change?** Run the full bench matrix for the affected mode, then promote the baseline if the numbers are intentional. See the per-mode `bench-*.md`.
 - **About to ship an audio-path change?** Generate one sample in each mode and listen — naturalness, emotion match, pronunciation, pacing, and artifacts are human-judgment calls. The bench's RMS/peak gates catch loudness regressions; everything else is a listen.
+- **About to ship iOS visual parity work?** Follow [`ios-reference-ui-workflow.md`](ios-reference-ui-workflow.md), then verify the affected states in the iPhone 17 Pro Simulator with the fake backend from [`ios-simulator-testing.md`](ios-simulator-testing.md).
 - **Triaging a bug report?** Run the matching smoke first to confirm reproduction. If the smoke passes but the user complains about quality, generate the same prompt locally and listen to it.
 
 ## What's not in this layer
@@ -53,4 +55,6 @@ The user is the final judge of subjective audio quality (naturalness, emotion ma
 
 - [`testing-cheatsheet.md`](testing-cheatsheet.md) — single-page command card.
 - [`ui-test-surface.md`](ui-test-surface.md) — the agent reference (AX ids, signposts, standard skeletons).
+- [`ios-reference-ui-workflow.md`](ios-reference-ui-workflow.md) — interactive reference-to-native SwiftUI parity workflow.
+- [`ios-simulator-testing.md`](ios-simulator-testing.md) — iPhone Simulator fake backend and scenario controls.
 - [`benchmark-baselines.json`](benchmark-baselines.json) — committed bench baselines (24 cells, schema v3, ±15 % gate on `ms_engine_start_to_final` + `rtf`).
