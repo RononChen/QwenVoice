@@ -2,7 +2,7 @@
 
 Multi-sample timing harness for Custom Voice. Produces `bench-result.json`; diffable against [`benchmark-baselines.json`](benchmark-baselines.json) via `bench-compare` (±15 % gate on `ms_engine_start_to_final` + `rtf`).
 
-Follows the [Standard bench skeleton](ui-test-surface.md#standard-bench-skeleton). This file documents the Custom Voice deltas. For when to run this vs. the smoke or perceptual review, see [`testing-overview.md`](testing-overview.md). For the matrix-budget rationale (why n=3 cold, ~3 min per cold sample, ~12 min for the full mode matrix), see the skeleton.
+Follows the [Standard bench skeleton](ui-test-surface.md#standard-bench-skeleton). This file documents the Custom Voice deltas. For when to run this vs. the smoke, see [`testing-overview.md`](testing-overview.md). For the matrix-budget rationale (why n=3 cold, ~3 min per cold sample, ~12 min for the full mode matrix), see the skeleton.
 
 ## Mode-specific inputs
 
@@ -44,11 +44,3 @@ scripts/uitest.sh bench-step custom "$variant" warm long   --artifacts-dir "$ART
 
 - **Variant toggle didn't switch the model**: the cold sample for the second variant will look suspiciously fast (model still warm). Verify by checking the Engine status line transitioned through "Starting engine…" before the cold sample.
 - Other failure modes (timeout on `bench-wait`, missing `Final File Ready`, DB row lag) are covered in the skeleton.
-
-## Optional perceptual review of a bench sample
-
-After the bench run, pick one representative warm/medium sample and run a perceptual check — useful for catching quality regressions a timing-only baseline can't see:
-
-```sh
-scripts/uitest.sh antigravity-review "$(ls -t "$HOME/Library/Application Support/QwenVoice-Debug/outputs/CustomVoice/"*.wav | head -1)"
-```

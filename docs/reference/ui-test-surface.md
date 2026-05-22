@@ -240,16 +240,6 @@ git commit -m "Update bench baselines: <reason>"
 
 The committed baseline is source-of-truth. Update only when the new numbers are intentional (faster path, expected regression with a known cause).
 
-## Standard perceptual-review handoff
-
-For any generation that produced a WAV, the perceptual layer adds subjective dimensions the bench's RMS/peak gates can't catch (naturalness, emotion match, pronunciation, pacing, artifacts):
-
-```sh
-scripts/uitest.sh antigravity-review <audio_path>
-```
-
-Auto-fills mode/text/speaker/delivery from `history.sqlite` by matching the WAV's `audioPath`. Writes a bundle to `build/Debug/voice-reviews/<UTC-ts>-<mode>-<basename>/` containing `review.md`, `metadata.json`, the exact prompt sent, and the raw/clean `agy` response. Full procedure in [`antigravity-voice-review.md`](antigravity-voice-review.md). When to run it vs the smoke/bench is in [`testing-overview.md`](testing-overview.md)'s decision table.
-
 ## Click vocabulary
 
 Every interactive element in the macOS UI has a stable `accessibilityIdentifier`. Resolve any of these names to pixel coordinates with `scripts/uitest.sh locate <ax-id>`. The script prints `cx cy w h` (center coordinates + size). Container/screen identifiers are listed so a session can confirm "I'm on the right screen" before clicking.

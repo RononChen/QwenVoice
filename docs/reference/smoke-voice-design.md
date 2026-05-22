@@ -2,7 +2,7 @@
 
 One-shot functional check: launch the Debug build, drive Voice Design with a fixed description + script via computer-use, confirm completion via signpost + WAV + DB row.
 
-Follows the [Standard smoke skeleton](ui-test-surface.md#standard-smoke-skeleton). This file only documents the Voice Design deltas. For when to run this vs. the bench or perceptual review, see [`testing-overview.md`](testing-overview.md).
+Follows the [Standard smoke skeleton](ui-test-surface.md#standard-smoke-skeleton). This file only documents the Voice Design deltas. For when to run this vs. the bench, see [`testing-overview.md`](testing-overview.md).
 
 ## Mode-specific inputs
 
@@ -19,17 +19,6 @@ Follows the [Standard smoke skeleton](ui-test-surface.md#standard-smoke-skeleton
 - **Screen mount check**: `scripts/uitest.sh locate screen_voiceDesign` (exit 0)
 - **Output subfolder**: `outputs/VoiceDesign/`
 - **Extra step before generate**: click `voiceDesign_voiceDescriptionField`, type the fixed description, **then** proceed to `textInput_textEditor` + script + `cmd+Return`. Both fills can be batched.
-
-## Perceptual review (optional)
-
-Voice Design is the layer where perceptual review pays back the most — the bench's RMS/peak gates can't tell you whether the take actually sounds like the requested description.
-
-```sh
-scripts/uitest.sh antigravity-review "$(scripts/uitest.sh db "SELECT audioPath FROM generations ORDER BY createdAt DESC LIMIT 1")" \
-    --voice-description "A calm, deep documentary narrator with a measured pace."
-```
-
-The `--voice-description` flag is required (Voice Design's description isn't persisted in `history.sqlite`, so the review script can't auto-fill it). See [`antigravity-voice-review.md`](antigravity-voice-review.md).
 
 ## Notes
 

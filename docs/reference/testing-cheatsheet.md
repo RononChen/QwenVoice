@@ -84,31 +84,6 @@ scripts/uitest.sh bench-update-baselines
 git diff docs/reference/benchmark-baselines.json
 ```
 
-## Perceptual review (~30 s per WAV)
-
-```sh
-scripts/uitest.sh antigravity-review <path/to/sample.wav>
-```
-
-Auto-fills mode/text/speaker/delivery from `history.sqlite` by matching `audioPath`. For ad-hoc WAVs outside the harness or for Voice Design, pass explicit context:
-
-```sh
-scripts/uitest.sh antigravity-review sample.wav \
-    --mode design \
-    --text "..." \
-    --voice-description "..." \
-    --delivery "Neutral"
-```
-
-Output bundle lands at `build/Debug/voice-reviews/<UTC>-<mode>-<basename>/review.md`.
-
-Verify the Antigravity CLI is installed + authenticated before a test session:
-
-```sh
-agy --version              # 1.0.0 or newer
-ls /Applications/Antigravity.app >/dev/null  # desktop app present + signed in
-```
-
 ## Recovery (when computer-use clicks miss)
 
 ```sh

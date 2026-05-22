@@ -44,13 +44,3 @@ scripts/uitest.sh bench-step design "$variant" warm long   --artifacts-dir "$ART
 ## Mode-specific failure handling
 
 - **Description didn't apply** (field looks empty after typing): the `ContinuousVoiceDescriptionField` wrapper can momentarily lose focus during validation. Click the field once more and retry typing.
-
-## Optional perceptual review of a bench sample
-
-Voice Design is the layer where perceptual review pays back the most — the timing/RMS gates can't tell you whether the take matches the description:
-
-```sh
-scripts/uitest.sh antigravity-review \
-    "$(ls -t "$HOME/Library/Application Support/QwenVoice-Debug/outputs/VoiceDesign/"*.wav | head -1)" \
-    --voice-description "A calm, deep documentary narrator with a measured pace."
-```

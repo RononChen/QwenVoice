@@ -125,16 +125,16 @@ The fix is in `docs/reference/ui-test-surface.md`'s "Driving SwiftUI `Picker` me
 
 A note also lands in `CLAUDE.md`'s "Conventions to preserve" so the next session driving a Picker doesn't repeat the mistake.
 
-## Expected Gemini score deltas (verification gates)
+## Expected perceptual-score deltas (verification gates)
 
-Re-run criteria after the fix lands (per the plan's verification section):
+Re-run criteria after the fix lands (per the plan's verification section). Originally graded with the now-retired Gemini-CLI perceptual review; left here as listen-and-judge gates for any future regression check:
 
 - **C1** — Every non-Neutral preset clears ≥7 on emotion-match in at least one intensity per mode. (Today's salvaged data: CV passed for every preset that got a sample; VD failed on Happy at 4/10 best.)
 - **C2** — VD Neutral ≥8/10. (Was 7/10.)
-- **C3** — Whisper/Strong described by Gemini as a whisper, not as dramatic. (Today's review for the actual Whisper/Strong cell that ran called it "flat, nervous, and hesitant" — the "intimate and intense" wording was misleading the model.)
+- **C3** — Whisper/Strong reads as a whisper, not as dramatic. (Today's review for the actual Whisper/Strong cell that ran called it "flat, nervous, and hesitant" — the "intimate and intense" wording was misleading the reviewer.)
 - **C4** — Strong − Subtle delta positive for ≥6 of 8 presets per mode.
 - **C5** — Cross-mode |Δ|>2 cell count drops below 5 (was 12).
-- **C6** — Custom-tone cells produce 3 clearly-distinct deliveries with Gemini's perceived emotion matching the request.
+- **C6** — Custom-tone cells produce 3 clearly-distinct deliveries with the perceived emotion matching the request.
 
 ## Deferred to future sessions
 
@@ -146,6 +146,5 @@ Re-run criteria after the fix lands (per the plan's verification section):
 
 - `docs/qwen_tone.md` — phrasing guidance the rewrite follows.
 - `docs/reference/ui-test-surface.md` § "Driving SwiftUI `Picker` menus" — keyboard-navigation pattern for tests.
-- `docs/reference/gemini-voice-review.md` — the perceptual review tool used for the verification matrix.
 - `Sources/QwenVoiceCore/GenerationSemantics.swift` — instruction-assembly layer (the only Swift file that changed for the two fixes).
 - `Sources/Models/EmotionPreset.swift` + `Sources/iOSSupport/Models/EmotionPreset.swift` — preset string library (kept byte-identical between macOS and iOS targets).

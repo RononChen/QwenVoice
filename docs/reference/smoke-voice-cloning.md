@@ -2,7 +2,7 @@
 
 One-shot functional check: launch the Debug build, drive Voice Cloning with the `UITestRef` saved-voice fixture + a fixed script via computer-use, confirm completion via signpost + WAV + DB row.
 
-Follows the [Standard smoke skeleton](ui-test-surface.md#standard-smoke-skeleton). This file only documents the Voice Cloning deltas. For when to run this vs. the bench or perceptual review, see [`testing-overview.md`](testing-overview.md).
+Follows the [Standard smoke skeleton](ui-test-surface.md#standard-smoke-skeleton). This file only documents the Voice Cloning deltas. For when to run this vs. the bench, see [`testing-overview.md`](testing-overview.md).
 
 ## Prerequisite
 
@@ -30,16 +30,6 @@ Voice Cloning requires the **`UITestRef`** saved-voice fixture. If `scripts/uite
   3. Confirm reference is bound: `scripts/uitest.sh locate voiceCloning_activeReference` (exit 0).
   
   Then proceed to `textInput_textEditor` + script + `cmd+Return`.
-
-## Perceptual review (optional)
-
-Voice Cloning is the most subjective layer — perceptual review catches identity-coherence regressions the bench can't see.
-
-```sh
-scripts/uitest.sh antigravity-review "$(scripts/uitest.sh db "SELECT audioPath FROM generations ORDER BY createdAt DESC LIMIT 1")"
-```
-
-The `--saved-voice` field auto-fills from `generations.voice`. See [`antigravity-voice-review.md`](antigravity-voice-review.md).
 
 ## Notes
 

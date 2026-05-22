@@ -135,19 +135,6 @@ commands:
                         clone. --text is optional and stored verbatim in the
                         result.json for cross-run comparison.
 
-  antigravity-review <wav-path> [--mode ...] [--text ...] [--voice-description ...]
-                          [--speaker ...] [--delivery ...] [--saved-voice ...]
-                          [--commit ...] [--out-dir ...]
-                        Perceptual voice-quality + tone/emotion review of a
-                        Vocello-generated WAV via the Antigravity CLI (agy)
-                        default model. Complements the bench timing/RMS
-                        gates with subjective dimensions. Auto-fills
-                        mode/text/speaker/delivery from history.sqlite when
-                        the WAV matches a row's audioPath. Writes a review
-                        bundle to build/Debug/voice-reviews/.
-                        (Alias: gemini-review — kept for one release after
-                        Google's CLI rename, prints a deprecation notice.)
-
   help                  Show this message.
 EOF
 }
@@ -1396,19 +1383,6 @@ sys.exit(1 if breaches else 0)
 PY
 }
 
-cmd_antigravity_review() {
-    exec "$SCRIPT_DIR/antigravity_voice_review.sh" "$@"
-}
-
-# Deprecation alias — kept so existing shell history and external doc links
-# keep working for one release after Google's Gemini-CLI → Antigravity-CLI
-# rename. Remove in the same follow-up that deletes
-# scripts/gemini_voice_review.sh.
-cmd_gemini_review() {
-    echo "deprecation: 'gemini-review' is now 'antigravity-review' — forwarding." >&2
-    exec "$SCRIPT_DIR/antigravity_voice_review.sh" "$@"
-}
-
 cmd_bench_update_baselines() {
     local source=""
     while [ $# -gt 0 ]; do
@@ -1482,8 +1456,6 @@ main() {
         bench-compare)           cmd_bench_compare "$@" ;;
         bench-update-baselines)  cmd_bench_update_baselines "$@" ;;
         verify-generation)       cmd_verify_generation "$@" ;;
-        antigravity-review)      cmd_antigravity_review "$@" ;;
-        gemini-review)           cmd_gemini_review "$@" ;;
         help|-h|--help)  usage ;;
         *)
             echo "error: unknown command '$command'" >&2

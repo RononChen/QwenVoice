@@ -14,9 +14,9 @@ This folder contains the current repo-authored documentation for QwenVoice.
 - [`reference/vendoring-runtime.md`](reference/vendoring-runtime.md) — runtime, vendoring, and packaging boundaries
 - [`reference/mlx-audio-swift-patching.md`](reference/mlx-audio-swift-patching.md) — vendor delta under `third_party_patches/mlx-audio-swift/`, rebase procedure, and post-rebase build checklist
 
-### Autonomous UI testing, bench, and perceptual review
+### Autonomous UI testing and bench
 
-The Debug build is drivable by a Claude Code session via the computer-use MCP. The harness lives in `scripts/uitest.sh`. Testing is three-layered: functional smoke → timing bench → perceptual review.
+The Debug build is drivable by a Claude Code session via the computer-use MCP. The harness lives in `scripts/uitest.sh`. Testing is two-layered: functional smoke → timing bench. Subjective audio quality is a listen-and-judge call by the maintainer.
 
 **Start here:**
 
@@ -25,7 +25,7 @@ The Debug build is drivable by a Claude Code session via the computer-use MCP. T
 
 **Agent reference (read once, refer back):**
 
-- [`reference/ui-test-surface.md`](reference/ui-test-surface.md) — accessibility-id vocabulary, completion signals (signposts + DB + file), the Standard smoke + bench + perceptual-review skeletons that the per-mode runbooks delta against.
+- [`reference/ui-test-surface.md`](reference/ui-test-surface.md) — accessibility-id vocabulary, completion signals (signposts + DB + file), the Standard smoke + bench skeletons that the per-mode runbooks delta against.
 - [`reference/bootstrap-saved-voice.md`](reference/bootstrap-saved-voice.md) — one-time setup of the `UITestRef` saved-voice fixture used by every Voice Cloning test.
 
 **Layer 1 — Functional smoke** (per scenario, ~1 min each):
@@ -43,10 +43,6 @@ The Debug build is drivable by a Claude Code session via the computer-use MCP. T
 - [`reference/bench-voice-design.md`](reference/bench-voice-design.md)
 - [`reference/bench-voice-cloning.md`](reference/bench-voice-cloning.md)
 - [`reference/benchmark-baselines.json`](reference/benchmark-baselines.json) — committed regression baselines, schema v3, regression-ready (24 cells × n=3 on Apple M2, May 2026). `bench-compare` flags timing/RTF drift past ±15 %; depth metrics (audio RMS/peak dBFS, peak RSS combined + app/XPC split) are stored for forensic comparison.
-
-**Layer 3 — Perceptual review** (per WAV, ~30 s each):
-
-- [`reference/antigravity-voice-review.md`](reference/antigravity-voice-review.md) — Antigravity CLI (`agy`) workflow (preferred) + desktop-app fallback. Adds naturalness, emotion match, pronunciation, pacing, and artifact dimensions the bench's RMS/peak gates can't catch. Replaces the retired Gemini-CLI runbook (kept as a redirect stub at `reference/gemini-voice-review.md` for one release).
 
 **iOS Simulator UI review** (per surface, ~5 min):
 
