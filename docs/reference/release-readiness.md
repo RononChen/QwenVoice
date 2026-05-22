@@ -73,7 +73,7 @@ Two-track proof policy:
 - Current public release milestone: macOS only
 - iPhone owned-device proof: `iPhone 17 Pro` path is the active validation target
 - iPhone official minimum-device proof: pending until `iPhone 15 Pro` evidence is recorded
-- Rescue baseline: `main` commit `63a5e02` passed the historical GitHub workflows on April 26, 2026 local time. Those workflows (`Project Inputs`, `Apple Platform QA Gate` later renamed `Apple Platform Build Gate`, `Vocello macOS Release`, `Vocello iOS TestFlight`) were retired in May 2026; all proof now lives locally on Mac mini M2.
+- Rescue baseline: `main` commit `63a5e02` passed the historical GitHub workflows on April 26, 2026 local time. Those broad workflows (`Project Inputs`, `Apple Platform QA Gate` later renamed `Apple Platform Build Gate`, `Vocello macOS Release`, `Vocello iOS TestFlight`) were retired in May 2026. The current workflow is only `.github/workflows/release.yml`, scoped to macOS DMG packaging plus iOS compile-safety; behavioral and signed-iPhone proof stays local/manual on Mac mini M2.
 - Latest local release proof: unsigned `Vocello.app` and `Vocello-macos26.dmg` built and verified from `c6beacd`; GitHub re-proved the unsigned macOS release-artifact lane for `63a5e02`
 - Latest local manual macOS smoke: launched the local Release app, switched generation modes, generated and played a short Custom Voice preview, and confirmed the output was written to that release app's app-support outputs folder
 
@@ -91,7 +91,7 @@ Release-facing metadata and docs should record:
 
 ## Current Signoff Tiers
 
-The current `macOS-first release track` uses three proof tiers. **All three are local-only** since the CI, XCTest, and legacy Python/automation surfaces were retired in May 2026.
+The current `macOS-first release track` uses three proof tiers. The authoritative proof commands are local, while CI is intentionally limited to macOS release packaging and unsigned iOS compile-safety. XCTest and the legacy Python/automation surfaces were retired in May 2026.
 
 1. Build and validation proof
    - `scripts/check_project_inputs.sh` (static validation)
@@ -102,6 +102,7 @@ The current `macOS-first release track` uses three proof tiers. **All three are 
    - signed/notarized DMG produced by `scripts/release.sh --preflight full` against the project owner's Apple developer credentials (local Keychain)
 3. Deferred iPhone release proof
    - owned-device validation follow-through
+   - direct Debug hardware validation through `scripts/ios_device.sh` on the owned iPhone 17 Pro
    - local `scripts/check_ios_catalog.sh` + `scripts/release_ios_testflight.sh` + `scripts/verify_ios_release_archive.sh`; TestFlight upload run locally
 
 Only tiers 1 and 2 block the current public release milestone.
@@ -112,9 +113,9 @@ Only tiers 1 and 2 block the current public release milestone.
 |---|---|
 | 1. Build and validation proof | `./scripts/check_project_inputs.sh` + `./scripts/build_foundation_targets.sh macos\|ios` + manual app smoke |
 | 2. macOS ship gate | `./scripts/release.sh` + `./scripts/verify_release_bundle.sh` + `./scripts/verify_packaged_dmg.sh` |
-| 3. Deferred iPhone release | `./scripts/check_ios_catalog.sh` + `./scripts/release_ios_testflight.sh` + `./scripts/verify_ios_release_archive.sh` |
+| 3. Deferred iPhone release | `./scripts/ios_device.sh start` + `./scripts/ios_device.sh pull` + `./scripts/check_ios_catalog.sh` + `./scripts/release_ios_testflight.sh` + `./scripts/verify_ios_release_archive.sh` |
 
-Only tiers 1 and 2 block the current public release milestone. Tier 3 is maintained but deferred from public signoff until the iPhone re-entry conditions below are met. There are no CI or XCTest proof layers; local manual smoke and the maintained Codex harness are the behavioral regression checks.
+Only tiers 1 and 2 block the current public release milestone. Tier 3 is maintained but deferred from public signoff until the iPhone re-entry conditions below are met. There are no CI smoke, benchmark, or XCTest proof layers; local manual smoke, the maintained Codex macOS harness, and real-device iPhone screen-mirror runs are the behavioral regression checks.
 
 ## Program Priorities
 
@@ -143,7 +144,7 @@ Then launch `build/Release/Vocello.app` and exercise the affected user-facing pa
 
 ## CI Proof Surface
 
-There is no CI proof surface. GitHub workflows were retired in May 2026 after harness-driven churn made them unreliable; all build, packaging, signing, notarization, and TestFlight-prep work runs locally on Mac mini M2 via the `scripts/` tooling. `scripts/release.sh` is the authoritative signed/notarized DMG producer; `scripts/release_ios_testflight.sh` is the authoritative iPhone archive/export tool.
+The current CI proof surface is intentionally narrow: `.github/workflows/release.yml` packages the macOS DMG and runs unsigned iOS compile-safety. It does not run XCTest, smoke tests, benchmarks, signed iOS archive/export, or TestFlight upload. The broad historical GitHub workflows were retired in May 2026 after harness-driven churn made them unreliable. `scripts/release.sh` remains the authoritative signed/notarized DMG producer, `scripts/release_ios_testflight.sh` remains the authoritative iPhone archive/export tool, and `scripts/ios_device.sh` is the real-device Debug validation entrypoint.
 
 Historical CI evidence (kept for the audit trail; not a current gate):
 
@@ -159,6 +160,7 @@ Do not treat iPhone as a public release target again until all of the following 
 - no critical shared-core macOS regressions remain open from the release cycle
 - the build gate stays green after post-release fixes
 - owned-device iPhone validation is current
+- real-device screen-mirror evidence from `scripts/ios_device.sh` is current for affected Custom / Design / Clone paths
 - official `iPhone 15 Pro` minimum-device proof is recorded before claiming full iPhone release readiness
 - `scripts/release_ios_testflight.sh` + `scripts/verify_ios_release_archive.sh` succeed from the intended release ref (local on Mac mini M2)
 
@@ -184,25 +186,28 @@ MLX models exceed iOS's default per-process memory cap (~5–6 GB). The app alre
 File at https://developer.apple.com/contact/ → "Programs and Enrollment" → "Request resource entitlement":
 
 - Team ID: `FK2D8X36G2`
-- App name + bundle ID: Vocello, `com.qvoice.ios`
+- App name + bundle IDs: Vocello, `com.patricedery.vocello` and engine extension `com.patricedery.vocello.engine-extension`
+- App Group: `group.com.patricedery.vocello.shared`
 - Entitlement: `com.apple.developer.kernel.increased-memory-limit`
-- Justification: cite the on-device Qwen3-TTS / MLX workload, the iPhone 15 Pro deployment-target floor, the `iPhonePro` memory policy (`NativeMemoryPolicyResolver` tier with 128 MB cache + 30 s idle unload), the engine extension's process-isolation role, and the macOS counterpart at https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0 as proof the app exists in production. Full template in the plan file.
+- Justification: cite the on-device Qwen3-TTS / MLX workload, the iPhone 15 Pro deployment-target floor, the `iPhonePro` memory policy (`NativeMemoryPolicyResolver` tier with 128 MB cache + 30 s idle unload), the engine extension's process-isolation role, the app + extension memory-context diagnostics now available from `scripts/ios_device.sh pull`, and the macOS counterpart at https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0 as proof the app exists in production.
 
-Pass criterion: Apple replies with a tracking case number. Re-check the App Store Connect "Capabilities" tab for `com.qvoice.ios` to confirm grant.
+Pass criterion: Apple replies with a tracking case number. Re-check the App Store Connect "Capabilities" tab for `com.patricedery.vocello.engine-extension` and `com.patricedery.vocello` to confirm grant.
 
 ### App Store Connect setup (parallel to entitlement wait, ~30 min)
 
 Manual prep that does not require the entitlement and can happen immediately:
 
-1. **Create app record** at App Store Connect → My Apps → +. Platform iOS, name "Vocello", bundle ID `com.qvoice.ios` (must match `project.yml`), SKU `vocello-ios-2026`, primary language English (US).
+1. **Create app record** at App Store Connect → My Apps → +. Platform iOS, name "Vocello", bundle ID `com.patricedery.vocello` (must match `project.yml`), SKU `vocello-ios-2026`, primary language English (US). In Apple Developer, also create `com.patricedery.vocello.engine-extension` and attach both IDs to `group.com.patricedery.vocello.shared`.
 2. **Set primary category**: Productivity (or Utilities). Multimedia would also fit.
 3. **Confirm API key scope**: the existing `APPLE_NOTARY_KEY_ID` (used for macOS notarization) needs "App Manager" role to enable IPA upload via `xcodebuild -exportArchive ... destination upload`. Verify at Users and Access → Integrations → API. Same issuer ID works for any number of keys.
 4. **Seed internal-tester list**: create a group "Maintainer & devs" in TestFlight → Internal Testing. Add `patricedery02@gmail.com` as first tester. External testers come later as a separate Apple-review process.
 
 ### Pipeline state after Phase 4
 
-`.github/workflows/release.yml` now runs `compile-ios` in parallel with the macOS `package` job. The iOS job runs `scripts/build_foundation_targets.sh ios` (compile-safety only, no signing). A signed-IPA `archive-ios` job is intentionally NOT in the workflow yet — it requires the entitlement approval + an iOS Distribution certificate + a provisioning profile for `com.qvoice.ios` to exist, none of which are in place as of v2.0.0. Once those prereqs are met, extend the workflow with a sibling job that imports the iOS dist cert, runs `scripts/release_ios_testflight.sh --export`, and uploads the IPA + `release-metadata-ios.txt` as workflow artifacts. TestFlight `--upload` mode stays manual until the export path is proven end-to-end at least once.
+`.github/workflows/release.yml` now runs `compile-ios` in parallel with the macOS `package` job. The iOS job runs `scripts/build_foundation_targets.sh ios` (compile-safety only, no signing). A signed-IPA `archive-ios` job is intentionally NOT in the workflow yet — it requires the entitlement approval, an iOS Distribution certificate, and provisioning profiles for `com.patricedery.vocello` plus `com.patricedery.vocello.engine-extension` that include the increased-memory entitlement. Once those prereqs are met, extend the workflow with a sibling job that imports the iOS dist cert, runs `scripts/release_ios_testflight.sh --export`, and uploads the IPA + `release-metadata-ios.txt` as workflow artifacts. TestFlight `--upload` mode stays manual until the export path is proven end-to-end at least once.
 
-### Hosted model catalog
+### iPhone model catalog
 
-`scripts/check_ios_catalog.sh` validates the hosted catalog at `https://downloads.qvoice.app/ios/catalog/v1/models.json` against `Sources/Resources/qwenvoice_contract.json`. That URL does not resolve as of v2.0.0; hosting the catalog (S3 / Cloudflare R2 / GitHub Pages mirror) is a Phase 5 prerequisite — without it, the iPhone app cannot complete Settings → Model Downloads on a real device. The override env var `QVOICE_IOS_MODEL_CATALOG_URL` lets local testing point at a staging mirror.
+`scripts/check_ios_catalog.sh` validates the bundled production iPhone catalog at `Sources/Resources/qwenvoice_ios_model_catalog.json` against `Sources/Resources/qwenvoice_contract.json`. The app default is `bundle://vocello/ios/catalog/v1/models.json`; model files download from pinned Hugging Face revisions with per-file SHA-256 verification. The override env var `QVOICE_IOS_MODEL_CATALOG_URL` still lets local testing or TestFlight prep point at a staging hosted catalog.
+
+The May 2026 iOS identity rename is a clean pre-release reset. Existing hardware data under the old `group.com.qvoice.shared` App Group is not migrated.

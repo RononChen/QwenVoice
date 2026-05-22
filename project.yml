@@ -253,12 +253,11 @@ targets:
     platform: iOS
     sources:
       - path: Sources/iOSEngineExtension
-    resources:
       - path: Sources/Resources/qwenvoice_contract.json
         buildPhase: resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.qvoice.ios.engine-extension
+        PRODUCT_BUNDLE_IDENTIFIER: com.patricedery.vocello.engine-extension
         PRODUCT_NAME: VocelloEngineExtension
         PRODUCT_MODULE_NAME: VocelloEngineExtension
         MARKETING_VERSION: "2.0.0"
@@ -267,7 +266,9 @@ targets:
         IPHONEOS_DEPLOYMENT_TARGET: "26.0"
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: Sources/iOSEngineExtension/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Sources/iOSEngineExtension/VocelloEngineExtension.entitlements
+        QVOICE_IOS_APP_GROUP_IDENTIFIER: group.com.patricedery.vocello.shared
+        QVOICE_IOS_EXTENSION_ENTITLEMENTS: Sources/iOSEngineExtension/VocelloEngineExtension.entitlements
+        CODE_SIGN_ENTITLEMENTS: $(QVOICE_IOS_EXTENSION_ENTITLEMENTS)
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: $(QWENVOICE_DEVELOPMENT_TEAM)
     dependencies:
@@ -290,6 +291,8 @@ targets:
       - path: Sources/SharedSupport
       - path: Sources/Resources/qwenvoice_contract.json
         buildPhase: resources
+      - path: Sources/Resources/qwenvoice_ios_model_catalog.json
+        buildPhase: resources
       - path: Sources/Resources/voice-previews
         buildPhase: resources
         # Per-voice ~2.5 s preview WAVs (24 kHz mono Int16). Each file
@@ -307,22 +310,26 @@ targets:
         buildPhase: resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.qvoice.ios
+        PRODUCT_BUNDLE_IDENTIFIER: com.patricedery.vocello
         PRODUCT_NAME: Vocello
         PRODUCT_MODULE_NAME: QVoiceiOS
         EXECUTABLE_NAME: Vocello
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: $(QWENVOICE_DEVELOPMENT_TEAM)
-        QVOICE_IOS_DEFAULT_MODEL_CATALOG_URL: https://downloads.qvoice.app/ios/catalog/v1/models.json
+        QVOICE_IOS_APP_GROUP_IDENTIFIER: group.com.patricedery.vocello.shared
+        QVOICE_IOS_APP_ENTITLEMENTS: Sources/iOS/VocelloiOS.entitlements
+        QVOICE_IOS_DEFAULT_MODEL_CATALOG_URL: "bundle://vocello/ios/catalog/v1/models.json"
         INFOPLIST_KEY_QVoiceModelCatalogURL: $(QVOICE_IOS_DEFAULT_MODEL_CATALOG_URL)
+        INFOPLIST_KEY_QVoiceSharedAppGroupIdentifier: $(QVOICE_IOS_APP_GROUP_IDENTIFIER)
         INFOPLIST_KEY_CFBundleDisplayName: Vocello
+        EX_ENABLE_EXTENSION_POINT_GENERATION: YES
         MARKETING_VERSION: "2.0.0"
         CURRENT_PROJECT_VERSION: "16"
         SWIFT_VERSION: "6"
         IPHONEOS_DEPLOYMENT_TARGET: "26.0"
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: Sources/iOS/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Sources/iOS/VocelloiOS.entitlements
+        CODE_SIGN_ENTITLEMENTS: $(QVOICE_IOS_APP_ENTITLEMENTS)
         INFOPLIST_KEY_UILaunchStoryboardName: LaunchScreen
         ASSETCATALOG_COMPILER_APPICON_NAME: VocelloIOSIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
@@ -341,4 +348,3 @@ targets:
         product: MLX
       - package: SwiftHuggingFace
         product: HuggingFace
-

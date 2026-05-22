@@ -45,10 +45,16 @@ struct IOSEngineLifecycleToast: View {
             tint: descriptor.tint
         )
         .padding(.horizontal, 16)
+        .allowsHitTesting(false)
         .accessibilityIdentifier("engineLifecycleToast_\(descriptor.identifier)")
     }
 
     private func handle(newState: EngineLifecycleState) {
+        if newState == .invalidated, !ttsEngine.hasActiveGeneration {
+            dismissTask?.cancel()
+            visibleState = nil
+            return
+        }
         guard Self.descriptor(for: newState) != nil else {
             // States with no toast clear any in-flight banner immediately.
             dismissTask?.cancel()

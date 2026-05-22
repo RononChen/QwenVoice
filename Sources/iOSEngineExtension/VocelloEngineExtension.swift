@@ -13,6 +13,6 @@ final class VocelloEngineExtension: AppExtension {
 
     @AppExtensionPoint.Bind
     var boundExtensionPoint: AppExtensionPoint {
-        AppExtensionPoint.Identifier(host: "com.qvoice.ios", name: "vocello-engine-service")
+        AppExtensionPoint.Identifier(host: "com.patricedery.vocello", name: "vocello-engine-service")
     }
 }

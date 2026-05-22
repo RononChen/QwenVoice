@@ -6,6 +6,17 @@ public enum IOSMemoryPressureBand: String, Codable, Hashable, Sendable {
     case healthy
     case guarded
     case critical
+
+    public var severityRank: Int {
+        switch self {
+        case .healthy:
+            return 0
+        case .guarded:
+            return 1
+        case .critical:
+            return 2
+        }
+    }
 }
 
 public enum NativeMemoryTrimLevel: String, Codable, Hashable, Sendable {
@@ -14,7 +25,17 @@ public enum NativeMemoryTrimLevel: String, Codable, Hashable, Sendable {
     case fullUnload
 }
 
+public enum IOSMemoryProcessRole: String, Codable, Hashable, Sendable {
+    case app
+    case engineExtension
+    case simulator
+    case currentProcess
+}
+
 public struct IOSMemorySnapshot: Hashable, Codable, Sendable {
+    public let processRole: IOSMemoryProcessRole
+    public let pid: Int32
+    public let capturedAtUptimeSeconds: Double
     public let totalDeviceRAMBytes: UInt64
     public let availableHeadroomBytes: UInt64?
     public let residentBytes: UInt64?
@@ -25,6 +46,9 @@ public struct IOSMemorySnapshot: Hashable, Codable, Sendable {
     public let hasUnifiedMemory: Bool?
 
     public init(
+        processRole: IOSMemoryProcessRole = .currentProcess,
+        pid: Int32 = getpid(),
+        capturedAtUptimeSeconds: Double = ProcessInfo.processInfo.systemUptime,
         totalDeviceRAMBytes: UInt64,
         availableHeadroomBytes: UInt64?,
         residentBytes: UInt64?,
@@ -34,6 +58,9 @@ public struct IOSMemorySnapshot: Hashable, Codable, Sendable {
         gpuRecommendedWorkingSetBytes: UInt64?,
         hasUnifiedMemory: Bool?
     ) {
+        self.processRole = processRole
+        self.pid = pid
+        self.capturedAtUptimeSeconds = capturedAtUptimeSeconds
         self.totalDeviceRAMBytes = totalDeviceRAMBytes
         self.availableHeadroomBytes = availableHeadroomBytes
         self.residentBytes = residentBytes
@@ -68,9 +95,15 @@ public struct IOSMemorySnapshot: Hashable, Codable, Sendable {
         Self.bytesToMB(gpuRecommendedWorkingSetBytes)
     }
 
-    public static func capture(device: MTLDevice? = MTLCreateSystemDefaultDevice()) -> IOSMemorySnapshot {
+    public static func capture(
+        role: IOSMemoryProcessRole = .currentProcess,
+        device: MTLDevice? = MTLCreateSystemDefaultDevice()
+    ) -> IOSMemorySnapshot {
         let metrics = taskMemoryMetrics()
         return IOSMemorySnapshot(
+            processRole: role,
+            pid: getpid(),
+            capturedAtUptimeSeconds: ProcessInfo.processInfo.systemUptime,
             totalDeviceRAMBytes: ProcessInfo.processInfo.physicalMemory,
             availableHeadroomBytes: availableProcessMemory(),
             residentBytes: metrics.residentBytes,
@@ -132,6 +165,54 @@ public struct IOSMemorySnapshot: Hashable, Codable, Sendable {
     }
 }
 
+public struct IOSMemoryContext: Hashable, Codable, Sendable {
+    public let appSnapshot: IOSMemorySnapshot
+    public let engineExtensionSnapshot: IOSMemorySnapshot?
+    public let pressureBand: IOSMemoryPressureBand
+    public let worstProcessRole: IOSMemoryProcessRole?
+    public let reason: String
+    public let source: String
+
+    public init(
+        appSnapshot: IOSMemorySnapshot,
+        engineExtensionSnapshot: IOSMemorySnapshot?,
+        pressureBand: IOSMemoryPressureBand,
+        worstProcessRole: IOSMemoryProcessRole?,
+        reason: String,
+        source: String
+    ) {
+        self.appSnapshot = appSnapshot
+        self.engineExtensionSnapshot = engineExtensionSnapshot
+        self.pressureBand = pressureBand
+        self.worstProcessRole = worstProcessRole
+        self.reason = reason
+        self.source = source
+    }
+
+    public var snapshots: [IOSMemorySnapshot] {
+        if let engineExtensionSnapshot {
+            return [appSnapshot, engineExtensionSnapshot]
+        }
+        return [appSnapshot]
+    }
+
+    public var minimumHeadroomBytes: UInt64? {
+        snapshots.compactMap(\.availableHeadroomBytes).min()
+    }
+
+    public var peakPhysFootprintBytes: UInt64? {
+        snapshots.compactMap(\.physFootprintBytes).max()
+    }
+
+    public var peakResidentBytes: UInt64? {
+        snapshots.compactMap(\.residentBytes).max()
+    }
+
+    public var peakGPUAllocatedBytes: UInt64? {
+        snapshots.compactMap(\.gpuAllocatedBytes).max()
+    }
+}
+
 public struct IOSMemoryBudgetPolicy: Hashable, Codable, Sendable {
     public let healthyHeadroomBytes: UInt64
     public let guardedHeadroomBytes: UInt64
@@ -174,6 +255,36 @@ public struct IOSMemoryBudgetPolicy: Hashable, Codable, Sendable {
         return .healthy
     }
 
+    public func context(
+        appSnapshot: IOSMemorySnapshot,
+        engineExtensionSnapshot: IOSMemorySnapshot?,
+        reason: String,
+        source: String
+    ) -> IOSMemoryContext {
+        let candidates = [appSnapshot, engineExtensionSnapshot].compactMap { snapshot -> (
+            snapshot: IOSMemorySnapshot,
+            band: IOSMemoryPressureBand
+        )? in
+            guard let snapshot else { return nil }
+            return (snapshot, band(for: snapshot))
+        }
+        let worst = candidates.max { lhs, rhs in
+            if lhs.band.severityRank != rhs.band.severityRank {
+                return lhs.band.severityRank < rhs.band.severityRank
+            }
+            return pressureTieBreakerScore(for: lhs.snapshot) < pressureTieBreakerScore(for: rhs.snapshot)
+        }
+
+        return IOSMemoryContext(
+            appSnapshot: appSnapshot,
+            engineExtensionSnapshot: engineExtensionSnapshot,
+            pressureBand: worst?.band ?? .healthy,
+            worstProcessRole: worst?.snapshot.processRole,
+            reason: reason,
+            source: source
+        )
+    }
+
     private func fallbackHeadroom(from snapshot: IOSMemorySnapshot) -> UInt64? {
         let usedBytes = snapshot.physFootprintBytes ?? snapshot.residentBytes
         guard let usedBytes, snapshot.totalDeviceRAMBytes > usedBytes else {
@@ -182,12 +293,32 @@ public struct IOSMemoryBudgetPolicy: Hashable, Codable, Sendable {
         return snapshot.totalDeviceRAMBytes - usedBytes
     }
 
+    private func pressureTieBreakerScore(for snapshot: IOSMemorySnapshot) -> UInt64 {
+        if let headroom = snapshot.availableHeadroomBytes {
+            return snapshot.totalDeviceRAMBytes > headroom
+                ? snapshot.totalDeviceRAMBytes - headroom
+                : 0
+        }
+        return snapshot.physFootprintBytes ?? snapshot.residentBytes ?? 0
+    }
+
     public func allowsProactiveWarmOperations(for band: IOSMemoryPressureBand) -> Bool {
         band == .healthy
     }
 
     public func allowsModelAdmission(for band: IOSMemoryPressureBand) -> Bool {
         band != .critical
+    }
+
+    public func engineExecutionBand(for context: IOSMemoryContext) -> IOSMemoryPressureBand {
+        guard let engineExtensionSnapshot = context.engineExtensionSnapshot else {
+            return .healthy
+        }
+        return band(for: engineExtensionSnapshot)
+    }
+
+    public func allowsModelAdmission(for context: IOSMemoryContext) -> Bool {
+        allowsModelAdmission(for: engineExecutionBand(for: context))
     }
 
     public func postGenerationTrimLevel(for band: IOSMemoryPressureBand) -> NativeMemoryTrimLevel? {
@@ -210,6 +341,24 @@ public struct IOSMemoryBudgetPolicy: Hashable, Codable, Sendable {
         }
 
         switch band(for: snapshot) {
+        case .healthy:
+            return .softTrim
+        case .guarded:
+            return .hardTrim
+        case .critical:
+            return .fullUnload
+        }
+    }
+
+    public func trimLevelForPressureEvent(
+        context: IOSMemoryContext,
+        isBackgroundTransition: Bool
+    ) -> NativeMemoryTrimLevel {
+        if isBackgroundTransition {
+            return .fullUnload
+        }
+
+        switch context.pressureBand {
         case .healthy:
             return .softTrim
         case .guarded:

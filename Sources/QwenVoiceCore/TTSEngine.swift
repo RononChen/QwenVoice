@@ -136,6 +136,11 @@ public protocol TTSEngineRuntimeControlling: TTSEngine {
 }
 
 @MainActor
+public protocol NativeMemoryReporting: AnyObject {
+    func captureMemorySnapshot(role: IOSMemoryProcessRole) async -> IOSMemorySnapshot?
+}
+
+@MainActor
 public protocol ActiveGenerationCancellable: AnyObject {
     func cancelActiveGeneration() async throws
 }

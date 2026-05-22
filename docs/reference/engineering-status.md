@@ -1,8 +1,8 @@
 # Engineering Status
 
-QwenVoice is the merged Apple-platform codebase that currently ships publicly as `QwenVoice v1.2.3` on macOS and will ship its next macOS release under the forward `Vocello` brand. The repo carries a shared engine core, a macOS XPC-isolated runtime path, and an iPhone engine-extension path without reintroducing a secondary Python backend or standalone CLI surface.
+QwenVoice is the merged Apple-platform codebase whose current public macOS product ships under the `Vocello 2.0.0` brand. `QwenVoice v1.2.3` remains the legacy macOS 15 fallback. The repo carries a shared engine core, a macOS XPC-isolated runtime path, and an iPhone engine-extension path without reintroducing a secondary Python backend or standalone CLI surface.
 
-The current milestone is operating on a `macOS-first release track`: macOS is the only public release target for the next ship, while iPhone remains a maintained compile-safe and deferred release surface.
+The current milestone is operating on a `macOS-first release track`: macOS is the current public release target, while iPhone remains a maintained compile-safe, real-device-tested, and deferred public release surface.
 
 ## Rescue Checkpoint
 
@@ -10,7 +10,7 @@ As of `main` commit `63a5e02` (`Guard macOS UI observation boundaries`), the rep
 
 - local `main` and `origin/main` are aligned at the same commit
 - GitHub `Project Inputs` passed for `63a5e02` in run `24973916220`
-- GitHub `Apple Platform QA Gate` (later renamed `Apple Platform Build Gate`) passed for `63a5e02` in run `24973916195`. That historical run included contract/Swift/native/hosted UI smoke layers, macOS + iPhone builds, and unsigned macOS release-artifact verification. The workflow was retired entirely in May 2026; everything moved to local-only on Mac mini M2.
+- GitHub `Apple Platform QA Gate` (later renamed `Apple Platform Build Gate`) passed for `63a5e02` in run `24973916195`. That historical run included contract/Swift/native/hosted UI smoke layers, macOS + iPhone builds, and unsigned macOS release-artifact verification. The broad gate was retired in May 2026; the only current workflow is `.github/workflows/release.yml`, scoped to macOS release packaging plus iOS compile-safety.
 - local pre-push proof for `63a5e02` historically passed `./scripts/check_project_inputs.sh`, the retired automation surface, and `./scripts/build_foundation_targets.sh macos`
 - prior local full release proof passed from `c6beacd` with `./scripts/release.sh`, `./scripts/verify_release_bundle.sh build/Release/Vocello.app`, and `./scripts/verify_packaged_dmg.sh build/Release/Vocello-macos26.dmg build/Release/release-metadata.txt`; the hosted QA gate re-proved the unsigned release-artifact lane for `63a5e02`
 - controlled local macOS acceptance on April 26, 2026 launched the local Release app, switched Custom Voice / Voice Design / Voice Cloning, typed a Custom Voice script, generated a 2-second preview, played it through the sidebar player, and persisted the output under that release app's app-support outputs folder
@@ -29,10 +29,11 @@ The next recovery work should keep this baseline stable: native SwiftUI only, no
 - The iPhone host/runtime contract now runs through a monitor-backed extension manager that selects a preferred identity, replaces stale transports, and invalidates on teardown instead of leaving that lifecycle implicit in the UI shell
 - Explicit low-RAM policy surfaces for the iPhone path, including guarded and critical memory bands
 - The shared frontend-safe engine state surface now exists as `TTSEngineFrontendState`, with matching macOS and iPhone store adapters
-- Maintained release scripts for signed/notarized macOS DMGs and iPhone archive/export flows (the prior CI workflows and automation orchestrator were retired in May 2026 to reduce harness churn)
+- Maintained release scripts for signed/notarized macOS DMGs, iPhone archive/export flows, and real-device iPhone Debug validation through `scripts/ios_device.sh`
+- A single scoped GitHub workflow for macOS release packaging plus iOS compile-safety; behavioral smoke, benchmarks, and TestFlight upload stay local/manual
 - Deterministic local foundation paths now separate package resolution, build, archive, and export work into explicit roots with `.xcresult` evidence
 - The maintained local build and archive/release lanes treat `.xcresult` bundles as first-class artifacts instead of depending on raw `xcodebuild` log tails alone (a discipline carried forward from the retired `Apple Platform QA Gate` / `Apple Platform Build Gate` workflow)
-- An explicit public-homepage posture that keeps GitHub landing-page messaging aligned with the currently shipped `QwenVoice v1.2.3` build, with `Vocello` framed as the forward rebrand that lands with the next macOS release
+- An explicit public-homepage posture that keeps GitHub landing-page messaging aligned with `Vocello 2.0.0` as the current macOS 26+ release and `QwenVoice v1.2.3` as the legacy macOS 15 fallback
 - An agent-driven autonomous testing and benchmarking harness (`scripts/uitest.sh` + the runbooks under `docs/reference/`) with committed regression baselines at `docs/reference/benchmark-baselines.json` (schema v3, 24 cells × n=3 on Apple M2, May 2026). `bench-compare` flags timing/RTF drift past ±15 %; depth metrics (audio RMS/peak dBFS and combined Vocello + XPC peak RSS) are stored per cell for forensic comparison.
 - A runtime-side prewarm gate in `NativeEngineRuntime` (`acquirePrewarmSlot` / `releasePrewarmSlot`) that serializes `prewarmVoiceDesign` / `prewarmCustomVoice` / `prewarmVoiceClone` across actor suspension points — closes the actor-reentrancy race that previously let two threads enter MLX's KV cache slice updates concurrently and trip an upstream assertion (crash report May 15, 2026).
 - A broader generation-ownership hardening layer now serializes model-mutating work through `MLXTTSEngine`, exposes `hasActiveGeneration` through the macOS/iPhone app stores, rejects concurrent host generations, carries UUID-backed streaming identity, and cancels vendored Qwen stream producers when consumers stop.
@@ -59,6 +60,6 @@ When documentation and code drift, trust:
 
 1. `Sources/`
 2. `project.yml`
-3. `scripts/` (no `.github/workflows/` — CI was retired in May 2026)
+3. `scripts/` and `.github/workflows/release.yml` for maintained local and scoped CI automation
 4. `docs/reference/current-state.md`, `docs/reference/engineering-status.md`, and `docs/reference/release-readiness.md`
 5. other prose docs

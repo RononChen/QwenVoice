@@ -23,7 +23,7 @@
     <key>EXAppExtensionAttributes</key>
     <dict>
         <key>EXExtensionPointIdentifier</key>
-        <string>com.qvoice.ios.vocello-engine-service</string>
+        <string>com.patricedery.vocello.vocello-engine-service</string>
     </dict>
     <key>MinimumOSVersion</key>
     <string>$(IPHONEOS_DEPLOYMENT_TARGET)</string>

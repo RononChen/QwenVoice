@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import OSLog
 import QwenVoiceCore
 
 extension Notification.Name {
@@ -36,6 +37,11 @@ enum IOSNativeDeviceFeatureGate {
 
 @MainActor
 final class TTSEngineStore: ObservableObject, TTSEngine {
+    private static let memoryLogger = Logger(
+        subsystem: "com.patricedery.vocello",
+        category: "MemoryGuard"
+    )
+
     @Published private(set) var loadState: EngineLoadState = .idle
     @Published private(set) var clonePreparationState: ClonePreparationState = .idle
     @Published private(set) var latestEvent: GenerationEvent?
@@ -54,18 +60,36 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
     private let backend: AnyTTSEngineBackend
     private let memoryBudgetPolicy: IOSMemoryBudgetPolicy
     private let memorySnapshotProvider: @Sendable () -> IOSMemorySnapshot
+    private let diagnosticsRecorder: IOSDeviceDiagnosticsRecorder?
+    private(set) var latestMemoryContext: IOSMemoryContext
     private var changeObserver: AnyCancellable?
     private var activeGenerationDepth = 0
     private var lastForwardedChunkIdentity: GenerationChunkDeliveryIdentity?
+    private var activeGenerationMemoryGuardTask: Task<Void, Never>?
+    private var activeGenerationPeakMemoryContext: IOSMemoryContext?
+    private var criticalMemoryActionInFlight = false
+    private var lastLoggedMemoryBand: IOSMemoryPressureBand?
+    private var debugForceCriticalOnceArmed = false
 
     init(
         backend: AnyTTSEngineBackend,
         memoryBudgetPolicy: IOSMemoryBudgetPolicy = .iPhoneShippingDefault,
-        memorySnapshotProvider: @escaping @Sendable () -> IOSMemorySnapshot = { IOSMemorySnapshot.capture() }
+        memorySnapshotProvider: @escaping @Sendable () -> IOSMemorySnapshot = { IOSMemorySnapshot.capture(role: .app) }
     ) {
         self.backend = backend
         self.memoryBudgetPolicy = memoryBudgetPolicy
         self.memorySnapshotProvider = memorySnapshotProvider
+        self.diagnosticsRecorder = IOSDeviceDiagnosticsRecorder.makeIfEnabled()
+#if DEBUG
+        self.debugForceCriticalOnceArmed = Self.debugForceCriticalOnceEnabled()
+#endif
+        let initialAppSnapshot = memorySnapshotProvider()
+        self.latestMemoryContext = memoryBudgetPolicy.context(
+            appSnapshot: initialAppSnapshot,
+            engineExtensionSnapshot: nil,
+            reason: "init",
+            source: "store"
+        )
         self.modelRegistry = backend.modelRegistry
         self.supportsSavedVoiceMutation = backend.supportsSavedVoiceMutation
         self.supportsModelManagementMutation = backend.supportsModelManagementMutation
@@ -73,7 +97,7 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         let initialSnapshot = backend.snapshot()
         self.frontendState = initialSnapshot.withoutPreviewAudioPayload()
         syncFromSnapshot(initialSnapshot)
-        applyMemoryPolicyContext(for: memorySnapshotProvider())
+        applyMemoryPolicyContext(latestMemoryContext, notify: false)
         changeObserver = backend.stateDidChange
             .sink { [weak self] in
                 Task { @MainActor [weak self] in
@@ -99,6 +123,7 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
     func initialize(appSupportDirectory: URL) async throws {
         try await backend.initialize(appSupportDirectory)
         syncFromBackend()
+        await refreshMemoryContext(reason: "initialize", source: "store")
         notifyMemoryContextDidChange()
     }
 
@@ -116,14 +141,20 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
     }
 
     func loadModel(id: String) async throws {
-        try guardModelAdmission(shouldSurfaceError: false)
+        try await guardModelAdmission(shouldSurfaceError: false, reason: "load_model")
         try await backend.loadModel(id: id)
         syncFromBackend()
+        await refreshMemoryContext(reason: "load_model_complete", source: "store")
         notifyMemoryContextDidChange()
     }
 
     func unloadModel() async throws {
         try await backend.unloadModel()
+        diagnosticsRecorder?.recordAction(
+            event: "unload_model",
+            reason: "explicit_unload",
+            context: latestMemoryContext
+        )
         syncFromBackend()
         notifyMemoryContextDidChange()
     }
@@ -135,14 +166,14 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
     }
 
     func ensureModelLoadedIfNeeded(id: String) async {
-        guard canAdmitModel(shouldSurfaceError: false) else { return }
+        guard await allowsProactiveWarmOperations(reason: "ensure_model_loaded") else { return }
         await backend.ensureModelLoadedIfNeeded(id: id)
         syncFromBackend()
         notifyMemoryContextDidChange()
     }
 
     func prewarmModelIfNeeded(for request: GenerationRequest) async {
-        guard allowsProactiveWarmOperations() else { return }
+        guard await allowsProactiveWarmOperations(reason: "prewarm_model") else { return }
         await backend.prewarmModelIfNeeded(for: request)
         syncFromBackend()
         notifyMemoryContextDidChange()
@@ -151,7 +182,7 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
     func prefetchInteractiveReadinessIfNeeded(
         for request: GenerationRequest
     ) async -> InteractivePrefetchDiagnostics? {
-        guard allowsProactiveWarmOperations() else { return nil }
+        guard await allowsProactiveWarmOperations(reason: "prefetch_interactive_readiness") else { return nil }
         let diagnostics = await backend.prefetchInteractiveReadinessIfNeeded(for: request)
         syncFromBackend()
         notifyMemoryContextDidChange()
@@ -159,7 +190,7 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
     }
 
     func ensureCloneReferencePrimed(modelID: String, reference: CloneReference) async throws {
-        guard allowsProactiveWarmOperations() else { return }
+        guard await allowsProactiveWarmOperations(reason: "clone_reference_prime") else { return }
         try await backend.ensureCloneReferencePrimed(modelID: modelID, reference: reference)
         syncFromBackend()
         notifyMemoryContextDidChange()
@@ -185,7 +216,7 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         if case .unsupported(let reason) = supportDecision(for: request) {
             throw MLXTTSEngineError.unsupportedRequest(reason)
         }
-        try guardModelAdmission(shouldSurfaceError: true)
+        try await guardModelAdmission(shouldSurfaceError: true, reason: "generation_admission")
         guard !hasActiveGeneration else {
             throw MLXTTSEngineError.generationFailed(
                 "The engine is already generating audio. Wait for it to finish or cancel it before starting another generation."
@@ -193,15 +224,27 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         }
         activeGenerationDepth += 1
         hasActiveGeneration = activeGenerationDepth > 0
+        startActiveGenerationMemoryGuard(reason: "generation_active")
         defer {
+            stopActiveGenerationMemoryGuard(reason: "generation_finished")
+            logActiveGenerationPeakMemoryContext()
+            activeGenerationPeakMemoryContext = nil
+            criticalMemoryActionInFlight = false
             activeGenerationDepth = max(activeGenerationDepth - 1, 0)
             hasActiveGeneration = activeGenerationDepth > 0
             syncFromBackend()
         }
 
         let result = try await backend.generate(request)
-        let postGenerationBand = applyMemoryPolicyContext(for: currentMemorySnapshot())
+        let postGenerationContext = await refreshMemoryContext(reason: "post_generation", source: "store")
+        let postGenerationBand = postGenerationContext.pressureBand
         if let trimLevel = memoryBudgetPolicy.postGenerationTrimLevel(for: postGenerationBand) {
+            diagnosticsRecorder?.recordAction(
+                event: "post_generation_trim",
+                reason: "post_generation_\(postGenerationBand.rawValue)",
+                context: postGenerationContext,
+                trimLevel: trimLevel
+            )
             await backend.trimMemory(
                 level: trimLevel,
                 reason: "post_generation_\(postGenerationBand.rawValue)"
@@ -264,13 +307,46 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         memorySnapshotProvider()
     }
 
+    func currentMemoryContext() -> IOSMemoryContext {
+        latestMemoryContext
+    }
+
+    @discardableResult
+    func refreshMemoryContext(reason: String, source: String = "store") async -> IOSMemoryContext {
+        let appSnapshot = memorySnapshotProvider()
+        let engineSnapshot = await backend.captureMemorySnapshot(role: .engineExtension)
+        let context = memoryBudgetPolicy.context(
+            appSnapshot: appSnapshot,
+            engineExtensionSnapshot: engineSnapshot,
+            reason: reason,
+            source: source
+        )
+        let effectiveContext = contextApplyingDebugForcedBand(context)
+        applyMemoryPolicyContext(effectiveContext)
+        return effectiveContext
+    }
+
     @discardableResult
     func refreshMemoryPolicy() -> IOSMemoryPressureBand {
-        applyMemoryPolicyContext(for: currentMemorySnapshot())
+        let context = memoryBudgetPolicy.context(
+            appSnapshot: currentMemorySnapshot(),
+            engineExtensionSnapshot: nil,
+            reason: "refresh_memory_policy",
+            source: "store"
+        )
+        let effectiveContext = contextApplyingDebugForcedBand(context)
+        applyMemoryPolicyContext(effectiveContext)
+        return effectiveContext.pressureBand
     }
 
     func trimMemory(level: NativeMemoryTrimLevel, reason: String) async {
         await backend.trimMemory(level: level, reason: reason)
+        diagnosticsRecorder?.recordAction(
+            event: "trim_memory",
+            reason: reason,
+            context: latestMemoryContext,
+            trimLevel: level
+        )
         syncFromBackend()
         notifyMemoryContextDidChange()
     }
@@ -331,7 +407,9 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         if hasActiveGeneration != nextHasActiveGeneration {
             hasActiveGeneration = nextHasActiveGeneration
         }
-        applyMemoryPolicyContext(for: currentMemorySnapshot())
+        backend.setAllowsProactiveWarmOperations(
+            memoryBudgetPolicy.allowsProactiveWarmOperations(for: latestMemoryContext.pressureBand)
+        )
 
         guard let latestEvent = rawLatestEvent,
               let chunkIdentity = latestEvent.chunkDeliveryIdentity,
@@ -357,40 +435,300 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         }
     }
 
-    private func canAdmitModel(shouldSurfaceError: Bool) -> Bool {
+    private func canAdmitModel(shouldSurfaceError: Bool, reason: String) async -> Bool {
         do {
-            try guardModelAdmission(shouldSurfaceError: shouldSurfaceError)
+            try await guardModelAdmission(shouldSurfaceError: shouldSurfaceError, reason: reason)
             return true
         } catch {
             return false
         }
     }
 
-    private func guardModelAdmission(shouldSurfaceError: Bool) throws {
-        let band = applyMemoryPolicyContext(for: currentMemorySnapshot())
-        guard memoryBudgetPolicy.allowsModelAdmission(for: band) else {
+    private func guardModelAdmission(shouldSurfaceError: Bool, reason: String) async throws {
+        let context = await refreshMemoryContext(reason: reason, source: "admission")
+        let admissionBand = memoryBudgetPolicy.engineExecutionBand(for: context)
+        guard memoryBudgetPolicy.allowsModelAdmission(for: context) else {
             let error = MLXTTSEngineError.generationFailed(
                 "Vocello needs more available memory before loading this model. Close background apps and try again."
+            )
+            diagnosticsRecorder?.recordAction(
+                event: "model_admission_blocked",
+                reason: reason,
+                context: context,
+                message: error.localizedDescription
             )
             if shouldSurfaceError {
                 backend.setVisibleError(error.localizedDescription)
             }
             throw error
         }
+#if DEBUG
+        if context.pressureBand == .critical, admissionBand != .critical {
+            print(
+                "[TTSEngineStore] Allowing model admission using engine band \(admissionBand.rawValue); combined=\(context.pressureBand.rawValue), appHeadroomMB=\(context.appSnapshot.availableHeadroomBytes.map(Self.megabytesString) ?? "unknown"), extensionHeadroomMB=\(context.engineExtensionSnapshot?.availableHeadroomBytes.map(Self.megabytesString) ?? "missing")"
+            )
+        }
+#endif
     }
 
-    private func allowsProactiveWarmOperations() -> Bool {
-        let band = applyMemoryPolicyContext(for: currentMemorySnapshot())
-        return memoryBudgetPolicy.allowsProactiveWarmOperations(for: band)
+    private func allowsProactiveWarmOperations(reason: String) async -> Bool {
+#if targetEnvironment(simulator)
+        let hardwarePrefetchAllowed = true
+#elseif DEBUG
+        let hardwarePrefetchAllowed = ProcessInfo.processInfo.environment["QVOICE_IOS_ENABLE_PROACTIVE_PREFETCH"] == "1"
+#else
+        let hardwarePrefetchAllowed = false
+#endif
+        guard hardwarePrefetchAllowed else {
+            diagnosticsRecorder?.recordAction(
+                event: "proactive_warm_blocked",
+                reason: "\(reason)_hardware_default",
+                context: latestMemoryContext,
+                message: "iPhone proactive warm/load work is disabled by default."
+            )
+            return false
+        }
+        let context = await refreshMemoryContext(reason: reason, source: "warm_gate")
+        let allowed = memoryBudgetPolicy.allowsProactiveWarmOperations(for: context.pressureBand)
+        if !allowed {
+            diagnosticsRecorder?.recordAction(
+                event: "proactive_warm_blocked",
+                reason: reason,
+                context: context
+            )
+        }
+        return allowed
     }
 
     @discardableResult
-    private func applyMemoryPolicyContext(for snapshot: IOSMemorySnapshot) -> IOSMemoryPressureBand {
-        let band = memoryBudgetPolicy.band(for: snapshot)
+    private func applyMemoryPolicyContext(
+        _ context: IOSMemoryContext,
+        notify: Bool = true
+    ) -> IOSMemoryPressureBand {
+        let band = context.pressureBand
+        let previousBand = latestMemoryContext.pressureBand
+        latestMemoryContext = context
         backend.setAllowsProactiveWarmOperations(
             memoryBudgetPolicy.allowsProactiveWarmOperations(for: band)
         )
+        recordActiveGenerationPeakIfNeeded(context)
+        diagnosticsRecorder?.recordMemoryContext(context, event: "memory_context")
+        if previousBand != band {
+            diagnosticsRecorder?.recordMemoryContext(
+                context,
+                event: "memory_band_transition",
+                previousBand: previousBand
+            )
+        }
+        logMemoryContextTransitionIfNeeded(context)
+        if notify {
+            notifyMemoryContextDidChange()
+        }
         return band
+    }
+
+    private func startActiveGenerationMemoryGuard(reason: String) {
+        stopActiveGenerationMemoryGuard(reason: "restart")
+        activeGenerationPeakMemoryContext = nil
+        activeGenerationMemoryGuardTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let initialContext = await self.refreshMemoryContext(reason: reason, source: "active_generation_guard")
+            if self.shouldEnforceCriticalMemoryContext(initialContext) {
+                await self.enforceCriticalMemoryContext(initialContext)
+                return
+            }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled, self.hasActiveGeneration else { break }
+                let sampledContext = await self.refreshMemoryContext(
+                    reason: "active_generation_sample",
+                    source: "active_generation_guard"
+                )
+                let context = self.contextApplyingDebugCriticalOnceIfNeeded(sampledContext)
+                if self.shouldEnforceCriticalMemoryContext(context) {
+                    await self.enforceCriticalMemoryContext(context)
+                    break
+                }
+            }
+        }
+    }
+
+    private func stopActiveGenerationMemoryGuard(reason: String) {
+        activeGenerationMemoryGuardTask?.cancel()
+        activeGenerationMemoryGuardTask = nil
+    }
+
+    private func enforceCriticalMemoryContext(_ context: IOSMemoryContext) async {
+        guard !criticalMemoryActionInFlight else { return }
+        criticalMemoryActionInFlight = true
+        Self.memoryLogger.fault(
+            "Critical iOS memory context during \(context.reason, privacy: .public); worst=\(context.worstProcessRole?.rawValue ?? "unknown", privacy: .public), headroomMB=\(context.minimumHeadroomBytes.map(Self.megabytesString) ?? "unknown", privacy: .public), extensionFootprintMB=\(context.engineExtensionSnapshot?.physFootprintBytes.map(Self.megabytesString) ?? "unknown", privacy: .public)"
+        )
+        diagnosticsRecorder?.recordAction(
+            event: "critical_memory_action",
+            reason: context.reason,
+            context: context
+        )
+
+        if hasActiveGeneration {
+            do {
+                try await backend.cancelActiveGeneration()
+                diagnosticsRecorder?.recordAction(
+                    event: "critical_generation_cancel",
+                    reason: context.reason,
+                    context: context
+                )
+            } catch {
+                backend.setVisibleError(nil)
+                diagnosticsRecorder?.recordAction(
+                    event: "critical_generation_cancel_failed",
+                    reason: context.reason,
+                    context: context,
+                    message: error.localizedDescription
+                )
+            }
+            activeGenerationDepth = 0
+            hasActiveGeneration = false
+        }
+        diagnosticsRecorder?.recordAction(
+            event: "critical_full_unload",
+            reason: "critical_memory_context",
+            context: context,
+            trimLevel: .fullUnload
+        )
+        await backend.trimMemory(level: .fullUnload, reason: "critical_memory_context")
+        backend.clearGenerationActivity()
+        syncFromBackend()
+        notifyMemoryContextDidChange()
+    }
+
+    private func shouldEnforceCriticalMemoryContext(_ context: IOSMemoryContext) -> Bool {
+#if DEBUG
+        if context.reason.contains("debug_force_critical_once") {
+            return true
+        }
+#endif
+        return memoryBudgetPolicy.engineExecutionBand(for: context) == .critical
+    }
+
+    private func recordActiveGenerationPeakIfNeeded(_ context: IOSMemoryContext) {
+        guard hasActiveGeneration else { return }
+        guard let currentPeak = activeGenerationPeakMemoryContext else {
+            activeGenerationPeakMemoryContext = context
+            return
+        }
+        if Self.isHigherPressure(context, than: currentPeak) {
+            activeGenerationPeakMemoryContext = context
+        }
+    }
+
+    private static func isHigherPressure(_ lhs: IOSMemoryContext, than rhs: IOSMemoryContext) -> Bool {
+        if lhs.pressureBand.severityRank != rhs.pressureBand.severityRank {
+            return lhs.pressureBand.severityRank > rhs.pressureBand.severityRank
+        }
+        let lhsFootprint = lhs.peakPhysFootprintBytes ?? lhs.peakResidentBytes ?? 0
+        let rhsFootprint = rhs.peakPhysFootprintBytes ?? rhs.peakResidentBytes ?? 0
+        return lhsFootprint > rhsFootprint
+    }
+
+    private func logMemoryContextTransitionIfNeeded(_ context: IOSMemoryContext) {
+        guard lastLoggedMemoryBand != context.pressureBand else { return }
+        lastLoggedMemoryBand = context.pressureBand
+        Self.memoryLogger.notice(
+            "iOS memory context \(context.pressureBand.rawValue, privacy: .public) from \(context.source, privacy: .public)/\(context.reason, privacy: .public); worst=\(context.worstProcessRole?.rawValue ?? "unknown", privacy: .public), appFootprintMB=\(context.appSnapshot.physFootprintBytes.map(Self.megabytesString) ?? "unknown", privacy: .public), extensionFootprintMB=\(context.engineExtensionSnapshot?.physFootprintBytes.map(Self.megabytesString) ?? "missing", privacy: .public), minHeadroomMB=\(context.minimumHeadroomBytes.map(Self.megabytesString) ?? "unknown", privacy: .public)"
+        )
+    }
+
+    private func logActiveGenerationPeakMemoryContext() {
+        guard let context = activeGenerationPeakMemoryContext else { return }
+        diagnosticsRecorder?.recordMemoryContext(context, event: "active_generation_peak")
+        Self.memoryLogger.notice(
+            "iOS generation peak memory \(context.pressureBand.rawValue, privacy: .public); worst=\(context.worstProcessRole?.rawValue ?? "unknown", privacy: .public), appFootprintMB=\(context.appSnapshot.physFootprintBytes.map(Self.megabytesString) ?? "unknown", privacy: .public), extensionFootprintMB=\(context.engineExtensionSnapshot?.physFootprintBytes.map(Self.megabytesString) ?? "missing", privacy: .public), minHeadroomMB=\(context.minimumHeadroomBytes.map(Self.megabytesString) ?? "unknown", privacy: .public)"
+        )
+    }
+
+    private func contextApplyingDebugForcedBand(_ context: IOSMemoryContext) -> IOSMemoryContext {
+#if DEBUG
+        guard let forcedBand = Self.debugForcedMemoryBand(),
+              forcedBand.severityRank > context.pressureBand.severityRank else {
+            return context
+        }
+        return Self.context(
+            context,
+            overridingBand: forcedBand,
+            reason: "\(context.reason)_debug_force_\(forcedBand.rawValue)"
+        )
+#else
+        return context
+#endif
+    }
+
+    private func contextApplyingDebugCriticalOnceIfNeeded(_ context: IOSMemoryContext) -> IOSMemoryContext {
+#if DEBUG
+        guard debugForceCriticalOnceArmed else { return context }
+        debugForceCriticalOnceArmed = false
+        let forcedContext = Self.context(
+            context,
+            overridingBand: .critical,
+            reason: "\(context.reason)_debug_force_critical_once"
+        )
+        applyMemoryPolicyContext(forcedContext)
+        diagnosticsRecorder?.recordAction(
+            event: "debug_force_critical_once",
+            reason: forcedContext.reason,
+            context: forcedContext
+        )
+        return forcedContext
+#else
+        return context
+#endif
+    }
+
+    private static func context(
+        _ context: IOSMemoryContext,
+        overridingBand band: IOSMemoryPressureBand,
+        reason: String
+    ) -> IOSMemoryContext {
+        IOSMemoryContext(
+            appSnapshot: context.appSnapshot,
+            engineExtensionSnapshot: context.engineExtensionSnapshot,
+            pressureBand: band,
+            worstProcessRole: context.worstProcessRole ?? .app,
+            reason: reason,
+            source: context.source
+        )
+    }
+
+#if DEBUG
+    private static func debugForcedMemoryBand(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> IOSMemoryPressureBand? {
+        switch environment["QVOICE_IOS_MEMORY_GUARD_FORCE_BAND"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() {
+        case "guarded":
+            return .guarded
+        default:
+            return nil
+        }
+    }
+
+    private static func debugForceCriticalOnceEnabled(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        switch environment["QVOICE_IOS_MEMORY_GUARD_FORCE_CRITICAL_ONCE"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() {
+        case "1", "true", "yes", "on":
+            return true
+        default:
+            return false
+        }
+    }
+#endif
+
+    private static func megabytesString(_ bytes: UInt64) -> String {
+        String(format: "%.1f", Double(bytes) / 1_048_576)
     }
 
 }
@@ -429,6 +767,7 @@ final class AnyTTSEngineBackend {
     private let setVisibleErrorBlock: (String?) -> Void
     private let setAllowsProactiveWarmOperationsBlock: (Bool) -> Void
     private let trimMemoryBlock: (NativeMemoryTrimLevel, String) async -> Void
+    private let captureMemorySnapshotBlock: (IOSMemoryProcessRole) async -> IOSMemorySnapshot?
     private let extensionLifecycleStateBlock: () -> ExtensionEngineLifecycleState
 
     init<Engine: TTSEngine & AnyObject>(
@@ -495,6 +834,13 @@ final class AnyTTSEngineBackend {
             self.setAllowsProactiveWarmOperationsBlock = { _ in }
             self.trimMemoryBlock = { _, _ in }
         }
+        if let engine = engine as? any NativeMemoryReporting {
+            self.captureMemorySnapshotBlock = { role in
+                await engine.captureMemorySnapshot(role: role)
+            }
+        } else {
+            self.captureMemorySnapshotBlock = { _ in nil }
+        }
         self.extensionLifecycleStateBlock = {
             Self.frontendLifecycleState(for: engine)
         }
@@ -544,6 +890,9 @@ final class AnyTTSEngineBackend {
     func setVisibleError(_ message: String?) { setVisibleErrorBlock(message) }
     func setAllowsProactiveWarmOperations(_ allow: Bool) { setAllowsProactiveWarmOperationsBlock(allow) }
     func trimMemory(level: NativeMemoryTrimLevel, reason: String) async { await trimMemoryBlock(level, reason) }
+    func captureMemorySnapshot(role: IOSMemoryProcessRole) async -> IOSMemorySnapshot? {
+        await captureMemorySnapshotBlock(role)
+    }
 
     private static func frontendLifecycleState<Engine: TTSEngine>(
         for engine: Engine

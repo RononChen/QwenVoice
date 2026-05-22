@@ -44,10 +44,12 @@ Delete local macOS app data by quitting the app and removing the app support roo
 The iPhone app uses the App Group:
 
 ```text
-group.com.qvoice.shared
+group.com.patricedery.vocello.shared
 ```
 
 Its shared container is rooted under the app-owned `Vocello` subtree and is managed by `Sources/iOSSupport/Services/AppPaths.swift`.
+
+The May 2026 iOS identity rename moved pre-release storage from the old QVoice App Group to this Vocello App Group without migration, so device builds after the rename start with fresh iPhone data.
 
 Maintained iPhone subtrees:
 

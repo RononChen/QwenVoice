@@ -85,7 +85,7 @@ For shell launches, pass env vars with the `SIMCTL_CHILD_` prefix:
 ```sh
 SIMCTL_CHILD_QVOICE_SIM_FAKE_MODELS=all \
 SIMCTL_CHILD_QVOICE_SIM_BACKEND_SCENARIO=success \
-xcrun simctl launch --terminate-running-process booted com.qvoice.ios
+xcrun simctl launch --terminate-running-process booted com.patricedery.vocello
 ```
 
 Useful scenarios:

@@ -9,6 +9,26 @@ Copy-pasteable commands for the three testing layers. For when-to-run-what, see 
 scripts/uitest.sh smoke-check custom   # or design / clone
 ```
 
+## iPhone 17 Pro device run
+
+```sh
+scripts/ios_device.sh doctor
+scripts/ios_device.sh start
+
+# Drive the mirrored iPhone UI through Computer Use, then capture milestones.
+scripts/ios_device.sh screenshot custom-complete
+scripts/ios_device.sh pull
+```
+
+Real MLX generation on hardware still depends on Apple's increased-memory entitlement; without it, this workflow remains useful for UI, model delivery, extension transport, and diagnostics proof.
+
+Debug-only memory guard probes:
+
+```sh
+scripts/ios_device.sh start --run-id guarded-probe --force-band guarded
+scripts/ios_device.sh start --run-id critical-once-probe --force-critical-once
+```
+
 ## One-shot Custom Voice smoke (~1 min)
 
 ```sh

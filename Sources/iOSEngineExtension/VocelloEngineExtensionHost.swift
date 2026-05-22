@@ -72,7 +72,7 @@ final class VocelloEngineExtensionHost: NSObject, VocelloEngineExtensionXPCProto
     }
 
     private static let logger = Logger(
-        subsystem: "com.qvoice.ios.engine-extension",
+        subsystem: "com.patricedery.vocello.engine-extension",
         category: "VocelloEngineExtensionHost"
     )
 
@@ -168,6 +168,9 @@ final class VocelloEngineExtensionHost: NSObject, VocelloEngineExtensionXPCProto
     private func handleCommandPayload(_ payload: Data) async -> ExtensionEngineReplyEnvelope {
         do {
             let request = try ExtensionEngineCodec.decode(ExtensionEngineRequestEnvelope.self, from: payload)
+#if DEBUG
+            print("[VocelloEngineExtensionHost] command=\(Self.commandName(for: request.command))")
+#endif
             do {
                 return ExtensionEngineReplyEnvelope(
                     id: request.id,
@@ -276,6 +279,8 @@ final class VocelloEngineExtensionHost: NSObject, VocelloEngineExtensionXPCProto
         case .clearVisibleError:
             try requireRuntimeContext().engine.clearVisibleError()
             return .void
+        case .captureMemorySnapshot(let role):
+            return .memorySnapshot(IOSMemorySnapshot.capture(role: role))
         case .trimMemory(let level, let reason):
             try await requireRuntimeContext().engine.trimMemory(level: level, reason: reason)
             return .void
@@ -376,6 +381,9 @@ final class VocelloEngineExtensionHost: NSObject, VocelloEngineExtensionXPCProto
     }
 
     private func handleSessionEnded(sessionID: UUID, message: String) {
+#if DEBUG
+        print("[VocelloEngineExtensionHost] session ended: \(message)")
+#endif
         guard clearActiveSessionIfNeeded(sessionID: sessionID) else {
             Self.logger.debug(
                 "Ignoring disconnect from stale engine-extension session \(sessionID.uuidString, privacy: .public)."
@@ -407,6 +415,13 @@ final class VocelloEngineExtensionHost: NSObject, VocelloEngineExtensionXPCProto
     }
 
     private func publish(_ event: ExtensionEngineEventEnvelope, toSessionID sessionID: UUID? = nil) {
+#if DEBUG
+        let eventSinkEnabled = ProcessInfo.processInfo.environment["QVOICE_IOS_EXTENSION_ENABLE_EVENT_SINK"] == "1"
+#else
+        let eventSinkEnabled = false
+#endif
+        guard eventSinkEnabled else { return }
+
         let session: ActiveSession?
         sessionLock.lock()
         if let sessionID {
@@ -445,9 +460,52 @@ final class VocelloEngineExtensionHost: NSObject, VocelloEngineExtensionXPCProto
     }
 
     private static func storeVersionSeed(bundle: Bundle = .main) -> String {
-        let bundleIdentifier = bundle.bundleIdentifier ?? "com.qvoice.ios.engine-extension"
+        let bundleIdentifier = bundle.bundleIdentifier ?? "com.patricedery.vocello.engine-extension"
         let marketingVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
         let buildVersion = bundle.object(forInfoDictionaryKey: kCFBundleVersionKey as String) as? String ?? "0"
         return "\(bundleIdentifier)|\(marketingVersion)|\(buildVersion)"
+    }
+
+    private static func commandName(for command: ExtensionEngineCommand) -> String {
+        switch command {
+        case .initialize:
+            "initialize"
+        case .ping:
+            "ping"
+        case .loadModel:
+            "loadModel"
+        case .unloadModel:
+            "unloadModel"
+        case .prepareAudio:
+            "prepareAudio"
+        case .ensureModelLoadedIfNeeded:
+            "ensureModelLoadedIfNeeded"
+        case .prewarmModelIfNeeded:
+            "prewarmModelIfNeeded"
+        case .prefetchInteractiveReadinessIfNeeded:
+            "prefetchInteractiveReadinessIfNeeded"
+        case .ensureCloneReferencePrimed:
+            "ensureCloneReferencePrimed"
+        case .cancelClonePreparationIfNeeded:
+            "cancelClonePreparationIfNeeded"
+        case .generate:
+            "generate"
+        case .cancelActiveGeneration:
+            "cancelActiveGeneration"
+        case .listPreparedVoices:
+            "listPreparedVoices"
+        case .enrollPreparedVoice:
+            "enrollPreparedVoice"
+        case .deletePreparedVoice:
+            "deletePreparedVoice"
+        case .clearGenerationActivity:
+            "clearGenerationActivity"
+        case .clearVisibleError:
+            "clearVisibleError"
+        case .captureMemorySnapshot:
+            "captureMemorySnapshot"
+        case .trimMemory:
+            "trimMemory"
+        }
     }
 }

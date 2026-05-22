@@ -89,12 +89,18 @@ public final class AppExtensionProcessTransport: NSObject, ExtensionEngineTransp
         handlers: ExtensionEngineTransportHandlers
     ) async throws {
         self.handlers = handlers
+#if DEBUG
+        print("[AppExtensionProcessTransport] Starting engine extension \(identity.bundleIdentifier)")
+#endif
         let configuration = AppExtensionProcess.Configuration(
             appExtensionIdentity: identity,
             onInterruption: handlers.onInterrupted
         )
         let process = try await AppExtensionProcess(configuration: configuration)
         let connection = try process.makeXPCConnection()
+#if DEBUG
+        print("[AppExtensionProcessTransport] XPC connection created for \(identity.bundleIdentifier)")
+#endif
         let eventSink = VocelloEngineClientEventSink(onEvent: handlers.onEventData)
 
         self.process = process
@@ -129,7 +135,7 @@ public final class AppExtensionProcessTransport: NSObject, ExtensionEngineTransp
         }
         guard let proxy = rawProxy as? VocelloEngineExtensionXPCProtocol else {
             let mismatch = NSError(
-                domain: "com.qvoice.ios.engine-extension",
+                domain: "com.patricedery.vocello.engine-extension",
                 code: -1,
                 userInfo: [
                     NSLocalizedDescriptionKey:

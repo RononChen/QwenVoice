@@ -49,7 +49,9 @@ struct QVoiceiOSApp: App {
                             .environmentObject(installer)
                             .onAppear {
                                 setupAppSupport()
-                                _ = engine.refreshMemoryPolicy()
+                                Task {
+                                    await engine.refreshMemoryContext(reason: "appear", source: "app")
+                                }
                                 startEngineIfNeeded()
                             }
                             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
@@ -66,6 +68,11 @@ struct QVoiceiOSApp: App {
                                 guard !hasActiveGeneration else { return }
                                 executeDeferredMemoryPressureReliefIfNeeded()
                                 executeDeferredRuntimeReleaseIfNeeded()
+                            }
+                            .onReceive(NotificationCenter.default.publisher(for: .ttsEngineMemoryContextDidChange)) { _ in
+                                if engine.currentMemoryContext().pressureBand == .critical {
+                                    audioPlayer.abortLivePreviewIfNeeded()
+                                }
                             }
                             .onReceive(engine.$extensionLifecycleState.removeDuplicates()) { lifecycleState in
                                 switch lifecycleState {
@@ -97,10 +104,13 @@ struct QVoiceiOSApp: App {
         Task {
             do {
                 try await engine.initialize(appSupportDirectory: AppPaths.appSupportDir)
-                _ = engine.refreshMemoryPolicy()
+                await engine.refreshMemoryContext(reason: "engine_initialized", source: "app")
                 print("[QVoiceiOSApp] Engine initialized.")
             } catch {
                 didInitializeEngine = false
+#if DEBUG
+                print("[QVoiceiOSApp] Engine initialization failed: \(error.localizedDescription)")
+#endif
                 engine.setVisibleError("Engine initialization failed: \(error.localizedDescription)")
             }
         }
@@ -109,7 +119,11 @@ struct QVoiceiOSApp: App {
     private func handleScenePhaseChange(_ scenePhase: ScenePhase) {
         switch scenePhase {
         case .active:
-            _ = deps.engine?.refreshMemoryPolicy()
+            if let engine = deps.engine {
+                Task {
+                    await engine.refreshMemoryContext(reason: "scene_active", source: "app")
+                }
+            }
             executeDeferredMemoryPressureReliefIfNeeded()
             executeDeferredRuntimeReleaseIfNeeded()
         case .background:
@@ -209,13 +223,12 @@ struct QVoiceiOSApp: App {
             return
         }
 
-        let snapshot = engine.currentMemorySnapshot()
-        let trimLevel = memoryBudgetPolicy.trimLevelForPressureEvent(
-            snapshot: snapshot,
-            isBackgroundTransition: false
-        )
-
         Task { @MainActor in
+            let context = await engine.refreshMemoryContext(reason: reason, source: "app_pressure")
+            let trimLevel = memoryBudgetPolicy.trimLevelForPressureEvent(
+                context: context,
+                isBackgroundTransition: false
+            )
             await engine.trimMemory(level: trimLevel, reason: reason)
             if trimLevel == .fullUnload {
                 audioPlayer.abortLivePreviewIfNeeded()

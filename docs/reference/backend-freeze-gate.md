@@ -2,7 +2,7 @@
 
 This document defines the source, integration, build, and unsigned-release gate that must stay green before release-hardening work is treated as reviewable.
 
-The "gate" is **entirely local** as of May 2026: project-input validation, foundation builds, unsigned + signed/notarized release packaging, and iPhone archive/export all run on Mac mini M2 via the `scripts/` tooling. There is no CI counterpart; the prior GitHub workflows were retired in a deliberate reset.
+The authoritative gate is local as of May 2026: project-input validation, foundation builds, unsigned + signed/notarized release packaging, iPhone archive/export, and real-device Debug validation all run on Mac mini M2 via the `scripts/` tooling. CI has only a narrow companion workflow for macOS release packaging plus iOS compile-safety; the prior broad GitHub gates were retired in a deliberate reset.
 
 ## Purpose
 
@@ -65,7 +65,7 @@ The gate is green only when the maintained checks below are green for the curren
 ./scripts/build_foundation_targets.sh ios
 ```
 
-After a clean foundation build, exercise the affected paths locally. Use `./scripts/build.sh run` or `scripts/uitest.sh prep` for persistent Debug behavior, and use `build/Release/Vocello.app` after `./scripts/release.sh` for fresh repo-local release behavior. There is no CI or XCTest harness as of May 2026; manual smoke and the maintained Codex–driven `scripts/uitest.sh` runbooks are the behavioral regression checks.
+After a clean foundation build, exercise the affected paths locally. Use `./scripts/build.sh run` or `scripts/uitest.sh prep` for persistent Debug macOS behavior, `build/Release/Vocello.app` after `./scripts/release.sh` for fresh repo-local release behavior, and `scripts/ios_device.sh` for real iPhone hardware behavior. There is no CI smoke, benchmark, or XCTest harness as of May 2026; manual smoke, the maintained Codex-driven macOS `scripts/uitest.sh` runbooks, and iPhone screen-mirror runs are the behavioral regression checks.
 
 ### Local Unsigned Release Proof
 
@@ -77,13 +77,14 @@ After a clean foundation build, exercise the affected paths locally. Use `./scri
 
 ### Maintained CI Proof
 
-None. GitHub workflows were retired in May 2026. Build, packaging, signing, notarization, and TestFlight-prep work all run locally on Mac mini M2 via:
+`.github/workflows/release.yml` is the only maintained workflow. It packages the macOS DMG and runs unsigned iOS compile-safety; it does not run behavioral tests, benchmarks, signed iOS archive/export, or TestFlight upload. Build, packaging, signing, notarization, TestFlight-prep, and device validation remain source-of-truth local flows on Mac mini M2 via:
 
 - `scripts/release.sh` + `scripts/verify_release_bundle.sh` + `scripts/verify_packaged_dmg.sh` — signed/notarized macOS DMG
+- `scripts/ios_device.sh` — direct Debug install/launch, iPhone Mirroring, screenshots, and pulled diagnostics for owned-device iPhone proof
 - `scripts/check_ios_catalog.sh` + `scripts/release_ios_testflight.sh` + `scripts/verify_ios_release_archive.sh` — iPhone archive/export/TestFlight prep
 - `scripts/build_foundation_targets.sh macos\|ios` — deterministic foundation builds
 
-These are the authoritative source-of-truth tools for any build, packaging, or distribution work. There is no CI mirror.
+These are the authoritative source-of-truth tools for build, packaging, distribution, and behavioral proof. CI is deliberately narrower than local proof.
 
 Deferred but still maintained local proof:
 

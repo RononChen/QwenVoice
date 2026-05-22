@@ -9,7 +9,7 @@ extension AppExtensionPoint {
         Name("vocello-engine-service")
         Scope(restriction: .application)
         UserInterface(false)
-        EnhancedSecurity(true)
+        EnhancedSecurity(false)
     }
 }
 
@@ -38,6 +38,11 @@ private final class VocelloEngineMonitorProvider {
     func candidates() async throws -> [ExtensionEngineHostCandidate<AppExtensionIdentity>] {
         let monitor = try await ensureMonitor()
         let identities = monitor.identities
+#if DEBUG
+        print(
+            "[VocelloEngineExtensionPoint] identities=\(identities.map(\.bundleIdentifier).joined(separator: ","))"
+        )
+#endif
         guard !identities.isEmpty else {
             throw VocelloEngineIdentityResolverError.noAvailableExtension
         }
@@ -110,7 +115,7 @@ private final class VocelloEngineMonitorProvider {
 
 @MainActor
 enum VocelloEngineHostManager {
-    private static let expectedBundleIdentifier = "com.qvoice.ios.engine-extension"
+    private static let expectedBundleIdentifier = "com.patricedery.vocello.engine-extension"
     private static let monitorProvider = VocelloEngineMonitorProvider(
         expectedBundleIdentifier: expectedBundleIdentifier
     )

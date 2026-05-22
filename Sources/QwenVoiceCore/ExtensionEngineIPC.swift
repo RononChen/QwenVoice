@@ -58,6 +58,7 @@ public enum ExtensionEngineCommand: Codable, Equatable, Sendable {
     case deletePreparedVoice(id: String)
     case clearGenerationActivity
     case clearVisibleError
+    case captureMemorySnapshot(role: IOSMemoryProcessRole)
     case trimMemory(level: NativeMemoryTrimLevel, reason: String)
 }
 
@@ -104,6 +105,7 @@ public enum ExtensionEngineReply: Codable, Equatable, Sendable {
     case preparedVoice(PreparedVoice)
     case preparedVoices([PreparedVoice])
     case snapshot(TTSEngineSnapshot)
+    case memorySnapshot(IOSMemorySnapshot)
     case failure(ExtensionRemoteErrorPayload)
 }
 

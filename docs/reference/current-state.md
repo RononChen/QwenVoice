@@ -114,7 +114,7 @@ macOS:
 iPhone:
 
 - supported hosted install path: App Store / TestFlight
-- current public release target: deferred until the shared core is proven stable on macOS
+- current public release target: deferred until entitlement, TestFlight, and minimum-device proof are recorded
 - GitHub Releases are not the supported iPhone install surface
 
 Source builds remain supported for both platforms.
@@ -127,7 +127,7 @@ Project and automation source of truth:
 - `scripts/`
 - `config/apple-platform-capability-matrix.json`
 
-There are no GitHub workflows, no XCTest targets, and no legacy Python/CI benchmark harnesses. Those surfaces were retired in May 2026 after harness-driven churn made them unreliable; all builds, packaging, signing, notarization, and TestFlight prep happen locally on Mac mini M2 via the `scripts/` tooling. Behavioral verification is local-only and two-track: manual app acceptance plus the maintained Codex–driven `scripts/uitest.sh` smoke/bench harness. Debug app checks use `./scripts/build.sh run` or `scripts/uitest.sh prep` against the persistent `QwenVoice-Debug` store. Release app checks use `build/Release/Vocello.app` after `./scripts/release.sh`; that repo-local app gets a fresh release-id-specific app-support folder and preferences suite.
+The only maintained GitHub workflow is `.github/workflows/release.yml`: macOS DMG packaging plus iOS compile-safety, with no tests, smoke, benchmarks, or signed iOS IPA. XCTest targets and the legacy Python/CI benchmark harnesses were retired in May 2026 after harness-driven churn made them unreliable. Build, packaging, signing, notarization, iPhone archive/export, and real-device Debug validation are driven locally on Mac mini M2 via the `scripts/` tooling. Behavioral verification is local-only: manual app acceptance, the maintained Codex-driven macOS `scripts/uitest.sh` smoke/bench harness, and iPhone screen-mirror proof through `scripts/ios_device.sh` when hardware behavior matters. Debug macOS checks use `./scripts/build.sh run` or `scripts/uitest.sh prep` against the persistent `QwenVoice-Debug` store. Release macOS checks use `build/Release/Vocello.app` after `./scripts/release.sh`; that repo-local app gets a fresh release-id-specific app-support folder and preferences suite.
 
 Key local checks:
 

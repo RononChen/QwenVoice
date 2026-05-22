@@ -34,9 +34,9 @@
   },
   "iOS": {
     "app": {
-      "bundleIdentifier": "com.qvoice.ios",
+      "bundleIdentifier": "com.patricedery.vocello",
       "applicationGroups": [
-        "group.com.qvoice.shared"
+        "group.com.patricedery.vocello.shared"
       ],
       "booleanEntitlements": {
         "com.apple.developer.kernel.increased-memory-limit": true
@@ -50,9 +50,9 @@
       }
     },
     "extension": {
-      "bundleIdentifier": "com.qvoice.ios.engine-extension",
+      "bundleIdentifier": "com.patricedery.vocello.engine-extension",
       "applicationGroups": [
-        "group.com.qvoice.shared"
+        "group.com.patricedery.vocello.shared"
       ],
       "booleanEntitlements": {
         "com.apple.developer.kernel.increased-memory-limit": true

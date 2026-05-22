@@ -59,7 +59,7 @@ Maintained local packaging entrypoints:
 - `scripts/check_ios_catalog.sh`
 - `scripts/release_ios_testflight.sh`
 
-There are no CI/release workflow surfaces. GitHub workflows were retired in May 2026; all release work runs locally via the `scripts/` listed above.
+The only CI/release workflow surface is `.github/workflows/release.yml`, scoped to macOS DMG packaging plus iOS compile-safety. Signed release work, iPhone archive/export, TestFlight upload, and real-device validation still run locally via the `scripts/` listed above.
 
 ## Current Verification Surface
 

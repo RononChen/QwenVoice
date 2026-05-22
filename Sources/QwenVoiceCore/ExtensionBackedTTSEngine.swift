@@ -5,7 +5,7 @@ import Foundation
 public typealias ExtensionEngineLifecycleState = EngineLifecycleState
 
 @MainActor
-public final class ExtensionBackedTTSEngine: TTSEngineRuntimeControlling, ActiveGenerationCancellable {
+public final class ExtensionBackedTTSEngine: TTSEngineRuntimeControlling, ActiveGenerationCancellable, NativeMemoryReporting {
     public let modelRegistry: any ModelRegistry
 
     @Published public private(set) var loadState: EngineLoadState = .idle
@@ -249,6 +249,22 @@ public final class ExtensionBackedTTSEngine: TTSEngineRuntimeControlling, Active
 
     public func setAllowsProactiveWarmOperations(_ allow: Bool) {
         allowsProactiveWarmOperations = allow
+    }
+
+    public func captureMemorySnapshot(role: IOSMemoryProcessRole) async -> IOSMemorySnapshot? {
+        guard lifecycleState == .connected else {
+            return nil
+        }
+
+        do {
+            let reply = try await coordinator.send(.captureMemorySnapshot(role: role))
+            guard case .memorySnapshot(let snapshot) = reply else {
+                throw ExtensionEngineTransportError.invalidReply
+            }
+            return snapshot
+        } catch {
+            return nil
+        }
     }
 
     public func trimMemory(level: NativeMemoryTrimLevel, reason: String) async {

@@ -2,13 +2,13 @@ import Foundation
 import OSLog
 
 actor ExtensionEngineCoordinator {
-    private struct ActiveConnection {
+    private struct ActiveConnection: Sendable {
         let id: UUID
         let transport: any ExtensionEngineTransporting
     }
 
     private static let logger = Logger(
-        subsystem: "com.qvoice.ios",
+        subsystem: "com.patricedery.vocello",
         category: "ExtensionBackedTTSEngine"
     )
 
@@ -22,6 +22,11 @@ actor ExtensionEngineCoordinator {
     private var didInitializeCurrentConnection = false
     private var initializedAppSupportDirectory: URL?
     private var pendingRequests: [UUID: PendingExtensionRequestBox] = [:]
+    private var isCreatingConnection = false
+    private var connectionWaiters: [CheckedContinuation<ActiveConnection, Error>] = []
+    private var isInitializingConnection = false
+    private var initializationWaiters: [CheckedContinuation<Void, Error>] = []
+    private var lastInitializationReply: ExtensionEngineReply?
     private var lastDisconnectState: ExtensionEngineLifecycleState?
     /// Handles for outstanding `fireAndForget` tasks so `invalidate()` and
     /// disconnect paths can cancel them instead of letting them race with a
@@ -54,16 +59,16 @@ actor ExtensionEngineCoordinator {
         switch command {
         case .initialize(let path):
             initializedAppSupportDirectory = URL(fileURLWithPath: path)
-            let reply = try await perform(transport: transport, command: command)
-            didInitializeCurrentConnection = true
-            return reply
+            return try await initializeCurrentConnectionIfNeeded(
+                transport: transport,
+                appSupportDirectory: URL(fileURLWithPath: path)
+            )
         default:
             if !didInitializeCurrentConnection, let initializedAppSupportDirectory {
-                _ = try await perform(
+                _ = try await initializeCurrentConnectionIfNeeded(
                     transport: transport,
-                    command: .initialize(appSupportDirectoryPath: initializedAppSupportDirectory.path)
+                    appSupportDirectory: initializedAppSupportDirectory
                 )
-                didInitializeCurrentConnection = true
             }
             return try await perform(transport: transport, command: command)
         }
@@ -158,7 +163,13 @@ actor ExtensionEngineCoordinator {
         if let activeConnection {
             return activeConnection
         }
+        if isCreatingConnection {
+            return try await withCheckedThrowingContinuation { continuation in
+                connectionWaiters.append(continuation)
+            }
+        }
 
+        isCreatingConnection = true
         let reconnecting = lastDisconnectState != nil
         onLifecycleState(reconnecting ? .recovering : .launching)
         let connectionID = UUID()
@@ -191,12 +202,69 @@ actor ExtensionEngineCoordinator {
             let connection = ActiveConnection(id: connectionID, transport: transport)
             activeConnection = connection
             didInitializeCurrentConnection = false
+            lastInitializationReply = nil
             lastDisconnectState = nil
             onLifecycleState(.connected)
+            finishConnectionCreation(.success(connection))
             return connection
         } catch {
             onLifecycleState(.failed)
+#if DEBUG
+            print("[ExtensionEngineCoordinator] Failed to create engine-extension transport: \(error.localizedDescription)")
+#endif
+            finishConnectionCreation(.failure(error))
             throw error
+        }
+    }
+
+    private func finishConnectionCreation(_ result: Result<ActiveConnection, Error>) {
+        isCreatingConnection = false
+        let waiters = connectionWaiters
+        connectionWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume(with: result)
+        }
+    }
+
+    private func initializeCurrentConnectionIfNeeded(
+        transport: ActiveConnection,
+        appSupportDirectory: URL
+    ) async throws -> ExtensionEngineReply {
+        if didInitializeCurrentConnection, let lastInitializationReply {
+            return lastInitializationReply
+        }
+        if isInitializingConnection {
+            try await withCheckedThrowingContinuation { continuation in
+                initializationWaiters.append(continuation)
+            }
+            guard didInitializeCurrentConnection, let lastInitializationReply else {
+                throw ExtensionEngineTransportError.invalidReply
+            }
+            return lastInitializationReply
+        }
+
+        isInitializingConnection = true
+        do {
+            let reply = try await perform(
+                transport: transport,
+                command: .initialize(appSupportDirectoryPath: appSupportDirectory.path)
+            )
+            didInitializeCurrentConnection = true
+            lastInitializationReply = reply
+            finishInitialization(.success(()))
+            return reply
+        } catch {
+            finishInitialization(.failure(error))
+            throw error
+        }
+    }
+
+    private func finishInitialization(_ result: Result<Void, Error>) {
+        isInitializingConnection = false
+        let waiters = initializationWaiters
+        initializationWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume(with: result)
         }
     }
 
@@ -210,6 +278,9 @@ actor ExtensionEngineCoordinator {
         Self.logger.debug(
             "Sending engine-extension command '\(command.transportName, privacy: .public)' with id \(requestEnvelope.id.uuidString, privacy: .public)"
         )
+#if DEBUG
+        print("[ExtensionEngineCoordinator] Sending engine-extension command '\(command.transportName)'")
+#endif
 
         return try await withCheckedThrowingContinuation { continuation in
             let pendingRequest = PendingExtensionRequestBox(
@@ -268,8 +339,14 @@ actor ExtensionEngineCoordinator {
         pendingRequest.timeoutTask?.cancel()
 
         if case .failure(let error) = envelope.reply {
+#if DEBUG
+            print("[ExtensionEngineCoordinator] Engine-extension command '\(pendingRequest.commandName)' failed: \(error.localizedDescription)")
+#endif
             pendingRequest.resume(.failure(error))
         } else {
+#if DEBUG
+            print("[ExtensionEngineCoordinator] Engine-extension command '\(pendingRequest.commandName)' replied")
+#endif
             pendingRequest.resume(.success(envelope.reply))
         }
     }
@@ -292,6 +369,9 @@ actor ExtensionEngineCoordinator {
     ) {
         if let message {
             Self.logger.error("Engine-extension disconnect cleanup: \(message, privacy: .public)")
+#if DEBUG
+            print("[ExtensionEngineCoordinator] Engine-extension disconnect cleanup: \(message)")
+#endif
         }
 
         guard let connectionToInvalidate = disconnectCurrentConnectionIfNeeded(connectionID: connectionID) else {
@@ -302,6 +382,7 @@ actor ExtensionEngineCoordinator {
         }
         connectionToInvalidate.invalidate()
         didInitializeCurrentConnection = false
+        lastInitializationReply = nil
         let lifecycleState = lifecycleState(for: transportError)
         lastDisconnectState = lifecycleState
         onLifecycleState(lifecycleState)

@@ -42,7 +42,7 @@ public enum TTSEngineError: LocalizedError, Equatable {
 public typealias MLXTTSEngineError = TTSEngineError
 
 @MainActor
-public final class MLXTTSEngine: TTSEngineRuntimeControlling {
+public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReporting {
     private static let lightweightWarmupText = "Hi."
     public static var lightweightWarmupTextForUI: String { lightweightWarmupText }
 
@@ -302,7 +302,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
     /// levels to `runtime.trimMemory(...)`. On high-memory Macs the
     /// monitor is created but never started — there's no value in
     /// reacting on machines that aren't pressure-bound. On iOS the
-    /// monitor is a no-op (the iOS host has its own infrastructure).
+    /// engine-extension path starts the same monitor for the iPhonePro
+    /// tier so the process running MLX can shed cache on kernel pressure.
     private let memoryPressureMonitor: NativeMemoryPressureMonitor
     private var memoryPressureTask: Task<Void, Never>?
 
@@ -473,23 +474,21 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
         clonePreparationState = .idle
     }
 
-    /// Subscribe to kernel memory-pressure events on macOS so the engine
-    /// can softTrim / hardTrim ahead of allocation failures. Idempotent —
-    /// safe to call multiple times. Skipped on `.highMemoryMac` where
-    /// there's no value in reacting, and a no-op on iOS where the
-    /// IOS-side host (`Sources/iOS/IOSShellPrimitives.swift`) drives its
-    /// own monitor with finer per-frame headroom data.
+    /// Subscribe to kernel memory-pressure events so the process running
+    /// MLX can softTrim / hardTrim ahead of allocation failures. Idempotent
+    /// and limited to memory-constrained tiers.
     private func startMemoryPressureMonitorIfNeeded() {
         guard memoryPressureTask == nil else { return }
         let deviceClass = NativeMemoryPolicyResolver.deviceClass()
-        guard deviceClass == .floor8GBMac || deviceClass == .mid16GBMac else { return }
+        guard deviceClass == .floor8GBMac || deviceClass == .mid16GBMac || deviceClass == .iPhonePro else { return }
         memoryPressureMonitor.start()
         let runtime = runtime
+        let reasonPrefix = deviceClass == .iPhonePro ? "ios_memory_pressure" : "macos_memory_pressure"
         memoryPressureTask = Task { [memoryPressureMonitor] in
             for await level in memoryPressureMonitor.events {
                 await runtime.trimMemory(
                     level: level,
-                    reason: "macos_memory_pressure_\(level.rawValue)"
+                    reason: "\(reasonPrefix)_\(level.rawValue)"
                 )
             }
         }
@@ -1294,6 +1293,10 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling {
 
     public func setAllowsProactiveWarmOperations(_ allow: Bool) {
         allowsProactiveWarmOperations = allow
+    }
+
+    public func captureMemorySnapshot(role: IOSMemoryProcessRole) async -> IOSMemorySnapshot? {
+        IOSMemorySnapshot.capture(role: role)
     }
 
     public func trimMemory(level: NativeMemoryTrimLevel, reason: String) async {

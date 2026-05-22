@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PROJECT_FILE="$PROJECT_DIR/QwenVoice.xcodeproj"
 MATRIX_PATH="$PROJECT_DIR/config/apple-platform-capability-matrix.json"
+export MATRIX_PATH
 BUILD_ROOT="$PROJECT_DIR/build"
 BUILD_DIR="$BUILD_ROOT/Release/iOS"
 FOUNDATION_BUILD_ROOT="$BUILD_DIR/foundation"
@@ -18,7 +19,7 @@ METADATA_PATH="$BUILD_DIR/vocello_ios_testflight_release_metadata.txt"
 SCHEME="VocelloiOS"
 CONFIGURATION="Release"
 TEAM_ID="${QVOICE_IOS_TEAM_ID:-FK2D8X36G2}"
-CATALOG_URL="${QVOICE_IOS_MODEL_CATALOG_URL:-https://downloads.qvoice.app/ios/catalog/v1/models.json}"
+CATALOG_URL="${QVOICE_IOS_MODEL_CATALOG_URL:-bundle://vocello/ios/catalog/v1/models.json}"
 VALIDATED_DEVICE_MODEL="${QVOICE_IOS_VALIDATED_DEVICE_MODEL:-unrecorded}"
 VALIDATED_DEVICE_OS="${QVOICE_IOS_VALIDATED_DEVICE_OS:-unrecorded}"
 OWNED_DEVICE_VALIDATION_STATUS="${QVOICE_IOS_OWNED_DEVICE_VALIDATION_STATUS:-unrecorded}"
@@ -29,7 +30,7 @@ DESTINATION_MODE="export"
 SKIP_CATALOG_CHECK=false
 SKIP_ARCHIVE=false
 
-# shellcheck source=./lib/shared.sh
+# shellcheck source=scripts/lib/shared.sh
 . "$SCRIPT_DIR/lib/shared.sh"
 
 BUNDLE_ID="$(matrix_read "iOS/app/bundleIdentifier")"
@@ -41,7 +42,7 @@ Usage: $0 [--skip-catalog-check] [--skip-archive] [--upload]
 Build a Release iPhone archive and export a TestFlight-ready package.
 
 Options:
-  --skip-catalog-check  Skip hosted catalog verification before archiving.
+  --skip-catalog-check  Skip iPhone catalog verification before archiving.
   --skip-archive        Reuse the existing archive at $ARCHIVE_PATH.
   --upload              Upload to App Store Connect instead of exporting a local IPA.
 
@@ -169,11 +170,11 @@ echo ""
 
 STEP_START="$(date +%s)"
 if $SKIP_CATALOG_CHECK; then
-    echo "[2/8] Hosted catalog check — skipped"
+    echo "[2/8] iPhone catalog check — skipped"
 else
-    echo "[2/8] Validating hosted iPhone catalog..."
+    echo "[2/8] Validating iPhone catalog..."
     "$SCRIPT_DIR/check_ios_catalog.sh" --url "$CATALOG_URL"
-    echo "[2/8] Hosted catalog check — done ($(step_time "$STEP_START"))"
+    echo "[2/8] iPhone catalog check — done ($(step_time "$STEP_START"))"
 fi
 echo ""
 

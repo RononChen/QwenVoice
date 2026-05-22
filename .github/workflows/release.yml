@@ -17,8 +17,9 @@ name: Release
 #   - compile-ios: iOS compile-safety only. Runs in parallel with
 #     `package` and does NOT block macOS publishing if it fails.
 #     A signed iOS IPA / TestFlight job is intentionally NOT here yet
-#     — it requires the iOS Distribution certificate, a provisioning
-#     profile bound to com.qvoice.ios, and Apple's approval of the
+#     — it requires the iOS Distribution certificate, provisioning
+#     profiles bound to com.patricedery.vocello and
+#     com.patricedery.vocello.engine-extension, and Apple's approval of the
 #     com.apple.developer.kernel.increased-memory-limit entitlement,
 #     none of which are in place as of v2.0.0. See the iOS shipping
 #     plan in docs/reference/release-readiness.md for the rollout
@@ -289,12 +290,13 @@ jobs:
     #
     # This job does NOT produce a TestFlight-ready IPA. The real archive
     # + export + upload pipeline lives in scripts/release_ios_testflight.sh
-    # and needs three Apple-side prereqs that don't exist as of v2.0.0:
+    # and needs three Apple-side prereqs that are not part of this CI lane:
     #   1. com.apple.developer.kernel.increased-memory-limit entitlement
-    #      approved by Apple Developer Support for com.qvoice.ios.
+    #      approved by Apple Developer Support for com.patricedery.vocello
+    #      and com.patricedery.vocello.engine-extension.
     #   2. iOS Distribution certificate enrolled in team FK2D8X36G2.
-    #   3. Provisioning profile for com.qvoice.ios + the engine extension
-    #      bundle that includes the increased-memory-limit entitlement.
+    #   3. Provisioning profiles for the app + engine extension bundles
+    #      that include the increased-memory-limit entitlement.
     # Once those are in place, add a sibling `archive-ios` job that
     # imports the iOS dist cert + profile, runs
     # `scripts/release_ios_testflight.sh --export`, validates with

@@ -2,7 +2,20 @@ import Foundation
 
 enum AppPaths {
     static let appSupportOverrideEnvironmentKey = "QVOICE_APP_SUPPORT_DIR"
-    static let sharedAppGroupIdentifier = "group.com.qvoice.shared"
+    private static let defaultSharedAppGroupIdentifier = "group.com.patricedery.vocello.shared"
+
+    static var sharedAppGroupIdentifier: String {
+        guard let configured = Bundle.main.object(
+            forInfoDictionaryKey: "QVoiceSharedAppGroupIdentifier"
+        ) as? String else {
+            return defaultSharedAppGroupIdentifier
+        }
+        let trimmed = configured.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("$(") else {
+            return defaultSharedAppGroupIdentifier
+        }
+        return trimmed
+    }
 
     static var managedAppSupportDir: URL {
         let baseDir = FileManager.default

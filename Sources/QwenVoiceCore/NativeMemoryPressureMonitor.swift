@@ -1,13 +1,10 @@
 import Foundation
 
-/// Subscribes to kernel memory-pressure events on macOS and publishes the
-/// translated `NativeMemoryTrimLevel` to interested consumers. The iOS
-/// runtime has its own (heavier) monitor in
-/// `Sources/iOS/IOSShellPrimitives.swift` keyed off
-/// `DispatchSource.makeMemoryPressureSource` *and*
-/// `UIApplication.didReceiveMemoryWarningNotification`; this type covers the
-/// macOS half so 8 GB and 16 GB Macs get the same dynamic-trim behavior
-/// iPhone has had.
+/// Subscribes to kernel memory-pressure events and publishes the translated
+/// `NativeMemoryTrimLevel` to interested consumers. macOS uses it for the
+/// XPC engine process on 8 GB and 16 GB Macs; iOS uses it inside the
+/// engine-extension process so MLX can shed cache based on its own pressure
+/// events, not only the host app's notifications.
 ///
 /// Mapping from kernel pressure event to trim level:
 ///
@@ -21,9 +18,6 @@ import Foundation
 /// is `@unchecked Sendable` because all mutation goes through the dispatch
 /// queue.
 ///
-/// **macOS only.** On iOS the existing `IOSShellPrimitives` infrastructure
-/// is canonical; this type compiles to a no-op there so call sites can
-/// reference it unconditionally.
 public final class NativeMemoryPressureMonitor: @unchecked Sendable {
     /// The most recent trim level dispatched by this monitor, or `nil` if
     /// the system has been in the "normal" band since the monitor started.
@@ -39,7 +33,7 @@ public final class NativeMemoryPressureMonitor: @unchecked Sendable {
     private let continuation: AsyncStream<NativeMemoryTrimLevel>.Continuation
     private let queue: DispatchQueue
 
-    #if os(macOS)
+    #if os(macOS) || os(iOS)
     private var source: (any DispatchSourceMemoryPressure)?
     #endif
 
@@ -53,11 +47,9 @@ public final class NativeMemoryPressureMonitor: @unchecked Sendable {
     }
 
     /// Begin listening for memory-pressure events. Idempotent — calling
-    /// `start()` while already started is a no-op. On iOS this is a no-op
-    /// because the iOS host has its own monitor and we don't want two
-    /// subscribers competing.
+    /// `start()` while already started is a no-op.
     public func start() {
-        #if os(macOS)
+        #if os(macOS) || os(iOS)
         queue.async { [weak self] in
             guard let self else { return }
             guard self.source == nil else { return }
@@ -78,7 +70,7 @@ public final class NativeMemoryPressureMonitor: @unchecked Sendable {
     /// Stop listening and finish the `events` stream. After `stop()` the
     /// monitor cannot be restarted — create a new instance instead.
     public func stop() {
-        #if os(macOS)
+        #if os(macOS) || os(iOS)
         queue.async { [weak self] in
             guard let self else { return }
             self.source?.cancel()
@@ -88,7 +80,7 @@ public final class NativeMemoryPressureMonitor: @unchecked Sendable {
         continuation.finish()
     }
 
-    #if os(macOS)
+    #if os(macOS) || os(iOS)
     private func handle(event: DispatchSource.MemoryPressureEvent) {
         // The DispatchSource event mask can deliver multiple flags in one
         // callback (e.g. .warning + .critical). Treat .critical as winning

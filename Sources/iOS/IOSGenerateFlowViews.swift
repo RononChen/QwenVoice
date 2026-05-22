@@ -55,6 +55,18 @@ enum IOSPrefetchRequestFactory {
     }
 }
 
+private enum IOSProactivePrefetchPolicy {
+    static var isEnabled: Bool {
+#if targetEnvironment(simulator)
+        true
+#elseif DEBUG
+        ProcessInfo.processInfo.environment["QVOICE_IOS_ENABLE_PROACTIVE_PREFETCH"] == "1"
+#else
+        false
+#endif
+    }
+}
+
 struct IOSGenerateContainerView: View {
     @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
     @EnvironmentObject private var ttsEngine: TTSEngineStore
@@ -173,6 +185,7 @@ private struct IOSGeneratePrefetchCoordinator: View {
             .task {
                 await modelManager.refresh()
                 didRefreshAvailability = true
+                guard IOSProactivePrefetchPolicy.isEnabled else { return }
                 guard let context = currentPrefetchContext() else { return }
                 await performPrefetch(context, token: UUID().uuidString)
             }
@@ -205,6 +218,7 @@ private struct IOSGeneratePrefetchCoordinator: View {
 
     private func scheduleSelectedGenerationPrefetch(force: Bool = false) {
         prefetchTask?.cancel()
+        guard IOSProactivePrefetchPolicy.isEnabled else { return }
         guard let context = currentPrefetchContext() else { return }
         if !force, lastCompletedPrefetchSignature == context.signature {
             return

@@ -37,6 +37,8 @@ extension ExtensionEngineCommand {
             "clearGenerationActivity"
         case .clearVisibleError:
             "clearVisibleError"
+        case .captureMemorySnapshot:
+            "captureMemorySnapshot"
         case .trimMemory:
             "trimMemory"
         }
@@ -55,7 +57,7 @@ extension ExtensionEngineCommand {
              .trimMemory:
             .seconds(180)
         case .ping, .cancelClonePreparationIfNeeded, .cancelActiveGeneration, .listPreparedVoices,
-             .enrollPreparedVoice, .deletePreparedVoice,
+             .enrollPreparedVoice, .deletePreparedVoice, .captureMemorySnapshot,
              .clearGenerationActivity, .clearVisibleError:
             .seconds(10)
         }

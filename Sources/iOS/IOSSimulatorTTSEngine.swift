@@ -15,7 +15,7 @@ enum IOSSimulatorRuntimeSupport {
 }
 
 @MainActor
-final class IOSSimulatorTTSEngine: TTSEngine, TTSEngineRuntimeControlling, ActiveGenerationCancellable {
+final class IOSSimulatorTTSEngine: TTSEngine, TTSEngineRuntimeControlling, ActiveGenerationCancellable, NativeMemoryReporting {
     @Published private(set) var loadState: EngineLoadState = .idle
     @Published private(set) var clonePreparationState: ClonePreparationState = .idle
     @Published private(set) var latestEvent: GenerationEvent?
@@ -337,6 +337,10 @@ final class IOSSimulatorTTSEngine: TTSEngine, TTSEngineRuntimeControlling, Activ
 
     func setAllowsProactiveWarmOperations(_ allow: Bool) {
         allowsProactiveWarmOperations = allow
+    }
+
+    func captureMemorySnapshot(role: IOSMemoryProcessRole) async -> IOSMemorySnapshot? {
+        IOSMemorySnapshot.capture(role: role)
     }
 
     func trimMemory(level: NativeMemoryTrimLevel, reason: String) async {

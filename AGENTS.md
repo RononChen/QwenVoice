@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## What this repo is
 
-Vocello (formerly QwenVoice) — a local, private text-to-speech macOS app powered by Qwen3-TTS via MLX on Apple Silicon. The macOS scheme is still called `QwenVoice` but the shipped public product is `Vocello.app` / `Vocello-macos26.dmg`. The iOS counterpart (`VocelloiOS`) is active iPhone development and TestFlight-prep: keep it compile-safe on `main`, but do not treat iPhone release proof as a public-release blocker for the current macOS-first milestone.
+Vocello (formerly QwenVoice) — a local, private text-to-speech macOS app powered by Qwen3-TTS via MLX on Apple Silicon. The macOS scheme is still called `QwenVoice` but the shipped public product is `Vocello.app` / `Vocello-macos26.dmg`. The iOS counterpart (`VocelloiOS`) is active iPhone development and TestFlight-prep with a real-device Debug workflow through CoreDevice + iPhone Mirroring: keep it compile-safe on `main`, but do not treat iPhone release proof as a public-release blocker for the current macOS-first release track.
 
 Targets: macOS 26.0+ and iOS 26.0+, Apple Silicon only, Xcode 26.0. No Python runtime. No bundled model weights — models are downloaded from Hugging Face from Settings → Model Downloads on first run.
 
@@ -14,19 +14,20 @@ Targets: macOS 26.0+ and iOS 26.0+, Apple Silicon only, Xcode 26.0. No Python ru
 ./scripts/build.sh run                       # Debug build → launch Vocello.app
 ./scripts/uitest.sh prep                     # Build + launch under autonomous UI testing harness
 ./scripts/build_foundation_targets.sh ios    # iOS compile-safety only
+./scripts/ios_device.sh doctor               # real iPhone/CoreDevice screen-mirror preflight
 ```
 
 First-time setup: install XcodeGen (`brew install xcodegen`) and optionally `xcbeautify` (`brew install xcbeautify`) for pretty-printed build output.
 
 ## Source of truth (when facts disagree)
 
-Per `CONTRIBUTING.md`, trust in order: `Sources/` → `project.yml` → `scripts/` → `docs/reference/` → other prose. `Sources/Resources/qwenvoice_contract.json` is the canonical schema for speakers, models, variants, HF revisions, and required artifacts.
+Per `CONTRIBUTING.md`, trust in order: `Sources/` → `project.yml` → `scripts/` → `.github/workflows/release.yml` for the scoped CI boundary → `docs/reference/` → other prose. `Sources/Resources/qwenvoice_contract.json` is the canonical schema for speakers, models, variants, HF revisions, and required artifacts.
 
 ## Project generation and build
 
 The Xcode project is generated from `project.yml` via XcodeGen. Edit `project.yml` (not `.xcodeproj`) for structural changes, then regenerate.
 
-**XcodeGen iOS resource gotcha.** The iOS app target lists `Sources/Resources/qwenvoice_contract.json` and `Sources/Assets.xcassets` under its `sources:` block with an explicit `buildPhase: resources` override, not under `resources:`. XcodeGen 2.45.4 silently drops these files from the `VocelloiOS` Resources phase when they're listed under `resources:` directly — iOS builds compile but crash on first launch with `Fatal error: Could not locate bundled qwenvoice_contract.json`. The macOS target is unaffected because it uses the directory pattern (`- path: Sources/Resources` under `resources:`). Workaround landed in Track 0 of commit `287c969` (May 2026); leave the sources-block placement in place when editing `project.yml`.
+**XcodeGen iOS resource gotcha.** The iOS app target lists `Sources/Resources/qwenvoice_contract.json`, `Sources/Resources/qwenvoice_ios_model_catalog.json`, `Sources/Resources/voice-previews`, and `Sources/Assets.xcassets` under its `sources:` block with an explicit `buildPhase: resources` override, not under `resources:`. XcodeGen 2.45.4 silently drops these files from the `VocelloiOS` Resources phase when they're listed under `resources:` directly — iOS builds compile but crash on first launch with missing bundled resources. The macOS target is unaffected because it uses the directory pattern (`- path: Sources/Resources` under `resources:`). Workaround landed in Track 0 of commit `287c969` (May 2026); leave the sources-block placement in place when editing `project.yml`.
 
 Preferred entrypoint for day-to-day work — wraps the steps below and skips regen / SPM resolve when their inputs are unchanged:
 
@@ -49,6 +50,7 @@ Lower-level scripts (still supported, used by `build.sh` internally):
 ./scripts/build_and_run.sh                # legacy debug build → install → launch
 ./scripts/release.sh                      # macOS release packaging (ad-hoc signed DMG by default)
 ./scripts/check_ios_catalog.sh            # iOS catalog/static sanity check
+./scripts/ios_device.sh start             # Debug build → install/launch on paired iPhone + open iPhone Mirroring
 ./scripts/release_ios_testflight.sh       # iOS TestFlight build/sign/notarize/upload
 ./scripts/clean_build_caches.sh           # nuke build caches
 ./scripts/export_diagnostics.sh           # collect diagnostics bundle
@@ -138,16 +140,27 @@ xcodebuild -project QwenVoice.xcodeproj -scheme VocelloiOS \
   -configuration Debug build
 xcrun simctl boot "iPhone 17 Pro"
 xcrun simctl install booted build/Debug/foundation/local-builds/ios-simulator-derived-data/Build/Products/Debug-iphonesimulator/Vocello.app
-xcrun simctl launch booted com.qvoice.ios
+xcrun simctl launch booted com.patricedery.vocello
 ```
 
 `IOSAppBootstrap.makeBackend` swaps in `IOSSimulatorTTSEngine` (stub) + `IOSSimulatorFakeStatusProvider` (decorates `LocalModelStatusProvider` with a process-wide `IOSSimulatorFakeInstallRegistry`) when running on Simulator. Tapping Download / Delete on a model row in Settings drives a fake ~4.2 s download flow via `simulatorFakeInstall` / `simulatorFakeDelete`; the registry persists the installed state across `modelManager.refresh()` calls, so the Generate tab's onboarding card hides as expected after a fake install. All Simulator paths are gated on `IOSSimulatorRuntimeSupport.isSimulator`; real-hardware behavior is unchanged.
 
 Full runbook at `docs/reference/ios-simulator-testing.md` (covers Reduce Motion / Reduce Transparency toggle review, side-by-side macOS chrome comparison, and known limitations).
 
+### iOS device screen-mirror testing
+
+Real-device iPhone validation uses CoreDevice plus Apple's iPhone Mirroring app. Entry point:
+
+```sh
+./scripts/ios_device.sh doctor
+./scripts/ios_device.sh start
+```
+
+`scripts/ios_device.sh` defaults to the paired iPhone 17 Pro and the bundled production iPhone model catalog, builds the `VocelloiOS` Debug app for device, installs it directly, launches with lightweight native telemetry and a run id, opens iPhone Mirroring, and writes artifacts under `build/Debug/ios-device/runs/<run-id>/`. Use `scripts/ios_device.sh screenshot <label>` during mirrored UI runs and `scripts/ios_device.sh pull` afterward to collect focused App Group evidence and memory diagnostics; CoreDevice may reject direct App Group copies on some local builds, so `pull` mirrors memory diagnostics from the Debug app container while history/output/voice evidence remains App Group best-effort. Full runbook: `docs/reference/ios-device-screen-mirror-testing.md`.
+
 ## Testing policy — important
 
-This repo keeps CI **scoped to release packaging plus compile-safety automation** as of May 2026 — no XCTest targets, no automated bench/smoke/perceptual runs on CI, no legacy Python/CI benchmark harnesses. The sole workflow at `.github/workflows/release.yml` has two parallel jobs on `release.published` (and on manual `workflow_dispatch`): `package` (macOS DMG sign + notarize + staple via `scripts/release.sh`, attached to the GitHub Release) and `compile-ios` (iOS compile-safety only, no signing, no tests, runs `scripts/build_foundation_targets.sh ios`). `compile-ios` failures do not block the macOS DMG; the iOS signed-IPA path requires the entitlement approval + iOS Distribution cert + provisioning profile that don't exist as of v2.0.0 (see [`docs/reference/release-readiness.md`](docs/reference/release-readiness.md) § "iPhone Shipping Plan"). Behavioral validation is local-only and two-track: manual app acceptance plus the maintained Codex–driven `scripts/uitest.sh` smoke/bench harness above. For Debug behavior, use `./scripts/build.sh run` or `scripts/uitest.sh prep` (Debug app path: `build/Debug/Vocello.app`). For release signoff, launch `build/Release/Vocello.app` only after `./scripts/release.sh` has produced the Release bundle.
+This repo keeps CI **scoped to release packaging plus compile-safety automation** as of May 2026 — no XCTest targets, no automated bench/smoke/perceptual runs on CI, no legacy Python/CI benchmark harnesses. The sole workflow at `.github/workflows/release.yml` has two parallel jobs on `release.published` (and on manual `workflow_dispatch`): `package` (macOS DMG sign + notarize + staple via `scripts/release.sh`, attached to the GitHub Release) and `compile-ios` (iOS compile-safety only, no signing, no tests, runs `scripts/build_foundation_targets.sh ios`). `compile-ios` failures do not block the macOS DMG; the iOS signed-IPA path is intentionally local/manual until the increased-memory entitlement approval, iOS Distribution certificate, and provisioning profiles for `com.patricedery.vocello` plus `com.patricedery.vocello.engine-extension` are ready (see [`docs/reference/release-readiness.md`](docs/reference/release-readiness.md) § "iPhone Shipping Plan"). Behavioral validation is local-only: manual app acceptance, the maintained Codex–driven macOS `scripts/uitest.sh` smoke/bench harness above, and real-device iPhone proof through `scripts/ios_device.sh` when hardware behavior matters. For Debug macOS behavior, use `./scripts/build.sh run` or `scripts/uitest.sh prep` (Debug app path: `build/Debug/Vocello.app`). For release signoff, launch `build/Release/Vocello.app` only after `./scripts/release.sh` has produced the Release bundle.
 
 Do not reintroduce test bundles, QA shell scripts, agent configs, additional GitHub Actions workflows beyond `release.yml`, or a parallel benchmark harness without an explicit maintainer decision. `scripts/check_project_inputs.sh` enforces the retired surfaces with a prohibited-paths list and a regex sweep of the working tree. Inspect that script for the current list rather than quoting names here (its patterns also trip on any file that mentions the banned names verbatim).
 
@@ -224,9 +237,9 @@ Non-obvious runtime behavior added across the May 2026 Phase 1+2+3 rollout. Futu
 - **mid16GBMac / highMemoryMac**: `customPrewarmPolicy: .eager`, longer idle windows, larger clone caches.
 - **iPhonePro**: tightest tier — cache 128 MB, unload after 30 s, clone cache = 1.
 
-### macOS runtime memory-pressure monitor
+### runtime memory-pressure monitor
 
-`Sources/QwenVoiceCore/NativeMemoryPressureMonitor.swift` wraps `DispatchSource.makeMemoryPressureSource(eventMask: [.normal, .warning, .critical])` on macOS. `MLXTTSEngine.initialize(...)` starts it on floor8GBMac and mid16GBMac. Kernel pressure events map to `NativeMemoryTrimLevel` and route to `runtime.trimMemory(level:reason:)` — softTrim clears MLX cache + clone soft-trim; hardTrim clears all warm state. iOS has no host-side UI pressure monitor (the legacy `IOSGenerateMemoryIndicatorStore` was retired in `80f6511`); engine telemetry flows through `TTSEngineStore.refreshMemoryPolicy()` and the per-tier `IOSMemoryBudgetPolicy`.
+`Sources/QwenVoiceCore/NativeMemoryPressureMonitor.swift` wraps `DispatchSource.makeMemoryPressureSource(eventMask: [.normal, .warning, .critical])` on macOS and iOS. `MLXTTSEngine.initialize(...)` starts it on floor8GBMac, mid16GBMac, and iPhonePro. Kernel pressure events map to `NativeMemoryTrimLevel` and route to `runtime.trimMemory(level:reason:)` — softTrim clears MLX cache + clone soft-trim; hardTrim clears all warm state. iOS still has no visible memory indicator; app-layer memory guardrails flow through `TTSEngineStore.refreshMemoryContext(...)`, combined app + engine-extension snapshots, and the per-tier `IOSMemoryBudgetPolicy`.
 
 ### Adaptive idle-unload on floor8GBMac
 
@@ -326,6 +339,7 @@ Mean gain across all 6 cells: **+4.5 s** saved on time-to-first-sound.
 - `docs/reference/current-state.md` — current repo facts
 - `docs/reference/release-readiness.md` — release signoff gates + iOS shipping plan
 - `docs/reference/ios-simulator-testing.md` — iOS Simulator UI review + Simulator-only fake install/delete dev affordance
+- `docs/reference/ios-device-screen-mirror-testing.md` — real-device iPhone Debug validation through CoreDevice + iPhone Mirroring
 - `docs/reference/privacy-storage.md` — local storage and deletion
 - `docs/qwen_tone.md` — prompt/tone guidance for voice generation
 - `design_references/Vocello Design System/` — Codex Design system: brand register (SKILL.md), color + type scale (`colors_and_type.css`), preview HTML pages per token family. Read before touching iOS chrome or shipping new mode tints.

@@ -29,7 +29,7 @@ fi
 /usr/bin/log show \
     --last 30m \
     --style compact \
-    --predicate 'subsystem == "com.qwenvoice.app" OR subsystem == "com.qwenvoice.engine-service" OR subsystem == "com.qvoice.ios"' \
+    --predicate 'subsystem == "com.qwenvoice.app" OR subsystem == "com.qwenvoice.engine-service" OR subsystem == "com.patricedery.vocello" OR subsystem == "com.patricedery.vocello.engine-extension"' \
     > "$OUTPUT_ROOT/unified-log-last-30m.txt" 2> "$OUTPUT_ROOT/unified-log.stderr" || true
 
 tar -C "$(dirname "$OUTPUT_ROOT")" -czf "$OUTPUT_ROOT.tar.gz" "$(basename "$OUTPUT_ROOT")"

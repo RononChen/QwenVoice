@@ -6,8 +6,10 @@ struct IOSModelDeliveryConfiguration: Sendable {
     static let catalogURLEnvironmentKey = "QVOICE_IOS_MODEL_CATALOG_URL"
     static let allowedHostsEnvironmentKey = "QVOICE_IOS_MODEL_ALLOWED_HOSTS"
     static let catalogURLInfoPlistKey = "QVoiceModelCatalogURL"
-    static let defaultCatalogURLString = "https://downloads.qvoice.app/ios/catalog/v1/models.json"
-    static let backgroundSessionIdentifierPrefix = "com.qvoice.ios.model-delivery"
+    static let defaultCatalogURLString = "bundle://vocello/ios/catalog/v1/models.json"
+    static let bundledCatalogResourceName = "qwenvoice_ios_model_catalog"
+    static let bundledCatalogResourceExtension = "json"
+    static let backgroundSessionIdentifierPrefix = "com.patricedery.vocello.model-delivery"
 
     let catalogURL: URL
     let allowedHosts: Set<String>
@@ -43,8 +45,13 @@ struct IOSModelDeliveryConfiguration: Sendable {
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
                 .filter { !$0.isEmpty } ?? []
         )
-        let defaultHost = Set([catalogURL.host].compactMap { $0?.lowercased() })
-        let bundleIdentifier = bundle.bundleIdentifier ?? "com.qvoice.ios"
+        let defaultHost: Set<String>
+        if catalogURL.isBundledModelCatalog {
+            defaultHost = ["huggingface.co"]
+        } else {
+            defaultHost = Set([catalogURL.host].compactMap { $0?.lowercased() })
+        }
+        let bundleIdentifier = bundle.bundleIdentifier ?? "com.patricedery.vocello"
         let backgroundIdentifier = "\(backgroundSessionIdentifierPrefix).\(bundleIdentifier)"
         return IOSModelDeliveryConfiguration(
             catalogURL: catalogURL,
@@ -63,6 +70,12 @@ struct IOSModelDeliveryConfiguration: Sendable {
             return raw.replacingOccurrences(of: "https:/", with: "https://", options: [.anchored])
         }
         return raw
+    }
+}
+
+extension URL {
+    var isBundledModelCatalog: Bool {
+        scheme?.lowercased() == "bundle"
     }
 }
 
@@ -320,6 +333,10 @@ enum IOSModelDeliverySupport {
         url: URL,
         configuration: IOSModelDeliveryConfiguration
     ) throws {
+        if url.isBundledModelCatalog {
+            return
+        }
+
         if !configuration.allowsInsecureTransport, url.scheme?.lowercased() != "https" {
             throw IOSModelDeliveryError.invalidConfiguration("Catalog URL must use HTTPS.")
         }

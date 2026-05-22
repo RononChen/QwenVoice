@@ -32,7 +32,7 @@ xcodebuild -project QwenVoice.xcodeproj -scheme VocelloiOS \
 xcrun simctl boot "iPhone 17 Pro"          # safe if already booted
 xcrun simctl install booted \
   build/Debug/foundation/local-builds/ios-simulator-derived-data/Build/Products/Debug-iphonesimulator/Vocello.app
-xcrun simctl launch booted com.qvoice.ios
+xcrun simctl launch booted com.patricedery.vocello
 ```
 
 Any recent-enough iPhone Simulator works; iPhone 17 Pro matches the macOS dev machine's existing target. If `qwenvoice_contract.json` is missing from the built `.app` and the app crashes on first launch, check the XcodeGen iOS resource gotcha in [`AGENTS.md`](../../AGENTS.md) under "Project generation and build" — the workaround in `project.yml` must be intact.
@@ -62,7 +62,7 @@ For shell launches, prefix env vars with `SIMCTL_CHILD_`:
 ```sh
 SIMCTL_CHILD_QVOICE_SIM_FAKE_MODELS=all \
 SIMCTL_CHILD_QVOICE_SIM_BACKEND_SCENARIO=success \
-xcrun simctl launch --terminate-running-process booted com.qvoice.ios
+xcrun simctl launch --terminate-running-process booted com.patricedery.vocello
 ```
 
 Supported controls:

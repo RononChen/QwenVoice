@@ -464,6 +464,17 @@ actor IOSModelDeliveryActor {
     }
 
     private func fetchCatalog() async throws -> IOSModelCatalogDocument {
+        if configuration.catalogURL.isBundledModelCatalog {
+            guard let catalogURL = Bundle.main.url(
+                forResource: IOSModelDeliveryConfiguration.bundledCatalogResourceName,
+                withExtension: IOSModelDeliveryConfiguration.bundledCatalogResourceExtension
+            ) else {
+                throw IOSModelDeliveryError.invalidCatalog("Bundled iPhone model catalog is missing.")
+            }
+            let data = try Data(contentsOf: catalogURL)
+            return try JSONDecoder().decode(IOSModelCatalogDocument.self, from: data)
+        }
+
         let (data, response) = try await catalogSession.data(from: configuration.catalogURL)
         guard let httpResponse = response as? HTTPURLResponse,
               (200..<300).contains(httpResponse.statusCode) else {

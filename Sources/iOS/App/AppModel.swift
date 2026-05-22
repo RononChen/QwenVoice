@@ -149,6 +149,21 @@ final class AppModel {
         self.clonePrimaryAction = IOSGeneratePrimaryActionDescriptor.placeholder(for: .clone)
         self.isOnboardingPresented = !IOSAppDefaults.hasCompletedOnboarding
 
+#if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        if let seededCustomText = environment["QVOICE_IOS_TEST_CUSTOM_TEXT"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !seededCustomText.isEmpty {
+            self.customVoiceDraft.text = IOSGenerationTextLimitPolicy.clamped(
+                seededCustomText,
+                mode: .custom
+            )
+        }
+        if environment["QVOICE_IOS_SKIP_ONBOARDING"] == "1" {
+            self.isOnboardingPresented = false
+        }
+#endif
+
         // Honor preview-runtime overrides for design-time previews.
         if let preview = IOSPreviewRuntime.current?.definition.initialState {
             self.tab = preview.selectedTab

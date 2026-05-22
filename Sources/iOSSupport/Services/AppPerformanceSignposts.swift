@@ -7,7 +7,7 @@ enum AppPerformanceSignposts {
     }
 
     private static let signposter = OSSignposter(
-        subsystem: "com.qvoice.app",
+        subsystem: "com.patricedery.vocello",
         category: "performance"
     )
 

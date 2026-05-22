@@ -4,7 +4,7 @@
 <dict>
     <key>com.apple.security.application-groups</key>
     <array>
-        <string>group.com.qvoice.shared</string>
+        <string>$(QVOICE_IOS_APP_GROUP_IDENTIFIER)</string>
     </array>
     <key>com.apple.developer.kernel.increased-memory-limit</key>
     <true/>

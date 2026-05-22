@@ -6,7 +6,7 @@ This folder contains the current repo-authored documentation for QwenVoice.
 
 - [`reference/current-state.md`](reference/current-state.md) — shared current repo facts
 - [`reference/engineering-status.md`](reference/engineering-status.md) — current strengths, caveats, and validation posture
-- [`reference/backend-freeze-gate.md`](reference/backend-freeze-gate.md) — release-readiness gate run entirely on Mac mini M2 via `scripts/` tooling (CI retired May 2026)
+- [`reference/backend-freeze-gate.md`](reference/backend-freeze-gate.md) — local release-readiness gate via `scripts/` tooling, plus the scoped GitHub release workflow boundary
 - [`reference/frontend-backend-contract.md`](reference/frontend-backend-contract.md) — app-facing backend state, delivery state, and gate
 - [`reference/release-readiness.md`](reference/release-readiness.md) — macOS-first release-track policy, proof status, public-homepage freeze rules, and the tier→workflow mapping table
 - [`reference/privacy-storage.md`](reference/privacy-storage.md) — local model, output, history, saved-voice, App Group, and deletion-path reference
@@ -14,6 +14,7 @@ This folder contains the current repo-authored documentation for QwenVoice.
 - [`reference/vendoring-runtime.md`](reference/vendoring-runtime.md) — runtime, vendoring, and packaging boundaries
 - [`reference/mlx-audio-swift-patching.md`](reference/mlx-audio-swift-patching.md) — vendor delta under `third_party_patches/mlx-audio-swift/`, rebase procedure, and post-rebase build checklist
 - [`reference/ios-reference-ui-workflow.md`](reference/ios-reference-ui-workflow.md) — repeatable workflow for matching the native iOS SwiftUI surface to the interactive `design_references/Vocello iOS/` prototype
+- [`reference/ios-device-screen-mirror-testing.md`](reference/ios-device-screen-mirror-testing.md) — real-device iPhone Debug validation through CoreDevice, iPhone Mirroring, focused screenshots, and diagnostics pulls
 
 ### Autonomous UI testing and bench
 
@@ -79,5 +80,5 @@ Supplemental guides are useful, but they are not the primary source of truth for
 
 - Maintained contributor guidance in this checkout lives in `CONTRIBUTING.md` and the maintained reference docs listed above.
 - This repo does not maintain project-scoped QwenVoice skills; contributor guidance lives in the maintained docs above.
-- Current automation surfaces live in `scripts/` and a single GitHub workflow (`.github/workflows/release.yml`) scoped to release packaging only — two jobs run in parallel on `release.published`: `package` (macOS DMG: sign, notarize, staple, attach to the Release) and `compile-ios` (iOS compile-safety only, no signing, no tests). There is no XCTest target — retired in May 2026 along with the historical CI workflows. Local behavioral validation runs **on Mac mini M2** via `scripts/check_project_inputs.sh`, `scripts/build_foundation_targets.sh`, `scripts/release.sh`, and `scripts/release_ios_testflight.sh`. Behavioral verification is twofold: (a) manual — launch the app and exercise the affected paths by hand, and (b) agent-driven — a Codex session can drive `Vocello.app` via the computer-use MCP, following the smoke and bench runbooks above. The agent-driven harness lives in `scripts/uitest.sh` plus the runbooks under `reference/`; it's distinct from the XCTest / Python-benchmark harnesses `check_project_inputs.sh` actively bans.
+- Current automation surfaces live in `scripts/` and a single GitHub workflow (`.github/workflows/release.yml`) scoped to macOS release packaging plus iOS compile-safety — two jobs run in parallel on `release.published`: `package` (macOS DMG: sign, notarize, staple, attach to the Release) and `compile-ios` (iOS compile-safety only, no signing, no tests). There is no XCTest target — retired in May 2026 along with the broad historical CI gates. Local behavioral validation runs **on Mac mini M2** via `scripts/check_project_inputs.sh`, `scripts/build_foundation_targets.sh`, `scripts/release.sh`, `scripts/release_ios_testflight.sh`, and real-device iPhone Debug runs through `scripts/ios_device.sh`. Behavioral verification is split between manual acceptance, Codex-driven macOS smoke/bench via `scripts/uitest.sh`, and iPhone screen-mirror proof via `reference/ios-device-screen-mirror-testing.md`. The agent-driven macOS harness is distinct from the XCTest / Python-benchmark harnesses `check_project_inputs.sh` actively bans.
 - Generated or vendored dependency documentation is intentionally out of scope for the repo docs.

@@ -13,11 +13,12 @@
 
 set -euo pipefail
 
-DEFAULT_CATALOG_URL="https://downloads.qvoice.app/ios/catalog/v1/models.json"
+DEFAULT_CATALOG_URL="bundle://vocello/ios/catalog/v1/models.json"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 PROJECT_DIR="$(cd -- "$SCRIPT_DIR/.." &>/dev/null && pwd)"
 CONTRACT_PATH="$PROJECT_DIR/Sources/Resources/qwenvoice_contract.json"
+BUNDLED_CATALOG_PATH="$PROJECT_DIR/Sources/Resources/qwenvoice_ios_model_catalog.json"
 
 URL="$DEFAULT_CATALOG_URL"
 while [[ $# -gt 0 ]]; do
@@ -49,13 +50,27 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 # Fetch the catalog. -f makes curl exit non-zero on HTTP errors.
-catalog_body="$(mktemp)"
-trap 'rm -f "$catalog_body"' EXIT
+catalog_body=""
+trap '{
+  if [[ -n "${catalog_body:-}" && "$catalog_body" == /tmp/* ]]; then
+    rm -f "$catalog_body"
+  fi
+}' EXIT
 
-if ! curl -fsSL --max-time 60 -A "VocelloCatalogCheck/1.0" "$URL" -o "$catalog_body"; then
-  jq -n --arg url "$URL" \
-    '{ok: false, catalog_url: $url, error: "failed to fetch catalog"}'
-  exit 1
+if [[ "$URL" == bundle://* ]]; then
+  catalog_body="$BUNDLED_CATALOG_PATH"
+  if [[ ! -f "$catalog_body" ]]; then
+    jq -n --arg url "$URL" --arg path "$catalog_body" \
+      '{ok: false, catalog_url: $url, error: ("missing bundled catalog at " + $path)}'
+    exit 1
+  fi
+else
+  catalog_body="$(mktemp)"
+  if ! curl -fsSL --max-time 60 -A "VocelloCatalogCheck/1.0" "$URL" -o "$catalog_body"; then
+    jq -n --arg url "$URL" \
+      '{ok: false, catalog_url: $url, error: "failed to fetch catalog"}'
+    exit 1
+  fi
 fi
 
 if ! jq empty "$catalog_body" 2>/dev/null; then
