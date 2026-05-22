@@ -65,7 +65,7 @@ The gate is green only when the maintained checks below are green for the curren
 ./scripts/build_foundation_targets.sh ios
 ```
 
-After a clean foundation build, exercise the affected paths locally. Use `./scripts/build.sh run` or `scripts/uitest.sh prep` for persistent Debug behavior, and use `build/Release/Vocello.app` after `./scripts/release.sh` for fresh repo-local release behavior. There is no CI or XCTest harness as of May 2026; manual smoke and the maintained Claude Code–driven `scripts/uitest.sh` runbooks are the behavioral regression checks.
+After a clean foundation build, exercise the affected paths locally. Use `./scripts/build.sh run` or `scripts/uitest.sh prep` for persistent Debug behavior, and use `build/Release/Vocello.app` after `./scripts/release.sh` for fresh repo-local release behavior. There is no CI or XCTest harness as of May 2026; manual smoke and the maintained Codex–driven `scripts/uitest.sh` runbooks are the behavioral regression checks.
 
 ### Local Unsigned Release Proof
 

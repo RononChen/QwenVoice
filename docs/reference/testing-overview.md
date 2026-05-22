@@ -47,7 +47,7 @@ The user is the final judge of subjective audio quality (naturalness, emotion ma
 - Build/compile proof — `./scripts/build_foundation_targets.sh macos|ios|all` (see [`backend-freeze-gate.md`](backend-freeze-gate.md)).
 - Static project validation — `./scripts/check_project_inputs.sh`.
 - Release-readiness gates — [`release-readiness.md`](release-readiness.md) for macOS DMG sign+notarize, iOS TestFlight, and the macOS-first release-track policy.
-- No CI, no XCTest, no parallel Python benchmark harness — those surfaces were retired in May 2026 (see [CLAUDE.md](../../CLAUDE.md) "Testing policy — important").
+- No CI, no XCTest, no parallel Python benchmark harness — those surfaces were retired in May 2026 (see [AGENTS.md](../../AGENTS.md) "Testing policy — important").
 
 ## Cross-references
 

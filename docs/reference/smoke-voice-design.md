@@ -18,7 +18,7 @@ Follows the [Standard smoke skeleton](ui-test-surface.md#standard-smoke-skeleton
 - **Sidebar AX id**: `sidebar_voiceDesign`
 - **Screen mount check**: `scripts/uitest.sh locate screen_voiceDesign` (exit 0)
 - **Output subfolder**: `outputs/VoiceDesign/`
-- **Extra step before generate**: click `voiceDesign_voiceDescriptionField`, type the fixed description, **then** proceed to `textInput_textEditor` + script + `cmd+Return`. Both fills can be batched.
+- **Extra step before generate**: click `voiceDesign_voiceDescriptionField`, type the fixed description, **then** proceed to `textInput_textEditor` + script + `super+Return`.
 
 ## Notes
 

@@ -15,7 +15,7 @@ As of `main` commit `63a5e02` (`Guard macOS UI observation boundaries`), the rep
 - prior local full release proof passed from `c6beacd` with `./scripts/release.sh`, `./scripts/verify_release_bundle.sh build/Release/Vocello.app`, and `./scripts/verify_packaged_dmg.sh build/Release/Vocello-macos26.dmg build/Release/release-metadata.txt`; the hosted QA gate re-proved the unsigned release-artifact lane for `63a5e02`
 - controlled local macOS acceptance on April 26, 2026 launched the local Release app, switched Custom Voice / Voice Design / Voice Cloning, typed a Custom Voice script, generated a 2-second preview, played it through the sidebar player, and persisted the output under that release app's app-support outputs folder
 
-The next recovery work should keep this baseline stable: native SwiftUI only, no broad visual redesign, no speculative model work from screen mount, and no overlapping heavy build/packaging commands on the 8 GB local development machine. Manual app acceptance and targeted Claude Code–driven smoke runs confirm the app can complete primary generation paths locally; the automated XCTest/CI surfaces were retired in May 2026.
+The next recovery work should keep this baseline stable: native SwiftUI only, no broad visual redesign, no speculative model work from screen mount, and no overlapping heavy build/packaging commands on the 8 GB local development machine. Manual app acceptance and targeted Codex–driven smoke runs confirm the app can complete primary generation paths locally; the automated XCTest/CI surfaces were retired in May 2026.
 
 ## Current Strengths
 

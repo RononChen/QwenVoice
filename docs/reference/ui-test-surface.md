@@ -1,39 +1,23 @@
 # UI Test Surface
 
-Reference for a Claude Code session driving the **Debug build** of Vocello via the computer-use MCP. Pair this with [`smoke-custom-voice.md`](smoke-custom-voice.md) for the first end-to-end runbook.
+Reference for a Codex session driving the **Debug build** of Vocello via the computer-use MCP. Pair this with [`smoke-custom-voice.md`](smoke-custom-voice.md) for the first end-to-end runbook.
 
-## Permissions
+## Permissions And Tools
 
-Two distinct permission layers:
+Codex's current computer-use tools do not use a separate session allowlist call. Start each interaction turn with `mcp__computer_use__.get_app_state(app: "Vocello")`; it focuses/starts the app-use session and returns the key-window screenshot plus accessibility tree.
 
-1. **Session-level computer-use grant** (Claude Code). Before any other computer-use action, call:
+System-level macOS Accessibility must still be granted to Codex in *System Settings → Privacy & Security → Accessibility*. The `osascript` System Events calls inside `scripts/uitest.sh locate` / `window-locate` rely on this and will surface the OS prompt the first time if not yet granted.
 
-   ```
-   mcp__computer-use__request_access(
-       apps: ["Vocello"],
-       reason: "Drive the Vocello Debug build for UI smoke + bench runs."
-   )
-   ```
+To bring Vocello to the front mid-run, call `scripts/uitest.sh activate`, then call `get_app_state(app: "Vocello")` again before clicking.
 
-   The user approves the application list once per session. Later `request_access` calls extend the allowlist without re-prompting for already-granted apps. `mcp__computer-use__list_granted_applications()` shows what's currently in the allowlist.
-
-2. **System-level macOS Accessibility** (granted to Claude Code in *System Settings → Privacy & Security → Accessibility*). The `osascript` System Events calls inside `scripts/uitest.sh locate` rely on this — they will surface the OS prompt the first time if not yet granted. This is separate from the computer-use grant above.
-
-To bring Vocello to the front mid-run, call `mcp__computer-use__open_application(app: "Vocello")`.
-
-Current Claude Code computer-use tool mapping:
+Current Codex computer-use tool mapping:
 
 | Action | Tool |
 |---|---|
-| Request session access (once) | `mcp__computer-use__request_access(apps: ["Vocello"], reason: "...")` |
-| Bring Vocello to front | `mcp__computer-use__open_application(app: "Vocello")` |
-| Capture visual state | `mcp__computer-use__screenshot()` — full-screen primary display, allowlist-filtered. Subsequent click coordinates are in this image's pixel space. |
-| Click at coords | `mcp__computer-use__left_click(coordinate: [x, y])` — targets the frontmost app. |
-| Type into focused field | `mcp__computer-use__type(text: "...")` |
-| Press key / chord | `mcp__computer-use__key(text: "cmd+Return")` |
-| Batched click+type+key | `mcp__computer-use__computer_batch(actions: [...])` — one round-trip for a predictable sequence. |
-| Zoom for fine detail | `mcp__computer-use__zoom(region: [x0, y0, x1, y1])` (read-only — coords still come from the most recent full-screen screenshot) |
-| Inspect cursor | `mcp__computer-use__cursor_position()` |
+| Refresh visual + AX state | `mcp__computer_use__.get_app_state(app: "Vocello")` |
+| Click at coords | `mcp__computer_use__.click(app: "Vocello", x: cx, y: cy)` |
+| Type into focused field | `mcp__computer_use__.type_text(app: "Vocello", text: "...")` |
+| Press key / chord | `mcp__computer_use__.press_key(app: "Vocello", key: "super+Return")` |
 
 Vocello is a native productivity-class app and falls under tier **"full"** — no click/type restrictions.
 
@@ -43,12 +27,12 @@ Some actions don't have an obvious visible button on the default macOS window si
 
 | Shortcut | Effect | Context |
 |---|---|---|
-| `cmd+Return` | Trigger Generate on the current generation screen | Shared by Custom Voice, Voice Design, and Voice Cloning through `TextInputView`. Pass as `key(text: "cmd+Return")`. |
-| `cmd+a` | Select text in the focused field | Useful before replacing prompt text between samples. |
-| `delete` | Delete selected text | Use after `cmd+a`; Claude Code's `key` tool uses the macOS-native name `delete` for the backspace key. |
-| `cmd+comma` | Open Settings window | Standard macOS convention; the app uses it. |
+| `super+Return` | Trigger Generate on the current generation screen | Shared by Custom Voice, Voice Design, and Voice Cloning through `TextInputView`. Pass as `press_key(..., key: "super+Return")`. |
+| `super+a` | Select text in the focused field | Useful before replacing prompt text between samples. |
+| `BackSpace` | Delete selected text | Use after `super+a`. |
+| `super+comma` | Open Settings window | Standard macOS convention; the app uses it. |
 
-The runbook prefers `cmd+Return` over hunting for a Generate button.
+The runbook prefers `super+Return` over hunting for a Generate button.
 
 ### Driving SwiftUI `Picker` menus
 
@@ -58,11 +42,11 @@ Two reliable patterns:
 
 1. **Keyboard navigation (preferred).**
    - Click the picker once to open the menu (focus the dropdown).
-   - Press `key(text: "down")` N times (or `"up"` N times) to step from the currently-selected item to the target. The selection highlight moves with each press, and there's no menu-geometry dependency.
-   - Press `key(text: "return")` to commit.
+   - Press `press_key(..., key: "Down")` N times (or `"Up"` N times) to step from the currently-selected item to the target. The selection highlight moves with each press, and there's no menu-geometry dependency.
+   - Press `press_key(..., key: "Return")` to commit.
    - Track the *currently-selected* item in shell state so you can compute N for the next change.
 
-2. **Screenshot-verify-after.** Take a fresh `screenshot()` after each pick and confirm the picker's displayed value matches the target before continuing. Slower per cell but useful for one-off picks.
+2. **Screenshot-verify-after.** Take a fresh `get_app_state(app: "Vocello")` after each pick and confirm the picker's displayed value matches the target before continuing. Slower per cell but useful for one-off picks.
 
 The fixed-coordinate approach is only reliable for the very first menu open after a fresh launch (because the initial selection — usually the first item — anchors the menu at a known position). Anything beyond that needs the keyboard pattern.
 
@@ -91,15 +75,14 @@ scripts/uitest.sh reset                   # quit Vocello, wipe generations + out
 scripts/uitest.sh prep                    # relaunch into a fresh window; prints PID
 ```
 
-### Phase 3 — Front the app + record screenshot dimensions
+### Phase 3 — Front the app + capture key-window state
 
 ```text
-mcp__computer-use__request_access(apps: ["Vocello"], reason: "Run <mode> smoke")
-mcp__computer-use__open_application(app: "Vocello")
-SHOT = mcp__computer-use__screenshot()    # record IW × IH (image-pixel dims) for scaled-locate
+scripts/uitest.sh activate
+STATE = mcp__computer_use__.get_app_state(app: "Vocello")
 ```
 
-`request_access` only prompts once per session — subsequent calls no-op for already-granted apps. Claude Code's screenshot is downsampled, **not** Retina-native — on a 1280×720 logical screen it returns 1456×819. Pass those dimensions to every `scaled-locate` call. See "Locating an element" below for the canonical numbers.
+Use the returned key-window screenshot dimensions as `$IW` / `$IH` if you need `window-locate` to scale AX coordinates into screenshot-pixel space. If the accessibility tree exposes a usable element index, `mcp__computer_use__.click(app: "Vocello", element_index: "...")` is also fine.
 
 `/usr/sbin/screencapture -x "$ART/pre.png"` is optional for the artifact bundle (the agent's screenshot already has the visual state).
 
@@ -107,18 +90,16 @@ SHOT = mcp__computer-use__screenshot()    # record IW × IH (image-pixel dims) f
 
 The per-mode runbook documents this phase exclusively. Every flow boils down to:
 
-1. Click `sidebar_<mode>` via `scaled-locate <id> $IW $IH` → `mcp__computer-use__left_click(coordinate: [cx, cy])`.
+1. Click `sidebar_<mode>` via `window-locate <id> $IW $IH` → `mcp__computer_use__.click(app: "Vocello", x: cx, y: cy)`.
 2. Confirm the right screen is mounted: `scripts/uitest.sh locate screen_<mode>` (exit 0).
 3. Mode-specific setup (Voice Design: fill the description field; Voice Cloning: pick the saved voice; Custom Voice: leave the default speaker).
-4. Click `textInput_textEditor`, type the fixed script text, fire `cmd+Return`. Batch in one round-trip:
+4. Click `textInput_textEditor`, type the fixed script text, fire `super+Return`:
    ```text
-   mcp__computer-use__computer_batch([
-     {action:"left_click", coordinate:[cx, cy]},
-     {action:"type", text:"<fixed script>"},
-     {action:"key", text:"cmd+Return"}
-   ])
+   mcp__computer_use__.click(app: "Vocello", x: cx, y: cy)
+   mcp__computer_use__.type_text(app: "Vocello", text: "<fixed script>")
+   mcp__computer_use__.press_key(app: "Vocello", key: "super+Return")
    ```
-5. Capture `T0` **just before** the `cmd+Return` lands:
+5. Capture `T0` **just before** the `super+Return` lands:
    ```sh
    T0="$(/usr/bin/python3 -c 'import datetime; print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])')"
    ```
@@ -152,9 +133,8 @@ ART=$(scripts/uitest.sh artifacts-dir)
 echo "$ART"
 ```
 ```text
-mcp__computer-use__request_access(apps: ["Vocello"], reason: "<mode> bench")
-mcp__computer-use__open_application(app: "Vocello")
-SHOT = mcp__computer-use__screenshot()    # record IW × IH for the scaled-locate calls below
+scripts/uitest.sh activate
+STATE = mcp__computer_use__.get_app_state(app: "Vocello")    # record IW × IH for window-locate calls below
 ```
 
 ### Phase 1 — Per-variant loop
@@ -173,11 +153,11 @@ scripts/uitest.sh activate
 
 Documented in the per-mode bench runbook. Variant-select uses this canonical three-fallback ladder:
 
-1. **Direct button id** — try `scaled-locate <mode>_speedVariantButton $IW $IH` (or `…_qualityVariantButton`). Click via `left_click`.
-2. **Container anchor** — if direct IDs aren't queryable, `scaled-locate <mode>_modelVariantPicker $IW $IH` (or `…_modelVariantSelector`) as a positional anchor; click visually inside that control.
-3. **Pure visual** — screenshot, find the gold-highlighted Speed / Quality buttons at the top-right of the Configuration card, click visually. Record the coordinates in the run notes.
+1. **Direct button id** — try `window-locate <mode>_speedVariantButton $IW $IH` (or `…_qualityVariantButton`). Click via `mcp__computer_use__.click`.
+2. **Container anchor** — if direct IDs aren't queryable, `window-locate <mode>_modelVariantPicker $IW $IH` (or `…_modelVariantSelector`) as a positional anchor; click visually inside that control.
+3. **Pure visual** — use `get_app_state`, find the gold-highlighted Speed / Quality buttons at the top-right of the Configuration card, click visually. Record the coordinates in the run notes.
 
-**Always verify after clicking.** Take a screenshot; the desired button should be gold-highlighted. Abort the bench if the visual doesn't match.
+**Always verify after clicking.** Take a fresh `get_app_state`; the desired button should be gold-highlighted. Abort the bench if the visual doesn't match.
 
 #### 1c. Initial T0 (before the first generation in this variant)
 
@@ -191,7 +171,7 @@ For each of three cold samples:
 
 1. (Skip on the first iteration — the fresh launch from 1a counts.) `scripts/uitest.sh reset && scripts/uitest.sh prep && scripts/uitest.sh activate`.
 2. Re-do step 1b (re-nav + re-select variant + (clone) re-bind saved voice). Visual verification still required.
-3. Drive the UI for one generation: click `textInput_textEditor`, type the medium prompt, fire `cmd+Return` — batched via `computer_batch`.
+3. Drive the UI for one generation: click `textInput_textEditor`, type the medium prompt, fire `super+Return`.
 4. Record the sample:
    ```sh
    scripts/uitest.sh bench-step <mode> "$variant" cold medium --artifacts-dir "$ART" --timeout 180
@@ -203,7 +183,7 @@ For each of three cold samples:
 
 For each `bucket` in `[short, medium, long]`, repeat 3 times:
 
-Click `textInput_textEditor` → `cmd+a` → `delete` → type the bucket's prompt → `cmd+Return` (batched).
+Click `textInput_textEditor` → `super+a` → `BackSpace` → type the bucket's prompt → `super+Return`.
 
 ```sh
 scripts/uitest.sh bench-step <mode> "$variant" warm "$bucket" --artifacts-dir "$ART"
@@ -272,13 +252,13 @@ All three generation screens embed `TextInputView`, which exposes the same ident
 
 | Identifier | Kind | Purpose |
 |---|---|---|
-| `textInput_textEditor` | text field | The script text area. Click center, then `type(text: "...")` to populate. |
-| `textInput_generateButton` | button | Generate (Claude Code `key(text: "cmd+Return")`; equivalent to macOS Cmd+Return). |
+| `textInput_textEditor` | text field | The script text area. Click center, then `type_text(..., text: "...")` to populate. |
+| `textInput_generateButton` | button | Generate (`press_key(..., key: "super+Return")`; equivalent to macOS Cmd+Return). |
 | `textInput_cancelButton` | button | Cancel active generation. Visible only while the shared active-generation state is true. |
 | `textInput_batchButton` | button | Batch generation mode toggle. |
 | `textInput_charCount` | label | Character count display. |
 
-This is the most useful identifier for autonomous driving — the script field finally has an AX id (it was the visual-fallback gap in element 1's smoke test). During generation, the variant selector and generation controls are disabled and a fresh `mcp__computer-use__screenshot()` should show `textInput_cancelButton` instead of an enabled Generate button.
+This is the most useful identifier for autonomous driving — the script field finally has an AX id (it was the visual-fallback gap in element 1's smoke test). During generation, the variant selector and generation controls are disabled and a fresh `get_app_state(app: "Vocello")` should show `textInput_cancelButton` instead of an enabled Generate button.
 
 #### Custom Voice fields
 
@@ -409,17 +389,16 @@ Voice Cloning requires a pre-existing saved voice for autonomous runs (the alter
 
 ## Locating an element
 
-`mcp__computer-use__screenshot` returns a full-screen image of the primary display (allowlist-filtered at the compositor). Click coordinates passed to `left_click` are in that image's pixel space. The harness has three coord helpers; pick by what you're feeding into Claude Code:
+`mcp__computer_use__.get_app_state(app: "Vocello")` returns a screenshot of Vocello's key window plus an accessibility tree. Click coordinates passed to `mcp__computer_use__.click` are in that screenshot's pixel space. The harness has three coordinate helpers; pick by what you're feeding into Codex:
 
-- **`scaled-locate <ax-id> <image-w> <image-h>`** — the Claude Code path. Pre-scales `locate`'s logical-point output into the screenshot's image-pixel space. `image-w` and `image-h` are the actual dimensions of the image `mcp__computer-use__screenshot` returned — **read them from the screenshot's metadata, do not assume Retina 2×**. On a 1280×720 logical screen, Claude Code's `screenshot` tool returns a 1456×819 image (it's downsampled for context efficiency, not delivered at the display's native pixel resolution).
+- **`window-locate <ax-id> [image-w image-h]`** — the Codex path. Looks up an AX id, subtracts Vocello's front-window origin, and prints `"cx cy w h"` relative to the key window. If you pass `image-w` / `image-h` from `get_app_state`, it scales the result into that screenshot's image-pixel space.
 
    ```sh
-   # Logical screen is 1280×720; Claude Code's screenshot is 1456×819.
-   scripts/uitest.sh scaled-locate sidebar_customVoice 1456 819
-   # 470 251 230 39   (already in screenshot-pixel space)
+   scripts/uitest.sh window-locate sidebar_customVoice "$IW" "$IH"
+   # 470 251 230 39   (already in Codex key-window screenshot-pixel space)
    ```
 
-   Pass directly: `mcp__computer-use__left_click(coordinate: [470, 251])`.
+   Pass directly: `mcp__computer_use__.click(app: "Vocello", x: 470, y: 251)`.
 
 - **`locate <ax-id>`** — raw logical-points from System Events. Useful for AX-id presence checks: exit code 0 means "this id resolved on the front window," even when you don't need coordinates.
 
@@ -428,17 +407,17 @@ Voice Cloning requires a pre-existing saved voice for autonomous runs (the alter
    # 413 221 202 34   (logical-points — what System Events reports)
    ```
 
-- **`window-locate <ax-id> [image-w image-h]`** — legacy window-relative helper from the Codex era. Codex's `get_app_state` returned a window-scoped screenshot, so window-relative coords matched. Preserved for backward compatibility with older runbooks; new Claude Code runbooks should prefer `scaled-locate`.
+- **`scaled-locate <ax-id> <image-w> <image-h>`** — full-screen screenshot helper. It pre-scales `locate`'s logical-point output into a full-screen screenshot's image-pixel space. Keep it only for tools that return a full-screen image with known dimensions; do not use it with Codex key-window screenshots.
 
 `screen-size` returns the logical screen dimensions (`1280 720` on this Mac); `scaled-locate` internally does `cx * image_w / screen_w` and the equivalent for y.
 
-If a notification or another app stole focus before a click, call `mcp__computer-use__open_application(app: "Vocello")` (or `scripts/uitest.sh activate`) and re-take the screenshot — image coordinates can shift if the window position changed.
+If a notification or another app stole focus before a click, run `scripts/uitest.sh activate` and take a fresh `get_app_state` — image coordinates can shift if the window position changed.
 
 ### When `locate` won't find an element
 
 Some elements aren't queryable even though they have `accessibilityIdentifier(...)` in source:
 
-- The Speed/Quality variant toggle buttons are `customVoice_speedVariantButton`, `customVoice_qualityVariantButton`, `voiceDesign_speedVariantButton`, `voiceDesign_qualityVariantButton`, `voiceCloning_speedVariantButton`, and `voiceCloning_qualityVariantButton`. Try `scaled-locate` on those exact IDs first. If the current SwiftUI accessibility tree still hides them, use the outer `<mode>_modelVariantPicker` / `<mode>_modelVariantSelector` as an anchor and click visually within that control.
+- The Speed/Quality variant toggle buttons are `customVoice_speedVariantButton`, `customVoice_qualityVariantButton`, `voiceDesign_speedVariantButton`, `voiceDesign_qualityVariantButton`, `voiceCloning_speedVariantButton`, and `voiceCloning_qualityVariantButton`. Try `window-locate` on those exact IDs first. If the current SwiftUI accessibility tree still hides them, use the outer `<mode>_modelVariantPicker` / `<mode>_modelVariantSelector` as an anchor and click visually within that control.
 
 - Saved-voice dropdown menu items (`UITestRef` etc.) similarly aren't exposed once the dropdown is open — click visually.
 
@@ -588,39 +567,36 @@ The `build/Debug/uitest/` parent is wiped by `scripts/build.sh clean` along with
 ## Session flow (typical)
 
 ```
-1. mcp__computer-use__request_access(apps: ["Vocello"], reason: "...")
-2. scripts/build.sh debug                 # if Debug build is stale or missing
-3. scripts/uitest.sh smoke-check          # confirm prerequisites
-4. scripts/uitest.sh reset                # known-clean baseline
-5. ART=$(scripts/uitest.sh artifacts-dir)
-6. (scripts/uitest.sh logs > "$ART/log.txt" 2>&1 &)   # background, signpost-aware
-7. scripts/uitest.sh prep                 # launch app
-8. mcp__computer-use__open_application(app: "Vocello")   # ensure frontmost
-9. SHOT=mcp__computer-use__screenshot()    # IW × IH for scaling; also the agent's visual state
-10. /usr/sbin/screencapture -x "$ART/pre.png"   # archive copy for the artifact bundle
-11. read CX CY W H < <(scripts/uitest.sh scaled-locate <ax-id> $IW $IH)
-12. mcp__computer-use__computer_batch([     # batched click → type → key, one round-trip
-        {action:"left_click", coordinate:[CX, CY]},
-        {action:"type", text:"..."},
-        {action:"key", text:"cmd+Return"}
-    ])
-13. scripts/uitest.sh bench-wait --since "$T0" --timeout 90   # waits for "Final File Ready"
-14. scripts/uitest.sh db "SELECT ..."     # verify DB row
-15. /usr/sbin/screencapture -x "$ART/post.png"
-16. kill the background log PID; write $ART/result.json
-17. Report $ART path + pass/fail + measured timings to the user.
+1. scripts/build.sh debug                 # if Debug build is stale or missing
+2. scripts/uitest.sh smoke-check          # confirm prerequisites
+3. scripts/uitest.sh reset                # known-clean baseline
+4. ART=$(scripts/uitest.sh artifacts-dir)
+5. (scripts/uitest.sh logs > "$ART/log.txt" 2>&1 &)   # background, signpost-aware
+6. scripts/uitest.sh prep                 # launch app
+7. scripts/uitest.sh activate             # ensure frontmost
+8. STATE=mcp__computer_use__.get_app_state(app: "Vocello")   # IW × IH for scaling; also the agent's visual state
+9. /usr/sbin/screencapture -x "$ART/pre.png"   # archive copy for the artifact bundle
+10. read CX CY W H < <(scripts/uitest.sh window-locate <ax-id> $IW $IH)
+11. mcp__computer_use__.click(app: "Vocello", x: CX, y: CY)
+12. mcp__computer_use__.type_text(app: "Vocello", text: "...")
+13. mcp__computer_use__.press_key(app: "Vocello", key: "super+Return")
+14. scripts/uitest.sh bench-wait --since "$T0" --timeout 90   # waits for "Final File Ready"
+15. scripts/uitest.sh db "SELECT ..."     # verify DB row
+16. /usr/sbin/screencapture -x "$ART/post.png"
+17. kill the background log PID; write $ART/result.json
+18. Report $ART path + pass/fail + measured timings to the user.
 ```
 
-That flow is the structure every future test runbook should follow. The `computer_batch` step in 12 is the prime cost-saver — predictable click+type+key sequences should always batch.
+That flow is the structure every future test runbook should follow.
 
 ## Recovery: when clicks miss or focus is stolen
 
 Real macOS sessions throw curve balls. Handle them, don't fight them.
 
-- **macOS notification appeared and stole focus.** `left_click` returns an error naming `UserNotificationCenter` (or another non-allowed app) as frontmost. Recovery: take a fresh `mcp__computer-use__screenshot()` to confirm the notification has self-dismissed, then `mcp__computer-use__open_application(app: "Vocello")` (or `scripts/uitest.sh activate`) to re-front Vocello, and retry the click.
-- **`left_click` returns "access denied" mentioning Vocello.** The session allowlist doesn't include Vocello (or it expired). Call `mcp__computer-use__request_access(apps: ["Vocello"], reason: "...")` first; this only needs to happen once per session.
-- **Click landed but nothing happened.** Usually means Vocello wasn't frontmost (gray traffic lights in the screenshot are the giveaway — focused windows show red/yellow/green). Run `mcp__computer-use__open_application(app: "Vocello")` or `scripts/uitest.sh activate` and retry.
-- **`locate` returns coords but the click misses.** You passed logical-point coords into Claude Code's image-pixel space. Use `scaled-locate <ax-id> <image-w> <image-h>` with the actual screenshot pixel dimensions.
+- **macOS notification appeared and stole focus.** Recovery: take a fresh `get_app_state` to see current focus, then run `scripts/uitest.sh activate`, take another `get_app_state`, and retry the click.
+- **`click` says the app is not available or focus looks stale.** Run `scripts/uitest.sh activate`, then call `get_app_state(app: "Vocello")` again before retrying.
+- **Click landed but nothing happened.** Usually means Vocello wasn't frontmost (gray traffic lights in the screenshot are the giveaway — focused windows show red/yellow/green). Run `scripts/uitest.sh activate` and retry.
+- **`locate` returns coords but the click misses.** You passed logical-point coords into key-window screenshot-pixel space. Use `window-locate <ax-id> <image-w> <image-h>` with the actual key-window screenshot dimensions.
 - **App opened to the wrong tab (Settings instead of Custom Voice).** Expected — Vocello restores the last-selected sidebar tab from a previous session. Just `locate sidebar_customVoice` and click; the smoke runbook already handles this.
 - **`locate` itself fails with "no front window for Vocello".** Either the app hasn't laid out its window yet (wait 500 ms, retry), or Vocello is hidden behind another window (run `activate` first).
 

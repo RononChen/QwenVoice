@@ -29,7 +29,7 @@ Voice Cloning requires the **`UITestRef`** saved-voice fixture. If `scripts/uite
   2. Screenshot to see the open menu; click the menu item labeled `UITestRef` visually (menu items don't have stable AX ids).
   3. Confirm reference is bound: `scripts/uitest.sh locate voiceCloning_activeReference` (exit 0).
   
-  Then proceed to `textInput_textEditor` + script + `cmd+Return`.
+  Then proceed to `textInput_textEditor` + script + `super+Return`.
 
 ## Notes
 

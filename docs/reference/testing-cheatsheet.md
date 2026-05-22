@@ -19,14 +19,14 @@ scripts/uitest.sh reset
 scripts/uitest.sh prep
 
 # 2) Front the app (computer-use)
-#    mcp__computer-use__request_access(apps: ["Vocello"], reason: "Smoke")
-#    mcp__computer-use__open_application(app: "Vocello")
-#    SHOT = mcp__computer-use__screenshot()  → record IW=1456 IH=819 on 1280×720 logical
+#    scripts/uitest.sh activate
+#    STATE = mcp__computer_use__.get_app_state(app: "Vocello")
+#    record IW × IH from the key-window screenshot for window-locate
 
-# 3) Drive UI (computer-use, batched)
-#    Click sidebar_customVoice → click textInput_textEditor → type → cmd+Return
+# 3) Drive UI (computer-use)
+#    Click sidebar_customVoice → click textInput_textEditor → type → super+Return
 
-# 4) Record T0 just before cmd+Return:
+# 4) Record T0 just before super+Return:
 T0="$(/usr/bin/python3 -c 'import datetime; print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])')"
 
 # 5) Verify
@@ -45,7 +45,7 @@ Substitute `design` or `clone` for `custom` to run the other smokes. See [`smoke
 
 ```sh
 ART=$(scripts/uitest.sh artifacts-dir); echo "$ART"
-# Computer-use: request_access + open_application + screenshot → record IW × IH
+# Computer-use: scripts/uitest.sh activate + get_app_state → record IW × IH
 
 for variant in speed quality; do
   # 1a — fresh launch
@@ -59,7 +59,7 @@ for variant in speed quality; do
 
   # 1d — three cold/medium samples
   for i in 1 2 3; do
-    # Computer-use: click+type+cmd+Return with medium prompt
+    # Computer-use: click+type_text+super+Return with medium prompt
     scripts/uitest.sh bench-step <mode> "$variant" cold medium --artifacts-dir "$ART" --timeout 180
     # (between cold samples — quit/reset/prep/relaunch and re-do 1b)
   done
@@ -67,7 +67,7 @@ for variant in speed quality; do
   # 1e — warm samples
   for bucket in short medium long; do
     for i in 1 2 3; do
-      # Computer-use: cmd+a → delete → type bucket prompt → cmd+Return
+      # Computer-use: super+a → BackSpace → type_text bucket prompt → super+Return
       scripts/uitest.sh bench-step <mode> "$variant" warm "$bucket" --artifacts-dir "$ART"
     done
   done
@@ -90,11 +90,10 @@ git diff docs/reference/benchmark-baselines.json
 scripts/uitest.sh activate                  # bring Vocello to front (osascript)
 ```
 ```text
-mcp__computer-use__open_application(app: "Vocello")   # Claude Code path
-mcp__computer-use__screenshot()                       # re-record IW × IH; the window may have moved
+STATE = mcp__computer_use__.get_app_state(app: "Vocello")  # re-record IW × IH; the window may have moved
 ```
 
-Common causes: Notification Center stole focus (filtered out of Claude Code's screenshot but still owns clicks), or another non-allowed app got fronted. Re-fronting + re-screenshotting always recovers.
+Common causes: Notification Center stole focus, or another app got fronted. Re-fronting + refreshing state always recovers.
 
 ## Inspect a generation after the fact
 

@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## What this repo is
 
@@ -85,7 +85,21 @@ Local Release defaults are isolated too: `AppDefaults` uses a release-id-specifi
 
 ### Autonomous UI testing
 
-The Debug build is drivable by a Claude Code session via the computer-use MCP. Entry point is `scripts/uitest.sh` (subcommands: `prep`, `reset [--include-voices|--full]`, `locate <ax-id>`, `window-locate <ax-id> [image-w image-h]`, `scaled-locate`, `screen-size`, `activate`, `logs`, `db <sql>`, `artifacts-dir`, `smoke-check [<mode>]`, plus the bench-* family: `bench-wait`, `bench-step`, `bench-record`, `bench-summarize`, `bench-compare`, `bench-update-baselines`). The agent's reference for what's clickable and how to verify generation completion lives at `docs/reference/ui-test-surface.md`. Test artifacts land in `build/Debug/uitest/<timestamp>/` and are wiped by `scripts/build.sh clean`.
+The Debug build is drivable by a Codex session via the computer-use MCP. Entry point is `scripts/uitest.sh` (subcommands: `prep`, `reset [--include-voices|--full]`, `locate <ax-id>`, `window-locate <ax-id> [image-w image-h]`, `scaled-locate`, `screen-size`, `activate`, `logs`, `db <sql>`, `artifacts-dir`, `smoke-check [<mode>]`, plus the bench-* family: `bench-wait`, `bench-step`, `bench-record`, `bench-summarize`, `bench-compare`, `bench-update-baselines`). The agent's reference for what's clickable and how to verify generation completion lives at `docs/reference/ui-test-surface.md`. Test artifacts land in `build/Debug/uitest/<timestamp>/` and are wiped by `scripts/build.sh clean`.
+
+Current Codex computer-use tool mapping:
+
+| Action | Tool |
+|---|---|
+| Refresh/focus app state | `mcp__computer_use__.get_app_state(app: "Vocello")` — call once per assistant turn before interacting; it returns the key-window screenshot and accessibility tree. |
+| Re-front Vocello if focus is stale | `scripts/uitest.sh activate`, then call `get_app_state(app: "Vocello")` again. |
+| Click at screenshot coords | `mcp__computer_use__.click(app: "Vocello", x: cx, y: cy)` |
+| Type into focused field | `mcp__computer_use__.type_text(app: "Vocello", text: "...")` |
+| Press key / chord | `mcp__computer_use__.press_key(app: "Vocello", key: "super+Return")`; common keys are `super+a`, `BackSpace`, `Down`, `Up`, and `Return`. |
+
+Do not use the older hyphenated computer-use namespace or its former access-request, open-app, standalone-screenshot, left-click, type, key, or batch wrapper calls. Codex exposes the underscored `mcp__computer_use__` namespace above, and there is no separate session allowlist grant step.
+
+Coordinate helpers: Codex `get_app_state` returns a key-window screenshot, so prefer `scripts/uitest.sh window-locate <ax-id> [image-w image-h]` when turning AX identifiers into click coordinates. `scaled-locate` is retained for agents/tools that return a full-screen screenshot with known image dimensions; do not mix its output with Codex key-window screenshots.
 
 Smoke runbooks (one per generation mode):
 
@@ -133,7 +147,7 @@ Full runbook at `docs/reference/ios-simulator-testing.md` (covers Reduce Motion 
 
 ## Testing policy — important
 
-This repo keeps CI **scoped to release packaging only** as of May 2026 — no XCTest targets, no automated bench/smoke/perceptual runs on CI, no legacy Python/CI benchmark harnesses. The sole workflow at `.github/workflows/release.yml` has two parallel jobs on `release.published` (and on manual `workflow_dispatch`): `package` (macOS DMG sign + notarize + staple via `scripts/release.sh`, attached to the GitHub Release) and `compile-ios` (iOS compile-safety only, no signing, no tests, runs `scripts/build_foundation_targets.sh ios`). `compile-ios` failures do not block the macOS DMG; the iOS signed-IPA path requires the entitlement approval + iOS Distribution cert + provisioning profile that don't exist as of v2.0.0 (see [`docs/reference/release-readiness.md`](docs/reference/release-readiness.md) § "iPhone Shipping Plan"). Behavioral validation is local-only and two-track: manual app acceptance plus the maintained Claude Code–driven `scripts/uitest.sh` smoke/bench harness above. For Debug behavior, use `./scripts/build.sh run` or `scripts/uitest.sh prep` (Debug app path: `build/Debug/Vocello.app`). For release signoff, launch `build/Release/Vocello.app` only after `./scripts/release.sh` has produced the Release bundle.
+This repo keeps CI **scoped to release packaging only** as of May 2026 — no XCTest targets, no automated bench/smoke/perceptual runs on CI, no legacy Python/CI benchmark harnesses. The sole workflow at `.github/workflows/release.yml` has two parallel jobs on `release.published` (and on manual `workflow_dispatch`): `package` (macOS DMG sign + notarize + staple via `scripts/release.sh`, attached to the GitHub Release) and `compile-ios` (iOS compile-safety only, no signing, no tests, runs `scripts/build_foundation_targets.sh ios`). `compile-ios` failures do not block the macOS DMG; the iOS signed-IPA path requires the entitlement approval + iOS Distribution cert + provisioning profile that don't exist as of v2.0.0 (see [`docs/reference/release-readiness.md`](docs/reference/release-readiness.md) § "iPhone Shipping Plan"). Behavioral validation is local-only and two-track: manual app acceptance plus the maintained Codex–driven `scripts/uitest.sh` smoke/bench harness above. For Debug behavior, use `./scripts/build.sh run` or `scripts/uitest.sh prep` (Debug app path: `build/Debug/Vocello.app`). For release signoff, launch `build/Release/Vocello.app` only after `./scripts/release.sh` has produced the Release bundle.
 
 Do not reintroduce test bundles, QA shell scripts, agent configs, additional GitHub Actions workflows beyond `release.yml`, or a parallel benchmark harness without an explicit maintainer decision. `scripts/check_project_inputs.sh` enforces the retired surfaces with a prohibited-paths list and a regex sweep of the working tree. Inspect that script for the current list rather than quoting names here (its patterns also trip on any file that mentions the banned names verbatim).
 
@@ -160,7 +174,7 @@ Two-platform Swift codebase with an out-of-process engine on each platform.
 
 **iOS design tokens align to macOS** (May 2026, commit `287c969`). `IOSAppTheme.subtleGlassTint` is 14% opacity (matches macOS `surfaceGlassTint` dark); `accentStroke` is 34%; `accentWash` is 20%. Neutral palette is warm-tinted (`textSecondary` ~`#C5BFAE`, `textTertiary` ~`#7E7868`) rather than cool blue-gray. Card corner radii unify at 16 pt; chips and badges are flat (no glass) per the macOS May 2026 chip audit. Brand wordmark uses SF Rounded semibold, mirroring `Sources/Views/Sidebar/SidebarView.swift`. When changing iOS colors, check the macOS values first — these are intentionally locked together.
 
-**iOS Claude Design redesign** (May 2026, commits `51d8dce` through `c89fba2`). The iOS app moved to a 4-tab IA (**Studio / Voices / History / Settings**) sourced from `design_references/Vocello iOS/` (React + CSS prototype) and `design_references/Vocello Design System/`. After the design tracks (A-P) landed, a six-phase ground-up rebuild reorganized the architecture (commits `2ff76af` … `c89fba2`):
+**iOS Codex Design redesign** (May 2026, commits `51d8dce` through `c89fba2`). The iOS app moved to a 4-tab IA (**Studio / Voices / History / Settings**) sourced from `design_references/Vocello iOS/` (React + CSS prototype) and `design_references/Vocello Design System/`. After the design tracks (A-P) landed, a six-phase ground-up rebuild reorganized the architecture (commits `2ff76af` … `c89fba2`):
 
 **File layout** (post-rebuild):
 
@@ -300,8 +314,8 @@ Mean gain across all 6 cells: **+4.5 s** saved on time-to-first-sound.
 - Animations route through `appAnimation` / `AppLaunchConfiguration.performAnimated` so Reduced Motion is honored; Liquid Glass surfaces must fall back to solid fills when Reduce Transparency is on. Both are non-negotiable per `PRODUCT.md`.
 - Do not propose reintroducing a Python backend, a standalone CLI, or bundled model weights.
 - Keep macOS release artifacts named `Vocello.app` and `Vocello-macos26.dmg`.
-- Do not use `/ultraplan` on this project. Claude Code runs here inside the Claude.app desktop helper, which injects `ANTHROPIC_BASE_URL` pointing at its internal proxy — the cloud-teleport route `/ultraplan` requires (POST `/v1/sessions` against `api.anthropic.com` with OAuth subscription auth) doesn't work through that proxy, and `ANTHROPIC_API_KEY` shows up empty-but-set in the env, which trips the auth precedence. Use local plan mode (`Shift+Tab`) instead; it produces the same plan-quality without the cloud handshake.
-- **Drive SwiftUI Picker menus by keyboard, not fixed click coordinates.** SwiftUI `Picker` menus open anchored to the **currently-selected item**, not to a fixed top position, so a fixed-coordinate click on a menu row only works on the first selection of a session — subsequent picks land on the wrong row as the menu shifts. This is the bug that mislabeled 45 of 53 cells in the May 2026 emotion matrix run. Reliable pattern: `left_click` the picker to open the menu, then `mcp__computer-use__key(text: "down")` (or `"up"`) N times from the currently-selected index to the target, then `key(text: "return")` to confirm. Track current selection in shell state to compute N. Full pattern lives in [`docs/reference/ui-test-surface.md`](docs/reference/ui-test-surface.md) under "Driving SwiftUI Picker menus"; keep that doc in sync if `scripts/uitest.sh` or any bench/smoke runbook adds a new picker-driver path.
+- Do not use cloud-only planning instructions or Anthropic environment-variable workarounds on this project. Codex should use local plan mode / `<proposed_plan>` when a plan is needed.
+- **Drive SwiftUI Picker menus by keyboard, not fixed click coordinates.** SwiftUI `Picker` menus open anchored to the **currently-selected item**, not to a fixed top position, so a fixed-coordinate click on a menu row only works on the first selection of a session — subsequent picks land on the wrong row as the menu shifts. This is the bug that mislabeled 45 of 53 cells in the May 2026 emotion matrix run. Reliable pattern: `mcp__computer_use__.click` the picker to open the menu, then `mcp__computer_use__.press_key(app: "Vocello", key: "Down")` (or `"Up"`) N times from the currently-selected index to the target, then `press_key(..., key: "Return")` to confirm. Track current selection in shell state to compute N. Full pattern lives in [`docs/reference/ui-test-surface.md`](docs/reference/ui-test-surface.md) under "Driving SwiftUI Picker menus"; keep that doc in sync if `scripts/uitest.sh` or any bench/smoke runbook adds a new picker-driver path.
 
 ## Where to find more
 
@@ -311,7 +325,7 @@ Mean gain across all 6 cells: **+4.5 s** saved on time-to-first-sound.
 - `docs/reference/ios-simulator-testing.md` — iOS Simulator UI review + Simulator-only fake install/delete dev affordance
 - `docs/reference/privacy-storage.md` — local storage and deletion
 - `docs/qwen_tone.md` — prompt/tone guidance for voice generation
-- `design_references/Vocello Design System/` — Claude Design system: brand register (SKILL.md), color + type scale (`colors_and_type.css`), preview HTML pages per token family. Read before touching iOS chrome or shipping new mode tints.
-- `design_references/Vocello iOS/` — Claude Design iOS prototype: React + CSS source (`app.css`, `tokens.css`, `chrome.jsx`, `studio.jsx`, `player.jsx`, `sheets.jsx`, `screens.jsx`, `data.js`) plus 64 reference screenshots. Canonical source for the May 2026 iOS redesign tracks.
+- `design_references/Vocello Design System/` — Codex Design system: brand register (SKILL.md), color + type scale (`colors_and_type.css`), preview HTML pages per token family. Read before touching iOS chrome or shipping new mode tints.
+- `design_references/Vocello iOS/` — Codex Design iOS prototype: React + CSS source (`app.css`, `tokens.css`, `chrome.jsx`, `studio.jsx`, `player.jsx`, `sheets.jsx`, `screens.jsx`, `data.js`) plus 64 reference screenshots. Canonical source for the May 2026 iOS redesign tracks.
 - `docs/assets/voice-samples/` — three Quality-variant WAVs (Voice Design / Custom Voice / Voice Cloning) generated for the marketing site's Listen section. Regenerate via the Vocello Debug app and copy into this folder using the existing filenames.
 - `CONTRIBUTING.md` — contributor workflow

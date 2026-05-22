@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Foundation for autonomous UI-driven testing of the Vocello Debug build.
 #
-# A Claude Code session uses the computer-use MCP to drive Vocello like a
+# A Codex session uses the computer-use MCP to drive Vocello like a
 # person; this script provides the deterministic pieces that don't make
 # sense to do via screenshots — launch, state reset, AXIdentifier lookup,
 # log tailing, DB queries, artifact directory creation.
@@ -50,25 +50,19 @@ commands:
                         the locate output to scale to your screenshot's image pixels.
 
   scaled-locate <ax-id> <image-w> <image-h>
-                        Claude Code computer-use coordinate helper. Pre-scales
-                        locate's logical-point output to the screenshot's
-                        image-pixel space. image-w and image-h are the actual
-                        dimensions of the image returned by
-                        mcp__computer-use__screenshot (NOT the Retina pixel
-                        size — Claude Code downsamples; on a 1280x720 logical
-                        screen the image is 1456x819, not 2560x1440). Emits
-                        "cx cy w h" in screenshot-image space — pass directly
-                        to mcp__computer-use__left_click(coordinate: [cx, cy]).
+                        Full-screen screenshot coordinate helper. Pre-scales
+                        locate's logical-point output to a full-screen
+                        screenshot's image-pixel space. Use only with tools
+                        that return full-screen screenshots with known image
+                        dimensions; Codex get_app_state returns a key-window
+                        screenshot, so prefer window-locate there.
 
   window-locate <ax-id> [image-w image-h]
-                        Legacy window-relative helper from the Codex era
-                        (Codex's get_app_state returned a window-scoped
-                        screenshot, so window-relative coords matched).
-                        Preserved for backward compatibility with older
-                        runbooks; new Claude Code runbooks should prefer
-                        scaled-locate. Looks up an AX id, subtracts Vocello's
-                        front-window origin, and prints "cx cy w h" relative
-                        to the window.
+                        Codex key-window coordinate helper. Looks up an AX id,
+                        subtracts Vocello's front-window origin, and prints
+                        "cx cy w h" relative to the window. If image dimensions
+                        are supplied from mcp__computer_use__.get_app_state,
+                        the output is scaled into that screenshot's pixel space.
 
   bench-step <mode> <variant> <coldwarm> <bucket> --artifacts-dir <dir> [--timeout <s>]
                         One-shot wrapper for the per-sample loop. Reads the previous

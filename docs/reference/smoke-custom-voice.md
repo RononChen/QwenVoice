@@ -18,7 +18,7 @@ Follows the [Standard smoke skeleton](ui-test-surface.md#standard-smoke-skeleton
 - **Sidebar AX id**: `sidebar_customVoice`
 - **Screen mount check**: `scripts/uitest.sh locate screen_customVoice` (exit 0)
 - **Output subfolder**: `outputs/CustomVoice/`
-- **Extra steps before generate**: none — the default speaker and delivery are correct. Just click `textInput_textEditor`, type the fixed script, fire `cmd+Return`.
+- **Extra steps before generate**: none — the default speaker and delivery are correct. Just click `textInput_textEditor`, type the fixed script, fire `super+Return`.
 
 ## Notes
 
