@@ -573,12 +573,21 @@ struct IOSPrimaryCTAButton: View {
                     Capsule(style: .continuous)
                         .fill(isEnabled ? tint : IOSAppTheme.glassSurfaceFillMuted)
                 } else {
+                    // Matches studio.jsx Generate CTA:
+                    //   linear-gradient(180deg, tint 0%,
+                    //     color-mix(in oklch, tint 80%, black) 100%)
+                    // SwiftUI's Color.mix(with:by:in:) (iOS 18+) gives the
+                    // OKLCH darkening; .perceptual is the closest mixing
+                    // space SwiftUI exposes.
                     Capsule(style: .continuous)
                         .fill(
                             LinearGradient(
-                                colors: [tint, tint.opacity(0.78)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+                                colors: [
+                                    tint,
+                                    tint.mix(with: .black, by: 0.20, in: .perceptual)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
                             )
                         )
                 }
