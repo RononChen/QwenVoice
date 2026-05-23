@@ -506,42 +506,28 @@ a { color: inherit; text-decoration: none; }
   padding: 32px 0;
   align-items: center;
   border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-  transition: border-color var(--motion-quick) var(--ease-standard),
-              background-color var(--motion-quick) var(--ease-standard);
-}
-
-.listen-row::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0;
-  background: radial-gradient(
-    ellipse 38% 60% at 92% 50%,
-    color-mix(in oklch, var(--row-mode) 18%, transparent),
-    transparent 70%
-  );
-  transition: opacity 220ms cubic-bezier(0.32, 0.08, 0.24, 1);
+  transition: border-color var(--motion-quick) var(--ease-standard);
 }
 
 .listen-row.is-playing {
-  border-bottom-color: color-mix(in oklch, var(--row-mode) 45%, transparent);
-  background: linear-gradient(90deg, color-mix(in oklch, var(--row-mode) 8%, transparent), transparent 55%);
-}
-
-.listen-row.is-playing::after {
-  opacity: 1;
+  border-bottom-color: color-mix(in oklch, var(--row-mode) 52%, transparent);
 }
 
 .listen-row.is-playing .listen-mode .swatch {
-  box-shadow: 0 0 12px color-mix(in oklch, var(--row-mode) 55%, transparent);
+  box-shadow: 0 0 14px color-mix(in oklch, var(--row-mode) 58%, transparent);
 }
 
 .listen-row.is-playing .play-btn {
   background: var(--row-mode);
   border-color: var(--row-mode);
   color: #0E0F14;
-  box-shadow: 0 8px 24px -10px color-mix(in oklch, var(--row-mode) 65%, transparent);
+  box-shadow:
+    0 0 0 6px color-mix(in oklch, var(--row-mode) 10%, transparent),
+    0 14px 32px -18px color-mix(in oklch, var(--row-mode) 75%, transparent);
+}
+
+.listen-row.is-playing .listen-row-stats {
+  color: color-mix(in oklch, var(--row-mode) 36%, var(--fg-secondary));
 }
 
 .listen-row-meta {
