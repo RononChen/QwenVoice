@@ -419,9 +419,15 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         self.diagnosticAppSupportBox = diagnosticAppSupportBox
         self.idleUnloadDelayOverride = idleUnloadDelayOverride
         var capturedContinuation: AsyncStream<GenerationEvent>.Continuation!
+#if os(iOS)
+        self.events = AsyncStream(bufferingPolicy: .bufferingNewest(64)) { continuation in
+            capturedContinuation = continuation
+        }
+#else
         self.events = AsyncStream(bufferingPolicy: .unbounded) { continuation in
             capturedContinuation = continuation
         }
+#endif
         self.eventStreamContinuation = capturedContinuation
         self.runtime = NativeEngineRuntime(
             loadCoordinator: loadCoordinator,

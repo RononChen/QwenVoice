@@ -402,8 +402,13 @@ private let speechTokenizerEvalBatchSize = 8
 private actor Qwen3TTSPreparedComponentCache {
     static let shared = Qwen3TTSPreparedComponentCache()
 
+#if os(iOS)
+    private let tokenizerLimit = 1
+    private let speechTokenizerLimit = 1
+#else
     private let tokenizerLimit = 3
     private let speechTokenizerLimit = 3
+#endif
     private var tokenizersByPreparedKey: [String: CachedTokenizerBox] = [:]
     private var speechTokenizersByPreparedKey: [String: CachedSpeechTokenizerBox] = [:]
     private var tokenizerLRU: [String] = []
@@ -451,6 +456,14 @@ private actor Qwen3TTSPreparedComponentCache {
         touchSpeechTokenizer(preparedKey)
         trimSpeechTokenizersIfNeeded()
         return box
+    }
+
+    func clear() {
+        tokenizersByPreparedKey.removeAll()
+        speechTokenizersByPreparedKey.removeAll()
+        tokenizerLRU.removeAll()
+        speechTokenizerLRU.removeAll()
+        Memory.clearCache()
     }
 
     private func touchTokenizer(_ preparedKey: String) {
@@ -597,7 +610,11 @@ private final class CachedConditioningPrefixBox: @unchecked Sendable {
 private final class Qwen3TTSConditioningPrefixCache: @unchecked Sendable {
     static let shared = Qwen3TTSConditioningPrefixCache()
 
+#if os(iOS)
+    private let limit = 2
+#else
     private let limit = 16
+#endif
     private let lock = NSLock()
     private var prefixesByKey: [String: CachedConditioningPrefixBox] = [:]
     private var lruKeys: [String] = []
@@ -620,6 +637,14 @@ private final class Qwen3TTSConditioningPrefixCache: @unchecked Sendable {
         lock.unlock()
     }
 
+    func clear() {
+        lock.lock()
+        prefixesByKey.removeAll()
+        lruKeys.removeAll()
+        lock.unlock()
+        Memory.clearCache()
+    }
+
     private func touch(_ cacheKey: String) {
         lruKeys.removeAll { $0 == cacheKey }
         lruKeys.append(cacheKey)
@@ -636,7 +661,11 @@ private final class Qwen3TTSConditioningPrefixCache: @unchecked Sendable {
 private final class Qwen3TTSStreamingDecoderBucketCache: @unchecked Sendable {
     static let shared = Qwen3TTSStreamingDecoderBucketCache()
 
+#if os(iOS)
+    private let limit = 2
+#else
     private let limit = 8
+#endif
     private let lock = NSLock()
     private var warmedKeys: Set<String> = []
     private var lruKeys: [String] = []
@@ -659,6 +688,14 @@ private final class Qwen3TTSStreamingDecoderBucketCache: @unchecked Sendable {
         lock.unlock()
     }
 
+    func clear() {
+        lock.lock()
+        warmedKeys.removeAll()
+        lruKeys.removeAll()
+        lock.unlock()
+        Memory.clearCache()
+    }
+
     private func touch(_ key: String) {
         lruKeys.removeAll { $0 == key }
         lruKeys.append(key)
@@ -669,6 +706,15 @@ private final class Qwen3TTSStreamingDecoderBucketCache: @unchecked Sendable {
             lruKeys.removeFirst()
             warmedKeys.remove(evicted)
         }
+    }
+}
+
+public enum Qwen3TTSMemoryCaches {
+    public static func clearAll() async {
+        await Qwen3TTSPreparedComponentCache.shared.clear()
+        Qwen3TTSConditioningPrefixCache.shared.clear()
+        Qwen3TTSStreamingDecoderBucketCache.shared.clear()
+        Memory.clearCache()
     }
 }
 

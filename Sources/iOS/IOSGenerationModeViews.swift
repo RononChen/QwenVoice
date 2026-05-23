@@ -292,7 +292,7 @@ struct IOSCustomVoiceView: View {
                         modelID: model.id,
                         text: promptText,
                         outputPath: outputPath,
-                        shouldStream: false,
+                        shouldStream: true,
                         streamingInterval: GenerationSemantics.appStreamingInterval,
                         payload: .custom(
                             speakerID: draft.selectedSpeaker,
@@ -734,7 +734,7 @@ struct IOSVoiceDesignView: View {
                         modelID: model.id,
                         text: promptText,
                         outputPath: outputPath,
-                        shouldStream: false,
+                        shouldStream: true,
                         streamingInterval: GenerationSemantics.appStreamingInterval,
                         payload: .design(
                             voiceDescription: draft.voiceDescription,
@@ -1025,7 +1025,7 @@ struct IOSVoiceCloningView: View {
                             modelID: model.id,
                             text: line,
                             outputPath: outputPath,
-                            shouldStream: false,
+                            shouldStream: true,
                             streamingInterval: GenerationSemantics.appStreamingInterval,
                             payload: .clone(
                                 reference: CloneReference(
@@ -1254,7 +1254,7 @@ struct IOSVoiceCloningView: View {
                         modelID: model.id,
                         text: promptText,
                         outputPath: outputPath,
-                        shouldStream: false,
+                        shouldStream: true,
                         streamingInterval: GenerationSemantics.appStreamingInterval,
                         payload: .clone(
                             reference: CloneReference(

@@ -27,6 +27,7 @@ Debug-only memory guard probes:
 ```sh
 scripts/ios_device.sh start --run-id guarded-probe --force-band guarded
 scripts/ios_device.sh start --run-id critical-once-probe --force-critical-once
+scripts/ios_device.sh start --run-id mlx-limit-probe --mlx-memory-limit-mb 2800 --mlx-cache-limit-mb 64
 ```
 
 ## One-shot Custom Voice smoke (~1 min)

@@ -419,6 +419,7 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         lastForwardedChunkIdentity = chunkIdentity
 
         if case .chunk(let chunk) = latestEvent {
+            guard chunk.previewAudio != nil || chunk.chunkPath != nil else { return }
             NotificationCenter.default.post(
                 name: .generationChunkReceived,
                 object: self,
@@ -446,8 +447,11 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
 
     private func guardModelAdmission(shouldSurfaceError: Bool, reason: String) async throws {
         let context = await refreshMemoryContext(reason: reason, source: "admission")
-        let admissionBand = memoryBudgetPolicy.engineExecutionBand(for: context)
-        guard memoryBudgetPolicy.allowsModelAdmission(for: context) else {
+        let admissionBand = memoryBudgetPolicy.engineExecutionBand(
+            for: context,
+            includesAggregatePressure: false
+        )
+        guard memoryBudgetPolicy.allowsModelAdmission(for: admissionBand) else {
             let error = MLXTTSEngineError.generationFailed(
                 "Vocello needs more available memory before loading this model. Close background apps and try again."
             )
@@ -465,7 +469,7 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
 #if DEBUG
         if context.pressureBand == .critical, admissionBand != .critical {
             print(
-                "[TTSEngineStore] Allowing model admission using engine band \(admissionBand.rawValue); combined=\(context.pressureBand.rawValue), appHeadroomMB=\(context.appSnapshot.availableHeadroomBytes.map(Self.megabytesString) ?? "unknown"), extensionHeadroomMB=\(context.engineExtensionSnapshot?.availableHeadroomBytes.map(Self.megabytesString) ?? "missing")"
+                "[TTSEngineStore] Allowing model admission using per-process band \(admissionBand.rawValue); aggregate=\(context.aggregatePressureBand.rawValue), combinedFootprintMB=\(context.combinedPhysFootprintBytes.map(Self.megabytesString) ?? "unknown"), appHeadroomMB=\(context.appSnapshot.availableHeadroomBytes.map(Self.megabytesString) ?? "unknown"), extensionHeadroomMB=\(context.engineExtensionSnapshot?.availableHeadroomBytes.map(Self.megabytesString) ?? "missing")"
             )
         }
 #endif
@@ -562,7 +566,7 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         guard !criticalMemoryActionInFlight else { return }
         criticalMemoryActionInFlight = true
         Self.memoryLogger.fault(
-            "Critical iOS memory context during \(context.reason, privacy: .public); worst=\(context.worstProcessRole?.rawValue ?? "unknown", privacy: .public), headroomMB=\(context.minimumHeadroomBytes.map(Self.megabytesString) ?? "unknown", privacy: .public), extensionFootprintMB=\(context.engineExtensionSnapshot?.physFootprintBytes.map(Self.megabytesString) ?? "unknown", privacy: .public)"
+            "Critical iOS memory context during \(context.reason, privacy: .public); aggregate=\(context.aggregatePressureBand.rawValue, privacy: .public), worst=\(context.worstProcessRole?.rawValue ?? "unknown", privacy: .public), headroomMB=\(context.minimumHeadroomBytes.map(Self.megabytesString) ?? "unknown", privacy: .public), extensionFootprintMB=\(context.engineExtensionSnapshot?.physFootprintBytes.map(Self.megabytesString) ?? "unknown", privacy: .public), combinedFootprintMB=\(context.combinedPhysFootprintBytes.map(Self.megabytesString) ?? "unknown", privacy: .public)"
         )
         diagnosticsRecorder?.recordAction(
             event: "critical_memory_action",
@@ -626,8 +630,8 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         if lhs.pressureBand.severityRank != rhs.pressureBand.severityRank {
             return lhs.pressureBand.severityRank > rhs.pressureBand.severityRank
         }
-        let lhsFootprint = lhs.peakPhysFootprintBytes ?? lhs.peakResidentBytes ?? 0
-        let rhsFootprint = rhs.peakPhysFootprintBytes ?? rhs.peakResidentBytes ?? 0
+        let lhsFootprint = lhs.combinedPhysFootprintBytes ?? lhs.peakPhysFootprintBytes ?? lhs.peakResidentBytes ?? 0
+        let rhsFootprint = rhs.combinedPhysFootprintBytes ?? rhs.peakPhysFootprintBytes ?? rhs.peakResidentBytes ?? 0
         return lhsFootprint > rhsFootprint
     }
 
@@ -635,7 +639,7 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         guard lastLoggedMemoryBand != context.pressureBand else { return }
         lastLoggedMemoryBand = context.pressureBand
         Self.memoryLogger.notice(
-            "iOS memory context \(context.pressureBand.rawValue, privacy: .public) from \(context.source, privacy: .public)/\(context.reason, privacy: .public); worst=\(context.worstProcessRole?.rawValue ?? "unknown", privacy: .public), appFootprintMB=\(context.appSnapshot.physFootprintBytes.map(Self.megabytesString) ?? "unknown", privacy: .public), extensionFootprintMB=\(context.engineExtensionSnapshot?.physFootprintBytes.map(Self.megabytesString) ?? "missing", privacy: .public), minHeadroomMB=\(context.minimumHeadroomBytes.map(Self.megabytesString) ?? "unknown", privacy: .public)"
+            "iOS memory context \(context.pressureBand.rawValue, privacy: .public) from \(context.source, privacy: .public)/\(context.reason, privacy: .public); aggregate=\(context.aggregatePressureBand.rawValue, privacy: .public), worst=\(context.worstProcessRole?.rawValue ?? "unknown", privacy: .public), appFootprintMB=\(context.appSnapshot.physFootprintBytes.map(Self.megabytesString) ?? "unknown", privacy: .public), extensionFootprintMB=\(context.engineExtensionSnapshot?.physFootprintBytes.map(Self.megabytesString) ?? "missing", privacy: .public), combinedFootprintMB=\(context.combinedPhysFootprintBytes.map(Self.megabytesString) ?? "unknown", privacy: .public), minHeadroomMB=\(context.minimumHeadroomBytes.map(Self.megabytesString) ?? "unknown", privacy: .public)"
         )
     }
 
@@ -643,7 +647,7 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         guard let context = activeGenerationPeakMemoryContext else { return }
         diagnosticsRecorder?.recordMemoryContext(context, event: "active_generation_peak")
         Self.memoryLogger.notice(
-            "iOS generation peak memory \(context.pressureBand.rawValue, privacy: .public); worst=\(context.worstProcessRole?.rawValue ?? "unknown", privacy: .public), appFootprintMB=\(context.appSnapshot.physFootprintBytes.map(Self.megabytesString) ?? "unknown", privacy: .public), extensionFootprintMB=\(context.engineExtensionSnapshot?.physFootprintBytes.map(Self.megabytesString) ?? "missing", privacy: .public), minHeadroomMB=\(context.minimumHeadroomBytes.map(Self.megabytesString) ?? "unknown", privacy: .public)"
+            "iOS generation peak memory \(context.pressureBand.rawValue, privacy: .public); aggregate=\(context.aggregatePressureBand.rawValue, privacy: .public), worst=\(context.worstProcessRole?.rawValue ?? "unknown", privacy: .public), appFootprintMB=\(context.appSnapshot.physFootprintBytes.map(Self.megabytesString) ?? "unknown", privacy: .public), extensionFootprintMB=\(context.engineExtensionSnapshot?.physFootprintBytes.map(Self.megabytesString) ?? "missing", privacy: .public), combinedFootprintMB=\(context.combinedPhysFootprintBytes.map(Self.megabytesString) ?? "unknown", privacy: .public), minHeadroomMB=\(context.minimumHeadroomBytes.map(Self.megabytesString) ?? "unknown", privacy: .public)"
         )
     }
 
@@ -693,6 +697,7 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
             appSnapshot: context.appSnapshot,
             engineExtensionSnapshot: context.engineExtensionSnapshot,
             pressureBand: band,
+            aggregatePressureBand: context.aggregatePressureBand,
             worstProcessRole: context.worstProcessRole ?? .app,
             reason: reason,
             source: context.source

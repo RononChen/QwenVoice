@@ -57,10 +57,17 @@ public enum NativeMemoryPolicyResolver {
                 unloadAfterIdleSeconds: nil
             )
         case .iPhonePro:
+            let cacheLimitBytes = debugMegabytesOverride(
+                "QVOICE_IOS_MLX_CACHE_LIMIT_MB"
+            ) ?? 128 * 1_024 * 1_024
+            let memoryLimitBytes = debugMegabytesOverride(
+                "QVOICE_IOS_MLX_MEMORY_LIMIT_MB"
+            )
             return NativeMemoryPolicy(
                 name: "iphone_pro_\(mode.rawValue)_\(isBatch ? "batch" : "single")",
                 deviceClass: deviceClass,
-                cacheLimitBytes: 128 * 1_024 * 1_024,
+                cacheLimitBytes: cacheLimitBytes,
+                memoryLimitBytes: memoryLimitBytes,
                 clearCacheAfterGeneration: true,
                 unloadAfterIdleSeconds: 30
             )
@@ -152,5 +159,22 @@ public enum NativeMemoryPolicyResolver {
 
     private static func bytesToMB(_ bytes: Int) -> Double {
         Double(bytes) / Double(1_024 * 1_024)
+    }
+
+    private static func debugMegabytesOverride(
+        _ key: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Int? {
+#if DEBUG
+        guard let rawValue = environment[key]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              let megabytes = Int(rawValue),
+              megabytes > 0 else {
+            return nil
+        }
+        return megabytes * 1_024 * 1_024
+#else
+        return nil
+#endif
     }
 }

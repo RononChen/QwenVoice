@@ -28,11 +28,12 @@ scripts/ios_device.sh start --run-id memory-guard-custom
 scripts/ios_device.sh start --catalog-url https://example.com/ios/catalog/v1/models.json
 scripts/ios_device.sh start --allowed-hosts downloads.example.com,cdn.example.com
 scripts/ios_device.sh start --enable-proactive-prefetch
+scripts/ios_device.sh start --mlx-memory-limit-mb 2800 --mlx-cache-limit-mb 64
 ```
 
 `--enable-proactive-prefetch` is only for backend experiments. Stable hardware validation keeps it off because ExtensionKit may interrupt idle/prewarm-heavy extension work more aggressively than macOS XPC services.
 
-The same values can be supplied with environment variables for repeatable local runs: `QVOICE_IOS_DEVICE_ID`, `QVOICE_IOS_DEVICE_RUN_ID`, `QVOICE_IOS_MODEL_CATALOG_URL`, `QVOICE_IOS_MODEL_ALLOWED_HOSTS`, `QVOICE_IOS_MEMORY_GUARD_FORCE_BAND`, and `QVOICE_IOS_MEMORY_GUARD_FORCE_CRITICAL_ONCE`. `scripts/ios_device.sh start` sets `QWENVOICE_NATIVE_TELEMETRY_MODE=lightweight` for Debug evidence capture.
+The same values can be supplied with environment variables for repeatable local runs: `QVOICE_IOS_DEVICE_ID`, `QVOICE_IOS_DEVICE_RUN_ID`, `QVOICE_IOS_MODEL_CATALOG_URL`, `QVOICE_IOS_MODEL_ALLOWED_HOSTS`, `QVOICE_IOS_MEMORY_GUARD_FORCE_BAND`, `QVOICE_IOS_MEMORY_GUARD_FORCE_CRITICAL_ONCE`, `QVOICE_IOS_MLX_MEMORY_LIMIT_MB`, and `QVOICE_IOS_MLX_CACHE_LIMIT_MB`. `scripts/ios_device.sh start` sets `QWENVOICE_NATIVE_TELEMETRY_MODE=lightweight` for Debug evidence capture.
 
 ## Codex Control
 
@@ -63,9 +64,12 @@ For memory guardrails, collect one normal run plus the two Debug-only synthetic 
 ```sh
 scripts/ios_device.sh start --run-id guarded-probe --force-band guarded
 scripts/ios_device.sh start --run-id critical-once-probe --force-critical-once
+scripts/ios_device.sh start --run-id mlx-limit-probe --mlx-memory-limit-mb 2800 --mlx-cache-limit-mb 64
 ```
 
 `--force-band guarded` should block proactive warm/prefetch work while still allowing foreground generation. `--force-critical-once` should cancel the first active generation sample, abort live preview, request a full unload, and disarm until the app is relaunched.
+
+The MLX limit probe is diagnostic only: it sets Debug launch env vars so runaway active allocations fail earlier than jetsam while Release/TestFlight policy remains unchanged.
 
 ## Evidence Capture
 
@@ -80,6 +84,7 @@ The run directory contains:
 - `run-manifest.json`, selected device metadata, build/install/launch JSON, and CoreDevice logs
 - `screenshots/*.png` captured from the Mac screen
 - `pulled/diagnostics/memory-contexts.jsonl` and `pulled/diagnostics/manifest.json` when the app ran with lightweight telemetry
+- combined app+extension footprint fields and aggregate pressure bands in each memory-context record
 - focused App Group evidence: `history.sqlite`, generated `outputs/`, and saved `voices/`
 
 On Xcode/CoreDevice builds that reject direct `appGroupDataContainer` copies with a path-validation error, `pull` falls back to the Debug-only app-container mirror for memory diagnostics. History/output/voice evidence remains App Group best-effort.

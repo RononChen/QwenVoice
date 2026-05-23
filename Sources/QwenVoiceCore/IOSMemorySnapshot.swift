@@ -169,6 +169,7 @@ public struct IOSMemoryContext: Hashable, Codable, Sendable {
     public let appSnapshot: IOSMemorySnapshot
     public let engineExtensionSnapshot: IOSMemorySnapshot?
     public let pressureBand: IOSMemoryPressureBand
+    public let aggregatePressureBand: IOSMemoryPressureBand
     public let worstProcessRole: IOSMemoryProcessRole?
     public let reason: String
     public let source: String
@@ -177,6 +178,7 @@ public struct IOSMemoryContext: Hashable, Codable, Sendable {
         appSnapshot: IOSMemorySnapshot,
         engineExtensionSnapshot: IOSMemorySnapshot?,
         pressureBand: IOSMemoryPressureBand,
+        aggregatePressureBand: IOSMemoryPressureBand = .healthy,
         worstProcessRole: IOSMemoryProcessRole?,
         reason: String,
         source: String
@@ -184,6 +186,7 @@ public struct IOSMemoryContext: Hashable, Codable, Sendable {
         self.appSnapshot = appSnapshot
         self.engineExtensionSnapshot = engineExtensionSnapshot
         self.pressureBand = pressureBand
+        self.aggregatePressureBand = aggregatePressureBand
         self.worstProcessRole = worstProcessRole
         self.reason = reason
         self.source = source
@@ -211,27 +214,57 @@ public struct IOSMemoryContext: Hashable, Codable, Sendable {
     public var peakGPUAllocatedBytes: UInt64? {
         snapshots.compactMap(\.gpuAllocatedBytes).max()
     }
+
+    public var combinedResidentBytes: UInt64? {
+        sumKnown(\.residentBytes)
+    }
+
+    public var combinedPhysFootprintBytes: UInt64? {
+        sumKnown(\.physFootprintBytes)
+    }
+
+    public var combinedCompressedBytes: UInt64? {
+        sumKnown(\.compressedBytes)
+    }
+
+    public var combinedGPUAllocatedBytes: UInt64? {
+        sumKnown(\.gpuAllocatedBytes)
+    }
+
+    private func sumKnown(_ keyPath: KeyPath<IOSMemorySnapshot, UInt64?>) -> UInt64? {
+        let values = snapshots.compactMap { $0[keyPath: keyPath] }
+        guard !values.isEmpty else { return nil }
+        return values.reduce(0, +)
+    }
 }
 
 public struct IOSMemoryBudgetPolicy: Hashable, Codable, Sendable {
     public let healthyHeadroomBytes: UInt64
     public let guardedHeadroomBytes: UInt64
     public let criticalGPUWorkingSetUsageRatio: Double
+    public let aggregateGuardedFootprintBytes: UInt64?
+    public let aggregateCriticalFootprintBytes: UInt64?
 
     public init(
         healthyHeadroomBytes: UInt64,
         guardedHeadroomBytes: UInt64,
-        criticalGPUWorkingSetUsageRatio: Double
+        criticalGPUWorkingSetUsageRatio: Double,
+        aggregateGuardedFootprintBytes: UInt64? = nil,
+        aggregateCriticalFootprintBytes: UInt64? = nil
     ) {
         self.healthyHeadroomBytes = healthyHeadroomBytes
         self.guardedHeadroomBytes = guardedHeadroomBytes
         self.criticalGPUWorkingSetUsageRatio = criticalGPUWorkingSetUsageRatio
+        self.aggregateGuardedFootprintBytes = aggregateGuardedFootprintBytes
+        self.aggregateCriticalFootprintBytes = aggregateCriticalFootprintBytes
     }
 
     public static let iPhoneShippingDefault = IOSMemoryBudgetPolicy(
         healthyHeadroomBytes: 768 * 1_048_576,
         guardedHeadroomBytes: 384 * 1_048_576,
-        criticalGPUWorkingSetUsageRatio: 0.80
+        criticalGPUWorkingSetUsageRatio: 0.80,
+        aggregateGuardedFootprintBytes: 4_500 * 1_048_576,
+        aggregateCriticalFootprintBytes: 5_200 * 1_048_576
     )
 
     public func band(for snapshot: IOSMemorySnapshot) -> IOSMemoryPressureBand {
@@ -261,6 +294,10 @@ public struct IOSMemoryBudgetPolicy: Hashable, Codable, Sendable {
         reason: String,
         source: String
     ) -> IOSMemoryContext {
+        let aggregateBand = aggregateBand(
+            appSnapshot: appSnapshot,
+            engineExtensionSnapshot: engineExtensionSnapshot
+        )
         let candidates = [appSnapshot, engineExtensionSnapshot].compactMap { snapshot -> (
             snapshot: IOSMemorySnapshot,
             band: IOSMemoryPressureBand
@@ -278,11 +315,39 @@ public struct IOSMemoryBudgetPolicy: Hashable, Codable, Sendable {
         return IOSMemoryContext(
             appSnapshot: appSnapshot,
             engineExtensionSnapshot: engineExtensionSnapshot,
-            pressureBand: worst?.band ?? .healthy,
+            pressureBand: maxBand(worst?.band ?? .healthy, aggregateBand),
+            aggregatePressureBand: aggregateBand,
             worstProcessRole: worst?.snapshot.processRole,
             reason: reason,
             source: source
         )
+    }
+
+    public func aggregateBand(for context: IOSMemoryContext) -> IOSMemoryPressureBand {
+        aggregateBand(
+            appSnapshot: context.appSnapshot,
+            engineExtensionSnapshot: context.engineExtensionSnapshot
+        )
+    }
+
+    private func aggregateBand(
+        appSnapshot: IOSMemorySnapshot,
+        engineExtensionSnapshot: IOSMemorySnapshot?
+    ) -> IOSMemoryPressureBand {
+        let footprints = [appSnapshot, engineExtensionSnapshot].compactMap { snapshot in
+            snapshot?.physFootprintBytes
+        }
+        guard !footprints.isEmpty else { return .healthy }
+        let combinedFootprint = footprints.reduce(0, +)
+        if let aggregateCriticalFootprintBytes,
+           combinedFootprint >= aggregateCriticalFootprintBytes {
+            return .critical
+        }
+        if let aggregateGuardedFootprintBytes,
+           combinedFootprint >= aggregateGuardedFootprintBytes {
+            return .guarded
+        }
+        return .healthy
     }
 
     private func fallbackHeadroom(from snapshot: IOSMemorySnapshot) -> UInt64? {
@@ -310,15 +375,24 @@ public struct IOSMemoryBudgetPolicy: Hashable, Codable, Sendable {
         band != .critical
     }
 
-    public func engineExecutionBand(for context: IOSMemoryContext) -> IOSMemoryPressureBand {
-        guard let engineExtensionSnapshot = context.engineExtensionSnapshot else {
-            return .healthy
+    public func engineExecutionBand(
+        for context: IOSMemoryContext,
+        includesAggregatePressure: Bool = true
+    ) -> IOSMemoryPressureBand {
+        var executionBand = band(for: context.appSnapshot)
+        if let engineExtensionSnapshot = context.engineExtensionSnapshot {
+            executionBand = maxBand(executionBand, band(for: engineExtensionSnapshot))
         }
-        return band(for: engineExtensionSnapshot)
+        if includesAggregatePressure {
+            executionBand = maxBand(executionBand, aggregateBand(for: context))
+        }
+        return executionBand
     }
 
     public func allowsModelAdmission(for context: IOSMemoryContext) -> Bool {
-        allowsModelAdmission(for: engineExecutionBand(for: context))
+        allowsModelAdmission(
+            for: engineExecutionBand(for: context, includesAggregatePressure: false)
+        )
     }
 
     public func postGenerationTrimLevel(for band: IOSMemoryPressureBand) -> NativeMemoryTrimLevel? {
@@ -366,5 +440,12 @@ public struct IOSMemoryBudgetPolicy: Hashable, Codable, Sendable {
         case .critical:
             return .fullUnload
         }
+    }
+
+    private func maxBand(
+        _ lhs: IOSMemoryPressureBand,
+        _ rhs: IOSMemoryPressureBand
+    ) -> IOSMemoryPressureBand {
+        lhs.severityRank >= rhs.severityRank ? lhs : rhs
     }
 }

@@ -1065,14 +1065,20 @@ private struct StreamingExecutionContext: Sendable {
 
                     let pcmSamples = scratchBuffer.convertLimited(chunkSamples)
                     let frameOffset = totalFramesWritten
-                    // Skip the Data materialization on headless workloads
-                    // (env: QWENVOICE_STREAMING_PREVIEW_DATA=off). Default
-                    // path preserves the live-streaming preview the UI
-                    // consumes; opt-out path saves the per-chunk byte
-                    // copy.
-                    let previewData: Data = previewDataPolicy == .skip
-                        ? Data()
-                        : scratchBuffer.pcm16LittleEndianData(from: pcmSamples)
+                    let previewAudio: StreamingAudioChunk?
+                    if previewDataPolicy == .skip {
+                        previewAudio = nil
+                    } else {
+                        previewAudio = StreamingAudioChunk(
+                            generationID: generationID,
+                            requestID: requestID,
+                            sampleRate: sampleRate,
+                            frameOffset: frameOffset,
+                            frameCount: pcmSamples.count,
+                            pcm16LE: scratchBuffer.pcm16LittleEndianData(from: pcmSamples),
+                            isFinal: false
+                        )
+                    }
                     var chunkPath: String?
 
                     if let chunkWriter {
@@ -1110,15 +1116,7 @@ private struct StreamingExecutionContext: Sendable {
                             chunkDurationSeconds: chunkDurationSeconds,
                             cumulativeDurationSeconds: cumulativeDurationSeconds,
                             streamSessionDirectory: sessionDirectory.path,
-                            previewAudio: StreamingAudioChunk(
-                                generationID: generationID,
-                                requestID: requestID,
-                                sampleRate: sampleRate,
-                                frameOffset: frameOffset,
-                                frameCount: pcmSamples.count,
-                                pcm16LE: previewData,
-                                isFinal: false
-                            )
+                            previewAudio: previewAudio
                         )
                     )
 

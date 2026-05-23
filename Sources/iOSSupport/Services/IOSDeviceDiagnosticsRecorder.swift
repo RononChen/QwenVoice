@@ -87,8 +87,13 @@ final class IOSDeviceDiagnosticsRecorder {
                 reason: context.reason,
                 source: context.source,
                 pressureBand: context.pressureBand,
+                aggregatePressureBand: context.aggregatePressureBand,
                 previousPressureBand: previousBand,
                 worstProcessRole: context.worstProcessRole,
+                combinedResidentBytes: context.combinedResidentBytes,
+                combinedPhysFootprintBytes: context.combinedPhysFootprintBytes,
+                combinedCompressedBytes: context.combinedCompressedBytes,
+                combinedGPUAllocatedBytes: context.combinedGPUAllocatedBytes,
                 trimLevel: nil,
                 message: nil,
                 context: context
@@ -112,8 +117,13 @@ final class IOSDeviceDiagnosticsRecorder {
                 reason: reason,
                 source: context?.source,
                 pressureBand: context?.pressureBand,
+                aggregatePressureBand: context?.aggregatePressureBand,
                 previousPressureBand: nil,
                 worstProcessRole: context?.worstProcessRole,
+                combinedResidentBytes: context?.combinedResidentBytes,
+                combinedPhysFootprintBytes: context?.combinedPhysFootprintBytes,
+                combinedCompressedBytes: context?.combinedCompressedBytes,
+                combinedGPUAllocatedBytes: context?.combinedGPUAllocatedBytes,
                 trimLevel: trimLevel,
                 message: message,
                 context: context
@@ -200,8 +210,13 @@ private struct MemoryContextDiagnosticRecord: Codable {
     let reason: String
     let source: String?
     let pressureBand: IOSMemoryPressureBand?
+    let aggregatePressureBand: IOSMemoryPressureBand?
     let previousPressureBand: IOSMemoryPressureBand?
     let worstProcessRole: IOSMemoryProcessRole?
+    let combinedResidentBytes: UInt64?
+    let combinedPhysFootprintBytes: UInt64?
+    let combinedCompressedBytes: UInt64?
+    let combinedGPUAllocatedBytes: UInt64?
     let trimLevel: NativeMemoryTrimLevel?
     let message: String?
     let context: IOSMemoryContext?

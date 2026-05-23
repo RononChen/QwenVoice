@@ -190,6 +190,7 @@ actor NativeEngineRuntime {
         await loadCoordinator.unloadModel()
         activeModelID = nil
         await clearCloneState()
+        await clearQwen3MemoryCachesIfNeeded()
         await telemetryRecorder?.mark(stage: .unload)
     }
 
@@ -201,6 +202,7 @@ actor NativeEngineRuntime {
         await loadCoordinator.unloadModel()
         activeModelID = nil
         await clearCloneState()
+        await clearQwen3MemoryCachesIfNeeded()
         await telemetryRecorder?.mark(stage: .unload)
     }
 
@@ -225,6 +227,7 @@ actor NativeEngineRuntime {
             primedCloneReferenceKeys.removeAll()
             clonePrimeTimingOverridesMS.removeAll()
             Memory.clearCache()
+            await clearQwen3MemoryCachesIfNeeded()
         case .fullUnload:
             await unloadModel()
         }
@@ -645,6 +648,7 @@ actor NativeEngineRuntime {
             await loadCoordinator.unloadModel()
             activeModelID = nil
             await clearCloneState(preserveActiveClonePrimeToken: preserveActiveClonePrimeToken)
+            await clearQwen3MemoryCachesIfNeeded()
             throw NativeRuntimeError.wrapping(
                 error,
                 stage: .upstreamModelLoad,
@@ -779,6 +783,7 @@ actor NativeEngineRuntime {
             await loadCoordinator.unloadModel()
             activeModelID = nil
             await clearCloneState()
+            await clearQwen3MemoryCachesIfNeeded()
             throw NativeRuntimeError.wrapping(
                 error,
                 stage: .prewarm,
@@ -1110,6 +1115,7 @@ actor NativeEngineRuntime {
             await loadCoordinator.unloadModel()
             activeModelID = nil
             await clearCloneState()
+            await clearQwen3MemoryCachesIfNeeded()
             throw NativeRuntimeError.wrapping(
                 error,
                 stage: .prewarm,
@@ -1159,6 +1165,11 @@ actor NativeEngineRuntime {
         if !preserveActiveClonePrimeToken {
             activeClonePrimeToken = nil
         }
+    }
+
+    private func clearQwen3MemoryCachesIfNeeded() async {
+        guard NativeMemoryPolicyResolver.deviceClass() == .iPhonePro else { return }
+        await Qwen3TTSMemoryCaches.clearAll()
     }
 
     private func ensureActiveClonePrimeToken(_ token: UUID) throws {

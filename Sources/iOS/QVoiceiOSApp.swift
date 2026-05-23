@@ -179,10 +179,19 @@ struct QVoiceiOSApp: App {
         case .deferred:
             break
         case .execute(let executeReason, let cancelActiveGeneration):
+            let forcedTrimLevel: NativeMemoryTrimLevel? = severity == .critical
+                ? .fullUnload
+                : nil
             if cancelActiveGeneration {
-                performMemoryPressureReliefAfterCancellingGeneration(reason: executeReason)
+                performMemoryPressureReliefAfterCancellingGeneration(
+                    reason: executeReason,
+                    forcedTrimLevel: forcedTrimLevel
+                )
             } else {
-                performMemoryPressureRelief(reason: executeReason)
+                performMemoryPressureRelief(
+                    reason: executeReason,
+                    forcedTrimLevel: forcedTrimLevel
+                )
             }
         }
     }
@@ -199,9 +208,12 @@ struct QVoiceiOSApp: App {
         performMemoryPressureRelief(reason: reason)
     }
 
-    private func performMemoryPressureReliefAfterCancellingGeneration(reason: String) {
+    private func performMemoryPressureReliefAfterCancellingGeneration(
+        reason: String,
+        forcedTrimLevel: NativeMemoryTrimLevel? = nil
+    ) {
         guard let engine = deps.engine else {
-            performMemoryPressureRelief(reason: reason)
+            performMemoryPressureRelief(reason: reason, forcedTrimLevel: forcedTrimLevel)
             return
         }
 
@@ -213,11 +225,14 @@ struct QVoiceiOSApp: App {
             }
             audioPlayer.abortLivePreviewIfNeeded()
             engine.clearGenerationActivity()
-            performMemoryPressureRelief(reason: reason)
+            performMemoryPressureRelief(reason: reason, forcedTrimLevel: forcedTrimLevel)
         }
     }
 
-    private func performMemoryPressureRelief(reason: String) {
+    private func performMemoryPressureRelief(
+        reason: String,
+        forcedTrimLevel: NativeMemoryTrimLevel? = nil
+    ) {
         guard let engine = deps.engine else {
             clearNativeRuntimeCacheIfAvailable()
             return
@@ -225,7 +240,7 @@ struct QVoiceiOSApp: App {
 
         Task { @MainActor in
             let context = await engine.refreshMemoryContext(reason: reason, source: "app_pressure")
-            let trimLevel = memoryBudgetPolicy.trimLevelForPressureEvent(
+            let trimLevel = forcedTrimLevel ?? memoryBudgetPolicy.trimLevelForPressureEvent(
                 context: context,
                 isBackgroundTransition: false
             )

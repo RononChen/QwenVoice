@@ -241,6 +241,8 @@ Non-obvious runtime behavior added across the May 2026 Phase 1+2+3 rollout. Futu
 
 `Sources/QwenVoiceCore/NativeMemoryPressureMonitor.swift` wraps `DispatchSource.makeMemoryPressureSource(eventMask: [.normal, .warning, .critical])` on macOS and iOS. `MLXTTSEngine.initialize(...)` starts it on floor8GBMac, mid16GBMac, and iPhonePro. Kernel pressure events map to `NativeMemoryTrimLevel` and route to `runtime.trimMemory(level:reason:)` — softTrim clears MLX cache + clone soft-trim; hardTrim clears all warm state. iOS still has no visible memory indicator; app-layer memory guardrails flow through `TTSEngineStore.refreshMemoryContext(...)`, combined app + engine-extension snapshots, and the per-tier `IOSMemoryBudgetPolicy`.
 
+iPhone memory remediation notes: physical-device model installs do not eager-load the engine anymore; the first foreground generation loads with its request-specific capability profile. iOS foreground generation is streaming-first, while physical-device streaming chunks omit inline `previewAudio.pcm16LE` by default unless `QWENVOICE_STREAMING_PREVIEW_DATA=on` is set. `Qwen3TTSMemoryCaches.clearAll()` clears prepared tokenizer, speech-tokenizer, conditioning-prefix, and streaming-decoder bucket caches on iPhone hard-trim/full-unload/unload/failure paths; macOS cache warmth is intentionally preserved. Device diagnostics now record combined app+extension resident/physical/GPU footprints and aggregate pressure bands. Debug iPhone runs can experiment with MLX limits via `scripts/ios_device.sh --mlx-memory-limit-mb <mb>` / `--mlx-cache-limit-mb <mb>` or `QVOICE_IOS_MLX_MEMORY_LIMIT_MB` / `QVOICE_IOS_MLX_CACHE_LIMIT_MB`; these overrides are ignored outside Debug.
+
 ### Adaptive idle-unload on floor8GBMac
 
 `MLXTTSEngine.adaptiveIdleUnloadDelay(...)` consults `memoryPressureMonitor.currentLevel` and shortens the 120 s default to 30 s under softTrim or 10 s under hardTrim. mid16GBMac and higher keep their baseline. The model reloads on the next generation (~500–700 ms cost) but peak RSS stays bounded.
@@ -275,14 +277,14 @@ Two OSSignposter events in `NativeEngineRuntime` for bench/forensics: `"Native P
 
 ### Headless-workload env vars
 
-- `QWENVOICE_STREAMING_PREVIEW_DATA=off` (or `skip` / `false` / `0` / `no`) — skips per-chunk `previewAudio.pcm16LE` Data allocation. Default emits. For headless bench/batch work where nobody is listening to live preview.
+- `QWENVOICE_STREAMING_PREVIEW_DATA=off` (or `skip` / `false` / `0` / `no`) — skips per-chunk `previewAudio.pcm16LE` Data allocation. Default emits on macOS and Simulator, but physical iOS defaults to skip unless set to `on` / `emit` / `true` / `1` / `yes`.
 - `QWENVOICE_STREAMING_OUTPUT_POLICY=file` — adds per-chunk file artifacts alongside the PCM preview. Default `pcm_preview` (PCM preview only, no per-chunk files).
 
 ## Known traps
 
 ### Streaming preview enabled production-wide (as of `f6aa8e3`); batch generation stays quality-first
 
-`shouldStream: true` at all 8 user-facing call sites (3 macOS coordinators + 5 iOS counterparts). `BatchGenerationRunner` stays `shouldStream: false` by design — batch is quality-first regardless. The user hears the first audio chunk within ~3-6 seconds of pressing generate on cold cells, vs ~8-15 seconds for the materialize-then-play flow that preceded it.
+`shouldStream: true` at the user-facing single-generation call sites (3 macOS coordinators + 4 active iOS generation builders); the iOS readiness/prefetch builders stream too. `BatchGenerationRunner` stays `shouldStream: false` by design — macOS batch is quality-first regardless. The user hears the first audio chunk within ~3-6 seconds of pressing generate on cold cells, vs ~8-15 seconds for the materialize-then-play flow that preceded it.
 
 **Bench-measured perceived-speed gain** (Phase 3 cycle, against `fa94cc7` baselines):
 

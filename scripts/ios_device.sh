@@ -30,6 +30,8 @@ ALLOWED_HOSTS="${QVOICE_IOS_MODEL_ALLOWED_HOSTS:-}"
 FORCE_MEMORY_BAND="${QVOICE_IOS_MEMORY_GUARD_FORCE_BAND:-}"
 FORCE_CRITICAL_ONCE="${QVOICE_IOS_MEMORY_GUARD_FORCE_CRITICAL_ONCE:-}"
 ENABLE_PROACTIVE_PREFETCH="${QVOICE_IOS_ENABLE_PROACTIVE_PREFETCH:-0}"
+MLX_MEMORY_LIMIT_MB="${QVOICE_IOS_MLX_MEMORY_LIMIT_MB:-}"
+MLX_CACHE_LIMIT_MB="${QVOICE_IOS_MLX_CACHE_LIMIT_MB:-}"
 TEAM_ID="${QVOICE_IOS_TEAM_ID:-${QWENVOICE_DEVELOPMENT_TEAM:-${APPLE_TEAM_ID:-$DEFAULT_TEAM_ID}}}"
 APP_GROUP_OVERRIDE="${QVOICE_IOS_APP_GROUP_ID:-}"
 IOS_APP_GROUP="${APP_GROUP_OVERRIDE:-$DEFAULT_DEVICE_APP_GROUP}"
@@ -80,6 +82,10 @@ options:
   --force-critical-once   Debug-only one-shot active-generation critical memory injection.
   --enable-proactive-prefetch
                           Debug-only iPhone proactive warm/prefetch. Disabled by default for stable device runs.
+  --mlx-memory-limit-mb <mb>
+                          Debug-only QVOICE_IOS_MLX_MEMORY_LIMIT_MB active-allocation experiment.
+  --mlx-cache-limit-mb <mb>
+                          Debug-only QVOICE_IOS_MLX_CACHE_LIMIT_MB cache-limit experiment.
 
 examples:
   scripts/ios_device.sh doctor
@@ -87,6 +93,7 @@ examples:
   scripts/ios_device.sh start --catalog-url https://example.com/ios/catalog/v1/models.json
   scripts/ios_device.sh start --force-band guarded
   scripts/ios_device.sh start --force-critical-once
+  scripts/ios_device.sh start --mlx-memory-limit-mb 2800 --mlx-cache-limit-mb 64
   scripts/ios_device.sh screenshot custom-generated
   scripts/ios_device.sh pull
 EOF
@@ -144,6 +151,14 @@ parse_common_options() {
             --enable-proactive-prefetch)
                 ENABLE_PROACTIVE_PREFETCH="1"
                 shift
+                ;;
+            --mlx-memory-limit-mb)
+                MLX_MEMORY_LIMIT_MB="${2:?--mlx-memory-limit-mb requires a value}"
+                shift 2
+                ;;
+            --mlx-cache-limit-mb)
+                MLX_CACHE_LIMIT_MB="${2:?--mlx-cache-limit-mb requires a value}"
+                shift 2
                 ;;
             -h|--help)
                 usage
@@ -336,6 +351,8 @@ write_run_manifest() {
     FORCE_MEMORY_BAND="$FORCE_MEMORY_BAND" \
     FORCE_CRITICAL_ONCE="$FORCE_CRITICAL_ONCE" \
     ENABLE_PROACTIVE_PREFETCH="$ENABLE_PROACTIVE_PREFETCH" \
+    MLX_MEMORY_LIMIT_MB="$MLX_MEMORY_LIMIT_MB" \
+    MLX_CACHE_LIMIT_MB="$MLX_CACHE_LIMIT_MB" \
     SEED_CUSTOM_TEXT="$SEED_CUSTOM_TEXT" \
     SKIP_ONBOARDING="$SKIP_ONBOARDING" \
     APP_PATH="$APP_PATH" \
@@ -382,6 +399,8 @@ manifest = {
         "QVOICE_IOS_MEMORY_GUARD_FORCE_BAND": os.environ["FORCE_MEMORY_BAND"] or None,
         "QVOICE_IOS_MEMORY_GUARD_FORCE_CRITICAL_ONCE": os.environ["FORCE_CRITICAL_ONCE"] or None,
         "QVOICE_IOS_ENABLE_PROACTIVE_PREFETCH": os.environ["ENABLE_PROACTIVE_PREFETCH"] if os.environ["ENABLE_PROACTIVE_PREFETCH"] not in ("", "0") else None,
+        "QVOICE_IOS_MLX_MEMORY_LIMIT_MB": os.environ["MLX_MEMORY_LIMIT_MB"] or None,
+        "QVOICE_IOS_MLX_CACHE_LIMIT_MB": os.environ["MLX_CACHE_LIMIT_MB"] or None,
         "QVOICE_IOS_TEST_CUSTOM_TEXT": os.environ["SEED_CUSTOM_TEXT"] or None,
         "QVOICE_IOS_SKIP_ONBOARDING": os.environ["SKIP_ONBOARDING"] or None,
     },
@@ -443,6 +462,9 @@ do_doctor() {
             echo "memory: increased-memory-limit requested"
         else
             echo "memory: increased-memory-limit disabled for local Debug signing"
+        fi
+        if [ -n "$MLX_MEMORY_LIMIT_MB" ] || [ -n "$MLX_CACHE_LIMIT_MB" ]; then
+            echo "mlx:    memory-limit-mb=${MLX_MEMORY_LIMIT_MB:-default} cache-limit-mb=${MLX_CACHE_LIMIT_MB:-default}"
         fi
         if [ "$IOS_APP_GROUP" != "$SHIPPING_IOS_APP_GROUP" ]; then
             echo "note:   using local Debug App Group; shipping profile still expects $SHIPPING_IOS_APP_GROUP"
@@ -549,6 +571,8 @@ write_launch_environment() {
     FORCE_MEMORY_BAND="$FORCE_MEMORY_BAND" \
     FORCE_CRITICAL_ONCE="$FORCE_CRITICAL_ONCE" \
     ENABLE_PROACTIVE_PREFETCH="$ENABLE_PROACTIVE_PREFETCH" \
+    MLX_MEMORY_LIMIT_MB="$MLX_MEMORY_LIMIT_MB" \
+    MLX_CACHE_LIMIT_MB="$MLX_CACHE_LIMIT_MB" \
     SEED_CUSTOM_TEXT="$SEED_CUSTOM_TEXT" \
     SKIP_ONBOARDING="$SKIP_ONBOARDING" \
     /usr/bin/python3 - "$RUN_DIR/launch-env.json" <<'PY'
@@ -566,6 +590,8 @@ optional = {
     "QVOICE_IOS_MEMORY_GUARD_FORCE_BAND": os.environ.get("FORCE_MEMORY_BAND", ""),
     "QVOICE_IOS_MEMORY_GUARD_FORCE_CRITICAL_ONCE": os.environ.get("FORCE_CRITICAL_ONCE", ""),
     "QVOICE_IOS_ENABLE_PROACTIVE_PREFETCH": os.environ.get("ENABLE_PROACTIVE_PREFETCH", ""),
+    "QVOICE_IOS_MLX_MEMORY_LIMIT_MB": os.environ.get("MLX_MEMORY_LIMIT_MB", ""),
+    "QVOICE_IOS_MLX_CACHE_LIMIT_MB": os.environ.get("MLX_CACHE_LIMIT_MB", ""),
     "QVOICE_IOS_TEST_CUSTOM_TEXT": os.environ.get("SEED_CUSTOM_TEXT", ""),
     "QVOICE_IOS_SKIP_ONBOARDING": os.environ.get("SKIP_ONBOARDING", ""),
 }
