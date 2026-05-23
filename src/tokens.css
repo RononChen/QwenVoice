@@ -260,7 +260,7 @@
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 18px;
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
   color: var(--fg-primary);
 }
 .vc-wordmark-serif {
@@ -269,7 +269,7 @@
   font-family: var(--font-serif);
   font-weight: 500;
   font-size: 56px;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   color: var(--fg-primary);
 }
 
@@ -304,15 +304,15 @@
   font-family: var(--font-text);
   font-weight: 600;
   font-size: var(--type-caption);
-  letter-spacing: var(--tracking-eyebrow);
+  letter-spacing: 0;
   text-transform: none;       /* Sidebar headers are mixed-case ("Generate", "Library", "Settings") */
   color: var(--fg-secondary);
 }
 .vc-eyebrow--upper {
   /* The toolbar-row label pattern in AppTheme (.uppercased() + caption2). */
-  text-transform: uppercase;
+  text-transform: none;
   font-size: var(--type-caption2);
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
 }
 .vc-body {
   font-family: var(--font-text);

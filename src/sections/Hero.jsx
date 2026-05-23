@@ -8,20 +8,20 @@ export const Hero = () => (
       <div className="hero-copy">
         <div className="hero-eyebrow">
           <span className="dot" aria-hidden="true" />
-          Vocello 2.0 · macOS 26 · Apple Silicon
+          Vocello 2.0.0 · macOS 26+ · Apple Silicon
         </div>
         <h1 className="hero-title">
           A voice studio that <span className="accent-gold">never leaves</span> your Mac.
         </h1>
         <p className="hero-sub">
-          Write a script. Choose how it should sound. Generate locally: no subscription,
-          no cloud meter, no upload. Your scripts, your voices, your audio, your machine.
+          Write a script, choose a built-in speaker or voice brief, and generate
+          locally with Speed or Quality models. No subscription, cloud meter, or upload.
         </p>
         <div className="hero-ctas">
           <a className="btn btn-primary" href={RELEASE_LATEST} target="_blank" rel="noreferrer">
             <Icon name="apple" size={16} />
             Download for macOS&nbsp;26
-            <span className="platform-mini">· 2.0</span>
+            <span className="platform-mini">· 2.0.0</span>
           </a>
           <a className="btn btn-secondary" href="#listen">
             <Icon name="play" size={14} />
@@ -29,9 +29,9 @@ export const Hero = () => (
           </a>
         </div>
         <div className="hero-meta">
-          <span><Icon name="lock" size={12} /> Local-first by design</span>
-          <span><Icon name="cpu" size={12} /> Native Swift + MLX</span>
-          <span><Icon name="infinity" size={12} /> No usage limits</span>
+          <span><Icon name="lock" size={12} /> Scripts stay local</span>
+          <span><Icon name="cpu" size={12} /> Swift + MLX engine</span>
+          <span><Icon name="diamond" size={12} /> Signed DMG release</span>
         </div>
       </div>
       <div className="hero-stage">

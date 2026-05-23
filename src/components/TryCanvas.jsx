@@ -3,12 +3,14 @@ import { DELIVERY_COLORS } from "../data/samples.js";
 
 const DELIVERY_SHAPES = {
   Neutral:  { amp: 0.70, density: 1.00, noise: 0.15, env: 1.00, rate: 0.040 },
-  Calm:     { amp: 0.55, density: 0.85, noise: 0.08, env: 1.20, rate: 0.030 },
-  Warm:     { amp: 0.70, density: 0.95, noise: 0.12, env: 1.10, rate: 0.035 },
-  Dramatic: { amp: 1.00, density: 1.15, noise: 0.20, env: 0.85, rate: 0.050 },
-  Excited:  { amp: 0.90, density: 1.30, noise: 0.25, env: 0.95, rate: 0.070 },
-  Whisper:  { amp: 0.35, density: 0.70, noise: 0.30, env: 1.25, rate: 0.025 },
+  Happy:    { amp: 0.78, density: 1.10, noise: 0.14, env: 1.00, rate: 0.045 },
   Sad:      { amp: 0.50, density: 0.80, noise: 0.10, env: 1.40, rate: 0.025 },
+  Angry:    { amp: 0.95, density: 1.20, noise: 0.22, env: 0.90, rate: 0.060 },
+  Fearful:  { amp: 0.62, density: 1.18, noise: 0.28, env: 1.10, rate: 0.055 },
+  Whisper:  { amp: 0.35, density: 0.70, noise: 0.30, env: 1.25, rate: 0.025 },
+  Dramatic: { amp: 1.00, density: 1.15, noise: 0.20, env: 0.85, rate: 0.050 },
+  Calm:     { amp: 0.55, density: 0.85, noise: 0.08, env: 1.20, rate: 0.030 },
+  Excited:  { amp: 0.90, density: 1.30, noise: 0.25, env: 0.95, rate: 0.070 },
 };
 
 const DEFAULT_SHAPE = DELIVERY_SHAPES.Neutral;
@@ -54,7 +56,7 @@ export const TryCanvas = ({ brief, delivery }) => {
       const color = DELIVERY_COLORS[delivery] || "#EDCC8A";
 
       const grad = ctx.createRadialGradient(w / 2, h / 2, 10, w / 2, h / 2, w / 2);
-      grad.addColorStop(0, `${color}26`);
+      grad.addColorStop(0, `${color}40`);
       grad.addColorStop(1, "rgba(0,0,0,0)");
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, w, h);
@@ -64,6 +66,8 @@ export const TryCanvas = ({ brief, delivery }) => {
       const step = w / (bars + 4);
 
       ctx.lineCap = "round";
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 7;
       for (let i = 0; i < bars; i++) {
         const phase = (i / bars) * Math.PI * 4 + t * shape.rate;
         const drive =
@@ -77,15 +81,16 @@ export const TryCanvas = ({ brief, delivery }) => {
         const x = (i + 2) * step + step / 2;
 
         ctx.strokeStyle = color;
-        ctx.globalAlpha = 0.35 + env * 0.5;
-        ctx.lineWidth = 1.6;
+        ctx.globalAlpha = 0.48 + env * 0.44;
+        ctx.lineWidth = 2.4;
         ctx.beginPath();
         ctx.moveTo(x, cy - ampPx);
         ctx.lineTo(x, cy + ampPx);
         ctx.stroke();
       }
 
-      ctx.globalAlpha = 0.12;
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 0.18;
       ctx.strokeStyle = color;
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -106,5 +111,12 @@ export const TryCanvas = ({ brief, delivery }) => {
     };
   }, [brief, delivery]);
 
-  return <canvas ref={canvasRef} className="try-waveform" />;
+  return (
+    <canvas
+      ref={canvasRef}
+      className="try-waveform"
+      role="img"
+      aria-label={`${delivery} delivery waveform preview`}
+    />
+  );
 };

@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## What this is
 
@@ -14,7 +14,7 @@ npm run build    # production build → dist/
 npm run preview  # serve the production build
 ```
 
-No tests, no lint config, no CI. Behavioral verification is manual + browser-driven (Chrome DevTools MCP works well; `mcp__Claude_Preview__preview_start` is blocked by the auto-mode self-modification classifier because it wants to write `.claude/launch.json` — see the plan-file appendix for the long form).
+No tests, no lint config, no CI. Behavioral verification is manual + browser-driven (Chrome DevTools MCP works well; `mcp__Claude_Preview__preview_start` is blocked by the auto-mode self-modification classifier because it wants to write `.Codex/launch.json` — see the plan-file appendix for the long form).
 
 ## Architecture
 
@@ -81,7 +81,7 @@ When adding new audio/image assets, drop them under `public/assets/<category>/` 
 
 ## Conventions worth knowing
 
-- **Plan files** for in-flight work live at `~/.claude/plans/`. The current site refresh has the full design history (multiple follow-up sections) in `review-and-improve-this-foamy-squid.md`.
+- **Plan files** for in-flight work live at `~/.Codex/plans/`. The current site refresh has the full design history (multiple follow-up sections) in `review-and-improve-this-foamy-squid.md`.
 - **No client-side router.** Internal links use hash anchors (`#workflows`, `#listen`, `#how-it-runs`, `#download`) on plain `<a>` tags. The nav scroll-progress hairline reads `scrollTop / scrollHeight`.
 - **Animations** use the existing `panelSettle` keyframe and `cubic-bezier(0.32, 0.08, 0.24, 1)` ease. Only animate `opacity`, `transform`, `border-color`, and `box-shadow` — never layout properties. `prefers-reduced-motion: reduce` is honored in a single block at the end of `site.css`.
 - **Audio playback** in Listen uses one shared `<audio ref>` element with `preload="none"` and src-swap on click for mutual exclusion. See `Listen.jsx`.

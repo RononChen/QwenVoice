@@ -35,7 +35,7 @@ export const Listen = () => {
           <h2 className="section-title">Three voices.<br />Three ways to ask for them.</h2>
           <p className="section-sub">
             Each row carries the brief or speaker, the script, the delivery setting that
-            produced it, and a local-rendered waveform. Install Vocello to generate your own.
+            produced it, and a waveform from the local render. Install Vocello to generate your own.
           </p>
         </div>
 
@@ -66,7 +66,7 @@ export const Listen = () => {
                   >
                     <Icon name={isPlaying ? "pause" : "play"} size={14} />
                   </button>
-                  <div className="listen-row-wave">
+                  <div className="listen-row-wave" aria-hidden="true">
                     <Waveform playing={isPlaying} color={s.color} seed={s.seed} bars={40} />
                   </div>
                   <span className="listen-row-stats">

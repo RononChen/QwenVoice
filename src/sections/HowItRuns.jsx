@@ -1,11 +1,10 @@
 import React from "react";
-import { Icon } from "../components/Icon.jsx";
 
 const ROWS = [
   {
     k: "Where generation happens",
     v: "On your Mac",
-    note: "After models install, every line renders on-device. No scripts uploaded, no audio sent away, no anonymous telemetry leaving the app.",
+    note: "After models install, every line renders locally. No scripts uploaded, no audio sent away, no anonymous telemetry leaving the app.",
     tone: "var(--gold-300)",
   },
   {
@@ -23,7 +22,7 @@ const ROWS = [
   {
     k: "Speed model",
     v: "4-bit",
-    note: "Smaller package, faster startup, lower memory. Vocello defaults to Speed on 8 GB / floor-spec Macs. Manage in Settings, Model downloads.",
+    note: "Smaller package, faster startup, lower memory. Vocello defaults to Speed on 8 GB / floor-spec Macs. Manage in Settings, Model Downloads.",
     tone: "var(--status-ready)",
   },
   {
@@ -37,14 +36,25 @@ const ROWS = [
 export const HowItRuns = () => (
   <section className="section runs-section" id="how-it-runs">
     <div className="container runs-layout">
-      <header className="runs-head">
-        <p className="section-note">How it runs</p>
-        <h2 className="section-title">Vocello runs on your Mac.<br />Always. Here is how.</h2>
-        <p className="section-sub">
-          One scannable surface. No cards. The architecture is the pitch, and the
-          rest of the app behaves like it.
-        </p>
-      </header>
+      <div className="runs-copy">
+        <header className="runs-head">
+          <p className="section-note">How it runs</p>
+          <h2 className="section-title">Vocello runs on your Mac.<br />Always. Here is how.</h2>
+          <p className="section-sub">
+            The privacy story is not a badge on top. It is how the app is built,
+            how models install, and where generated audio stays.
+          </p>
+        </header>
+
+        <figure className="runs-shot">
+          <div className="window">
+            <img
+              src="assets/screens/model-downloads.png"
+              alt="Vocello Model Downloads screen showing Speed and Quality models ready"
+            />
+          </div>
+        </figure>
+      </div>
 
       <dl className="runs-table" aria-label="Vocello runtime details">
         {ROWS.map((r) => (
@@ -52,12 +62,6 @@ export const HowItRuns = () => (
             <dt className="runs-k">{r.k}</dt>
             <dd className="runs-v">
               <span className="runs-v-label">{r.v}</span>
-              {r.badge && (
-                <span className={`runs-badge runs-badge--${r.badge.tone}`}>
-                  <Icon name={r.badge.icon} size={11} stroke={2} />
-                  {r.badge.label}
-                </span>
-              )}
             </dd>
             <dd className="runs-note">{r.note}</dd>
           </div>

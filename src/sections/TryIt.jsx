@@ -15,9 +15,9 @@ export const TryIt = () => {
             Describe a voice.<br />Watch it take shape.
           </h2>
           <p className="section-sub try-sub">
-            A demo of the Voice Design surface. Type a brief, pick a delivery,
-            and the waveform reflects your choices. In Vocello, the same brief
-            generates real audio on your Mac.
+            A demo of the Voice Design surface. Type a brief, pick a delivery preset,
+            and the waveform shifts with your choices. In Vocello, the same brief
+            generates real audio locally on your Mac.
           </p>
 
           <label className="vc-label" htmlFor="voice-brief-demo">Voice brief</label>
@@ -42,7 +42,7 @@ export const TryIt = () => {
                 style={{ "--chip-color": d.color }}
                 onClick={() => setDelivery(d.label)}
               >
-                <span className="swatch" style={{ background: d.color }} aria-hidden="true" />
+                <span className="swatch" aria-hidden="true" />
                 {d.label}
               </button>
             ))}
