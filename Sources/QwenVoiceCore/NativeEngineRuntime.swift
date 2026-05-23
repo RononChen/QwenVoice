@@ -635,6 +635,31 @@ actor NativeEngineRuntime {
             Self.signposter.endInterval("Native Model Load", loadSignpost)
         }
         do {
+#if os(iOS)
+            if let previousModelID = activeModelID, previousModelID != id {
+                await telemetryRecorder?.mark(
+                    stage: "model_switch_cache_clear",
+                    metadata: [
+                        "fromModelID": previousModelID,
+                        "toModelID": id,
+                        "nativeLoadCapabilityProfile": capabilityProfile.rawValue,
+                    ]
+                )
+                await loadCoordinator.unloadModel()
+                activeModelID = nil
+                await clearCloneState(preserveActiveClonePrimeToken: preserveActiveClonePrimeToken)
+                await clearQwen3MemoryCachesIfNeeded()
+                Memory.clearCache()
+                await recordDiagnosticEvent(
+                    "runtime-load-model-preswitch-cache-clear",
+                    extra: [
+                        "fromModelID": previousModelID,
+                        "toModelID": id,
+                        "nativeLoadCapabilityProfile": capabilityProfile.rawValue,
+                    ]
+                )
+            }
+#endif
             let loadResult = try await loadCoordinator.loadModel(
                 id: id,
                 capabilityProfile: capabilityProfile
@@ -878,6 +903,16 @@ actor NativeEngineRuntime {
         case .skipDedicatedCustomPrewarm:
             return "skipDedicatedCustomPrewarm"
         }
+    }
+
+    private func recordDiagnosticEvent(
+        _ action: String,
+        extra: [String: String]
+    ) async {
+        guard let diagnosticEventSink else {
+            return
+        }
+        await diagnosticEventSink(action, extra)
     }
 
     private func recordDiagnosticEvent(

@@ -451,7 +451,10 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
             for: context,
             includesAggregatePressure: false
         )
-        guard memoryBudgetPolicy.allowsModelAdmission(for: admissionBand) else {
+        let shouldBlockAdmission =
+            !memoryBudgetPolicy.allowsModelAdmission(for: admissionBand)
+            || context.aggregatePressureBand == .critical
+        guard !shouldBlockAdmission else {
             let error = MLXTTSEngineError.generationFailed(
                 "Vocello needs more available memory before loading this model. Close background apps and try again."
             )
@@ -467,9 +470,9 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
             throw error
         }
 #if DEBUG
-        if context.pressureBand == .critical, admissionBand != .critical {
+        if context.aggregatePressureBand == .guarded, admissionBand != .critical {
             print(
-                "[TTSEngineStore] Allowing model admission using per-process band \(admissionBand.rawValue); aggregate=\(context.aggregatePressureBand.rawValue), combinedFootprintMB=\(context.combinedPhysFootprintBytes.map(Self.megabytesString) ?? "unknown"), appHeadroomMB=\(context.appSnapshot.availableHeadroomBytes.map(Self.megabytesString) ?? "unknown"), extensionHeadroomMB=\(context.engineExtensionSnapshot?.availableHeadroomBytes.map(Self.megabytesString) ?? "missing")"
+                "[TTSEngineStore] Admitting model under aggregate guarded pressure; perProcess=\(admissionBand.rawValue), combinedFootprintMB=\(context.combinedPhysFootprintBytes.map(Self.megabytesString) ?? "unknown"), appHeadroomMB=\(context.appSnapshot.availableHeadroomBytes.map(Self.megabytesString) ?? "unknown"), extensionHeadroomMB=\(context.engineExtensionSnapshot?.availableHeadroomBytes.map(Self.megabytesString) ?? "missing")"
             )
         }
 #endif

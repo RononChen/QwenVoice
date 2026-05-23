@@ -35,6 +35,8 @@ scripts/ios_device.sh start --mlx-memory-limit-mb 2800 --mlx-cache-limit-mb 64
 
 The same values can be supplied with environment variables for repeatable local runs: `QVOICE_IOS_DEVICE_ID`, `QVOICE_IOS_DEVICE_RUN_ID`, `QVOICE_IOS_MODEL_CATALOG_URL`, `QVOICE_IOS_MODEL_ALLOWED_HOSTS`, `QVOICE_IOS_MEMORY_GUARD_FORCE_BAND`, `QVOICE_IOS_MEMORY_GUARD_FORCE_CRITICAL_ONCE`, `QVOICE_IOS_MLX_MEMORY_LIMIT_MB`, and `QVOICE_IOS_MLX_CACHE_LIMIT_MB`. `scripts/ios_device.sh start` sets `QWENVOICE_NATIVE_TELEMETRY_MODE=lightweight` for Debug evidence capture.
 
+`QVOICE_IOS_MLX_MEMORY_LIMIT_MB` is a process-lifetime Debug experiment for the launched app/extension process. Relaunch the app with a different value when sweeping limits.
+
 ## Codex Control
 
 iPhone Mirroring exposes a visual Mac window, not the app's iOS accessibility identifiers. Use Computer Use against the `iPhone Mirroring` / `Recopie de l'iPhone` window by visible labels, tab icons, text fields, and buttons. If focus drifts, run:
@@ -70,6 +72,8 @@ scripts/ios_device.sh start --run-id mlx-limit-probe --mlx-memory-limit-mb 2800 
 `--force-band guarded` should block proactive warm/prefetch work while still allowing foreground generation. `--force-critical-once` should cancel the first active generation sample, abort live preview, request a full unload, and disarm until the app is relaunched.
 
 The MLX limit probe is diagnostic only: it sets Debug launch env vars so runaway active allocations fail earlier than jetsam while Release/TestFlight policy remains unchanged.
+
+Physical iOS defaults to final-file playback rather than live chunk playback: inline preview PCM is skipped and Release builds do not publish extension events. To test live debug chunks without inline PCM over XPC, launch with `QVOICE_IOS_EXTENSION_ENABLE_EVENT_SINK=1`, `QWENVOICE_STREAMING_OUTPUT_POLICY=file`, and `QWENVOICE_STREAMING_PREVIEW_DATA=off`.
 
 ## Evidence Capture
 
