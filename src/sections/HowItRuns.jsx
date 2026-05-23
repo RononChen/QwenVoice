@@ -39,7 +39,7 @@ export const HowItRuns = () => (
       <div className="runs-copy">
         <header className="runs-head">
           <p className="section-note">How it runs</p>
-          <h2 className="section-title">Vocello runs on your Mac.<br />Always. Here is how.</h2>
+          <h2 className="section-title">Vocello runs on your Mac.</h2>
           <p className="section-sub">
             The privacy story is not a badge on top. It is how the app is built,
             how models install, and where generated audio stays.
@@ -53,6 +53,9 @@ export const HowItRuns = () => (
               alt="Vocello Model Downloads screen showing Speed and Quality models ready"
             />
           </div>
+          <figcaption className="runs-shot-caption">
+            Model Downloads keeps Speed and Quality variants visible for each workflow.
+          </figcaption>
         </figure>
       </div>
 
