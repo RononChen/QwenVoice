@@ -9,6 +9,7 @@ final class IOSDeviceDiagnosticsRecorder {
         let directory: URL
         let manifestURL: URL
         let memoryContextsURL: URL
+        let nativeEventsURL: URL
     }
 
     private let runID: String
@@ -24,7 +25,8 @@ final class IOSDeviceDiagnosticsRecorder {
                 name: entry.name,
                 directory: entry.url,
                 manifestURL: entry.url.appendingPathComponent("manifest.json", isDirectory: false),
-                memoryContextsURL: entry.url.appendingPathComponent("memory-contexts.jsonl", isDirectory: false)
+                memoryContextsURL: entry.url.appendingPathComponent("memory-contexts.jsonl", isDirectory: false),
+                nativeEventsURL: entry.url.appendingPathComponent("native-events.jsonl", isDirectory: false)
             )
         }
         self.encoder = JSONEncoder()
@@ -147,6 +149,7 @@ final class IOSDeviceDiagnosticsRecorder {
             if let firstError {
                 throw firstError
             }
+            mirrorNativeEventsToAppContainerCacheIfNeeded()
         } catch {
 #if DEBUG
             print("[IOSDeviceDiagnosticsRecorder] Could not write diagnostics: \(error.localizedDescription)")
@@ -181,11 +184,38 @@ final class IOSDeviceDiagnosticsRecorder {
             systemName: UIDevice.current.systemName,
             systemVersion: UIDevice.current.systemVersion,
             appSupportDirectory: AppPaths.appSupportDir.path,
-            memoryContextsPath: target.memoryContextsURL.lastPathComponent
+            memoryContextsPath: target.memoryContextsURL.lastPathComponent,
+            nativeEventsPath: target.nativeEventsURL.lastPathComponent
         )
         let data = try encoder.encode(manifest)
         try data.write(to: target.manifestURL, options: .atomic)
         preparedTargets.insert(target.name)
+    }
+
+    private func mirrorNativeEventsToAppContainerCacheIfNeeded() {
+        guard let appGroupTarget = targets.first(where: { $0.name == "app-group" }),
+              FileManager.default.fileExists(atPath: appGroupTarget.nativeEventsURL.path) else {
+            return
+        }
+        for target in targets where target.name != appGroupTarget.name {
+            do {
+                try FileManager.default.createDirectory(
+                    at: target.directory,
+                    withIntermediateDirectories: true
+                )
+                if FileManager.default.fileExists(atPath: target.nativeEventsURL.path) {
+                    try FileManager.default.removeItem(at: target.nativeEventsURL)
+                }
+                try FileManager.default.copyItem(
+                    at: appGroupTarget.nativeEventsURL,
+                    to: target.nativeEventsURL
+                )
+            } catch {
+#if DEBUG
+                print("[IOSDeviceDiagnosticsRecorder] Could not mirror native events: \(error.localizedDescription)")
+#endif
+            }
+        }
     }
 }
 
@@ -200,6 +230,7 @@ private struct DeviceDiagnosticsManifest: Codable {
     let systemVersion: String
     let appSupportDirectory: String
     let memoryContextsPath: String
+    let nativeEventsPath: String
 }
 
 private struct MemoryContextDiagnosticRecord: Codable {

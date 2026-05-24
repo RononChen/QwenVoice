@@ -158,6 +158,7 @@ struct IOSStudioCanvas<SetupChips: View>: View {
                     )
                 )
                 .accessibilityIdentifier("textInput_textEditor")
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .onChange(of: script) { _, newValue in

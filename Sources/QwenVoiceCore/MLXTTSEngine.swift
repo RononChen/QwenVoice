@@ -1444,9 +1444,111 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         details: [String: String],
         appSupportDirectoryURL: URL?
     ) async {
-        // Diagnostic event recording has been retired.
+#if DEBUG
+        await NativeDiagnosticEventJSONLWriter.shared.record(
+            name: name,
+            details: details,
+            appSupportDirectoryURL: appSupportDirectoryURL
+        )
+#endif
     }
 }
+
+#if DEBUG
+private actor NativeDiagnosticEventJSONLWriter {
+    static let shared = NativeDiagnosticEventJSONLWriter()
+
+    private let encoder: JSONEncoder
+    private let dateFormatter = ISO8601DateFormatter()
+
+    private init() {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        self.encoder = encoder
+    }
+
+    func record(
+        name: String,
+        details: [String: String],
+        appSupportDirectoryURL: URL?,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        guard NativeTelemetryMode.current(environment: environment) == .lightweight else {
+            return
+        }
+        guard let appSupportDirectoryURL else {
+            return
+        }
+        guard let runID = Self.safeRunID(from: environment["QVOICE_IOS_DEVICE_RUN_ID"]) else {
+            return
+        }
+
+        let diagnosticsDirectory = appSupportDirectoryURL
+            .appendingPathComponent("diagnostics", isDirectory: true)
+            .appendingPathComponent(runID, isDirectory: true)
+        let url = diagnosticsDirectory.appendingPathComponent("native-events.jsonl", isDirectory: false)
+        let record = NativeDiagnosticEventRecord(
+            event: name,
+            recordedAt: dateFormatter.string(from: Date()),
+            processUptimeSeconds: ProcessInfo.processInfo.systemUptime,
+            runID: runID,
+            bundleIdentifier: Bundle.main.bundleIdentifier ?? "unknown",
+            processIdentifier: ProcessInfo.processInfo.processIdentifier,
+            processName: ProcessInfo.processInfo.processName,
+            details: details
+        )
+
+        do {
+            try FileManager.default.createDirectory(
+                at: diagnosticsDirectory,
+                withIntermediateDirectories: true
+            )
+            var data = try encoder.encode(record)
+            data.append(0x0A)
+            try append(data, to: url)
+        } catch {
+            print("[NativeDiagnosticEventJSONLWriter] Could not write native event '\(name)': \(error.localizedDescription)")
+        }
+    }
+
+    private func append(_ data: Data, to url: URL) throws {
+        if FileManager.default.fileExists(atPath: url.path) {
+            let handle = try FileHandle(forWritingTo: url)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: data)
+        } else {
+            try data.write(to: url, options: .atomic)
+        }
+    }
+
+    private static func safeRunID(from rawValue: String?) -> String? {
+        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawValue.isEmpty else {
+            return nil
+        }
+        let safe = rawValue.map { character -> Character in
+            if character.isLetter || character.isNumber || character == "-" || character == "_" {
+                return character
+            }
+            return "_"
+        }
+        .reduce(into: "") { $0.append($1) }
+        return safe.isEmpty ? nil : safe
+    }
+}
+
+private struct NativeDiagnosticEventRecord: Codable {
+    let event: String
+    let recordedAt: String
+    let processUptimeSeconds: Double
+    let runID: String
+    let bundleIdentifier: String
+    let processIdentifier: Int32
+    let processName: String
+    let details: [String: String]
+}
+#endif
 
 final class DiagnosticAppSupportBox: @unchecked Sendable {
     private let lock = NSLock()

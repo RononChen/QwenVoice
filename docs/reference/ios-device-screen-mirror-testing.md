@@ -64,12 +64,18 @@ Run these from the mirrored iPhone UI after `start`:
 For memory guardrails, collect one normal run plus the two Debug-only synthetic scenarios:
 
 ```sh
+scripts/ios_device.sh start --run-id memory-baseline
 scripts/ios_device.sh start --run-id guarded-probe --force-band guarded
 scripts/ios_device.sh start --run-id critical-once-probe --force-critical-once
-scripts/ios_device.sh start --run-id mlx-limit-probe --mlx-memory-limit-mb 2800 --mlx-cache-limit-mb 64
 ```
 
 `--force-band guarded` should block proactive warm/prefetch work while still allowing foreground generation. `--force-critical-once` should cancel the first active generation sample, abort live preview, request a full unload, and disarm until the app is relaunched.
+
+Run the first hardware pass without MLX memory/cache limits. After that baseline is pulled, run the same Custom -> Design -> Clone path with a limit probe:
+
+```sh
+scripts/ios_device.sh start --run-id mlx-2800 --mlx-memory-limit-mb 2800 --mlx-cache-limit-mb 64
+```
 
 The MLX limit probe is diagnostic only: it sets Debug launch env vars so runaway active allocations fail earlier than jetsam while Release/TestFlight policy remains unchanged.
 
@@ -87,8 +93,9 @@ The run directory contains:
 
 - `run-manifest.json`, selected device metadata, build/install/launch JSON, and CoreDevice logs
 - `screenshots/*.png` captured from the Mac screen
-- `pulled/diagnostics/memory-contexts.jsonl` and `pulled/diagnostics/manifest.json` when the app ran with lightweight telemetry
+- `pulled/diagnostics/memory-contexts.jsonl`, `pulled/diagnostics/native-events.jsonl`, and `pulled/diagnostics/manifest.json` when the app ran with lightweight telemetry
 - combined app+extension footprint fields and aggregate pressure bands in each memory-context record
+- `runtime-load-model-preswitch-cache-clear` native events when an iPhone run switches from one loaded model ID to another before the next load peak
 - focused App Group evidence: `history.sqlite`, generated `outputs/`, and saved `voices/`
 
 On Xcode/CoreDevice builds that reject direct `appGroupDataContainer` copies with a path-validation error, `pull` falls back to the Debug-only app-container mirror for memory diagnostics. History/output/voice evidence remains App Group best-effort.

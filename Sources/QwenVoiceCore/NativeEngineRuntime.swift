@@ -120,6 +120,10 @@ actor NativeEngineRuntime {
         subsystem: "com.qwenvoice.engine",
         category: "runtime"
     )
+    private static let logger = Logger(
+        subsystem: "com.qwenvoice.engine",
+        category: "runtime"
+    )
 
     private enum DesignConditioningWarmSource: String, Sendable {
         case prefetch
@@ -637,6 +641,9 @@ actor NativeEngineRuntime {
         do {
 #if os(iOS)
             if let previousModelID = activeModelID, previousModelID != id {
+                Self.logger.notice(
+                    "Clearing iOS model-switch caches before load; from=\(previousModelID, privacy: .public), to=\(id, privacy: .public), profile=\(capabilityProfile.rawValue, privacy: .public)"
+                )
                 await telemetryRecorder?.mark(
                     stage: "model_switch_cache_clear",
                     metadata: [

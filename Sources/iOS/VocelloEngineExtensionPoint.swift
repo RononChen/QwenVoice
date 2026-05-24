@@ -5,9 +5,8 @@ import QwenVoiceCore
 
 extension AppExtensionPoint {
     @Definition
-    static var vocelloEngineService: AppExtensionPoint {
+    public static var vocelloEngineService: AppExtensionPoint {
         Name("vocello-engine-service")
-        Scope(restriction: .application)
         UserInterface(false)
         EnhancedSecurity(false)
     }
@@ -26,6 +25,8 @@ enum VocelloEngineIdentityResolverError: LocalizedError {
 
 @MainActor
 private final class VocelloEngineMonitorProvider {
+    private static let extensionPointIdentifier: StaticString = "com.patricedery.vocello.vocello-engine-service"
+
     private let expectedBundleIdentifier: String
     private var monitor: AppExtensionPoint.Monitor?
     private var observationTask: Task<Void, Never>?
@@ -83,8 +84,11 @@ private final class VocelloEngineMonitorProvider {
         if let monitor {
             return monitor
         }
+        let extensionPoint = try AppExtensionPoint(
+            identifier: Self.extensionPointIdentifier
+        )
         let resolvedMonitor = try await AppExtensionPoint.Monitor(
-            appExtensionPoint: AppExtensionPoint.vocelloEngineService
+            appExtensionPoint: extensionPoint
         )
         monitor = resolvedMonitor
         return resolvedMonitor
