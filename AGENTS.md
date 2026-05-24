@@ -14,6 +14,7 @@ Targets: macOS 26.0+ and iOS 26.0+, Apple Silicon only, Xcode 26.0. No Python ru
 ./scripts/build.sh run                       # Debug build → launch Vocello.app
 ./scripts/uitest.sh prep                     # Build + launch under autonomous UI testing harness
 ./scripts/build_foundation_targets.sh ios    # iOS compile-safety only
+/Users/patricedery/.codex/bin/ios-device-readiness --project QwenVoice.xcodeproj --scheme VocelloiOS --json
 ./scripts/ios_device.sh doctor               # real iPhone/CoreDevice screen-mirror preflight
 ```
 
@@ -22,6 +23,51 @@ First-time setup: install XcodeGen (`brew install xcodegen`) and optionally `xcb
 ## Source of truth (when facts disagree)
 
 Per `CONTRIBUTING.md`, trust in order: `Sources/` → `project.yml` → `scripts/` → `.github/workflows/release.yml` for the scoped CI boundary → `docs/reference/` → other prose. `Sources/Resources/qwenvoice_contract.json` is the canonical schema for speakers, models, variants, HF revisions, and required artifacts.
+
+## Codex Skills For This Repo
+
+Use these installed user-scoped/plugin skills when their topic matches the work. They are workflow guidance only: do not copy skill files into this repo or create project-scoped QwenVoice skills unless there is an explicit maintainer decision. Repo scripts remain authoritative for build, release, UI-test, and device-test commands.
+
+Backend and MLX:
+
+- `swift-mlx` — use for MLX array/runtime/memory behavior, cache/eval/lazy-array work, custom MLX operations, and backend performance changes.
+- `swift-mlx-lm` — use for generation, streaming, KV-cache, wired-memory, or model-porting questions that overlap MLX LM internals or the vendored `mlx-audio-swift` stack.
+- `coreml` — use only for Core ML conversion/integration/Neural Engine experiments. Do not use it for ordinary Qwen3-TTS/MLX backend work.
+
+Diagnostics, profiling, and Apple AI:
+
+- `axiom:axiom-performance` — use as the current performance diagnostics router for slow paths, memory growth, leaks, battery issues, Instruments workflows, and MetricKit-related production/TestFlight diagnostics. MetricKit guidance now lives under Axiom performance references; there is no standalone user-scoped MetricKit skill.
+- `axiom:axiom-profile-performance` — use for automated/headless Instruments or `xctrace` profiling and focused trace capture.
+- `axiom:axiom-audit-memory`, `axiom:axiom-audit-concurrency`, `axiom:axiom-analyze-swift-performance`, and `axiom:axiom-analyze-swiftui-performance` — use for memory, async/data-race, Swift runtime, and SwiftUI performance review passes.
+- `axiom:axiom-ai` and `axiom:axiom-audit-foundation-models` — use only when comparing or reviewing Apple Intelligence/Foundation Models/on-device-AI architecture. Keep MLX as the default Qwen3-TTS backend unless a task explicitly asks for an architecture change.
+
+iOS workflow:
+
+- `ios-device-readiness` — use before answering whether the physical iPhone is available for real on-device testing, CoreDevice, xctrace, Instruments, or physical-device performance evidence. Run `/Users/patricedery/.codex/bin/ios-device-readiness --project QwenVoice.xcodeproj --scheme VocelloiOS --json` and trust its status over raw `devicectl` or `xctrace` output alone. `scripts/ios_device.sh doctor` and `start` record the same gate result under the run directory as `readiness.json`. If the status is `AMBER`, do not answer with a plain "yes"; describe it as partial CoreDevice readiness with physical profiling/performance evidence blocked.
+- `build-ios-apps:ios-debugger-agent` — use for iOS Simulator build/run/debug, simulator UI inspection, screenshots, and log capture. Real iPhone runs still go through `scripts/ios_device.sh`.
+- `build-ios-apps:ios-memgraph-leaks` — use when investigating iOS retain cycles or memory growth with simulator `.memgraph` evidence; do not use simulator leak proof as a substitute for physical iPhone memory-pressure evidence.
+- `build-ios-apps:ios-ettrace-performance` — use for focused iOS Simulator ETTrace performance captures; pair it with the repo's real-device diagnostics before making physical iPhone performance claims.
+- `build-ios-apps:swiftui-ui-patterns`, `build-ios-apps:swiftui-view-refactor`, `build-ios-apps:swiftui-performance-audit`, and `axiom:axiom-swiftui` — use for iOS SwiftUI feature work, refactors, architecture, and render-performance audits while preserving the existing `@Observable`/`AppModel` architecture.
+- `build-ios-apps:swiftui-liquid-glass` and `axiom:axiom-audit-liquid-glass` — use for iOS 26 Liquid Glass adoption or review; keep the repo's iOS/macOS design-token alignment in mind before changing glass, tint, radius, or fallback behavior.
+
+macOS workflow:
+
+- `build-macos-apps:build-run-debug` — use for macOS build/run/debug tasks, but prefer the existing `./scripts/build.sh` and `./scripts/uitest.sh` entrypoints over creating new run scripts.
+- `build-macos-apps:packaging-notarization` — use for macOS DMG, archive, notarization, and distribution-readiness work.
+- `build-macos-apps:signing-entitlements` — use for code-signing, entitlement, hardened-runtime, sandbox, Gatekeeper, or provisioning questions.
+- `build-macos-apps:telemetry` — use when adding or validating concise OSLog/signpost instrumentation in the macOS app.
+- `build-macos-apps:swiftui-patterns`, `build-macos-apps:view-refactor`, `build-macos-apps:liquid-glass`, `build-macos-apps:appkit-interop`, and `build-macos-apps:window-management` — use only when the task directly touches those macOS UI or windowing concerns.
+
+Device/UI control:
+
+- `computer-use:computer-use` — use for Codex-driven macOS UI testing and iPhone Mirroring control. For macOS, follow `scripts/uitest.sh` and `docs/reference/ui-test-surface.md`; for iPhone, follow `scripts/ios_device.sh` and `docs/reference/ios-device-screen-mirror-testing.md`.
+
+Release, collaboration, and artifacts:
+
+- `github:github`, `github:gh-fix-ci`, `github:gh-address-comments`, and `github:yeet` — use for GitHub repository/PR/issue triage, release workflow failures, review feedback, commits, pushes, and PR creation.
+- `hugging-face:hf-cli` — use for Hugging Face model/package downloads, uploads, cache checks, artifact verification, and model-catalog investigation.
+
+Do not use unrelated user-scoped/plugin skills by default, including web/Vercel, Game Studio, GB Studio, Gmail, documents/spreadsheets/presentations, OpenAI Developers, or broad security workflows, unless a future task explicitly targets that tooling.
 
 ## Project generation and build
 
@@ -206,7 +252,7 @@ Two-platform Swift codebase with an out-of-process engine on each platform.
 - `Sources/iOS/Overlays/` — `IOSOnboardingFlow.swift` (3-step welcome, gated by `IOSAppDefaults.hasCompletedOnboarding`), `IOSRecordingOverlay.swift` (clone-reference capture via `AVAudioRecorder`, 10-20 s gate, requires `NSMicrophoneUsageDescription`).
 - `Sources/iOSSupport/Services/IOSAppDefaults.swift` — iOS user-defaults keys (`hasCompletedOnboarding`, `autoplayCompletions`).
 
-**Modern SwiftUI patterns:** `@Observable` + `@Environment(AppModel.self)` + `@Bindable` (no `@StateObject` / `@Published`); `.sheet(item:)`; `@available(iOS 26, *)` gating for Liquid Glass; `sensoryFeedback(_:trigger:)` for haptics; `foregroundStyle(_:)` everywhere; modern `.confirmationDialog` / `.alert`; stable `Identifiable` in every `ForEach`. Per `swiftui-expert-skill/references/latest-apis.md`.
+**Modern SwiftUI patterns:** `@Observable` + `@Environment(AppModel.self)` + `@Bindable` (no `@StateObject` / `@Published`); `.sheet(item:)`; `@available(iOS 26, *)` gating for Liquid Glass; `sensoryFeedback(_:trigger:)` for haptics; `foregroundStyle(_:)` everywhere; modern `.confirmationDialog` / `.alert`; stable `Identifiable` in every `ForEach`. For future SwiftUI work, use the current `build-ios-apps:swiftui-ui-patterns`, `build-ios-apps:swiftui-liquid-glass`, `build-ios-apps:swiftui-performance-audit`, `axiom:axiom-swiftui`, and targeted Axiom SwiftUI audit skills rather than retired project-local skill references.
 
 **iOSSupport concurrency note.** `Sources/iOSSupport/Services/DatabaseService.swift` keeps `DatabaseService.shared` as a plain `static let`, backed by GRDB's `DatabaseQueue` and the existing `@unchecked Sendable` conformance. `Sources/iOSSupport/Models/Generation.swift` keeps its shared `DateFormatter` as a plain private `static let` so formatting output stays unchanged. Do not reintroduce unsafe non-isolation annotations in iOSSupport for these values; macOS-side annotations are a separate code path and should be changed only after their own investigation.
 

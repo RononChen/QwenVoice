@@ -87,6 +87,17 @@ public struct IOSMemorySnapshot: Hashable, Codable, Sendable {
         Self.bytesToMB(availableHeadroomBytes)
     }
 
+    public var impliedProcessLimitBytes: UInt64? {
+        guard let physFootprintBytes, let availableHeadroomBytes else {
+            return nil
+        }
+        return physFootprintBytes + availableHeadroomBytes
+    }
+
+    public var impliedProcessLimitMB: Double? {
+        Self.bytesToMB(impliedProcessLimitBytes)
+    }
+
     public var gpuAllocatedMB: Double? {
         Self.bytesToMB(gpuAllocatedBytes)
     }

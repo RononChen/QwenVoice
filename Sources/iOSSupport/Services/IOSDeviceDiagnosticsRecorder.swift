@@ -92,10 +92,6 @@ final class IOSDeviceDiagnosticsRecorder {
                 aggregatePressureBand: context.aggregatePressureBand,
                 previousPressureBand: previousBand,
                 worstProcessRole: context.worstProcessRole,
-                combinedResidentBytes: context.combinedResidentBytes,
-                combinedPhysFootprintBytes: context.combinedPhysFootprintBytes,
-                combinedCompressedBytes: context.combinedCompressedBytes,
-                combinedGPUAllocatedBytes: context.combinedGPUAllocatedBytes,
                 trimLevel: nil,
                 message: nil,
                 context: context
@@ -122,10 +118,6 @@ final class IOSDeviceDiagnosticsRecorder {
                 aggregatePressureBand: context?.aggregatePressureBand,
                 previousPressureBand: nil,
                 worstProcessRole: context?.worstProcessRole,
-                combinedResidentBytes: context?.combinedResidentBytes,
-                combinedPhysFootprintBytes: context?.combinedPhysFootprintBytes,
-                combinedCompressedBytes: context?.combinedCompressedBytes,
-                combinedGPUAllocatedBytes: context?.combinedGPUAllocatedBytes,
                 trimLevel: trimLevel,
                 message: message,
                 context: context
@@ -245,10 +237,118 @@ private struct MemoryContextDiagnosticRecord: Codable {
     let previousPressureBand: IOSMemoryPressureBand?
     let worstProcessRole: IOSMemoryProcessRole?
     let combinedResidentBytes: UInt64?
+    let combinedResidentMB: Double?
     let combinedPhysFootprintBytes: UInt64?
+    let combinedPhysFootprintMB: Double?
     let combinedCompressedBytes: UInt64?
+    let combinedCompressedMB: Double?
     let combinedGPUAllocatedBytes: UInt64?
+    let combinedGPUAllocatedMB: Double?
+    let appResidentBytes: UInt64?
+    let appResidentMB: Double?
+    let appPhysFootprintBytes: UInt64?
+    let appPhysFootprintMB: Double?
+    let appAvailableHeadroomBytes: UInt64?
+    let appAvailableHeadroomMB: Double?
+    let appImpliedProcessLimitBytes: UInt64?
+    let appImpliedProcessLimitMB: Double?
+    let engineExtensionResidentBytes: UInt64?
+    let engineExtensionResidentMB: Double?
+    let engineExtensionPhysFootprintBytes: UInt64?
+    let engineExtensionPhysFootprintMB: Double?
+    let engineExtensionAvailableHeadroomBytes: UInt64?
+    let engineExtensionAvailableHeadroomMB: Double?
+    let engineExtensionImpliedProcessLimitBytes: UInt64?
+    let engineExtensionImpliedProcessLimitMB: Double?
+    let likelyEntitlementBlocked: Bool?
+    let entitlementBlockedReason: String?
     let trimLevel: NativeMemoryTrimLevel?
     let message: String?
     let context: IOSMemoryContext?
+
+    init(
+        event: String,
+        recordedAt: String,
+        processUptimeSeconds: Double,
+        runID: String,
+        reason: String,
+        source: String?,
+        pressureBand: IOSMemoryPressureBand?,
+        aggregatePressureBand: IOSMemoryPressureBand?,
+        previousPressureBand: IOSMemoryPressureBand?,
+        worstProcessRole: IOSMemoryProcessRole?,
+        trimLevel: NativeMemoryTrimLevel?,
+        message: String?,
+        context: IOSMemoryContext?
+    ) {
+        let appSnapshot = context?.appSnapshot
+        let engineExtensionSnapshot = context?.engineExtensionSnapshot
+        let entitlementBlocked = Self.likelyEntitlementBlocked(context)
+
+        self.event = event
+        self.recordedAt = recordedAt
+        self.processUptimeSeconds = processUptimeSeconds
+        self.runID = runID
+        self.reason = reason
+        self.source = source
+        self.pressureBand = pressureBand
+        self.aggregatePressureBand = aggregatePressureBand
+        self.previousPressureBand = previousPressureBand
+        self.worstProcessRole = worstProcessRole
+        self.combinedResidentBytes = context?.combinedResidentBytes
+        self.combinedResidentMB = Self.bytesToMB(context?.combinedResidentBytes)
+        self.combinedPhysFootprintBytes = context?.combinedPhysFootprintBytes
+        self.combinedPhysFootprintMB = Self.bytesToMB(context?.combinedPhysFootprintBytes)
+        self.combinedCompressedBytes = context?.combinedCompressedBytes
+        self.combinedCompressedMB = Self.bytesToMB(context?.combinedCompressedBytes)
+        self.combinedGPUAllocatedBytes = context?.combinedGPUAllocatedBytes
+        self.combinedGPUAllocatedMB = Self.bytesToMB(context?.combinedGPUAllocatedBytes)
+        self.appResidentBytes = appSnapshot?.residentBytes
+        self.appResidentMB = appSnapshot?.residentMB
+        self.appPhysFootprintBytes = appSnapshot?.physFootprintBytes
+        self.appPhysFootprintMB = appSnapshot?.physFootprintMB
+        self.appAvailableHeadroomBytes = appSnapshot?.availableHeadroomBytes
+        self.appAvailableHeadroomMB = appSnapshot?.availableHeadroomMB
+        self.appImpliedProcessLimitBytes = appSnapshot?.impliedProcessLimitBytes
+        self.appImpliedProcessLimitMB = appSnapshot?.impliedProcessLimitMB
+        self.engineExtensionResidentBytes = engineExtensionSnapshot?.residentBytes
+        self.engineExtensionResidentMB = engineExtensionSnapshot?.residentMB
+        self.engineExtensionPhysFootprintBytes = engineExtensionSnapshot?.physFootprintBytes
+        self.engineExtensionPhysFootprintMB = engineExtensionSnapshot?.physFootprintMB
+        self.engineExtensionAvailableHeadroomBytes = engineExtensionSnapshot?.availableHeadroomBytes
+        self.engineExtensionAvailableHeadroomMB = engineExtensionSnapshot?.availableHeadroomMB
+        self.engineExtensionImpliedProcessLimitBytes = engineExtensionSnapshot?.impliedProcessLimitBytes
+        self.engineExtensionImpliedProcessLimitMB = engineExtensionSnapshot?.impliedProcessLimitMB
+        self.likelyEntitlementBlocked = entitlementBlocked
+        if entitlementBlocked == true {
+            self.entitlementBlockedReason = "engine_extension_headroom_below_admission_threshold"
+        } else {
+            self.entitlementBlockedReason = nil
+        }
+        self.trimLevel = trimLevel
+        self.message = message
+        self.context = context
+    }
+
+    private static func bytesToMB(_ bytes: UInt64?) -> Double? {
+        guard let bytes else { return nil }
+        return Double(bytes) / 1_048_576
+    }
+
+    private static func likelyEntitlementBlocked(_ context: IOSMemoryContext?) -> Bool? {
+        guard let context, let engineExtensionSnapshot = context.engineExtensionSnapshot else {
+            return nil
+        }
+        guard context.aggregatePressureBand != .critical else {
+            return false
+        }
+
+        let policy = IOSMemoryBudgetPolicy.iPhoneShippingDefault
+        guard policy.band(for: engineExtensionSnapshot) == .critical,
+              let headroom = engineExtensionSnapshot.availableHeadroomBytes,
+              headroom < policy.guardedHeadroomBytes else {
+            return false
+        }
+        return true
+    }
 }

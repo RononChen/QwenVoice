@@ -20,6 +20,8 @@ scripts/ios_device.sh screenshot custom-complete
 scripts/ios_device.sh pull
 ```
 
+`doctor` writes the readiness gate result to `build/Debug/ios-device/runs/<run-id>/readiness.json`. Treat `GREEN` as real hardware testing/profiling readiness, `AMBER` as install/run-only readiness, and `RED` / `NO_DEVICE` as simulator-only fallback.
+
 Real MLX generation on hardware still depends on Apple's increased-memory entitlement; without it, this workflow remains useful for UI, model delivery, extension transport, and diagnostics proof.
 
 Debug-only memory guard probes:

@@ -179,19 +179,19 @@ The iPhone track remains compile-safe during the current macOS milestone, but th
 
 With macOS 2.0.0 stable shipped, the iPhone track is being re-opened on a TestFlight-first path. The current source of truth is the checklist in this section plus the repo-level guidance in `AGENTS.md`. The two user-facing prerequisites that are not derivable from code:
 
-### Apple entitlement request (critical-path blocker, ~1–3 weeks Apple-side)
+### Apple entitlement request (critical-path blocker)
 
-MLX models exceed iOS's default per-process memory cap (~5–6 GB). The app already declares `com.apple.developer.kernel.increased-memory-limit` in `Sources/iOS/VocelloiOS.entitlements` and `Sources/iOSEngineExtension/VocelloEngineExtension.entitlements`, but Apple must approve the entitlement before it takes effect at runtime.
+MLX generation currently hits the iOS engine-extension process memory limit before real model admission. The app already declares `com.apple.developer.kernel.increased-memory-limit` in `Sources/iOS/VocelloiOS.entitlements` and `Sources/iOSEngineExtension/VocelloEngineExtension.entitlements`, but Apple must approve the managed capability before it can be enabled in provisioning profiles.
 
-File at https://developer.apple.com/contact/ → "Programs and Enrollment" → "Request resource entitlement":
+Use the prepared request packet in [`ios-increased-memory-entitlement-request.md`](ios-increased-memory-entitlement-request.md). The request must be submitted from Apple Developer → Certificates, Identifiers & Profiles → Identifiers → each App ID → Capability Requests:
 
 - Team ID: `FK2D8X36G2`
 - App name + bundle IDs: Vocello, `com.patricedery.vocello` and engine extension `com.patricedery.vocello.engine-extension`
 - App Group: `group.com.patricedery.vocello.shared`
 - Entitlement: `com.apple.developer.kernel.increased-memory-limit`
-- Justification: cite the on-device Qwen3-TTS / MLX workload, the iPhone 15 Pro deployment-target floor, the `iPhonePro` memory policy (`NativeMemoryPolicyResolver` tier with 128 MB cache + 30 s idle unload), the engine extension's process-isolation role, the app + extension memory-context diagnostics now available from `scripts/ios_device.sh pull`, and the macOS counterpart at https://github.com/PowerBeef/QwenVoice/releases/tag/v2.0.0 as proof the app exists in production.
+- Justification: cite private on-device Qwen3-TTS / MLX generation, the engine extension's process-isolation role, `os_proc_available_memory()` evidence showing extension process headroom is critically low before model load, app + extension memory-context diagnostics from `scripts/ios_device.sh pull`, and the implemented guardrails: admission blocking, streaming-first iOS generation, no inline PCM preview by default, cache clearing, critical cancellation, and full unload.
 
-Pass criterion: Apple replies with a tracking case number. Re-check the App Store Connect "Capabilities" tab for `com.patricedery.vocello.engine-extension` and `com.patricedery.vocello` to confirm grant.
+Pass criterion: Apple replies with a tracking case number, then the App ID Capabilities tab shows Increased Memory Limit for both `com.patricedery.vocello.engine-extension` and `com.patricedery.vocello`. Regenerate profiles and run `scripts/ios_device.sh verify-entitlements --enable-increased-memory-limit` to confirm both signed products contain the entitlement.
 
 ### App Store Connect setup (parallel to entitlement wait, ~30 min)
 

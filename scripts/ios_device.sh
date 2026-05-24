@@ -15,11 +15,14 @@ CONFIGURATION="Debug"
 SCREEN_MIRROR_BUNDLE_ID="com.apple.ScreenContinuity"
 DEFAULT_TEAM_ID="FK2D8X36G2"
 DEFAULT_IOS_CATALOG_URL="bundle://vocello/ios/catalog/v1/models.json"
+INCREASED_MEMORY_ENTITLEMENT="com.apple.developer.kernel.increased-memory-limit"
+READINESS_GATE_PATH="/Users/patricedery/.codex/bin/ios-device-readiness"
 
 # shellcheck source=scripts/lib/shared.sh
 . "$SCRIPT_DIR/lib/shared.sh"
 
 IOS_APP_BUNDLE_ID="$(matrix_read "iOS/app/bundleIdentifier")"
+IOS_EXTENSION_BUNDLE_ID="$(matrix_read "iOS/extension/bundleIdentifier")"
 DEFAULT_DEVICE_APP_GROUP="$(matrix_read "iOS/app/applicationGroups" | head -n 1)"
 SHIPPING_IOS_APP_GROUP="$DEFAULT_DEVICE_APP_GROUP"
 
@@ -51,14 +54,24 @@ DEVICE_OS_BUILD=""
 SCREEN_VIEWING_URL=""
 APP_PATH=""
 POSITIONAL=()
+READINESS_STATUS="UNAVAILABLE"
+READINESS_MESSAGE=""
+READINESS_COREDEVICE_ID=""
+READINESS_UDID=""
+READINESS_XCTRACE_ONLINE="unknown"
+READINESS_XCTRACE_OFFLINE="unknown"
+READINESS_XCODE_DESTINATION_AVAILABLE="unknown"
+READINESS_BLOCKS_START="0"
+READINESS_GATE_AVAILABLE="0"
 
 usage() {
     cat <<EOF
 usage: scripts/ios_device.sh <command> [options]
 
 commands:
-  doctor                  Check CoreDevice, signing inputs, iPhone Mirroring, device state, and catalog reachability.
+  doctor                  Run the readiness gate, then check signing inputs, iPhone Mirroring, device state, and catalog reachability.
   build                   Build VocelloiOS Debug for the selected physical iPhone.
+  verify-entitlements     Inspect signed app/extension entitlements in the latest device build.
   install                 Install the latest device Debug build on the selected iPhone.
   launch                  Launch $IOS_APP_BUNDLE_ID with device-run diagnostics enabled.
   mirror                  Open the selected iPhone in Apple's iPhone Mirroring app.
@@ -90,6 +103,8 @@ options:
 examples:
   scripts/ios_device.sh doctor
   scripts/ios_device.sh start
+  scripts/ios_device.sh verify-entitlements
+  scripts/ios_device.sh build --enable-increased-memory-limit
   scripts/ios_device.sh start --catalog-url https://example.com/ios/catalog/v1/models.json
   scripts/ios_device.sh start --force-band guarded
   scripts/ios_device.sh start --force-critical-once
@@ -230,6 +245,254 @@ configure_signing_inputs() {
     else
         IOS_APP_ENTITLEMENTS="Sources/iOS/VocelloiOSLocalDevice.entitlements"
         IOS_EXTENSION_ENTITLEMENTS="Sources/iOSEngineExtension/VocelloEngineExtensionLocalDevice.entitlements"
+    fi
+}
+
+resolve_app_path() {
+    if [ ! -d "$APP_PATH" ] && [ -f "$RUN_DIR/app-path.txt" ]; then
+        APP_PATH="$(cat "$RUN_DIR/app-path.txt")"
+    fi
+    if [ -z "$APP_PATH" ]; then
+        APP_PATH="$DERIVED_DATA_PATH/Build/Products/Debug-iphoneos/Vocello.app"
+    fi
+}
+
+find_engine_extension_path() {
+    local app_path="$1"
+    local extension_paths=()
+    while IFS= read -r extension_path; do
+        extension_paths+=("$extension_path")
+    done < <(find "$app_path" -type d -name '*.appex' | sort)
+
+    [ "${#extension_paths[@]}" -eq 1 ] \
+        || fail "Expected exactly one embedded .appex in $app_path; found ${#extension_paths[@]}"
+
+    local extension_path="${extension_paths[0]}"
+    local extension_info_plist="$extension_path/Info.plist"
+    [ -f "$extension_info_plist" ] || fail "Extension Info.plist missing: $extension_info_plist"
+
+    local extension_bundle_id
+    extension_bundle_id="$(plist_read "$extension_info_plist" CFBundleIdentifier || true)"
+    [ "$extension_bundle_id" = "$IOS_EXTENSION_BUNDLE_ID" ] \
+        || fail "Extension bundle identifier mismatch: expected $IOS_EXTENSION_BUNDLE_ID, got ${extension_bundle_id:-missing}"
+
+    printf '%s\n' "$extension_path"
+}
+
+entitlements_to_file() {
+    local target="$1"
+    local output_path="$2"
+    /usr/bin/codesign -d --entitlements :- "$target" >"$output_path" 2>"$output_path.stderr" \
+        || fail "Could not read signed entitlements for $target"
+}
+
+plist_bool_true_file() {
+    local plist_path="$1"
+    local key="$2"
+    PLIST_PATH="$plist_path" PLIST_KEY="$key" /usr/bin/python3 - <<'PY'
+import os
+import plistlib
+from pathlib import Path
+
+path = Path(os.environ["PLIST_PATH"])
+key = os.environ["PLIST_KEY"]
+data = plistlib.loads(path.read_bytes())
+if data.get(key) is not True:
+    raise SystemExit(1)
+PY
+}
+
+verify_built_entitlements() {
+    resolve_app_path
+    [ -d "$APP_PATH" ] || fail "Device Debug app not found. Run scripts/ios_device.sh build first."
+
+    local extension_path
+    extension_path="$(find_engine_extension_path "$APP_PATH")"
+
+    local entitlements_dir="$RUN_DIR/entitlements"
+    mkdir -p "$entitlements_dir"
+
+    local app_entitlements="$entitlements_dir/Vocello.app.entitlements.plist"
+    local extension_entitlements="$entitlements_dir/VocelloEngineExtension.appex.entitlements.plist"
+    entitlements_to_file "$APP_PATH" "$app_entitlements"
+    entitlements_to_file "$extension_path" "$extension_entitlements"
+
+    local app_has="false"
+    local extension_has="false"
+    if plist_bool_true_file "$app_entitlements" "$INCREASED_MEMORY_ENTITLEMENT"; then
+        app_has="true"
+    fi
+    if plist_bool_true_file "$extension_entitlements" "$INCREASED_MEMORY_ENTITLEMENT"; then
+        extension_has="true"
+    fi
+
+    local status="entitlement-missing"
+    if [ "$app_has" = "true" ] && [ "$extension_has" = "true" ]; then
+        status="entitlement-ready"
+    fi
+
+    RUN_ID="$RUN_ID" \
+    RUN_DIR="$RUN_DIR" \
+    APP_PATH="$APP_PATH" \
+    EXTENSION_PATH="$extension_path" \
+    IOS_APP_BUNDLE_ID="$IOS_APP_BUNDLE_ID" \
+    IOS_EXTENSION_BUNDLE_ID="$IOS_EXTENSION_BUNDLE_ID" \
+    INCREASED_MEMORY_ENTITLEMENT="$INCREASED_MEMORY_ENTITLEMENT" \
+    ENABLE_INCREASED_MEMORY_LIMIT="$ENABLE_INCREASED_MEMORY_LIMIT" \
+    APP_HAS_INCREASED_MEMORY_LIMIT="$app_has" \
+    EXTENSION_HAS_INCREASED_MEMORY_LIMIT="$extension_has" \
+    STATUS="$status" \
+    /usr/bin/python3 - "$RUN_DIR/entitlements-check.json" <<'PY'
+import json
+import os
+import sys
+from datetime import datetime, timezone
+
+record = {
+    "run_id": os.environ["RUN_ID"],
+    "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+    "status": os.environ["STATUS"],
+    "requested_increased_memory_limit": os.environ["ENABLE_INCREASED_MEMORY_LIMIT"],
+    "entitlement": os.environ["INCREASED_MEMORY_ENTITLEMENT"],
+    "app": {
+        "bundle_id": os.environ["IOS_APP_BUNDLE_ID"],
+        "path": os.environ["APP_PATH"],
+        "has_increased_memory_limit": os.environ["APP_HAS_INCREASED_MEMORY_LIMIT"] == "true",
+    },
+    "extension": {
+        "bundle_id": os.environ["IOS_EXTENSION_BUNDLE_ID"],
+        "path": os.environ["EXTENSION_PATH"],
+        "has_increased_memory_limit": os.environ["EXTENSION_HAS_INCREASED_MEMORY_LIMIT"] == "true",
+    },
+}
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(record, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+PY
+
+    cat <<EOF
+=== Signed Entitlement Check ===
+app:       $IOS_APP_BUNDLE_ID $INCREASED_MEMORY_ENTITLEMENT=$app_has
+extension: $IOS_EXTENSION_BUNDLE_ID $INCREASED_MEMORY_ENTITLEMENT=$extension_has
+status:    $status
+evidence:  $RUN_DIR/entitlements-check.json
+EOF
+
+    if is_truthy "$ENABLE_INCREASED_MEMORY_LIMIT" && [ "$status" != "entitlement-ready" ]; then
+        fail "Increased-memory-limit was requested, but the signed app and extension do not both contain the entitlement."
+    fi
+}
+
+run_readiness_gate() {
+    ensure_run_dir
+    READINESS_STATUS="UNAVAILABLE"
+    READINESS_MESSAGE="warning; readiness gate not found at $READINESS_GATE_PATH"
+    READINESS_COREDEVICE_ID=""
+    READINESS_UDID=""
+    READINESS_XCTRACE_ONLINE="unknown"
+    READINESS_XCTRACE_OFFLINE="unknown"
+    READINESS_XCODE_DESTINATION_AVAILABLE="unknown"
+    READINESS_BLOCKS_START="0"
+    READINESS_GATE_AVAILABLE="0"
+
+    if [ ! -x "$READINESS_GATE_PATH" ]; then
+        return 0
+    fi
+
+    READINESS_GATE_AVAILABLE="1"
+    local readiness_json="$RUN_DIR/readiness.json"
+    local readiness_env="$RUN_DIR/readiness.env"
+    local readiness_stderr="$RUN_DIR/readiness.stderr"
+    local readiness_tmp="$RUN_DIR/readiness.json.tmp"
+
+    if "$READINESS_GATE_PATH" \
+        --project "$PROJECT_FILE" \
+        --scheme "$SCHEME" \
+        --json > "$readiness_tmp" 2> "$readiness_stderr"; then
+        :
+    else
+        echo "warning: readiness gate exited non-zero; parsing any JSON output it produced" >> "$readiness_stderr"
+    fi
+    mv "$readiness_tmp" "$readiness_json"
+
+    /usr/bin/python3 - "$readiness_json" > "$readiness_env" <<'PY'
+import json
+import shlex
+import sys
+
+path = sys.argv[1]
+
+def emit(key, value):
+    print(f"{key}={shlex.quote(str(value))}")
+
+def bool_text(value):
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    return "unknown"
+
+try:
+    data = json.load(open(path))
+except Exception as exc:
+    data = {
+        "status": "UNKNOWN",
+        "message": f"could not parse readiness gate JSON: {exc}",
+    }
+
+coredevice = data.get("coredevice") or {}
+xctrace = data.get("xctrace") or {}
+xcode_destination = data.get("xcodebuildDestination") or {}
+status = str(data.get("status") or "UNKNOWN")
+message = str(data.get("message") or "")
+
+emit("READINESS_STATUS", status)
+emit("READINESS_MESSAGE", message)
+emit("READINESS_COREDEVICE_ID", coredevice.get("identifier") or "")
+emit("READINESS_UDID", coredevice.get("udid") or "")
+emit("READINESS_XCTRACE_ONLINE", bool_text(xctrace.get("online")))
+emit("READINESS_XCTRACE_OFFLINE", bool_text(xctrace.get("offline")))
+emit("READINESS_XCODE_DESTINATION_AVAILABLE", bool_text(xcode_destination.get("available")))
+emit("READINESS_BLOCKS_START", "1" if status in {"RED", "NO_DEVICE"} else "0")
+PY
+
+    # shellcheck disable=SC1090
+    . "$readiness_env"
+}
+
+print_readiness_summary() {
+    if [ "$READINESS_GATE_AVAILABLE" != "1" ]; then
+        echo "readiness: UNAVAILABLE"
+        echo "message:   $READINESS_MESSAGE"
+        echo "evidence:  legacy CoreDevice checks only; do not treat this as physical profiling proof"
+        return 0
+    fi
+
+    echo "readiness: $READINESS_STATUS"
+    echo "message:   ${READINESS_MESSAGE:-unknown}"
+    echo "coredevice-id: ${READINESS_COREDEVICE_ID:-unknown}"
+    echo "hardware-udid: ${READINESS_UDID:-unknown}"
+    echo "xctrace:   online=$READINESS_XCTRACE_ONLINE offline=$READINESS_XCTRACE_OFFLINE"
+    echo "xcode-destination: available=$READINESS_XCODE_DESTINATION_AVAILABLE"
+    case "$READINESS_STATUS" in
+        GREEN)
+            echo "evidence:  physical-device testing and profiling are allowed when the run itself succeeds"
+            ;;
+        AMBER)
+            echo "evidence:  partial CoreDevice readiness; install/run may work, but Instruments/xctrace profiling and physical performance claims are blocked"
+            ;;
+        RED|NO_DEVICE)
+            echo "evidence:  start blocked; simulator/local results are not proof for physical iPhone RAM or performance"
+            ;;
+        *)
+            echo "evidence:  readiness status is not conclusive; avoid physical profiling/performance claims"
+            ;;
+    esac
+}
+
+assert_readiness_allows_start() {
+    if [ "$READINESS_BLOCKS_START" = "1" ]; then
+        fail "iOS readiness gate reported $READINESS_STATUS. Start is blocked; see $RUN_DIR/readiness.json and $RUN_DIR/doctor.txt."
     fi
 }
 
@@ -446,14 +709,19 @@ check_catalog_readiness() {
 do_doctor() {
     ensure_run_dir
     configure_signing_inputs
-    capture_device_details
+    run_readiness_gate
+    if [ "$READINESS_BLOCKS_START" != "1" ]; then
+        capture_device_details
+    fi
     {
         echo "=== Vocello iPhone Device Doctor ==="
+        print_readiness_summary
+        echo ""
         echo "run:    $RUN_ID"
         echo "dir:    $RUN_DIR"
-        echo "device: $DEVICE_NAME / $DEVICE_MARKETING_NAME / iOS $DEVICE_OS_VERSION ($DEVICE_OS_BUILD)"
-        echo "id:     $DEVICE_ID"
-        echo "udid:   $DEVICE_UDID"
+        echo "device: ${DEVICE_NAME:-unknown} / ${DEVICE_MARKETING_NAME:-unknown} / iOS ${DEVICE_OS_VERSION:-unknown} (${DEVICE_OS_BUILD:-unknown})"
+        echo "id:     ${DEVICE_ID:-unknown}"
+        echo "udid:   ${DEVICE_UDID:-unknown}"
         echo "team:   $TEAM_ID"
         echo "group:  $IOS_APP_GROUP"
         echo "ents:   app=$IOS_APP_ENTITLEMENTS"
@@ -542,6 +810,7 @@ do_build() {
 
     [ -d "$APP_PATH" ] || fail "Expected built app is missing: $APP_PATH"
     printf '%s\n' "$APP_PATH" > "$RUN_DIR/app-path.txt"
+    verify_built_entitlements
     write_run_manifest "built"
     echo "Built app: $APP_PATH"
 }
@@ -549,9 +818,7 @@ do_build() {
 do_install() {
     load_or_create_run_dir
     capture_device_details
-    if [ ! -d "$APP_PATH" ] && [ -f "$RUN_DIR/app-path.txt" ]; then
-        APP_PATH="$(cat "$RUN_DIR/app-path.txt")"
-    fi
+    resolve_app_path
     [ -d "$APP_PATH" ] || fail "Device Debug app not found. Run scripts/ios_device.sh build first."
 
     echo "==> Installing $APP_PATH on $DEVICE_NAME"
@@ -562,6 +829,13 @@ do_install() {
         --device "$DEVICE_ID" \
         "$APP_PATH"
     write_run_manifest "installed"
+}
+
+do_verify_entitlements() {
+    load_or_create_run_dir
+    configure_signing_inputs
+    verify_built_entitlements
+    write_run_manifest "entitlements_verified"
 }
 
 write_launch_environment() {
@@ -733,6 +1007,10 @@ case "$command" in
         parse_common_options "$@"
         do_build
         ;;
+    verify-entitlements)
+        parse_common_options "$@"
+        do_verify_entitlements
+        ;;
     install)
         parse_common_options "$@"
         do_install
@@ -748,6 +1026,7 @@ case "$command" in
     start)
         parse_common_options "$@"
         do_doctor
+        assert_readiness_allows_start
         do_build
         do_install
         do_launch
