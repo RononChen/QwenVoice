@@ -13,7 +13,7 @@ Treat tracked surfaces in this repo as five classes:
 - **Repo-owned source**: `Sources/`, maintained docs, and active scripts under `scripts/`
 - **Product assets**: `Sources/Assets.xcassets/` and public docs images under `docs/`
 - **Historical records**: `docs/releases/`
-- **Repo-owned vendored source**: `third_party_patches/`, where QwenVoice intentionally carries patched upstream code as maintained source
+- **Repo-owned vendored source**: `third_party_patches/`, where QwenVoice intentionally carries patched upstream code as maintained source, not read-only imported code
 
 Local-only state includes `build/`, `.worktrees/`, `DerivedData/`, app-support data, generated screenshot diffs, Finder metadata, Python caches, coverage artifacts, and any temporary `Sources/Resources/ffmpeg/` or `Sources/Resources/vendor/` leftovers that appear during local experiments.
 
@@ -39,6 +39,7 @@ The shared MLX runtime stack still uses one repo-owned vendored package at:
 - `third_party_patches/mlx-audio-swift/`
 
 That tree remains maintained source, not a generated runtime artifact.
+Targeted local fixes in this tree are allowed when they are documented, validated, and kept separate from upstream rebase/snapshot work. Use `docs/reference/mlx-audio-swift-patching.md` as the checklist before changing it.
 
 The native package boundary currently includes:
 

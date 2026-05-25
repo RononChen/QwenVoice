@@ -559,24 +559,24 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             visibleErrorMessage = nil
             scheduleIdleUnloadIfNeeded(modelID: id, isBatch: false)
         } catch {
-            // Quality → Speed automatic fallback on the floor8GBMac
-            // tier. If a user picked the 8-bit Quality variant on a
+            // Quality → lower-memory automatic fallback on the floor8GBMac
+            // tier. If a user picked an 8-bit variant on a
             // memory-constrained Mac and it failed to load with an
-            // allocation-related error, retry with the Speed sibling
+            // allocation-related error, retry with the smallest 4-bit sibling
             // and surface a notice. False positives (non-OOM errors
             // mistaken for OOM) only cause a slower run; the user
             // can still pick Quality manually on their next attempt.
-            if let speedID = self.speedFallbackID(for: id),
+            if let speedID = self.lowerMemoryFallbackID(for: id),
                Self.looksLikeMemoryAllocationError(error) {
                 #if DEBUG
-                print("[MLXTTSEngine] Quality load failed (\(id)) with allocation error; falling back to Speed sibling (\(speedID)): \(error.localizedDescription)")
+                print("[MLXTTSEngine] Quality load failed (\(id)) with allocation error; falling back to lower-memory sibling (\(speedID)): \(error.localizedDescription)")
                 #endif
                 do {
                     applyMemoryPolicyIfKnown(modelID: speedID, isBatch: false)
                     _ = try await runtime.loadModel(id: speedID)
                     loadState = .loaded(modelID: speedID)
                     clonePreparationState = .idle
-                    visibleErrorMessage = "Switched to Speed (4-bit) — Quality didn't fit in memory."
+                    visibleErrorMessage = "Switched to a lower-memory model — Quality didn't fit in memory."
                     scheduleIdleUnloadIfNeeded(modelID: speedID, isBatch: false)
                     return
                 } catch {
@@ -592,24 +592,28 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         }
     }
 
-    /// If `id` is a Quality variant on the floor8GBMac tier, return the
-    /// matching Speed variant's id. Otherwise return nil. Used by the
-    /// OOM-fallback path in `loadModel`.
-    private func speedFallbackID(for id: String) -> String? {
+    /// If `id` is an 8-bit variant on the floor8GBMac tier, return the
+    /// matching lower-memory 4-bit variant's id. Otherwise return nil.
+    /// Used by the OOM-fallback path in `loadModel`.
+    private func lowerMemoryFallbackID(for id: String) -> String? {
         guard NativeMemoryPolicyResolver.deviceClass() == .floor8GBMac else { return nil }
         guard let descriptor = modelRegistry.model(id: id) else { return nil }
         // After expandedForPlatform, a variant-aliased descriptor carries
         // exactly one variant in its `variants` array. We rely on that
-        // to detect Quality and look for the Speed sibling.
-        guard descriptor.variants.first?.kind == .quality else { return nil }
-        // Find a sibling descriptor for the same mode with kind == .speed.
+        // to detect 8-bit variants and look for a 4-bit sibling.
+        guard descriptor.variants.first?.kind == .quality
+            || descriptor.variants.first?.kind == .compactQuality else { return nil }
+        // Find a sibling descriptor for the same mode, preferring 0.6B 4-bit
+        // when present before falling back to the 1.7B Speed package.
         // Both descriptors come from the same expandedForPlatform pass so
         // their `mode` fields will match.
-        for candidate in modelRegistryAllDescriptors() {
-            guard candidate.id != descriptor.id,
-                  candidate.mode == descriptor.mode,
-                  candidate.variants.first?.kind == .speed else { continue }
-            return candidate.id
+        for kind in [ModelVariantKind.compactSpeed, .speed] {
+            for candidate in modelRegistryAllDescriptors() {
+                guard candidate.id != descriptor.id,
+                      candidate.mode == descriptor.mode,
+                      candidate.variants.first?.kind == kind else { continue }
+                return candidate.id
+            }
         }
         return nil
     }

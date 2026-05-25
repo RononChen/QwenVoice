@@ -502,6 +502,11 @@ private struct VoiceCloningTranscriptSettings: View {
             .glassTextField(radius: 8)
             .accessibilityLabel("Transcript")
             .accessibilityIdentifier("voiceCloning_transcriptInput")
+
+            Text("Best quality uses reference audio plus an accurate transcript; audio-only cloning remains available as a lower-guidance fallback.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, LayoutConstants.generationConfigurationRowVerticalPadding)
         .accessibilityElement(children: .contain)

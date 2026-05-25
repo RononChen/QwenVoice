@@ -25,7 +25,9 @@ enum IOSPrefetchRequestFactory {
             streamingInterval: GenerationSemantics.appStreamingInterval,
             payload: .custom(
                 speakerID: draft.selectedSpeaker,
-                deliveryStyle: draft.resolvedDeliveryInstruction
+                deliveryStyle: model.supportsInstructionControl
+                    ? draft.resolvedDeliveryInstruction
+                    : nil
             )
         )
     }

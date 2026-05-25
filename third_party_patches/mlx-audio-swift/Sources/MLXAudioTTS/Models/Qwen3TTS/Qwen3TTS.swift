@@ -839,17 +839,26 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
 
     public var defaultGenerationParameters: GenerateParameters {
         GenerateParameters(
-            maxTokens: 4096,
+            maxTokens: 2048,
             temperature: 0.9,
             topP: 1.0,
             repetitionPenalty: 1.05
         )
     }
 
+    private var supportsCustomInstructionControl: Bool {
+        !(config.ttsModelSize == "0b6" && config.ttsModelType == "custom_voice")
+    }
+
     private func trimmedInstruction(_ instruct: String?) -> String? {
         guard let instruct else { return nil }
         let trimmed = instruct.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func customVoiceInstruction(_ instruct: String?) -> String? {
+        guard supportsCustomInstructionControl else { return nil }
+        return trimmedInstruction(instruct)
     }
 
     private func normalizedConditioningCacheKeyText(_ text: String) -> String {
@@ -1129,16 +1138,17 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         timingsMS: [String: Int],
         targetTokenCount: Int
     ) {
+        let resolvedInstruct = customVoiceInstruction(instruct)
         let prefixPrepareStartedAt = ContinuousClock.now
         let cacheKey = prefixCacheKeyForCustomVoice(
             language: language,
             speaker: speaker,
-            instruct: instruct
+            instruct: resolvedInstruct
         )
         let (prefix, cacheHit, prefixTokenizeMS, prefixEmbedBuildMS) = try buildConditioningPrefix(
             language: language,
             speaker: speaker,
-            instruct: instruct,
+            instruct: resolvedInstruct,
             cacheKey: cacheKey
         )
         let prepared: (
@@ -3729,6 +3739,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             "speech_tokenizer_encoder_loaded"
         ] ?? false
         loadBooleanFlags["speech_tokenizer_eval_skipped"] = loadOptions.skipSpeechTokenizerEval
+        loadBooleanFlags["custom_instruction_control_supported"] = model.supportsCustomInstructionControl
         for (key, value) in speechTokenizerResult.booleanFlags {
             loadBooleanFlags[key] = value
         }
@@ -4376,6 +4387,11 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             let defaultJson = "{}".data(using: .utf8)!
             tokenizerConfig = try JSONDecoder().decode(Qwen3TTSTokenizerConfig.self, from: defaultJson)
         }
+        if let validationFailure = tokenizerConfig.qwen3TTS12HzValidationFailure(includeEncoder: includeEncoder) {
+            throw AudioGenerationError.invalidInput(
+                "Qwen3-TTS speech tokenizer contract mismatch: \(validationFailure)"
+            )
+        }
         await emitPreparedLoadDiagnostic(
             diagnosticEventSink,
             action: "qwen-speech-tokenizer-after-config",
@@ -4383,6 +4399,14 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 "path": path.path,
                 "trustPreparedCheckpoint": trustPreparedCheckpoint ? "true" : "false",
                 "includeEncoder": includeEncoder ? "true" : "false",
+                "inputSampleRate": "\(tokenizerConfig.inputSampleRate)",
+                "outputSampleRate": "\(tokenizerConfig.outputSampleRate)",
+                "frameRateHz": "12.5",
+                "encoderValidNumQuantizers": "\(tokenizerConfig.encoderValidNumQuantizers)",
+                "decoderNumQuantizers": "\(tokenizerConfig.decoderConfig?.numQuantizers ?? 0)",
+                "encoderConfiguredNumQuantizers": "\(tokenizerConfig.encoderConfig?.numQuantizers ?? 0)",
+                "decoderCodebookSize": "\(tokenizerConfig.decoderConfig?.codebookSize ?? 0)",
+                "decoderSemanticCodebookSize": "\(tokenizerConfig.decoderConfig?.semanticCodebookSize ?? 0)",
             ]
         )
 
@@ -4398,6 +4422,13 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         )
 
         if !tokenizerWeights.isEmpty {
+            if !includeEncoder {
+                tokenizerWeights = tokenizerWeights.filter { key, _ in
+                    !key.hasPrefix("encoder_model.")
+                        && !key.hasPrefix("speech_tokenizer.encoder_model.")
+                        && !key.contains(".encoder_model.")
+                }
+            }
             var sanitized = Qwen3TTSSpeechTokenizer.sanitize(weights: tokenizerWeights)
             tokenizerWeights.removeAll(keepingCapacity: false)
             if !includeEncoder {

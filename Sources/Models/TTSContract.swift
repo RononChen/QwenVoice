@@ -193,7 +193,8 @@ enum TTSContract {
             variantID: variantID,
             variantKind: variantKind,
             estimatedDownloadBytes: descriptor.estimatedDownloadBytes,
-            isHardwareRecommended: isHardwareRecommended
+            isHardwareRecommended: isHardwareRecommended,
+            qwen3Capabilities: descriptor.qwen3Capabilities
         )
     }
 
@@ -205,16 +206,15 @@ enum TTSContract {
         let modeModels = models.filter { $0.mode == mode }
         guard !modeModels.isEmpty else { return nil }
         let recommended = recommendedModel(in: models, for: mode) ?? modeModels[0]
-        // Global "prefer Speed everywhere" override. When the user has
-        // toggled this on (e.g., to keep RAM use bounded on an 8 GB
-        // Mac), short-circuit the per-mode preference + hardware-
-        // recommended fallback chain and return the Speed variant if
-        // one exists. Falls back to recommended if no Speed variant is
-        // available for this mode — protects against contract edge
-        // cases where a mode might not have a Speed build.
+        // Global lower-memory override. Prefer the smallest installed
+        // Qwen3 family first (0.6B 4-bit when available, then 1.7B
+        // 4-bit) so memory-constrained Macs can be pinned from one
+        // Settings toggle while still falling back defensively.
         if MacModelVariantPreferences.preferSpeedEverywhere(defaults: defaults) {
-            if let speed = modeModels.first(where: { $0.variantKind == .speed }) {
-                return speed
+            for kind in [TTSModelVariantKind.compactSpeed, .speed, .compactQuality, .quality] {
+                if let lowerMemory = modeModels.first(where: { $0.variantKind == kind }) {
+                    return lowerMemory
+                }
             }
         }
         let selectedVariantID = MacModelVariantPreferences.selectedVariantID(
@@ -330,6 +330,10 @@ enum TTSContract {
 private extension TTSModelVariantKind {
     init(coreKind: ModelVariantKind) {
         switch coreKind {
+        case .compactSpeed:
+            self = .compactSpeed
+        case .compactQuality:
+            self = .compactQuality
         case .speed:
             self = .speed
         case .quality:

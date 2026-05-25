@@ -31,10 +31,9 @@ struct SettingsView: View {
     @AppStorage("autoPlay", store: AppDefaults.store) private var autoPlay = true
     @AppStorage("outputDirectory", store: AppDefaults.store) private var outputDirectory = ""
     /// Bound to `MacModelVariantPreferences.preferSpeedEverywhereKey`.
-    /// When ON, every generation mode resolves to the Speed (4-bit)
-    /// variant regardless of per-mode preferences or hardware
-    /// recommendations. Useful on memory-constrained Macs where the
-    /// user wants to pin lower-RAM operation with one toggle.
+    /// When ON, every generation mode resolves to the lowest-memory
+    /// variant available regardless of per-mode preferences or
+    /// hardware recommendations. Useful on memory-constrained Macs.
     @AppStorage(MacModelVariantPreferences.preferSpeedEverywhereKey, store: AppDefaults.store)
     private var preferSpeedEverywhere = false
 
@@ -74,11 +73,11 @@ struct SettingsView: View {
                 Section {
                     Toggle(isOn: $preferSpeedEverywhere) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Always use Speed (4-bit) models")
+                            Text("Prefer lower-memory models")
                                 .font(.body)
                             Text(
-                                "Pins every generation mode to the Speed variant — saves memory on lower-RAM Macs. " +
-                                "Speed models are smaller and faster but lower fidelity than Quality (8-bit). " +
+                                "Pins every generation mode to the smallest suitable package — 0.6B when available, otherwise Speed. " +
+                                "Smaller models use less memory and are safer on lower-RAM Macs, with lower fidelity than Quality. " +
                                 "You can still switch per-generation in the mode screens; this toggle just changes the defaults."
                             )
                             .font(.caption)
@@ -303,8 +302,7 @@ private struct ModelDownloadRow: View {
     let onDelete: (TTSModel) -> Void
 
     private var variants: [TTSModel] {
-        let pair = viewModel.pairedVariants(for: mode)
-        return [pair.speed, pair.quality].compactMap { $0 }
+        viewModel.variants(for: mode)
     }
 
     var body: some View {
@@ -391,7 +389,7 @@ private struct ModelPackageLine: View {
                 .frame(width: 78, alignment: .trailing)
             }
 
-            if let detail = presentation.detail {
+            if let detail = presentation.detail ?? capabilityDetail {
                 Text(detail)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -416,11 +414,33 @@ private struct ModelPackageLine: View {
                 .foregroundStyle(.orange)
                 .help("Heavy on this Mac")
                 .accessibilityLabel("Heavy on this Mac")
+        } else if model.qwen3Capabilities?.modelSize == .compact0b6 {
+            Text("Lite")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.blue)
+                .help(model.supportsInstructionControl ? "0.6B package" : "0.6B package without delivery instructions")
+                .accessibilityLabel("Lite model")
         } else if viewModel.isHardwareRecommended(model) {
             Text("Recommended")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.green)
         }
+    }
+
+    private var capabilityDetail: String? {
+        var parts: [String] = []
+        if let size = model.modelSizeLabel {
+            parts.append(size)
+        }
+        if model.mode == .custom, !model.supportsInstructionControl {
+            parts.append("speaker only")
+        } else if model.mode == .custom {
+            parts.append("delivery control")
+        }
+        if model.mode == .clone, model.supportsVoiceClone {
+            parts.append("clone capable")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     @ViewBuilder

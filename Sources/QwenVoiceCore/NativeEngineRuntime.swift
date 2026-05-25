@@ -774,13 +774,13 @@ actor NativeEngineRuntime {
         do {
             await telemetryRecorder?.mark(stage: .prewarm)
             switch request.payload {
-            case .custom(let speakerID, _):
-                let language = GenerationSemantics.qwenLanguageHint(for: request)
+            case .custom:
+                let prompt = GenerationSemantics.qwen3PromptAssembly(for: request)
                 try await model.prewarmCustomVoice(
                     text: lightweightWarmupText,
-                    language: language,
-                    speaker: speakerID.trimmingCharacters(in: .whitespacesAndNewlines),
-                    instruct: GenerationSemantics.customInstruction(for: request),
+                    language: prompt.language,
+                    speaker: prompt.speakerID ?? GenerationSemantics.canonicalCustomWarmSpeaker,
+                    instruct: prompt.instruct,
                     customPrewarmDepth: customPrewarmDepth
                 )
             case .design:
@@ -969,6 +969,11 @@ actor NativeEngineRuntime {
             "modelID": request.modelID,
             "textLength": String(request.text.count),
         ]
+        let prompt = GenerationSemantics.qwen3PromptAssembly(for: request)
+        details["qwen3_prompt_mode"] = prompt.mode.rawValue
+        details["qwen3_prompt_language"] = prompt.language
+        details["qwen3_uses_instruction_control"] = prompt.usesInstructionControl ? "true" : "false"
+        details["qwen3_clone_uses_transcript"] = prompt.cloneUsesTranscript ? "true" : "false"
 
         switch request.payload {
         case .custom(let speakerID, let deliveryStyle):
@@ -1101,7 +1106,8 @@ actor NativeEngineRuntime {
             )
         }
 
-        let language = GenerationSemantics.qwenLanguageHint(for: request)
+        let prompt = GenerationSemantics.qwen3PromptAssembly(for: request)
+        let language = prompt.language
         guard let conditioningWarmKey = GenerationSemantics.designConditioningWarmKey(for: request) else {
             return DesignConditioningWarmState(
                 bucket: warmBucket,
@@ -1153,7 +1159,7 @@ actor NativeEngineRuntime {
         }
 
         let warmText = GenerationSemantics.canonicalDesignWarmText(for: warmBucket)
-        let warmInstruction = GenerationSemantics.voiceDesignInstruction(for: request)
+        let warmInstruction = prompt.instruct
             ?? GenerationSemantics.designInstruction(
                 voiceDescription: voiceDescription,
                 emotion: deliveryStyle ?? ""

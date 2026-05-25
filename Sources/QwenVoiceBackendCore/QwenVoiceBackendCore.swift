@@ -13,6 +13,7 @@ public struct Qwen3GenerationConfiguration: Codable, Equatable, Sendable {
     public let temperature: Float
     public let topK: Int
     public let topP: Float
+    public let doSample: Bool
     public let repetitionPenalty: Float
 
     public init(
@@ -21,6 +22,7 @@ public struct Qwen3GenerationConfiguration: Codable, Equatable, Sendable {
         temperature: Float = 0.9,
         topK: Int = 50,
         topP: Float = 1.0,
+        doSample: Bool = true,
         repetitionPenalty: Float = 1.05
     ) {
         self.maxNewTokens = maxNewTokens
@@ -28,9 +30,12 @@ public struct Qwen3GenerationConfiguration: Codable, Equatable, Sendable {
         self.temperature = temperature
         self.topK = topK
         self.topP = topP
+        self.doSample = doSample
         self.repetitionPenalty = repetitionPenalty
     }
 
+    public static let checkpointDefaultMaxNewTokens = 8_192
+    public static let wrapperFallbackMaxNewTokens = 2_048
     public static let officialQualityDefault = Qwen3GenerationConfiguration()
 }
 

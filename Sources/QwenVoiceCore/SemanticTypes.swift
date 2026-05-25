@@ -138,8 +138,129 @@ public enum ModelArtifactPlatform: String, Codable, Hashable, Sendable {
 }
 
 public enum ModelVariantKind: String, Codable, Hashable, Sendable {
+    case compactSpeed = "compact_speed"
+    case compactQuality = "compact_quality"
     case speed
     case quality
+}
+
+public enum Qwen3TTSModelSize: String, Codable, Hashable, Sendable {
+    case compact0b6 = "0b6"
+    case pro1b7 = "1b7"
+}
+
+public enum Qwen3TTSFamilyType: String, Codable, Hashable, Sendable {
+    case customVoice = "custom_voice"
+    case voiceDesign = "voice_design"
+    case baseClone = "base_clone"
+}
+
+public enum Qwen3TTSArtifactAvailability: String, Codable, Hashable, Sendable {
+    case publicArtifact = "public_artifact"
+    case researchOnly = "research_only"
+    case unsupported
+}
+
+public struct Qwen3TTSTokenizerProfile: Hashable, Codable, Sendable {
+    public let name: String
+    public let sampleRateHz: Int
+    public let frameRateHz: Double
+    public let decoderQuantizers: Int
+    public let encoderValidQuantizers: Int
+    public let encoderConfiguredQuantizers: Int?
+    public let codebookSize: Int
+    public let semanticCodebookSize: Int
+
+    public init(
+        name: String,
+        sampleRateHz: Int,
+        frameRateHz: Double,
+        decoderQuantizers: Int,
+        encoderValidQuantizers: Int,
+        encoderConfiguredQuantizers: Int?,
+        codebookSize: Int,
+        semanticCodebookSize: Int
+    ) {
+        self.name = name
+        self.sampleRateHz = sampleRateHz
+        self.frameRateHz = frameRateHz
+        self.decoderQuantizers = decoderQuantizers
+        self.encoderValidQuantizers = encoderValidQuantizers
+        self.encoderConfiguredQuantizers = encoderConfiguredQuantizers
+        self.codebookSize = codebookSize
+        self.semanticCodebookSize = semanticCodebookSize
+    }
+}
+
+public enum Qwen3TTSGenerationDefaultSource: String, Codable, Hashable, Sendable {
+    case checkpoint = "checkpoint"
+    case wrapperFallback = "wrapper_fallback"
+    case appPolicy = "app_policy"
+}
+
+public struct Qwen3TTSGenerationDefaultsProfile: Hashable, Codable, Sendable {
+    public let checkpointMaxNewTokens: Int?
+    public let wrapperFallbackMaxNewTokens: Int
+    public let appPolicyMaxNewTokens: Int
+    public let temperature: Double
+    public let topP: Double
+    public let topK: Int
+    public let doSample: Bool
+    public let repetitionPenalty: Double
+    public let source: Qwen3TTSGenerationDefaultSource
+
+    public init(
+        checkpointMaxNewTokens: Int?,
+        wrapperFallbackMaxNewTokens: Int,
+        appPolicyMaxNewTokens: Int,
+        temperature: Double,
+        topP: Double,
+        topK: Int,
+        doSample: Bool,
+        repetitionPenalty: Double,
+        source: Qwen3TTSGenerationDefaultSource
+    ) {
+        self.checkpointMaxNewTokens = checkpointMaxNewTokens
+        self.wrapperFallbackMaxNewTokens = wrapperFallbackMaxNewTokens
+        self.appPolicyMaxNewTokens = appPolicyMaxNewTokens
+        self.temperature = temperature
+        self.topP = topP
+        self.topK = topK
+        self.doSample = doSample
+        self.repetitionPenalty = repetitionPenalty
+        self.source = source
+    }
+}
+
+public struct Qwen3TTSModelCapabilities: Hashable, Codable, Sendable {
+    public let modelSize: Qwen3TTSModelSize
+    public let familyType: Qwen3TTSFamilyType
+    public let supportsInstructionControl: Bool
+    public let supportsVoiceClone: Bool
+    public let requiresSpeakerEncoder: Bool
+    public let tokenizerProfile: Qwen3TTSTokenizerProfile
+    public let generationDefaults: Qwen3TTSGenerationDefaultsProfile
+    public let artifactAvailability: Qwen3TTSArtifactAvailability
+
+    public init(
+        modelSize: Qwen3TTSModelSize,
+        familyType: Qwen3TTSFamilyType,
+        supportsInstructionControl: Bool,
+        supportsVoiceClone: Bool,
+        requiresSpeakerEncoder: Bool,
+        tokenizerProfile: Qwen3TTSTokenizerProfile,
+        generationDefaults: Qwen3TTSGenerationDefaultsProfile,
+        artifactAvailability: Qwen3TTSArtifactAvailability
+    ) {
+        self.modelSize = modelSize
+        self.familyType = familyType
+        self.supportsInstructionControl = supportsInstructionControl
+        self.supportsVoiceClone = supportsVoiceClone
+        self.requiresSpeakerEncoder = requiresSpeakerEncoder
+        self.tokenizerProfile = tokenizerProfile
+        self.generationDefaults = generationDefaults
+        self.artifactAvailability = artifactAvailability
+    }
 }
 
 public struct ModelVariantDescriptor: Identifiable, Hashable, Codable, Sendable {
@@ -154,6 +275,7 @@ public struct ModelVariantDescriptor: Identifiable, Hashable, Codable, Sendable 
     public let iosDownloadEligible: Bool
     public let estimatedDownloadBytes: Int64?
     public let requiredRelativePaths: [String]
+    public let qwen3Capabilities: Qwen3TTSModelCapabilities?
 
     public init(
         id: String,
@@ -166,7 +288,8 @@ public struct ModelVariantDescriptor: Identifiable, Hashable, Codable, Sendable 
         artifactVersion: String,
         iosDownloadEligible: Bool,
         estimatedDownloadBytes: Int64?,
-        requiredRelativePaths: [String]
+        requiredRelativePaths: [String],
+        qwen3Capabilities: Qwen3TTSModelCapabilities? = nil
     ) {
         self.id = id
         self.name = name
@@ -179,6 +302,7 @@ public struct ModelVariantDescriptor: Identifiable, Hashable, Codable, Sendable 
         self.iosDownloadEligible = iosDownloadEligible
         self.estimatedDownloadBytes = estimatedDownloadBytes
         self.requiredRelativePaths = requiredRelativePaths
+        self.qwen3Capabilities = qwen3Capabilities
     }
 }
 
@@ -196,6 +320,7 @@ public struct ModelDescriptor: Identifiable, Hashable, Sendable, Codable {
     public let outputSubfolder: String
     public let requiredRelativePaths: [String]
     public let variants: [ModelVariantDescriptor]
+    public let qwen3Capabilities: Qwen3TTSModelCapabilities?
 
     public init(
         id: String,
@@ -210,7 +335,8 @@ public struct ModelDescriptor: Identifiable, Hashable, Sendable, Codable {
         estimatedDownloadBytes: Int64?,
         outputSubfolder: String,
         requiredRelativePaths: [String],
-        variants: [ModelVariantDescriptor] = []
+        variants: [ModelVariantDescriptor] = [],
+        qwen3Capabilities: Qwen3TTSModelCapabilities? = nil
     ) {
         self.id = id
         self.name = name
@@ -225,6 +351,7 @@ public struct ModelDescriptor: Identifiable, Hashable, Sendable, Codable {
         self.outputSubfolder = outputSubfolder
         self.requiredRelativePaths = requiredRelativePaths
         self.variants = variants
+        self.qwen3Capabilities = qwen3Capabilities
     }
 
     public func installDirectory(in modelsDirectory: URL) -> URL {
@@ -236,6 +363,14 @@ public struct ModelDescriptor: Identifiable, Hashable, Sendable, Codable {
         return requiredRelativePaths.allSatisfy { relativePath in
             fileManager.fileExists(atPath: installDirectory.appendingPathComponent(relativePath).path)
         }
+    }
+
+    public var supportsInstructionControl: Bool {
+        qwen3Capabilities?.supportsInstructionControl ?? true
+    }
+
+    public var supportsVoiceClone: Bool {
+        qwen3Capabilities?.supportsVoiceClone ?? (mode == .clone)
     }
 
     public func platformVariants(for platform: ModelArtifactPlatform) -> [ModelVariantDescriptor] {
@@ -259,10 +394,14 @@ public struct ModelDescriptor: Identifiable, Hashable, Sendable, Codable {
 
         switch platform {
         case .iOS:
-            return platformVariants.first(where: { $0.kind == .speed }) ?? platformVariants.first
+            return platformVariants.first(where: { $0.kind == .compactSpeed })
+                ?? platformVariants.first(where: { $0.kind == .speed })
+                ?? platformVariants.first
         case .macOS:
             if deviceClass == .floor8GBMac {
-                return platformVariants.first(where: { $0.kind == .speed }) ?? platformVariants.first
+                return platformVariants.first(where: { $0.kind == .compactSpeed })
+                    ?? platformVariants.first(where: { $0.kind == .speed })
+                    ?? platformVariants.first
             }
             return platformVariants.first(where: { $0.kind == .quality }) ?? platformVariants.first
         }
@@ -297,7 +436,8 @@ public struct ModelDescriptor: Identifiable, Hashable, Sendable, Codable {
             estimatedDownloadBytes: variant.estimatedDownloadBytes,
             outputSubfolder: outputSubfolder,
             requiredRelativePaths: variant.requiredRelativePaths,
-            variants: variants
+            variants: variants,
+            qwen3Capabilities: variant.qwen3Capabilities ?? qwen3Capabilities
         )
     }
 }

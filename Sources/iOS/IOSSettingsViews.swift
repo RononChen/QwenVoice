@@ -620,7 +620,10 @@ private struct IOSModelRow: View {
     /// change.
     private func installSheetDescription(for mode: GenerationMode) -> String {
         switch mode {
-        case .custom: return "Built-in speaker presets with controllable emotion and delivery."
+        case .custom:
+            return model.supportsInstructionControl
+                ? "Built-in speaker presets with controllable emotion and delivery."
+                : "Smaller built-in speaker package optimized for iPhone memory."
         case .design: return "Describe a voice in natural language and Vocello renders it."
         case .clone:  return "Speak your text in a saved voice or any 10-20 s reference clip."
         }
@@ -841,7 +844,27 @@ private struct IOSModelRow: View {
     }
 
     private var variantDisplayText: String {
-        return "4-bit Speed"
+        var parts: [String] = []
+        switch model.qwen3Capabilities?.modelSize {
+        case .compact0b6:
+            parts.append("0.6B")
+        case .pro1b7:
+            parts.append("1.7B")
+        case nil:
+            break
+        }
+        if model.folder.localizedCaseInsensitiveContains("4bit") {
+            parts.append("4-bit")
+        } else if model.folder.localizedCaseInsensitiveContains("8bit") {
+            parts.append("8-bit")
+        }
+        if model.mode == .custom, model.supportsInstructionControl == false {
+            parts.append("speaker only")
+        }
+        if model.mode == .clone, model.supportsVoiceClone {
+            parts.append("clone")
+        }
+        return parts.isEmpty ? "On-device" : parts.joined(separator: " · ")
     }
 
     private var estimatedSizeText: String? {

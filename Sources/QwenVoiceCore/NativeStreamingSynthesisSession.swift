@@ -221,26 +221,22 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
                 voiceClonePrompt: voiceClonePrompt,
                 streamingInterval: streamingInterval
             )
-        case .custom(let speakerID, let deliveryStyle):
-            let language = GenerationSemantics.qwenLanguageHint(for: request)
-            let speaker = speakerID.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .custom:
+            let prompt = GenerationSemantics.qwen3PromptAssembly(for: request)
+            let speaker = prompt.speakerID ?? GenerationSemantics.canonicalCustomWarmSpeaker
             return model.generateCustomVoiceStream(
                 text: request.text,
-                language: language,
+                language: prompt.language,
                 speaker: speaker,
-                instruct: GenerationSemantics.customInstruction(for: request),
+                instruct: prompt.instruct,
                 streamingInterval: streamingInterval
             )
-        case .design(let voiceDescription, let deliveryStyle):
-            let language = GenerationSemantics.qwenLanguageHint(for: request)
+        case .design:
+            let prompt = GenerationSemantics.qwen3PromptAssembly(for: request)
             return model.generateVoiceDesignStream(
                 text: request.text,
-                language: language,
-                voiceDescription: GenerationSemantics.voiceDesignInstruction(for: request)
-                    ?? GenerationSemantics.designInstruction(
-                        voiceDescription: voiceDescription,
-                        emotion: deliveryStyle ?? ""
-                    ),
+                language: prompt.language,
+                voiceDescription: prompt.instruct ?? "",
                 streamingInterval: streamingInterval
             )
         }
@@ -903,22 +899,20 @@ private struct StreamingExecutionContext: Sendable {
                 language: language,
                 voiceClonePrompt: voiceClonePrompt
             )
-        case .custom(let speakerID, let deliveryStyle):
+        case .custom:
+            let prompt = GenerationSemantics.qwen3PromptAssembly(for: request)
             return try await model.generateCustomVoice(
                 text: request.text,
-                language: GenerationSemantics.qwenLanguageHint(for: request),
-                speaker: speakerID.trimmingCharacters(in: .whitespacesAndNewlines),
-                instruct: GenerationSemantics.customInstruction(for: request)
+                language: prompt.language,
+                speaker: prompt.speakerID ?? GenerationSemantics.canonicalCustomWarmSpeaker,
+                instruct: prompt.instruct
             )
-        case .design(let voiceDescription, let deliveryStyle):
+        case .design:
+            let prompt = GenerationSemantics.qwen3PromptAssembly(for: request)
             return try await model.generateVoiceDesign(
                 text: request.text,
-                language: GenerationSemantics.qwenLanguageHint(for: request),
-                voiceDescription: GenerationSemantics.voiceDesignInstruction(for: request)
-                    ?? GenerationSemantics.designInstruction(
-                        voiceDescription: voiceDescription,
-                        emotion: deliveryStyle ?? ""
-                    )
+                language: prompt.language,
+                voiceDescription: prompt.instruct ?? ""
             )
         }
     }

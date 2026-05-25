@@ -19,14 +19,14 @@ The audit is grounded in:
 
 The current app is still built on the same core foundation stack: Qwen3-TTS model families, a vendored `mlx-audio-swift` runtime layer, MLX Swift, Hugging Face Swift libraries, and GRDB for local persistence.
 
-The healthiest dependencies are `GRDB.swift`, `swift-huggingface`, `swift-jinja`, and several Apple transitive packages, whose pinned versions match the latest release tags observed during this audit. The highest-risk foundation is the vendored `third_party_patches/mlx-audio-swift` tree: it is intentionally customized and central to generation, but its exact upstream source SHA is not recorded. The main runtime stack is also behind current upstream MLX tags, so updates should be treated as a controlled backend/vendor refresh with manual generation-quality proof, not a routine package bump.
+The healthiest dependencies are `GRDB.swift`, `swift-huggingface`, `swift-jinja`, and several Apple transitive packages, whose pinned versions match the latest release tags observed during this audit. The highest-risk foundation is the vendored `third_party_patches/mlx-audio-swift` tree: it is intentionally customized, central to generation, and now has a recorded upstream seed plus local patches that must stay narrow and documented. The main runtime stack is also behind current upstream MLX tags, so updates should be treated as a controlled backend/vendor refresh with manual generation-quality proof, not a routine package bump.
 
 ## Core Foundations
 
 | Foundation | Current source | Still used? | Currentness | Customized locally? | Recommendation |
 | --- | --- | --- | --- | --- | --- |
 | Qwen3-TTS / mlx-community models | `Sources/Resources/qwenvoice_contract.json` | Yes, all three modes | Model repos are pinned to immutable revisions in the contract | No local model files are tracked; app contract customizes mode/variant mapping | Keep repo IDs, artifact versions, and revision pins aligned |
-| `mlx-audio-swift` | `third_party_patches/mlx-audio-swift/` | Yes, central runtime foundation | Unknown exact snapshot; upstream SHA is not recorded | Yes, intentionally vendored and adapted | Record upstream SHA before further backend work |
+| `mlx-audio-swift` | `third_party_patches/mlx-audio-swift/` | Yes, central runtime foundation | Tracks upstream `v0.1.2` commit `fcbd04daa1bfebe881932f630af2ba6ce9af3274` plus local patches | Yes, intentionally vendored and adapted | Keep targeted local patches documented; isolate upstream refresh work |
 | MLX Swift | `project.yml`, Package.resolved | Yes, native tensor/runtime dependency | Pinned `0.30.6`; latest observed tag `0.31.3` | No | Defer update to controlled vendor refresh |
 | MLX Swift LM | Vendored package dependency | Yes, via MLXAudio TTS internals | Pinned `2.30.6`; latest observed tag `3.31.3` | No | Defer update to controlled vendor refresh |
 | Hugging Face Swift tooling | `project.yml`, vendored package manifest | Yes, direct package plus vendored imports | `swift-huggingface` current; `swift-transformers` behind | No package patches; app has its own downloader | Keep `swift-huggingface`; review Transformers only with MLXAudio refresh |
@@ -36,13 +36,13 @@ The healthiest dependencies are `GRDB.swift`, `swift-huggingface`, `swift-jinja`
 
 Qwen3-TTS remains the model foundation for the current product. The root README credits `Qwen3-TTS`, and `Sources/Resources/qwenvoice_contract.json` maps the three product modes to Qwen3-TTS model families:
 
-| Product mode | macOS Quality variant repo | macOS/iPhone Speed variant repo | Contract artifact version |
+| Product mode | macOS Quality track | macOS/iPhone lower-memory track | Contract artifact versions |
 | --- | --- | --- | --- |
-| Custom Voice | `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit` | `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit` | `2026.04.05.2` |
+| Custom Voice | `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit` plus `0.6B-CustomVoice-8bit` | `0.6B-CustomVoice-4bit` preferred on iPhone/lower-RAM Macs; `1.7B-CustomVoice-4bit` remains available on macOS | `2026.05.25.1` for 0.6B, `2026.04.05.2` for 1.7B |
 | Voice Design | `mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit` | `mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-4bit` | `2026.04.05.2` |
-| Voice Cloning | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit` | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-4bit` | `2026.04.05.2` |
+| Voice Cloning | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit` plus `0.6B-Base-8bit` | `0.6B-Base-4bit` preferred on iPhone/lower-RAM Macs; `1.7B-Base-4bit` remains available on macOS | `2026.05.25.1` for 0.6B, `2026.04.05.2` for 1.7B |
 
-macOS treats both variant repos as first-class downloadable rows, with the active default and recommendation derived from hardware class. iPhone remains Speed-only. The live Hugging Face checks recorded during the 2026-05-08 RC1 remediation found the referenced model repos and repository SHAs below; these SHAs are now pinned in the contract as `huggingFaceRevision`.
+macOS treats every declared variant repo as a first-class downloadable row, with the active default and recommendation derived from hardware class. iPhone resolves one downloadable package per mode: 0.6B Custom Voice, 1.7B Voice Design, and 0.6B Base/Clone. The live Hugging Face checks recorded during the 2026-05-25 Qwen3 optimization pass found the referenced 0.6B model repos and repository SHAs below; these SHAs are pinned in the contract as `huggingFaceRevision`. Qwen3 25 Hz remains research-described but not app-supported until public downloadable artifacts are verified.
 
 | Model repo | Last modified | Current SHA |
 | --- | --- | --- |
@@ -52,6 +52,10 @@ macOS treats both variant repos as first-class downloadable rows, with the activ
 | `mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-4bit` | 2026-01-25 | `5c390979e4b93af5f2932f90742ca99c7dd04687` |
 | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit` | 2026-01-25 | `e7dd0585652209fa0d7783659aad4e8a324de11c` |
 | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-4bit` | 2026-01-25 | `37e955a1deb861c088ae5f3a67043185f3d1a60c` |
+| `mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit` | 2026-05-25 verified | `049ef77fe8816b536193c0c25f9a214d17921282` |
+| `mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-4bit` | 2026-05-25 verified | `08c72cad5e2fd0f41730c8bd1f28149585e46361` |
+| `mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit` | 2026-05-25 verified | `50f45ef0047cde7e84c2ef04326acb8ada2436a7` |
+| `mlx-community/Qwen3-TTS-12Hz-0.6B-Base-4bit` | 2026-05-25 verified | `0d6bb6fe33f92d47a507e23b9148940e8366ab5b` |
 
 The app now pins those remote SHAs in the contract. The `artifactVersion` field remains a repo contract/delivery marker; `huggingFaceRevision` is the immutable Hugging Face revision lock used by macOS downloads.
 
@@ -76,7 +80,7 @@ The vendor docs state that this copy is intentionally customized for:
 - deterministic app link surfaces
 - avoiding any repo-owned Python backend path
 
-`UPSTREAM.md` explicitly says the current upstream source revision has not been recorded. A live upstream check found `Blaizzy/mlx-audio-swift` at `dfb938211eb4132966bd703e626c0307a0b4bb44` with latest tag `v0.1.2`, but this repo cannot prove which upstream commit the vendored snapshot came from. Treat the vendored tree as maintained local source until that provenance is recorded.
+`UPSTREAM.md` now records the vendor provenance seed as upstream `v0.1.2` commit `fcbd04daa1bfebe881932f630af2ba6ce9af3274`. Treat the vendored tree as maintained local source: targeted fixes are allowed when documented and validated, while upstream rebases or fresh snapshots remain dedicated vendor-refresh work.
 
 ### MLX Swift And MLX Swift LM
 
@@ -149,8 +153,8 @@ The behind transitive packages are not urgent by themselves. Updating them shoul
 
 ## Actionable Recommendations
 
-1. Record the exact upstream `mlx-audio-swift` commit SHA and snapshot date before any further backend or vendor work. This is the largest provenance gap.
+1. Keep `third_party_patches/mlx-audio-swift/` patches narrow, documented, and validated; do not mix targeted fixes with upstream snapshot/rebase work.
 2. Keep immutable Hugging Face revision pins current only when the maintainer intentionally changes the model artifact set.
 3. Defer MLX Swift, MLX Swift LM, and Swift Transformers upgrades until a dedicated vendor refresh can run source tests, macOS/iOS foundation builds, autonomous audio QC, and cold/warm generation timing.
 4. Keep `GRDB.swift` and `swift-huggingface` unchanged for now because their pinned versions match the latest observed release tags.
-5. Keep `third_party_patches/mlx-audio-swift/` narrow and readable; do not mass-format or fold unrelated upstream products into app targets.
+5. Keep `third_party_patches/mlx-audio-swift/` readable; do not mass-format or fold unrelated upstream products into app targets.

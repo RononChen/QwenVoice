@@ -24,7 +24,7 @@ Defaults:
 
 - device: the paired physical iPhone 17 Pro, currently `iPhone de Patrice`
 - build: Debug, direct install, automatic signing
-- catalog: bundled production iPhone catalog, with model artifacts downloaded from pinned Hugging Face revisions
+- catalog: bundled production iPhone catalog, with 0.6B Custom/Clone and 1.7B Design artifacts downloaded from pinned Hugging Face revisions
 - signing team resolution: `QVOICE_IOS_TEAM_ID`, `QWENVOICE_DEVELOPMENT_TEAM`, `APPLE_TEAM_ID`, then `FK2D8X36G2`
 - app data: preserved across runs unless you manually uninstall or clear the app; the May 2026 identity rename intentionally reset pre-release data by moving to `group.com.patricedery.vocello.shared`
 - proactive iPhone prefetch: disabled by default; explicit generation owns model load/warm work

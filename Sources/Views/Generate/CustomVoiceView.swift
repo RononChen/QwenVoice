@@ -143,6 +143,10 @@ struct CustomVoiceView: View {
         activeModel.map(modelManager.generationVariantDisplayName) ?? "Unknown"
     }
 
+    private var supportsDeliveryControl: Bool {
+        activeModel?.supportsInstructionControl ?? true
+    }
+
     private var readinessPresentation: CustomVoiceReadinessPresentation {
         CustomVoiceReadinessPresentation.resolve(
             snapshot: ttsEngineStore.snapshot,
@@ -229,7 +233,9 @@ private extension CustomVoiceView {
     var configurationPanel: some View {
         CompactConfigurationSection(
             title: "Configuration",
-            detail: "Pick a built-in speaker, then shape the delivery before you generate.",
+            detail: supportsDeliveryControl
+                ? "Pick a built-in speaker, then shape the delivery before you generate."
+                : "Pick a built-in speaker. This Qwen3 Lite Custom Voice package does not support delivery instructions.",
             iconName: "slider.horizontal.3",
             accentColor: AppTheme.customVoice,
             trailingAccessory: AnyView(variantSelector),
@@ -239,7 +245,11 @@ private extension CustomVoiceView {
         ) {
             VStack(alignment: .leading, spacing: 0) {
                 speakerSettings
-                deliverySettings
+                if supportsDeliveryControl {
+                    deliverySettings
+                } else {
+                    deliveryUnsupportedHint
+                }
             }
         }
         .overlay(alignment: .topLeading) {
@@ -327,6 +337,14 @@ private extension CustomVoiceView {
         .padding(.vertical, LayoutConstants.generationConfigurationRowVerticalPadding)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("customVoice_toneSpeed")
+    }
+
+    var deliveryUnsupportedHint: some View {
+        Text("Delivery controls are available with 1.7B Custom Voice. Lite keeps the selected speaker and script only.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.vertical, LayoutConstants.generationConfigurationRowVerticalPadding)
+            .accessibilityIdentifier("customVoice_deliveryUnsupported")
     }
 
     // speakerPicker moved to SpeakerPickerRow struct for rebuild isolation

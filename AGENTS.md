@@ -229,7 +229,7 @@ Two-platform Swift codebase with an out-of-process engine on each platform.
 
 **Engine routing:** `AppEngineSelection.current()` picks the engine per platform — XPC client on macOS, extension-backed engine on iOS.
 
-**Generation flows** (UI side): three coordinators map to the three workflows — `CustomVoiceCoordinator`, `VoiceDesignCoordinator`, `VoiceCloningCoordinator`. Speed (4-bit) vs Quality (8-bit) variant choice lives on the generation screens, not in Settings. iPhone is Speed-only; 8 GB Macs default to Speed, larger Macs default to Quality. iOS exposes an additional 3-segment intensity picker (`Subtle / Normal / Strong`) below the delivery preset selector when a non-neutral preset is chosen; `DeliveryInputState.selectedIntensity` carries the value through to `EmotionPreset.preset(preset, intensity:)`. iOS Voice Cloning also exposes a "Generate batch…" affordance backed by `IOSBatchGenerationCoordinator` (sequential single-call loop, distinct from the macOS `BatchGenerationRunner`) and `IOSBatchGenerationSheet`.
+**Generation flows** (UI side): three coordinators map to the three workflows — `CustomVoiceCoordinator`, `VoiceDesignCoordinator`, `VoiceCloningCoordinator`. Qwen3 variants now include Lite/Lite+ 0.6B where public artifacts exist plus Speed/Quality 1.7B; selection lives on the generation screens, while Settings manages all downloadable rows. iPhone resolves one package per mode from the bundled catalog: 0.6B Custom Voice, 1.7B Voice Design, and 0.6B Base/Clone. 8 GB Macs default to the lower-memory track; larger Macs default to Quality. iOS exposes an additional 3-segment intensity picker (`Subtle / Normal / Strong`) below the delivery preset selector when a non-neutral preset is chosen and the active model supports instruction control; `DeliveryInputState.selectedIntensity` carries the value through to `EmotionPreset.preset(preset, intensity:)`. iOS Voice Cloning also exposes a "Generate batch…" affordance backed by `IOSBatchGenerationCoordinator` (sequential single-call loop, distinct from the macOS `BatchGenerationRunner`) and `IOSBatchGenerationSheet`.
 
 **iOS design tokens align to macOS** (May 2026, commit `287c969`). `IOSAppTheme.subtleGlassTint` is 14% opacity (matches macOS `surfaceGlassTint` dark); `accentStroke` is 34%; `accentWash` is 20%. Neutral palette is warm-tinted (`textSecondary` ~`#C5BFAE`, `textTertiary` ~`#7E7868`) rather than cool blue-gray. Card corner radii unify at 16 pt; chips and badges are flat (no glass) per the macOS May 2026 chip audit. Brand wordmark uses SF Rounded semibold, mirroring `Sources/Views/Sidebar/SidebarView.swift`. When changing iOS colors, check the macOS values first — these are intentionally locked together.
 
@@ -305,13 +305,13 @@ The fix is a monitor-style gate: `prewarmInFlight: Bool` + `prewarmWaiters: [Che
 
 The macOS and iOS app-facing stores expose `hasActiveGeneration`, and generation UIs must use that shared state to disable cross-mode controls and show cancellation. The macOS XPC host and iOS extension host reject concurrent generation instead of replacing active handles. Streaming chunks carry a UUID `generationID`; numeric `requestID` remains useful for logs/signposts but must not be the sole playback-session identity across service/runtime restarts. Vendored Qwen streaming producers must cancel their producer `Task` from `AsyncThrowingStream` termination and check cancellation inside token/decode loops so orphaned consumers cannot leave MLX generation running.
 
-### Quality → Speed OOM fallback on floor8GBMac
+### Quality → lower-memory OOM fallback on floor8GBMac
 
-`MLXTTSEngine.loadModel(id:)` catches load failures on floor8GBMac. If the failed model was a Quality variant AND the error matches OOM heuristics (NSError localizedDescription contains "memory" / "allocate" / "allocation", or NSPOSIXErrorDomain ENOMEM), the engine retries with the Speed sibling derived via the registry. `visibleErrorMessage` surfaces "Switched to Speed (4-bit) — Quality didn't fit in memory." If the fallback ALSO fails, the original error propagates (no cascade).
+`MLXTTSEngine.loadModel(id:)` catches load failures on floor8GBMac. If the failed model was an 8-bit variant AND the error matches OOM heuristics (NSError localizedDescription contains "memory" / "allocate" / "allocation", or NSPOSIXErrorDomain ENOMEM), the engine retries with the lowest-memory 4-bit sibling derived via the registry: `compact_speed` when present, otherwise `speed`. If the fallback ALSO fails, the original error propagates (no cascade).
 
-### Settings → Performance → "Always use Speed (4-bit) models"
+### Settings → Performance → "Prefer lower-memory models"
 
-Global UserDefaults override at key `QwenVoice.PreferSpeedEverywhere`. When set, `TTSContract.activeModel(...)` short-circuits the per-mode preference and returns the Speed variant for every mode. Default false (preserves existing per-mode behavior). UI in `SettingsView.swift` with `accessibilityIdentifier("settings_preferSpeedEverywhere")`.
+Global UserDefaults override at key `QwenVoice.PreferSpeedEverywhere` (legacy key name retained). When set, `TTSContract.activeModel(...)` short-circuits the per-mode preference and returns `compact_speed` when the mode has a verified 0.6B artifact, otherwise `speed`. Default false (preserves existing per-mode behavior). UI in `SettingsView.swift` with `accessibilityIdentifier("settings_preferSpeedEverywhere")`.
 
 ### Prewarm signposts for bench traces
 
@@ -328,9 +328,9 @@ Two OSSignposter events in `NativeEngineRuntime` for bench/forensics: `"Native P
 
 ## Known traps
 
-### Streaming preview enabled production-wide (as of `f6aa8e3`); batch generation stays quality-first
+### Internal chunked generation and preview playback
 
-`shouldStream: true` at the user-facing single-generation call sites (3 macOS coordinators + 4 active iOS generation builders); the iOS readiness/prefetch builders stream too. `BatchGenerationRunner` stays `shouldStream: false` by design — macOS batch is quality-first regardless. The user hears the first audio chunk within ~3-6 seconds of pressing generate on cold cells, vs ~8-15 seconds for the materialize-then-play flow that preceded it.
+`shouldStream: true` at the user-facing single-generation call sites (3 macOS coordinators + active iOS generation builders); the iOS readiness/prefetch builders stream too. This is Vocello's internal chunked preview/final-file pipeline, not a claim that the app exposes Qwen's public Python true end-to-end streaming API. Physical iOS defaults to final-file playback and omits inline PCM chunk payloads unless the Debug event sink plus chunk-file output are explicitly enabled. `BatchGenerationRunner` stays `shouldStream: false` by design — macOS batch is quality-first regardless. On macOS preview-enabled runs, the user hears the first audio chunk within ~3-6 seconds of pressing generate on cold cells, vs ~8-15 seconds for the materialize-then-play flow that preceded it.
 
 **Bench-measured perceived-speed gain** (Phase 3 cycle, against `fa94cc7` baselines):
 
@@ -368,12 +368,13 @@ Mean gain across all 6 cells: **+4.5 s** saved on time-to-first-sound.
 ## SPM dependencies (pinned in `project.yml`)
 
 - `MLXSwift` 0.30.6 (`https://github.com/ml-explore/mlx-swift.git`)
-- `MLXAudio` — **vendored locally** at `third_party_patches/mlx-audio-swift/` (Vocello-specific patches; do not replace with the upstream package without porting patches)
+- `MLXAudio` — **vendored locally** at `third_party_patches/mlx-audio-swift/` (Vocello-specific patches; targeted edits are allowed when they are narrow, documented, validated, and kept isolated from upstream refresh work)
 - `SwiftHuggingFace` 0.9.0 (model downloads)
 - `GRDB` 7.10.0 (local SQLite — history, saved voices, model metadata)
 
 ## Conventions to preserve
 
+- Changes inside `third_party_patches/mlx-audio-swift/` are permitted for backend correctness, memory, cancellation, streaming, model-loading, and performance work when the fix genuinely belongs below `QwenVoiceCore`. Keep those edits small, preserve upstream style, document the behavior or performance reason in the commit or relevant doc, and run the validation gates listed in `docs/reference/mlx-audio-swift-patching.md`. Treat an upstream rebase/snapshot as a separate vendor-refresh task; do not mix it with a targeted local fix.
 - `accessibilityIdentifier` values in UI (e.g., `voicesRow_*`, `voicesEnroll_*`) are stable surface area — keep them when refactoring views.
 - Animations route through `appAnimation` / `AppLaunchConfiguration.performAnimated` so Reduced Motion is honored; Liquid Glass surfaces must fall back to solid fills when Reduce Transparency is on. Both are non-negotiable per `PRODUCT.md`.
 - Do not propose reintroducing a Python backend, a standalone CLI, or bundled model weights.

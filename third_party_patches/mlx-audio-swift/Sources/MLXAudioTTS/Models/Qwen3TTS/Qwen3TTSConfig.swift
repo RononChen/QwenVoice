@@ -492,6 +492,41 @@ public struct Qwen3TTSTokenizerConfig: Codable, Sendable {
         decodeUpsampleRate = try c.decodeIfPresent(Int.self, forKey: .decodeUpsampleRate) ?? 1920
         encodeDownsampleRate = try c.decodeIfPresent(Int.self, forKey: .encodeDownsampleRate) ?? 1920
     }
+
+    func qwen3TTS12HzValidationFailure(includeEncoder: Bool) -> String? {
+        guard inputSampleRate == 24_000, outputSampleRate == 24_000 else {
+            return "expected 24 kHz speech tokenizer I/O, found input=\(inputSampleRate) output=\(outputSampleRate)"
+        }
+        guard decodeUpsampleRate == 1_920, encodeDownsampleRate == 1_920 else {
+            return "expected 12.5 fps tokenizer stride (24_000 / 1_920), found decode=\(decodeUpsampleRate) encode=\(encodeDownsampleRate)"
+        }
+        guard encoderValidNumQuantizers == 16 else {
+            return "expected encoder_valid_num_quantizers=16, found \(encoderValidNumQuantizers)"
+        }
+        guard let decoderConfig else {
+            return "missing decoder_config"
+        }
+        guard decoderConfig.numQuantizers == 16 else {
+            return "expected decoder num_quantizers=16, found \(decoderConfig.numQuantizers)"
+        }
+        guard decoderConfig.codebookSize == 2_048 else {
+            return "expected decoder codebook_size=2048, found \(decoderConfig.codebookSize)"
+        }
+        guard decoderConfig.semanticCodebookSize == 4_096 else {
+            return "expected decoder semantic_codebook_size=4096, found \(decoderConfig.semanticCodebookSize)"
+        }
+        if let encoderConfig {
+            guard encoderConfig.numQuantizers == 32 else {
+                return "expected encoder configured num_quantizers=32, found \(encoderConfig.numQuantizers)"
+            }
+            guard abs(encoderConfig.frameRate - 12.5) <= 0.001 else {
+                return "expected encoder frame_rate=12.5, found \(encoderConfig.frameRate)"
+            }
+        } else if includeEncoder {
+            return "includeEncoder=true but encoder_config is missing"
+        }
+        return nil
+    }
 }
 
 // MARK: - Top-level Model Config

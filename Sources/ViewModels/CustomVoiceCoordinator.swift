@@ -129,7 +129,7 @@ final class CustomVoiceCoordinator: ObservableObject {
             streamingTitle: Swift.String(draft.text.prefix(40)),
             payload: .custom(
                 speakerID: draft.selectedSpeaker,
-                deliveryStyle: draft.emotion
+                deliveryStyle: model.supportsInstructionControl ? draft.emotion : nil
             )
         )
     }

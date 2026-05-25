@@ -10,7 +10,7 @@ Follows the [Standard smoke skeleton](ui-test-surface.md#standard-smoke-skeleton
 |---|---|
 | Section to land on | top of Settings → Model downloads |
 | Model id asserted | `pro_custom` (Custom Voice) |
-| Expected status | At least one of `Speed (4-bit)` or `Quality (8-bit)` rows shows "Ready" |
+| Expected status | At least one Custom Voice package row, such as `Lite (0.6B 4-bit)` or `Speed (1.7B 4-bit)`, shows "Ready" |
 | smoke-check arg | `custom` (without it Settings would show "not installed" instead of "Ready") |
 
 ## Mode-specific deltas
@@ -21,8 +21,8 @@ Skeleton Phases 1–3 are unchanged. In Phase 4:
 2. **Verify the Custom Voice model package renders**:
    - `scripts/uitest.sh locate settings_packageStatus_pro_custom` should succeed.
    - `scripts/uitest.sh locate settings_package_pro_custom` should also succeed.
-   - Cross-check via screenshot — the section shows "Speed (4-bit)" and "Quality (8-bit)" sub-rows; at least one is labeled "Ready".
-3. **Optional variant-package check**: the Speed variant's row exposes `settings_packageStatus_pro_custom_speed` (or `…_quality`). If the AX id doesn't resolve, screenshot and read the visible "Ready" / "Repair" / "Download" badge per row.
+   - Cross-check via screenshot — the section shows Lite/Speed/Quality package rows for the variants declared in `qwenvoice_contract.json`; at least one is labeled "Ready".
+3. **Optional variant-package check**: the Lite row exposes `settings_packageStatus_pro_custom_compact_speed` when installed (or `…_speed` / `…_quality` for other variants). If the AX id doesn't resolve, screenshot and read the visible "Ready" / "Repair" / "Download" badge per row.
 
 ### Skipping `verify-generation`
 

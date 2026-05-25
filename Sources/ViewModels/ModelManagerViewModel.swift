@@ -185,18 +185,11 @@ final class ModelManagerViewModel: ObservableObject {
     }
 
     func variant(for mode: GenerationMode, kind: TTSModelVariantKind) -> TTSModel? {
-        let pair = pairedVariants(for: mode)
-        switch kind {
-        case .speed:
-            return pair.speed
-        case .quality:
-            return pair.quality
-        }
+        variants(for: mode).first { $0.variantKind == kind }
     }
 
     func hasInstalledVariant(for mode: GenerationMode) -> Bool {
-        let pair = pairedVariants(for: mode)
-        return [pair.speed, pair.quality].compactMap { $0 }.contains(where: isAvailable)
+        variants(for: mode).contains(where: isAvailable)
     }
 
     func generationActiveVariant(for mode: GenerationMode) -> TTSModel? {
@@ -221,12 +214,18 @@ final class ModelManagerViewModel: ObservableObject {
         return fallback
     }
 
-    /// Returns the Speed and Quality variants for a generation
-    /// mode in display order. Either side can be `nil` if the
-    /// manifest doesn't include that variant kind for the mode
-    /// (today every mode has both; this stays defensive in case
-    /// future contract changes drop one). Used by the Models tab
-    /// to render both variants on a single row.
+    /// Returns all variants for a generation mode in picker order:
+    /// 0.6B variants first, then 1.7B variants.
+    func variants(for mode: GenerationMode) -> [TTSModel] {
+        TTSModel.all
+            .filter { $0.mode == mode }
+            .sorted { lhs, rhs in
+                variantSortIndex(lhs.variantKind) < variantSortIndex(rhs.variantKind)
+            }
+    }
+
+    /// Legacy helper retained for call sites that still need the original
+    /// two-package projection. New UI should use `variants(for:)`.
     func pairedVariants(
         for mode: GenerationMode
     ) -> (speed: TTSModel?, quality: TTSModel?) {
@@ -237,9 +236,8 @@ final class ModelManagerViewModel: ObservableObject {
     }
 
     func activeVariant(for mode: GenerationMode) -> TTSModel? {
-        let pair = pairedVariants(for: mode)
-        let modeModels = TTSModel.all.filter { $0.mode == mode }
-        let recommended = recommendedVariant(for: mode) ?? pair.speed ?? pair.quality
+        let modeModels = variants(for: mode)
+        let recommended = recommendedVariant(for: mode) ?? modeModels.first
         let selectedVariantID = MacModelVariantPreferences.selectedVariantID(
             for: mode,
             defaultVariantID: recommended?.variantID
@@ -248,15 +246,17 @@ final class ModelManagerViewModel: ObservableObject {
     }
 
     func recommendedVariant(for mode: GenerationMode) -> TTSModel? {
-        let preferredKind = recommendedVariantKind
-        return TTSModel.all.first { $0.mode == mode && $0.variantKind == preferredKind }
-            ?? TTSModel.all.first { $0.mode == mode && $0.isHardwareRecommended }
-            ?? TTSModel.all.first { $0.mode == mode }
+        let modeModels = variants(for: mode)
+        for preferredKind in recommendedVariantKinds {
+            if let model = modeModels.first(where: { $0.variantKind == preferredKind }) {
+                return model
+            }
+        }
+        return modeModels.first { $0.isHardwareRecommended } ?? modeModels.first
     }
 
     private func installedFallbackVariant(for mode: GenerationMode) -> TTSModel? {
-        let pair = pairedVariants(for: mode)
-        let candidates = [recommendedVariant(for: mode), pair.speed, pair.quality].compactMap { $0 }
+        let candidates = [recommendedVariant(for: mode)].compactMap { $0 } + variants(for: mode)
         var seen = Set<String>()
         return candidates.first { candidate in
             seen.insert(candidate.id).inserted && isAvailable(candidate)
@@ -371,17 +371,30 @@ final class ModelManagerViewModel: ObservableObject {
     /// `recommendedMemoryGB` field to the manifest later, this
     /// is the single seam to extend.
     func isHardwareRisky(_ model: TTSModel) -> Bool {
-        guard model.variantKind == .quality else { return false }
-        return deviceClass == .floor8GBMac
+        guard deviceClass == .floor8GBMac else { return false }
+        if model.variantKind == .quality {
+            return true
+        }
+        return model.qwen3Capabilities?.modelSize == .pro1b7
+            && model.variantKind != .compactSpeed
+            && model.variantKind != .compactQuality
     }
 
-    private var recommendedVariantKind: TTSModelVariantKind {
+    private var recommendedVariantKinds: [TTSModelVariantKind] {
         switch deviceClass {
         case .floor8GBMac, .iPhonePro:
-            return .speed
+            return [.compactSpeed, .speed, .compactQuality, .quality]
         case .mid16GBMac, .highMemoryMac:
-            return .quality
+            return [.quality, .speed, .compactQuality, .compactSpeed]
         }
+    }
+
+    private func variantSortIndex(_ kind: TTSModelVariantKind?) -> Int {
+        guard let kind,
+              let index = TTSModelVariantKind.allCases.firstIndex(of: kind) else {
+            return Int.max
+        }
+        return index
     }
 
     /// Localized "1.6 GB" / "3.2 GB" string for model download

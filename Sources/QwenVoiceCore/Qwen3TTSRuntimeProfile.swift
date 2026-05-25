@@ -1,4 +1,5 @@
 import Foundation
+import QwenVoiceBackendCore
 
 enum Qwen3TTSRuntimeProfileError: LocalizedError, Sendable {
     case missingFile(String)
@@ -52,6 +53,19 @@ enum Qwen3TTSModelFamily: String, Codable, Hashable, Sendable {
     }
 }
 
+private extension Qwen3TTSFamilyType {
+    var runtimeFamily: Qwen3TTSModelFamily {
+        switch self {
+        case .customVoice:
+            return .customVoice
+        case .voiceDesign:
+            return .voiceDesign
+        case .baseClone:
+            return .baseClone
+        }
+    }
+}
+
 enum Qwen3TTSQuantizationTier: String, Codable, Hashable, Sendable {
     case fourBit = "4bit"
     case eightBit = "8bit"
@@ -60,9 +74,15 @@ enum Qwen3TTSQuantizationTier: String, Codable, Hashable, Sendable {
 
 struct Qwen3TTSGenerationDefaults: Hashable, Codable, Sendable {
     let maxTokens: Int?
+    let topK: Int?
     let topP: Double?
+    let doSample: Bool?
     let temperature: Double?
     let repetitionPenalty: Double?
+
+    var source: Qwen3TTSGenerationDefaultSource {
+        maxTokens == nil ? .wrapperFallback : .checkpoint
+    }
 }
 
 struct Qwen3TTSRuntimeProfile: Hashable, Codable, Sendable {
@@ -95,6 +115,8 @@ struct Qwen3TTSRuntimeProfile: Hashable, Codable, Sendable {
     let requiredComponents: [String]
     let supportedSpeakers: [String]
     let generationDefaults: Qwen3TTSGenerationDefaults
+    let modelSize: Qwen3TTSModelSize?
+    let supportsInstructionControl: Bool
     let validationSignature: String
 
     static func load(
@@ -160,10 +182,13 @@ struct Qwen3TTSRuntimeProfile: Hashable, Codable, Sendable {
             descriptor: descriptor.model,
             config: config
         )
+        let modelSize = qwenModelSize(string(config["tts_model_size"]))
         let generationDefaults = Qwen3TTSGenerationDefaults(
             maxTokens: int(generationConfig["max_new_tokens"])
                 ?? int(generationConfig["max_tokens"]),
+            topK: int(generationConfig["top_k"]),
             topP: double(generationConfig["top_p"]),
+            doSample: bool(generationConfig["do_sample"]),
             temperature: double(generationConfig["temperature"]),
             repetitionPenalty: double(generationConfig["repetition_penalty"])
         )
@@ -176,6 +201,7 @@ struct Qwen3TTSRuntimeProfile: Hashable, Codable, Sendable {
             tokenizerType,
             languages.joined(separator: ","),
             speakers.joined(separator: ","),
+            modelSize?.rawValue ?? "unknown",
         ]
 
         return Qwen3TTSRuntimeProfile(
@@ -190,6 +216,8 @@ struct Qwen3TTSRuntimeProfile: Hashable, Codable, Sendable {
             requiredComponents: requiredComponents,
             supportedSpeakers: speakers,
             generationDefaults: generationDefaults,
+            modelSize: modelSize,
+            supportsInstructionControl: modelSize != .compact0b6 || modelFamily != .customVoice,
             validationSignature: signatureParts.joined(separator: "|")
         )
     }
@@ -243,8 +271,17 @@ struct Qwen3TTSRuntimeProfile: Hashable, Codable, Sendable {
             "qwen3_quantization_tier": quantizationTier.rawValue,
             "qwen3_tokenizer_type": tokenizerType,
             "qwen3_mode_capability": modeCapability.rawValue,
+            "qwen3_model_size": modelSize?.rawValue ?? "unknown",
+            "qwen3_supports_instruction_control": supportsInstructionControl ? "true" : "false",
             "qwen3_sample_rate": String(sampleRate),
             "qwen3_supported_speaker_count": String(supportedSpeakers.count),
+            "qwen3_generation_config_source": generationDefaults.source.rawValue,
+            "qwen3_generation_defaults_source": Qwen3TTSGenerationDefaultSource.appPolicy.rawValue,
+            "qwen3_checkpoint_max_new_tokens": String(generationDefaults.maxTokens ?? Qwen3GenerationConfiguration.checkpointDefaultMaxNewTokens),
+            "qwen3_wrapper_fallback_max_new_tokens": String(Qwen3GenerationConfiguration.wrapperFallbackMaxNewTokens),
+            "qwen3_app_policy_max_new_tokens": String(Qwen3GenerationConfiguration.officialQualityDefault.maxNewTokens),
+            "qwen3_top_k": String(generationDefaults.topK ?? Qwen3GenerationConfiguration.officialQualityDefault.topK),
+            "qwen3_do_sample": String(generationDefaults.doSample ?? Qwen3GenerationConfiguration.officialQualityDefault.doSample),
         ]
     }
 
@@ -263,6 +300,20 @@ struct Qwen3TTSRuntimeProfile: Hashable, Codable, Sendable {
             throw Qwen3TTSRuntimeProfileError.invalidMetadata(
                 "Model '\(descriptor.id)' is declared for \(descriptor.mode.rawValue) but its Qwen3-TTS family supports \(modeCapability.rawValue)."
             )
+        }
+        if let capabilities = descriptor.qwen3Capabilities {
+            guard capabilities.familyType.runtimeFamily == modelFamily else {
+                throw Qwen3TTSRuntimeProfileError.invalidMetadata(
+                    "Model '\(descriptor.id)' declares Qwen3 family \(capabilities.familyType.rawValue) but config resolves \(modelFamily.rawValue)."
+                )
+            }
+            if let modelSize {
+                guard capabilities.modelSize == modelSize else {
+                    throw Qwen3TTSRuntimeProfileError.invalidMetadata(
+                        "Model '\(descriptor.id)' declares Qwen3 size \(capabilities.modelSize.rawValue) but config resolves \(modelSize.rawValue)."
+                    )
+                }
+            }
         }
         guard sampleRate == Self.canonicalSampleRate else {
             throw Qwen3TTSRuntimeProfileError.invalidMetadata(
@@ -392,6 +443,17 @@ struct Qwen3TTSRuntimeProfile: Hashable, Codable, Sendable {
         return .unknown
     }
 
+    private static func qwenModelSize(_ value: String?) -> Qwen3TTSModelSize? {
+        switch normalizedModelType(value ?? "") {
+        case "0b6", "0.6b", "600m":
+            return .compact0b6
+        case "1b7", "1.7b":
+            return .pro1b7
+        default:
+            return nil
+        }
+    }
+
     private static func nested(_ object: [String: Any], _ key: String) -> [String: Any]? {
         object[key] as? [String: Any]
     }
@@ -425,5 +487,24 @@ struct Qwen3TTSRuntimeProfile: Hashable, Codable, Sendable {
         }
         return nil
     }
-}
 
+    private static func bool(_ value: Any?) -> Bool? {
+        if let boolValue = value as? Bool {
+            return boolValue
+        }
+        if let number = value as? NSNumber {
+            return number.boolValue
+        }
+        if let string = value as? String {
+            switch string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "true", "yes", "1":
+                return true
+            case "false", "no", "0":
+                return false
+            default:
+                return nil
+            }
+        }
+        return nil
+    }
+}

@@ -365,7 +365,9 @@ struct BatchGenerationRequest {
                 batchTotal: batchTotal,
                 payload: .custom(
                     speakerID: voice ?? TTSModel.defaultSpeaker,
-                    deliveryStyle: emotion ?? DeliveryProfile.neutralInstruction
+                    deliveryStyle: model.supportsInstructionControl
+                        ? (emotion ?? DeliveryProfile.neutralInstruction)
+                        : nil
                 )
             )
         case .design:

@@ -6,6 +6,23 @@ public enum GenerationSemantics {
         case long
     }
 
+    public enum Qwen3PromptMode: String, Codable, Hashable, Sendable {
+        case customVoice = "custom_voice"
+        case voiceDesign = "voice_design"
+        case voiceClone = "voice_clone"
+    }
+
+    public struct Qwen3PromptAssembly: Hashable, Codable, Sendable {
+        public let mode: Qwen3PromptMode
+        public let text: String
+        public let language: String
+        public let instruct: String?
+        public let refText: String?
+        public let speakerID: String?
+        public let usesInstructionControl: Bool
+        public let cloneUsesTranscript: Bool
+    }
+
     public static let appStreamingInterval = 0.32
     public static let canonicalCustomWarmText = "Hi."
     public static let canonicalCustomWarmSpeaker = "aiden"
@@ -45,11 +62,7 @@ public enum GenerationSemantics {
         guard !trimmedDescription.isEmpty else {
             return trimmedEmotion
         }
-        // Explicit labeled framing so the chat-format-trained model parses two
-        // named sub-instructions, not a fused run-on. Description-first so the
-        // persistent voice identity is established before the per-take delivery
-        // direction. See docs/reference/emotion-delivery-improvements.md.
-        return "Voice character: \(trimmedDescription) Delivery: \(trimmedEmotion)"
+        return "\(trimmedDescription) Deliver it \(trimmedEmotion.lowercased())."
     }
 
     public static func normalizedConditioningCacheKeyText(_ text: String) -> String {
@@ -85,28 +98,77 @@ public enum GenerationSemantics {
     }
 
     public static func customInstruction(for request: GenerationRequest) -> String? {
-        guard case .custom(_, let deliveryStyle) = request.payload else {
-            return nil
-        }
-        let language = qwenLanguageHint(for: request)
-        let baseInstruction = customInstruction(deliveryStyle: deliveryStyle)
-        return englishDictionReinforcedInstruction(
-            baseInstruction: baseInstruction,
-            language: language
-        )
+        qwen3PromptAssembly(for: request).instruct
     }
 
     public static func voiceDesignInstruction(for request: GenerationRequest) -> String? {
-        guard case .design(let voiceDescription, let deliveryStyle) = request.payload else {
-            return nil
-        }
-        return englishDictionReinforcedInstruction(
-            baseInstruction: designInstruction(
-                voiceDescription: voiceDescription,
-                emotion: deliveryStyle ?? ""
-            ),
-            language: qwenLanguageHint(for: request)
+        qwen3PromptAssembly(for: request).instruct
+    }
+
+    public static func qwen3PromptAssembly(
+        for request: GenerationRequest,
+        capabilities: Qwen3TTSModelCapabilities? = nil,
+        resolvedCloneTranscript: String? = nil
+    ) -> Qwen3PromptAssembly {
+        let language = qwenLanguageHint(
+            for: request,
+            resolvedCloneTranscript: resolvedCloneTranscript
         )
+        switch request.payload {
+        case .custom(let speakerID, let deliveryStyle):
+            let canUseInstruction = capabilities?.supportsInstructionControl ?? true
+            let baseInstruction = canUseInstruction
+                ? customInstruction(deliveryStyle: deliveryStyle)
+                : nil
+            let instruction = canUseInstruction
+                ? englishDictionReinforcedInstruction(
+                    baseInstruction: baseInstruction,
+                    language: language
+                )
+                : nil
+            return Qwen3PromptAssembly(
+                mode: .customVoice,
+                text: request.text,
+                language: language,
+                instruct: instruction,
+                refText: nil,
+                speakerID: speakerID.trimmingCharacters(in: .whitespacesAndNewlines),
+                usesInstructionControl: instruction != nil,
+                cloneUsesTranscript: false
+            )
+        case .design(let voiceDescription, let deliveryStyle):
+            let instruction = englishDictionReinforcedInstruction(
+                baseInstruction: designInstruction(
+                    voiceDescription: voiceDescription,
+                    emotion: deliveryStyle ?? ""
+                ),
+                language: language
+            )
+            return Qwen3PromptAssembly(
+                mode: .voiceDesign,
+                text: request.text,
+                language: language,
+                instruct: instruction,
+                refText: nil,
+                speakerID: nil,
+                usesInstructionControl: instruction != nil,
+                cloneUsesTranscript: false
+            )
+        case .clone(let reference):
+            let rawRefText = (resolvedCloneTranscript ?? reference.transcript)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedRefText = (rawRefText?.isEmpty == false) ? rawRefText : nil
+            return Qwen3PromptAssembly(
+                mode: .voiceClone,
+                text: request.text,
+                language: language,
+                instruct: nil,
+                refText: trimmedRefText,
+                speakerID: nil,
+                usesInstructionControl: false,
+                cloneUsesTranscript: trimmedRefText != nil
+            )
+        }
     }
 
     public static func englishDictionReinforcedInstruction(

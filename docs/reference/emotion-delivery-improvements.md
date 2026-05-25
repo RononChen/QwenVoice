@@ -138,7 +138,7 @@ Re-run criteria after the fix lands (per the plan's verification section). Origi
 
 ## Deferred to future sessions
 
-- **Per-preset sampling parameters.** Qwen3TTS exposes `temperature`, `topP`, `topK`, `repetitionPenalty`, `minP`. All are hardcoded today (temp 0.9, topK 50, topP 1.0). A future plan can map each preset to a tuned tuple — e.g., Whisper tighter (lower topP) for less surprise, Excited looser (higher temp) for more variation. Lives in `Qwen3GenerationConfiguration` + the preset table.
+- **Per-preset sampling parameters.** Qwen3TTS exposes `temperature`, `topP`, `topK`, `repetitionPenalty`, `minP`, and `do_sample` in checkpoint metadata. Vocello now records the checkpoint defaults and app policy cap explicitly, but still applies one product-wide sampling tuple by default. A future plan can map each preset to a tuned tuple — e.g., Whisper tighter (lower topP) for less surprise, Excited looser (higher temp) for more variation. Lives in `Qwen3GenerationConfiguration` + the preset table.
 - **Voice Design UI redesign.** A1's labeled-framing fix is structural at the prompt level; the UI still mixes voice brief and emotion into one input box. A future revision could expose them as separate fields with clearer names (e.g., "Voice character" and "Performance").
 - **Voice Cloning delivery surface.** Cloning has no emotion controls today (the engine path doesn't accept them). A future feature could add minimal delivery hints — at minimum a Subtle/Normal/Strong intensifier without a preset.
 

@@ -490,7 +490,7 @@ struct GenerationVariantSelector: View {
     private var selectedKind: TTSModelVariantKind {
         selectedModel?.variantKind
             ?? modelManager.recommendedVariant(for: mode)?.variantKind
-            ?? .speed
+            ?? .compactSpeed
     }
 
     var body: some View {
@@ -530,7 +530,7 @@ struct GenerationVariantSelector: View {
                 identifier: "\(accessibilityPrefix)_modelVariantSelector"
             )
         }
-        .help("Choose whether \(mode.displayName) uses the Speed or Quality model package. Current status: \(statusCaption).")
+        .help("Choose the Qwen3-TTS package for \(mode.displayName). Current status: \(statusCaption).")
     }
 
     private func variantSegment(for kind: TTSModelVariantKind) -> some View {
@@ -548,7 +548,7 @@ struct GenerationVariantSelector: View {
             Text(kind.displayName)
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
-                .frame(width: 58, height: 24)
+                .frame(width: 62, height: 24)
                 .foregroundStyle(segmentForeground(isSelected: isSelected, isSelectable: isSelectable))
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -576,6 +576,9 @@ struct GenerationVariantSelector: View {
         var parts: [String] = []
         if let bitDepth = selectedModel.variantKind?.bitDepthLabel {
             parts.append(bitDepth)
+        }
+        if !selectedModel.supportsInstructionControl {
+            parts.append("No delivery control")
         }
         if modelManager.isHardwareRisky(selectedModel),
            case .ready = modelManager.packagePresentation(for: selectedModel).kind {
@@ -607,7 +610,14 @@ struct GenerationVariantSelector: View {
         guard modelManager.isGenerationVariantSelectable(for: mode, kind: kind) else {
             return "\(mode.displayName) \(kind.displayName) is not installed. Open Settings to manage model downloads."
         }
-        return "Use the \(kind.displayName) model for \(mode.displayName)."
+        guard let model = modelManager.variant(for: mode, kind: kind) else {
+            return "\(mode.displayName) \(kind.displayName) is unavailable."
+        }
+        var details = "Use the \(kind.displayName) model for \(mode.displayName)."
+        if !model.supportsInstructionControl {
+            details += " Delivery controls are disabled for this Qwen3 family."
+        }
+        return details
     }
 
     private var accessibilityValue: String {

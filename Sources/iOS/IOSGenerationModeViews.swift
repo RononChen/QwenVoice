@@ -64,6 +64,10 @@ struct IOSCustomVoiceView: View {
         TTSModel.model(for: .custom)
     }
 
+    private var supportsDeliveryControl: Bool {
+        activeModel?.supportsInstructionControl ?? true
+    }
+
     private var allowsExecution: Bool {
         ttsEngine.supportsMode(.custom)
     }
@@ -183,6 +187,8 @@ struct IOSCustomVoiceView: View {
             tint: IOSEmotionPresetPalette.dotColor(forID: draft.delivery.selectedPresetID),
             action: presentDeliveryPicker
         )
+        .disabled(!supportsDeliveryControl)
+        .opacity(supportsDeliveryControl ? 1 : 0.45)
     }
 
     private func presentVoicePicker() {
@@ -204,6 +210,7 @@ struct IOSCustomVoiceView: View {
     }
 
     private func presentDeliveryPicker() {
+        guard supportsDeliveryControl else { return }
         appModel.presentBottomPanel { bottomSafeAreaInset, dismiss in
             AnyView(
                 IOSDeliveryPickerSheet(
@@ -296,7 +303,9 @@ struct IOSCustomVoiceView: View {
                         streamingInterval: GenerationSemantics.appStreamingInterval,
                         payload: .custom(
                             speakerID: draft.selectedSpeaker,
-                            deliveryStyle: draft.resolvedDeliveryInstruction
+                            deliveryStyle: model.supportsInstructionControl
+                                ? draft.resolvedDeliveryInstruction
+                                : nil
                         )
                     )
                 )
@@ -305,7 +314,7 @@ struct IOSCustomVoiceView: View {
                     mode: model.mode.rawValue,
                     modelTier: model.tier,
                     voice: draft.selectedSpeaker,
-                    emotion: draft.resolvedDeliveryInstruction,
+                    emotion: model.supportsInstructionControl ? draft.resolvedDeliveryInstruction : nil,
                     speed: nil,
                     audioPath: result.audioPath,
                     duration: result.durationSeconds,

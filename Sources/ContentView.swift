@@ -487,7 +487,7 @@ struct ContentView: View {
         case .custom:
             identity = .custom(
                 speakerID: customVoiceDraft.selectedSpeaker,
-                deliveryStyle: customVoiceDraft.emotion
+                deliveryStyle: model.supportsInstructionControl ? customVoiceDraft.emotion : nil
             )
             reference = nil
         case .design:

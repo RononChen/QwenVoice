@@ -2,11 +2,15 @@ import Foundation
 import QwenVoiceCore
 
 enum TTSModelVariantKind: String, CaseIterable, Codable, Hashable, Sendable {
+    case compactSpeed = "compact_speed"
+    case compactQuality = "compact_quality"
     case speed
     case quality
 
     var displayName: String {
         switch self {
+        case .compactSpeed: return "Lite"
+        case .compactQuality: return "Lite+"
         case .speed: return "Speed"
         case .quality: return "Quality"
         }
@@ -14,8 +18,10 @@ enum TTSModelVariantKind: String, CaseIterable, Codable, Hashable, Sendable {
 
     var bitDepthLabel: String {
         switch self {
-        case .speed: return "4-bit"
-        case .quality: return "8-bit"
+        case .compactSpeed: return "0.6B 4-bit"
+        case .compactQuality: return "0.6B 8-bit"
+        case .speed: return "1.7B 4-bit"
+        case .quality: return "1.7B 8-bit"
         }
     }
 
@@ -40,6 +46,7 @@ struct TTSModel: Identifiable, Hashable, Sendable, Codable {
     let variantKind: TTSModelVariantKind?
     let estimatedDownloadBytes: Int64?
     let isHardwareRecommended: Bool
+    let qwen3Capabilities: Qwen3TTSModelCapabilities?
 
     init(
         id: String,
@@ -55,7 +62,8 @@ struct TTSModel: Identifiable, Hashable, Sendable, Codable {
         variantID: String? = nil,
         variantKind: TTSModelVariantKind? = nil,
         estimatedDownloadBytes: Int64? = nil,
-        isHardwareRecommended: Bool = false
+        isHardwareRecommended: Bool = false,
+        qwen3Capabilities: Qwen3TTSModelCapabilities? = nil
     ) {
         self.id = id
         self.name = name
@@ -71,16 +79,35 @@ struct TTSModel: Identifiable, Hashable, Sendable, Codable {
         self.variantKind = variantKind
         self.estimatedDownloadBytes = estimatedDownloadBytes
         self.isHardwareRecommended = isHardwareRecommended
+        self.qwen3Capabilities = qwen3Capabilities
+    }
+
+    var supportsInstructionControl: Bool {
+        qwen3Capabilities?.supportsInstructionControl ?? true
+    }
+
+    var supportsVoiceClone: Bool {
+        qwen3Capabilities?.supportsVoiceClone ?? (mode == .clone)
+    }
+
+    var modelSizeLabel: String? {
+        switch qwen3Capabilities?.modelSize {
+        case .compact0b6:
+            return "0.6B"
+        case .pro1b7:
+            return "1.7B"
+        case nil:
+            return nil
+        }
     }
 }
 
 enum MacModelVariantPreferences {
     private static let keyPrefix = "QwenVoice.MacModelVariantPreference."
     /// Global override: when set to true, every per-mode variant lookup
-    /// resolves to the Speed (4-bit) variant regardless of the per-mode
-    /// stored choice or the hardware-recommended default. Intended for
-    /// users on memory-constrained Macs who want to pin Speed across
-    /// all three generation modes with one toggle instead of three.
+    /// resolves to the lowest-memory available variant regardless of the
+    /// per-mode stored choice or the hardware-recommended default. The
+    /// legacy key name is retained for existing preferences.
     static let preferSpeedEverywhereKey = "QwenVoice.PreferSpeedEverywhere"
 
     static func key(for mode: GenerationMode) -> String {

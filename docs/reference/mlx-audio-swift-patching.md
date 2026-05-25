@@ -40,7 +40,7 @@ packages:
 The vendor copy tracks upstream `mlx-audio-swift` `v0.1.2` commit `fcbd04daa1bfebe881932f630af2ba6ce9af3274`, then carries local deltas that are intentionally narrow. The owned production integration point is `Sources/QwenVoiceBackendCore/`; the vendor tree remains the lower-level MLXAudio implementation boundary.
 
 - **Qwen3 TTS model families.** Clone-prompt construction, custom voice, voice design, tokenizer, codec, and model-loading surfaces follow the shape Vocello's `QwenVoiceCore` engine expects.
-- **Quality-first full-result generation.** `Qwen3TTSModel` exposes full-result Custom Voice, Voice Design, and Voice Cloning generation methods. Production requests use official Qwen3-TTS sampling defaults, full-text nonstreaming conditioning for Custom Voice and Voice Design, and a single final waveform write.
+- **Chunked and full-result generation.** `Qwen3TTSModel` exposes both full-result and chunked Custom Voice, Voice Design, and Voice Cloning generation methods. macOS batch can remain quality-first/full-result, while iOS uses Vocello's internal chunked final-file pipeline for memory safety. Do not describe that app pipeline as Qwen's public Python true end-to-end streaming API.
 - **Truncation is a failure.** The vendor layer reports `eos`, `maxTokens`, `cancelled`, or `failed` completion. `QwenVoiceCore` treats `maxTokens` as a quality failure instead of accepting a truncated waveform.
 - **Deterministic app link surface.** The root app routes through `QwenVoiceBackendCore`. The vendored `Package.swift` may still expose additional upstream products and tools so the snapshot stays close to upstream.
 - **No repo-owned Python backend.** Nothing in the vendor tree reintroduces a Python bridge. This is a hard rule; see the Apple-platform QA gate.
@@ -53,6 +53,28 @@ If you need the concrete source delta for a future rebase, record the upstream c
 ```bash
 git diff --no-index /path/to/upstream/mlx-audio-swift third_party_patches/mlx-audio-swift
 ```
+
+## Local Patch Policy
+
+Targeted edits inside `third_party_patches/mlx-audio-swift/` are allowed again. Treat this tree as maintained repo-owned source, not read-only imported code, when the fix belongs in the lower-level MLXAudio/Qwen3 runtime rather than the app-facing `QwenVoiceCore` layer.
+
+Allowed local patches include backend correctness, memory-pressure behavior, cancellation, streaming mechanics, model loading, diagnostics, and performance fixes. Keep them intentionally narrow, preserve upstream style, and avoid unrelated cleanup.
+
+Keep local patches isolated from upstream refresh work:
+
+- Do not use the vendored directory as a nested git repository or submodule.
+- Do not casually replace the tree with a fresh upstream snapshot.
+- Do not mass-format the vendor tree.
+- Do not rename package products such as `MLXAudioCore` or `MLXAudioTTS`.
+- Keep a full upstream rebase/snapshot in its own branch and commit series.
+
+Before landing a local vendor patch:
+
+- Confirm why the change belongs in `mlx-audio-swift` instead of `QwenVoiceCore`.
+- Document behavior, memory, cancellation, streaming, or performance impact in the commit message or relevant reference doc.
+- Preserve app-facing request/result contracts unless a separate plan explicitly changes them.
+- Update `UPSTREAM.md` only for provenance, upstream revision, or rebase/snapshot metadata; small local patches do not need an `UPSTREAM.md` entry.
+- Run `./scripts/check_project_inputs.sh`; add macOS/iOS foundation builds when source behavior changes.
 
 ## Rebase Procedure
 
