@@ -206,12 +206,11 @@ enum TTSContract {
         let modeModels = models.filter { $0.mode == mode }
         guard !modeModels.isEmpty else { return nil }
         let recommended = recommendedModel(in: models, for: mode) ?? modeModels[0]
-        // Global lower-memory override. Prefer the smallest installed
-        // Qwen3 family first (0.6B 4-bit when available, then 1.7B
-        // 4-bit) so memory-constrained Macs can be pinned from one
-        // Settings toggle while still falling back defensively.
+        // Global lower-memory override. Keep the legacy key name, but
+        // pin to the active 1.7B Speed track while 0.6B variants remain
+        // disabled in the contract.
         if MacModelVariantPreferences.preferSpeedEverywhere(defaults: defaults) {
-            for kind in [TTSModelVariantKind.compactSpeed, .speed, .compactQuality, .quality] {
+            for kind in [TTSModelVariantKind.speed, .quality] {
                 if let lowerMemory = modeModels.first(where: { $0.variantKind == kind }) {
                     return lowerMemory
                 }

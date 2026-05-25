@@ -81,7 +81,7 @@ fi
 
 # All validation logic lives in this jq program. It mirrors _validate_catalog
 # in the retired Python script. Rules:
-#   - prefer the iOS "compact_speed" variant, then "speed"; fall back to first iOS-eligible variant
+#   - prefer the iOS "speed" variant; fall back to first iOS-eligible variant
 #     or to the model itself when iosDownloadEligible is true at the top level
 #   - catalog entries are keyed by (modelID, artifactVersion); each must be
 #     present, totalBytes must match, baseURL must be https://, and every
@@ -101,8 +101,7 @@ def preferred_ios_descriptor:
   | (.variants // []) as $variants
   | ($variants | map(select(.platforms? | index("iOS")) | select(.iosDownloadEligible == true))) as $eligible
   | if ($eligible | length) > 0 then
-      ((($eligible | map(select(.kind == "compact_speed")) | first)
-        // (($eligible | map(select(.kind == "speed")) | first))
+      ((($eligible | map(select(.kind == "speed")) | first)
         // ($eligible | first)) as $v
        | {modelID: $model.id,
           artifactVersion: $v.artifactVersion,

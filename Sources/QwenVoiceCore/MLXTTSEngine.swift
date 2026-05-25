@@ -559,10 +559,10 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             visibleErrorMessage = nil
             scheduleIdleUnloadIfNeeded(modelID: id, isBatch: false)
         } catch {
-            // Quality → lower-memory automatic fallback on the floor8GBMac
+            // Quality → Speed automatic fallback on the floor8GBMac
             // tier. If a user picked an 8-bit variant on a
             // memory-constrained Mac and it failed to load with an
-            // allocation-related error, retry with the smallest 4-bit sibling
+            // allocation-related error, retry with the active 4-bit sibling
             // and surface a notice. False positives (non-OOM errors
             // mistaken for OOM) only cause a slower run; the user
             // can still pick Quality manually on their next attempt.
@@ -593,7 +593,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
     }
 
     /// If `id` is an 8-bit variant on the floor8GBMac tier, return the
-    /// matching lower-memory 4-bit variant's id. Otherwise return nil.
+    /// matching active Speed 4-bit variant's id. Otherwise return nil.
     /// Used by the OOM-fallback path in `loadModel`.
     private func lowerMemoryFallbackID(for id: String) -> String? {
         guard NativeMemoryPolicyResolver.deviceClass() == .floor8GBMac else { return nil }
@@ -603,17 +603,14 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         // to detect 8-bit variants and look for a 4-bit sibling.
         guard descriptor.variants.first?.kind == .quality
             || descriptor.variants.first?.kind == .compactQuality else { return nil }
-        // Find a sibling descriptor for the same mode, preferring 0.6B 4-bit
-        // when present before falling back to the 1.7B Speed package.
-        // Both descriptors come from the same expandedForPlatform pass so
+        // Find the active Speed sibling for the same mode. Both
+        // descriptors come from the same expandedForPlatform pass so
         // their `mode` fields will match.
-        for kind in [ModelVariantKind.compactSpeed, .speed] {
-            for candidate in modelRegistryAllDescriptors() {
-                guard candidate.id != descriptor.id,
-                      candidate.mode == descriptor.mode,
-                      candidate.variants.first?.kind == kind else { continue }
-                return candidate.id
-            }
+        for candidate in modelRegistryAllDescriptors() {
+            guard candidate.id != descriptor.id,
+                  candidate.mode == descriptor.mode,
+                  candidate.variants.first?.kind == .speed else { continue }
+            return candidate.id
         }
         return nil
     }

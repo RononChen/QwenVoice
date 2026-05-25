@@ -31,9 +31,9 @@ struct SettingsView: View {
     @AppStorage("autoPlay", store: AppDefaults.store) private var autoPlay = true
     @AppStorage("outputDirectory", store: AppDefaults.store) private var outputDirectory = ""
     /// Bound to `MacModelVariantPreferences.preferSpeedEverywhereKey`.
-    /// When ON, every generation mode resolves to the lowest-memory
-    /// variant available regardless of per-mode preferences or
-    /// hardware recommendations. Useful on memory-constrained Macs.
+    /// When ON, every generation mode resolves to the Speed variant
+    /// regardless of per-mode preferences or hardware recommendations.
+    /// Useful on memory-constrained Macs.
     @AppStorage(MacModelVariantPreferences.preferSpeedEverywhereKey, store: AppDefaults.store)
     private var preferSpeedEverywhere = false
 
@@ -76,8 +76,8 @@ struct SettingsView: View {
                             Text("Prefer lower-memory models")
                                 .font(.body)
                             Text(
-                                "Pins every generation mode to the smallest suitable package — 0.6B when available, otherwise Speed. " +
-                                "Smaller models use less memory and are safer on lower-RAM Macs, with lower fidelity than Quality. " +
+                                "Pins every generation mode to the Speed package. " +
+                                "Speed uses less memory and is safer on lower-RAM Macs, with lower fidelity than Quality. " +
                                 "You can still switch per-generation in the mode screens; this toggle just changes the defaults."
                             )
                             .font(.caption)
@@ -414,12 +414,6 @@ private struct ModelPackageLine: View {
                 .foregroundStyle(.orange)
                 .help("Heavy on this Mac")
                 .accessibilityLabel("Heavy on this Mac")
-        } else if model.qwen3Capabilities?.modelSize == .compact0b6 {
-            Text("Lite")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.blue)
-                .help(model.supportsInstructionControl ? "0.6B package" : "0.6B package without delivery instructions")
-                .accessibilityLabel("Lite model")
         } else if viewModel.isHardwareRecommended(model) {
             Text("Recommended")
                 .font(.caption2.weight(.semibold))

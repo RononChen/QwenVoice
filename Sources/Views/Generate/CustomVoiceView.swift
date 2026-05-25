@@ -235,7 +235,7 @@ private extension CustomVoiceView {
             title: "Configuration",
             detail: supportsDeliveryControl
                 ? "Pick a built-in speaker, then shape the delivery before you generate."
-                : "Pick a built-in speaker. This Qwen3 Lite Custom Voice package does not support delivery instructions.",
+                : "Pick a built-in speaker. The selected model does not support delivery instructions.",
             iconName: "slider.horizontal.3",
             accentColor: AppTheme.customVoice,
             trailingAccessory: AnyView(variantSelector),
@@ -340,7 +340,7 @@ private extension CustomVoiceView {
     }
 
     var deliveryUnsupportedHint: some View {
-        Text("Delivery controls are available with 1.7B Custom Voice. Lite keeps the selected speaker and script only.")
+        Text("Delivery controls are available with the active 1.7B Custom Voice models.")
             .font(.caption)
             .foregroundStyle(.secondary)
             .padding(.vertical, LayoutConstants.generationConfigurationRowVerticalPadding)

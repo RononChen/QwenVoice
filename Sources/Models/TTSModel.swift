@@ -105,9 +105,9 @@ struct TTSModel: Identifiable, Hashable, Sendable, Codable {
 enum MacModelVariantPreferences {
     private static let keyPrefix = "QwenVoice.MacModelVariantPreference."
     /// Global override: when set to true, every per-mode variant lookup
-    /// resolves to the lowest-memory available variant regardless of the
-    /// per-mode stored choice or the hardware-recommended default. The
-    /// legacy key name is retained for existing preferences.
+    /// resolves to the active Speed variant regardless of the per-mode
+    /// stored choice or the hardware-recommended default. The legacy key
+    /// name is retained for existing preferences.
     static let preferSpeedEverywhereKey = "QwenVoice.PreferSpeedEverywhere"
 
     static func key(for mode: GenerationMode) -> String {

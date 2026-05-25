@@ -38,11 +38,11 @@ Qwen3-TTS remains the model foundation for the current product. The root README 
 
 | Product mode | macOS Quality track | macOS/iPhone lower-memory track | Contract artifact versions |
 | --- | --- | --- | --- |
-| Custom Voice | `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit` plus `0.6B-CustomVoice-8bit` | `0.6B-CustomVoice-4bit` preferred on iPhone/lower-RAM Macs; `1.7B-CustomVoice-4bit` remains available on macOS | `2026.05.25.1` for 0.6B, `2026.04.05.2` for 1.7B |
+| Custom Voice | `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit` | `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit` | `2026.04.05.2` |
 | Voice Design | `mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit` | `mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-4bit` | `2026.04.05.2` |
-| Voice Cloning | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit` plus `0.6B-Base-8bit` | `0.6B-Base-4bit` preferred on iPhone/lower-RAM Macs; `1.7B-Base-4bit` remains available on macOS | `2026.05.25.1` for 0.6B, `2026.04.05.2` for 1.7B |
+| Voice Cloning | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit` | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-4bit` | `2026.04.05.2` |
 
-macOS treats every declared variant repo as a first-class downloadable row, with the active default and recommendation derived from hardware class. iPhone resolves one downloadable package per mode: 0.6B Custom Voice, 1.7B Voice Design, and 0.6B Base/Clone. The live Hugging Face checks recorded during the 2026-05-25 Qwen3 optimization pass found the referenced 0.6B model repos and repository SHAs below; these SHAs are pinned in the contract as `huggingFaceRevision`. Qwen3 25 Hz remains research-described but not app-supported until public downloadable artifacts are verified.
+macOS treats every declared variant repo as a first-class downloadable row, with the active default and recommendation derived from hardware class. iPhone resolves one downloadable 1.7B Speed package per mode. The live Hugging Face checks recorded during the 2026-05-25 Qwen3 optimization pass found the referenced 0.6B model repos and repository SHAs below, but those artifacts are intentionally inactive: they are not listed in `qwenvoice_contract.json`, not downloadable, and not used by the bundled iOS catalog while the app focuses on the 1.7B implementation. Qwen3 25 Hz remains research-described but not app-supported until public downloadable artifacts are verified.
 
 | Model repo | Last modified | Current SHA |
 | --- | --- | --- |
@@ -57,7 +57,7 @@ macOS treats every declared variant repo as a first-class downloadable row, with
 | `mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit` | 2026-05-25 verified | `50f45ef0047cde7e84c2ef04326acb8ada2436a7` |
 | `mlx-community/Qwen3-TTS-12Hz-0.6B-Base-4bit` | 2026-05-25 verified | `0d6bb6fe33f92d47a507e23b9148940e8366ab5b` |
 
-The app now pins those remote SHAs in the contract. The `artifactVersion` field remains a repo contract/delivery marker; `huggingFaceRevision` is the immutable Hugging Face revision lock used by macOS downloads.
+The active app contract pins only the 1.7B remote SHAs. The `artifactVersion` field remains a repo contract/delivery marker; `huggingFaceRevision` is the immutable Hugging Face revision lock used by macOS downloads.
 
 ### Vendored `mlx-audio-swift`
 

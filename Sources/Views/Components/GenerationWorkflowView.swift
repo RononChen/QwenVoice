@@ -490,7 +490,12 @@ struct GenerationVariantSelector: View {
     private var selectedKind: TTSModelVariantKind {
         selectedModel?.variantKind
             ?? modelManager.recommendedVariant(for: mode)?.variantKind
-            ?? .compactSpeed
+            ?? .speed
+    }
+
+    private var availableKinds: [TTSModelVariantKind] {
+        let declaredKinds = Set(modelManager.variants(for: mode).compactMap(\.variantKind))
+        return TTSModelVariantKind.allCases.filter { declaredKinds.contains($0) }
     }
 
     var body: some View {
@@ -500,7 +505,7 @@ struct GenerationVariantSelector: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 2) {
-                ForEach(TTSModelVariantKind.allCases, id: \.self) { kind in
+                ForEach(availableKinds, id: \.self) { kind in
                     variantSegment(for: kind)
                 }
             }

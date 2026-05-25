@@ -373,7 +373,7 @@ Voice Cloning requires a pre-existing saved voice for autonomous runs (the alter
 | `settings_recommendedSetupProgress` | progress | Bundle progress |
 | `settings_modelDownloadsSummary` | label | "X of Y models installed" |
 | `preferences_autoPlayToggle` | toggle | Auto-play after generation |
-| `settings_preferSpeedEverywhere` | toggle | Prefer lower-memory variants — RAM-saver for low-RAM Macs |
+| `settings_preferSpeedEverywhere` | toggle | Prefer Speed variants — RAM-saver for low-RAM Macs |
 | `preferences_outputDirectory` | text field | Output folder override |
 | `preferences_browseButton` | button | Pick output folder |
 | `preferences_outputResetButton` | button | Reset to default folder |

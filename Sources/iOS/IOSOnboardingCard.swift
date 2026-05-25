@@ -14,7 +14,7 @@ struct IOSFirstRunOnboardingCard: View {
                     .foregroundStyle(IOSAppTheme.textPrimary)
             }
 
-            Text("Open Settings to download a Custom Voice, Voice Design, or Voice Cloning model. Lite packages are smaller for iPhone, and every package runs on-device.")
+            Text("Open Settings to download a Custom Voice, Voice Design, or Voice Cloning model. Every package runs on-device.")
                 .font(IOSTypeStyle.body.font)
                 .foregroundStyle(IOSAppTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)

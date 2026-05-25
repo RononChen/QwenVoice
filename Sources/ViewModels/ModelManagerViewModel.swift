@@ -214,8 +214,7 @@ final class ModelManagerViewModel: ObservableObject {
         return fallback
     }
 
-    /// Returns all variants for a generation mode in picker order:
-    /// 0.6B variants first, then 1.7B variants.
+    /// Returns all active variants for a generation mode in picker order.
     func variants(for mode: GenerationMode) -> [TTSModel] {
         TTSModel.all
             .filter { $0.mode == mode }
@@ -364,7 +363,7 @@ final class ModelManagerViewModel: ObservableObject {
 
     /// `true` when running this variant on the current Mac is
     /// likely to overrun memory and either fail or thrash badly.
-    /// Today the only risky combination is the Quality (8-bit)
+    /// Today the risky combination is the Quality (8-bit)
     /// variant on `.floor8GBMac`. The cached `deviceClass` is
     /// computed once at init from `ProcessInfo.physicalMemory`,
     /// so this lookup stays cheap. If we add a
@@ -372,20 +371,15 @@ final class ModelManagerViewModel: ObservableObject {
     /// is the single seam to extend.
     func isHardwareRisky(_ model: TTSModel) -> Bool {
         guard deviceClass == .floor8GBMac else { return false }
-        if model.variantKind == .quality {
-            return true
-        }
-        return model.qwen3Capabilities?.modelSize == .pro1b7
-            && model.variantKind != .compactSpeed
-            && model.variantKind != .compactQuality
+        return model.variantKind == .quality
     }
 
     private var recommendedVariantKinds: [TTSModelVariantKind] {
         switch deviceClass {
         case .floor8GBMac, .iPhonePro:
-            return [.compactSpeed, .speed, .compactQuality, .quality]
+            return [.speed, .quality]
         case .mid16GBMac, .highMemoryMac:
-            return [.quality, .speed, .compactQuality, .compactSpeed]
+            return [.quality, .speed]
         }
     }
 

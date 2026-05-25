@@ -394,13 +394,11 @@ public struct ModelDescriptor: Identifiable, Hashable, Sendable, Codable {
 
         switch platform {
         case .iOS:
-            return platformVariants.first(where: { $0.kind == .compactSpeed })
-                ?? platformVariants.first(where: { $0.kind == .speed })
+            return platformVariants.first(where: { $0.kind == .speed })
                 ?? platformVariants.first
         case .macOS:
             if deviceClass == .floor8GBMac {
-                return platformVariants.first(where: { $0.kind == .compactSpeed })
-                    ?? platformVariants.first(where: { $0.kind == .speed })
+                return platformVariants.first(where: { $0.kind == .speed })
                     ?? platformVariants.first
             }
             return platformVariants.first(where: { $0.kind == .quality }) ?? platformVariants.first
