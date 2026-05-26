@@ -214,6 +214,8 @@ struct CustomVoiceView: View {
             composerPanel
                 .layoutPriority(1)
         }
+        .modeGlassTint(AppTheme.customVoice)
+        .modeCanvasBackdrop(AppTheme.customVoice)
         .onAppear(perform: reconcileGenerationVariantSelection)
         .onChange(of: modelManager.statuses) { _, _ in reconcileGenerationVariantSelection() }
         .onChange(of: modelManager.activeVariantRevision) { _, _ in reconcileGenerationVariantSelection() }
@@ -248,15 +250,11 @@ private extension CustomVoiceView {
     var configurationPanel: some View {
         CompactConfigurationSection(
             title: "Configuration",
-            detail: supportsDeliveryControl
-                ? "Pick a built-in speaker, then shape the delivery before you generate."
-                : "Pick a built-in speaker. The selected model does not support delivery instructions.",
             iconName: "slider.horizontal.3",
             accentColor: AppTheme.customVoice,
             trailingAccessory: AnyView(variantSelector),
             rowSpacing: LayoutConstants.generationConfigurationRowSpacing,
-            panelPadding: LayoutConstants.generationConfigurationPanelPadding,
-            contentSlotHeight: LayoutConstants.generationConfigurationSlotHeight
+            panelPadding: LayoutConstants.generationConfigurationPanelPadding
         ) {
             VStack(alignment: .leading, spacing: 0) {
                 speakerSettings
@@ -346,15 +344,16 @@ private extension CustomVoiceView {
             selectedLanguage: $draft.selectedLanguage,
             accentColor: AppTheme.customVoice,
             accessibilityPrefix: "customVoice",
-            hint: languageHintMessage
+            hint: languageHintMessage,
+            showsDefaultHelp: false
         )
     }
 
     var deliverySettings: some View {
-        VStack(alignment: .leading, spacing: LayoutConstants.generationConfigurationRowSpacing) {
-            Text("Delivery")
-                .font(.subheadline.weight(.semibold))
-
+        GenerationSetupRow(
+            label: "Delivery",
+            accessibilityIdentifier: "customVoice_toneSpeed"
+        ) {
             DeliveryControlsView(
                 emotion: $draft.emotion,
                 accentColor: AppTheme.customVoice,
@@ -362,17 +361,15 @@ private extension CustomVoiceView {
                 showsLabel: false
             )
         }
-        .padding(.vertical, LayoutConstants.generationConfigurationRowVerticalPadding)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("customVoice_toneSpeed")
     }
 
     var deliveryUnsupportedHint: some View {
-        Text("Delivery controls are available with the active 1.7B Custom Voice models.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.vertical, LayoutConstants.generationConfigurationRowVerticalPadding)
-            .accessibilityIdentifier("customVoice_deliveryUnsupported")
+        GenerationSetupNotice(
+            message: "Delivery controls are available with the active 1.7B Custom Voice models.",
+            iconName: "slider.horizontal.3",
+            accentColor: AppTheme.customVoice,
+            accessibilityIdentifier: "customVoice_deliveryUnsupported"
+        )
     }
 
     // speakerPicker moved to SpeakerPickerRow struct for rebuild isolation
@@ -428,10 +425,10 @@ private struct SpeakerPickerRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: LayoutConstants.generationConfigurationRowSpacing) {
-            Text("Speaker")
-                .font(.subheadline.weight(.semibold))
-
+        GenerationSetupRow(
+            label: "Speaker",
+            accessibilityIdentifier: "customVoice_voiceSetup"
+        ) {
             Picker("Speaker", selection: speakerSelection) {
                 ForEach(TTSModel.allSpeakers, id: \.self) { speaker in
                     Text(TTSModel.speakerPickerLabel(for: speaker)).tag(speaker)
@@ -443,12 +440,7 @@ private struct SpeakerPickerRow: View {
             .frame(minWidth: LayoutConstants.configurationControlMinWidth, maxWidth: 220, alignment: .leading)
             .accessibilityValue(TTSModel.speakerPickerLabel(for: selectedSpeaker))
             .accessibilityIdentifier("customVoice_speakerPicker")
-
-            Text("Choose the built-in speaker that should deliver this line.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
-        .padding(.vertical, LayoutConstants.generationConfigurationRowVerticalPadding)
         .overlay(alignment: .topLeading) {
             Text(TTSModel.speakerPickerLabel(for: selectedSpeaker))
                 .font(.caption2)
@@ -460,7 +452,5 @@ private struct SpeakerPickerRow: View {
                 .accessibilityValue(TTSModel.speakerPickerLabel(for: selectedSpeaker))
                 .accessibilityIdentifier("customVoice_selectedSpeaker")
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("customVoice_voiceSetup")
     }
 }

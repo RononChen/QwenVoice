@@ -77,6 +77,8 @@ struct VoiceDesignView: View {
             composerPanel
                 .layoutPriority(1)
         }
+        .modeGlassTint(AppTheme.voiceDesign)
+        .modeCanvasBackdrop(AppTheme.voiceDesign)
         .onAppear(perform: reconcileGenerationVariantSelection)
         .onChange(of: modelManager.statuses) { _, _ in reconcileGenerationVariantSelection() }
         .onChange(of: modelManager.activeVariantRevision) { _, _ in reconcileGenerationVariantSelection() }
@@ -128,14 +130,12 @@ private extension VoiceDesignView {
     var configurationPanel: some View {
         CompactConfigurationSection(
             title: "Configuration",
-            detail: "Describe the voice, set the delivery, then keep the script front and center.",
             iconName: "slider.horizontal.3",
             accentColor: AppTheme.voiceDesign,
             trailingText: nil,
             trailingAccessory: AnyView(variantSelector),
             rowSpacing: LayoutConstants.generationConfigurationRowSpacing,
-            panelPadding: LayoutConstants.generationConfigurationPanelPadding,
-            contentSlotHeight: LayoutConstants.generationConfigurationSlotHeight
+            panelPadding: LayoutConstants.generationConfigurationPanelPadding
         ) {
             VStack(alignment: .leading, spacing: 0) {
                 briefSettings
@@ -219,15 +219,16 @@ private extension VoiceDesignView {
         QwenLanguagePickerRow(
             selectedLanguage: $draft.selectedLanguage,
             accentColor: AppTheme.voiceDesign,
-            accessibilityPrefix: "voiceDesign"
+            accessibilityPrefix: "voiceDesign",
+            showsDefaultHelp: false
         )
     }
 
     var deliverySettings: some View {
-        VStack(alignment: .leading, spacing: LayoutConstants.generationConfigurationRowSpacing) {
-            Text("Delivery")
-                .font(.subheadline.weight(.semibold))
-
+        GenerationSetupRow(
+            label: "Delivery",
+            accessibilityIdentifier: "voiceDesign_toneSpeed"
+        ) {
             DeliveryControlsView(
                 emotion: $draft.emotion,
                 accentColor: AppTheme.voiceDesign,
@@ -235,9 +236,6 @@ private extension VoiceDesignView {
                 showsLabel: false
             )
         }
-        .padding(.vertical, LayoutConstants.generationConfigurationRowVerticalPadding)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("voiceDesign_toneSpeed")
     }
 
     var generationReadiness: some View {
@@ -330,10 +328,10 @@ private struct VoiceDesignBriefSettings: View {
     @Binding var voiceDescription: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: LayoutConstants.generationConfigurationRowSpacing) {
-            Text("Voice brief")
-                .font(.subheadline.weight(.semibold))
-
+        GenerationSetupRow(
+            label: "Voice brief",
+            accessibilityIdentifier: "voiceDesign_voiceSetup"
+        ) {
             ContinuousVoiceDescriptionField(
                 text: $voiceDescription,
                 placeholder: "A warm, deep narrator with a subtle British accent.",
@@ -342,18 +340,11 @@ private struct VoiceDesignBriefSettings: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glassTextField(radius: 8)
-
-            Text("Describe timbre, accent, or delivery style in one tight sentence.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .glassTextField(radius: 10)
         }
-        .padding(.vertical, LayoutConstants.generationConfigurationRowVerticalPadding)
         .overlay(alignment: .topLeading) {
             voiceDescriptionValueAnchor
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("voiceDesign_voiceSetup")
         .accessibilityValue(voiceDescription)
     }
 

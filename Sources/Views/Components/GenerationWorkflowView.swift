@@ -342,6 +342,10 @@ struct CompactConfigurationSection<Content: View>: View {
     var accessibilityIdentifier: String? = nil
     @ViewBuilder let content: () -> Content
 
+    private var panelCornerRadius: CGFloat {
+        LayoutConstants.cardRadius
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: rowSpacing) {
             header
@@ -359,10 +363,10 @@ struct CompactConfigurationSection<Content: View>: View {
             #if QW_UI_LIQUID
             .background {
                 if #available(macOS 26, *) {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous)
                         .fill(AppTheme.inlineFill)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous)
                                 .strokeBorder(
                                     AppTheme.inlineStroke.opacity(
                                         colorScheme == .dark
@@ -378,10 +382,10 @@ struct CompactConfigurationSection<Content: View>: View {
                                     AppTheme.surfaceGlassTint($0, for: colorScheme)
                                 } ?? AppTheme.smokedGlassTint
                             ),
-                            in: .rect(cornerRadius: 12)
+                            in: .rect(cornerRadius: panelCornerRadius)
                         )
                         .glass3DDepth(
-                            radius: 12,
+                            radius: panelCornerRadius,
                             intensity: (colorScheme == .dark ? 1.0 : 0.72)
                                 * (cardGlassTint == nil ? 1.0 : 1.15)
                         )
@@ -391,11 +395,11 @@ struct CompactConfigurationSection<Content: View>: View {
             }
             #else
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous)
                     .fill(AppTheme.inlineFill.opacity(0.58))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous)
                     .stroke(AppTheme.inlineStroke.opacity(0.24), lineWidth: 1)
             )
             #endif
@@ -468,13 +472,135 @@ struct CompactConfigurationSection<Content: View>: View {
     #if QW_UI_LIQUID
     private var compactPanelLegacyBackground: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous)
                 .fill(AppTheme.inlineFill.opacity(0.58))
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous)
                 .stroke(AppTheme.inlineStroke.opacity(0.12), lineWidth: 0.5)
         }
     }
     #endif
+}
+
+struct GenerationSetupRow<Content: View, Supporting: View>: View {
+    let label: String
+    var rowVerticalPadding: CGFloat = 4
+    var horizontalSpacing: CGFloat = 10
+    var stackedSpacing: CGFloat = 5
+    var supportingSpacing: CGFloat = 4
+    var accessibilityIdentifier: String? = nil
+    @ViewBuilder let content: () -> Content
+    @ViewBuilder let supporting: () -> Supporting
+
+    init(
+        label: String,
+        rowVerticalPadding: CGFloat = 4,
+        horizontalSpacing: CGFloat = 10,
+        stackedSpacing: CGFloat = 5,
+        supportingSpacing: CGFloat = 4,
+        accessibilityIdentifier: String? = nil,
+        @ViewBuilder content: @escaping () -> Content,
+        @ViewBuilder supporting: @escaping () -> Supporting
+    ) {
+        self.label = label
+        self.rowVerticalPadding = rowVerticalPadding
+        self.horizontalSpacing = horizontalSpacing
+        self.stackedSpacing = stackedSpacing
+        self.supportingSpacing = supportingSpacing
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.content = content
+        self.supporting = supporting
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: supportingSpacing) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: horizontalSpacing) {
+                    labelView
+                        .frame(width: LayoutConstants.configurationLabelWidth, alignment: .leading)
+
+                    content()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                VStack(alignment: .leading, spacing: stackedSpacing) {
+                    labelView
+                    content()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+
+            supporting()
+        }
+        .padding(.vertical, rowVerticalPadding)
+        .accessibilityElement(children: .contain)
+        .optionalAccessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    private var labelView: some View {
+        Text(label)
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(.primary)
+    }
+}
+
+extension GenerationSetupRow where Supporting == EmptyView {
+    init(
+        label: String,
+        rowVerticalPadding: CGFloat = 4,
+        horizontalSpacing: CGFloat = 10,
+        stackedSpacing: CGFloat = 5,
+        supportingSpacing: CGFloat = 4,
+        accessibilityIdentifier: String? = nil,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.init(
+            label: label,
+            rowVerticalPadding: rowVerticalPadding,
+            horizontalSpacing: horizontalSpacing,
+            stackedSpacing: stackedSpacing,
+            supportingSpacing: supportingSpacing,
+            accessibilityIdentifier: accessibilityIdentifier,
+            content: content
+        ) {
+            EmptyView()
+        }
+    }
+}
+
+struct GenerationSetupHint: View {
+    let message: String
+    var accessibilityIdentifier: String? = nil
+
+    var body: some View {
+        Text(message)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .optionalAccessibilityIdentifier(accessibilityIdentifier)
+    }
+}
+
+struct GenerationSetupNotice: View {
+    let message: String
+    var iconName: String = "info.circle"
+    var accentColor: Color = AppTheme.accent
+    var accessibilityIdentifier: String? = nil
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: iconName)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(accentColor)
+
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+        .optionalAccessibilityIdentifier(accessibilityIdentifier)
+    }
 }
 
 struct GenerationVariantSelector: View {
@@ -500,33 +626,15 @@ struct GenerationVariantSelector: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Text("Model")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 2) {
-                ForEach(availableKinds, id: \.self) { kind in
-                    variantSegment(for: kind)
-                }
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 8) {
+                variantLabel
+                variantControl
             }
-            // Match the rest of the app's pickers (EmotionPickerView,
-            // VoiceCloningView transcript + source) — keyboard
-            // focusability stays, only the system blue focus ring is
-            // suppressed so the segment doesn't render a stray
-            // selection halo on first appearance under Full Keyboard
-            // Access.
-            .focusEffectDisabled()
-            .padding(3)
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Color.secondary.opacity(0.15))
-            )
-            .overlay(alignment: .topLeading) {
-                HiddenAccessibilityMarker(
-                    value: "\(mode.displayName) model variant picker",
-                    identifier: "\(accessibilityPrefix)_modelVariantPicker"
-                )
+
+            VStack(alignment: .leading, spacing: 5) {
+                variantLabel
+                variantControl
             }
         }
         .fixedSize(horizontal: true, vertical: false)
@@ -537,6 +645,42 @@ struct GenerationVariantSelector: View {
             )
         }
         .help("Choose the Qwen3-TTS package for \(mode.displayName). Current status: \(statusCaption).")
+    }
+
+    private var variantLabel: some View {
+        Text("Model")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+    }
+
+    private var variantControl: some View {
+        HStack(spacing: 3) {
+            ForEach(availableKinds, id: \.self) { kind in
+                variantSegment(for: kind)
+            }
+        }
+        // Match the rest of the app's pickers (EmotionPickerView,
+        // VoiceCloningView transcript + source) — keyboard
+        // focusability stays, only the system blue focus ring is
+        // suppressed so the segment doesn't render a stray
+        // selection halo on first appearance under Full Keyboard
+        // Access.
+        .focusEffectDisabled()
+        .padding(3)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(AppTheme.inlineFill.opacity(0.72))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(AppTheme.inlineStroke.opacity(0.24), lineWidth: 0.75)
+        )
+        .overlay(alignment: .topLeading) {
+            HiddenAccessibilityMarker(
+                value: "\(mode.displayName) model variant picker",
+                identifier: "\(accessibilityPrefix)_modelVariantPicker"
+            )
+        }
     }
 
     private func variantSegment(for kind: TTSModelVariantKind) -> some View {
@@ -556,10 +700,7 @@ struct GenerationVariantSelector: View {
                 .lineLimit(1)
                 .frame(width: 62, height: 24)
                 .foregroundStyle(segmentForeground(isSelected: isSelected, isSelectable: isSelectable))
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(isSelected ? accentColor.opacity(0.78) : Color.clear)
-                )
+                .background { segmentBackground(isSelected: isSelected) }
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
@@ -574,7 +715,32 @@ struct GenerationVariantSelector: View {
         if !isSelectable {
             return .secondary
         }
-        return isSelected ? .white : .primary
+        return isSelected ? .primary : .secondary
+    }
+
+    @ViewBuilder
+    private func segmentBackground(isSelected: Bool) -> some View {
+        let radius: CGFloat = 8
+        if isSelected {
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            accentColor.opacity(0.20),
+                            accentColor.opacity(0.12),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .strokeBorder(accentColor.opacity(0.38), lineWidth: 0.75)
+                )
+        } else {
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(Color.clear)
+        }
     }
 
     private var statusCaption: String {
@@ -723,16 +889,17 @@ struct QwenLanguagePickerRow: View {
     var accessibilityPrefix: String = "qwenLanguage"
     var includesAuto = true
     var hint: String?
+    var showsDefaultHelp = true
 
     private var options: [Qwen3SupportedLanguage] {
         includesAuto ? Qwen3SupportedLanguage.allCases : Qwen3SupportedLanguage.selectableCases
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: LayoutConstants.generationConfigurationRowSpacing) {
-            Text("Language")
-                .font(.subheadline.weight(.semibold))
-
+        GenerationSetupRow(
+            label: "Language",
+            accessibilityIdentifier: "\(accessibilityPrefix)_languageSetup"
+        ) {
             Picker("Language", selection: $selectedLanguage) {
                 ForEach(options, id: \.self) { language in
                     Text(language.displayName).tag(language)
@@ -742,25 +909,22 @@ struct QwenLanguagePickerRow: View {
             .pickerStyle(.menu)
             .focusEffectDisabled()
             .frame(minWidth: LayoutConstants.configurationControlMinWidth, maxWidth: 220, alignment: .leading)
+            .tint(accentColor)
             .accessibilityValue(selectedLanguage.displayName)
             .accessibilityIdentifier("\(accessibilityPrefix)_languagePicker")
-
+        } supporting: {
             if let hint, !hint.isEmpty {
-                Text(hint)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("\(accessibilityPrefix)_languageHint")
-            } else {
-                Text("Choose Auto or one of Qwen3-TTS's supported languages.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("\(accessibilityPrefix)_languageHelp")
+                GenerationSetupHint(
+                    message: hint,
+                    accessibilityIdentifier: "\(accessibilityPrefix)_languageHint"
+                )
+            } else if showsDefaultHelp {
+                GenerationSetupHint(
+                    message: "Choose Auto or one of Qwen3-TTS's supported languages.",
+                    accessibilityIdentifier: "\(accessibilityPrefix)_languageHelp"
+                )
             }
         }
-        .padding(.vertical, LayoutConstants.generationConfigurationRowVerticalPadding)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("\(accessibilityPrefix)_languageSetup")
     }
 }
 

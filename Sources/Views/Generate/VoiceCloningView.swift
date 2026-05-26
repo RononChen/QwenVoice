@@ -205,6 +205,8 @@ struct VoiceCloningView: View {
             composerPanel
                 .layoutPriority(1)
         }
+        .modeGlassTint(AppTheme.voiceCloning)
+        .modeCanvasBackdrop(AppTheme.voiceCloning)
         .onDrop(of: [.fileURL], isTargeted: isDragOverBinding) { providers in
             coordinator.handleDrop(providers, draft: $draft)
         }
@@ -299,15 +301,13 @@ private extension VoiceCloningContextStatus {
 private extension VoiceCloningView {
     var configurationPanel: some View {
         CompactConfigurationSection(
-            title: "Configuration",
-            detail: "Transcript-backed saved voices give the strongest reusable clone prompts.",
+            title: "Reference",
             iconName: "slider.horizontal.3",
             accentColor: AppTheme.voiceCloning,
             trailingText: nil,
             trailingAccessory: AnyView(variantSelector),
             rowSpacing: LayoutConstants.generationConfigurationRowSpacing,
-            panelPadding: LayoutConstants.generationConfigurationPanelPadding,
-            contentSlotHeight: LayoutConstants.generationConfigurationSlotHeight
+            panelPadding: LayoutConstants.generationConfigurationPanelPadding
         ) {
             VStack(alignment: .leading, spacing: 0) {
                 VoiceCloningReferenceSettings(
@@ -406,7 +406,8 @@ private extension VoiceCloningView {
         QwenLanguagePickerRow(
             selectedLanguage: $draft.selectedLanguage,
             accentColor: AppTheme.voiceCloning,
-            accessibilityPrefix: "voiceCloning"
+            accessibilityPrefix: "voiceCloning",
+            showsDefaultHelp: false
         )
     }
 }
@@ -439,22 +440,21 @@ private struct VoiceCloningReferenceSettings: View {
     let retrySavedVoices: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: LayoutConstants.generationConfigurationRowSpacing) {
-            Text("Source")
-                .font(.subheadline.weight(.semibold))
-
+        GenerationSetupRow(
+            label: "Source",
+            accessibilityIdentifier: "voiceCloning_voiceSetup"
+        ) {
             CloneSourceRow(
                 savedVoices: savedVoices,
                 selectedSavedVoiceID: $selectedSavedVoiceID,
                 browseForAudio: browseForAudio,
                 referenceAudioPath: referenceAudioPath
             )
-
-            Text("Only use voice clips you own or have permission to clone.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("voiceCloning_consentNotice")
-
+        } supporting: {
+            GenerationSetupHint(
+                message: "Use permitted clips only.",
+                accessibilityIdentifier: "voiceCloning_consentNotice"
+            )
             CloneReferenceStatus(
                 referenceAudioPath: referenceAudioPath,
                 selectedVoice: selectedVoice,
@@ -484,9 +484,6 @@ private struct VoiceCloningReferenceSettings: View {
                 )
             }
         }
-        .padding(.vertical, LayoutConstants.generationConfigurationRowVerticalPadding)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("voiceCloning_voiceSetup")
     }
 }
 
@@ -496,10 +493,10 @@ private struct VoiceCloningTranscriptSettings: View {
     @Binding var referenceTranscript: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: LayoutConstants.generationConfigurationRowSpacing) {
-            Text("Transcript")
-                .font(.subheadline.weight(.semibold))
-
+        GenerationSetupRow(
+            label: "Transcript",
+            accessibilityIdentifier: "voiceCloning_transcriptField"
+        ) {
             TextField(
                 "What does the reference audio say? (optional)",
                 text: $referenceTranscript
@@ -509,18 +506,11 @@ private struct VoiceCloningTranscriptSettings: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glassTextField(radius: 8)
+            .glassTextField(radius: 10)
             .accessibilityLabel("Transcript")
             .accessibilityIdentifier("voiceCloning_transcriptInput")
-
-            Text("Best quality uses reference audio plus an accurate transcript; audio-only cloning remains available as a lower-guidance fallback.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.vertical, LayoutConstants.generationConfigurationRowVerticalPadding)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("voiceCloning_transcriptField")
+        .help("Best quality uses reference audio plus an accurate transcript. Audio-only cloning remains available as a lower-guidance fallback.")
     }
 }
 
@@ -580,15 +570,6 @@ private struct CloneReferenceStatus: View {
                         .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
 
-                    // When a quality warning is present, the second
-                    // line in this VStack becomes a tappable chip
-                    // instead of the reference-detail caption, so
-                    // the saved-voice panel stays a single row and the
-                    // Transcript field below it keeps its room inside
-                    // the fixed 184 pt configuration slot. Popover-on-
-                    // tap carries the full headline + summary so the
-                    // user can still see everything the wrapping
-                    // Label used to render inline.
                     if let token = selectedVoice?.qualityWarnings.first,
                        let shortLabel = PreparedVoiceQualityWarning.shortLabel(for: token) {
                         warningChip(token: token, shortLabel: shortLabel)
@@ -616,7 +597,7 @@ private struct CloneReferenceStatus: View {
                 Image(systemName: "waveform.badge.exclamationmark")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                Text("Add a reference clip to unlock the script composer and generation.")
+                Text("No reference selected.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -691,15 +672,26 @@ private struct CloneSourceRow: View {
     let referenceAudioPath: String?
 
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
-            if !savedVoices.isEmpty {
-                savedVoicePicker
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 8) {
+                if !savedVoices.isEmpty {
+                    savedVoicePicker
+                }
+
+                importButton
+
+                Spacer(minLength: 0)
             }
 
-            importButton
+            VStack(alignment: .leading, spacing: 6) {
+                if !savedVoices.isEmpty {
+                    savedVoicePicker
+                }
 
-            Spacer(minLength: 0)
+                importButton
+            }
         }
+        .help("Choose a saved voice or import a reference clip you own or have permission to clone.")
     }
 
     @ViewBuilder
@@ -727,7 +719,7 @@ private struct CloneSourceRow: View {
         Button {
             browseForAudio()
         } label: {
-            Label(referenceAudioPath == nil ? "Import reference audio..." : "Replace reference audio...", systemImage: "waveform.badge.plus")
+            Label(referenceAudioPath == nil ? "Import" : "Replace", systemImage: "waveform.badge.plus")
                 .font(.system(size: 12, weight: .semibold))
         }
         .buttonStyle(.bordered)
