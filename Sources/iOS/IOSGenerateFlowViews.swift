@@ -84,20 +84,6 @@ struct IOSGenerateContainerView: View {
     @Binding var voiceDesignDraft: VoiceDesignDraft
     @Binding var voiceCloningDraft: VoiceCloningDraft
     @Binding var pendingVoiceCloningHandoff: PendingVoiceCloningHandoff?
-    @Binding var customPrimaryAction: IOSGeneratePrimaryActionDescriptor
-    @Binding var designPrimaryAction: IOSGeneratePrimaryActionDescriptor
-    @Binding var clonePrimaryAction: IOSGeneratePrimaryActionDescriptor
-
-    private var activePrimaryAction: IOSGeneratePrimaryActionDescriptor {
-        switch selectedSection {
-        case .custom:
-            return customPrimaryAction
-        case .design:
-            return designPrimaryAction
-        case .clone:
-            return clonePrimaryAction
-        }
-    }
 
     private var hasAnyInstalledModel: Bool {
         modelManager.statuses.values.contains { status in
@@ -134,22 +120,19 @@ struct IOSGenerateContainerView: View {
                     IOSCustomVoiceView(
                         isActive: selectedSection == .custom,
                         selectedTab: $selectedTab,
-                        draft: $customVoiceDraft,
-                        primaryAction: $customPrimaryAction
+                        draft: $customVoiceDraft
                     )
                 } design: {
                     IOSVoiceDesignView(
                         isActive: selectedSection == .design,
                         selectedTab: $selectedTab,
-                        draft: $voiceDesignDraft,
-                        primaryAction: $designPrimaryAction
+                        draft: $voiceDesignDraft
                     )
                 } clone: {
                     IOSVoiceCloningView(
                         isActive: selectedSection == .clone,
                         selectedTab: $selectedTab,
                         draft: $voiceCloningDraft,
-                        primaryAction: $clonePrimaryAction,
                         pendingSavedVoiceHandoff: $pendingVoiceCloningHandoff
                     )
                 }
@@ -465,64 +448,3 @@ extension IOSGenerationSection {
     }
 }
 
-struct IOSGeneratePrimaryActionDescriptor {
-    let title: String
-    let systemImage: String
-    let tint: Color
-    let isRunning: Bool
-    let isEnabled: Bool
-    let accessibilityIdentifier: String
-    let action: () -> Void
-
-    static func placeholder(for section: IOSGenerationSection) -> IOSGeneratePrimaryActionDescriptor {
-        IOSGeneratePrimaryActionDescriptor(
-            title: "Create",
-            systemImage: section.primaryActionSystemImage,
-            tint: section.primaryActionTint,
-            isRunning: false,
-            isEnabled: false,
-            accessibilityIdentifier: "textInput_generateButton",
-            action: {}
-        )
-    }
-}
-
-struct IOSGenerationPrimaryButton: View {
-    let title: String
-    let systemImage: String
-    let tint: Color
-    let isRunning: Bool
-    let isEnabled: Bool
-    let accessibilityIdentifier: String
-    let action: () -> Void
-
-    private var foregroundStyle: Color {
-        IOSAppTheme.accentForeground
-    }
-
-    var body: some View {
-        Button {
-            IOSHaptics.impact(.medium)
-            action()
-        } label: {
-            HStack(spacing: 8) {
-                if isRunning {
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                        .tint(foregroundStyle)
-                } else {
-                    Image(systemName: systemImage)
-                }
-
-                Text(title)
-                    .font(.headline.weight(.semibold))
-            }
-            .foregroundStyle(foregroundStyle)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: 48)
-        }
-        .iosAdaptiveUtilityButtonStyle(prominent: true, tint: tint)
-        .disabled(!isEnabled)
-        .accessibilityIdentifier(accessibilityIdentifier)
-    }
-}

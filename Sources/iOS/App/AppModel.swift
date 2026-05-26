@@ -98,15 +98,6 @@ final class AppModel {
     /// blurred/dimmed, matching the reference backdrop-filter focus layer.
     var isFocusBackdropPresented: Bool = false
 
-    // MARK: - Legacy primary-action descriptors
-
-    /// Per-mode `IOSGeneratePrimaryActionDescriptor` storage. Used by
-    /// the legacy generation flow; will retire when Phase 3's
-    /// StudioGenerationCoordinator lands.
-    var customPrimaryAction: IOSGeneratePrimaryActionDescriptor
-    var designPrimaryAction: IOSGeneratePrimaryActionDescriptor
-    var clonePrimaryAction: IOSGeneratePrimaryActionDescriptor
-
     // MARK: - Studio generation coordinators (Phase 3b)
 
     /// Per-mode generation lifecycle. Per-mode views read state via
@@ -144,9 +135,6 @@ final class AppModel {
 
     init(modelRegistry: ContractBackedModelRegistry) {
         self.customVoiceDraft = CustomVoiceDraft(selectedSpeaker: modelRegistry.defaultSpeaker.id)
-        self.customPrimaryAction = IOSGeneratePrimaryActionDescriptor.placeholder(for: .custom)
-        self.designPrimaryAction = IOSGeneratePrimaryActionDescriptor.placeholder(for: .design)
-        self.clonePrimaryAction = IOSGeneratePrimaryActionDescriptor.placeholder(for: .clone)
         self.isOnboardingPresented = !IOSAppDefaults.hasCompletedOnboarding
 
 #if DEBUG

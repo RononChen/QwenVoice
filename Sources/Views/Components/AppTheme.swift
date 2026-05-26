@@ -251,6 +251,7 @@ enum AppTheme {
 
 private struct NativeSurfaceStyle: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.cardGlassTint) private var cardGlassTint
 
     let padding: CGFloat
@@ -259,7 +260,7 @@ private struct NativeSurfaceStyle: ViewModifier {
 
     func body(content: Content) -> some View {
         #if QW_UI_LIQUID
-        if #available(macOS 26, *) {
+        if #available(macOS 26, *), !reduceTransparency {
             let resolvedTint: Color = cardGlassTint.map {
                 AppTheme.surfaceGlassTint($0, for: colorScheme)
             } ?? AppTheme.smokedGlassTint
@@ -512,10 +513,11 @@ struct SectionHeaderStyle: ViewModifier {
 
 struct GlowingGradientButtonStyle: ButtonStyle {
     let baseColor: Color
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     func makeBody(configuration: Configuration) -> some View {
         #if QW_UI_LIQUID
-        if #available(macOS 26, *) {
+        if #available(macOS 26, *), !reduceTransparency {
             configuration.label
                 .font(.body.weight(.semibold))
                 .foregroundStyle(.white)
@@ -548,10 +550,11 @@ struct GlowingGradientButtonStyle: ButtonStyle {
 
 struct CompactGenerateButtonStyle: ButtonStyle {
     let baseColor: Color
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     func makeBody(configuration: Configuration) -> some View {
         #if QW_UI_LIQUID
-        if #available(macOS 26, *) {
+        if #available(macOS 26, *), !reduceTransparency {
             configuration.label
                 .foregroundStyle(.white)
                 .padding(12)
@@ -656,34 +659,54 @@ struct StudioGroupBoxStyle: GroupBoxStyle {
 @available(macOS 26, *)
 struct GlassGroupBoxStyle: GroupBoxStyle {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.cardGlassTint) private var cardGlassTint
 
     func makeBody(configuration: Configuration) -> some View {
-        let resolvedTint: Color = cardGlassTint.map {
-            AppTheme.surfaceGlassTint($0, for: colorScheme)
-        } ?? AppTheme.smokedGlassTint
-        let resolvedStroke: Color = cardGlassTint.map {
-            AppTheme.accentStroke($0, for: colorScheme).opacity(0.55)
-        } ?? AppTheme.cardStroke.opacity(AppTheme.surfaceStrokeOpacity(for: colorScheme))
-        let depthIntensity: Double = cardGlassTint == nil ? 1.0 : 1.15
-        return VStack(alignment: .leading, spacing: 8) {
-            configuration.label
-            configuration.content
+        if reduceTransparency {
+            VStack(alignment: .leading, spacing: 8) {
+                configuration.label
+                configuration.content
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(AppTheme.cardFill)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(
+                                AppTheme.cardStroke.opacity(AppTheme.surfaceStrokeOpacity(for: colorScheme)),
+                                lineWidth: AppTheme.surfaceStrokeWidth(for: colorScheme)
+                            )
+                    )
+            )
+        } else {
+            let resolvedTint: Color = cardGlassTint.map {
+                AppTheme.surfaceGlassTint($0, for: colorScheme)
+            } ?? AppTheme.smokedGlassTint
+            let resolvedStroke: Color = cardGlassTint.map {
+                AppTheme.accentStroke($0, for: colorScheme).opacity(0.55)
+            } ?? AppTheme.cardStroke.opacity(AppTheme.surfaceStrokeOpacity(for: colorScheme))
+            let depthIntensity: Double = cardGlassTint == nil ? 1.0 : 1.15
+            VStack(alignment: .leading, spacing: 8) {
+                configuration.label
+                configuration.content
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(AppTheme.cardFill)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(
+                                resolvedStroke,
+                                lineWidth: AppTheme.surfaceStrokeWidth(for: colorScheme)
+                            )
+                    )
+            )
+            .glassEffect(.regular.tint(resolvedTint), in: .rect(cornerRadius: 16))
+            .glass3DDepth(radius: 16, intensity: depthIntensity)
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(AppTheme.cardFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(
-                            resolvedStroke,
-                            lineWidth: AppTheme.surfaceStrokeWidth(for: colorScheme)
-                        )
-                )
-        )
-        .glassEffect(.regular.tint(resolvedTint), in: .rect(cornerRadius: 16))
-        .glass3DDepth(radius: 16, intensity: depthIntensity)
     }
 }
 #endif

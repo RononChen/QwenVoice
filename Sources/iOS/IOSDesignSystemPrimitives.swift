@@ -301,6 +301,42 @@ struct IOSWaveformBars: View {
     }
 }
 
+/// Fixed-size history-row waveform thumbnail. Uses `Canvas` instead of
+/// `GeometryReader` so list rows avoid per-layout measurement work.
+struct IOSStaticWaveformThumbnail: View {
+    let seed: Int
+    let barCount: Int
+    let tint: Color
+
+    private let barWidth: CGFloat = 2
+    private let spacing: CGFloat = 1.5
+    private let cornerRadius: CGFloat = 1
+
+    var body: some View {
+        Canvas { context, size in
+            for index in 0..<barCount {
+                let amplitude = miniAmplitude(at: index)
+                let height = max(2, size.height * CGFloat(amplitude))
+                let x = CGFloat(index) * (barWidth + spacing)
+                let y = (size.height - height) / 2
+                let rect = CGRect(x: x, y: y, width: barWidth, height: height)
+                let path = Path(roundedRect: rect, cornerRadius: cornerRadius, style: .continuous)
+                context.fill(
+                    path,
+                    with: .color(tint.opacity(0.4 + amplitude * 0.5))
+                )
+            }
+        }
+    }
+
+    private func miniAmplitude(at index: Int) -> Double {
+        let i = Double(index)
+        let raw = sin((Double(seed) * 13 + i * 7.31) * 1.3) * 0.4 + 0.5
+        let base = abs(raw) + Double(index % 5) * 0.08
+        return max(0.16, min(0.95, base))
+    }
+}
+
 struct IOSPlayerIconButtonChrome: View {
     let symbol: String
     var isActive: Bool = false
@@ -510,7 +546,7 @@ struct IOSBottomEdgeSheet<Content: View>: View {
 
     var body: some View {
         let shape = IOSTopRoundedRectangle(cornerRadius: IOSBottomSheetChrome.cornerRadius)
-        let base = VStack(spacing: 0) {
+        let panel = VStack(spacing: 0) {
             grabber
                 .padding(.top, 8)
 
@@ -530,11 +566,17 @@ struct IOSBottomEdgeSheet<Content: View>: View {
             maxHeight: height,
             alignment: .top
         )
-        .background {
+
+        Group {
             if reduceTransparency {
-                shape.fill(Color(red: 20 / 255, green: 22 / 255, blue: 30 / 255))
+                panel.background {
+                    shape.fill(Color(red: 20 / 255, green: 22 / 255, blue: 30 / 255))
+                }
             } else {
-                shape.fill(IOSBottomSheetChrome.background)
+                panel.glassEffect(
+                    .regular.tint(IOSAppTheme.subtleGlassTint(tint, intensity: 0.45)),
+                    in: shape
+                )
             }
         }
         .clipShape(shape)
@@ -550,15 +592,6 @@ struct IOSBottomEdgeSheet<Content: View>: View {
                 .allowsHitTesting(false)
         }
         .shadow(color: Color.black.opacity(0.34), radius: 30, x: 0, y: -10)
-
-        if reduceTransparency {
-            base
-        } else {
-            base.glassEffect(
-                .regular.tint(IOSAppTheme.subtleGlassTint(tint, intensity: 0.45)),
-                in: shape
-            )
-        }
     }
 
     private var grabber: some View {

@@ -243,7 +243,7 @@ Two-platform Swift codebase with an out-of-process engine on each platform.
 - `Sources/iOS/App/RootView.swift` — flat tab routing on `appModel.tab`. Owns the global Player sheet `.sheet(item:)`, onboarding `fullScreenCover`, and `\.presentIOSPlayerSheet` environment closure injection.
 - `Sources/iOS/App/TabDock.swift` — bottom glass dock; mode-tinted on Studio, neutral on Voices / History / Settings.
 - `Sources/iOS/Studio/StudioScreen.swift` — Studio tab entry point. Reads AppModel; delegates the body to the existing per-mode views (refactor target for future work).
-- `Sources/iOS/Studio/ModeSegmented.swift` — animated 3-way pill with matched-geometry sliding selection.
+- `Sources/iOS/IOSGenerateFlowViews.swift` — `IOSGenerationModeSelector` animated 3-way pill with matched-geometry sliding selection.
 - `Sources/iOS/Studio/StudioGenerationCoordinator.swift` — `@Observable` per-mode generation lifecycle (`isGenerating`, `errorMessage`, `lastCompletedOutput`). Replaces the scattered `@State` that used to live on each per-mode view.
 - `Sources/iOS/Studio/IOSStudioInlinePlayerCard.swift` — completion-state mini player with Save / Download / Dismiss actions, 38-bar waveform, soft drop shadow per design notes (`0 2 10 / 0.22`), and expansion into the global Player sheet via `\.presentIOSPlayerSheet`.
 - `Sources/iOS/Voices/VoicesScreen.swift` — unified built-in + saved voices entry; consumes `AppModel`.

@@ -500,7 +500,11 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
         try fileManager.createDirectory(at: filesRoot, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: partialRoot, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: resumeRoot, withIntermediateDirectories: true)
-            try persistDownloadState(
+        AppPaths.excludeFromBackup(stagingRoot)
+        AppPaths.excludeFromBackup(filesRoot)
+        AppPaths.excludeFromBackup(partialRoot)
+        AppPaths.excludeFromBackup(resumeRoot)
+        try persistDownloadState(
                 repo: repo,
                 revision: revision,
                 targetDir: targetDir,
@@ -590,6 +594,7 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
             )
             await state.setPhase(.installing)
             try installStagedRepository(filesRoot: filesRoot, targetDir: targetDir)
+            AppPaths.excludeFromBackup(targetDir)
             try? fileManager.removeItem(at: stagingRoot)
             await state.finishRepositoryDownload()
         } catch {

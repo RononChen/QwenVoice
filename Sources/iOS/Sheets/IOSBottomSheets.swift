@@ -397,7 +397,7 @@ struct IOSVoicePickerSheet: View {
                 }
 
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 4) {
+                    LazyVStack(alignment: .leading, spacing: 4) {
                         ForEach(filtered) { option in
                             row(for: option)
                         }

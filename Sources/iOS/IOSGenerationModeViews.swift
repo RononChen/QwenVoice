@@ -12,7 +12,6 @@ struct IOSCustomVoiceView: View {
     let isActive: Bool
     @Binding var selectedTab: IOSAppTab
     @Binding var draft: CustomVoiceDraft
-    @Binding var primaryAction: IOSGeneratePrimaryActionDescriptor
     @State private var isScriptFocused = false
 
     // Generation lifecycle state lives on AppModel.customCoordinator
@@ -123,10 +122,6 @@ struct IOSCustomVoiceView: View {
         return scriptLimitState.helperMessage
     }
 
-    private var primaryActionToken: String {
-        "\(isGenerationActive)-\(canGenerateInCurrentRuntime)"
-    }
-
     private var isGenerationActive: Bool {
         isGenerating || ttsEngine.hasActiveGeneration
     }
@@ -134,14 +129,6 @@ struct IOSCustomVoiceView: View {
     var body: some View {
         pageContent
             .accessibilityIdentifier("screen_customVoice")
-            .task(id: primaryActionToken) {
-                guard isActive else { return }
-                publishPrimaryAction()
-            }
-            .onChange(of: isActive) { _, active in
-                guard active else { return }
-                publishPrimaryAction()
-            }
     }
 
     @ViewBuilder
@@ -160,7 +147,13 @@ struct IOSCustomVoiceView: View {
             modelDisplayName: activeModel?.name ?? "Voice model",
             setupChips: { customModeChips },
             onGenerate: generate,
-            onCancel: cancelGeneration,
+            onCancel: {
+                IOSStudioGenerationActions.cancelGeneration(
+                    coordinator: coordinator,
+                    ttsEngine: ttsEngine,
+                    audioPlayer: audioPlayer
+                )
+            },
             onInstallModel: { selectedTab = .settings },
             onPlayerDismiss: { coordinator.dismissInlinePlayer() },
             onPlayerExpand: expandInlinePlayer
@@ -274,30 +267,6 @@ struct IOSCustomVoiceView: View {
         }
     }
 
-    private func publishPrimaryAction() {
-        if isGenerationActive {
-            primaryAction = IOSGeneratePrimaryActionDescriptor(
-                title: "Cancel",
-                systemImage: "stop.fill",
-                tint: .red,
-                isRunning: false,
-                isEnabled: true,
-                accessibilityIdentifier: "textInput_cancelButton",
-                action: cancelGeneration
-            )
-            return
-        }
-        primaryAction = IOSGeneratePrimaryActionDescriptor(
-            title: "Create",
-            systemImage: IOSGenerationSection.custom.primaryActionSystemImage,
-            tint: IOSGenerationSection.custom.primaryActionTint,
-            isRunning: isGenerationActive,
-            isEnabled: canGenerateInCurrentRuntime,
-            accessibilityIdentifier: "textInput_generateButton",
-            action: generate
-        )
-    }
-
     private func generate() {
         guard !scriptLimitState.trimmedIsEmpty, ttsEngine.isReady, !ttsEngine.hasActiveGeneration else { return }
         guard !scriptLimitState.isOverLimit else {
@@ -370,23 +339,11 @@ struct IOSCustomVoiceView: View {
                 IOSHaptics.success()
             } catch is CancellationError {
                 audioPlayer.abortLivePreviewIfNeeded()
-            coordinator.errorMessage = nil
-            try? FileManager.default.removeItem(at: url)
-        } catch {
+                await MainActor.run { coordinator.errorMessage = nil }
+            } catch {
                 audioPlayer.abortLivePreviewIfNeeded()
                 await MainActor.run { coordinator.fail(error.localizedDescription) }
                 IOSHaptics.warning()
-            }
-        }
-    }
-
-    private func cancelGeneration() {
-        coordinator.generationTask?.cancel()
-        Task {
-            try? await ttsEngine.cancelActiveGeneration()
-            await MainActor.run {
-                audioPlayer.abortLivePreviewIfNeeded()
-                coordinator.finish()
             }
         }
     }
@@ -403,7 +360,6 @@ struct IOSVoiceDesignView: View {
     let isActive: Bool
     @Binding var selectedTab: IOSAppTab
     @Binding var draft: VoiceDesignDraft
-    @Binding var primaryAction: IOSGeneratePrimaryActionDescriptor
     @State private var isScriptFocused = false
     @State private var saveSheetAudioPath: String?
     @State private var isSaveSheetPresented = false
@@ -513,10 +469,6 @@ struct IOSVoiceDesignView: View {
         ttsEngine.supportsSavedVoiceMutation && saveSheetAudioPath != nil
     }
 
-    private var primaryActionToken: String {
-        "\(isGenerationActive)-\(canGenerateInCurrentRuntime)"
-    }
-
     private var isGenerationActive: Bool {
         isGenerating || ttsEngine.hasActiveGeneration
     }
@@ -524,14 +476,6 @@ struct IOSVoiceDesignView: View {
     var body: some View {
         pageContent
             .accessibilityIdentifier("screen_voiceDesign")
-            .task(id: primaryActionToken) {
-                guard isActive else { return }
-                publishPrimaryAction()
-            }
-            .onChange(of: isActive) { _, active in
-                guard active else { return }
-                publishPrimaryAction()
-            }
             .sheet(isPresented: Binding(
                 get: { isSaveSheetPresented },
                 set: { isPresented in
@@ -645,7 +589,13 @@ struct IOSVoiceDesignView: View {
             modelDisplayName: activeModel?.name ?? "Voice Design model",
             setupChips: { designModeChips },
             onGenerate: generate,
-            onCancel: cancelGeneration,
+            onCancel: {
+                IOSStudioGenerationActions.cancelGeneration(
+                    coordinator: coordinator,
+                    ttsEngine: ttsEngine,
+                    audioPlayer: audioPlayer
+                )
+            },
             onInstallModel: { selectedTab = .settings },
             onPlayerDismiss: { coordinator.dismissInlinePlayer() },
             onPlayerExpand: expandInlinePlayer
@@ -736,30 +686,6 @@ struct IOSVoiceDesignView: View {
         }
     }
 
-    private func publishPrimaryAction() {
-        if isGenerationActive {
-            primaryAction = IOSGeneratePrimaryActionDescriptor(
-                title: "Cancel",
-                systemImage: "stop.fill",
-                tint: .red,
-                isRunning: false,
-                isEnabled: true,
-                accessibilityIdentifier: "textInput_cancelButton",
-                action: cancelGeneration
-            )
-            return
-        }
-        primaryAction = IOSGeneratePrimaryActionDescriptor(
-            title: "Create",
-            systemImage: IOSGenerationSection.design.primaryActionSystemImage,
-            tint: IOSGenerationSection.design.primaryActionTint,
-            isRunning: isGenerationActive,
-            isEnabled: canGenerateInCurrentRuntime,
-            accessibilityIdentifier: "textInput_generateButton",
-            action: generate
-        )
-    }
-
     private var suggestedSavedVoiceName: String {
         let clipped = draft.voiceDescription
             .split(separator: " ")
@@ -846,17 +772,6 @@ struct IOSVoiceDesignView: View {
             }
         }
     }
-
-    private func cancelGeneration() {
-        coordinator.generationTask?.cancel()
-        Task {
-            try? await ttsEngine.cancelActiveGeneration()
-            await MainActor.run {
-                audioPlayer.abortLivePreviewIfNeeded()
-                coordinator.finish()
-            }
-        }
-    }
 }
 
 struct IOSVoiceCloningView: View {
@@ -870,7 +785,6 @@ struct IOSVoiceCloningView: View {
     let isActive: Bool
     @Binding var selectedTab: IOSAppTab
     @Binding var draft: VoiceCloningDraft
-    @Binding var primaryAction: IOSGeneratePrimaryActionDescriptor
     @Binding var pendingSavedVoiceHandoff: PendingVoiceCloningHandoff?
 
     @State private var transcriptLoadError: String?
@@ -1020,10 +934,6 @@ struct IOSVoiceCloningView: View {
         canGenerate
     }
 
-    private var primaryActionToken: String {
-        "\(isGenerationActive)-\(canGenerateInCurrentRuntime)"
-    }
-
     private var isGenerationActive: Bool {
         isGenerating || ttsEngine.hasActiveGeneration
     }
@@ -1031,10 +941,6 @@ struct IOSVoiceCloningView: View {
     var body: some View {
         pageContent
             .accessibilityIdentifier("screen_voiceCloning")
-            .task(id: primaryActionToken) {
-                guard isActive else { return }
-                publishPrimaryAction()
-            }
             .task {
                 guard isActive else { return }
                 if ttsEngine.isReady {
@@ -1052,7 +958,6 @@ struct IOSVoiceCloningView: View {
             }
             .onChange(of: isActive) { _, active in
                 guard active else { return }
-                publishPrimaryAction()
                 consumePendingSavedVoiceHandoffIfNeeded()
                 syncSavedVoiceSelectionState()
             }
@@ -1154,7 +1059,13 @@ struct IOSVoiceCloningView: View {
                 modelDisplayName: cloneModel?.name ?? "Voice Cloning model",
                 setupChips: { cloneModeChips },
                 onGenerate: generate,
-                onCancel: cancelGeneration,
+                onCancel: {
+                    IOSStudioGenerationActions.cancelGeneration(
+                        coordinator: coordinator,
+                        ttsEngine: ttsEngine,
+                        audioPlayer: audioPlayer
+                    )
+                },
                 onInstallModel: { selectedTab = .settings },
                 onPlayerDismiss: { coordinator.dismissInlinePlayer() },
                 onPlayerExpand: expandInlinePlayer
@@ -1262,30 +1173,6 @@ struct IOSVoiceCloningView: View {
             && !ttsEngine.hasActiveGeneration
             && isModelAvailable
             && draft.referenceAudioPath != nil
-    }
-
-    private func publishPrimaryAction() {
-        if isGenerationActive {
-            primaryAction = IOSGeneratePrimaryActionDescriptor(
-                title: "Cancel",
-                systemImage: "stop.fill",
-                tint: .red,
-                isRunning: false,
-                isEnabled: true,
-                accessibilityIdentifier: "textInput_cancelButton",
-                action: cancelGeneration
-            )
-            return
-        }
-        primaryAction = IOSGeneratePrimaryActionDescriptor(
-            title: "Create",
-            systemImage: IOSGenerationSection.clone.primaryActionSystemImage,
-            tint: IOSGenerationSection.clone.primaryActionTint,
-            isRunning: isGenerationActive,
-            isEnabled: canGenerateInCurrentRuntime,
-            accessibilityIdentifier: "textInput_generateButton",
-            action: generate
-        )
     }
 
     private func consumePendingSavedVoiceHandoffIfNeeded() {
@@ -1398,17 +1285,6 @@ struct IOSVoiceCloningView: View {
                 audioPlayer.abortLivePreviewIfNeeded()
                 await MainActor.run { coordinator.fail(error.localizedDescription) }
                 IOSHaptics.warning()
-            }
-        }
-    }
-
-    private func cancelGeneration() {
-        coordinator.generationTask?.cancel()
-        Task {
-            try? await ttsEngine.cancelActiveGeneration()
-            await MainActor.run {
-                audioPlayer.abortLivePreviewIfNeeded()
-                coordinator.finish()
             }
         }
     }

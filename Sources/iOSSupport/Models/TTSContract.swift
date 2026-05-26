@@ -15,8 +15,8 @@ enum TTSContractError: LocalizedError, Equatable, Sendable {
 }
 
 enum TTSContract {
-    static var manifestURL: URL {
-        try locateManifestURL()
+    static var manifestURL: URL? {
+        try? locateManifestURL()
     }
 
     static var registryLoadError: String? {

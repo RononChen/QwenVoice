@@ -39,10 +39,7 @@ struct StudioScreen: View {
             customVoiceDraft: $appModel.customVoiceDraft,
             voiceDesignDraft: $appModel.voiceDesignDraft,
             voiceCloningDraft: $appModel.voiceCloningDraft,
-            pendingVoiceCloningHandoff: $appModel.pendingVoiceCloningHandoff,
-            customPrimaryAction: $appModel.customPrimaryAction,
-            designPrimaryAction: $appModel.designPrimaryAction,
-            clonePrimaryAction: $appModel.clonePrimaryAction
+            pendingVoiceCloningHandoff: $appModel.pendingVoiceCloningHandoff
         )
     }
 }

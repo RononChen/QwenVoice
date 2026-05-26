@@ -392,12 +392,10 @@ private struct IOSHistoryItemCard: View {
                                     .fill(Color.white.opacity(0.02))
                             }
                             .frame(width: 48, height: 48)
-                        IOSWaveformBars(
+                        IOSStaticWaveformThumbnail(
                             seed: thumbnailSeed,
                             barCount: 14,
-                            tint: modeTint,
-                            progress: 1.0,
-                            isAnimating: false
+                            tint: modeTint
                         )
                         .frame(width: 34, height: 22)
                     }
