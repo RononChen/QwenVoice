@@ -264,7 +264,8 @@ actor NativePreparedCloneConditioningCache {
         modelID: String,
         model: UnsafeSpeechGenerationModel,
         voicesDirectory: URL?,
-        language: String? = nil
+        language: String? = nil,
+        qwenRuntimeProfileSignature: String? = nil
     ) throws -> ResolvedCloneConditioning {
         guard model.supportsOptimizedVoiceClone,
               conditioning.voiceClonePrompt == nil,
@@ -273,6 +274,13 @@ actor NativePreparedCloneConditioningCache {
         }
 
         let cacheKey = conditioning.internalIdentityKey
+        let artifactMetadata = clonePromptArtifactMetadata(
+            modelID: modelID,
+            conditioning: conditioning,
+            language: language,
+            xVectorOnlyMode: false,
+            qwenRuntimeProfileSignature: qwenRuntimeProfileSignature
+        )
         let artifactDirectory = clonePromptArtifactDirectory(
             voicesDirectory: voicesDirectory,
             preparedVoiceID: conditioning.preparedVoiceID,
@@ -285,7 +293,10 @@ actor NativePreparedCloneConditioningCache {
            FileManager.default.fileExists(atPath: artifactDirectory.path) {
             let artifactLoadStartedAt = ContinuousClock.now
             do {
-                let prompt = try Qwen3TTSVoiceClonePrompt.load(from: artifactDirectory)
+                let prompt = try Qwen3TTSVoiceClonePrompt.load(
+                    from: artifactDirectory,
+                    expectedMetadata: artifactMetadata
+                )
                 cacheVoiceClonePrompt(prompt, for: cacheKey)
                 return conditioning.withVoiceClonePrompt(
                     prompt,
@@ -322,12 +333,15 @@ actor NativePreparedCloneConditioningCache {
             return conditioning
         }
         let promptBuildMS = promptBuildStartedAt.elapsedMilliseconds
-        cacheVoiceClonePrompt(prompt, for: cacheKey)
+        let promptWithMetadata = prompt.withArtifactMetadata(
+            artifactMetadata.fillingCreatedAtIfNeeded()
+        )
+        cacheVoiceClonePrompt(promptWithMetadata, for: cacheKey)
         if let artifactDirectory {
-            try writeVoiceClonePrompt(prompt, to: artifactDirectory)
+            try writeVoiceClonePrompt(promptWithMetadata, to: artifactDirectory)
         }
         return conditioning.withVoiceClonePrompt(
-            prompt,
+            promptWithMetadata,
             cacheHit: false,
             conditioningReused: conditioning.cloneConditioningReused,
             timingsMS: [
@@ -335,31 +349,6 @@ actor NativePreparedCloneConditioningCache {
                 "clone_prompt_resolve": resolveStartedAt.elapsedMilliseconds,
             ]
         )
-    }
-
-    func hasPersistedVoiceClonePromptArtifact(
-        modelID: String,
-        preparedVoiceID: String,
-        voicesDirectory: URL?
-    ) -> Bool {
-        guard let directory = clonePromptArtifactDirectory(
-            voicesDirectory: voicesDirectory,
-            preparedVoiceID: preparedVoiceID,
-            modelID: modelID
-        ) else {
-            return false
-        }
-        guard FileManager.default.fileExists(atPath: directory.path) else {
-            return false
-        }
-
-        do {
-            _ = try Qwen3TTSVoiceClonePrompt.load(from: directory)
-            return true
-        } catch {
-            try? FileManager.default.removeItem(at: directory)
-            return false
-        }
     }
 
     private func insert(_ conditioning: CachedConditioning) {
@@ -766,6 +755,38 @@ actor NativePreparedCloneConditioningCache {
             .map { String(format: "%02x", $0) }
             .joined()
         return digest
+    }
+
+    private func clonePromptArtifactMetadata(
+        modelID: String,
+        conditioning: ResolvedCloneConditioning,
+        language: String?,
+        xVectorOnlyMode: Bool,
+        qwenRuntimeProfileSignature: String?
+    ) -> Qwen3TTSVoiceClonePrompt.ArtifactMetadata {
+        let normalizedLanguage = Self.normalizedClonePromptLanguage(language)
+        return Qwen3TTSVoiceClonePrompt.ArtifactMetadata(
+            modelID: modelID,
+            language: normalizedLanguage,
+            sourceAudioFingerprint: conditioning.normalizedReference.fingerprint,
+            transcriptHash: conditioning.resolvedTranscript.map(Self.sha256Hex(text:)),
+            hasTranscript: conditioning.resolvedTranscript != nil,
+            xVectorOnlyMode: xVectorOnlyMode,
+            qwen3RuntimeProfileSignature: qwenRuntimeProfileSignature
+        )
+    }
+
+    private static func normalizedClonePromptLanguage(_ language: String?) -> String {
+        let normalized = (language ?? "auto")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return normalized.isEmpty ? "auto" : normalized
+    }
+
+    private static func sha256Hex(text: String) -> String {
+        SHA256.hash(data: Data(text.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 
     private func writeVoiceClonePrompt(

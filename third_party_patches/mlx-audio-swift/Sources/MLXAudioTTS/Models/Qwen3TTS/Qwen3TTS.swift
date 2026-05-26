@@ -492,43 +492,131 @@ private actor Qwen3TTSPreparedComponentCache {
 }
 
 public struct Qwen3TTSVoiceClonePrompt: @unchecked Sendable {
+    public struct ArtifactMetadata: Codable, Hashable, Sendable {
+        public let modelID: String?
+        public let language: String?
+        public let sourceAudioFingerprint: String?
+        public let transcriptHash: String?
+        public let hasTranscript: Bool?
+        public let xVectorOnlyMode: Bool?
+        public let qwen3RuntimeProfileSignature: String?
+        public let createdAt: String?
+
+        public init(
+            modelID: String? = nil,
+            language: String? = nil,
+            sourceAudioFingerprint: String? = nil,
+            transcriptHash: String? = nil,
+            hasTranscript: Bool? = nil,
+            xVectorOnlyMode: Bool? = nil,
+            qwen3RuntimeProfileSignature: String? = nil,
+            createdAt: String? = nil
+        ) {
+            self.modelID = modelID
+            self.language = language
+            self.sourceAudioFingerprint = sourceAudioFingerprint
+            self.transcriptHash = transcriptHash
+            self.hasTranscript = hasTranscript
+            self.xVectorOnlyMode = xVectorOnlyMode
+            self.qwen3RuntimeProfileSignature = qwen3RuntimeProfileSignature
+            self.createdAt = createdAt
+        }
+
+        public func matches(_ expected: ArtifactMetadata) -> Bool {
+            if let expectedModelID = expected.modelID, modelID != expectedModelID { return false }
+            if let expectedLanguage = expected.language, language != expectedLanguage { return false }
+            if let expectedFingerprint = expected.sourceAudioFingerprint,
+               sourceAudioFingerprint != expectedFingerprint {
+                return false
+            }
+            if let expectedTranscriptHash = expected.transcriptHash,
+               transcriptHash != expectedTranscriptHash {
+                return false
+            }
+            if let expectedHasTranscript = expected.hasTranscript,
+               hasTranscript != expectedHasTranscript {
+                return false
+            }
+            if let expectedXVectorOnlyMode = expected.xVectorOnlyMode,
+               xVectorOnlyMode != expectedXVectorOnlyMode {
+                return false
+            }
+            if let expectedRuntimeSignature = expected.qwen3RuntimeProfileSignature,
+               qwen3RuntimeProfileSignature != expectedRuntimeSignature {
+                return false
+            }
+            return true
+        }
+
+        public func fillingCreatedAtIfNeeded() -> ArtifactMetadata {
+            guard createdAt == nil else { return self }
+            return ArtifactMetadata(
+                modelID: modelID,
+                language: language,
+                sourceAudioFingerprint: sourceAudioFingerprint,
+                transcriptHash: transcriptHash,
+                hasTranscript: hasTranscript,
+                xVectorOnlyMode: xVectorOnlyMode,
+                qwen3RuntimeProfileSignature: qwen3RuntimeProfileSignature,
+                createdAt: ISO8601DateFormatter().string(from: Date())
+            )
+        }
+    }
+
     public struct Manifest: Codable, Sendable {
         public let schemaVersion: Int
         public let refText: String?
         public let xVectorOnlyMode: Bool
         public let iclMode: Bool
+        public let artifactMetadata: ArtifactMetadata?
     }
 
-    public static let schemaVersion = 1
+    public static let schemaVersion = 2
     public let refCodes: MLXArray?
     public let speakerEmbedding: MLXArray?
     public let refText: String?
     public let xVectorOnlyMode: Bool
     public let iclMode: Bool
+    public let artifactMetadata: ArtifactMetadata?
 
     public init(
         refCodes: MLXArray?,
         speakerEmbedding: MLXArray?,
         refText: String?,
         xVectorOnlyMode: Bool,
-        iclMode: Bool
+        iclMode: Bool,
+        artifactMetadata: ArtifactMetadata? = nil
     ) {
         self.refCodes = refCodes
         self.speakerEmbedding = speakerEmbedding
         self.refText = refText
         self.xVectorOnlyMode = xVectorOnlyMode
         self.iclMode = iclMode
+        self.artifactMetadata = artifactMetadata
     }
 
-    public func write(to directory: URL) throws {
+    public func withArtifactMetadata(_ metadata: ArtifactMetadata?) -> Qwen3TTSVoiceClonePrompt {
+        Qwen3TTSVoiceClonePrompt(
+            refCodes: refCodes,
+            speakerEmbedding: speakerEmbedding,
+            refText: refText,
+            xVectorOnlyMode: xVectorOnlyMode,
+            iclMode: iclMode,
+            artifactMetadata: metadata
+        )
+    }
+
+    public func write(to directory: URL, artifactMetadata: ArtifactMetadata? = nil) throws {
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
 
+        let metadata = (artifactMetadata ?? self.artifactMetadata)?.fillingCreatedAtIfNeeded()
         let manifest = Manifest(
             schemaVersion: Self.schemaVersion,
             refText: refText,
             xVectorOnlyMode: xVectorOnlyMode,
-            iclMode: iclMode
+            iclMode: iclMode,
+            artifactMetadata: metadata
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -553,7 +641,10 @@ public struct Qwen3TTSVoiceClonePrompt: @unchecked Sendable {
         }
     }
 
-    public static func load(from directory: URL) throws -> Qwen3TTSVoiceClonePrompt {
+    public static func load(
+        from directory: URL,
+        expectedMetadata: ArtifactMetadata? = nil
+    ) throws -> Qwen3TTSVoiceClonePrompt {
         let manifestURL = directory.appendingPathComponent("manifest.json")
         let manifest = try JSONDecoder().decode(
             Manifest.self,
@@ -562,6 +653,12 @@ public struct Qwen3TTSVoiceClonePrompt: @unchecked Sendable {
         guard manifest.schemaVersion == schemaVersion else {
             throw AudioGenerationError.modelNotInitialized(
                 "Unsupported Qwen3 clone prompt artifact version: \(manifest.schemaVersion)"
+            )
+        }
+        if let expectedMetadata,
+           manifest.artifactMetadata?.matches(expectedMetadata) != true {
+            throw AudioGenerationError.modelNotInitialized(
+                "Qwen3 clone prompt artifact metadata no longer matches the selected model/reference."
             )
         }
 
@@ -579,7 +676,8 @@ public struct Qwen3TTSVoiceClonePrompt: @unchecked Sendable {
             speakerEmbedding: speakerEmbedding,
             refText: manifest.refText,
             xVectorOnlyMode: manifest.xVectorOnlyMode,
-            iclMode: manifest.iclMode
+            iclMode: manifest.iclMode,
+            artifactMetadata: manifest.artifactMetadata
         )
     }
 

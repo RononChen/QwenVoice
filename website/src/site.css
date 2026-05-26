@@ -240,6 +240,33 @@ a { color: inherit; text-decoration: none; }
   letter-spacing: 0;
 }
 
+.trust-block {
+  margin-top: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 640px;
+}
+
+.trust-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: var(--fg-secondary);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.trust-chip svg {
+  flex: 0 0 auto;
+  color: var(--gold-300);
+}
+
 .hero-meta {
   margin-top: 22px;
   display: flex;
@@ -631,6 +658,52 @@ a { color: inherit; text-decoration: none; }
   animation: barPulse 1.2s ease-in-out infinite;
 }
 
+/* ============== WHY NOT CLOUD TTS ============== */
+
+.cloud-section {
+  padding: 72px 0 80px;
+  border-top: 1px solid rgba(255, 255, 255, 0.045);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+}
+
+.cloud-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+  gap: 44px 64px;
+  align-items: start;
+}
+
+.cloud-copy {
+  max-width: 520px;
+}
+
+.cloud-points {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px 28px;
+}
+
+.cloud-point {
+  padding-bottom: 22px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.cloud-k {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg-primary);
+  letter-spacing: 0;
+}
+
+.cloud-body {
+  margin: 0;
+  color: var(--fg-secondary);
+  font-size: 14px;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
 /* ============== TRY IT ============== */
 
 .try-section {
@@ -895,6 +968,52 @@ a { color: inherit; text-decoration: none; }
   text-wrap: pretty;
 }
 
+/* ============== LIMITATIONS ============== */
+
+.limitations-section {
+  padding: 72px 0 40px;
+}
+
+.limits-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.74fr) minmax(0, 1.26fr);
+  gap: 36px 64px;
+  align-items: start;
+}
+
+.limits-copy {
+  max-width: 520px;
+}
+
+.limits-list {
+  margin: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.limits-row {
+  display: grid;
+  grid-template-columns: minmax(136px, 0.34fr) minmax(0, 1fr);
+  gap: 24px;
+  padding: 18px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  align-items: baseline;
+}
+
+.limits-k {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gold-300);
+}
+
+.limits-v {
+  margin: 0;
+  color: var(--fg-secondary);
+  font-size: 14px;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
 /* ============== CTA CREDITS (closing credit roll) ============== */
 
 .cta-credits {
@@ -1129,7 +1248,19 @@ a { color: inherit; text-decoration: none; }
   /* Center text blocks at tablet/mobile (keep internal structures intact) */
   .hero-copy { text-align: center; }
   .hero-ctas { justify-content: center; }
+  .trust-block { justify-content: center; margin-inline: auto; }
   .hero-meta { justify-content: center; }
+
+  .cloud-layout,
+  .limits-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+  .cloud-copy,
+  .limits-copy {
+    text-align: center;
+    margin-inline: auto;
+  }
 
   .workflow-band-copy { text-align: center; }
   .workflow-band-points {
@@ -1173,6 +1304,12 @@ a { color: inherit; text-decoration: none; }
   .runs-row { text-align: center; }
   .runs-v { justify-content: center; }
 
+  .limits-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    text-align: center;
+  }
+
   .footer-inner { justify-content: center; text-align: center; }
   .footer-brand { max-width: 480px; margin-inline: auto; }
   .footer-cols { justify-content: center; }
@@ -1204,11 +1341,17 @@ a { color: inherit; text-decoration: none; }
 
   .hero-title { font-size: 42px; }
   .hero-sub { font-size: 17px; }
+  .trust-chip { min-height: 32px; }
   .hero-meta { margin-top: 22px; gap: 14px; }
   .section-title { font-size: 34px; }
   .workflow-band-title,
   .try-title,
   .cta-title { font-size: 32px; }
+
+  .cloud-points {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
 
   .btn { min-width: min(100%, 312px); justify-content: center; }
 

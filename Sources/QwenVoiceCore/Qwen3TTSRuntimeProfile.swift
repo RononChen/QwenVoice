@@ -277,6 +277,7 @@ struct Qwen3TTSRuntimeProfile: Hashable, Codable, Sendable {
             "qwen3_mode_capability": modeCapability.rawValue,
             "qwen3_model_size": modelSize?.rawValue ?? "unknown",
             "qwen3_supports_instruction_control": supportsInstructionControl ? "true" : "false",
+            "qwen3_runtime_profile_signature": validationSignature,
             "qwen3_sample_rate": String(sampleRate),
             "qwen3_supported_speaker_count": String(supportedSpeakers.count),
             "qwen3_generation_config_source": generationDefaults.source.rawValue,

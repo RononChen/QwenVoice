@@ -4,7 +4,7 @@ const ROWS = [
   {
     k: "Where generation happens",
     v: "On your Mac",
-    note: "After models download from Hugging Face and install, every line renders locally. No scripts uploaded, no audio sent away, no anonymous telemetry leaving the app.",
+    note: "After models download from Hugging Face and install, every line renders locally. No scripts uploaded and no generated audio sent to a cloud TTS service.",
     tone: "var(--gold-300)",
   },
   {
