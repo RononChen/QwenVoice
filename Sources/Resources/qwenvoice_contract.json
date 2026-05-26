@@ -1,11 +1,16 @@
 {
   "defaultSpeaker": "aiden",
   "speakers": {
-    "English": [
+    "Built-in": [
       "aiden",
       "ryan",
       "vivian",
-      "serena"
+      "serena",
+      "uncle_fu",
+      "dylan",
+      "eric",
+      "ono_anna",
+      "sohee"
     ]
   },
   "speakerMetadata": {
@@ -31,6 +36,36 @@
       "displayName": "Serena",
       "nativeLanguage": "Chinese",
       "shortDescription": "Chinese-native female preset; best quality with Chinese text.",
+      "isEnglishNative": false
+    },
+    "uncle_fu": {
+      "displayName": "Uncle Fu",
+      "nativeLanguage": "Chinese",
+      "shortDescription": "Chinese-native seasoned male preset with a low, mellow timbre.",
+      "isEnglishNative": false
+    },
+    "dylan": {
+      "displayName": "Dylan",
+      "nativeLanguage": "Chinese",
+      "shortDescription": "Chinese-native Beijing male preset with a clear, natural timbre.",
+      "isEnglishNative": false
+    },
+    "eric": {
+      "displayName": "Eric",
+      "nativeLanguage": "Chinese",
+      "shortDescription": "Chinese-native Chengdu male preset with a slightly husky brightness.",
+      "isEnglishNative": false
+    },
+    "ono_anna": {
+      "displayName": "Ono Anna",
+      "nativeLanguage": "Japanese",
+      "shortDescription": "Japanese-native playful female preset with a light, nimble timbre.",
+      "isEnglishNative": false
+    },
+    "sohee": {
+      "displayName": "Sohee",
+      "nativeLanguage": "Korean",
+      "shortDescription": "Korean-native warm, expressive female preset.",
       "isEnglishNative": false
     }
   },

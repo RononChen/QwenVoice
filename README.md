@@ -37,7 +37,7 @@ Vocello is a local, private AI voice-generation app for Apple Silicon Macs. Writ
       <img src="docs/screenshots/vocello-custom-voice.png" alt="Custom Voice screen">
       <br>
       <strong>Custom Voice</strong><br>
-      Pick one of four selected built-in speaker presets, set delivery, and generate a clean spoken line.
+      Pick one of nine built-in Qwen3 speaker presets, set delivery, and generate a clean spoken line.
     </td>
     <td width="50%">
       <img src="docs/screenshots/vocello-voice-design.png" alt="Voice Design screen">
@@ -66,7 +66,7 @@ Vocello is a local, private AI voice-generation app for Apple Silicon Macs. Writ
 
 ### Custom Voice
 
-Choose one of four selected built-in Qwen3-TTS speaker presets, pick a delivery style, and turn a script into speech quickly. This is the simplest path when you want a consistent voice right away.
+Choose one of nine built-in Qwen3-TTS CustomVoice speaker presets, pick a delivery style, and turn a script into speech quickly. This is the simplest path when you want a consistent voice right away.
 
 ### Voice Design
 
