@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## What this repo is
 
-Vocello (formerly QwenVoice) — a local, private text-to-speech macOS app powered by Qwen3-TTS via MLX on Apple Silicon. The macOS scheme is still called `QwenVoice` but the shipped public product is `Vocello.app` / `Vocello-macos26.dmg`. The iOS counterpart (`VocelloiOS`) is active iPhone development and TestFlight-prep with a real-device Debug workflow through CoreDevice + iPhone Mirroring: keep it compile-safe on `main`, but do not treat iPhone release proof as a public-release blocker for the current macOS-first release track.
+Vocello (formerly QwenVoice) — a local, private text-to-speech macOS app powered by Qwen3-TTS via MLX on Apple Silicon. The macOS scheme is still called `QwenVoice` but the shipped public product is `Vocello.app` / `Vocello-macos26.dmg`. The iOS counterpart (`VocelloiOS`) is active iPhone development and TestFlight-prep with a real-device Debug workflow through CoreDevice + iPhone Mirroring: keep it compile-safe on `main`, but do not treat iPhone release proof as a public-release blocker for the current macOS-first release track. The public product website now lives in `website/` as a React + Vite app deployed by Vercel with that subdirectory as the project root.
 
 Targets: macOS 26.0+ and iOS 26.0+, Apple Silicon only, Xcode 26.0. No Python runtime. No bundled model weights — models are downloaded from Hugging Face from Settings → Model Downloads on first run.
 
@@ -16,13 +16,14 @@ Targets: macOS 26.0+ and iOS 26.0+, Apple Silicon only, Xcode 26.0. No Python ru
 ./scripts/build_foundation_targets.sh ios    # iOS compile-safety only
 /Users/patricedery/.codex/bin/ios-device-readiness --project QwenVoice.xcodeproj --scheme VocelloiOS --json
 ./scripts/ios_device.sh doctor               # real iPhone/CoreDevice screen-mirror preflight
+npm --prefix website run build               # marketing website production build
 ```
 
 First-time setup: install XcodeGen (`brew install xcodegen`) and optionally `xcbeautify` (`brew install xcbeautify`) for pretty-printed build output.
 
 ## Source of truth (when facts disagree)
 
-Per `CONTRIBUTING.md`, trust in order: `Sources/` → `project.yml` → `scripts/` → `.github/workflows/release.yml` for the scoped CI boundary → `docs/reference/` → other prose. `Sources/Resources/qwenvoice_contract.json` is the canonical schema for speakers, models, variants, HF revisions, and required artifacts.
+Per `CONTRIBUTING.md`, trust in order: `Sources/` → `project.yml` → `scripts/` → `.github/workflows/release.yml` for the scoped CI boundary → `docs/reference/` → other prose. `Sources/Resources/qwenvoice_contract.json` is the canonical schema for speakers, models, variants, HF revisions, and required artifacts. For public website copy and visuals, `website/src/`, `website/PRODUCT.md`, and `website/DESIGN.md` are the maintained source, but product claims must still be checked against the app contract and maintained reference docs.
 
 ## Codex Skills For This Repo
 

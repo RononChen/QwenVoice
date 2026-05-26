@@ -4,7 +4,7 @@ const ROWS = [
   {
     k: "Where generation happens",
     v: "On your Mac",
-    note: "After models install, every line renders locally. No scripts uploaded, no audio sent away, no anonymous telemetry leaving the app.",
+    note: "After models download from Hugging Face and install, every line renders locally. No scripts uploaded, no audio sent away, no anonymous telemetry leaving the app.",
     tone: "var(--gold-300)",
   },
   {
@@ -16,7 +16,7 @@ const ROWS = [
   {
     k: "Pricing",
     v: "Free, open-source",
-    note: "Download the Speed or Quality model once. Generate as many lines as your Mac can hold. No subscription, no per-character meter, no queue.",
+    note: "Download the Speed or Quality model from Hugging Face once. Generate as many lines as your Mac can hold. No subscription, no per-character meter, no queue.",
     tone: "var(--terracotta-300)",
   },
   {

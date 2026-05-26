@@ -4,17 +4,19 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## What this is
 
-A marketing site for **Vocello** (formerly QwenVoice), a local-first Mac TTS app. Single-page React + Vite. Deployed via Vercel (`projectId` in `.vercel/project.json`). The site is the brand surface for the upstream Mac app at `/Users/patricedery/Coding_Projects/QwenVoice/` — see "Content accuracy" below.
+A marketing site for **Vocello** (formerly QwenVoice), a local-first Mac TTS app. Single-page React + Vite. This directory lives inside the QwenVoice monorepo at `website/` and is deployed by Vercel with `website/` as the project root. The site is the brand surface for the app in the parent repo — see "Content accuracy" below.
 
 ## Commands
 
 ```sh
-npm run dev      # vite dev server on localhost:5173
-npm run build    # production build → dist/
-npm run preview  # serve the production build
+npm --prefix website run dev      # from repo root: vite dev server on localhost:5173
+npm --prefix website run build    # from repo root: production build -> website/dist/
+npm --prefix website run preview  # from repo root: serve the production build
 ```
 
-No tests, no lint config, no CI. Behavioral verification is manual + browser-driven (Chrome DevTools MCP works well; `mcp__Claude_Preview__preview_start` is blocked by the auto-mode self-modification classifier because it wants to write `.Codex/launch.json` — see the plan-file appendix for the long form).
+When already inside `website/`, the equivalent commands are `npm run dev`, `npm run build`, and `npm run preview`.
+
+No tests, no lint config, no GitHub Actions workflow. Behavioral verification is manual + browser-driven; Vercel owns deployment for this directory.
 
 ## Architecture
 
@@ -43,7 +45,7 @@ When changing grid layouts at narrow breakpoints, **use `grid-template-columns: 
 
 ## Content accuracy (required reading)
 
-Two design-context files at the repo root encode the project's rules:
+Two design-context files in this directory encode the website's rules:
 
 - **`PRODUCT.md`** — brand voice, register (`brand`, not product), copy rules. Required by the `/impeccable` skill. Key constraints:
   - Say *local*, not *offline* or *on-device*, unless the technical distinction matters.
@@ -52,12 +54,12 @@ Two design-context files at the repo root encode the project's rules:
   - No emoji, no celebration copy, no hype claims, no first-person plural.
 - **`DESIGN.md`** — color strategy, typography rules, motion rules, bans. Specifically: no gradient text, no side-stripe borders >1px on cards, no decorative glassmorphism, no identical card grids, no repeated uppercase eyebrow scaffolding.
 
-The product's ground truth lives in the **upstream QwenVoice repo** at `/Users/patricedery/Coding_Projects/QwenVoice/`. When making product claims on the site (model variants, hardware requirements, emotion presets, speaker names, OS requirements), cross-reference:
+The product's ground truth lives in the parent QwenVoice app repo. When making product claims on the site (model variants, hardware requirements, emotion presets, speaker names, OS requirements), cross-reference:
 
-- `docs/reference/current-state.md` — current repo facts, model variant policy, distribution.
-- `Sources/Resources/qwenvoice_contract.json` — model registry, speakerMetadata, Hugging Face revisions.
-- `Sources/Models/EmotionPreset.swift` — actual emotion presets (8 non-Neutral × 3 intensities + Neutral).
-- `docs/reference/emotion-delivery-improvements.md` — Voice Cloning has no controllable delivery (engine path doesn't accept it).
+- `../docs/reference/current-state.md` — current repo facts, model variant policy, distribution.
+- `../Sources/Resources/qwenvoice_contract.json` — model registry, speakerMetadata, Hugging Face revisions.
+- `../Sources/Models/EmotionPreset.swift` — actual emotion presets (8 non-Neutral × 3 intensities + Neutral).
+- `../docs/reference/emotion-delivery-improvements.md` — Voice Cloning has no controllable delivery (engine path doesn't accept it).
 
 The site has drifted from ground truth multiple times during iteration. Don't trust the existing copy — verify against the upstream.
 
@@ -81,7 +83,6 @@ When adding new audio/image assets, drop them under `public/assets/<category>/` 
 
 ## Conventions worth knowing
 
-- **Plan files** for in-flight work live at `~/.Codex/plans/`. The current site refresh has the full design history (multiple follow-up sections) in `review-and-improve-this-foamy-squid.md`.
 - **No client-side router.** Internal links use hash anchors (`#workflows`, `#listen`, `#how-it-runs`, `#download`) on plain `<a>` tags. The nav scroll-progress hairline reads `scrollTop / scrollHeight`.
 - **Animations** use the existing `panelSettle` keyframe and `cubic-bezier(0.32, 0.08, 0.24, 1)` ease. Only animate `opacity`, `transform`, `border-color`, and `box-shadow` — never layout properties. `prefers-reduced-motion: reduce` is honored in a single block at the end of `site.css`.
 - **Audio playback** in Listen uses one shared `<audio ref>` element with `preload="none"` and src-swap on click for mutual exclusion. See `Listen.jsx`.

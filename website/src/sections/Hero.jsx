@@ -14,7 +14,7 @@ export const Hero = () => (
           A voice studio that <span className="accent-gold">never leaves</span> your Mac.
         </h1>
         <p className="hero-sub">
-          Write a script, choose a built-in speaker or voice brief, and generate
+          Write a script, choose a selected speaker preset or voice brief, and generate
           locally with Speed or Quality models. No subscription, cloud meter, or upload.
         </p>
         <div className="hero-ctas">
