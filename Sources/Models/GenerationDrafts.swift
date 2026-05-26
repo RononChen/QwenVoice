@@ -1,7 +1,9 @@
 import Foundation
+import QwenVoiceCore
 
 struct CustomVoiceDraft: Equatable {
     var selectedSpeaker = TTSModel.defaultSpeaker
+    var selectedLanguage = Qwen3SupportedLanguage.english
     var emotion = DeliveryProfile.neutralInstruction
     var text = ""
 
@@ -17,6 +19,7 @@ struct CustomVoiceDraft: Equatable {
         guard shouldIdlePrewarm else { return nil }
         return [
             selectedSpeaker,
+            selectedLanguage.rawValue,
             emotion,
             text,
         ].joined(separator: "|")
@@ -25,6 +28,7 @@ struct CustomVoiceDraft: Equatable {
 
 struct VoiceDesignDraft: Equatable {
     var voiceDescription = ""
+    var selectedLanguage = Qwen3SupportedLanguage.auto
     var emotion = DeliveryProfile.neutralInstruction
     var text = ""
 
@@ -44,6 +48,7 @@ struct VoiceDesignDraft: Equatable {
         guard shouldIdlePrewarm else { return nil }
         return [
             voiceDescription,
+            selectedLanguage.rawValue,
             emotion,
             text,
         ].joined(separator: "|")
@@ -53,6 +58,7 @@ struct VoiceDesignDraft: Equatable {
 struct VoiceCloningDraft: Equatable {
     var selectedSavedVoiceID: String?
     var referenceAudioPath: String?
+    var selectedLanguage = Qwen3SupportedLanguage.auto
     var referenceTranscript = ""
     var text = ""
 

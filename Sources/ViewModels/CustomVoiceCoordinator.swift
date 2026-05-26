@@ -127,6 +127,7 @@ final class CustomVoiceCoordinator: ObservableObject {
             shouldStream: true,
             streamingInterval: QwenVoiceCore.GenerationSemantics.appStreamingInterval,
             streamingTitle: Swift.String(draft.text.prefix(40)),
+            languageHint: draft.selectedLanguage.rawValue,
             payload: .custom(
                 speakerID: draft.selectedSpeaker,
                 deliveryStyle: model.supportsInstructionControl ? draft.emotion : nil

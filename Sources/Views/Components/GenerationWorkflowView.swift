@@ -1,3 +1,4 @@
+import QwenVoiceCore
 import SwiftUI
 
 private extension View {
@@ -713,6 +714,53 @@ struct DeliveryControlsView: View {
             showsLabel: showsLabel
         )
         .optionalAccessibilityIdentifier(isCompact ? nil : "\(accessibilityPrefix)_toneCard")
+    }
+}
+
+struct QwenLanguagePickerRow: View {
+    @Binding var selectedLanguage: Qwen3SupportedLanguage
+    var accentColor: Color = AppTheme.accent
+    var accessibilityPrefix: String = "qwenLanguage"
+    var includesAuto = true
+    var hint: String?
+
+    private var options: [Qwen3SupportedLanguage] {
+        includesAuto ? Qwen3SupportedLanguage.allCases : Qwen3SupportedLanguage.selectableCases
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: LayoutConstants.generationConfigurationRowSpacing) {
+            Text("Language")
+                .font(.subheadline.weight(.semibold))
+
+            Picker("Language", selection: $selectedLanguage) {
+                ForEach(options, id: \.self) { language in
+                    Text(language.displayName).tag(language)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .focusEffectDisabled()
+            .frame(minWidth: LayoutConstants.configurationControlMinWidth, maxWidth: 220, alignment: .leading)
+            .accessibilityValue(selectedLanguage.displayName)
+            .accessibilityIdentifier("\(accessibilityPrefix)_languagePicker")
+
+            if let hint, !hint.isEmpty {
+                Text(hint)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("\(accessibilityPrefix)_languageHint")
+            } else {
+                Text("Choose Auto or one of Qwen3-TTS's supported languages.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("\(accessibilityPrefix)_languageHelp")
+            }
+        }
+        .padding(.vertical, LayoutConstants.generationConfigurationRowVerticalPadding)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("\(accessibilityPrefix)_languageSetup")
     }
 }
 

@@ -42,6 +42,19 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         category: "MemoryGuard"
     )
 
+    private static var allowsAggregateGuardedAdmission: Bool {
+        let raw = ProcessInfo.processInfo.environment["QVOICE_IOS_ALLOW_AGGREGATE_GUARDED_ADMISSION"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+#if DEBUG
+        guard let raw, !raw.isEmpty else { return true }
+        return raw == "1" || raw == "true" || raw == "yes"
+#else
+        guard let raw, !raw.isEmpty else { return false }
+        return raw == "1" || raw == "true" || raw == "yes"
+#endif
+    }
+
     @Published private(set) var loadState: EngineLoadState = .idle
     @Published private(set) var clonePreparationState: ClonePreparationState = .idle
     @Published private(set) var latestEvent: GenerationEvent?
@@ -454,6 +467,7 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         let shouldBlockAdmission =
             !memoryBudgetPolicy.allowsModelAdmission(for: admissionBand)
             || context.aggregatePressureBand == .critical
+            || (context.aggregatePressureBand == .guarded && !Self.allowsAggregateGuardedAdmission)
         guard !shouldBlockAdmission else {
             let error = MLXTTSEngineError.generationFailed(
                 "Vocello needs more available memory before loading this model. Close background apps and try again."

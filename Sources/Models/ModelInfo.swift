@@ -15,6 +15,8 @@ struct ModelInfo: Identifiable, Codable, Equatable, Sendable {
     let repairable: Bool
     let missingRequiredPaths: [String]
     let sizeBytes: Int
+    let deepIntegrityStatus: String?
+    let deepIntegrityMessage: String?
     let mlxAudioVersion: String?
     let supportsStreaming: Bool
     let supportsPreparedClone: Bool
@@ -36,6 +38,8 @@ struct ModelInfo: Identifiable, Codable, Equatable, Sendable {
         case repairable
         case missingRequiredPaths = "missing_required_paths"
         case sizeBytes = "size_bytes"
+        case deepIntegrityStatus = "deep_integrity_status"
+        case deepIntegrityMessage = "deep_integrity_message"
         case mlxAudioVersion = "mlx_audio_version"
         case supportsStreaming = "supports_streaming"
         case supportsPreparedClone = "supports_prepared_clone"

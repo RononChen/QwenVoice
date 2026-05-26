@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import QwenVoiceCore
 
 /// Downloads a HuggingFace model repository using native URLSession.
 final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
@@ -580,6 +581,13 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
             }
             await state.setPhase(.verifying)
             try verifyDownloadedFiles(files, in: filesRoot)
+            try persistInstalledIntegrityManifest(
+                repo: repo,
+                revision: revision,
+                targetDir: targetDir,
+                files: files,
+                filesRoot: filesRoot
+            )
             await state.setPhase(.installing)
             try installStagedRepository(filesRoot: filesRoot, targetDir: targetDir)
             try? fileManager.removeItem(at: stagingRoot)
@@ -798,6 +806,33 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
         } else {
             try fileManager.moveItem(at: installingURL, to: targetDir)
         }
+    }
+
+    private func persistInstalledIntegrityManifest(
+        repo: String,
+        revision: String,
+        targetDir: URL,
+        files: [RepoFile],
+        filesRoot: URL
+    ) throws {
+        let manifest = ModelAssetIntegrityManifest(
+            repo: repo,
+            revision: revision,
+            targetFolder: targetDir.lastPathComponent,
+            createdAtUTC: ISO8601DateFormatter().string(from: Date()),
+            files: files.map {
+                ModelAssetIntegrityManifest.FileEntry(
+                    path: $0.path,
+                    size: $0.size,
+                    sha256: $0.sha256
+                )
+            }
+        )
+        let data = try JSONEncoder().encode(manifest)
+        try data.write(
+            to: filesRoot.appendingPathComponent(ModelAssetIntegrityManifest.filename, isDirectory: false),
+            options: .atomic
+        )
     }
 
     private func persistDownloadState(

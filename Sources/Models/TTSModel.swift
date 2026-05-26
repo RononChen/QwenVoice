@@ -83,7 +83,7 @@ struct TTSModel: Identifiable, Hashable, Sendable, Codable {
     }
 
     var supportsInstructionControl: Bool {
-        qwen3Capabilities?.supportsInstructionControl ?? true
+        qwen3Capabilities?.supportsInstructionControl ?? false
     }
 
     var supportsVoiceClone: Bool {
@@ -220,5 +220,9 @@ extension TTSModel {
 
     static func speakerPickerLabel(for id: String) -> String {
         speakerDescriptor(id: id)?.annotatedDisplayName ?? id.capitalized
+    }
+
+    static func qwenLanguage(forSpeaker id: String) -> Qwen3SupportedLanguage {
+        Qwen3SupportedLanguage.nativeLanguage(speakerDescriptor(id: id)?.nativeLanguage)
     }
 }

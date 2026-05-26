@@ -71,6 +71,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         Bool,
         NativeTelemetryRecorder?,
         NativeLoadCapabilityProfile,
+        Qwen3TTSModelCapabilities,
         NativeMemoryPolicy,
         [String: NativeMLXMemorySnapshot]
     ) -> any NativeStreamingSessionRunning
@@ -963,6 +964,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             prepared.wasPrimed,
             telemetryRecorder,
             prepared.loadCapabilityProfile,
+            prepared.qwen3Capabilities,
             prepared.memoryPolicy,
             prepared.mlxMemorySnapshots
         )
@@ -1365,6 +1367,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         wasPrimed: Bool,
         telemetryRecorder: NativeTelemetryRecorder?,
         loadCapabilityProfile: NativeLoadCapabilityProfile,
+        qwen3Capabilities: Qwen3TTSModelCapabilities,
         memoryPolicy: NativeMemoryPolicy,
         mlxMemorySnapshots: [String: NativeMLXMemorySnapshot]
     ) -> any NativeStreamingSessionRunning {
@@ -1382,6 +1385,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             wasPrimed: wasPrimed,
             telemetryRecorder: telemetryRecorder,
             loadCapabilityProfile: loadCapabilityProfile,
+            qwen3Capabilities: qwen3Capabilities,
             memoryPolicy: memoryPolicy,
             mlxMemorySnapshots: mlxMemorySnapshots
         )

@@ -235,6 +235,7 @@ final class VoiceCloningCoordinator: ObservableObject {
             outputPath: outputPath,
             shouldStream: true,
             streamingTitle: String(draft.text.prefix(40)),
+            languageHint: draft.selectedLanguage.rawValue,
             payload: .clone(
                 reference: CloneReference(
                     audioPath: referenceAudioPath,

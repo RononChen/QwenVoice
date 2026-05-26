@@ -19,8 +19,9 @@ enum LayoutConstants {
     static let generationConfigurationRowVerticalPadding: CGFloat = 6
     static let generationConfigurationRowSpacing: CGFloat = 6
     // Calibrated to fit the standard Voice Cloning active-reference state
-    // without clipping, while avoiding extra slack on the shorter generation screens.
-    static let generationConfigurationSlotHeight: CGFloat = 184
+    // plus the Qwen language selector without clipping, while avoiding
+    // excessive slack on the shorter generation screens.
+    static let generationConfigurationSlotHeight: CGFloat = 220
     static let configurationLabelWidth: CGFloat = 92
     static let configurationControlMinWidth: CGFloat = 160
     static let workflowPrimaryMinWidth: CGFloat = 360

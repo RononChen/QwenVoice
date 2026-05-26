@@ -46,6 +46,7 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
     private let wasPrimed: Bool
     private let telemetryRecorder: NativeTelemetryRecorder?
     private let loadCapabilityProfile: NativeLoadCapabilityProfile
+    private let qwen3Capabilities: Qwen3TTSModelCapabilities
     private let memoryPolicy: NativeMemoryPolicy
     private let initialMLXMemorySnapshots: [String: NativeMLXMemorySnapshot]
     private let pcmScratchBuffer: PCM16ScratchBuffer?
@@ -64,6 +65,7 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
         wasPrimed: Bool = false,
         telemetryRecorder: NativeTelemetryRecorder? = nil,
         loadCapabilityProfile: NativeLoadCapabilityProfile,
+        qwen3Capabilities: Qwen3TTSModelCapabilities,
         memoryPolicy: NativeMemoryPolicy,
         mlxMemorySnapshots: [String: NativeMLXMemorySnapshot],
         pcmScratchBuffer: PCM16ScratchBuffer? = nil
@@ -81,6 +83,7 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
         self.wasPrimed = wasPrimed
         self.telemetryRecorder = telemetryRecorder
         self.loadCapabilityProfile = loadCapabilityProfile
+        self.qwen3Capabilities = qwen3Capabilities
         self.memoryPolicy = memoryPolicy
         self.initialMLXMemorySnapshots = mlxMemorySnapshots
         self.pcmScratchBuffer = pcmScratchBuffer
@@ -103,6 +106,7 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
                 wasPrimed: wasPrimed,
                 telemetryRecorder: telemetryRecorder,
                 loadCapabilityProfile: loadCapabilityProfile,
+                qwen3Capabilities: qwen3Capabilities,
                 memoryPolicy: memoryPolicy,
                 initialMLXMemorySnapshots: initialMLXMemorySnapshots,
                 pcmScratchBuffer: pcmScratchBuffer
@@ -134,6 +138,7 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
             wasPrimed: wasPrimed,
             telemetryRecorder: telemetryRecorder,
             loadCapabilityProfile: loadCapabilityProfile,
+            qwen3Capabilities: qwen3Capabilities,
             memoryPolicy: memoryPolicy,
             initialMLXMemorySnapshots: initialMLXMemorySnapshots,
             pcmScratchBuffer: pcmScratchBuffer
@@ -196,6 +201,7 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
     nonisolated fileprivate static func buildStream(
         request: GenerationRequest,
         model: UnsafeSpeechGenerationModel,
+        qwen3Capabilities: Qwen3TTSModelCapabilities,
         cloneConditioning: ResolvedCloneConditioning?,
         streamingInterval: Double
     ) throws -> AsyncThrowingStream<AudioGeneration, Error> {
@@ -222,7 +228,10 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
                 streamingInterval: streamingInterval
             )
         case .custom:
-            let prompt = GenerationSemantics.qwen3PromptAssembly(for: request)
+            let prompt = GenerationSemantics.qwen3PromptAssembly(
+                for: request,
+                capabilities: qwen3Capabilities
+            )
             let speaker = prompt.speakerID ?? GenerationSemantics.canonicalCustomWarmSpeaker
             return model.generateCustomVoiceStream(
                 text: request.text,
@@ -232,7 +241,10 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
                 streamingInterval: streamingInterval
             )
         case .design:
-            let prompt = GenerationSemantics.qwen3PromptAssembly(for: request)
+            let prompt = GenerationSemantics.qwen3PromptAssembly(
+                for: request,
+                capabilities: qwen3Capabilities
+            )
             return model.generateVoiceDesignStream(
                 text: request.text,
                 language: prompt.language,
@@ -722,6 +734,7 @@ private struct StreamingExecutionContext: Sendable {
     let wasPrimed: Bool
     let telemetryRecorder: NativeTelemetryRecorder?
     let loadCapabilityProfile: NativeLoadCapabilityProfile
+    let qwen3Capabilities: Qwen3TTSModelCapabilities
     let memoryPolicy: NativeMemoryPolicy
     let initialMLXMemorySnapshots: [String: NativeMLXMemorySnapshot]
     /// Optional pooled scratch buffer shared with the parent session.
@@ -900,7 +913,10 @@ private struct StreamingExecutionContext: Sendable {
                 voiceClonePrompt: voiceClonePrompt
             )
         case .custom:
-            let prompt = GenerationSemantics.qwen3PromptAssembly(for: request)
+            let prompt = GenerationSemantics.qwen3PromptAssembly(
+                for: request,
+                capabilities: qwen3Capabilities
+            )
             return try await model.generateCustomVoice(
                 text: request.text,
                 language: prompt.language,
@@ -908,7 +924,10 @@ private struct StreamingExecutionContext: Sendable {
                 instruct: prompt.instruct
             )
         case .design:
-            let prompt = GenerationSemantics.qwen3PromptAssembly(for: request)
+            let prompt = GenerationSemantics.qwen3PromptAssembly(
+                for: request,
+                capabilities: qwen3Capabilities
+            )
             return try await model.generateVoiceDesign(
                 text: request.text,
                 language: prompt.language,
@@ -1024,6 +1043,7 @@ private struct StreamingExecutionContext: Sendable {
         let stream = try NativeStreamingSynthesisSession.buildStream(
             request: request,
             model: model,
+            qwen3Capabilities: qwen3Capabilities,
             cloneConditioning: cloneConditioning,
             streamingInterval: streamingInterval
         )

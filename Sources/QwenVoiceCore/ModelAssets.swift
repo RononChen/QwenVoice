@@ -76,6 +76,79 @@ public struct AssetIntegrity: Hashable, Codable, Sendable {
     }
 }
 
+public struct ModelAssetIntegrityManifest: Hashable, Codable, Sendable {
+    public static let filename = ".qwenvoice-model-integrity.json"
+    public static let currentSchemaVersion = 1
+
+    public let schemaVersion: Int
+    public let repo: String
+    public let revision: String
+    public let targetFolder: String
+    public let createdAtUTC: String
+    public let files: [FileEntry]
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case repo
+        case revision
+        case targetFolder = "target_folder"
+        case createdAtUTC = "created_at_utc"
+        case files
+    }
+
+    public init(
+        schemaVersion: Int = Self.currentSchemaVersion,
+        repo: String,
+        revision: String,
+        targetFolder: String,
+        createdAtUTC: String,
+        files: [FileEntry]
+    ) {
+        self.schemaVersion = schemaVersion
+        self.repo = repo
+        self.revision = revision
+        self.targetFolder = targetFolder
+        self.createdAtUTC = createdAtUTC
+        self.files = files
+    }
+
+    public struct FileEntry: Hashable, Codable, Sendable {
+        public let path: String
+        public let size: Int64
+        public let sha256: String?
+
+        public init(path: String, size: Int64, sha256: String?) {
+            self.path = path
+            self.size = size
+            self.sha256 = sha256
+        }
+    }
+}
+
+public enum ModelAssetDeepIntegrity: Hashable, Codable, Sendable {
+    case unavailable(reason: String)
+    case verified(checkedFiles: Int)
+    case failed(message: String, failedRelativePaths: [String])
+
+    public var isVerified: Bool {
+        if case .verified = self {
+            return true
+        }
+        return false
+    }
+
+    public var repairMessage: String? {
+        switch self {
+        case .unavailable:
+            return nil
+        case .verified:
+            return nil
+        case .failed(let message, _):
+            return message
+        }
+    }
+}
+
 public enum ModelAssetState: Hashable, Codable, Sendable {
     case notInstalled
     case available(AssetIntegrity)
@@ -138,6 +211,16 @@ public struct LocalModelAssetStore: ModelAssetStore, Hashable, Sendable {
         )
     }
 
+    public init(
+        rootDirectory: URL,
+        descriptors: [ModelAssetDescriptor],
+        storeVersionSeed: String = "manual"
+    ) {
+        self.rootDirectory = rootDirectory
+        self.storeVersionSeed = storeVersionSeed
+        self.descriptors = descriptors
+    }
+
     public func descriptor(id: String) -> ModelAssetDescriptor? {
         descriptors.first { $0.id == id }
     }
@@ -187,6 +270,57 @@ public struct LocalModelAssetStore: ModelAssetStore, Hashable, Sendable {
         )
     }
 
+    public func deepIntegrity(for descriptor: ModelAssetDescriptor) -> ModelAssetDeepIntegrity {
+        let root = localRoot(for: descriptor)
+        let manifestURL = root.appendingPathComponent(ModelAssetIntegrityManifest.filename, isDirectory: false)
+        guard let manifestData = try? Data(contentsOf: manifestURL) else {
+            return .unavailable(reason: "manifest unavailable")
+        }
+        guard let manifest = try? JSONDecoder().decode(ModelAssetIntegrityManifest.self, from: manifestData) else {
+            return .unavailable(reason: "manifest unreadable")
+        }
+        guard manifest.schemaVersion == ModelAssetIntegrityManifest.currentSchemaVersion else {
+            return .unavailable(reason: "manifest schema unsupported")
+        }
+        guard manifest.targetFolder == descriptor.installFolder else {
+            return .unavailable(reason: "manifest target mismatch")
+        }
+
+        let requiredPaths = Set(descriptor.artifacts.map(\.relativePath))
+        let entries = manifest.files.filter { requiredPaths.contains($0.path) }
+        guard !entries.isEmpty else {
+            return .unavailable(reason: "manifest has no required file entries")
+        }
+
+        var failures: [String] = []
+        for entry in entries {
+            let url = root.appendingPathComponent(entry.path, isDirectory: false)
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                failures.append(entry.path)
+                continue
+            }
+            if let actualSize = Self.fileSize(at: url), actualSize != entry.size {
+                failures.append(entry.path)
+                continue
+            }
+            if let expectedHash = Self.normalizedSHA256(entry.sha256) {
+                guard let actualHash = try? Self.sha256Hex(for: url),
+                      actualHash == expectedHash else {
+                    failures.append(entry.path)
+                    continue
+                }
+            }
+        }
+
+        guard failures.isEmpty else {
+            let message = failures.count == 1
+                ? "One installed model file failed deep integrity verification."
+                : "\(failures.count) installed model files failed deep integrity verification."
+            return .failed(message: message, failedRelativePaths: failures.sorted())
+        }
+        return .verified(checkedFiles: entries.count)
+    }
+
     public func state(for descriptor: ModelAssetDescriptor) -> ModelAssetState {
         let integrity = integrity(for: descriptor)
         switch integrity.status {
@@ -225,6 +359,40 @@ public struct LocalModelAssetStore: ModelAssetStore, Hashable, Sendable {
             }
         }
         return total
+    }
+
+    private static func fileSize(at url: URL) -> Int64? {
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else {
+            return nil
+        }
+        return Int64(size)
+    }
+
+    private static func normalizedSHA256(_ value: String?) -> String? {
+        guard let value else { return nil }
+        var normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.hasPrefix("sha256:") {
+            normalized.removeFirst("sha256:".count)
+        }
+        guard normalized.range(of: #"^[0-9a-f]{64}$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        return normalized
+    }
+
+    private static func sha256Hex(for url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+
+        var hasher = SHA256()
+        while autoreleasepool(invoking: {
+            let data = handle.readData(ofLength: 1_048_576)
+            guard !data.isEmpty else { return false }
+            hasher.update(data: data)
+            return true
+        }) {}
+
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     private static func cleanupLegacyInstallFolders(

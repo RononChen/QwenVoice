@@ -211,6 +211,7 @@ final class VoiceDesignCoordinator: ObservableObject {
             outputPath: outputPath,
             shouldStream: true,
             streamingTitle: String(draft.text.prefix(40)),
+            languageHint: draft.selectedLanguage.rawValue,
             payload: .design(
                 voiceDescription: draft.voiceDescription,
                 deliveryStyle: draft.emotion

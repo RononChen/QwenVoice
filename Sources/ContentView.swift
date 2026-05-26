@@ -487,14 +487,16 @@ struct ContentView: View {
         case .custom:
             identity = .custom(
                 speakerID: customVoiceDraft.selectedSpeaker,
-                deliveryStyle: model.supportsInstructionControl ? customVoiceDraft.emotion : nil
+                deliveryStyle: model.supportsInstructionControl ? customVoiceDraft.emotion : nil,
+                languageHint: customVoiceDraft.selectedLanguage.rawValue
             )
             reference = nil
         case .design:
             identity = .design(
                 brief: voiceDesignDraft.voiceDescription,
                 deliveryStyle: voiceDesignDraft.emotion,
-                bucket: GenerationSemantics.designWarmBucket(for: voiceDesignDraft.text)
+                bucket: GenerationSemantics.designWarmBucket(for: voiceDesignDraft.text),
+                languageHint: voiceDesignDraft.selectedLanguage.rawValue
             )
             reference = nil
         case .clone:

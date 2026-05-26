@@ -56,13 +56,13 @@ public enum GenerationSemantics {
         let trimmedDescription = voiceDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedEmotion = emotion.trimmingCharacters(in: .whitespacesAndNewlines)
         guard hasMeaningfulDeliveryInstruction(trimmedEmotion) else {
-            return trimmedDescription
+            return trimmedDescription.trimmingTerminalSentencePunctuation()
         }
 
         guard !trimmedDescription.isEmpty else {
-            return trimmedEmotion
+            return trimmedEmotion.trimmingTerminalSentencePunctuation()
         }
-        return "\(trimmedDescription) Deliver it \(trimmedEmotion.lowercased())."
+        return "Voice character: \(trimmedDescription.trimmingTerminalSentencePunctuation()). Delivery: \(trimmedEmotion.trimmingTerminalSentencePunctuation())."
     }
 
     public static func normalizedConditioningCacheKeyText(_ text: String) -> String {
@@ -97,17 +97,23 @@ public enum GenerationSemantics {
         return trimmedDelivery
     }
 
-    public static func customInstruction(for request: GenerationRequest) -> String? {
-        qwen3PromptAssembly(for: request).instruct
+    public static func customInstruction(
+        for request: GenerationRequest,
+        capabilities: Qwen3TTSModelCapabilities
+    ) -> String? {
+        qwen3PromptAssembly(for: request, capabilities: capabilities).instruct
     }
 
-    public static func voiceDesignInstruction(for request: GenerationRequest) -> String? {
-        qwen3PromptAssembly(for: request).instruct
+    public static func voiceDesignInstruction(
+        for request: GenerationRequest,
+        capabilities: Qwen3TTSModelCapabilities
+    ) -> String? {
+        qwen3PromptAssembly(for: request, capabilities: capabilities).instruct
     }
 
     public static func qwen3PromptAssembly(
         for request: GenerationRequest,
-        capabilities: Qwen3TTSModelCapabilities? = nil,
+        capabilities: Qwen3TTSModelCapabilities,
         resolvedCloneTranscript: String? = nil
     ) -> Qwen3PromptAssembly {
         let language = qwenLanguageHint(
@@ -116,7 +122,7 @@ public enum GenerationSemantics {
         )
         switch request.payload {
         case .custom(let speakerID, let deliveryStyle):
-            let canUseInstruction = capabilities?.supportsInstructionControl ?? true
+            let canUseInstruction = capabilities.supportsInstructionControl
             let baseInstruction = canUseInstruction
                 ? customInstruction(deliveryStyle: deliveryStyle)
                 : nil
@@ -137,11 +143,14 @@ public enum GenerationSemantics {
                 cloneUsesTranscript: false
             )
         case .design(let voiceDescription, let deliveryStyle):
-            let instruction = englishDictionReinforcedInstruction(
-                baseInstruction: designInstruction(
+            let baseInstruction = capabilities.supportsInstructionControl
+                ? designInstruction(
                     voiceDescription: voiceDescription,
                     emotion: deliveryStyle ?? ""
-                ),
+                )
+                : voiceDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            let instruction = englishDictionReinforcedInstruction(
+                baseInstruction: baseInstruction,
                 language: language
             )
             return Qwen3PromptAssembly(
@@ -213,23 +222,23 @@ public enum GenerationSemantics {
         for request: GenerationRequest,
         resolvedCloneTranscript: String? = nil
     ) -> String {
+        if let languageHint = request.languageHint {
+            let normalized = Qwen3SupportedLanguage.normalized(languageHint)
+            if normalized != .auto {
+                return normalized.rawValue
+            }
+        }
         switch request.payload {
         case .custom:
-            return Qwen3TTSRuntimeProfile.normalizedLanguage(
-                detectedQwenLanguage(in: request.text) ?? canonicalCustomWarmLanguage
-            )
+            return detectedQwenLanguage(in: request.text)?.rawValue ?? canonicalCustomWarmLanguage
         case .design:
-            return Qwen3TTSRuntimeProfile.normalizedLanguage(
-                detectedQwenLanguage(in: request.text) ?? "auto"
-            )
+            return detectedQwenLanguage(in: request.text)?.rawValue ?? Qwen3SupportedLanguage.auto.rawValue
         case .clone:
             if let transcript = resolvedCloneTranscript,
                let detectedLanguage = detectedQwenLanguage(in: transcript) {
-                return Qwen3TTSRuntimeProfile.normalizedLanguage(detectedLanguage)
+                return detectedLanguage.rawValue
             }
-            return Qwen3TTSRuntimeProfile.normalizedLanguage(
-                detectedQwenLanguage(in: request.text) ?? "auto"
-            )
+            return detectedQwenLanguage(in: request.text)?.rawValue ?? Qwen3SupportedLanguage.auto.rawValue
         }
     }
 
@@ -390,6 +399,7 @@ public enum GenerationSemantics {
             return [
                 request.modelID,
                 request.modeIdentifier,
+                qwenLanguageHint(for: request),
                 speakerID.trimmingCharacters(in: .whitespacesAndNewlines),
                 normalizedInstruction,
             ].joined(separator: "|")
@@ -415,32 +425,31 @@ public enum GenerationSemantics {
         ].joined(separator: "|")
     }
 
-    private static func detectedQwenLanguage(in text: String) -> String? {
+    private static func detectedQwenLanguage(in text: String) -> Qwen3SupportedLanguage? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
         if trimmed.unicodeScalars.contains(where: \.isJapaneseScalar) {
-            return "japanese"
+            return .japanese
         }
         if trimmed.unicodeScalars.contains(where: \.isHangulScalar) {
-            return "korean"
-        }
-        if trimmed.unicodeScalars.contains(where: \.isArabicScalar) {
-            return "arabic"
-        }
-        if trimmed.unicodeScalars.contains(where: \.isDevanagariScalar) {
-            return "hindi"
+            return .korean
         }
         if trimmed.unicodeScalars.contains(where: \.isCyrillicScalar) {
-            return "russian"
+            return .russian
         }
         if trimmed.unicodeScalars.contains(where: \.isCJKScalar) {
-            return "chinese"
-        }
-        if trimmed.unicodeScalars.contains(where: \.isLatinLetterScalar) {
-            return "english"
+            return .chinese
         }
         return nil
+    }
+}
+
+private extension String {
+    func trimmingTerminalSentencePunctuation() -> String {
+        trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".!?。！？"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

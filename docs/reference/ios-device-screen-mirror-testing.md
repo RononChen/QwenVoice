@@ -9,7 +9,7 @@ scripts/ios_device.sh doctor
 scripts/ios_device.sh start
 ```
 
-`doctor` and `start` first run the user-scoped iOS readiness gate when available and save the raw result as `readiness.json` in the run directory. The gate is the source of truth for physical iPhone availability because it warms CoreDevice, retries `xctrace`, and checks the Xcode destination in order. Do not claim hardware profiling or performance readiness from `devicectl`, `xctrace`, or `xcodebuild -showdestinations` alone.
+`doctor` and `start` first run the iOS readiness gate when available and save the raw result as `readiness.json` in the run directory. The script resolves the gate from `QVOICE_IOS_READINESS_GATE`, then `PATH`, then an optional repo-local helper. The gate is the source of truth for physical iPhone availability because it warms CoreDevice, retries `xctrace`, and checks the Xcode destination in order. Do not claim hardware profiling or performance readiness from `devicectl`, `xctrace`, or `xcodebuild -showdestinations` alone.
 
 Readiness status:
 
@@ -54,7 +54,9 @@ For the full Apple request packet, copy-ready justification, and evidence checkl
 
 `--enable-proactive-prefetch` is only for backend experiments. Stable hardware validation keeps it off because ExtensionKit may interrupt idle/prewarm-heavy extension work more aggressively than macOS XPC services.
 
-The same values can be supplied with environment variables for repeatable local runs: `QVOICE_IOS_DEVICE_ID`, `QVOICE_IOS_DEVICE_RUN_ID`, `QVOICE_IOS_MODEL_CATALOG_URL`, `QVOICE_IOS_MODEL_ALLOWED_HOSTS`, `QVOICE_IOS_MEMORY_GUARD_FORCE_BAND`, `QVOICE_IOS_MEMORY_GUARD_FORCE_CRITICAL_ONCE`, `QVOICE_IOS_MLX_MEMORY_LIMIT_MB`, and `QVOICE_IOS_MLX_CACHE_LIMIT_MB`. `scripts/ios_device.sh start` sets `QWENVOICE_NATIVE_TELEMETRY_MODE=lightweight` for Debug evidence capture.
+The same values can be supplied with environment variables for repeatable local runs: `QVOICE_IOS_READINESS_GATE`, `QVOICE_IOS_DEVICE_ID`, `QVOICE_IOS_DEVICE_RUN_ID`, `QVOICE_IOS_MODEL_CATALOG_URL`, `QVOICE_IOS_MODEL_ALLOWED_HOSTS`, `QVOICE_IOS_MEMORY_GUARD_FORCE_BAND`, `QVOICE_IOS_MEMORY_GUARD_FORCE_CRITICAL_ONCE`, `QVOICE_IOS_ALLOW_AGGREGATE_GUARDED_ADMISSION`, `QVOICE_IOS_MLX_MEMORY_LIMIT_MB`, and `QVOICE_IOS_MLX_CACHE_LIMIT_MB`. `scripts/ios_device.sh start` sets `QWENVOICE_NATIVE_TELEMETRY_MODE=lightweight` for Debug evidence capture.
+
+Aggregate-guarded iPhone memory admission is intentionally Debug-permissive for trace collection. Release/TestFlight builds block aggregate-guarded model admission by default unless `QVOICE_IOS_ALLOW_AGGREGATE_GUARDED_ADMISSION=1` is explicitly present in the launch environment.
 
 `QVOICE_IOS_MLX_MEMORY_LIMIT_MB` is a process-lifetime Debug experiment for the launched app/extension process. Relaunch the app with a different value when sweeping limits.
 

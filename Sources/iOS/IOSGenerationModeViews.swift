@@ -65,7 +65,7 @@ struct IOSCustomVoiceView: View {
     }
 
     private var supportsDeliveryControl: Bool {
-        activeModel?.supportsInstructionControl ?? true
+        activeModel?.supportsInstructionControl ?? false
     }
 
     private var allowsExecution: Bool {
@@ -189,6 +189,13 @@ struct IOSCustomVoiceView: View {
         )
         .disabled(!supportsDeliveryControl)
         .opacity(supportsDeliveryControl ? 1 : 0.45)
+        IOSStudioSetupChip(
+            eyebrow: "Language",
+            value: draft.selectedLanguage.displayName,
+            leadingSymbol: "globe",
+            tint: IOSBrandTheme.custom,
+            action: presentLanguagePicker
+        )
     }
 
     private func presentVoicePicker() {
@@ -197,7 +204,29 @@ struct IOSCustomVoiceView: View {
                 IOSVoicePickerSheet(
                     speakers: voicePickerOptions,
                     recents: Array(voicePickerOptions.prefix(3)),
-                    selectedID: $draft.selectedSpeaker,
+                    selectedID: Binding(
+                        get: { draft.selectedSpeaker },
+                        set: { newSpeaker in
+                            draft.selectedSpeaker = newSpeaker
+                            draft.selectedLanguage = TTSModel.qwenLanguage(forSpeaker: newSpeaker)
+                        }
+                    ),
+                    tint: IOSBrandTheme.custom,
+                    onDismiss: dismiss,
+                    presentation: .edgeToEdge(
+                        bottomSafeAreaInset: bottomSafeAreaInset,
+                        height: IOSBottomSheetChrome.voicePickerHeight
+                    )
+                )
+            )
+        }
+    }
+
+    private func presentLanguagePicker() {
+        appModel.presentBottomPanel { bottomSafeAreaInset, dismiss in
+            AnyView(
+                IOSQwenLanguagePickerSheet(
+                    selectedLanguage: $draft.selectedLanguage,
                     tint: IOSBrandTheme.custom,
                     onDismiss: dismiss,
                     presentation: .edgeToEdge(
@@ -301,6 +330,7 @@ struct IOSCustomVoiceView: View {
                         outputPath: outputPath,
                         shouldStream: true,
                         streamingInterval: GenerationSemantics.appStreamingInterval,
+                        languageHint: draft.selectedLanguage.rawValue,
                         payload: .custom(
                             speakerID: draft.selectedSpeaker,
                             deliveryStyle: model.supportsInstructionControl
@@ -640,6 +670,13 @@ struct IOSVoiceDesignView: View {
             tint: IOSEmotionPresetPalette.dotColor(forID: draft.delivery.selectedPresetID),
             action: presentDesignDeliveryPicker
         )
+        IOSStudioSetupChip(
+            eyebrow: "Language",
+            value: draft.selectedLanguage.displayName,
+            leadingSymbol: "globe",
+            tint: IOSBrandTheme.design,
+            action: presentDesignLanguagePicker
+        )
     }
 
     private func presentBriefEditor() {
@@ -653,6 +690,22 @@ struct IOSVoiceDesignView: View {
                         height: IOSBottomSheetChrome.voiceBriefHeight
                     ),
                     onDismiss: dismiss
+                )
+            )
+        }
+    }
+
+    private func presentDesignLanguagePicker() {
+        appModel.presentBottomPanel { bottomSafeAreaInset, dismiss in
+            AnyView(
+                IOSQwenLanguagePickerSheet(
+                    selectedLanguage: $draft.selectedLanguage,
+                    tint: IOSBrandTheme.design,
+                    onDismiss: dismiss,
+                    presentation: .edgeToEdge(
+                        bottomSafeAreaInset: bottomSafeAreaInset,
+                        height: IOSBottomSheetChrome.voicePickerHeight
+                    )
                 )
             )
         }
@@ -745,6 +798,7 @@ struct IOSVoiceDesignView: View {
                         outputPath: outputPath,
                         shouldStream: true,
                         streamingInterval: GenerationSemantics.appStreamingInterval,
+                        languageHint: draft.selectedLanguage.rawValue,
                         payload: .design(
                             voiceDescription: draft.voiceDescription,
                             deliveryStyle: draft.resolvedDeliveryInstruction
@@ -1036,6 +1090,7 @@ struct IOSVoiceCloningView: View {
                             outputPath: outputPath,
                             shouldStream: true,
                             streamingInterval: GenerationSemantics.appStreamingInterval,
+                            languageHint: draft.selectedLanguage.rawValue,
                             payload: .clone(
                                 reference: CloneReference(
                                     audioPath: refPath,
@@ -1126,6 +1181,13 @@ struct IOSVoiceCloningView: View {
             isPlaceholder: draft.referenceAudioPath == nil,
             action: presentReferencePicker
         )
+        IOSStudioSetupChip(
+            eyebrow: "Language",
+            value: draft.selectedLanguage.displayName,
+            leadingSymbol: "globe",
+            tint: IOSBrandTheme.clone,
+            action: presentCloneLanguagePicker
+        )
     }
 
     private func presentReferencePicker() {
@@ -1155,6 +1217,22 @@ struct IOSVoiceCloningView: View {
                     presentation: .edgeToEdge(
                         bottomSafeAreaInset: bottomSafeAreaInset,
                         height: IOSBottomSheetChrome.referenceClipHeight
+                    )
+                )
+            )
+        }
+    }
+
+    private func presentCloneLanguagePicker() {
+        appModel.presentBottomPanel { bottomSafeAreaInset, dismiss in
+            AnyView(
+                IOSQwenLanguagePickerSheet(
+                    selectedLanguage: $draft.selectedLanguage,
+                    tint: IOSBrandTheme.clone,
+                    onDismiss: dismiss,
+                    presentation: .edgeToEdge(
+                        bottomSafeAreaInset: bottomSafeAreaInset,
+                        height: IOSBottomSheetChrome.voicePickerHeight
                     )
                 )
             )
@@ -1265,6 +1343,7 @@ struct IOSVoiceCloningView: View {
                         outputPath: outputPath,
                         shouldStream: true,
                         streamingInterval: GenerationSemantics.appStreamingInterval,
+                        languageHint: draft.selectedLanguage.rawValue,
                         payload: .clone(
                             reference: CloneReference(
                                 audioPath: refPath,

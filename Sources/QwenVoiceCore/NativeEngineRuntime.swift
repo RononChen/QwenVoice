@@ -91,6 +91,7 @@ struct NativePreparedGeneration: Sendable {
     let cloneConditioning: ResolvedCloneConditioning?
     let wasPrimed: Bool
     let loadCapabilityProfile: NativeLoadCapabilityProfile
+    let qwen3Capabilities: Qwen3TTSModelCapabilities
     let memoryPolicy: NativeMemoryPolicy
     let mlxMemorySnapshots: [String: NativeMLXMemorySnapshot]
 }
@@ -327,9 +328,11 @@ actor NativeEngineRuntime {
         defer {
             Self.signposter.endInterval("Native Prepare Generation", prepareSignpost)
         }
+        let descriptorCapabilities = try await loadCoordinator.qwen3Capabilities(for: request.modelID)
         await recordDiagnosticEvent(
             "runtime-prepare-before-load-model",
-            request: request
+            request: request,
+            capabilities: descriptorCapabilities
         )
         let loadStartedAt = ContinuousClock.now
         let loadCapabilityProfile = NativeLoadCapabilityProfile(for: request)
@@ -351,6 +354,7 @@ actor NativeEngineRuntime {
         await recordDiagnosticEvent(
             "runtime-prepare-after-load-model",
             request: request,
+            capabilities: loadResult.qwen3Capabilities,
             extra: [
                 "didLoad": loadResult.didLoad ? "true" : "false",
                 "nativeLoadCapabilityProfile": loadCapabilityProfile.rawValue,
@@ -361,7 +365,8 @@ actor NativeEngineRuntime {
         model.resetPreparationDiagnostics()
         await recordDiagnosticEvent(
             "runtime-prepare-after-reset-preparation-diagnostics",
-            request: request
+            request: request,
+            capabilities: loadResult.qwen3Capabilities
         )
         var timingOverridesMS = loadResult.timingsMS
         var booleanFlags = loadResult.booleanFlags
@@ -417,6 +422,7 @@ actor NativeEngineRuntime {
             await recordDiagnosticEvent(
                 "runtime-prepare-custom-entered",
                 request: request,
+                capabilities: loadResult.qwen3Capabilities,
                 extra: [
                     "supportsDedicatedCustomVoice": model.supportsDedicatedCustomVoice ? "true" : "false",
                     "customPrewarmPolicy": customPrewarmPolicyLabel,
@@ -428,7 +434,8 @@ actor NativeEngineRuntime {
                 booleanFlags["custom_dedicated_prewarm_skipped"] = true
                 await recordDiagnosticEvent(
                     "runtime-prepare-custom-skip-dedicated-prewarm",
-                    request: request
+                    request: request,
+                    capabilities: loadResult.qwen3Capabilities
                 )
             } else {
                 // For short Custom Voice prompts (~one sentence or less),
@@ -489,6 +496,7 @@ actor NativeEngineRuntime {
         await recordDiagnosticEvent(
             "runtime-prepare-before-return",
             request: request,
+            capabilities: loadResult.qwen3Capabilities,
             extra: [
                 "customDedicatedHandlerUsed": booleanFlags["custom_dedicated_handler_used"] == true ? "true" : "false",
                 "customDedicatedPrewarmSkipped": booleanFlags["custom_dedicated_prewarm_skipped"] == true ? "true" : "false",
@@ -508,6 +516,7 @@ actor NativeEngineRuntime {
             cloneConditioning: cloneConditioning,
             wasPrimed: wasPrimed,
             loadCapabilityProfile: loadResult.capabilityProfile,
+            qwen3Capabilities: loadResult.qwen3Capabilities,
             memoryPolicy: memoryPolicy,
             mlxMemorySnapshots: mlxMemorySnapshots
         )
@@ -775,7 +784,11 @@ actor NativeEngineRuntime {
             await telemetryRecorder?.mark(stage: .prewarm)
             switch request.payload {
             case .custom:
-                let prompt = GenerationSemantics.qwen3PromptAssembly(for: request)
+                let capabilities = try await loadCoordinator.qwen3Capabilities(for: request.modelID)
+                let prompt = GenerationSemantics.qwen3PromptAssembly(
+                    for: request,
+                    capabilities: capabilities
+                )
                 try await model.prewarmCustomVoice(
                     text: lightweightWarmupText,
                     language: prompt.language,
@@ -958,6 +971,7 @@ actor NativeEngineRuntime {
     private func recordDiagnosticEvent(
         _ action: String,
         request: GenerationRequest,
+        capabilities: Qwen3TTSModelCapabilities,
         extra: [String: String] = [:]
     ) async {
         guard let diagnosticEventSink else {
@@ -969,7 +983,10 @@ actor NativeEngineRuntime {
             "modelID": request.modelID,
             "textLength": String(request.text.count),
         ]
-        let prompt = GenerationSemantics.qwen3PromptAssembly(for: request)
+        let prompt = GenerationSemantics.qwen3PromptAssembly(
+            for: request,
+            capabilities: capabilities
+        )
         details["qwen3_prompt_mode"] = prompt.mode.rawValue
         details["qwen3_prompt_language"] = prompt.language
         details["qwen3_uses_instruction_control"] = prompt.usesInstructionControl ? "true" : "false"
@@ -1106,7 +1123,11 @@ actor NativeEngineRuntime {
             )
         }
 
-        let prompt = GenerationSemantics.qwen3PromptAssembly(for: request)
+        let capabilities = try await loadCoordinator.qwen3Capabilities(for: request.modelID)
+        let prompt = GenerationSemantics.qwen3PromptAssembly(
+            for: request,
+            capabilities: capabilities
+        )
         let language = prompt.language
         guard let conditioningWarmKey = GenerationSemantics.designConditioningWarmKey(for: request) else {
             return DesignConditioningWarmState(

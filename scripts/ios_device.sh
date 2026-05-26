@@ -16,7 +16,13 @@ SCREEN_MIRROR_BUNDLE_ID="com.apple.ScreenContinuity"
 DEFAULT_TEAM_ID="FK2D8X36G2"
 DEFAULT_IOS_CATALOG_URL="bundle://vocello/ios/catalog/v1/models.json"
 INCREASED_MEMORY_ENTITLEMENT="com.apple.developer.kernel.increased-memory-limit"
-READINESS_GATE_PATH="/Users/patricedery/.codex/bin/ios-device-readiness"
+READINESS_GATE_PATH="${QVOICE_IOS_READINESS_GATE:-}"
+if [ -z "$READINESS_GATE_PATH" ]; then
+    READINESS_GATE_PATH="$(command -v ios-device-readiness || true)"
+fi
+if [ -z "$READINESS_GATE_PATH" ] && [ -x "$ROOT_DIR/scripts/ios-device-readiness" ]; then
+    READINESS_GATE_PATH="$ROOT_DIR/scripts/ios-device-readiness"
+fi
 
 # shellcheck source=scripts/lib/shared.sh
 . "$SCRIPT_DIR/lib/shared.sh"
@@ -99,6 +105,10 @@ options:
                           Debug-only QVOICE_IOS_MLX_MEMORY_LIMIT_MB active-allocation experiment.
   --mlx-cache-limit-mb <mb>
                           Debug-only QVOICE_IOS_MLX_CACHE_LIMIT_MB cache-limit experiment.
+
+env:
+  QVOICE_IOS_READINESS_GATE points doctor/start at a local ios-device-readiness executable.
+  QVOICE_IOS_ALLOW_AGGREGATE_GUARDED_ADMISSION=1 permits Release/TestFlight aggregate-guarded admission.
 
 examples:
   scripts/ios_device.sh doctor
@@ -386,7 +396,7 @@ EOF
 run_readiness_gate() {
     ensure_run_dir
     READINESS_STATUS="UNAVAILABLE"
-    READINESS_MESSAGE="warning; readiness gate not found at $READINESS_GATE_PATH"
+    READINESS_MESSAGE="warning; readiness gate not found; set QVOICE_IOS_READINESS_GATE or put ios-device-readiness on PATH"
     READINESS_COREDEVICE_ID=""
     READINESS_UDID=""
     READINESS_XCTRACE_ONLINE="unknown"
@@ -395,7 +405,7 @@ run_readiness_gate() {
     READINESS_BLOCKS_START="0"
     READINESS_GATE_AVAILABLE="0"
 
-    if [ ! -x "$READINESS_GATE_PATH" ]; then
+    if [ -z "$READINESS_GATE_PATH" ] || [ ! -x "$READINESS_GATE_PATH" ]; then
         return 0
     fi
 

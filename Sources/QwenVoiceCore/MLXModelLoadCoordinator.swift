@@ -9,12 +9,14 @@ struct NativeModelLoadResult: Sendable {
     let model: UnsafeSpeechGenerationModel
     let didLoad: Bool
     let capabilityProfile: NativeLoadCapabilityProfile
+    let qwen3Capabilities: Qwen3TTSModelCapabilities
     let timingsMS: [String: Int]
     let booleanFlags: [String: Bool]
     let stringFlags: [String: String]
 }
 
 protocol MLXModelCoordinating: AnyObject, Sendable {
+    func qwen3Capabilities(for id: String) async throws -> Qwen3TTSModelCapabilities
     func loadModel(id: String, capabilityProfile: NativeLoadCapabilityProfile) async throws -> NativeModelLoadResult
     func unloadModel() async
     func isPrewarmed(identityKey: String) async -> Bool
@@ -227,6 +229,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
                 model: loadedModel,
                 didLoad: false,
                 capabilityProfile: loadedCapabilityProfile,
+                qwen3Capabilities: try Self.requiredQwen3Capabilities(for: loadedDescriptor),
                 timingsMS: [:],
                 booleanFlags: [:],
                 stringFlags: preparedMetadataByDescriptorID[loadedDescriptor.id]?.qwenRuntimeProfile.diagnosticStringFlags() ?? [:]
@@ -381,10 +384,15 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
             model: model,
             didLoad: true,
             capabilityProfile: capabilityProfile,
+            qwen3Capabilities: try Self.requiredQwen3Capabilities(for: descriptor),
             timingsMS: timingsMS,
             booleanFlags: booleanFlags,
             stringFlags: preparedCacheResult.metadata.qwenRuntimeProfile.diagnosticStringFlags()
         )
+    }
+
+    func qwen3Capabilities(for id: String) async throws -> Qwen3TTSModelCapabilities {
+        try Self.requiredQwen3Capabilities(for: descriptor(for: id))
     }
 
     func unloadModel() async {
@@ -423,6 +431,17 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
             throw MLXTTSEngineError.unknownModel(id)
         }
         return descriptor
+    }
+
+    private static func requiredQwen3Capabilities(
+        for descriptor: ModelAssetDescriptor
+    ) throws -> Qwen3TTSModelCapabilities {
+        guard let capabilities = descriptor.model.qwen3Capabilities else {
+            throw Qwen3TTSRuntimeProfileError.invalidMetadata(
+                "Model '\(descriptor.id)' is missing Qwen3-TTS capability metadata."
+            )
+        }
+        return capabilities
     }
 
     private func prepareLocalCache(for descriptor: ModelAssetDescriptor) throws -> PreparedCacheResult {

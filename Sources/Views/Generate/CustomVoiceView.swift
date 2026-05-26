@@ -144,7 +144,21 @@ struct CustomVoiceView: View {
     }
 
     private var supportsDeliveryControl: Bool {
-        activeModel?.supportsInstructionControl ?? true
+        activeModel?.supportsInstructionControl ?? false
+    }
+
+    private var speakerNativeLanguage: Qwen3SupportedLanguage {
+        TTSModel.qwenLanguage(forSpeaker: draft.selectedSpeaker)
+    }
+
+    private var languageHintMessage: String? {
+        guard draft.selectedLanguage != .auto,
+              draft.selectedLanguage != speakerNativeLanguage else {
+            return nil
+        }
+        let speakerName = TTSModel.speakerDescriptor(id: draft.selectedSpeaker)?.displayName
+            ?? draft.selectedSpeaker.capitalized
+        return "\(speakerName) is native to \(speakerNativeLanguage.displayName). \(draft.selectedLanguage.displayName) can still work, but pronunciation is usually best in the speaker's native language."
     }
 
     private var readinessPresentation: CustomVoiceReadinessPresentation {
@@ -210,6 +224,7 @@ struct CustomVoiceView: View {
                     mode: configuration.mode,
                     voice: configuration.voice,
                     emotion: configuration.emotion,
+                    languageHint: draft.selectedLanguage.rawValue,
                     voiceDescription: configuration.voiceDescription,
                     refAudio: configuration.refAudio,
                     refText: configuration.refText,
@@ -245,6 +260,7 @@ private extension CustomVoiceView {
         ) {
             VStack(alignment: .leading, spacing: 0) {
                 speakerSettings
+                languageSettings
                 if supportsDeliveryControl {
                     deliverySettings
                 } else {
@@ -319,7 +335,19 @@ private extension CustomVoiceView {
     }
 
     var speakerSettings: some View {
-        SpeakerPickerRow(selectedSpeaker: $draft.selectedSpeaker)
+        SpeakerPickerRow(selectedSpeaker: $draft.selectedSpeaker) { speaker in
+            draft.selectedSpeaker = speaker
+            draft.selectedLanguage = TTSModel.qwenLanguage(forSpeaker: speaker)
+        }
+    }
+
+    var languageSettings: some View {
+        QwenLanguagePickerRow(
+            selectedLanguage: $draft.selectedLanguage,
+            accentColor: AppTheme.customVoice,
+            accessibilityPrefix: "customVoice",
+            hint: languageHintMessage
+        )
     }
 
     var deliverySettings: some View {
@@ -384,13 +412,27 @@ private extension CustomVoiceView {
 
 private struct SpeakerPickerRow: View {
     @Binding var selectedSpeaker: String
+    var onSelectSpeaker: ((String) -> Void)?
+
+    private var speakerSelection: Binding<String> {
+        Binding(
+            get: { selectedSpeaker },
+            set: { newValue in
+                if let onSelectSpeaker {
+                    onSelectSpeaker(newValue)
+                } else {
+                    selectedSpeaker = newValue
+                }
+            }
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: LayoutConstants.generationConfigurationRowSpacing) {
             Text("Speaker")
                 .font(.subheadline.weight(.semibold))
 
-            Picker("Speaker", selection: $selectedSpeaker) {
+            Picker("Speaker", selection: speakerSelection) {
                 ForEach(TTSModel.allSpeakers, id: \.self) { speaker in
                     Text(TTSModel.speakerPickerLabel(for: speaker)).tag(speaker)
                 }

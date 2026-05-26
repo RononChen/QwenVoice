@@ -262,6 +262,7 @@ struct VoiceCloningView: View {
                     mode: configuration.mode,
                     voice: configuration.voice,
                     emotion: configuration.emotion,
+                    languageHint: draft.selectedLanguage.rawValue,
                     voiceDescription: configuration.voiceDescription,
                     refAudio: configuration.refAudio,
                     refText: configuration.refText,
@@ -321,6 +322,7 @@ private extension VoiceCloningView {
                     retrySavedVoices: { Task { await savedVoicesViewModel.refresh(using: ttsEngineStore) } }
                 )
                 VoiceCloningTranscriptSettings(referenceTranscript: $draft.referenceTranscript)
+                languageSettings
             }
         }
         .overlay(alignment: .topLeading) {
@@ -398,6 +400,14 @@ private extension VoiceCloningView {
         }
         .frame(maxHeight: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .contain)
+    }
+
+    var languageSettings: some View {
+        QwenLanguagePickerRow(
+            selectedLanguage: $draft.selectedLanguage,
+            accentColor: AppTheme.voiceCloning,
+            accessibilityPrefix: "voiceCloning"
+        )
     }
 }
 

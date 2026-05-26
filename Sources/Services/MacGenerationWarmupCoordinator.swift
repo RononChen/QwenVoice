@@ -19,11 +19,12 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
 
     enum WarmupIdentity: Equatable, Sendable {
         case modelOnly
-        case custom(speakerID: String, deliveryStyle: String?)
+        case custom(speakerID: String, deliveryStyle: String?, languageHint: String?)
         case design(
             brief: String,
             deliveryStyle: String?,
-            bucket: GenerationSemantics.DesignWarmBucket
+            bucket: GenerationSemantics.DesignWarmBucket,
+            languageHint: String?
         )
         case clone(referenceKey: String, preparedVoiceID: String?)
     }
@@ -124,7 +125,8 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
         case .custom:
             identity = .custom(
                 speakerID: GenerationSemantics.canonicalCustomWarmSpeaker,
-                deliveryStyle: GenerationSemantics.canonicalCustomWarmInstruction()
+                deliveryStyle: GenerationSemantics.canonicalCustomWarmInstruction(),
+                languageHint: Qwen3SupportedLanguage.english.rawValue
             )
         case .design, .clone:
             identity = .modelOnly
@@ -307,7 +309,7 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
                     return .ensureModelLoaded(modelID: context.modelID)
                 }
                 return .prefetchInteractiveReadiness(request)
-            case .design(let brief, _, _):
+            case .design(let brief, _, _, _):
                 guard !brief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                       let request = interactivePrewarmRequest(for: context) else {
                     return .ensureModelLoaded(modelID: context.modelID)
@@ -402,7 +404,7 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
     private func interactivePrewarmRequest(for context: WarmupContext) -> GenerationRequest? {
         let shouldStream = context.purpose == .livePreviewReadiness
         switch context.identity {
-        case .custom(let speakerID, let deliveryStyle):
+        case .custom(let speakerID, let deliveryStyle, let languageHint):
             let speaker = speakerID.trimmingCharacters(in: .whitespacesAndNewlines)
             return GenerationRequest(
                 modelID: context.modelID,
@@ -410,12 +412,13 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
                 outputPath: "",
                 shouldStream: shouldStream,
                 streamingInterval: GenerationSemantics.appStreamingInterval,
+                languageHint: languageHint,
                 payload: .custom(
                     speakerID: speaker.isEmpty ? GenerationSemantics.canonicalCustomWarmSpeaker : speaker,
                     deliveryStyle: deliveryStyle
                 )
             )
-        case .design(let brief, let deliveryStyle, let bucket):
+        case .design(let brief, let deliveryStyle, let bucket, let languageHint):
             let trimmedBrief = brief.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedBrief.isEmpty else { return nil }
             return GenerationRequest(
@@ -424,6 +427,7 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
                 outputPath: "",
                 shouldStream: shouldStream,
                 streamingInterval: GenerationSemantics.appStreamingInterval,
+                languageHint: languageHint,
                 payload: .design(
                     voiceDescription: trimmedBrief,
                     deliveryStyle: deliveryStyle

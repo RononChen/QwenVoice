@@ -1,4 +1,5 @@
 import Foundation
+import QwenVoiceCore
 
 private let appDisplayName = "Vocello"
 
@@ -81,6 +82,7 @@ struct DeliveryInputState: Equatable {
 
 struct CustomVoiceDraft: Equatable {
     var selectedSpeaker = TTSModel.defaultSpeaker
+    var selectedLanguage = Qwen3SupportedLanguage.english
     var delivery = DeliveryInputState()
     var text = ""
 
@@ -100,6 +102,7 @@ struct CustomVoiceDraft: Equatable {
 
 struct VoiceDesignDraft: Equatable {
     var voiceDescription = ""
+    var selectedLanguage = Qwen3SupportedLanguage.auto
     var delivery = DeliveryInputState()
     var text = ""
 
@@ -120,6 +123,7 @@ struct VoiceDesignDraft: Equatable {
 struct VoiceCloningDraft: Equatable {
     var selectedSavedVoiceID: String?
     var referenceAudioPath: String?
+    var selectedLanguage = Qwen3SupportedLanguage.auto
     var referenceTranscript = ""
     var text = ""
 

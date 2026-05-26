@@ -705,7 +705,7 @@ final class ModelManagerViewModel: ObservableObject {
             return .repairAvailable(
                 sizeBytes: info.sizeBytes,
                 missingRequiredPaths: info.missingRequiredPaths,
-                message: failureMessage
+                message: failureMessage ?? info.deepIntegrityMessage
             )
         }
         return .notDownloaded(message: failureMessage)
@@ -739,10 +739,67 @@ final class ModelManagerViewModel: ObservableObject {
                 !fileManager.fileExists(atPath: modelDirectory.appendingPathComponent($0).path)
             }
             : []
-        let complete = rootExists && missingRequiredPaths.isEmpty
+        let presenceComplete = rootExists && missingRequiredPaths.isEmpty
+        let deepIntegrity: ModelAssetDeepIntegrity?
+        if presenceComplete {
+            let coreMode = QwenVoiceCore.GenerationMode(rawValue: model.mode.rawValue)!
+            let modelDescriptor = ModelDescriptor(
+                id: model.id,
+                name: model.name,
+                tier: model.tier,
+                folder: model.folder,
+                mode: coreMode,
+                huggingFaceRepo: model.huggingFaceRepo,
+                huggingFaceRevision: model.huggingFaceRevision,
+                artifactVersion: model.huggingFaceRevision ?? "local",
+                iosDownloadEligible: false,
+                estimatedDownloadBytes: model.estimatedDownloadBytes,
+                outputSubfolder: model.outputSubfolder,
+                requiredRelativePaths: model.requiredRelativePaths,
+                qwen3Capabilities: model.qwen3Capabilities
+            )
+            let descriptor = ModelAssetDescriptor(
+                model: modelDescriptor,
+                version: "status",
+                artifacts: model.requiredRelativePaths.map {
+                    ModelAssetArtifact(relativePath: $0, scope: .modelSpecific)
+                }
+            )
+            let store = LocalModelAssetStore(
+                rootDirectory: modelsDirectory,
+                descriptors: [descriptor],
+                storeVersionSeed: "status"
+            )
+            deepIntegrity = store.deepIntegrity(for: descriptor)
+        } else {
+            deepIntegrity = nil
+        }
+        let deepFailedRelativePaths: [String]
+        let deepStatus: String?
+        let deepMessage: String?
+        switch deepIntegrity {
+        case .failed(let message, let failedRelativePaths):
+            deepStatus = "failed"
+            deepMessage = message
+            deepFailedRelativePaths = failedRelativePaths
+        case .verified:
+            deepStatus = "verified"
+            deepMessage = nil
+            deepFailedRelativePaths = []
+        case .unavailable(let reason):
+            deepStatus = reason
+            deepMessage = nil
+            deepFailedRelativePaths = []
+        case nil:
+            deepStatus = nil
+            deepMessage = nil
+            deepFailedRelativePaths = []
+        }
+        let complete = presenceComplete && deepFailedRelativePaths.isEmpty
+        let effectiveMissingRequiredPaths = (missingRequiredPaths + deepFailedRelativePaths).sorted()
         let metadata = rootExists ? readInstallMetadata(for: model, in: modelDirectory) : nil
         let sizeBytes: Int
-        if complete,
+        if presenceComplete,
            let metadata,
            metadataMatchesCurrentModel(metadata, model: model, resolvedPath: modelDirectory.path) {
             sizeBytes = metadata.sizeBytes
@@ -763,8 +820,10 @@ final class ModelManagerViewModel: ObservableObject {
             downloaded: rootExists,
             complete: complete,
             repairable: rootExists && !complete,
-            missingRequiredPaths: missingRequiredPaths,
+            missingRequiredPaths: effectiveMissingRequiredPaths,
             sizeBytes: sizeBytes,
+            deepIntegrityStatus: deepStatus,
+            deepIntegrityMessage: deepMessage,
             mlxAudioVersion: nil,
             supportsStreaming: true,
             supportsPreparedClone: model.mode == .clone,

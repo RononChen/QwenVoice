@@ -193,6 +193,9 @@ struct Qwen3TTSRuntimeProfile: Hashable, Codable, Sendable {
             repetitionPenalty: double(generationConfig["repetition_penalty"])
         )
         let requiredComponents = Self.criticalRequiredComponents
+        let derivedSupportsInstructionControl =
+            modelFamily == .voiceDesign
+            || (modelFamily == .customVoice && modelSize != .compact0b6)
         let signatureParts = [
             modelType,
             modelFamily.rawValue,
@@ -202,6 +205,7 @@ struct Qwen3TTSRuntimeProfile: Hashable, Codable, Sendable {
             languages.joined(separator: ","),
             speakers.joined(separator: ","),
             modelSize?.rawValue ?? "unknown",
+            derivedSupportsInstructionControl ? "instruction" : "no_instruction",
         ]
 
         return Qwen3TTSRuntimeProfile(
@@ -217,7 +221,7 @@ struct Qwen3TTSRuntimeProfile: Hashable, Codable, Sendable {
             supportedSpeakers: speakers,
             generationDefaults: generationDefaults,
             modelSize: modelSize,
-            supportsInstructionControl: modelSize != .compact0b6 || modelFamily != .customVoice,
+            supportsInstructionControl: derivedSupportsInstructionControl,
             validationSignature: signatureParts.joined(separator: "|")
         )
     }
@@ -307,6 +311,21 @@ struct Qwen3TTSRuntimeProfile: Hashable, Codable, Sendable {
                     "Model '\(descriptor.id)' declares Qwen3 family \(capabilities.familyType.rawValue) but config resolves \(modelFamily.rawValue)."
                 )
             }
+            guard capabilities.supportsInstructionControl == supportsInstructionControl else {
+                throw Qwen3TTSRuntimeProfileError.invalidMetadata(
+                    "Model '\(descriptor.id)' declares supportsInstructionControl=\(capabilities.supportsInstructionControl) but runtime metadata derives \(supportsInstructionControl)."
+                )
+            }
+            guard capabilities.supportsVoiceClone == (modelFamily == .baseClone) else {
+                throw Qwen3TTSRuntimeProfileError.invalidMetadata(
+                    "Model '\(descriptor.id)' declares supportsVoiceClone=\(capabilities.supportsVoiceClone) but runtime family \(modelFamily.rawValue) expects \((modelFamily == .baseClone))."
+                )
+            }
+            guard capabilities.requiresSpeakerEncoder == (modelFamily == .baseClone) else {
+                throw Qwen3TTSRuntimeProfileError.invalidMetadata(
+                    "Model '\(descriptor.id)' declares requiresSpeakerEncoder=\(capabilities.requiresSpeakerEncoder) but runtime family \(modelFamily.rawValue) expects \((modelFamily == .baseClone))."
+                )
+            }
             if let modelSize {
                 guard capabilities.modelSize == modelSize else {
                     throw Qwen3TTSRuntimeProfileError.invalidMetadata(
@@ -347,21 +366,7 @@ struct Qwen3TTSRuntimeProfile: Hashable, Codable, Sendable {
     }
 
     static func normalizedLanguage(_ raw: String?) -> String {
-        let normalized = normalizedCacheText(raw ?? "")
-        switch normalized {
-        case "", "auto", "automatic":
-            return "auto"
-        case "en", "en-us", "en_us", "en-gb", "en_gb", "english":
-            return "english"
-        case "zh", "zh-cn", "zh_cn", "cn", "mandarin", "chinese":
-            return "chinese"
-        case "ja", "jp", "japanese":
-            return "japanese"
-        case "ko", "kr", "korean":
-            return "korean"
-        default:
-            return normalized
-        }
+        Qwen3SupportedLanguage.normalized(raw).rawValue
     }
 
     static func normalizedCacheText(_ raw: String) -> String {

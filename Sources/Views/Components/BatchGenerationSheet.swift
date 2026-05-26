@@ -11,6 +11,7 @@ struct BatchGenerationSheet: View {
     let mode: GenerationMode
     var voice: String?
     var emotion: String?
+    var languageHint: String?
     var deliveryProfile: DeliveryProfile? = nil
     var voiceDescription: String?
     var refAudio: String?
@@ -24,6 +25,7 @@ struct BatchGenerationSheet: View {
         mode: GenerationMode,
         voice: String? = nil,
         emotion: String? = nil,
+        languageHint: String? = nil,
         deliveryProfile: DeliveryProfile? = nil,
         voiceDescription: String? = nil,
         refAudio: String? = nil,
@@ -34,6 +36,7 @@ struct BatchGenerationSheet: View {
         self.mode = mode
         self.voice = voice
         self.emotion = emotion
+        self.languageHint = languageHint
         self.deliveryProfile = deliveryProfile
         self.voiceDescription = voiceDescription
         self.refAudio = refAudio
@@ -400,6 +403,7 @@ struct BatchGenerationSheet: View {
                     segmentationMode: segmentationMode,
                     voice: voice,
                     emotion: emotion,
+                    languageHint: languageHint,
                     voiceDescription: voiceDescription,
                     refAudio: refAudio,
                     refText: refText

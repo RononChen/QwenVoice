@@ -87,6 +87,7 @@ struct VoiceDesignView: View {
                     mode: configuration.mode,
                     voice: configuration.voice,
                     emotion: configuration.emotion,
+                    languageHint: draft.selectedLanguage.rawValue,
                     voiceDescription: configuration.voiceDescription,
                     refAudio: configuration.refAudio,
                     refText: configuration.refText,
@@ -138,6 +139,7 @@ private extension VoiceDesignView {
         ) {
             VStack(alignment: .leading, spacing: 0) {
                 briefSettings
+                languageSettings
                 deliverySettings
             }
         }
@@ -211,6 +213,14 @@ private extension VoiceDesignView {
 
     var briefSettings: some View {
         VoiceDesignBriefSettings(voiceDescription: $draft.voiceDescription)
+    }
+
+    var languageSettings: some View {
+        QwenLanguagePickerRow(
+            selectedLanguage: $draft.selectedLanguage,
+            accentColor: AppTheme.voiceDesign,
+            accessibilityPrefix: "voiceDesign"
+        )
     }
 
     var deliverySettings: some View {

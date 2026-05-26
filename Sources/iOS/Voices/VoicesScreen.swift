@@ -26,6 +26,7 @@ struct VoicesScreen: View {
             selectedTab: $appModel.tab,
             onSelectBuiltInSpeaker: { speaker in
                 appModel.customVoiceDraft.selectedSpeaker = speaker.id
+                appModel.customVoiceDraft.selectedLanguage = TTSModel.qwenLanguage(forSpeaker: speaker.id)
                 appModel.studioMode = .custom
                 appModel.tab = .studio
             },

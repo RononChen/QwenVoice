@@ -37,4 +37,8 @@ extension ModelDescriptor {
     static func speakerPickerLabel(for id: String) -> String {
         speakerDescriptor(id: id)?.annotatedDisplayName ?? id.capitalized
     }
+
+    static func qwenLanguage(forSpeaker id: String) -> Qwen3SupportedLanguage {
+        Qwen3SupportedLanguage.nativeLanguage(speakerDescriptor(id: id)?.nativeLanguage)
+    }
 }

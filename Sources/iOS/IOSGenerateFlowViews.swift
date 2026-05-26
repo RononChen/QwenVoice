@@ -23,6 +23,7 @@ enum IOSPrefetchRequestFactory {
             outputPath: "",
             shouldStream: true,
             streamingInterval: GenerationSemantics.appStreamingInterval,
+            languageHint: draft.selectedLanguage.rawValue,
             payload: .custom(
                 speakerID: draft.selectedSpeaker,
                 deliveryStyle: model.supportsInstructionControl
@@ -49,6 +50,7 @@ enum IOSPrefetchRequestFactory {
             outputPath: "",
             shouldStream: true,
             streamingInterval: GenerationSemantics.appStreamingInterval,
+            languageHint: draft.selectedLanguage.rawValue,
             payload: .design(
                 voiceDescription: voiceDescription,
                 deliveryStyle: draft.resolvedDeliveryInstruction
@@ -204,10 +206,16 @@ private struct IOSGeneratePrefetchCoordinator: View {
             .onChange(of: customVoiceDraft.selectedSpeaker) { _, _ in
                 scheduleSelectedGenerationPrefetch()
             }
+            .onChange(of: customVoiceDraft.selectedLanguage) { _, _ in
+                scheduleSelectedGenerationPrefetch()
+            }
             .onChange(of: customVoiceDraft.resolvedDeliveryInstruction) { _, _ in
                 scheduleSelectedGenerationPrefetch()
             }
             .onChange(of: voiceDesignDraft.voiceDescription) { _, _ in
+                scheduleSelectedGenerationPrefetch()
+            }
+            .onChange(of: voiceDesignDraft.selectedLanguage) { _, _ in
                 scheduleSelectedGenerationPrefetch()
             }
             .onChange(of: voiceDesignDraft.resolvedDeliveryInstruction) { _, _ in

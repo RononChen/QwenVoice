@@ -28,6 +28,83 @@ public enum GenerationMode: String, CaseIterable, Codable, Hashable, Sendable {
     }
 }
 
+public enum Qwen3SupportedLanguage: String, CaseIterable, Codable, Hashable, Sendable {
+    case auto
+    case chinese
+    case english
+    case japanese
+    case korean
+    case german
+    case french
+    case russian
+    case portuguese
+    case spanish
+    case italian
+
+    public var displayName: String {
+        switch self {
+        case .auto: return "Auto"
+        case .chinese: return "Chinese"
+        case .english: return "English"
+        case .japanese: return "Japanese"
+        case .korean: return "Korean"
+        case .german: return "German"
+        case .french: return "French"
+        case .russian: return "Russian"
+        case .portuguese: return "Portuguese"
+        case .spanish: return "Spanish"
+        case .italian: return "Italian"
+        }
+    }
+
+    public static var selectableCases: [Qwen3SupportedLanguage] {
+        allCases.filter { $0 != .auto }
+    }
+
+    public static func normalized(_ raw: String?) -> Qwen3SupportedLanguage {
+        let normalized = (raw ?? "")
+            .replacingOccurrences(
+                of: #"\s+"#,
+                with: " ",
+                options: .regularExpression
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "-")
+        switch normalized {
+        case "", "auto", "automatic":
+            return .auto
+        case "zh", "zh-cn", "zh-hans", "cn", "mandarin", "chinese":
+            return .chinese
+        case "en", "en-us", "en-gb", "english":
+            return .english
+        case "ja", "jp", "japanese":
+            return .japanese
+        case "ko", "kr", "korean":
+            return .korean
+        case "de", "de-de", "german":
+            return .german
+        case "fr", "fr-fr", "french":
+            return .french
+        case "ru", "ru-ru", "russian":
+            return .russian
+        case "pt", "pt-br", "pt-pt", "portuguese":
+            return .portuguese
+        case "es", "es-es", "spanish":
+            return .spanish
+        case "it", "it-it", "italian":
+            return .italian
+        default:
+            return .auto
+        }
+    }
+
+    public static func nativeLanguage(_ raw: String?) -> Qwen3SupportedLanguage {
+        let normalized = normalized(raw)
+        return normalized == .auto ? .english : normalized
+    }
+}
+
 public enum EngineActivityLabels {
     public static let preparingVoiceReference = "Preparing voice reference…"
 
@@ -144,9 +221,34 @@ public enum ModelVariantKind: String, Codable, Hashable, Sendable {
     case quality
 }
 
-public enum Qwen3TTSModelSize: String, Codable, Hashable, Sendable {
-    case compact0b6 = "0b6"
-    case pro1b7 = "1b7"
+public enum Qwen3TTSModelSize: String, Hashable, Sendable {
+    case compact0b6 = "compact0b6"
+    case pro1b7 = "pro1b7"
+}
+
+extension Qwen3TTSModelSize: Codable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        switch rawValue {
+        case "compact0b6", "0b6", "0.6b", "600m":
+            self = .compact0b6
+        case "pro1b7", "1b7", "1.7b":
+            self = .pro1b7
+        default:
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unsupported Qwen3-TTS model size '\(rawValue)'."
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 public enum Qwen3TTSFamilyType: String, Codable, Hashable, Sendable {
@@ -366,7 +468,7 @@ public struct ModelDescriptor: Identifiable, Hashable, Sendable, Codable {
     }
 
     public var supportsInstructionControl: Bool {
-        qwen3Capabilities?.supportsInstructionControl ?? true
+        qwen3Capabilities?.supportsInstructionControl ?? false
     }
 
     public var supportsVoiceClone: Bool {
@@ -1031,6 +1133,7 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
     public let batchIndex: Int?
     public let batchTotal: Int?
     public let streamingTitle: String?
+    public let languageHint: String?
     public let payload: Payload
 
     public init(
@@ -1043,6 +1146,7 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
         batchIndex: Int? = nil,
         batchTotal: Int? = nil,
         streamingTitle: String? = nil,
+        languageHint: String? = nil,
         payload: Payload
     ) {
         self.mode = mode
@@ -1054,6 +1158,7 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
         self.batchIndex = batchIndex
         self.batchTotal = batchTotal
         self.streamingTitle = streamingTitle
+        self.languageHint = languageHint
         self.payload = payload
     }
 
@@ -1066,6 +1171,7 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
         batchIndex: Int? = nil,
         batchTotal: Int? = nil,
         streamingTitle: String? = nil,
+        languageHint: String? = nil,
         payload: Payload
     ) {
         let resolvedMode: GenerationMode
@@ -1088,6 +1194,7 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
             batchIndex: batchIndex,
             batchTotal: batchTotal,
             streamingTitle: streamingTitle,
+            languageHint: languageHint,
             payload: payload
         )
     }

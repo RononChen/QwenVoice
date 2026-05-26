@@ -225,6 +225,79 @@ struct IOSDeliveryPickerSheet: View {
     }
 }
 
+// MARK: - Qwen language picker
+
+struct IOSQwenLanguagePickerSheet: View {
+    @Binding var selectedLanguage: Qwen3SupportedLanguage
+    let tint: Color
+    var includesAuto = true
+    var onDismiss: (() -> Void)?
+    var presentation: IOSBottomSheetPresentationStyle = .system
+
+    @Environment(\.dismiss) private var dismiss
+
+    private var languages: [Qwen3SupportedLanguage] {
+        includesAuto ? Qwen3SupportedLanguage.allCases : Qwen3SupportedLanguage.selectableCases
+    }
+
+    var body: some View {
+        IOSBottomSheetSurface(title: "Language", tint: tint, presentation: presentation, onDismiss: onDismiss) {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(languages, id: \.self) { language in
+                        languageButton(language)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
+            }
+        }
+    }
+
+    private func languageButton(_ language: Qwen3SupportedLanguage) -> some View {
+        let isSelected = selectedLanguage == language
+        return Button {
+            selectedLanguage = language
+            IOSHaptics.selection()
+            closeSheet()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(isSelected ? tint : IOSAppTheme.textTertiary)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(language.displayName)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(IOSAppTheme.textPrimary)
+                    Text(language == .auto ? "Infer from script or transcript." : "Use Qwen3's \(language.displayName) path.")
+                        .font(.caption)
+                        .foregroundStyle(IOSAppTheme.textSecondary)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(isSelected ? IOSAppTheme.accentWash(tint) : Color.white.opacity(0.04))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(isSelected ? tint.opacity(0.34) : Color.white.opacity(0.08), lineWidth: 0.8)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("languagePicker_\(language.rawValue)")
+    }
+
+    private func closeSheet() {
+        onDismiss?()
+        dismiss()
+    }
+}
+
 // MARK: - Voice picker
 
 /// Speaker picker for Custom mode. Caller passes the available speaker
