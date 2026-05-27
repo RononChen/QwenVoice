@@ -329,6 +329,10 @@ Two OSSignposter events in `NativeEngineRuntime` for bench/forensics: `"Native P
 
 ## Known traps
 
+### macOS engine event stream must stay `.unbounded`
+
+`MLXTTSEngine.events` (Sources/QwenVoiceCore/MLXTTSEngine.swift around line 452) is the chunk-delivery path for streaming preview audio. The file-level contract above the declaration is explicit: it "must not drop `.chunk` events carrying preview audio." A May 2026 attempt to cap it via `.bufferingNewest(64)` on both platforms (commit `d93612c`) caused user-reported latency + audio-quality regressions across all three macOS modes — the producer (now off MainActor after the same commit's `chunkSink` change) outran the consumer (synchronous MainActor + XPC encode in `EngineServiceHost.eventForwardingTask`) and silently dropped chunks. Fix: keep iOS bounded (`.bufferingNewest(64)`) for engine-extension memory safety, but use `.unbounded` on macOS. Do not "harden" macOS event buffering without first preserving the chunk-delivery contract; if backpressure becomes a real concern, route it through a counter + diagnostics signal in `native-events.jsonl`, not by dropping chunks at the producer.
+
 ### Internal chunked generation and preview playback
 
 `shouldStream: true` at the user-facing single-generation call sites (3 macOS coordinators + active iOS generation builders); the iOS readiness/prefetch builders stream too. This is Vocello's internal chunked preview/final-file pipeline, not a claim that the app exposes Qwen's public Python true end-to-end streaming API. Physical iOS defaults to final-file playback and omits inline PCM chunk payloads unless the Debug event sink plus chunk-file output are explicitly enabled. `BatchGenerationRunner` stays `shouldStream: false` by design — macOS batch is quality-first regardless. On macOS preview-enabled runs, the user hears the first audio chunk within ~3-6 seconds of pressing generate on cold cells, vs ~8-15 seconds for the materialize-then-play flow that preceded it.

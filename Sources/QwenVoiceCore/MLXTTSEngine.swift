@@ -449,7 +449,15 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         self.diagnosticAppSupportBox = diagnosticAppSupportBox
         self.idleUnloadDelayOverride = idleUnloadDelayOverride
         var capturedContinuation: AsyncStream<GenerationEvent>.Continuation!
-        self.events = AsyncStream(bufferingPolicy: .bufferingNewest(64)) { continuation in
+        // macOS must keep `.unbounded` so the playback chunk-delivery path never
+        // drops `.chunk` events under load (see chunk-stream contract above).
+        // iOS keeps a bounded cap because the engine extension is memory-tight.
+        #if os(iOS)
+        let bufferingPolicy: AsyncStream<GenerationEvent>.Continuation.BufferingPolicy = .bufferingNewest(64)
+        #else
+        let bufferingPolicy: AsyncStream<GenerationEvent>.Continuation.BufferingPolicy = .unbounded
+        #endif
+        self.events = AsyncStream(bufferingPolicy: bufferingPolicy) { continuation in
             capturedContinuation = continuation
         }
         self.eventStreamContinuation = capturedContinuation
