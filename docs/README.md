@@ -18,7 +18,7 @@ This folder contains the current repo-authored documentation for QwenVoice.
 
 ### Autonomous UI testing and bench
 
-The Debug build is drivable by a Codex session via the computer-use MCP. The harness lives in `scripts/uitest.sh`. Testing is two-layered: functional smoke → timing bench. Subjective audio quality is a listen-and-judge call by the maintainer.
+The Debug build is drivable by a Cursor agent via the **`user-computer-use`** MCP. Canonical guide: [`reference/computer-use-mcp.md`](reference/computer-use-mcp.md). The harness lives in `scripts/uitest.sh`. Testing is two-layered: functional smoke → timing bench. Subjective audio quality is a listen-and-judge call by the maintainer.
 
 **Start here:**
 
@@ -27,6 +27,7 @@ The Debug build is drivable by a Codex session via the computer-use MCP. The har
 
 **Agent reference (read once, refer back):**
 
+- [`reference/computer-use-mcp.md`](reference/computer-use-mcp.md) — **`user-computer-use` MCP** invocation, coordinates, forbidden paths.
 - [`reference/ui-test-surface.md`](reference/ui-test-surface.md) — accessibility-id vocabulary, completion signals (signposts + DB + file), the Standard smoke + bench skeletons that the per-mode runbooks delta against.
 - [`reference/bootstrap-saved-voice.md`](reference/bootstrap-saved-voice.md) — one-time setup of the `UITestRef` saved-voice fixture used by every Voice Cloning test.
 
@@ -45,6 +46,7 @@ The Debug build is drivable by a Codex session via the computer-use MCP. The har
 - [`reference/bench-voice-design.md`](reference/bench-voice-design.md)
 - [`reference/bench-voice-cloning.md`](reference/bench-voice-cloning.md)
 - [`reference/benchmark-baselines.json`](reference/benchmark-baselines.json) — committed regression baselines, schema v3, regression-ready (24 cells × n=3 on Apple M2, May 2026). `bench-compare` flags timing/RTF drift past ±15 %; depth metrics (audio RMS/peak dBFS, peak RSS combined + app/XPC split) are stored for forensic comparison.
+- [`reference/bench-agent-gate.md`](reference/bench-agent-gate.md) — minimal 6-cell agent-executed gate for targeted backend reviews (uses `user-computer-use` MCP).
 
 **iOS Simulator UI review** (per surface, ~5 min):
 

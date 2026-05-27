@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Foundation for autonomous UI-driven testing of the Vocello Debug build.
 #
-# A Codex session uses the computer-use MCP to drive Vocello like a
-# person; this script provides the deterministic pieces that don't make
-# sense to do via screenshots — launch, state reset, AXIdentifier lookup,
-# log tailing, DB queries, artifact directory creation.
+# A Cursor agent uses the user-computer-use MCP (computer tool) to drive
+# Vocello like a person; this script provides the deterministic pieces that
+# don't make sense to do via screenshots — launch, state reset, AXIdentifier
+# lookup, log tailing, DB queries, artifact directory creation.
 #
 # usage: scripts/uitest.sh <command> [options]   (see `help`)
 
@@ -49,20 +49,21 @@ commands:
   screen-size           Print the screen's logical-point dimensions as "W H". Use with
                         the locate output to scale to your screenshot's image pixels.
 
+  screen-locate <ax-id> [image-w image-h]
+                        Primary coordinate helper for user-computer-use MCP.
+                        Looks up an AX id and prints screen-global "cx cy w h"
+                        in macOS logical points. When image-w and image-h from
+                        get_screenshot (image_width/image_height) are supplied,
+                        scales into that screenshot's pixel space for left_click.
+
   scaled-locate <ax-id> <image-w> <image-h>
-                        Full-screen screenshot coordinate helper. Pre-scales
-                        locate's logical-point output to a full-screen
-                        screenshot's image-pixel space. Use only with tools
-                        that return full-screen screenshots with known image
-                        dimensions; Codex get_app_state returns a key-window
-                        screenshot, so prefer window-locate there.
+                        Legacy alias of screen-locate with required image dims.
+                        Prefer screen-locate for new agent workflows.
 
   window-locate <ax-id> [image-w image-h]
-                        Codex key-window coordinate helper. Looks up an AX id,
-                        subtracts Vocello's front-window origin, and prints
-                        "cx cy w h" relative to the window. If image dimensions
-                        are supplied from mcp__computer_use__.get_app_state,
-                        the output is scaled into that screenshot's pixel space.
+                        Deprecated key-window coordinate helper for the old
+                        Codex mcp__computer_use__ API. Prefer screen-locate
+                        with user-computer-use get_screenshot.
 
   bench-step <mode> <variant> <coldwarm> <bucket> --artifacts-dir <dir> [--timeout <s>]
                         One-shot wrapper for the per-sample loop. Reads the previous
@@ -394,6 +395,52 @@ sx = int(round(cx * iw / ww))
 sy = int(round(cy * ih / wh))
 sxw = int(round(w * iw / ww))
 sxh = int(round(h * ih / wh))
+print(f"{sx} {sy} {sxw} {sxh}")
+'
+}
+
+cmd_screen_locate() {
+    local ax_id="${1:-}"
+    local image_w="${2:-}"
+    local image_h="${3:-}"
+    if [ -z "$ax_id" ]; then
+        echo "error: screen-locate requires an accessibility identifier" >&2
+        echo "usage: scripts/uitest.sh screen-locate <ax-id> [screenshot-width screenshot-height]" >&2
+        exit 2
+    fi
+    if { [ -n "$image_w" ] && [ -z "$image_h" ]; } || { [ -z "$image_w" ] && [ -n "$image_h" ]; }; then
+        echo "error: screen-locate image dimensions must be provided together" >&2
+        echo "usage: scripts/uitest.sh screen-locate <ax-id> [screenshot-width screenshot-height]" >&2
+        exit 2
+    fi
+
+    local raw
+    raw="$(cmd_locate "$ax_id")" || return $?
+
+    if [ -z "$image_w" ] && [ -z "$image_h" ]; then
+        echo "$raw"
+        return 0
+    fi
+
+    local screen
+    screen="$(cmd_screen_size)" || return $?
+    SCREEN_LOCATE_RAW="$raw" SCREEN_LOCATE_SCREEN="$screen" \
+        SCREEN_LOCATE_W="$image_w" SCREEN_LOCATE_H="$image_h" \
+        /usr/bin/python3 -c '
+import os, sys
+raw = os.environ["SCREEN_LOCATE_RAW"].split()
+screen = os.environ["SCREEN_LOCATE_SCREEN"].split()
+if len(raw) != 4 or len(screen) != 2:
+    print(f"error: bad locate/screen output: raw={raw} screen={screen}", file=sys.stderr)
+    sys.exit(1)
+cx, cy, w, h = (int(x) for x in raw)
+sw, sh = (int(x) for x in screen)
+iw = int(os.environ["SCREEN_LOCATE_W"])
+ih = int(os.environ["SCREEN_LOCATE_H"])
+sx = int(round(cx * iw / sw))
+sy = int(round(cy * ih / sh))
+sxw = int(round(w * iw / sw))
+sxh = int(round(h * ih / sh))
 print(f"{sx} {sy} {sxw} {sxh}")
 '
 }
@@ -1485,6 +1532,7 @@ main() {
         reset)           cmd_reset "$@" ;;
         locate)          cmd_locate "$@" ;;
         scaled-locate)   cmd_scaled_locate "$@" ;;
+        screen-locate)   cmd_screen_locate "$@" ;;
         window-locate)   cmd_window_locate "$@" ;;
         bench-step)      cmd_bench_step "$@" ;;
         screen-size)     cmd_screen_size ;;

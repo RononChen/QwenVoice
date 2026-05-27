@@ -61,7 +61,7 @@ macOS workflow:
 
 Device/UI control:
 
-- `computer-use:computer-use` — use for Codex-driven macOS UI testing and iPhone Mirroring control. For macOS, follow `scripts/uitest.sh` and `docs/reference/ui-test-surface.md`; for iPhone, follow `scripts/ios_device.sh` and `docs/reference/ios-device-screen-mirror-testing.md`.
+- `computer-use:computer-use` — optional background for macOS UI testing patterns. **Cursor agents use `user-computer-use` MCP** per [`docs/reference/computer-use-mcp.md`](docs/reference/computer-use-mcp.md). For macOS, follow `scripts/uitest.sh` and `docs/reference/ui-test-surface.md`; for iPhone, follow `scripts/ios_device.sh` and `docs/reference/ios-device-screen-mirror-testing.md`.
 
 Release, collaboration, and artifacts:
 
@@ -134,21 +134,21 @@ Local Release defaults are isolated too: `AppDefaults` uses a release-id-specifi
 
 ### Autonomous UI testing
 
-The Debug build is drivable by a Codex session via the computer-use MCP. Entry point is `scripts/uitest.sh` (subcommands: `prep`, `reset [--include-voices|--full]`, `locate <ax-id>`, `window-locate <ax-id> [image-w image-h]`, `scaled-locate`, `screen-size`, `activate`, `logs`, `db <sql>`, `artifacts-dir`, `smoke-check [<mode>]`, plus the bench-* family: `bench-wait`, `bench-step`, `bench-record`, `bench-summarize`, `bench-compare`, `bench-update-baselines`). The agent's reference for what's clickable and how to verify generation completion lives at `docs/reference/ui-test-surface.md`. Test artifacts land in `build/Debug/uitest/<timestamp>/` and are wiped by `scripts/build.sh clean`.
+The Debug build is drivable by a **Cursor agent** via the **`user-computer-use`** MCP (`computer` tool). Entry point is `scripts/uitest.sh` (subcommands: `prep`, `reset [--include-voices|--full]`, `locate <ax-id>`, `screen-locate <ax-id> [image-w image-h]`, `window-locate` (deprecated), `scaled-locate` (legacy), `screen-size`, `activate`, `logs`, `db <sql>`, `artifacts-dir`, `smoke-check [<mode>]`, plus the bench-* family: `bench-wait`, `bench-step`, `bench-record`, `bench-summarize`, `bench-compare`, `bench-update-baselines`). Canonical MCP guide: [`docs/reference/computer-use-mcp.md`](docs/reference/computer-use-mcp.md). AX vocabulary and verification: [`docs/reference/ui-test-surface.md`](docs/reference/ui-test-surface.md). Test artifacts land in `build/Debug/uitest/<timestamp>/` and are wiped by `scripts/build.sh clean`.
 
-Current Codex computer-use tool mapping:
+Current **`user-computer-use`** tool mapping (`CallMcpTool`, server `user-computer-use`, tool `computer`):
 
-| Action | Tool |
+| Action | Call |
 |---|---|
-| Refresh/focus app state | `mcp__computer_use__.get_app_state(app: "Vocello")` — call once per assistant turn before interacting; it returns the key-window screenshot and accessibility tree. |
-| Re-front Vocello if focus is stale | `scripts/uitest.sh activate`, then call `get_app_state(app: "Vocello")` again. |
-| Click at screenshot coords | `mcp__computer_use__.click(app: "Vocello", x: cx, y: cy)` |
-| Type into focused field | `mcp__computer_use__.type_text(app: "Vocello", text: "...")` |
-| Press key / chord | `mcp__computer_use__.press_key(app: "Vocello", key: "super+Return")`; common keys are `super+a`, `BackSpace`, `Down`, `Up`, and `Return`. |
+| Screenshot + `$IW`/`$IH` | `action: "get_screenshot"` — parse `image_width`, `image_height` from JSON text part |
+| Re-front Vocello if focus is stale | `scripts/uitest.sh activate`, then `get_screenshot` again |
+| Click at screenshot coords | `action: "left_click"`, `coordinate: [cx, cy]` |
+| Type into focused field | `action: "type"`, `text: "..."` (click field first) |
+| Press key / chord | `action: "key"`, `text: "super+Return"`; common: `super+a`, `BackSpace`, `Down`, `Up`, `Return` |
 
-Do not use the older hyphenated computer-use namespace or its former access-request, open-app, standalone-screenshot, left-click, type, key, or batch wrapper calls. Codex exposes the underscored `mcp__computer_use__` namespace above, and there is no separate session allowlist grant step.
+Do **not** use `user-automation-mcp` or osascript `keystroke`/`click at` for Vocello UI — global coords hit whatever window has focus. Do **not** use the deprecated Codex `mcp__computer_use__` namespace.
 
-Coordinate helpers: Codex `get_app_state` returns a key-window screenshot, so prefer `scripts/uitest.sh window-locate <ax-id> [image-w image-h]` when turning AX identifiers into click coordinates. `scaled-locate` is retained for agents/tools that return a full-screen screenshot with known image dimensions; do not mix its output with Codex key-window screenshots.
+Coordinate helpers: `get_screenshot` returns a full-screen image — use `scripts/uitest.sh screen-locate <ax-id> $IW $IH` to map AX identifiers to screenshot-pixel coords for `left_click`.
 
 Smoke runbooks (one per generation mode):
 
@@ -385,7 +385,7 @@ Mean gain across all 6 cells: **+4.5 s** saved on time-to-first-sound.
 - Do not propose reintroducing a Python backend, a standalone CLI, or bundled model weights.
 - Keep macOS release artifacts named `Vocello.app` and `Vocello-macos26.dmg`.
 - Do not use cloud-only planning instructions or Anthropic environment-variable workarounds on this project. Codex should use local plan mode / `<proposed_plan>` when a plan is needed.
-- **Drive SwiftUI Picker menus by keyboard, not fixed click coordinates.** SwiftUI `Picker` menus open anchored to the **currently-selected item**, not to a fixed top position, so a fixed-coordinate click on a menu row only works on the first selection of a session — subsequent picks land on the wrong row as the menu shifts. This is the bug that mislabeled 45 of 53 cells in the May 2026 emotion matrix run. Reliable pattern: `mcp__computer_use__.click` the picker to open the menu, then `mcp__computer_use__.press_key(app: "Vocello", key: "Down")` (or `"Up"`) N times from the currently-selected index to the target, then `press_key(..., key: "Return")` to confirm. Track current selection in shell state to compute N. Full pattern lives in [`docs/reference/ui-test-surface.md`](docs/reference/ui-test-surface.md) under "Driving SwiftUI Picker menus"; keep that doc in sync if `scripts/uitest.sh` or any bench/smoke runbook adds a new picker-driver path.
+- **Drive SwiftUI Picker menus by keyboard, not fixed click coordinates.** SwiftUI `Picker` menus open anchored to the **currently-selected item**, not to a fixed top position, so a fixed-coordinate click on a menu row only works on the first selection of a session — subsequent picks land on the wrong row as the menu shifts. This is the bug that mislabeled 45 of 53 cells in the May 2026 emotion matrix run. Reliable pattern: `left_click` the picker to open the menu, then `key` with `Down` (or `Up`) N times from the currently-selected index to the target, then `key` with `Return` to confirm. Track current selection in agent state to compute N. Full pattern lives in [`docs/reference/ui-test-surface.md`](docs/reference/ui-test-surface.md) under "Driving SwiftUI Picker menus"; keep that doc in sync if `scripts/uitest.sh` or any bench/smoke runbook adds a new picker-driver path.
 
 ## Where to find more
 

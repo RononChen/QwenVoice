@@ -1,0 +1,16 @@
+---
+description: Vocello macOS UI smoke/bench — use user-computer-use MCP only
+globs:
+  - scripts/uitest.sh
+  - docs/reference/smoke-*.md
+  - docs/reference/bench-*.md
+  - docs/reference/ui-test-surface.md
+  - docs/reference/computer-use-mcp.md
+---
+
+Before driving Vocello Debug UI (smoke, bench, or review gates):
+
+1. Read [`docs/reference/computer-use-mcp.md`](../../docs/reference/computer-use-mcp.md).
+2. Use **`user-computer-use`** MCP only (`CallMcpTool`, server `user-computer-use`, tool `computer`).
+3. Always `scripts/uitest.sh activate` before MCP clicks/types; use `screen-locate <ax-id> $IW $IH` with `get_screenshot` dimensions.
+4. Never use `user-automation-mcp`, osascript UI automation, or deprecated `mcp__computer_use__` for Vocello.

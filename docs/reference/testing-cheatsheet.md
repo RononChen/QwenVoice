@@ -41,13 +41,13 @@ ART=$(scripts/uitest.sh artifacts-dir)
 scripts/uitest.sh reset
 scripts/uitest.sh prep
 
-# 2) Front the app (computer-use)
+# 2) Front the app (user-computer-use MCP)
 #    scripts/uitest.sh activate
-#    STATE = mcp__computer_use__.get_app_state(app: "Vocello")
-#    record IW × IH from the key-window screenshot for window-locate
+#    get_screenshot → record image_width/image_height as IW × IH
+#    screen-locate <ax-id> $IW $IH for click coords
 
-# 3) Drive UI (computer-use)
-#    Click sidebar_customVoice → click textInput_textEditor → type → super+Return
+# 3) Drive UI (user-computer-use MCP)
+#    left_click sidebar_customVoice → left_click textInput_textEditor → type → key super+Return
 
 # 4) Record T0 just before super+Return:
 T0="$(/usr/bin/python3 -c 'import datetime; print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])')"
@@ -68,7 +68,7 @@ Substitute `design` or `clone` for `custom` to run the other smokes. See [`smoke
 
 ```sh
 ART=$(scripts/uitest.sh artifacts-dir); echo "$ART"
-# Computer-use: scripts/uitest.sh activate + get_app_state → record IW × IH
+# Computer-use: scripts/uitest.sh activate + get_screenshot → record IW × IH
 
 for variant in speed quality; do
   # 1a — fresh launch
@@ -82,7 +82,7 @@ for variant in speed quality; do
 
   # 1d — three cold/medium samples
   for i in 1 2 3; do
-    # Computer-use: click+type_text+super+Return with medium prompt
+    # Computer-use: left_click + type + key super+Return with medium prompt
     scripts/uitest.sh bench-step <mode> "$variant" cold medium --artifacts-dir "$ART" --timeout 180
     # (between cold samples — quit/reset/prep/relaunch and re-do 1b)
   done
@@ -90,7 +90,7 @@ for variant in speed quality; do
   # 1e — warm samples
   for bucket in short medium long; do
     for i in 1 2 3; do
-      # Computer-use: super+a → BackSpace → type_text bucket prompt → super+Return
+      # Computer-use: key super+a → BackSpace → type bucket prompt → key super+Return
       scripts/uitest.sh bench-step <mode> "$variant" warm "$bucket" --artifacts-dir "$ART"
     done
   done
@@ -110,13 +110,13 @@ git diff docs/reference/benchmark-baselines.json
 ## Recovery (when computer-use clicks miss)
 
 ```sh
-scripts/uitest.sh activate                  # bring Vocello to front (osascript)
+scripts/uitest.sh activate                  # bring Vocello to front
 ```
 ```text
-STATE = mcp__computer_use__.get_app_state(app: "Vocello")  # re-record IW × IH; the window may have moved
+get_screenshot  # re-record IW × IH; the window may have moved; click twice if first click only focused
 ```
 
-Common causes: Notification Center stole focus, or another app got fronted. Re-fronting + refreshing state always recovers.
+Common causes: Notification Center stole focus, or another app got fronted. Re-fronting + fresh screenshot always recovers. See [`computer-use-mcp.md`](computer-use-mcp.md).
 
 ## Inspect a generation after the fact
 
