@@ -14,3 +14,5 @@ Before driving Vocello Debug UI (smoke, bench, or review gates):
 2. Use **`user-computer-use`** MCP only (`CallMcpTool`, server `user-computer-use`, tool `computer`).
 3. Always `scripts/uitest.sh activate` before MCP clicks/types; use `screen-locate <ax-id> $IW $IH` with `get_screenshot` dimensions.
 4. Never use `user-automation-mcp`, osascript UI automation, or deprecated `mcp__computer_use__` for Vocello.
+
+MCP routing and Axiom playbook: [`.cursor/rules/vocello-agent-playbook.mdc`](vocello-agent-playbook.mdc)

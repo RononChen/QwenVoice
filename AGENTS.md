@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to agents (Cursor, Codex, and similar) when working in this repository.
 
 ## What this repo is
 
@@ -16,34 +16,70 @@ Targets: macOS 26.0+ and iOS 26.0+, Apple Silicon only, Xcode 26.0. No Python ru
 ./scripts/build_foundation_targets.sh ios    # iOS compile-safety only
 /Users/patricedery/.codex/bin/ios-device-readiness --project QwenVoice.xcodeproj --scheme VocelloiOS --json
 ./scripts/ios_device.sh doctor               # real iPhone/CoreDevice screen-mirror preflight
+./scripts/ios_device_proof_matrix.sh --phase preflight  # iPhone MLX/entitlement preflight (see docs/reference/ios-shipping.md)
 npm --prefix website run build               # marketing website production build
 ```
 
 First-time setup: install XcodeGen (`brew install xcodegen`) and optionally `xcbeautify` (`brew install xcbeautify`) for pretty-printed build output.
 
+## Cursor agent playbook
+
+**Execution layer for Cursor agents:** [`.cursor/rules/vocello-agent-playbook.mdc`](.cursor/rules/vocello-agent-playbook.mdc) (`alwaysApply`). Glob-scoped rules under `.cursor/rules/` attach by file area (engine, SwiftUI, data, release, website, computer-use). This file stays the **facts** layer; rules route **which tools to invoke**.
+
+**Mandatory Axiom Task launches (high-risk)** — use `Task` with `subagent_type` before deep fixes; address or explicitly defer findings:
+
+- **BUILD FAILED / Xcode env** → `build-fixer` (run `./scripts/build.sh debug` first)
+- **Crash logs** (`.ips`, MetricKit) → `crash-analyzer`
+- **Engine actor/async/gates** → `concurrency-auditor`
+- **Memory / streaming / MLX cache** → `memory-auditor` (+ `swift-performance-analyzer` on the same diff)
+- **GRDB migrations** → `database-schema-auditor`
+- **Release / entitlements / privacy** → `security-privacy-scanner`
+- **"Health check" / full audit** → `health-check`
+
 ## Source of truth (when facts disagree)
 
 Per `CONTRIBUTING.md`, trust in order: `Sources/` → `project.yml` → `scripts/` → `.github/workflows/release.yml` for the scoped CI boundary → `docs/reference/` → other prose. `Sources/Resources/qwenvoice_contract.json` is the canonical schema for speakers, models, variants, HF revisions, and required artifacts. For public website copy and visuals, `website/src/`, `website/PRODUCT.md`, and `website/DESIGN.md` are the maintained source, but product claims must still be checked against the app contract and maintained reference docs.
 
-## Codex Skills For This Repo
+## Agent skills and Axiom tooling
 
-Use these installed user-scoped/plugin skills when their topic matches the work. They are workflow guidance only: do not copy skill files into this repo or create project-scoped QwenVoice skills unless there is an explicit maintainer decision. Repo scripts remain authoritative for build, release, UI-test, and device-test commands.
+Use installed skills for workflow guidance and Axiom **Task subagents** for audits. Do not copy skill files into this repo unless there is an explicit maintainer decision. Repo scripts remain authoritative. Full routing: [`.cursor/rules/vocello-agent-playbook.mdc`](.cursor/rules/vocello-agent-playbook.mdc).
 
-Backend and MLX:
+### Axiom Task subagents (Cursor `Task` tool)
+
+| Symptom or scope | `subagent_type` | Pair with skill |
+|---|---|---|
+| BUILD FAILED / env | `build-fixer` | `axiom:axiom-build` |
+| Crash / `.ips` | `crash-analyzer` | |
+| Engine async / actors | `concurrency-auditor` | `axiom:axiom-audit-concurrency` |
+| Memory / leaks / trim | `memory-auditor` | `axiom:axiom-audit-memory` |
+| Swift runtime perf | `swift-performance-analyzer` | `axiom:axiom-analyze-swift-performance` |
+| GRDB / migrations | `database-schema-auditor` | `axiom:axiom-data` |
+| Codable / JSON | `codable-auditor` | |
+| Security / privacy manifest | `security-privacy-scanner` | `axiom:axiom-security` |
+| Full audit | `health-check` | |
+| SwiftUI perf | `swiftui-performance-analyzer` | `axiom:axiom-analyze-swiftui-performance` |
+| SwiftUI architecture | `swiftui-architecture-auditor` | `axiom:axiom-swiftui` |
+| SwiftUI layout | `swiftui-layout-auditor` | |
+| Navigation | `swiftui-nav-auditor` | |
+| UX flows | `ux-flow-auditor` | |
+| Liquid Glass | `liquid-glass-auditor` | `axiom:axiom-audit-liquid-glass` |
+
+### Backend and MLX
 
 - `swift-mlx` — use for MLX array/runtime/memory behavior, cache/eval/lazy-array work, custom MLX operations, and backend performance changes.
 - `swift-mlx-lm` — use for generation, streaming, KV-cache, wired-memory, or model-porting questions that overlap MLX LM internals or the vendored `mlx-audio-swift` stack.
 - `coreml` — use only for Core ML conversion/integration/Neural Engine experiments. Do not use it for ordinary Qwen3-TTS/MLX backend work.
 
-Diagnostics, profiling, and Apple AI:
+### Diagnostics, profiling, and Apple AI
 
 - `axiom:axiom-performance` — use as the current performance diagnostics router for slow paths, memory growth, leaks, battery issues, Instruments workflows, and MetricKit-related production/TestFlight diagnostics. MetricKit guidance now lives under Axiom performance references; there is no standalone user-scoped MetricKit skill.
 - `axiom:axiom-profile-performance` — use for automated/headless Instruments or `xctrace` profiling and focused trace capture.
 - `axiom:axiom-audit-memory`, `axiom:axiom-audit-concurrency`, `axiom:axiom-analyze-swift-performance`, and `axiom:axiom-analyze-swiftui-performance` — use for memory, async/data-race, Swift runtime, and SwiftUI performance review passes.
 - `axiom:axiom-ai` and `axiom:axiom-audit-foundation-models` — use only when comparing or reviewing Apple Intelligence/Foundation Models/on-device-AI architecture. Keep MLX as the default Qwen3-TTS backend unless a task explicitly asks for an architecture change.
 
-iOS workflow:
+### iOS workflow
 
+- **iPhone MLX / memory / entitlement** — start at [`docs/reference/ios-shipping.md`](docs/reference/ios-shipping.md) (reading order, proof matrix, admission policy). May 2026: model admission **blocking** is off by default for Jetsam investigation — see [`ios-memory-admission-policy.md`](docs/reference/ios-memory-admission-policy.md).
 - `ios-device-readiness` — use before answering whether the physical iPhone is available for real on-device testing, CoreDevice, xctrace, Instruments, or physical-device performance evidence. Run `/Users/patricedery/.codex/bin/ios-device-readiness --project QwenVoice.xcodeproj --scheme VocelloiOS --json` and trust its status over raw `devicectl` or `xctrace` output alone. `scripts/ios_device.sh doctor` and `start` record the same gate result under the run directory as `readiness.json`. If the status is `AMBER`, do not answer with a plain "yes"; describe it as partial CoreDevice readiness with physical profiling/performance evidence blocked.
 - `build-ios-apps:ios-debugger-agent` — use for iOS Simulator build/run/debug, simulator UI inspection, screenshots, and log capture. Real iPhone runs still go through `scripts/ios_device.sh`.
 - `build-ios-apps:ios-memgraph-leaks` — use when investigating iOS retain cycles or memory growth with simulator `.memgraph` evidence; do not use simulator leak proof as a substitute for physical iPhone memory-pressure evidence.
@@ -51,7 +87,7 @@ iOS workflow:
 - `build-ios-apps:swiftui-ui-patterns`, `build-ios-apps:swiftui-view-refactor`, `build-ios-apps:swiftui-performance-audit`, and `axiom:axiom-swiftui` — use for iOS SwiftUI feature work, refactors, architecture, and render-performance audits while preserving the existing `@Observable`/`AppModel` architecture.
 - `build-ios-apps:swiftui-liquid-glass` and `axiom:axiom-audit-liquid-glass` — use for iOS 26 Liquid Glass adoption or review; keep the repo's iOS/macOS design-token alignment in mind before changing glass, tint, radius, or fallback behavior.
 
-macOS workflow:
+### macOS workflow
 
 - `build-macos-apps:build-run-debug` — use for macOS build/run/debug tasks, but prefer the existing `./scripts/build.sh` and `./scripts/uitest.sh` entrypoints over creating new run scripts.
 - `build-macos-apps:packaging-notarization` — use for macOS DMG, archive, notarization, and distribution-readiness work.
@@ -59,11 +95,11 @@ macOS workflow:
 - `build-macos-apps:telemetry` — use when adding or validating concise OSLog/signpost instrumentation in the macOS app.
 - `build-macos-apps:swiftui-patterns`, `build-macos-apps:view-refactor`, `build-macos-apps:liquid-glass`, `build-macos-apps:appkit-interop`, and `build-macos-apps:window-management` — use only when the task directly touches those macOS UI or windowing concerns.
 
-Device/UI control:
+### Device/UI control
 
 - `computer-use:computer-use` — optional background for macOS UI testing patterns. **Cursor agents use `user-computer-use` MCP** per [`docs/reference/computer-use-mcp.md`](docs/reference/computer-use-mcp.md). For macOS, follow `scripts/uitest.sh` and `docs/reference/ui-test-surface.md`; for iPhone, follow `scripts/ios_device.sh` and `docs/reference/ios-device-screen-mirror-testing.md`.
 
-Release, collaboration, and artifacts:
+### Release, collaboration, and artifacts
 
 - `github:github`, `github:gh-fix-ci`, `github:gh-address-comments`, and `github:yeet` — use for GitHub repository/PR/issue triage, release workflow failures, review feedback, commits, pushes, and PR creation.
 - `hugging-face:hf-cli` — use for Hugging Face model/package downloads, uploads, cache checks, artifact verification, and model-catalog investigation.
@@ -98,6 +134,7 @@ Lower-level scripts (still supported, used by `build.sh` internally):
 ./scripts/release.sh                      # macOS release packaging (ad-hoc signed DMG by default)
 ./scripts/check_ios_catalog.sh            # iOS catalog/static sanity check
 ./scripts/ios_device.sh start             # Debug build → install/launch on paired iPhone + open iPhone Mirroring
+./scripts/ios_device_proof_matrix.sh      # iPhone entitlement proof phases (preflight|baseline|entitled|stress)
 ./scripts/release_ios_testflight.sh       # iOS TestFlight build/sign/notarize/upload
 ./scripts/clean_build_caches.sh           # nuke build caches
 ./scripts/export_diagnostics.sh           # collect diagnostics bundle
@@ -203,11 +240,11 @@ Real-device iPhone validation uses CoreDevice plus Apple's iPhone Mirroring app.
 ./scripts/ios_device.sh start
 ```
 
-`scripts/ios_device.sh` defaults to the paired iPhone 17 Pro and the bundled production iPhone model catalog, builds the `VocelloiOS` Debug app for device, installs it directly, launches with lightweight native telemetry and a run id, opens iPhone Mirroring, and writes artifacts under `build/Debug/ios-device/runs/<run-id>/`. The optional readiness gate is resolved from `QVOICE_IOS_READINESS_GATE`, then `PATH`, then a repo-local helper if one exists; missing Patrice-local tooling is a warning, not a public-script failure. Use `scripts/ios_device.sh screenshot <label>` during mirrored UI runs and `scripts/ios_device.sh pull` afterward to collect focused App Group evidence and memory diagnostics; CoreDevice may reject direct App Group copies on some local builds, so `pull` mirrors memory diagnostics from the Debug app container while history/output/voice evidence remains App Group best-effort. Full runbook: `docs/reference/ios-device-screen-mirror-testing.md`.
+`scripts/ios_device.sh` defaults to the paired iPhone 17 Pro and the bundled production iPhone model catalog, builds the `VocelloiOS` Debug app for device, installs it directly, launches with lightweight native telemetry and a run id, opens iPhone Mirroring, and writes artifacts under `build/Debug/ios-device/runs/<run-id>/`. The optional readiness gate is resolved from `QVOICE_IOS_READINESS_GATE`, then `PATH`, then a repo-local helper if one exists; missing Patrice-local tooling is a warning, not a public-script failure. Use `scripts/ios_device.sh screenshot <label>` during mirrored UI runs and `scripts/ios_device.sh pull` afterward to collect focused App Group evidence and memory diagnostics; CoreDevice may reject direct App Group copies on some local builds, so `pull` mirrors memory diagnostics from the Debug app container while history/output/voice evidence remains App Group best-effort. Entitlement and MLX proof phases: `scripts/ios_device_proof_matrix.sh` — hub and reading order: [`docs/reference/ios-shipping.md`](docs/reference/ios-shipping.md). Screen-mirror runbook: [`docs/reference/ios-device-screen-mirror-testing.md`](docs/reference/ios-device-screen-mirror-testing.md).
 
 ## Testing policy — important
 
-This repo keeps CI **scoped to release packaging plus compile-safety automation** as of May 2026 — no XCTest targets, no automated bench/smoke/perceptual runs on CI, no legacy Python/CI benchmark harnesses. The sole workflow at `.github/workflows/release.yml` has two parallel jobs on `release.published` (and on manual `workflow_dispatch`): `package` (macOS DMG sign + notarize + staple via `scripts/release.sh`, attached to the GitHub Release) and `compile-ios` (iOS compile-safety only, no signing, no tests, runs `scripts/build_foundation_targets.sh ios`). `compile-ios` failures do not block the macOS DMG; the iOS signed-IPA path is intentionally local/manual until the increased-memory entitlement approval, iOS Distribution certificate, and provisioning profiles for `com.patricedery.vocello` plus `com.patricedery.vocello.engine-extension` are ready (see [`docs/reference/release-readiness.md`](docs/reference/release-readiness.md) § "iPhone Shipping Plan"). Behavioral validation is local-only: manual app acceptance, the maintained Codex–driven macOS `scripts/uitest.sh` smoke/bench harness above, and real-device iPhone proof through `scripts/ios_device.sh` when hardware behavior matters. For Debug macOS behavior, use `./scripts/build.sh run` or `scripts/uitest.sh prep` (Debug app path: `build/Debug/Vocello.app`). For release signoff, launch `build/Release/Vocello.app` only after `./scripts/release.sh` has produced the Release bundle.
+This repo keeps CI **scoped to release packaging plus compile-safety automation** as of May 2026 — no XCTest targets, no automated bench/smoke/perceptual runs on CI, no legacy Python/CI benchmark harnesses. The sole workflow at `.github/workflows/release.yml` has two parallel jobs on `release.published` (and on manual `workflow_dispatch`): `package` (macOS DMG sign + notarize + staple via `scripts/release.sh`, attached to the GitHub Release) and `compile-ios` (iOS compile-safety only, no signing, no tests, runs `scripts/build_foundation_targets.sh ios`). `compile-ios` failures do not block the macOS DMG; the iOS signed-IPA path is intentionally local/manual until the increased-memory entitlement approval, iOS Distribution certificate, and provisioning profiles for `com.patricedery.vocello` plus `com.patricedery.vocello.engine-extension` are ready (see [`docs/reference/release-readiness.md`](docs/reference/release-readiness.md) § "iPhone Shipping Plan"). Behavioral validation is local-only: manual app acceptance, the maintained agent-driven macOS `scripts/uitest.sh` smoke/bench harness above, and real-device iPhone proof through `scripts/ios_device.sh` when hardware behavior matters. For Debug macOS behavior, use `./scripts/build.sh run` or `scripts/uitest.sh prep` (Debug app path: `build/Debug/Vocello.app`). For release signoff, launch `build/Release/Vocello.app` only after `./scripts/release.sh` has produced the Release bundle.
 
 Do not reintroduce test bundles, QA shell scripts, agent configs, additional GitHub Actions workflows beyond `release.yml`, or a parallel benchmark harness without an explicit maintainer decision. `scripts/check_project_inputs.sh` enforces the retired surfaces with a prohibited-paths list and a regex sweep of the working tree. Inspect that script for the current list rather than quoting names here (its patterns also trip on any file that mentions the banned names verbatim).
 
@@ -384,7 +421,7 @@ Mean gain across all 6 cells: **+4.5 s** saved on time-to-first-sound.
 - Animations route through `appAnimation` / `AppLaunchConfiguration.performAnimated` so Reduced Motion is honored; Liquid Glass surfaces must fall back to solid fills when Reduce Transparency is on. Both are non-negotiable per `PRODUCT.md`.
 - Do not propose reintroducing a Python backend, a standalone CLI, or bundled model weights.
 - Keep macOS release artifacts named `Vocello.app` and `Vocello-macos26.dmg`.
-- Do not use cloud-only planning instructions or Anthropic environment-variable workarounds on this project. Codex should use local plan mode / `<proposed_plan>` when a plan is needed.
+- Do not use cloud-only planning instructions or Anthropic environment-variable workarounds on this project. Agents should use local plan mode when a plan is needed.
 - **Drive SwiftUI Picker menus by keyboard, not fixed click coordinates.** SwiftUI `Picker` menus open anchored to the **currently-selected item**, not to a fixed top position, so a fixed-coordinate click on a menu row only works on the first selection of a session — subsequent picks land on the wrong row as the menu shifts. This is the bug that mislabeled 45 of 53 cells in the May 2026 emotion matrix run. Reliable pattern: `left_click` the picker to open the menu, then `key` with `Down` (or `Up`) N times from the currently-selected index to the target, then `key` with `Return` to confirm. Track current selection in agent state to compute N. Full pattern lives in [`docs/reference/ui-test-surface.md`](docs/reference/ui-test-surface.md) under "Driving SwiftUI Picker menus"; keep that doc in sync if `scripts/uitest.sh` or any bench/smoke runbook adds a new picker-driver path.
 
 ## Where to find more
@@ -392,6 +429,10 @@ Mean gain across all 6 cells: **+4.5 s** saved on time-to-first-sound.
 - `docs/README.md` — documentation index
 - `docs/reference/current-state.md` — current repo facts
 - `docs/reference/release-readiness.md` — release signoff gates + iOS shipping plan
+- `docs/reference/ios-shipping.md` — iPhone MLX, memory, entitlement hub (start here for on-device iOS)
+- `docs/reference/ios-memory-admission-policy.md` — admission block / critical cancel (off by default May 2026)
+- `docs/reference/ios-mlx-jetsam-feasibility.md` — Jetsam vs entitlement verdict and constraints
+- `docs/reference/ios-device-proof-matrix.md` — hardware proof phases + `ios_device_proof_matrix.sh`
 - `docs/reference/ios-simulator-testing.md` — iOS Simulator UI review + Simulator-only fake install/delete dev affordance
 - `docs/reference/ios-device-screen-mirror-testing.md` — real-device iPhone Debug validation through CoreDevice + iPhone Mirroring
 - `docs/reference/privacy-storage.md` — local storage and deletion

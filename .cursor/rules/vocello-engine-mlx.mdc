@@ -1,0 +1,35 @@
+---
+description: Engine and MLX backend — mandatory concurrency/memory audits
+globs:
+  - Sources/QwenVoiceCore/**
+  - Sources/QwenVoiceBackendCore/**
+  - Sources/QwenVoiceEngineService/**
+  - Sources/QwenVoiceNative/**
+  - Sources/QwenVoiceEngineSupport/**
+  - Sources/iOSEngineExtension/**
+  - third_party_patches/mlx-audio-swift/**
+---
+
+Engine / MLX work in this repo. See [`AGENTS.md`](../../AGENTS.md) for architecture and Known traps.
+
+## Mandatory (substantive changes, not typos)
+
+Launch **`concurrency-auditor`** and **`memory-auditor`** via `Task` before merging engine diffs.
+
+## Skills
+
+- `swift-mlx`, `swift-mlx-lm` for MLX array/runtime/generation internals
+- `axiom:axiom-performance` for slow paths, RSS, streaming bench forensics
+
+## Validation
+
+- `./scripts/build.sh debug`
+- Streaming / event-buffer changes → bench gate in [`docs/reference/bench-agent-gate.md`](../../docs/reference/bench-agent-gate.md)
+
+## CRITICAL invariants (do not regress)
+
+- macOS `MLXTTSEngine.events` stays **`.unbounded`** (iOS may use `.bufferingNewest(64)`)
+- Prewarm **reentrancy gate** (`acquirePrewarmSlot` / `releasePrewarmSlot`) must stay serialized
+- **Generation ownership** — one model-mutating operation at a time; streaming producers must cancel on stream termination
+
+Playbook: [`.cursor/rules/vocello-agent-playbook.mdc`](vocello-agent-playbook.mdc)
