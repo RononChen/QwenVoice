@@ -10,7 +10,7 @@ globs:
   - third_party_patches/mlx-audio-swift/**
 ---
 
-Engine / MLX work in this repo. See [`AGENTS.md`](../../AGENTS.md) for architecture and Known traps.
+Engine / MLX work in this repo. See [`CLAUDE.md`](../../CLAUDE.md) for architecture and Known traps.
 
 ## Mandatory (substantive changes, not typos)
 

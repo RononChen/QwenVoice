@@ -1,6 +1,6 @@
-# AGENTS.md
+# CLAUDE.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (and other agents) when working with code in this repository.
 
 ## What this is
 
@@ -17,6 +17,13 @@ npm --prefix website run preview  # from repo root: serve the production build
 When already inside `website/`, the equivalent commands are `npm run dev`, `npm run build`, and `npm run preview`.
 
 No tests, no lint config, no GitHub Actions workflow. Behavioral verification is manual + browser-driven; Vercel owns deployment for this directory.
+
+## Tooling for this directory
+
+- This is a **non-app, non-native zone** — do not run the Axiom Swift/iOS auditors here. For React/Vite/library API questions use the `context7` MCP (`resolve-library-id` then `query-docs`); your training data may lag the installed versions.
+- For UI/UX/visual passes use the `impeccable:impeccable` skill (the `PRODUCT.md` brand rules below are required reading for it).
+- For browser verification of the running dev/preview server, use the `chrome-devtools` MCP (`mcp__plugin_chrome-devtools-mcp_chrome-devtools__*`: `navigate_page`, `take_screenshot`, `take_snapshot`, `list_console_messages`) or native `computer-use` driving a browser window.
+- Run `npm`/`node` commands through the Bash tool.
 
 ## Architecture
 
@@ -47,10 +54,10 @@ When changing grid layouts at narrow breakpoints, **use `grid-template-columns: 
 
 Two design-context files in this directory encode the website's rules:
 
-- **`PRODUCT.md`** — brand voice, register (`brand`, not product), copy rules. Required by the `/impeccable` skill. Key constraints:
+- **`PRODUCT.md`** — brand voice, register (`brand`, not product), copy rules. Required by the `impeccable:impeccable` skill. Key constraints:
   - Say *local*, not *offline* or *on-device*, unless the technical distinction matters.
   - Sentence case. Reserve all caps for tiny labels only.
-  - **No em dashes in visible copy.** Use commas, colons, semicolons, periods, or parentheses. CI for this is a `document.body` text-node walk for `—` — run it after any copy change.
+  - **No em dashes in visible copy.** Use commas, colons, semicolons, periods, or parentheses. CI for this is a `document.body` text-node walk for the em-dash character — run it after any copy change.
   - No emoji, no celebration copy, no hype claims, no first-person plural.
 - **`DESIGN.md`** — color strategy, typography rules, motion rules, bans. Specifically: no gradient text, no side-stripe borders >1px on cards, no decorative glassmorphism, no identical card grids, no repeated uppercase eyebrow scaffolding.
 

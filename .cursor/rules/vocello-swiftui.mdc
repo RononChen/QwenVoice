@@ -37,6 +37,6 @@ Skills: `build-ios-apps:swiftui-ui-patterns`, `axiom:axiom-swiftui`, `build-maco
 
 ## Picker menus
 
-Drive by **keyboard** (`Down` / `Up` / `Return`), not fixed menu-item coordinates — see [`AGENTS.md`](../../AGENTS.md).
+Drive by **keyboard** (`Down` / `Up` / `Return`), not fixed menu-item coordinates — see [`CLAUDE.md`](../../CLAUDE.md).
 
 Playbook: [`.cursor/rules/vocello-agent-playbook.mdc`](vocello-agent-playbook.mdc)

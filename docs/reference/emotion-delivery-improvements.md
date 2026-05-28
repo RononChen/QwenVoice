@@ -123,7 +123,7 @@ May 18's 53-cell test driving the delivery picker via fixed click coordinates pr
 
 The fix is in `docs/reference/ui-test-surface.md`'s "Driving SwiftUI `Picker` menus" subsection: click the picker → `key("down")` N times → `key("return")`, tracking the current selection in shell state to compute N. Cross-link from this doc.
 
-A note also lands in `AGENTS.md`'s "Conventions to preserve" so the next session driving a Picker doesn't repeat the mistake.
+A note also lands in `CLAUDE.md`'s "Conventions to preserve" so the next session driving a Picker doesn't repeat the mistake.
 
 ## Expected perceptual-score deltas (verification gates)
 

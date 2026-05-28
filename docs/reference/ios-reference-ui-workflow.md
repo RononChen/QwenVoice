@@ -132,5 +132,5 @@ Acceptance checks:
 - Browser screenshots can be misleading after the page scrolls. Measure app-relative positions.
 - Do not copy prototype demo text into production default state.
 - Do not add UI-only Simulator mocks inside the front-end when the fake backend can exercise the real path.
-- Do not move iOS resources in `project.yml`; keep the XcodeGen resource workaround documented in `AGENTS.md`.
+- Do not move iOS resources in `project.yml`; keep the XcodeGen resource workaround documented in `CLAUDE.md`.
 - Do not commit generated screenshots or simulator data.

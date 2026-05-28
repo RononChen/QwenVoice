@@ -4,7 +4,7 @@ Thanks for helping with QwenVoice/Vocello. This repo is in a macOS-first release
 
 ## Agent Guide
 
-`AGENTS.md` at the repo root is the single source of truth for repo conventions, build commands, generation-flow architecture, performance + memory adaptation, known traps, and the "no tests on CI" stance. Read it first; this file is the contributor-facing summary, `AGENTS.md` has the depth.
+`CLAUDE.md` at the repo root is the single source of truth for repo conventions, build commands, generation-flow architecture, performance + memory adaptation, known traps, and the "no tests on CI" stance. Read it first; this file is the contributor-facing summary, `CLAUDE.md` has the depth.
 
 ## Source Of Truth
 

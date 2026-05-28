@@ -17,7 +17,7 @@ Persistence and contract work.
 ## Recommended
 
 - Path / backup / App Support layout → `storage-auditor`
-- Respect Debug (`QwenVoice-Debug`) vs Release App Support split — see [`AGENTS.md`](../../AGENTS.md)
+- Respect Debug (`QwenVoice-Debug`) vs Release App Support split — see [`CLAUDE.md`](../../CLAUDE.md)
 
 ## Skills
 

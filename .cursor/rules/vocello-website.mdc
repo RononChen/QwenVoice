@@ -14,6 +14,6 @@ Vocello marketing site (`website/`). Deployed via Vercel; product claims must ma
 
 ## Product truth
 
-Cross-check copy and Listen samples against `Sources/Resources/qwenvoice_contract.json` and [`AGENTS.md`](../../AGENTS.md).
+Cross-check copy and Listen samples against `Sources/Resources/qwenvoice_contract.json` and [`CLAUDE.md`](../../CLAUDE.md).
 
 Playbook: [`.cursor/rules/vocello-agent-playbook.mdc`](vocello-agent-playbook.mdc)

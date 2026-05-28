@@ -177,7 +177,7 @@ The iPhone track remains compile-safe during the current macOS milestone, but th
 
 ## iPhone Shipping Plan (post-2.0.0)
 
-With macOS 2.0.0 stable shipped, the iPhone track is being re-opened on a TestFlight-first path. The current source of truth is the checklist in this section plus the repo-level guidance in `AGENTS.md`. The two user-facing prerequisites that are not derivable from code:
+With macOS 2.0.0 stable shipped, the iPhone track is being re-opened on a TestFlight-first path. The current source of truth is the checklist in this section plus the repo-level guidance in `CLAUDE.md`. The two user-facing prerequisites that are not derivable from code:
 
 ### Apple entitlement request (critical-path blocker)
 

@@ -35,7 +35,7 @@ xcrun simctl install booted \
 xcrun simctl launch booted com.patricedery.vocello
 ```
 
-Any recent-enough iPhone Simulator works; iPhone 17 Pro matches the macOS dev machine's existing target. If `qwenvoice_contract.json` is missing from the built `.app` and the app crashes on first launch, check the XcodeGen iOS resource gotcha in [`AGENTS.md`](../../AGENTS.md) under "Project generation and build" — the workaround in `project.yml` must be intact.
+Any recent-enough iPhone Simulator works; iPhone 17 Pro matches the macOS dev machine's existing target. If `qwenvoice_contract.json` is missing from the built `.app` and the app crashes on first launch, check the XcodeGen iOS resource gotcha in [`CLAUDE.md`](../../CLAUDE.md) under "Project generation and build" — the workaround in `project.yml` must be intact.
 
 ## Simulator fake backend
 
@@ -78,7 +78,7 @@ For visual parity work against the React reference, follow [`ios-reference-ui-wo
 
 ## Accessibility toggle review
 
-AGENTS.md "Conventions to preserve" requires Reduce Motion and Reduce Transparency to be honored. Toggle them via the Simulator menu:
+CLAUDE.md "Conventions to preserve" requires Reduce Motion and Reduce Transparency to be honored. Toggle them via the Simulator menu:
 
 - **Reduce Motion**: Simulator → Features → Accessibility → Reduce Motion. Selection pills should stop animating; mode-crossfade transitions should snap rather than fade.
 - **Reduce Transparency**: Simulator → Features → Accessibility → Reduce Transparency. All glass surfaces — selection pills, cards, onboarding card, dock selected tab — should fall back to the solid `smokedGlassTint` fill. No translucent backgrounds.
@@ -96,7 +96,7 @@ PRODUCT.md positions iOS and macOS as the same brand. To sanity-check that visua
    - **Mode colors**: Custom Voice gold (`#EBCD8A` dark), Voice Design lavender (`#C0ABDB` / `#BFADD8`), Voice Cloning terracotta (`#DB8B87` / `#DBAA87`). Both platforms whisper-tint these into glass (14% opacity).
    - **Selection cues**: macOS sidebar uses a smoked-glass background + accent stripe; iOS dock selected tab mirrors that (smoked glass + 1pt accent ring, NOT the gradient gold capsule that pre-Track-B.3 builds had).
 
-If a surface diverges in identity, check the design tokens in `Sources/iOS/IOSShellPrimitives.swift` against `Sources/Views/Components/AppTheme.swift` — they're intentionally locked together (AGENTS.md "iOS design tokens align to macOS").
+If a surface diverges in identity, check the design tokens in `Sources/iOS/IOSShellPrimitives.swift` against `Sources/Views/Components/AppTheme.swift` — they're intentionally locked together (CLAUDE.md "iOS design tokens align to macOS").
 
 ## Known limitations
 

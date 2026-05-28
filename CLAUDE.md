@@ -1,6 +1,6 @@
-# AGENTS.md
+# CLAUDE.md
 
-This file provides guidance to agents (Cursor, Codex, and similar) when working in this repository.
+This file provides guidance to Claude Code (and other agents) when working in this repository. It is self-contained: Claude Code does not auto-load `.cursor/rules/*.mdc`, so the routing those rules hold for Cursor is folded inline here. The `.cursor/rules/` tree remains the execution layer for Cursor agents.
 
 ## What this repo is
 
@@ -22,89 +22,116 @@ npm --prefix website run build               # marketing website production buil
 
 First-time setup: install XcodeGen (`brew install xcodegen`) and optionally `xcbeautify` (`brew install xcbeautify`) for pretty-printed build output.
 
-## Cursor agent playbook
+## Agent routing (Claude Code)
 
-**Execution layer for Cursor agents:** [`.cursor/rules/vocello-agent-playbook.mdc`](.cursor/rules/vocello-agent-playbook.mdc) (`alwaysApply`). Glob-scoped rules under `.cursor/rules/` attach by file area (engine, SwiftUI, data, release, website, computer-use). This file stays the **facts** layer; rules route **which tools to invoke**.
+Use installed **skills** for workflow guidance and Axiom **subagents** (via the `Agent` tool with `subagent_type`) for audits. Do not copy skill files into this repo unless there is an explicit maintainer decision. Repo scripts remain authoritative.
 
-**Mandatory Axiom Task launches (high-risk)** — use `Task` with `subagent_type` before deep fixes; address or explicitly defer findings:
+**Before any iOS/Swift response, check whether an Axiom skill applies** — the Axiom routing discipline (environment/build → architecture → implementation) is in force on this repo. Route by symptom, then act.
 
-- **BUILD FAILED / Xcode env** → `build-fixer` (run `./scripts/build.sh debug` first)
-- **Crash logs** (`.ips`, MetricKit) → `crash-analyzer`
-- **Engine actor/async/gates** → `concurrency-auditor`
-- **Memory / streaming / MLX cache** → `memory-auditor` (+ `swift-performance-analyzer` on the same diff)
-- **GRDB migrations** → `database-schema-auditor`
-- **Release / entitlements / privacy** → `security-privacy-scanner`
-- **"Health check" / full audit** → `health-check`
+**Mandatory subagent launches (high-risk)** — launch the relevant `Agent` before deep fixes; address or explicitly defer findings:
 
-## Source of truth (when facts disagree)
+- **BUILD FAILED / Xcode env** → `axiom:build-fixer` (run `./scripts/build.sh debug` first)
+- **Crash logs** (`.ips`, MetricKit) → `axiom:crash-analyzer` (or the `xcsym` tool / `/axiom:analyze-crash`)
+- **Engine actor/async/gates** → `axiom:concurrency-auditor`
+- **Memory / streaming / MLX cache** → `axiom:memory-auditor` (+ `axiom:swift-performance-analyzer` on the same diff)
+- **GRDB migrations** → `axiom:database-schema-auditor`
+- **Release / entitlements / privacy** → `axiom:security-privacy-scanner`
+- **"Health check" / full audit** → `axiom:health-check`
 
-Per `CONTRIBUTING.md`, trust in order: `Sources/` → `project.yml` → `scripts/` → `.github/workflows/release.yml` for the scoped CI boundary → `docs/reference/` → other prose. `Sources/Resources/qwenvoice_contract.json` is the canonical schema for speakers, models, variants, HF revisions, and required artifacts. For public website copy and visuals, `website/src/`, `website/PRODUCT.md`, and `website/DESIGN.md` are the maintained source, but product claims must still be checked against the app contract and maintained reference docs.
-
-## Agent skills and Axiom tooling
-
-Use installed skills for workflow guidance and Axiom **Task subagents** for audits. Do not copy skill files into this repo unless there is an explicit maintainer decision. Repo scripts remain authoritative. Full routing: [`.cursor/rules/vocello-agent-playbook.mdc`](.cursor/rules/vocello-agent-playbook.mdc).
-
-### Axiom Task subagents (Cursor `Task` tool)
+### Axiom subagents (`Agent` tool, `subagent_type`)
 
 | Symptom or scope | `subagent_type` | Pair with skill |
 |---|---|---|
-| BUILD FAILED / env | `build-fixer` | `axiom:axiom-build` |
-| Crash / `.ips` | `crash-analyzer` | |
-| Engine async / actors | `concurrency-auditor` | `axiom:axiom-audit-concurrency` |
-| Memory / leaks / trim | `memory-auditor` | `axiom:axiom-audit-memory` |
-| Swift runtime perf | `swift-performance-analyzer` | `axiom:axiom-analyze-swift-performance` |
-| GRDB / migrations | `database-schema-auditor` | `axiom:axiom-data` |
-| Codable / JSON | `codable-auditor` | |
-| Security / privacy manifest | `security-privacy-scanner` | `axiom:axiom-security` |
-| Full audit | `health-check` | |
-| SwiftUI perf | `swiftui-performance-analyzer` | `axiom:axiom-analyze-swiftui-performance` |
-| SwiftUI architecture | `swiftui-architecture-auditor` | `axiom:axiom-swiftui` |
-| SwiftUI layout | `swiftui-layout-auditor` | |
-| Navigation | `swiftui-nav-auditor` | |
-| UX flows | `ux-flow-auditor` | |
-| Liquid Glass | `liquid-glass-auditor` | `axiom:axiom-audit-liquid-glass` |
+| BUILD FAILED / env | `axiom:build-fixer` | `axiom:axiom-build` |
+| Crash / `.ips` | `axiom:crash-analyzer` | (`xcsym` tool) |
+| Engine async / actors | `axiom:concurrency-auditor` | `axiom:axiom-concurrency` |
+| Memory / leaks / trim | `axiom:memory-auditor` | `axiom:axiom-performance` |
+| Swift runtime perf | `axiom:swift-performance-analyzer` | `axiom:axiom-performance` |
+| GRDB / migrations | `axiom:database-schema-auditor` | `axiom:axiom-data` |
+| Codable / JSON | `axiom:codable-auditor` | `axiom:axiom-data` |
+| Security / privacy manifest | `axiom:security-privacy-scanner` | `axiom:axiom-security` |
+| Full audit | `axiom:health-check` | |
+| SwiftUI perf | `axiom:swiftui-performance-analyzer` | `axiom:axiom-swiftui` |
+| SwiftUI architecture | `axiom:swiftui-architecture-auditor` | `axiom:axiom-swiftui` |
+| SwiftUI layout | `axiom:swiftui-layout-auditor` | |
+| Navigation | `axiom:swiftui-nav-auditor` | |
+| UX flows | `axiom:ux-flow-auditor` | |
+| Liquid Glass | `axiom:liquid-glass-auditor` | `axiom:axiom-design` |
+| Storage / file layout | `axiom:storage-auditor` | `axiom:axiom-data` |
+| Headless Instruments / `xctrace` | `axiom:performance-profiler` | `axiom:axiom-performance` |
 
 ### Backend and MLX
 
-- `swift-mlx` — use for MLX array/runtime/memory behavior, cache/eval/lazy-array work, custom MLX operations, and backend performance changes.
-- `swift-mlx-lm` — use for generation, streaming, KV-cache, wired-memory, or model-porting questions that overlap MLX LM internals or the vendored `mlx-audio-swift` stack.
-- `coreml` — use only for Core ML conversion/integration/Neural Engine experiments. Do not use it for ordinary Qwen3-TTS/MLX backend work.
+- `mlx-swift` — use for MLX array/runtime/memory behavior, cache/eval/lazy-array work, custom MLX operations, and backend performance changes.
+- `mlx-swift-lm` — use for generation, streaming, KV-cache, wired-memory, or model-porting questions that overlap MLX LM internals or the vendored `mlx-audio-swift` stack.
+- There is no dedicated Core ML skill in this environment; do not pivot ordinary Qwen3-TTS work to Core ML. MLX stays the default (and only) Qwen3-TTS backend unless a task explicitly asks for an architecture change.
+
+### Apple framework docs
+
+- `axiom:axiom-apple-docs` — router for Apple framework APIs, Swift compiler diagnostics, and the Xcode-bundled for-LLM documentation (Liquid Glass, Swift 6.2 concurrency, Foundation Models, SwiftData, StoreKit, etc.).
+- `sosumi` MCP (`fetchAppleDocumentation`, `searchAppleDocumentation`, `fetchAppleVideoTranscript`) — fetch current Apple docs/WWDC transcripts for iOS 26+ and post-cutoff APIs.
+- Xcode for-LLM guides and Swift diagnostics live under `/Applications/Xcode.app/...AdditionalDocumentation/` and the toolchain `share/doc/swift/diagnostics/` — read directly when a specific diagnostic or guide is named.
 
 ### Diagnostics, profiling, and Apple AI
 
-- `axiom:axiom-performance` — use as the current performance diagnostics router for slow paths, memory growth, leaks, battery issues, Instruments workflows, and MetricKit-related production/TestFlight diagnostics. MetricKit guidance now lives under Axiom performance references; there is no standalone user-scoped MetricKit skill.
-- `axiom:axiom-profile-performance` — use for automated/headless Instruments or `xctrace` profiling and focused trace capture.
-- `axiom:axiom-audit-memory`, `axiom:axiom-audit-concurrency`, `axiom:axiom-analyze-swift-performance`, and `axiom:axiom-analyze-swiftui-performance` — use for memory, async/data-race, Swift runtime, and SwiftUI performance review passes.
-- `axiom:axiom-ai` and `axiom:axiom-audit-foundation-models` — use only when comparing or reviewing Apple Intelligence/Foundation Models/on-device-AI architecture. Keep MLX as the default Qwen3-TTS backend unless a task explicitly asks for an architecture change.
+- `axiom:axiom-performance` — current performance diagnostics router for slow paths, memory growth, leaks, battery, Instruments workflows, and MetricKit-related production/TestFlight diagnostics. MetricKit guidance lives under Axiom performance references; there is no standalone MetricKit skill.
+- `axiom:performance-profiler` (Agent) — automated/headless Instruments or `xctrace` profiling and focused trace capture.
+- `axiom:memory-auditor`, `axiom:concurrency-auditor`, `axiom:swift-performance-analyzer`, and `axiom:swiftui-performance-analyzer` (Agents) — memory, async/data-race, Swift runtime, and SwiftUI performance review passes.
+- `axiom:axiom-ai` and `axiom:foundation-models-auditor` — use only when comparing or reviewing Apple Intelligence / Foundation Models / on-device-AI architecture. Keep MLX as the default Qwen3-TTS backend unless a task explicitly asks for an architecture change.
 
 ### iOS workflow
 
 - **iPhone MLX / memory / entitlement** — start at [`docs/reference/ios-shipping.md`](docs/reference/ios-shipping.md) (reading order, proof matrix, admission policy). May 2026: model admission **blocking** is off by default for Jetsam investigation — see [`ios-memory-admission-policy.md`](docs/reference/ios-memory-admission-policy.md).
 - `ios-device-readiness` — use before answering whether the physical iPhone is available for real on-device testing, CoreDevice, xctrace, Instruments, or physical-device performance evidence. Run `ios-device-readiness --project QwenVoice.xcodeproj --scheme VocelloiOS --json` when the executable is on `PATH` (or set `QVOICE_IOS_READINESS_GATE`) and trust its status over raw `devicectl` or `xctrace` output alone. `scripts/ios_device.sh doctor` and `start` record the same gate result under the run directory as `readiness.json`. If the status is `AMBER`, do not answer with a plain "yes"; describe it as partial CoreDevice readiness with physical profiling/performance evidence blocked.
-- `build-ios-apps:ios-debugger-agent` — use for iOS Simulator build/run/debug, simulator UI inspection, screenshots, and log capture. Real iPhone runs still go through `scripts/ios_device.sh`.
-- `build-ios-apps:ios-memgraph-leaks` — use when investigating iOS retain cycles or memory growth with simulator `.memgraph` evidence; do not use simulator leak proof as a substitute for physical iPhone memory-pressure evidence.
-- `build-ios-apps:ios-ettrace-performance` — use for focused iOS Simulator ETTrace performance captures; pair it with the repo's real-device diagnostics before making physical iPhone performance claims.
-- `build-ios-apps:swiftui-ui-patterns`, `build-ios-apps:swiftui-view-refactor`, `build-ios-apps:swiftui-performance-audit`, and `axiom:axiom-swiftui` — use for iOS SwiftUI feature work, refactors, architecture, and render-performance audits while preserving the existing `@Observable`/`AppModel` architecture.
-- `build-ios-apps:swiftui-liquid-glass` and `axiom:axiom-audit-liquid-glass` — use for iOS 26 Liquid Glass adoption or review; keep the repo's iOS/macOS design-token alignment in mind before changing glass, tint, radius, or fallback behavior.
+- **iOS Simulator build/run/inspect** — use `XcodeBuildMCP` (`mcp__XcodeBuildMCP__*`): `session_show_defaults` first, then `build_run_sim` / `install_app_sim` / `launch_app_sim`, `screenshot`, `snapshot_ui`, `list_sims`. The raw `xcodebuild` + `simctl` recipe in "iOS Simulator UI testing" below still works and is the source of truth for the derived-data path and bundle ID. Real iPhone runs always go through `scripts/ios_device.sh`.
+- **iOS retain cycles / memory growth, focused Simulator performance** — `axiom:memory-auditor` + `axiom:performance-profiler` (Agents) and `axiom:axiom-performance`. Do not use Simulator leak/perf proof as a substitute for physical iPhone memory-pressure evidence.
+- **iOS SwiftUI feature work, refactors, architecture, render perf** — `axiom:axiom-swiftui` skill plus `axiom:swiftui-architecture-auditor`, `axiom:swiftui-performance-analyzer`, `axiom:swiftui-layout-auditor`, and `axiom:swiftui-nav-auditor` (Agents). Preserve the existing `@Observable` / `AppModel` architecture.
+- **iOS 26 Liquid Glass adoption or review** — `axiom:liquid-glass-auditor` (Agent) + `axiom:axiom-design`; keep the repo's iOS/macOS design-token alignment in mind before changing glass, tint, radius, or fallback behavior.
 
 ### macOS workflow
 
-- `build-macos-apps:build-run-debug` — use for macOS build/run/debug tasks, but prefer the existing `./scripts/build.sh` and `./scripts/uitest.sh` entrypoints over creating new run scripts.
-- `build-macos-apps:packaging-notarization` — use for macOS DMG, archive, notarization, and distribution-readiness work.
-- `build-macos-apps:signing-entitlements` — use for code-signing, entitlement, hardened-runtime, sandbox, Gatekeeper, or provisioning questions.
-- `build-macos-apps:telemetry` — use when adding or validating concise OSLog/signpost instrumentation in the macOS app.
-- `build-macos-apps:swiftui-patterns`, `build-macos-apps:view-refactor`, `build-macos-apps:liquid-glass`, `build-macos-apps:appkit-interop`, and `build-macos-apps:window-management` — use only when the task directly touches those macOS UI or windowing concerns.
+- macOS build/run/debug — prefer the existing `./scripts/build.sh` and `./scripts/uitest.sh` entrypoints over creating new run scripts.
+- DMG, archive, notarization, distribution-readiness — `axiom:axiom-shipping` plus `scripts/release.sh` and the `scripts/verify_*.sh` helpers.
+- Code-signing, entitlements, hardened runtime, sandbox, Gatekeeper, provisioning — `axiom:axiom-security` and `axiom:axiom-macos`.
+- macOS-specific windowing / AppKit interop / SwiftUI-on-macOS — `axiom:axiom-macos`; use only when the task directly touches those concerns.
+- Telemetry — add or validate concise OSLog/signpost instrumentation directly; the bench harness reads these signposts.
 
-### Device/UI control
+### UI testing and benchmarks — native computer-use
 
-- `computer-use:computer-use` — optional background for macOS UI testing patterns. **Cursor agents use `user-computer-use` MCP** per [`docs/reference/computer-use-mcp.md`](docs/reference/computer-use-mcp.md). For macOS, follow `scripts/uitest.sh` and `docs/reference/ui-test-surface.md`; for iPhone, follow `scripts/ios_device.sh` and `docs/reference/ios-device-screen-mirror-testing.md`.
+**All UI-driven tests and benchmarks run through the native `computer-use` MCP** (`mcp__computer-use__*`), driving the real `Vocello.app` Debug build. The `scripts/uitest.sh` harness (build, reset, locate, bench-*) and the smoke/bench runbooks under `docs/reference/` are the workflow source of truth — only the MCP call shape differs from the Cursor-era runbooks (see "Runbook translation" below).
+
+First call `mcp__computer-use__request_access` for `Vocello` (Vocello is a native app → full tier: clicks and typing both work). Run all shell commands (`scripts/uitest.sh ...`, builds, DB queries) through the **Bash tool**, not computer-use — Terminal/IDE apps are restricted tiers where typing is blocked.
+
+| Action | computer-use call |
+|---|---|
+| Screenshot + image dims | `mcp__computer-use__screenshot` — read `image_width` / `image_height` from the result; export as `$IW` / `$IH` for the locate helpers |
+| Re-front Vocello if focus is stale | `scripts/uitest.sh activate` (Bash), then `screenshot` again |
+| Click at screenshot coords | `mcp__computer-use__left_click`, `coordinate: [cx, cy]` |
+| Type into focused field | `mcp__computer-use__type`, `text: "..."` (click the field first) |
+| Press key / chord | `mcp__computer-use__key`, `text: "cmd+Return"`; common: `cmd+a`, `BackSpace`, `Down`, `Up`, `Return` |
+
+Coordinate helper: `mcp__computer-use__screenshot` returns a full-screen image — use `scripts/uitest.sh screen-locate <ax-id> $IW $IH` to map AX identifiers to screenshot-pixel coords for `left_click`. AX vocabulary and verification: [`docs/reference/ui-test-surface.md`](docs/reference/ui-test-surface.md). Test artifacts land in `build/Debug/uitest/<timestamp>/` and are wiped by `scripts/build.sh clean`.
+
+**Runbook translation.** The canonical guides — [`docs/reference/computer-use-mcp.md`](docs/reference/computer-use-mcp.md), `ui-test-surface.md`, and the smoke-*/bench-* runbooks — are written for the Cursor `user-computer-use` MCP whose single `computer` tool dispatches on an `action` field. The harness shell commands are identical; translate the MCP call shape: `action: "get_screenshot"` → `mcp__computer-use__screenshot`; `action: "left_click"` → `mcp__computer-use__left_click`; `action: "type"` → `mcp__computer-use__type`; `action: "key"` → `mcp__computer-use__key`. The macOS Command modifier is `cmd` here (the Cursor docs write `super`). Do **not** use `osascript` `keystroke`/`click at` for Vocello UI — global coords hit whatever window has focus.
+
+**Drive SwiftUI Picker menus by keyboard, not fixed click coordinates.** SwiftUI `Picker` menus open anchored to the currently-selected item, so a fixed-coordinate click only lands correctly on the first selection of a session. Reliable pattern: `left_click` to open the menu, then `key` `Down`/`Up` N times from the current index to the target, then `key` `Return`. Track current selection in agent state to compute N. Full pattern in `docs/reference/ui-test-surface.md` § "Driving SwiftUI Picker menus".
 
 ### Release, collaboration, and artifacts
 
-- `github:github`, `github:gh-fix-ci`, `github:gh-address-comments`, and `github:yeet` — use for GitHub repository/PR/issue triage, release workflow failures, review feedback, commits, pushes, and PR creation.
-- `hugging-face:hf-cli` — use for Hugging Face model/package downloads, uploads, cache checks, artifact verification, and model-catalog investigation.
+- GitHub PRs/issues/CI: use the `gh` CLI via Bash (`gh pr`, `gh run`, `gh api`) and the `/review` skill for PR review. The GitHub MCP plugin is available if authenticated. Branch before committing if on `main`; commit/push only when the user asks.
+- Hugging Face model/package downloads, uploads, cache checks, artifact verification: use the `hf` CLI via Bash (e.g. `hf download`, `hf cache scan`).
 
-Do not use unrelated user-scoped/plugin skills by default, including web/Vercel, Game Studio, GB Studio, Gmail, documents/spreadsheets/presentations, OpenAI Developers, or broad security workflows, unless a future task explicitly targets that tooling.
+### Skill discipline
+
+Do not auto-invoke unrelated skills. Skip `deep-research`, `anthropic-skills:*` (docx/pptx/xlsx/canvas/etc.), `design:*`, `productivity:*`, `engineering:*`, and `claude-api` unless a task explicitly targets that tooling. For website (React/Vite) work, use the `context7` MCP for library/framework docs and `impeccable:impeccable` for UI/UX passes; browser verification goes through the `chrome-devtools` MCP or native `computer-use`.
+
+## Source of truth (when facts disagree)
+
+Per `CONTRIBUTING.md`, trust in order: `Sources/` → `project.yml` → `scripts/` → `.github/workflows/release.yml` for the scoped CI boundary → `docs/reference/` → other prose. `Sources/Resources/qwenvoice_contract.json` is the canonical schema for speakers, models, variants, HF revisions, and required artifacts. For public website copy and visuals, `website/src/`, `website/PRODUCT.md`, and `website/DESIGN.md` are the maintained source, but product claims must still be checked against the app contract and maintained reference docs.
+
+## Maintainer privacy
+
+Do not commit personal identifiers into user-facing repo files (this file, `README.md`, `website/`, `docs/`, release notes, and script defaults): no legal names, personal emails, home paths (`/Users/<name>/...`), device nicknames, UDIDs, or hardcoded Apple team IDs. Bundle IDs (e.g. `com.patricedery.vocello`) and generic "Developer ID" / "notarized" language are fine. Scan for these patterns before committing any doc/website/script change. Full rule: [`.cursor/rules/vocello-privacy.mdc`](.cursor/rules/vocello-privacy.mdc).
 
 ## Project generation and build
 
@@ -171,21 +198,7 @@ Local Release defaults are isolated too: `AppDefaults` uses a release-id-specifi
 
 ### Autonomous UI testing
 
-The Debug build is drivable by a **Cursor agent** via the **`user-computer-use`** MCP (`computer` tool). Entry point is `scripts/uitest.sh` (subcommands: `prep`, `reset [--include-voices|--full]`, `locate <ax-id>`, `screen-locate <ax-id> [image-w image-h]`, `window-locate` (deprecated), `scaled-locate` (legacy), `screen-size`, `activate`, `logs`, `db <sql>`, `artifacts-dir`, `smoke-check [<mode>]`, plus the bench-* family: `bench-wait`, `bench-step`, `bench-record`, `bench-summarize`, `bench-compare`, `bench-update-baselines`). Canonical MCP guide: [`docs/reference/computer-use-mcp.md`](docs/reference/computer-use-mcp.md). AX vocabulary and verification: [`docs/reference/ui-test-surface.md`](docs/reference/ui-test-surface.md). Test artifacts land in `build/Debug/uitest/<timestamp>/` and are wiped by `scripts/build.sh clean`.
-
-Current **`user-computer-use`** tool mapping (`CallMcpTool`, server `user-computer-use`, tool `computer`):
-
-| Action | Call |
-|---|---|
-| Screenshot + `$IW`/`$IH` | `action: "get_screenshot"` — parse `image_width`, `image_height` from JSON text part |
-| Re-front Vocello if focus is stale | `scripts/uitest.sh activate`, then `get_screenshot` again |
-| Click at screenshot coords | `action: "left_click"`, `coordinate: [cx, cy]` |
-| Type into focused field | `action: "type"`, `text: "..."` (click field first) |
-| Press key / chord | `action: "key"`, `text: "super+Return"`; common: `super+a`, `BackSpace`, `Down`, `Up`, `Return` |
-
-Do **not** use `user-automation-mcp` or osascript `keystroke`/`click at` for Vocello UI — global coords hit whatever window has focus. Do **not** use the deprecated Codex `mcp__computer_use__` namespace.
-
-Coordinate helpers: `get_screenshot` returns a full-screen image — use `scripts/uitest.sh screen-locate <ax-id> $IW $IH` to map AX identifiers to screenshot-pixel coords for `left_click`.
+The Debug build is drivable via the **`computer-use`** MCP (see "UI testing and benchmarks — native computer-use" above for the call mapping). Entry point is `scripts/uitest.sh` (subcommands: `prep`, `reset [--include-voices|--full]`, `locate <ax-id>`, `screen-locate <ax-id> [image-w image-h]`, `window-locate` (deprecated), `scaled-locate` (legacy), `screen-size`, `activate`, `logs`, `db <sql>`, `artifacts-dir`, `smoke-check [<mode>]`, plus the bench-* family: `bench-wait`, `bench-step`, `bench-record`, `bench-summarize`, `bench-compare`, `bench-update-baselines`). Canonical MCP guide: [`docs/reference/computer-use-mcp.md`](docs/reference/computer-use-mcp.md). AX vocabulary and verification: [`docs/reference/ui-test-surface.md`](docs/reference/ui-test-surface.md).
 
 Smoke runbooks (one per generation mode):
 
@@ -215,7 +228,7 @@ Committed baselines live at `docs/reference/benchmark-baselines.json` (schema v3
 
 ### iOS Simulator UI testing
 
-Real MLX generation can't run in the iOS Simulator (no Apple Neural Engine, no real bytes on disk), but every iPhone UI surface is reviewable end-to-end through a stubbed engine and a Simulator-only fake-install path. Quick start:
+Real MLX generation can't run in the iOS Simulator (no Apple Neural Engine, no real bytes on disk), but every iPhone UI surface is reviewable end-to-end through a stubbed engine and a Simulator-only fake-install path. Either drive it via `XcodeBuildMCP` (`build_run_sim` / `screenshot` / `snapshot_ui`) or the raw recipe:
 
 ```sh
 xcodebuild -project QwenVoice.xcodeproj -scheme VocelloiOS \
@@ -241,6 +254,8 @@ Real-device iPhone validation uses CoreDevice plus Apple's iPhone Mirroring app.
 ```
 
 `scripts/ios_device.sh` defaults to the paired iPhone 17 Pro and the bundled production iPhone model catalog, builds the `VocelloiOS` Debug app for device, installs it directly, launches with lightweight native telemetry and a run id, opens iPhone Mirroring, and writes artifacts under `build/Debug/ios-device/runs/<run-id>/`. The optional readiness gate is resolved from `QVOICE_IOS_READINESS_GATE`, then `PATH`, then a repo-local helper if one exists; missing maintainer-local readiness tooling is a warning, not a public-script failure. Use `scripts/ios_device.sh screenshot <label>` during mirrored UI runs and `scripts/ios_device.sh pull` afterward to collect focused App Group evidence and memory diagnostics; CoreDevice may reject direct App Group copies on some local builds, so `pull` mirrors memory diagnostics from the Debug app container while history/output/voice evidence remains App Group best-effort. Entitlement and MLX proof phases: `scripts/ios_device_proof_matrix.sh` — hub and reading order: [`docs/reference/ios-shipping.md`](docs/reference/ios-shipping.md). Screen-mirror runbook: [`docs/reference/ios-device-screen-mirror-testing.md`](docs/reference/ios-device-screen-mirror-testing.md).
+
+When mirroring a physical iPhone on the Mac, the `computer-use` MCP can also drive the iPhone Mirroring window (it is a native macOS app, full tier) for visual review; treat any on-device evidence as authoritative over Simulator results.
 
 ## Testing policy — important
 
@@ -290,7 +305,7 @@ Two-platform Swift codebase with an out-of-process engine on each platform.
 - `Sources/iOS/Overlays/` — `IOSOnboardingFlow.swift` (3-step welcome, gated by `IOSAppDefaults.hasCompletedOnboarding`), `IOSRecordingOverlay.swift` (clone-reference capture via `AVAudioRecorder`, 10-20 s gate, requires `NSMicrophoneUsageDescription`).
 - `Sources/iOSSupport/Services/IOSAppDefaults.swift` — iOS user-defaults keys (`hasCompletedOnboarding`, `autoplayCompletions`).
 
-**Modern SwiftUI patterns:** `@Observable` + `@Environment(AppModel.self)` + `@Bindable` (no `@StateObject` / `@Published`); `.sheet(item:)`; `@available(iOS 26, *)` gating for Liquid Glass; `sensoryFeedback(_:trigger:)` for haptics; `foregroundStyle(_:)` everywhere; modern `.confirmationDialog` / `.alert`; stable `Identifiable` in every `ForEach`. For future SwiftUI work, use the current `build-ios-apps:swiftui-ui-patterns`, `build-ios-apps:swiftui-liquid-glass`, `build-ios-apps:swiftui-performance-audit`, `axiom:axiom-swiftui`, and targeted Axiom SwiftUI audit skills rather than retired project-local skill references.
+**Modern SwiftUI patterns:** `@Observable` + `@Environment(AppModel.self)` + `@Bindable` (no `@StateObject` / `@Published`); `.sheet(item:)`; `@available(iOS 26, *)` gating for Liquid Glass; `sensoryFeedback(_:trigger:)` for haptics; `foregroundStyle(_:)` everywhere; modern `.confirmationDialog` / `.alert`; stable `Identifiable` in every `ForEach`. For future SwiftUI work, use `axiom:axiom-swiftui` and the `axiom:swiftui-*-auditor` Agents rather than retired project-local skill references.
 
 **iOSSupport concurrency note.** `Sources/iOSSupport/Services/DatabaseService.swift` keeps `DatabaseService.shared` as a plain `static let`, backed by GRDB's `DatabaseQueue` and the existing `@unchecked Sendable` conformance. `Sources/iOSSupport/Models/Generation.swift` keeps its shared `DateFormatter` as a plain private `static let` so formatting output stays unchanged. Do not reintroduce unsafe non-isolation annotations in iOSSupport for these values; macOS-side annotations are a separate code path and should be changed only after their own investigation.
 
@@ -333,7 +348,7 @@ iPhone memory remediation notes: physical-device model installs do not eager-loa
 
 ### Prewarm reentrancy gate (CRITICAL)
 
-`NativeEngineRuntime` is a Swift actor, but actors don't prevent reentrancy across suspension points. Both `ensureWarmStateIfNeeded` (Custom + Design + Clone path) and `ensureDesignConditioningWarmStateIfNeeded` call `try await model.prewarm*(...)`, which releases actor exclusivity while MLX work runs. Without protection, two callers (typically `prefetchInteractiveReadinessIfNeeded` + `prepareGeneration` racing on launch) reach MLX's KV cache slice updates concurrently and trip an assertion (crashed the engine in May 2026 — see `~/Library/Logs/DiagnosticReports/QwenVoiceEngineService-2026-05-15-162429.ips`).
+`NativeEngineRuntime` is a Swift actor, but actors don't prevent reentrancy across suspension points. Both `ensureWarmStateIfNeeded` (Custom + Design + Clone path) and `ensureDesignConditioningWarmStateIfNeeded` call `try await model.prewarm*(...)`, which releases actor exclusivity while MLX work runs. Without protection, two callers (typically `prefetchInteractiveReadinessIfNeeded` + `prepareGeneration` racing on launch) reach MLX's KV cache slice updates concurrently and trip an assertion (crashed the engine in May 2026 — see the QwenVoiceEngineService `.ips` from 2026-05-15 under `~/Library/Logs/DiagnosticReports/`).
 
 The fix is a monitor-style gate: `prewarmInFlight: Bool` + `prewarmWaiters: [CheckedContinuation<Void, Never>]` with `acquirePrewarmSlot()` / `releasePrewarmSlot()` helpers. Both ensure* methods call `await acquirePrewarmSlot()` first and `defer { releasePrewarmSlot() }`. **Do not remove the gate or restructure the prewarm path without preserving this serialization.**
 
@@ -398,9 +413,9 @@ Mean gain across all 6 cells: **+4.5 s** saved on time-to-first-sound.
 1. **Warm-after-cold streaming engagement race — fully fixed in `6c2ea52` + `be4dbcf`.** Two distinct races were stacked:
    - **Race A (engine retention, fixed in `6c2ea52`)**: `teardownLivePlayback(clearSession: true)` left `liveEngine` and `livePlayerNode` references non-nil after `.reset()`ing the engine. The next session's `appendLiveChunk` skipped `configureLiveEngine` (guard `if liveEngine == nil || livePlayerNode == nil` was false), and `attemptLivePlay`'s `liveEngine.start()` threw — silently swallowed. Fix: nil out the references in the clearSession block. Closed custom/warm and design/warm.
    - **Race B (stale buffer completions, fixed in `be4dbcf`)**: AVAudioEngine's per-buffer completion callback hops to MainActor via `Task { @MainActor in ... }`. Cold's late-firing tasks landed AFTER warm's `startLiveSession` had reset `liveScheduledCount = 0` and `liveQueuedAudioSeconds = 0`, then decremented warm's freshly-incremented counters and removed warm's entries from `liveBufferDurations`. `shouldStartLivePlayback`'s Policy 2 then could never trigger for warm. The `guard playbackMode == .live` was too coarse (warm IS .live). Fix: capture `liveSessionID` at `scheduleLiveBuffer` time and reject completions in `handleLiveBufferPlaybackCompletion` whose sessionID doesn't match the current `liveSessionID`.
-   
+
    Verification (`build/Debug/uitest/20260516-153215`): 10 streaming samples across 3 modes (3 clone cold/warm pairs + 1 custom pair + 1 design pair) — **10/10 engaged streaming, 0 fallbacks**. Pre-fix repro rate on clone/warm back-to-back pairs was ~50 %.
-   
+
    Production signposts at every streaming state transition (`Chunk Received`, `Chunk Decoded`, `Live Session Start`, `Live Engine Play`, `Session Completed Recorded`, `Switch To File Playback`, `Should Start Reject Autoplay`, `Should Start Reject Buffer`, `Stale Completion Dropped`) — together they reconstruct the streaming state machine's complete trace in `log show --signpost`; useful for any future regression triage.
 
 2. **Cold-cell audio loudness shift — falsified as a regression.** The Phase 3 observation of +1-3 dB louder RMS on cold cells was based on too-small samples (n=1 for custom/design, n=3 for clone). Phase 4 re-bench with the fix in place showed the deviation goes BOTH ways (-1.56 to +2.81 dB across cells in the same run, with the same generation parameters). The previous "AVAudioFile applies gain" hypothesis was wrong: the streaming WAV writer's `IncrementalPCM16WAVFileWriter` and the non-streaming `AtomicPCM16WAVWriter` both write the same Int16 samples; the per-cell deviation is dominated by LM sampling variance run-to-run. The `fa94cc7` baseline's n=3 samples just happened to lie at one end of that variance distribution. To re-promote the baseline accurately would need n=10+ per cell. Not a regression; no action needed.
@@ -421,9 +436,9 @@ Mean gain across all 6 cells: **+4.5 s** saved on time-to-first-sound.
 - Animations route through `appAnimation` / `AppLaunchConfiguration.performAnimated` so Reduced Motion is honored; Liquid Glass surfaces must fall back to solid fills when Reduce Transparency is on. Both are non-negotiable per `PRODUCT.md`.
 - Do not propose reintroducing a Python backend, a standalone CLI, or bundled model weights.
 - Keep macOS release artifacts named `Vocello.app` and `Vocello-macos26.dmg`.
-- Do not use cloud-only planning instructions or Anthropic environment-variable workarounds on this project. Agents should use local plan mode when a plan is needed.
-- **Maintainer privacy:** follow [`.cursor/rules/vocello-privacy.mdc`](.cursor/rules/vocello-privacy.mdc) — do not commit legal names, personal emails, home paths, device nicknames, UDIDs, or hardcoded Apple team IDs in user-facing docs or script defaults.
-- **Drive SwiftUI Picker menus by keyboard, not fixed click coordinates.** SwiftUI `Picker` menus open anchored to the **currently-selected item**, not to a fixed top position, so a fixed-coordinate click on a menu row only works on the first selection of a session — subsequent picks land on the wrong row as the menu shifts. This is the bug that mislabeled 45 of 53 cells in the May 2026 emotion matrix run. Reliable pattern: `left_click` the picker to open the menu, then `key` with `Down` (or `Up`) N times from the currently-selected index to the target, then `key` with `Return` to confirm. Track current selection in agent state to compute N. Full pattern lives in [`docs/reference/ui-test-surface.md`](docs/reference/ui-test-surface.md) under "Driving SwiftUI Picker menus"; keep that doc in sync if `scripts/uitest.sh` or any bench/smoke runbook adds a new picker-driver path.
+- Use local plan mode when a plan is needed; do not introduce cloud-only planning instructions or environment-variable workarounds on this project.
+- **Maintainer privacy:** see the "Maintainer privacy" section above and [`.cursor/rules/vocello-privacy.mdc`](.cursor/rules/vocello-privacy.mdc) — do not commit legal names, personal emails, home paths, device nicknames, UDIDs, or hardcoded Apple team IDs in user-facing docs or script defaults.
+- **Drive SwiftUI Picker menus by keyboard, not fixed click coordinates** (see "UI testing and benchmarks" above). This is the bug that mislabeled 45 of 53 cells in the May 2026 emotion matrix run. Full pattern lives in [`docs/reference/ui-test-surface.md`](docs/reference/ui-test-surface.md) under "Driving SwiftUI Picker menus"; keep that doc in sync if `scripts/uitest.sh` or any bench/smoke runbook adds a new picker-driver path.
 
 ## Where to find more
 
