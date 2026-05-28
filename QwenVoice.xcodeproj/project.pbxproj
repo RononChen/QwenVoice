@@ -198,6 +198,7 @@
 		B937F5E912C7E9B8668BB24B /* IOSAccessibilityIdentifiers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A014ECB4F32BED1D8FE49B68 /* IOSAccessibilityIdentifiers.swift */; };
 		B9A145D1A1D4BBB90F2ED8BA /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = 76CE6F0208B021202C7CDBAF /* HuggingFace */; };
 		BA7AEE436D871CE41FBDB89E /* MLXAudioTTS in Frameworks */ = {isa = PBXBuildFile; productRef = 3C7E628D19410A4D321E8788 /* MLXAudioTTS */; };
+		BB752024AFAACE7A138CA40E /* LatestEventCoalescer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91514FA8C99D6C0162B95D2 /* LatestEventCoalescer.swift */; };
 		BC702680E0058355A5DDDC81 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B52E6F8ECC8DB9E266F1EE87 /* ContentView.swift */; };
 		BD9E5C34E1340B4FF2900857 /* StudioGenerationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C3D5708FC88C667497CBF52 /* StudioGenerationCoordinator.swift */; };
 		BEAE745127CBAACBA2C298E5 /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = 76A971A3ECF3DF7CBED51478 /* MLX */; };
@@ -526,6 +527,7 @@
 		B84E7EAC8760A09DC87915DD /* CustomVoiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomVoiceView.swift; sourceTree = "<group>"; };
 		B8BD934015DBE86EA1193A6B /* VoiceCloningCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCloningCoordinator.swift; sourceTree = "<group>"; };
 		B8DE0E108884A82B4A671FE5 /* Voice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice.swift; sourceTree = "<group>"; };
+		B91514FA8C99D6C0162B95D2 /* LatestEventCoalescer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatestEventCoalescer.swift; sourceTree = "<group>"; };
 		B9F62310AABC856664C0A81B /* EngineHostPrimitives.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineHostPrimitives.swift; sourceTree = "<group>"; };
 		BA9C76F620EF0D3A82F1CDB1 /* VocelloEngineExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = VocelloEngineExtension.entitlements; sourceTree = "<group>"; };
 		BB32F260AC5AC53C0C94D153 /* VocelloiOSLocalDevice.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = VocelloiOSLocalDevice.entitlements; sourceTree = "<group>"; };
@@ -733,6 +735,7 @@
 				04959460DEEFC35448B5F9F7 /* IOSMemoryMetricsBridge.h */,
 				F84E19D8BAEB03195166A26A /* IOSMemoryMetricsBridge.m */,
 				FC8AF8C5F67A18A2A6790A33 /* IOSMemorySnapshot.swift */,
+				B91514FA8C99D6C0162B95D2 /* LatestEventCoalescer.swift */,
 				C9DFF46140E21950EEDD4721 /* MLXModelLoadCoordinator.swift */,
 				5480928772E9EF2D5AE57945 /* MLXTTSEngine.swift */,
 				3F056FE32E688786725FCC8D /* ModelAssets.swift */,
@@ -1544,6 +1547,7 @@
 				CD601A69A8F0D1F41B8F2BDD /* GenerationSemantics.swift in Sources */,
 				94B78EACF79C8D0C97B1A8A2 /* IOSMemoryMetricsBridge.m in Sources */,
 				DFF41A112585ADC31484F16C /* IOSMemorySnapshot.swift in Sources */,
+				BB752024AFAACE7A138CA40E /* LatestEventCoalescer.swift in Sources */,
 				A1A06C031B9A40EA24BB7C8A /* MLXModelLoadCoordinator.swift in Sources */,
 				3D8813651CD03DBB73CF1029 /* MLXTTSEngine.swift in Sources */,
 				6F2BABA0C7850D795608204A /* ModelAssets.swift in Sources */,

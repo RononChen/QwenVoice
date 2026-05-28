@@ -1,5 +1,6 @@
 import Foundation
 import MLX
+@preconcurrency import MLXAudioTTS
 
 public enum NativeMemoryPolicyResolver {
     private static let oneGB = 1_024 * 1_024 * 1_024
@@ -38,6 +39,8 @@ public enum NativeMemoryPolicyResolver {
                 deviceClass: deviceClass,
                 cacheLimitBytes: 256 * 1_024 * 1_024,
                 clearCacheAfterGeneration: !isBatch,
+                clearMLXCacheOnStreamChunkEmit: true,
+                mlxTokenMemoryClearCadence: 50,
                 unloadAfterIdleSeconds: 120
             )
         case .mid16GBMac:
@@ -46,6 +49,8 @@ public enum NativeMemoryPolicyResolver {
                 deviceClass: deviceClass,
                 cacheLimitBytes: 512 * 1_024 * 1_024,
                 clearCacheAfterGeneration: false,
+                clearMLXCacheOnStreamChunkEmit: true,
+                mlxTokenMemoryClearCadence: 50,
                 unloadAfterIdleSeconds: 600
             )
         case .highMemoryMac:
@@ -54,6 +59,8 @@ public enum NativeMemoryPolicyResolver {
                 deviceClass: deviceClass,
                 cacheLimitBytes: 1_024 * 1_024 * 1_024,
                 clearCacheAfterGeneration: false,
+                clearMLXCacheOnStreamChunkEmit: false,
+                mlxTokenMemoryClearCadence: 200,
                 unloadAfterIdleSeconds: nil
             )
         case .iPhonePro:
@@ -69,6 +76,8 @@ public enum NativeMemoryPolicyResolver {
                 cacheLimitBytes: cacheLimitBytes,
                 memoryLimitBytes: memoryLimitBytes,
                 clearCacheAfterGeneration: true,
+                clearMLXCacheOnStreamChunkEmit: true,
+                mlxTokenMemoryClearCadence: 50,
                 unloadAfterIdleSeconds: 30
             )
         }
@@ -79,6 +88,10 @@ public enum NativeMemoryPolicyResolver {
         if let memoryLimitBytes = policy.memoryLimitBytes {
             Memory.memoryLimit = memoryLimitBytes
         }
+        Qwen3StreamingMemoryTuning.apply(
+            clearOnStreamChunk: policy.clearMLXCacheOnStreamChunkEmit,
+            tokenCadence: policy.mlxTokenMemoryClearCadence
+        )
     }
 
     public static func minimumStreamingInterval(

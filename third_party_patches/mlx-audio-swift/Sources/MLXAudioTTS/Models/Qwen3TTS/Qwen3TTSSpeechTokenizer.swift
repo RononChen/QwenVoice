@@ -643,18 +643,37 @@ final class DecoderBlock: Module {
     }
 
     func step(_ x: MLXArray) -> MLXArray {
-        var h = x
-        if let snake = block[0] as? SnakeBeta {
-            h = snake(h)
-        }
-        if let upsample = block[1] as? DecoderBlockUpsample {
-            h = upsample.step(h)
-        }
-        for layer in block.dropFirst(2) {
-            if let resUnit = layer as? DecoderResidualUnit {
-                h = resUnit.step(h)
+        // `== 5` (not `>= 5`): the fast path hardcodes exactly Snake + Upsample
+        // + 3 residuals (matching `init`). A `>= 5` guard would silently drop
+        // residuals beyond index 4 if a future config built a larger block;
+        // the count-agnostic fallback below handles any other shape correctly.
+        guard block.count == 5,
+              let snake = block[0] as? SnakeBeta,
+              let upsample = block[1] as? DecoderBlockUpsample,
+              let residualA = block[2] as? DecoderResidualUnit,
+              let residualB = block[3] as? DecoderResidualUnit,
+              let residualC = block[4] as? DecoderResidualUnit
+        else {
+            var h = x
+            if let snake = block.first as? SnakeBeta {
+                h = snake(h)
             }
+            if block.count > 1, let upsample = block[1] as? DecoderBlockUpsample {
+                h = upsample.step(h)
+            }
+            for layer in block.dropFirst(2) {
+                if let resUnit = layer as? DecoderResidualUnit {
+                    h = resUnit.step(h)
+                }
+            }
+            return h
         }
+
+        var h = snake(x)
+        h = upsample.step(h)
+        h = residualA.step(h)
+        h = residualB.step(h)
+        h = residualC.step(h)
         return h
     }
 

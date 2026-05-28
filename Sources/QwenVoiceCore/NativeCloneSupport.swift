@@ -124,6 +124,11 @@ actor NativePreparedCloneConditioningCache {
             lruKeys: &voiceClonePromptLRUKeys,
             retainingMostRecent: keepCount
         )
+        trimCache(
+            &normalizedReferenceCache,
+            lruKeys: &normalizedReferenceLRUKeys,
+            retainingMostRecent: keepCount
+        )
         Memory.clearCache()
     }
 

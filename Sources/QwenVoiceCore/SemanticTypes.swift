@@ -795,6 +795,8 @@ public struct NativeMemoryPolicy: Hashable, Codable, Sendable {
     public let cacheLimitBytes: Int
     public let memoryLimitBytes: Int?
     public let clearCacheAfterGeneration: Bool
+    public let clearMLXCacheOnStreamChunkEmit: Bool
+    public let mlxTokenMemoryClearCadence: Int
     public let unloadAfterIdleSeconds: Double?
 
     public init(
@@ -803,6 +805,8 @@ public struct NativeMemoryPolicy: Hashable, Codable, Sendable {
         cacheLimitBytes: Int,
         memoryLimitBytes: Int? = nil,
         clearCacheAfterGeneration: Bool,
+        clearMLXCacheOnStreamChunkEmit: Bool = true,
+        mlxTokenMemoryClearCadence: Int = 50,
         unloadAfterIdleSeconds: Double?
     ) {
         self.name = name
@@ -810,6 +814,8 @@ public struct NativeMemoryPolicy: Hashable, Codable, Sendable {
         self.cacheLimitBytes = cacheLimitBytes
         self.memoryLimitBytes = memoryLimitBytes
         self.clearCacheAfterGeneration = clearCacheAfterGeneration
+        self.clearMLXCacheOnStreamChunkEmit = clearMLXCacheOnStreamChunkEmit
+        self.mlxTokenMemoryClearCadence = mlxTokenMemoryClearCadence
         self.unloadAfterIdleSeconds = unloadAfterIdleSeconds
     }
 }
@@ -1261,6 +1267,8 @@ public struct GenerationChunk: Hashable, Codable, Sendable {
     public let cumulativeDurationSeconds: Double?
     public let streamSessionDirectory: String?
     public let previewAudio: StreamingAudioChunk?
+    /// Monotonic per-generation chunk index for transport gap detection.
+    public let chunkSequence: UInt64?
 
     public init(
         generationID: UUID? = nil,
@@ -1272,7 +1280,8 @@ public struct GenerationChunk: Hashable, Codable, Sendable {
         chunkDurationSeconds: Double?,
         cumulativeDurationSeconds: Double?,
         streamSessionDirectory: String?,
-        previewAudio: StreamingAudioChunk? = nil
+        previewAudio: StreamingAudioChunk? = nil,
+        chunkSequence: UInt64? = nil
     ) {
         self.generationID = generationID
         self.requestID = requestID
@@ -1284,6 +1293,7 @@ public struct GenerationChunk: Hashable, Codable, Sendable {
         self.cumulativeDurationSeconds = cumulativeDurationSeconds
         self.streamSessionDirectory = streamSessionDirectory
         self.previewAudio = previewAudio
+        self.chunkSequence = chunkSequence
     }
 
     public func withoutPreviewAudioPayload() -> GenerationChunk {
@@ -1297,7 +1307,8 @@ public struct GenerationChunk: Hashable, Codable, Sendable {
             chunkDurationSeconds: chunkDurationSeconds,
             cumulativeDurationSeconds: cumulativeDurationSeconds,
             streamSessionDirectory: streamSessionDirectory,
-            previewAudio: nil
+            previewAudio: nil,
+            chunkSequence: chunkSequence
         )
     }
 

@@ -308,6 +308,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
     private var memoryPressureMonitor: NativeMemoryPressureMonitor
     private var memoryPressureTask: Task<Void, Never>?
     private var stopCleanupTask: Task<Void, Never>?
+    private let latestEventCoalescer = LatestEventCoalescer()
+    private var latestEventDrainTask: Task<Void, Never>?
 
     public convenience init(
         modelRegistry: any ModelRegistry,
@@ -477,6 +479,16 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         )
         self.streamingSessionFactory = streamingSessionFactory
         self.memoryPressureMonitor = NativeMemoryPressureMonitor()
+        let coalescer = latestEventCoalescer
+        latestEventDrainTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                await coalescer.waitForUpdate()
+                guard let self else { return }
+                if let event = coalescer.take() {
+                    latestEvent = event
+                }
+            }
+        }
     }
 
     public func supportDecision(for request: GenerationRequest) -> GenerationSupportDecision {
@@ -494,6 +506,9 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
 
     public func stop() {
         cancelIdleUnload()
+        latestEventDrainTask?.cancel()
+        latestEventDrainTask = nil
+        latestEventCoalescer.clear()
         memoryPressureTask?.cancel()
         memoryPressureTask = nil
         memoryPressureMonitor.stop()
@@ -1003,9 +1018,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             // slot. The stream is the chunk-delivery transport; the
             // slot is for snapshot consumers.
             self?.eventStreamContinuation.yield(event)
-            Task { @MainActor [weak self] in
-                self?.latestEvent = event.withoutPreviewAudioPayload()
-            }
+            self?.latestEventCoalescer.push(event.withoutPreviewAudioPayload())
         }
     }
 

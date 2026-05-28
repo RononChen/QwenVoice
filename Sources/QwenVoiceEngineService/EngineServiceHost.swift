@@ -159,7 +159,7 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
 
     func perform(_ payload: Data, withReply reply: @escaping (Data) -> Void) {
         let replyHandler = EngineReplyHandlerBox(reply: reply)
-        Task { @MainActor [weak self, payload] in
+        Task.detached(priority: .userInitiated) { [weak self, payload] in
             guard let self else { return }
             let response = await self.handleCommandPayload(payload)
             let encodedResponse: Data
@@ -392,13 +392,39 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
         // `engine.events`; this Task drains the stream serially while
         // active. Preview-audio chunks are never dropped here. No
         // slot-sampling, no dedup, no race window.
-        let engine = runtime.engine
-        runtimeContext.eventForwardingTask = Task { [weak self, weak runtimeContext] in
-            for await event in engine.events {
+        let eventStream = runtime.engine.events
+        runtimeContext.eventForwardingTask = Task.detached(priority: .utility) { [weak self, weak runtimeContext, appSupportDirectory, eventStream] in
+            var expectedChunkSequence: UInt64 = 0
+            var gapDetectionGenerationID: UUID?
+            for await event in eventStream {
                 guard let self, let runtimeContext else { return }
+                if case .chunk(let chunk) = event, let sequence = chunk.chunkSequence {
+                    // chunkSequence restarts at 0 for each generation, so reset
+                    // the expected counter when the generation identity changes;
+                    // otherwise the gap detector goes dead after generation #1
+                    // (and can false-positive on a longer subsequent generation).
+                    if chunk.generationID != gapDetectionGenerationID {
+                        gapDetectionGenerationID = chunk.generationID
+                        expectedChunkSequence = 0
+                    }
+                    if sequence > expectedChunkSequence + 1 {
+                        let expected = expectedChunkSequence + 1
+                        // Diagnostics only — never block the chunk-delivery loop
+                        // on file I/O (gaps can cluster under buffer pressure).
+                        Task.detached(priority: .background) {
+                            Self.recordChunkSequenceGap(
+                                expected: expected,
+                                received: sequence,
+                                appSupportDirectory: appSupportDirectory
+                            )
+                        }
+                    }
+                    expectedChunkSequence = max(expectedChunkSequence, sequence)
+                }
+                let stripped = event.withoutPreviewAudioPayload()
+                self.publish(.generationChunk(event))
                 await MainActor.run {
-                    self.publish(.generationChunk(event))
-                    runtimeContext.lastPublishedEvent = event.withoutPreviewAudioPayload()
+                    runtimeContext.lastPublishedEvent = stripped
                 }
             }
         }
@@ -508,6 +534,44 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
                 droppedCount: droppedCount,
                 appSupportDirectory: diagnosticsDirectory
             )
+        }
+    }
+
+    private static func recordChunkSequenceGap(
+        expected: UInt64,
+        received: UInt64,
+        appSupportDirectory: URL
+    ) {
+        let diagnosticsDirectory = appSupportDirectory
+            .appendingPathComponent("diagnostics", isDirectory: true)
+            .appendingPathComponent("engine-service", isDirectory: true)
+        let url = diagnosticsDirectory.appendingPathComponent("native-events.jsonl", isDirectory: false)
+        let record: [String: String] = [
+            "event": "engine_service_chunk_gap",
+            "recordedAt": ISO8601DateFormatter().string(from: Date()),
+            "expectedSequence": String(expected),
+            "receivedSequence": String(received),
+            "gap": String(received > expected ? received - expected : 0),
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: record),
+              var line = String(data: data, encoding: .utf8) else {
+            return
+        }
+        line.append("\n")
+        do {
+            try FileManager.default.createDirectory(at: diagnosticsDirectory, withIntermediateDirectories: true)
+            if FileManager.default.fileExists(atPath: url.path) {
+                let handle = try FileHandle(forWritingTo: url)
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                if let encoded = line.data(using: .utf8) {
+                    try handle.write(contentsOf: encoded)
+                }
+            } else {
+                try line.write(to: url, atomically: true, encoding: .utf8)
+            }
+        } catch {
+            logger.error("Failed to record chunk gap event: \(error.localizedDescription, privacy: .public)")
         }
     }
 

@@ -553,54 +553,67 @@ struct PCM16StreamLimiter: Sendable {
     private(set) var metrics = Metrics()
 
     mutating func append(_ samples: [Float], into destination: inout [Int16]) {
-        for rawSample in samples {
-            // Sanitize NaN/Inf at the source. Anything past this guard is
-            // safe to feed into gain/limiter math without poisoning the
-            // derived metrics or the Int16 conversion below.
-            let sample: Float
-            if rawSample.isFinite {
-                sample = rawSample
-            } else {
-                metrics.nonFiniteSamples += 1
-                sample = 0
-            }
-            let rawMagnitude = abs(sample)
-            metrics.rawPeak = max(metrics.rawPeak, rawMagnitude)
-            metrics.processedSamples += 1
-            if rawMagnitude > Self.ceiling {
-                metrics.samplesAboveCeiling += 1
-            }
-            if rawMagnitude > 1 {
-                metrics.samplesOutsideUnitRange += 1
-            }
+        guard !samples.isEmpty else { return }
+        destination.reserveCapacity(destination.count + samples.count)
 
-            let targetGain = rawMagnitude > Self.ceiling
-                ? Self.ceiling / max(rawMagnitude, .leastNonzeroMagnitude)
-                : 1
-            if targetGain < currentGain {
-                currentGain = targetGain
-            } else {
-                currentGain = min(targetGain, currentGain + Self.releaseStepPerSample)
-            }
-            metrics.minimumAppliedGain = min(metrics.minimumAppliedGain, currentGain)
+        var localGain = currentGain
+        var localPreviousOutput = previousOutput
+        var localMetrics = metrics
 
-            var limited = sample * currentGain
-            if let previousOutput {
-                let delta = limited - previousOutput
-                if delta > Self.maxSingleSampleStep {
-                    limited = previousOutput + Self.maxSingleSampleStep
-                    metrics.slewLimitedSamples += 1
-                } else if delta < -Self.maxSingleSampleStep {
-                    limited = previousOutput - Self.maxSingleSampleStep
-                    metrics.slewLimitedSamples += 1
+        samples.withUnsafeBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
+            let count = buffer.count
+            for index in 0 ..< count {
+                let rawSample = base[index]
+                let sample: Float
+                if rawSample.isFinite {
+                    sample = rawSample
+                } else {
+                    localMetrics.nonFiniteSamples += 1
+                    sample = 0
                 }
-            }
+                let rawMagnitude = abs(sample)
+                localMetrics.rawPeak = max(localMetrics.rawPeak, rawMagnitude)
+                localMetrics.processedSamples += 1
+                if rawMagnitude > Self.ceiling {
+                    localMetrics.samplesAboveCeiling += 1
+                }
+                if rawMagnitude > 1 {
+                    localMetrics.samplesOutsideUnitRange += 1
+                }
 
-            limited = max(-Self.ceiling, min(Self.ceiling, limited))
-            previousOutput = limited
-            metrics.limitedPeak = max(metrics.limitedPeak, abs(limited))
-            destination.append(Int16((limited * Float(Int16.max)).rounded()))
+                let targetGain = rawMagnitude > Self.ceiling
+                    ? Self.ceiling / max(rawMagnitude, .leastNonzeroMagnitude)
+                    : 1
+                if targetGain < localGain {
+                    localGain = targetGain
+                } else {
+                    localGain = min(targetGain, localGain + Self.releaseStepPerSample)
+                }
+                localMetrics.minimumAppliedGain = min(localMetrics.minimumAppliedGain, localGain)
+
+                var limited = sample * localGain
+                if let localPreviousOutput {
+                    let delta = limited - localPreviousOutput
+                    if delta > Self.maxSingleSampleStep {
+                        limited = localPreviousOutput + Self.maxSingleSampleStep
+                        localMetrics.slewLimitedSamples += 1
+                    } else if delta < -Self.maxSingleSampleStep {
+                        limited = localPreviousOutput - Self.maxSingleSampleStep
+                        localMetrics.slewLimitedSamples += 1
+                    }
+                }
+
+                limited = max(-Self.ceiling, min(Self.ceiling, limited))
+                localPreviousOutput = limited
+                localMetrics.limitedPeak = max(localMetrics.limitedPeak, abs(limited))
+                destination.append(Int16((limited * Float(Int16.max)).rounded()))
+            }
         }
+
+        currentGain = localGain
+        previousOutput = localPreviousOutput
+        metrics = localMetrics
     }
 }
 
@@ -1140,7 +1153,8 @@ private struct StreamingExecutionContext: Sendable {
                             chunkDurationSeconds: chunkDurationSeconds,
                             cumulativeDurationSeconds: cumulativeDurationSeconds,
                             streamSessionDirectory: sessionDirectory.path,
-                            previewAudio: previewAudio
+                            previewAudio: previewAudio,
+                            chunkSequence: UInt64(chunkIndex)
                         )
                     )
 

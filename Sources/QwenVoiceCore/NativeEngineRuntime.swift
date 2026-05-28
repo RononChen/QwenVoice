@@ -217,6 +217,23 @@ actor NativeEngineRuntime {
     }
 
     func trimMemory(level: NativeMemoryTrimLevel, reason: String) async {
+        // Serialize trims with in-flight MLX prewarm bodies so a kernel
+        // pressure event cannot clear prepared-component caches while a
+        // suspended `await model.prewarm*` is still running. Only register
+        // the release when the slot was actually acquired: on a throw
+        // (cancellation) `acquirePrewarmSlot()` does NOT hold the slot, so an
+        // unconditional `defer { releasePrewarmSlot() }` would release a slot
+        // owned by another task — flipping `prewarmInFlight` or waking a
+        // waiter while a real holder is still inside MLX prewarm, which
+        // reintroduces the concurrent KV-cache assertion crash this gate
+        // exists to prevent.
+        do {
+            try await acquirePrewarmSlot()
+        } catch {
+            return
+        }
+        defer { releasePrewarmSlot() }
+
         await telemetryRecorder?.mark(stage: "memory_trim", metadata: [
             "level": level.rawValue,
             "reason": reason,
@@ -1284,6 +1301,11 @@ actor NativeEngineRuntime {
     }
 
     private func clearQwen3MemoryCachesIfNeeded() async {
+        // macOS intentionally preserves Qwen3 prepared/conditioning/decoder
+        // cache warmth across unload, idle-unload, and trim so warm-after-idle
+        // generations stay fast. Only iPhone clears these caches to stay under
+        // the Jetsam ceiling. (The iOS-only model-switch path below the
+        // `#if os(iOS)` guard clears explicitly and is unaffected by this.)
         guard NativeMemoryPolicyResolver.deviceClass() == .iPhonePro else { return }
         await Qwen3TTSMemoryCaches.clearAll()
     }

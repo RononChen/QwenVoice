@@ -2374,9 +2374,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             defaultMaxTokens: maxTokens,
             targetTokenCount: preparedTargetTokenCount
         )
-        let memoryClearCadence = generationSpeedProfile.memoryClearCadence(
-            explicitCadence: explicitMemoryClearCadence
-        )
+        let memoryClearCadence = Qwen3StreamingMemoryTuning.tokenMemoryClearCadenceOverride
+            ?? generationSpeedProfile.memoryClearCadence(
+                explicitCadence: explicitMemoryClearCadence
+            )
         let streamStepEvalPolicy = Qwen3StreamStepEvalPolicy.resolve(
             explicitPolicy: explicitStreamStepEvalPolicy
         )
@@ -2419,8 +2420,6 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             generatedCodes.reserveCapacity(effectiveMaxTokens)
         }
         var pendingStreamCodes = [MLXArray]()
-        var generatedCodebookTokens = [Int]()
-        generatedCodebookTokens.reserveCapacity(effectiveMaxTokens)
         var generatedCodebookTokenIDs = Set<Int>()
         generatedCodebookTokenIDs.reserveCapacity(effectiveMaxTokens)
         var generatedCodeCount = 0
@@ -2513,6 +2512,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 "qwen_stream_decoder_total": streamingDecoderTotalMS,
                 "qwen_stream_decoder_calls": streamingDecoderCallCount,
                 "qwen_generated_code_count": generatedCodeCount,
+                "qwen_talker_kv_cache_offset": cache.first?.offset ?? 0,
                 "cache_clear_count": cacheClearCount,
                 "memory_clear_cadence": memoryClearCadence,
             ]
@@ -2550,6 +2550,14 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             }
         }
 
+        let suppressTokensWithEOS = suppressTokens + [eosTokenId]
+        let samplerScratch = Qwen3SamplerScratch(vocabSize: talkerConfig.vocabSize)
+        samplerScratch.prepareSuppressPairs(
+            base: suppressTokens,
+            withEOS: suppressTokensWithEOS,
+            dtype: .float32
+        )
+
         for _ in 0 ..< effectiveMaxTokens {
             try Task.checkCancellation()
             let tokenLoopStartedAt = ContinuousClock.now
@@ -2565,7 +2573,6 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             talkerForwardTotalMS += talkerForwardStartedAt.elapsedMilliseconds
 
             let allowsEOS = generatedCodeCount >= Self.productionMinimumGeneratedCodeTokensBeforeEOS
-            let activeSuppressTokens = allowsEOS ? suppressTokens : suppressTokens + [eosTokenId]
 
             // Sample first codebook token
             let sampleFirstCodebookStartedAt = ContinuousClock.now
@@ -2577,10 +2584,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 topP: topP,
                 topK: topK,
                 repetitionPenalty: repetitionPenalty,
-                generatedTokenIDs: generatedCodebookTokenIDs,
-                suppressTokens: activeSuppressTokens,
                 eosTokenId: allowsEOS ? eosTokenId : nil,
-                minP: minP
+                minP: minP,
+                scratch: samplerScratch,
+                allowsEOS: allowsEOS
             )
             Qwen3Signposts.signposter.endInterval(
                 "Sample First Codebook",
@@ -2707,8 +2714,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 generationEndReason = "eos"
                 break
             }
-            generatedCodebookTokens.append(tokenId)
             generatedCodebookTokenIDs.insert(tokenId)
+            samplerScratch.appendRepetitionTokenID(tokenId)
             generatedCodeCount += 1
             if isStreaming {
                 pendingStreamCodes.append(allCodes)
@@ -2794,7 +2801,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     try Task.checkCancellation()
                     onAudioChunk(audioChunk)
                     emittedStreamChunk = true
-                    clearGenerationCache()
+                    if Qwen3StreamingMemoryTuning.clearCacheOnStreamChunkEmit {
+                        clearGenerationCache()
+                    }
                 }
             }
 
@@ -3490,7 +3499,84 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
 
     // MARK: - Token sampling
 
-    func sampleToken(
+    private final class Qwen3SamplerScratch {
+        let vocabSize: Int
+        let negInfScalar: MLXArray
+        let arangeIndices: MLXArray
+
+        private var suppressBaseArr: MLXArray?
+        private var suppressBaseNegInf: MLXArray?
+        private var suppressWithEOSArr: MLXArray?
+        private var suppressWithEOSNegInf: MLXArray?
+
+        var repetitionTokenIDsBuffer: [Int32] = []
+        private var repetitionTokenIDsMLX: MLXArray?
+
+        init(vocabSize: Int) {
+            self.vocabSize = vocabSize
+            negInfScalar = MLXArray(-Float.infinity)
+            arangeIndices = MLXArray(0 ..< vocabSize).reshaped(1, -1).asType(Int32.self)
+        }
+
+        func prepareSuppressPairs(base: [Int], withEOS: [Int], dtype: DType) {
+            if base.isEmpty {
+                suppressBaseArr = nil
+                suppressBaseNegInf = nil
+            } else {
+                suppressBaseArr = MLXArray(base.map { Int32($0) }).reshaped(1, -1)
+                suppressBaseNegInf = MLXArray.full(
+                    [1, base.count],
+                    values: negInfScalar,
+                    dtype: dtype
+                )
+            }
+            if withEOS.isEmpty {
+                suppressWithEOSArr = nil
+                suppressWithEOSNegInf = nil
+            } else {
+                suppressWithEOSArr = MLXArray(withEOS.map { Int32($0) }).reshaped(1, -1)
+                suppressWithEOSNegInf = MLXArray.full(
+                    [1, withEOS.count],
+                    values: negInfScalar,
+                    dtype: dtype
+                )
+            }
+        }
+
+        func suppressArrays(allowsEOS: Bool) -> (MLXArray, MLXArray)? {
+            // When EOS is *allowed*, we must not include it in the suppress list,
+            // otherwise the model can never terminate and runs to maxTokens.
+            if allowsEOS {
+                guard let suppressBaseArr, let suppressBaseNegInf else { return nil }
+                return (suppressBaseArr, suppressBaseNegInf)
+            }
+            guard let suppressWithEOSArr, let suppressWithEOSNegInf else { return nil }
+            return (suppressWithEOSArr, suppressWithEOSNegInf)
+        }
+
+        func appendRepetitionTokenID(_ tokenID: Int) {
+            let value = Int32(tokenID)
+            guard !repetitionTokenIDsBuffer.contains(value) else { return }
+            repetitionTokenIDsBuffer.append(value)
+            repetitionTokenIDsMLX = nil
+        }
+
+        func repetitionTokenMLXArray(vocabUpperBound: Int) -> MLXArray? {
+            guard !repetitionTokenIDsBuffer.isEmpty else { return nil }
+            if repetitionTokenIDsMLX == nil {
+                let filtered = repetitionTokenIDsBuffer.filter { Int($0) < vocabUpperBound }
+                guard !filtered.isEmpty else { return nil }
+                repetitionTokenIDsMLX = MLXArray(filtered).reshaped(1, -1)
+            }
+            return repetitionTokenIDsMLX
+        }
+
+        func zerosInt32(matching shape: [Int]) -> MLXArray {
+            MLXArray.zeros(shape, type: Int32.self)
+        }
+    }
+
+    private func sampleToken(
         _ logits: MLXArray,
         temperature: Float = 0.9,
         topP: Float = 1.0,
@@ -3499,22 +3585,41 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         generatedTokenIDs: Set<Int>? = nil,
         suppressTokens: [Int]? = nil,
         eosTokenId: Int? = nil,
-        minP: Float = 0.0
+        minP: Float = 0.0,
+        scratch: Qwen3SamplerScratch? = nil,
+        allowsEOS: Bool = true
     ) -> MLXArray {
         var logitsSlice = logits[0..., (-1)..., 0...].squeezed(axis: 1) // [batch, vocab_size]
 
         // Suppress tokens by setting to -inf
-        if let suppress = suppressTokens, !suppress.isEmpty {
+        if let scratch {
+            if let (suppressArr, negInf) = scratch.suppressArrays(allowsEOS: allowsEOS) {
+                logitsSlice = putAlong(logitsSlice, suppressArr, values: negInf, axis: -1)
+            }
+        } else if let suppress = suppressTokens, !suppress.isEmpty {
             let suppressArr = MLXArray(suppress.map { Int32($0) }).reshaped(1, -1)
-            let negInf = MLXArray.full([1, suppress.count], values: MLXArray(-Float.infinity), dtype: logitsSlice.dtype)
+            let negInf = MLXArray.full(
+                [1, suppress.count],
+                values: MLXArray(-Float.infinity),
+                dtype: logitsSlice.dtype
+            )
             logitsSlice = putAlong(logitsSlice, suppressArr, values: negInf, axis: -1)
         }
 
         // Repetition penalty
-        if let tokenIDs = generatedTokenIDs, !tokenIDs.isEmpty, repetitionPenalty != 1.0 {
-            let unique = tokenIDs.filter { $0 < logitsSlice.dim(-1) }
-            if !unique.isEmpty {
-                let tokenIds = MLXArray(unique.map { Int32($0) }).reshaped(1, -1)
+        if repetitionPenalty != 1.0 {
+            let tokenIds: MLXArray?
+            if let scratch {
+                tokenIds = scratch.repetitionTokenMLXArray(vocabUpperBound: logitsSlice.dim(-1))
+            } else if let tokenIDs = generatedTokenIDs, !tokenIDs.isEmpty {
+                let unique = tokenIDs.filter { $0 < logitsSlice.dim(-1) }
+                tokenIds = unique.isEmpty
+                    ? nil
+                    : MLXArray(unique.map { Int32($0) }).reshaped(1, -1)
+            } else {
+                tokenIds = nil
+            }
+            if let tokenIds {
                 let selected = takeAlong(logitsSlice, tokenIds, axis: -1)
                 let penalized = which(
                     selected .< 0,
@@ -3544,7 +3649,11 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             let kth = min(topK - 1, max(vocabSize - 1, 0))
             if kth >= 0 {
                 let maskIdx = argPartition(-logitsSlice, kth: kth, axis: -1)[0..., topK...]
-                let negInf = MLXArray.full(maskIdx.shape, values: MLXArray(-Float.infinity), dtype: logitsSlice.dtype)
+                let negInf = MLXArray.full(
+                    maskIdx.shape,
+                    values: scratch?.negInfScalar ?? MLXArray(-Float.infinity),
+                    dtype: logitsSlice.dtype
+                )
                 filteredLogits = putAlong(filteredLogits, maskIdx, values: negInf, axis: -1)
             }
         }
@@ -3562,9 +3671,11 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
 
             // Rearrange cumulative probs back to original order
             // Create inverse index mapping using putAlong
-            let vocabSize = sortedIndices.dim(-1)
-            let arangeIndices = MLXArray(0 ..< vocabSize).reshaped(1, -1).asType(Int32.self)
-            let zeros = MLXArray.zeros(sortedIndices.shape, type: Int32.self)
+            let sortedVocabSize = sortedIndices.dim(-1)
+            let arangeIndices = scratch?.arangeIndices[0..., 0 ..< sortedVocabSize]
+                ?? MLXArray(0 ..< sortedVocabSize).reshaped(1, -1).asType(Int32.self)
+            let zeros = scratch?.zerosInt32(matching: sortedIndices.shape)
+                ?? MLXArray.zeros(sortedIndices.shape, type: Int32.self)
             let inverseIndices = putAlong(zeros, sortedIndices, values: arangeIndices, axis: -1)
             let cumProbsOrigOrder = takeAlong(cumProbs, inverseIndices, axis: -1)
 
@@ -3572,7 +3683,11 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             // Keep tokens that are in the top_p nucleus
             let threshold = 1.0 - topP
             let mask = cumProbsOrigOrder .> threshold
-            let negInf = MLXArray.full(filteredLogits.shape, values: MLXArray(-Float.infinity), dtype: filteredLogits.dtype)
+            let negInf = MLXArray.full(
+                filteredLogits.shape,
+                values: scratch?.negInfScalar ?? MLXArray(-Float.infinity),
+                dtype: filteredLogits.dtype
+            )
             filteredLogits = which(mask, filteredLogits, negInf)
         }
 
@@ -3589,11 +3704,22 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 dtype: sortedLogits.dtype
             ) + topLogits
             let removeMask = sortedLogits .< scaledMinPArray
-            let negInf = MLXArray.full(sortedLogits.shape, values: MLXArray(-Float.infinity), dtype: sortedLogits.dtype)
+            let negInf = MLXArray.full(
+                sortedLogits.shape,
+                values: scratch?.negInfScalar ?? MLXArray(-Float.infinity),
+                dtype: sortedLogits.dtype
+            )
             let filteredSortedLogits = which(removeMask, negInf, sortedLogits)
 
-            let invArange = MLXArray(0 ..< vocabSize).reshaped(1, -1).asType(Int32.self)
-            let inverseIndices = putAlong(MLXArray.zeros(sortedIndices.shape, type: Int32.self), sortedIndices, values: invArange, axis: -1)
+            let invArange = scratch?.arangeIndices
+                ?? MLXArray(0 ..< vocabSize).reshaped(1, -1).asType(Int32.self)
+            let inverseIndices = putAlong(
+                scratch?.zerosInt32(matching: sortedIndices.shape)
+                    ?? MLXArray.zeros(sortedIndices.shape, type: Int32.self),
+                sortedIndices,
+                values: invArange,
+                axis: -1
+            )
             filteredLogits = takeAlong(filteredSortedLogits, inverseIndices, axis: -1)
         }
 
@@ -3606,6 +3732,13 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         let token = categorical(filteredLogits / temperature)
         return token.reshaped(1, 1)
     }
+
+    private static let samplerCompileEnabled: Bool = {
+        let raw = ProcessInfo.processInfo.environment["QWENVOICE_SAMPLER_COMPILE"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return raw == "on" || raw == "true" || raw == "1" || raw == "yes"
+    }()
 
     // MARK: - fromPretrained
 
