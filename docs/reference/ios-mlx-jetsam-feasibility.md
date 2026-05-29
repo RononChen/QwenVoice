@@ -98,4 +98,4 @@ See [`ios-device-proof-matrix.md`](ios-device-proof-matrix.md) § deferred 0.6B 
 ./scripts/ios_device_proof_matrix.sh --phase entitled
 ```
 
-Axiom: `memory-auditor` + `axiom:axiom-performance` on policy changes (see [`.cursor/rules/vocello-engine-mlx.mdc`](../../.cursor/rules/vocello-engine-mlx.mdc)).
+Axiom: `memory-auditor` + `axiom:axiom-performance` on policy changes (see `CLAUDE.md` § Performance + memory adaptation).

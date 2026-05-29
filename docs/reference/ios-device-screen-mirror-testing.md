@@ -66,7 +66,7 @@ Aggregate-guarded iPhone memory admission is intentionally Debug-permissive for 
 
 Model admission blocking and in-flight critical cancel are **disabled by default** while measuring extension Jetsam without the increased-memory entitlement ([`ios-memory-admission-policy.md`](ios-memory-admission-policy.md)).
 
-## Codex Control
+## Computer-use control
 
 iPhone Mirroring exposes a visual Mac window, not the app's iOS accessibility identifiers. Use Computer Use against the `iPhone Mirroring` / `Recopie de l'iPhone` window by visible labels, tab icons, text fields, and buttons. If focus drifts, run:
 

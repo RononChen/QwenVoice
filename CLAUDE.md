@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (and other agents) when working in this repository. It is self-contained: Claude Code does not auto-load `.cursor/rules/*.mdc`, so the routing those rules hold for Cursor is folded inline here. The `.cursor/rules/` tree remains the execution layer for Cursor agents.
+This file provides guidance to Claude Code when working in this repository. It is the single, self-contained source of agent guidance for this repo — routing, conventions, engine invariants, and the testing-harness workflow all live here.
 
 ## What this repo is
 
@@ -129,7 +129,7 @@ Per `CONTRIBUTING.md`, trust in order: `Sources/` → `project.yml` → `scripts
 
 ## Maintainer privacy
 
-Do not commit personal identifiers into user-facing repo files (this file, `README.md`, `website/`, `docs/`, release notes, and script defaults): no legal names, personal emails, home paths (`/Users/<name>/...`), device nicknames, UDIDs, or hardcoded Apple team IDs. Bundle IDs (e.g. `com.patricedery.vocello`) and generic "Developer ID" / "notarized" language are fine. Scan for these patterns before committing any doc/website/script change. Full rule: [`.cursor/rules/vocello-privacy.mdc`](.cursor/rules/vocello-privacy.mdc).
+Do not commit personal identifiers into user-facing repo files (this file, `README.md`, `website/`, `docs/`, release notes, and script defaults): no legal names, personal emails, home paths (`/Users/<name>/...`), device nicknames, UDIDs, or hardcoded Apple team IDs. Bundle IDs (e.g. `com.patricedery.vocello`) and generic "Developer ID" / "notarized" language are fine. Scan for these patterns before committing any doc/website/script change.
 
 ## Project generation and build
 
@@ -284,7 +284,7 @@ Two-platform Swift codebase with an out-of-process engine on each platform.
 
 **iOS design tokens align to macOS** (May 2026, commit `287c969`). `IOSAppTheme.subtleGlassTint` is 14% opacity (matches macOS `surfaceGlassTint` dark); `accentStroke` is 34%; `accentWash` is 20%. Neutral palette is warm-tinted (`textSecondary` ~`#C5BFAE`, `textTertiary` ~`#7E7868`) rather than cool blue-gray. Card corner radii unify at 16 pt; chips and badges are flat (no glass) per the macOS May 2026 chip audit. Brand wordmark uses SF Rounded semibold, mirroring `Sources/Views/Sidebar/SidebarView.swift`. When changing iOS colors, check the macOS values first — these are intentionally locked together.
 
-**iOS Codex Design redesign** (May 2026, commits `51d8dce` through `c89fba2`). The iOS app moved to a 4-tab IA (**Studio / Voices / History / Settings**) sourced from `design_references/Vocello iOS/` (React + CSS prototype) and `design_references/Vocello Design System/`. After the design tracks (A-P) landed, a six-phase ground-up rebuild reorganized the architecture (commits `2ff76af` … `c89fba2`):
+**iOS design redesign** (May 2026, commits `51d8dce` through `c89fba2`). The iOS app moved to a 4-tab IA (**Studio / Voices / History / Settings**) sourced from `design_references/Vocello iOS/` (React + CSS prototype) and `design_references/Vocello Design System/`. After the design tracks (A-P) landed, a six-phase ground-up rebuild reorganized the architecture (commits `2ff76af` … `c89fba2`):
 
 **File layout** (post-rebuild):
 
@@ -435,7 +435,7 @@ Mean gain across all 6 cells: **+4.5 s** saved on time-to-first-sound.
 - Do not propose reintroducing a Python backend, a standalone CLI, or bundled model weights.
 - Keep macOS release artifacts named `Vocello.app` and `Vocello-macos26.dmg`.
 - Use local plan mode when a plan is needed; do not introduce cloud-only planning instructions or environment-variable workarounds on this project.
-- **Maintainer privacy:** see the "Maintainer privacy" section above and [`.cursor/rules/vocello-privacy.mdc`](.cursor/rules/vocello-privacy.mdc) — do not commit legal names, personal emails, home paths, device nicknames, UDIDs, or hardcoded Apple team IDs in user-facing docs or script defaults.
+- **Maintainer privacy:** see the "Maintainer privacy" section above — do not commit legal names, personal emails, home paths, device nicknames, UDIDs, or hardcoded Apple team IDs in user-facing docs or script defaults.
 - **Drive SwiftUI Picker menus by keyboard, not fixed click coordinates** (see "UI testing and benchmarks" above). This is the bug that mislabeled 45 of 53 cells in the May 2026 emotion matrix run. Full pattern lives in [`docs/reference/ui-test-surface.md`](docs/reference/ui-test-surface.md) under "Driving SwiftUI Picker menus"; keep that doc in sync if `scripts/uitest.sh` or any bench/smoke runbook adds a new picker-driver path.
 
 ## Where to find more
@@ -451,7 +451,7 @@ Mean gain across all 6 cells: **+4.5 s** saved on time-to-first-sound.
 - `docs/reference/ios-device-screen-mirror-testing.md` — real-device iPhone Debug validation through CoreDevice + iPhone Mirroring
 - `docs/reference/privacy-storage.md` — local storage and deletion
 - `docs/qwen_tone.md` — prompt/tone guidance for voice generation
-- `design_references/Vocello Design System/` — Codex Design system: brand register (SKILL.md), color + type scale (`colors_and_type.css`), preview HTML pages per token family. Read before touching iOS chrome or shipping new mode tints.
-- `design_references/Vocello iOS/` — Codex Design iOS prototype: React + CSS source (`app.css`, `tokens.css`, `chrome.jsx`, `studio.jsx`, `player.jsx`, `sheets.jsx`, `screens.jsx`, `data.js`) plus 64 reference screenshots. Canonical source for the May 2026 iOS redesign tracks.
+- `design_references/Vocello Design System/` — the Vocello design system: brand register (SKILL.md), color + type scale (`colors_and_type.css`), preview HTML pages per token family. Read before touching iOS chrome or shipping new mode tints.
+- `design_references/Vocello iOS/` — iOS design prototype: React + CSS source (`app.css`, `tokens.css`, `chrome.jsx`, `studio.jsx`, `player.jsx`, `sheets.jsx`, `screens.jsx`, `data.js`) plus 64 reference screenshots. Canonical source for the May 2026 iOS redesign tracks.
 - `docs/assets/voice-samples/` — three Quality-variant WAVs (Voice Design / Custom Voice / Voice Cloning) generated for the marketing site's Listen section. Regenerate via the Vocello Debug app and copy into this folder using the existing filenames.
 - `CONTRIBUTING.md` — contributor workflow

@@ -93,7 +93,7 @@ MLX Swift is a direct package in `project.yml` and is imported by `QwenVoiceCore
 
 These should not be bumped casually. They sit under generation quality, runtime memory behavior, first-audio timing, and the patched MLXAudio surface. Any update should be handled as a vendor/runtime refresh with Swift tests, macOS and iOS foundation builds, autonomous audio QC, and cold/warm timing comparisons.
 
-For backend/vendor refresh work, consult the installed `swift-mlx` and `swift-mlx-lm` Codex skills before changing MLX, MLX LM, or vendored MLXAudio internals. Use `hugging-face:hf-cli` guidance for Hugging Face model/package downloads, uploads, cache checks, and artifact verification that feed the model catalog.
+For backend/vendor refresh work, consult the installed `mlx-swift` and `mlx-swift-lm` skills before changing MLX, MLX LM, or vendored MLXAudio internals. Use the `hf` CLI for Hugging Face model/package downloads, uploads, cache checks, and artifact verification that feed the model catalog.
 
 ### Hugging Face Swift Tooling
 

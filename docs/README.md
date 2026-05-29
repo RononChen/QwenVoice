@@ -36,7 +36,7 @@ Start at [`reference/ios-shipping.md`](reference/ios-shipping.md), then:
 
 ### Autonomous UI testing and bench (macOS)
 
-The Debug build is drivable by a Cursor agent via the **`user-computer-use`** MCP. Canonical guide: [`reference/computer-use-mcp.md`](reference/computer-use-mcp.md). The harness lives in `scripts/uitest.sh`. Testing is two-layered: functional smoke → timing bench. Subjective audio quality is a listen-and-judge call by the maintainer.
+The Debug build is drivable via the native **`computer-use`** MCP plus vision. Canonical guide: [`reference/computer-use-mcp.md`](reference/computer-use-mcp.md). The harness lives in `scripts/uitest.sh`. Testing is two-layered: functional smoke → timing bench. Subjective audio quality is a listen-and-judge call by the maintainer.
 
 **Start here:**
 
@@ -45,8 +45,8 @@ The Debug build is drivable by a Cursor agent via the **`user-computer-use`** MC
 
 **Agent reference (read once, refer back):**
 
-- [`.cursor/rules/vocello-agent-playbook.mdc`](../.cursor/rules/vocello-agent-playbook.mdc) — **always-on** Axiom routing, MCPs, mandatory audit triggers.
-- [`reference/computer-use-mcp.md`](reference/computer-use-mcp.md) — **`user-computer-use` MCP** invocation, coordinates, forbidden paths.
+- [`../CLAUDE.md`](../CLAUDE.md) — the single source of agent guidance: Axiom routing, MCPs, mandatory audit triggers, conventions.
+- [`reference/computer-use-mcp.md`](reference/computer-use-mcp.md) — native **`computer-use` MCP** driving (vision-first), coordinates, forbidden paths.
 - [`reference/ui-test-surface.md`](reference/ui-test-surface.md) — accessibility-id vocabulary, completion signals (signposts + DB + file), the Standard smoke + bench skeletons that the per-mode runbooks delta against.
 - [`reference/bootstrap-saved-voice.md`](reference/bootstrap-saved-voice.md) — one-time setup of the `UITestRef` saved-voice fixture used by every Voice Cloning test.
 
@@ -65,7 +65,7 @@ The Debug build is drivable by a Cursor agent via the **`user-computer-use`** MC
 - [`reference/bench-voice-design.md`](reference/bench-voice-design.md)
 - [`reference/bench-voice-cloning.md`](reference/bench-voice-cloning.md)
 - [`reference/benchmark-baselines.json`](reference/benchmark-baselines.json) — committed regression baselines, schema v3, regression-ready (24 cells × n=3 on Apple M2, May 2026). `bench-compare` flags timing/RTF drift past ±15 %; depth metrics (audio RMS/peak dBFS, peak RSS combined + app/XPC split) are stored for forensic comparison.
-- [`reference/bench-agent-gate.md`](reference/bench-agent-gate.md) — minimal 6-cell agent-executed gate for targeted backend reviews (uses `user-computer-use` MCP).
+- [`reference/bench-agent-gate.md`](reference/bench-agent-gate.md) — minimal 6-cell agent-executed gate for targeted backend reviews (native `computer-use` MCP).
 
 Useful local diagnostics can be exported with:
 
@@ -96,6 +96,6 @@ Supplemental guides are useful, but they are not the primary source of truth for
 ## Notes
 
 - Maintained contributor guidance in this checkout lives in `CONTRIBUTING.md` and the maintained reference docs listed above.
-- This repo does not maintain project-scoped QwenVoice skills or checked-in skill copies; contributor guidance lives in the maintained docs above. `CLAUDE.md` may still reference installed user-scoped/global/plugin Codex skills that are useful for this repo's workflow, but those skills remain outside the repository.
+- This repo does not maintain project-scoped QwenVoice skills or checked-in skill copies; contributor guidance lives in the maintained docs above. `CLAUDE.md` may reference installed user/plugin skills useful for this repo's workflow, but those skills remain outside the repository.
 - Current automation surfaces live in `scripts/` and a single GitHub workflow (`.github/workflows/release.yml`) scoped to macOS release packaging plus iOS compile-safety — two jobs run in parallel on `release.published`: `package` (macOS DMG: sign, notarize, staple, attach to the Release) and `compile-ios` (iOS compile-safety only, no signing, no tests). Website deployment is owned by Vercel from `website/`. Local behavioral validation runs on Mac mini M2 via `scripts/check_project_inputs.sh`, `scripts/build_foundation_targets.sh`, `scripts/release.sh`, `scripts/release_ios_testflight.sh`, and real-device iPhone Debug runs through `scripts/ios_device.sh`. macOS harness: `scripts/uitest.sh` and docs under **Autonomous UI testing** above. iPhone MLX/memory: [`reference/ios-shipping.md`](reference/ios-shipping.md). The agent-driven macOS harness is distinct from the XCTest / Python-benchmark harnesses `check_project_inputs.sh` actively bans.
 - Generated or vendored dependency documentation is intentionally out of scope for the repo docs.

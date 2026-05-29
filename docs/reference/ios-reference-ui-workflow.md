@@ -17,7 +17,7 @@ Primary files:
 - `design_references/Vocello iOS/player.jsx` - inline and full player behavior.
 - `design_references/Vocello iOS/screens.jsx` - Voices, History, Settings surfaces.
 
-Open `index.html` in the Codex in-app browser or through a local static server. Interact with every relevant state before editing SwiftUI: switch Studio modes, open pickers, open Settings panels, play previews, generate, dismiss, and expand the inline player.
+Open `index.html` in a browser or through a local static server. Interact with every relevant state before editing SwiftUI: switch Studio modes, open pickers, open Settings panels, play previews, generate, dismiss, and expand the inline player.
 
 Do not rely on a single screenshot. Measure the DOM/CSS when layout behavior matters.
 

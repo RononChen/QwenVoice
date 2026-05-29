@@ -2,19 +2,7 @@
 
 Canonical guide for driving the Vocello **Debug build** with the **native `computer-use` MCP** (`mcp__computer-use__*`) plus the agent's own vision. Pair with [`ui-test-surface.md`](ui-test-surface.md) for element labels, smoke/bench skeletons, and verification commands.
 
-The driving model is deliberately thin: **the agent looks at a screenshot, finds the element by sight, and clicks its pixel — no AX-id resolution, no coordinate scaling, no System-Events AppleScript.** All *measurement* stays in the harness (OSSignpost + SQLite), so timing accuracy never depends on how the UI was driven.
-
-## What changed vs. the legacy flow
-
-| Legacy (Cursor `user-computer-use` + osascript) | Native vision-first |
-|---|---|
-| `CallMcpTool` server `user-computer-use`, tool `computer`, `action:` dispatch | `mcp__computer-use__screenshot` / `left_click` / `type` / `key` |
-| `scripts/uitest.sh screen-locate <ax-id> $IW $IH` → scaled pixel coords | Look at the screenshot, click the element's pixel directly |
-| `scripts/uitest.sh locate <ax-id>` (System Events) for presence checks | Read the screenshot; the element is either visible or it isn't |
-| System Events Accessibility grant required for driving | Only the computer-use access grant for `Vocello` |
-| `super` = Command | `cmd` = Command |
-
-`locate` / `screen-locate` still exist in `scripts/uitest.sh` as an **optional fallback** (see "When vision is ambiguous"), but they are no longer on the happy path.
+The driving model is deliberately thin: **the agent looks at a screenshot, finds the element by sight, and clicks its pixel — no AX-id resolution, no coordinate scaling, no System-Events AppleScript.** All *measurement* stays in the harness (OSSignpost + SQLite), so timing accuracy never depends on how the UI was driven. `locate` / `screen-locate` remain in `scripts/uitest.sh` only as an **optional fallback** (see "When vision is ambiguous"); they are not on the happy path.
 
 ## Access (once per session)
 

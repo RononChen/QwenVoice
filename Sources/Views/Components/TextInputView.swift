@@ -162,7 +162,7 @@ struct ScriptTextEditor: NSViewRepresentable {
             DispatchQueue.main.async { isFocused = focused }
         }
         #if DEBUG
-        // Codex Computer Use build 793 (legacy) crashed while transforming the
+        // A legacy computer-use automation build crashed while transforming the
         // AppKit NSTextView AXTextArea subtree. Keep the outer scroll view
         // discoverable via textInput_textEditor and let UI tests click it
         // by coordinates, but hide the nested text area in Debug builds.

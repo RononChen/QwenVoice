@@ -128,7 +128,7 @@ Project and automation source of truth:
 - `scripts/`
 - `config/apple-platform-capability-matrix.json`
 
-The only maintained GitHub workflow is `.github/workflows/release.yml`: macOS DMG packaging plus iOS compile-safety, with no tests, smoke, benchmarks, or signed iOS IPA. XCTest targets and the legacy Python/CI benchmark harnesses were retired in May 2026 after harness-driven churn made them unreliable. Build, packaging, signing, notarization, iPhone archive/export, and real-device Debug validation are driven locally on Mac mini M2 via the `scripts/` tooling. Behavioral verification is local-only: manual app acceptance, the maintained Codex-driven macOS `scripts/uitest.sh` smoke/bench harness, and iPhone screen-mirror proof through `scripts/ios_device.sh` when hardware behavior matters. Debug macOS checks use `./scripts/build.sh run` or `scripts/uitest.sh prep` against the persistent `QwenVoice-Debug` store. Release macOS checks use `build/Release/Vocello.app` after `./scripts/release.sh`; that repo-local app gets a fresh release-id-specific app-support folder and preferences suite.
+The only maintained GitHub workflow is `.github/workflows/release.yml`: macOS DMG packaging plus iOS compile-safety, with no tests, smoke, benchmarks, or signed iOS IPA. XCTest targets and the legacy Python/CI benchmark harnesses were retired in May 2026 after harness-driven churn made them unreliable. Build, packaging, signing, notarization, iPhone archive/export, and real-device Debug validation are driven locally on Mac mini M2 via the `scripts/` tooling. Behavioral verification is local-only: manual app acceptance, the maintained agent-driven macOS `scripts/uitest.sh` smoke/bench harness, and iPhone screen-mirror proof through `scripts/ios_device.sh` when hardware behavior matters. Debug macOS checks use `./scripts/build.sh run` or `scripts/uitest.sh prep` against the persistent `QwenVoice-Debug` store. Release macOS checks use `build/Release/Vocello.app` after `./scripts/release.sh`; that repo-local app gets a fresh release-id-specific app-support folder and preferences suite.
 
 Key local checks:
 
@@ -148,7 +148,7 @@ For deterministic local compile proof, prefer `./scripts/build_foundation_target
 
 The maintained local build layout now uses only two top-level folders under `build/`:
 
-- `build/Debug/` for development builds, Debug DerivedData, foundation compile-proof output, diagnostics, and Codex smoke/bench artifacts.
+- `build/Debug/` for development builds, Debug DerivedData, foundation compile-proof output, diagnostics, and agent smoke/bench artifacts.
 - `build/Release/` for macOS GitHub release artifacts, release DerivedData, release logs/metadata, source packages, `.xcresult` bundles, and iOS TestFlight archive/export output.
 
 ## Current Documentation Boundaries
