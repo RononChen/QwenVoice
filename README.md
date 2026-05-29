@@ -123,11 +123,8 @@ Useful checks:
 
 More technical details:
 
-- [`docs/README.md`](docs/README.md) - documentation index
-- [`docs/reference/current-state.md`](docs/reference/current-state.md) - current repo facts
-- [`docs/reference/release-readiness.md`](docs/reference/release-readiness.md) - release policy and signoff gates
+- [`CLAUDE.md`](CLAUDE.md) - repo guide: build, architecture, engine invariants, release policy, conventions
 - [`docs/reference/privacy-storage.md`](docs/reference/privacy-storage.md) - local storage and deletion details
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) - contributor workflow
 
 ## License
 

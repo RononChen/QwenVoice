@@ -110,7 +110,4 @@ When you want to advance the vendored copy to a newer upstream revision:
 - **Do not rename vendor products** (`MLXAudioCore`, `MLXAudioTTS`). The root `project.yml` and every import in `Sources/QwenVoiceCore/` would need a coordinated change.
 - **Do not mass-reformat the vendor tree.** Preserve upstream code style so future upstream diffs stay readable.
 
-See also:
-
-- [`vendoring-runtime.md`](vendoring-runtime.md) — runtime/packaging boundaries.
-- [`current-state.md`](current-state.md) — vendored native backend listed under Architecture.
+See also [`../../CLAUDE.md`](../../CLAUDE.md) — Architecture (vendored backend), SPM dependencies, and Conventions.

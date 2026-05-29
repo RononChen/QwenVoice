@@ -21,9 +21,9 @@ name: Release
 #     profiles bound to com.patricedery.vocello and
 #     com.patricedery.vocello.engine-extension, and Apple's approval of the
 #     com.apple.developer.kernel.increased-memory-limit entitlement,
-#     none of which are in place as of v2.0.0. See the iOS shipping
-#     plan in docs/reference/release-readiness.md for the rollout
-#     sequence.
+#     none of which are in place as of v2.0.0. See CLAUDE.md
+#     "Release & iPhone status" and the entitlement request packet
+#     under docs/reference/ for the rollout sequence.
 #
 # Toolchain pinning mirrors the local setup documented in CLAUDE.md:
 #   - Xcode 26.0 (project.yml `xcodeVersion: "26.0"`)

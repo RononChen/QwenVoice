@@ -7,8 +7,7 @@ This guide is a supplemental prompt-writing reference for the shipped macOS app.
 For current repo truth about app structure, workflows, or supported behavior, trust:
 
 1. `README.md`
-2. `docs/reference/current-state.md`
-3. `CONTRIBUTING.md` for repository workflow rules
+2. `CLAUDE.md` (repo guide: architecture, build, conventions)
 
 ## What the App Exposes
 
@@ -87,5 +86,5 @@ Voice Cloning support text:
 ## Related Docs
 
 - [`../README.md`](../README.md)
-- [`reference/current-state.md`](reference/current-state.md)
-- [`reference/emotion-delivery-improvements.md`](reference/emotion-delivery-improvements.md) — rationale and rewrite table for the shipped 9 × 3 preset instruction strings (`Sources/Models/EmotionPreset.swift`), plus the Voice Design "Voice character / Delivery" framing in `GenerationSemantics.designInstruction(...)`.
+- [`../CLAUDE.md`](../CLAUDE.md) — repo architecture, build, and conventions
+- `Sources/Models/EmotionPreset.swift` — the shipped 9 × 3 preset instruction strings; `Sources/QwenVoiceCore/GenerationSemantics.swift` assembles the Voice Design "Voice character / Delivery" framing.

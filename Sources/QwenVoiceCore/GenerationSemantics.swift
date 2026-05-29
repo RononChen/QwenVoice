@@ -205,8 +205,7 @@ public enum GenerationSemantics {
         // contains any diction/clarity tokens. Stops the model from receiving
         // "…with clear articulation… Native English pronunciation with clear
         // English diction and natural stress." which is redundant and can
-        // crowd out the dominant emotion signal. See
-        // docs/reference/emotion-delivery-improvements.md.
+        // crowd out the dominant emotion signal.
         let baseLowercased = trimmedBase.lowercased()
         let dictionTokens = [
             "clear", "clearly", "diction", "articulation",

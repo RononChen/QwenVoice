@@ -2,7 +2,7 @@
 
 This packet is the source of truth for requesting Apple's increased-memory entitlement for the iOS app and engine extension.
 
-**Hub:** [`ios-shipping.md`](ios-shipping.md) · **Tracker (submission status):** [`ios-increased-memory-entitlement-tracker.md`](ios-increased-memory-entitlement-tracker.md)
+Status context: [`../../CLAUDE.md`](../../CLAUDE.md) § "Release & iPhone status".
 
 > **Note:** the copy-ready request text, identifiers, and Apple-portal steps below are the enduring value of this packet and are unaffected. The on-device evidence-capture and verify recipes (which used the removed `ios_device.sh` / `ios_device_proof_matrix.sh` scripts) are **not currently runnable** — those scripts were removed in the testing-harness cleanup and a device deploy/proof path would need to be re-established before capturing fresh on-device evidence.
 

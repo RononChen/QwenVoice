@@ -63,10 +63,10 @@ Two design-context files in this directory encode the website's rules:
 
 The product's ground truth lives in the parent QwenVoice app repo. When making product claims on the site (model variants, hardware requirements, emotion presets, speaker names, OS requirements), cross-reference:
 
-- `../docs/reference/current-state.md` — current repo facts, model variant policy, distribution.
+- `../CLAUDE.md` — repo facts: model variant policy, architecture, distribution.
 - `../Sources/Resources/qwenvoice_contract.json` — model registry, speakerMetadata, Hugging Face revisions.
 - `../Sources/Models/EmotionPreset.swift` — actual emotion presets (8 non-Neutral × 3 intensities + Neutral).
-- `../docs/reference/emotion-delivery-improvements.md` — Voice Cloning has no controllable delivery (engine path doesn't accept it).
+- Voice Cloning has no controllable delivery — the engine path doesn't accept emotion/intensity for clone.
 
 The site has drifted from ground truth multiple times during iteration. Don't trust the existing copy — verify against the upstream.
 
