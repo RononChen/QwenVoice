@@ -105,8 +105,6 @@ If triggered:
 2. Re-run phase 3 cells; compare extension peak RSS and admission events.
 3. Document quality tradeoff in `release-readiness.md`.
 
-See `scratch/ios-06b-eval-deferred-2026-05-27.md` for rationale snapshot.
-
 ## Artifacts checklist
 
 After each phase, archive under `build/Debug/ios-device/runs/<run-id>/`:

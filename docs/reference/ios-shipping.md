@@ -57,4 +57,4 @@ Capability matrix: `config/apple-platform-capability-matrix.json`.
 
 ## Deferred work (do not start early)
 
-- **0.6B Speed on iOS catalog** — only if entitled 1.7B proof still fails ([`ios-device-proof-matrix.md`](ios-device-proof-matrix.md) § Phase 6). Internal note: `scratch/ios-06b-eval-deferred-2026-05-27.md`.
+- **0.6B Speed on iOS catalog** — only if entitled 1.7B proof still fails ([`ios-device-proof-matrix.md`](ios-device-proof-matrix.md) § Phase 6).
