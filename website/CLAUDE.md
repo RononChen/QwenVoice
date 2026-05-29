@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (and other agents) when working with 
 
 ## What this is
 
-A marketing site for **Vocello** (formerly QwenVoice), a local-first Mac TTS app. Single-page React + Vite. This directory lives inside the QwenVoice monorepo at `website/` and is deployed by Vercel with `website/` as the project root. The site is the brand surface for the app in the parent repo — see "Content accuracy" below.
+A marketing site for **Vocello** (formerly QwenVoice), a local-first Mac TTS app. Single-page React + Vite. This directory lives inside the QwenVoice monorepo at `website/` and is deployed by Vercel with `website/` as the project root. The site is the brand surface for the app in the parent repo — see "Content accuracy" below. For repo-wide conventions, the app engine, and the source-of-truth order, see the root [`../CLAUDE.md`](../CLAUDE.md); this file is scoped to the website only.
 
 ## Commands
 
@@ -54,7 +54,7 @@ When changing grid layouts at narrow breakpoints, **use `grid-template-columns: 
 
 Two design-context files in this directory encode the website's rules:
 
-- **`PRODUCT.md`** — brand voice, register (`brand`, not product), copy rules. Required by the `impeccable:impeccable` skill. Key constraints:
+- **`PRODUCT.md`** (i.e. `website/PRODUCT.md`, the brand doc — distinct from the repo-root `PRODUCT.md` app-product doc) — brand voice, register (`brand`, not product), copy rules. Required by the `impeccable:impeccable` skill. Key constraints:
   - Say *local*, not *offline* or *on-device*, unless the technical distinction matters.
   - Sentence case. Reserve all caps for tiny labels only.
   - **No em dashes in visible copy.** Use commas, colons, semicolons, periods, or parentheses. CI for this is a `document.body` text-node walk for the em-dash character — run it after any copy change.
