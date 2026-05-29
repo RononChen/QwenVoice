@@ -397,8 +397,6 @@ These remain in `scripts/uitest.sh` for the rare case where two controls are vis
 
 - **`screen-locate <ax-id> <img-w> <img-h>`** — returns screenshot-pixel coords for an id. Only reach for it when sight genuinely can't separate two controls.
 
-- **`window-locate` / `scaled-locate`** — dead legacy helpers; ignore.
-
 ### Elements the AX tree hides (vision handles these natively)
 
 Some controls aren't exposed to the accessibility tree even though they carry an `accessibilityIdentifier(...)` in source — notably the Speed/Quality variant toggle buttons and open saved-voice dropdown rows. The legacy flow needed a "click visually" fallback for these; vision-first clicks them like anything else, so they are no longer a special case. The only consequence: the optional `locate` fallback returns non-zero for those ids, so confirm them with a `screenshot`, not with `locate`.

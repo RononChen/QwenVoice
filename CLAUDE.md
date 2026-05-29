@@ -330,9 +330,13 @@ Non-obvious runtime behavior added across the May 2026 Phase 1+2+3 rollout. Futu
 
 `NativeMemoryPolicyResolver` picks a policy per `NativeDeviceMemoryClass` (floor8GBMac, mid16GBMac, highMemoryMac, iPhonePro). Key tier-specific behaviors:
 
-- **floor8GBMac**: `clearCacheAfterGeneration: true`, `unloadAfterIdleSeconds: 120` (adaptive — see below), clone cache capacity = 1, `customPrewarmPolicy: .skipDedicatedCustomPrewarm` (`EngineServiceHost.swift` sets this conditionally). Custom Voice doesn't run a dedicated prewarm — the work moves into the first generation proper.
-- **mid16GBMac / highMemoryMac**: `customPrewarmPolicy: .eager`, longer idle windows, larger clone caches.
-- **iPhonePro**: tightest tier — cache 128 MB, unload after 30 s, clone cache = 1.
+- **floor8GBMac**: `clearCacheAfterGeneration: true`, `unloadAfterIdleSeconds: 120` (adaptive — see below), clone cache capacity = 1, `customPrewarmPolicy: .skipDedicatedCustomPrewarm` (`EngineServiceHost.swift` sets this conditionally), streaming tuning `clearMLXCacheOnStreamChunkEmit: true` / `mlxTokenMemoryClearCadence: 50`. **No hard MLX `Memory.memoryLimit`** — relies on `cacheLimitBytes` (256 MB); a 6 GB cap was tried and reverted in `b77c08e` (it tripped spurious OOM→Speed downgrades during cold-load peaks). Custom Voice doesn't run a dedicated prewarm — the work moves into the first generation proper.
+- **mid16GBMac / highMemoryMac**: `customPrewarmPolicy: .eager`, longer idle windows, larger clone caches. Streaming tuning: mid16GBMac `clearMLXCacheOnStreamChunkEmit: true` / cadence 50; highMemoryMac `false` / cadence 200 (skips the per-chunk cache clear — it has the headroom).
+- **iPhonePro**: tightest tier — cache 128 MB, unload after 30 s, clone cache = 1, streaming tuning `true` / 50. **No default hard `Memory.memoryLimit`** (a 5 GB default was tried and reverted in `b77c08e` — meaningless below the ~3 GB Jetsam ceiling); set only via the Debug `QVOICE_IOS_MLX_MEMORY_LIMIT_MB` override (process-lifetime).
+
+### Streaming memory tuning
+
+The per-tier `clearMLXCacheOnStreamChunkEmit` and `mlxTokenMemoryClearCadence` fields (on `NativeMemoryPolicy`) are pushed into the vendored backend via `Qwen3StreamingMemoryTuning.apply(clearOnStreamChunk:tokenCadence:)` (`third_party_patches/mlx-audio-swift/.../Qwen3StreamingMemoryTuning.swift`), a lock-guarded process-global. `clearOnStreamChunk` gates the per-streamed-chunk `clearGenerationCache()` in `Qwen3TTS.swift` (off on highMemoryMac); `tokenCadence` overrides the token-loop `Memory.clearCache()` interval. These two values are **constant per device class**, so the global is set to the same values across all modes/generations on a given machine — there is no cross-generation drift to worry about.
 
 ### runtime memory-pressure monitor
 
@@ -346,15 +350,25 @@ iPhone memory remediation notes: physical-device model installs do not eager-loa
 
 ### Prewarm reentrancy gate (CRITICAL)
 
-`NativeEngineRuntime` is a Swift actor, but actors don't prevent reentrancy across suspension points. Both `ensureWarmStateIfNeeded` (Custom + Design + Clone path) and `ensureDesignConditioningWarmStateIfNeeded` call `try await model.prewarm*(...)`, which releases actor exclusivity while MLX work runs. Without protection, two callers (typically `prefetchInteractiveReadinessIfNeeded` + `prepareGeneration` racing on launch) reach MLX's KV cache slice updates concurrently and trip an assertion (crashed the engine in May 2026 — see the QwenVoiceEngineService `.ips` from 2026-05-15 under `~/Library/Logs/DiagnosticReports/`).
+`NativeEngineRuntime` is a Swift actor, but actors don't prevent reentrancy across suspension points. Both `ensureWarmStateIfNeeded` (Custom + Design + Clone path) and `ensureDesignConditioningWarmStateIfNeeded` call `try await model.prewarm*(...)`, which releases actor exclusivity while MLX work runs. Without protection, two callers (typically `prefetchInteractiveReadinessIfNeeded` + `prepareGeneration` racing on launch) reach MLX's KV cache slice updates concurrently and trip an assertion (crashed the engine in May 2026 with a C++ KV-cache assertion).
 
 The fix is a monitor-style gate: `prewarmInFlight: Bool` + `prewarmWaiters: [CheckedContinuation<Void, Never>]` with `acquirePrewarmSlot()` / `releasePrewarmSlot()` helpers. Both ensure* methods call `await acquirePrewarmSlot()` first and `defer { releasePrewarmSlot() }`. **Do not remove the gate or restructure the prewarm path without preserving this serialization.**
+
+**Anti-pattern (regressed once, fixed in `b77c08e`):** never pair `try? await acquirePrewarmSlot()` with an *unconditional* `defer { releasePrewarmSlot() }`. On a throw (cancellation) the slot is NOT held, so the defer releases a slot owned by another task and breaks the gate — reintroducing the concurrent-prewarm crash. Only register the release when the slot was actually acquired: `do { try await acquirePrewarmSlot() } catch { return }` then `defer { releasePrewarmSlot() }` (this is what `trimMemory` does).
 
 ### Generation ownership and cancellation (CRITICAL)
 
 `MLXTTSEngine` owns admission for model-mutating work. Generation, batch generation, explicit load/unload, proactive warmup/prefetch, and clone priming must go through its model-operation gate so only one operation mutates model/runtime state at a time. Proactive warm operations skip/defer when the lease is occupied; user-triggered generation rejects cleanly when another generation is active.
 
 The macOS and iOS app-facing stores expose `hasActiveGeneration`, and generation UIs must use that shared state to disable cross-mode controls and show cancellation. The macOS XPC host and iOS extension host reject concurrent generation instead of replacing active handles. Streaming chunks carry a UUID `generationID`; numeric `requestID` remains useful for logs/signposts but must not be the sole playback-session identity across service/runtime restarts. Vendored Qwen streaming producers must cancel their producer `Task` from `AsyncThrowingStream` termination and check cancellation inside token/decode loops so orphaned consumers cannot leave MLX generation running.
+
+### Off-MainActor event forwarding + chunk-sequence diagnostics
+
+The XPC hosts (`EngineServiceHost`, `VocelloEngineExtensionHost`) drain `engine.events` on a `Task.detached(priority: .utility)` (off MainActor) so the synchronous XPC encode can't make the consumer lag the producer — this is the resolution of the `d93612c` chunk-drop trap (see Known traps). `publish(.generationChunk(event))` runs off-main, guarded by `sessionLock`; only `lastPublishedEvent` hops to MainActor. Each `GenerationChunk` carries a monotonic `chunkSequence` (`UInt64(chunkIndex)`, reset per generation); the forwarding loop tracks it **per `generationID`** (reset when the id changes — otherwise the detector dies after generation #1) and records `engine_*_chunk_gap` to `native-events.jsonl` on a forward jump >1. Diagnostics only, and fired on a background task so the file I/O never blocks chunk delivery.
+
+### LatestEventCoalescer
+
+`MLXTTSEngine` feeds snapshot consumers via `LatestEventCoalescer` (`Sources/QwenVoiceCore/LatestEventCoalescer.swift`), a lock-guarded coalescing slot drained by one long-lived MainActor task. The off-MainActor MLX producer `push`es the latest preview-stripped event without allocating a `Task { @MainActor }` per chunk; the drain task updates `latestEvent`. `stop()` cancels the drain then `clear()`s the slot (`waitForUpdate()` is cancellation-aware so the drain can't leak). This replaced per-chunk MainActor task spawning.
 
 ### Quality → lower-memory OOM fallback on floor8GBMac
 

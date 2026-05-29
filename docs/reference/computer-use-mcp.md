@@ -97,7 +97,6 @@ Full list: `scripts/uitest.sh help`.
 
 - **`user-automation-mcp`** and **osascript `keystroke` / `click at`** — global coords hit whatever window has focus; never use for Vocello UI.
 - **Remembered Picker menu-item coordinates** after the first open in a session — use the keyboard pattern above.
-- **`window-locate` / `scaled-locate`** — dead legacy coordinate helpers; ignore.
 
 ## Permissions
 
