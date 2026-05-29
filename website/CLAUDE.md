@@ -29,7 +29,7 @@ No tests, no lint config, no GitHub Actions workflow. Behavioral verification is
 
 `src/App.jsx` is a **thin composer** (~30 lines). All UI is split across:
 
-- `src/sections/` — one file per page section: `Nav`, `Hero`, `WorkflowBand` (rendered 3× from data), `Listen`, `TryIt`, `HowItRuns`, `FinalCTA`, `Footer`.
+- `src/sections/` — one file per page section, in render order: `Nav`, `Hero`, `WorkflowBand` (rendered 3× from data), `Listen`, `WhyCloud`, `TryIt`, `HowItRuns`, `Limitations`, `FinalCTA`, `Footer`.
 - `src/components/` — three shared primitives:
   - `Icon.jsx` — single switch over a ~19-case SVG vocabulary. Also exports `makeWaveBars` (deterministic bar-height generator).
   - `Waveform.jsx` — bar waveform for Listen rows.
