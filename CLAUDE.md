@@ -92,7 +92,7 @@ Two-platform Swift codebase with an out-of-process engine per platform.
 
 ## Testing
 
-There is **no automated UI-driving, smoke, or benchmark harness**. Behavioral validation is **manual local app acceptance**: `./scripts/build.sh run`, exercise the affected paths by hand, listen to the output. The only automated gate is build/compile-safety (`./scripts/build.sh debug`, `./scripts/build_foundation_targets.sh ios`). Don't reintroduce a test bundle, UI/bench/device harness, smoke/bench runbooks, committed timing baselines, or extra GitHub workflows without an explicit maintainer decision — `scripts/check_project_inputs.sh` guards the retired surfaces (prohibited-paths list + working-tree regex sweep).
+There is **no automated UI-driving, smoke, or benchmark *script* harness** (no scripts, no committed baselines). Behavioral validation is **manual or agent-driven**: `./scripts/build.sh run`, then exercise the app by hand **or drive it live via the native `computer-use` MCP** (Cowork/Claude Code) — see [`docs/reference/ui-driving.md`](docs/reference/ui-driving.md). The only automated gate is build/compile-safety (`./scripts/build.sh build`, `./scripts/build_foundation_targets.sh ios`). Benchmark latency is captured via Instruments (`xctrace … os-signpost`) or the DebugMode `native-events.jsonl` telemetry — **not** the unified `log` (it does not surface the engine's `OSSignposter` signposts). Don't reintroduce a test bundle, UI-driving/bench script harness, smoke/bench runbook files, committed timing baselines, or extra GitHub workflows without an explicit maintainer decision — `scripts/check_project_inputs.sh` guards the retired surfaces.
 
 ## Release & iPhone status
 
@@ -120,6 +120,7 @@ iPhone is compile-safe only; on-device generation, memory proof, and TestFlight 
 - [`docs/reference/privacy-storage.md`](docs/reference/privacy-storage.md) — local model/output/history/voice storage, App Group, and deletion paths.
 - [`docs/reference/ios-increased-memory-entitlement-request.md`](docs/reference/ios-increased-memory-entitlement-request.md) — Apple increased-memory entitlement request packet.
 - [`docs/reference/mlx-audio-swift-patching.md`](docs/reference/mlx-audio-swift-patching.md) — vendored backend patch procedure + validation gates.
+- [`docs/reference/ui-driving.md`](docs/reference/ui-driving.md) — driving UI tests/reviews/benchmarks via computer-use (macOS) + iPhone Mirroring (iOS).
 - `docs/qwen_tone.md` — prompt/tone guidance for voice generation.
 - `design_references/` — Vocello design system + iOS prototype (read before touching chrome/tints).
 - `website/CLAUDE.md` — marketing-site guidance (React + Vite).
