@@ -50,9 +50,16 @@ enum SpeechContentCheck {
             print("[SpeechContentCheck] skipped: Speech recognition not authorized")
             return
         }
-        guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable,
+        // Use a fixed en-US recognizer for the (English) benchmark corpus rather
+        // than `SFSpeechRecognizer()` (system locale) — on a non-English Mac the
+        // default recognizer would try to transcribe English audio with the wrong
+        // language model. Fall back to the system-locale recognizer if en-US is
+        // unavailable.
+        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+            ?? SFSpeechRecognizer(),
+              recognizer.isAvailable,
               recognizer.supportsOnDeviceRecognition else {
-            print("[SpeechContentCheck] skipped: on-device recognition unavailable")
+            print("[SpeechContentCheck] skipped: on-device recognition unavailable (locale \(SFSpeechRecognizer(locale: Locale(identifier: "en-US"))?.locale.identifier ?? "n/a"))")
             return
         }
 
@@ -80,6 +87,21 @@ enum SpeechContentCheck {
 
     // MARK: - Speech
 
+    private static let authLock = NSLock()
+    nonisolated(unsafe) private static var authorizationRequestedThisProcess = false
+
+    /// One-shot per process: returns true only for the first caller, so the
+    /// system permission dialog is requested at most once. A background QC check
+    /// must never re-prompt on every generation (that floods the user with
+    /// dialogs while the status is still notDetermined).
+    private static func claimAuthorizationRequest() -> Bool {
+        authLock.lock()
+        defer { authLock.unlock() }
+        if authorizationRequestedThisProcess { return false }
+        authorizationRequestedThisProcess = true
+        return true
+    }
+
     private static func ensureAuthorized() async -> Bool {
         switch SFSpeechRecognizer.authorizationStatus() {
         case .authorized:
@@ -87,6 +109,12 @@ enum SpeechContentCheck {
         case .denied, .restricted:
             return false
         case .notDetermined:
+            // Prompt at most once per process; subsequent generations skip the
+            // check rather than stacking another permission dialog.
+            guard claimAuthorizationRequest() else {
+                print("[SpeechContentCheck] skipped: Speech permission not yet granted (enable it in System Settings → Privacy & Security → Speech Recognition)")
+                return false
+            }
             return await withCheckedContinuation { continuation in
                 SFSpeechRecognizer.requestAuthorization { status in
                     continuation.resume(returning: status == .authorized)

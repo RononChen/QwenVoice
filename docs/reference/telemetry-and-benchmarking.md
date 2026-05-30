@@ -462,9 +462,14 @@ dropouts, garbled words, "sounds worse"). Three layers, increasing in what they 
    `near_silent` (dead output). Surfaced as the summarizer's **`QC`** column. **Any `fail` blocks
    promoting a backend change.** Thresholds are conservative + tunable (`makeAudioQCReport`).
 2. **ASR content accuracy — opt-in.** Launch with `QWENVOICE_TRANSCRIPT_CHECK=1`: after each take the app
-   transcribes it on-device (Apple Speech, no model download) and records word error rate vs the input
-   text → the summarizer's **`WER%`** column. Catches garbled / wrong / dropped words. Needs the Speech
-   permission + an on-device locale model; skips gracefully when unavailable. Adds latency — dev/QC only.
+   transcribes it with Apple Speech (forced **on-device**, `requiresOnDeviceRecognition` — audio never
+   leaves the Mac) using a fixed **`en-US`** recognizer (the corpus is English; not the system locale),
+   and records word error rate vs the input text → the summarizer's **`WER%`** column. Catches garbled /
+   wrong / dropped words. **Requires:** (a) Speech Recognition granted to Vocello (System Settings →
+   Privacy & Security → Speech Recognition — the check requests it **at most once per process**, never
+   re-prompting on later generations), and (b) the **en-US on-device model installed** (set up via
+   System Settings → Keyboard → Dictation with English (US)). If either is missing it **skips gracefully**
+   (no row, no upload, `WER%` shows `-`). Adds latency — dev/QC only.
 3. **Human/agent listening pass — mandatory before merging a backend change.** No automated check judges
    subtle perceptual quality (timbre, prosody, naturalness). Generate the fixed corpus, play each take
    (drive via computer-use, see [`ui-driving.md`](ui-driving.md)), and listen for hiccups/artifacts/
