@@ -213,6 +213,25 @@ if [ -d "$PROJECT_DIR/Assets.xcassets" ]; then
     exit 1
 fi
 
+# Committed benchmark logs are permitted but must stay bounded: only compact
+# human-readable summaries under benchmarks/, each <= 256 KB, never raw *.jsonl
+# (raw diagnostics belong on disk / gitignored, not in git history). The retired
+# harness / baseline-manifest / banned-symbol checks above still apply everywhere.
+BENCHMARKS_DIR="$PROJECT_DIR/benchmarks"
+if [ -d "$BENCHMARKS_DIR" ]; then
+    BENCH_MAX_BYTES=$((256 * 1024))
+    if find "$BENCHMARKS_DIR" -type f -name '*.jsonl' -print -quit | grep -q .; then
+        echo "error: raw *.jsonl must not be committed under benchmarks/ (commit a compact summary; raw diagnostics are gitignored)." >&2
+        find "$BENCHMARKS_DIR" -type f -name '*.jsonl' >&2
+        exit 1
+    fi
+    while IFS= read -r oversized; do
+        echo "error: committed benchmark log exceeds 256 KB cap: ${oversized#"$PROJECT_DIR/"}" >&2
+        echo "Commit a compact summary instead (the summarizer table / a small JSON), not full logs." >&2
+        exit 1
+    done < <(find "$BENCHMARKS_DIR" -type f -size +"${BENCH_MAX_BYTES}"c)
+fi
+
 "$SCRIPT_DIR/check_backend_resource_contract.sh" --project
 "$SCRIPT_DIR/check_qwen3_backend_only.sh"
 

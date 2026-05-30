@@ -98,6 +98,12 @@ enum GenerationTelemetryMerger {
             } else {
                 try data.write(to: url, options: .atomic)
             }
+            // Cap the merged log the same way the per-layer logs are capped
+            // (oldest-first front trim) so benchmark logs can't blow out disk.
+            GenerationTelemetryJSONLSink.pruneJSONLFromFront(
+                at: url,
+                maxBytes: GenerationTelemetryJSONLSink.maxLogBytes
+            )
         } catch {
             print("[GenerationTelemetryMerger] Could not write merged telemetry for '\(merged.generationID)': \(error.localizedDescription)")
         }

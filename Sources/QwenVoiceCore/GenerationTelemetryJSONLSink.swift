@@ -11,6 +11,22 @@ public actor GenerationTelemetryJSONLSink {
 
     private let encoder: JSONEncoder
 
+    /// Storage budget for the append-only diagnostics so benchmark logs are
+    /// permitted but can't blow out disk. Auto-prune is oldest-first.
+    /// - Per JSONL log (`generations.jsonl` × layer, `generations-merged.jsonl`):
+    ///   trimmed from the front when it exceeds `maxLogBytes`. `QWENVOICE_DIAGNOSTICS_MAX_MB`
+    ///   scales this (per-log MB); unset ⇒ 8 MB.
+    /// - Verbose sidecars (`samples-<id>.jsonl`): newest `maxSidecarFiles` kept, total
+    ///   capped at `maxSidecarTotalBytes`.
+    public static let maxLogBytes: Int = {
+        let mb = ProcessInfo.processInfo.environment["QWENVOICE_DIAGNOSTICS_MAX_MB"]
+            .flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            .map { max(1, $0) } ?? 8
+        return mb * 1_024 * 1_024
+    }()
+    public static let maxSidecarFiles = 48
+    public static let maxSidecarTotalBytes = 64 * 1_024 * 1_024
+
     public init() {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -41,6 +57,7 @@ public actor GenerationTelemetryJSONLSink {
             var data = try encoder.encode(record)
             data.append(0x0A)
             try Self.append(data, to: url)
+            Self.pruneJSONLFromFront(at: url, maxBytes: Self.maxLogBytes)
         } catch {
             print("[GenerationTelemetryJSONLSink] Could not write telemetry for '\(record.generationID)': \(error.localizedDescription)")
         }
@@ -74,6 +91,11 @@ public actor GenerationTelemetryJSONLSink {
                 blob.append(line)
             }
             try blob.write(to: url, options: .atomic)
+            Self.pruneSidecars(
+                in: directory,
+                maxFiles: Self.maxSidecarFiles,
+                maxTotalBytes: Self.maxSidecarTotalBytes
+            )
         } catch {
             print("[GenerationTelemetryJSONLSink] Could not write raw samples for '\(generationID)': \(error.localizedDescription)")
         }
@@ -87,6 +109,70 @@ public actor GenerationTelemetryJSONLSink {
             try handle.write(contentsOf: data)
         } else {
             try data.write(to: url, options: .atomic)
+        }
+    }
+
+    /// Trim an append-only JSONL from the **front** (oldest rows) when it exceeds
+    /// `maxBytes`, keeping the newest whole lines within ~`maxBytes/2`. Trimming to
+    /// half is intentional: it amortizes the rewrite cost so a busy log isn't
+    /// rewritten on every append. Gated by a cheap size check — a no-op (just a
+    /// `stat`) on the common path. Best-effort: any failure leaves the file intact.
+    /// `public` so the macOS `GenerationTelemetryMerger` caps its merged file too.
+    public static func pruneJSONLFromFront(at url: URL, maxBytes: Int) {
+        guard maxBytes > 0 else { return }
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = (attrs[.size] as? NSNumber)?.intValue,
+              size > maxBytes else {
+            return
+        }
+        guard let data = try? Data(contentsOf: url) else { return }
+        let newline: UInt8 = 0x0A
+        let target = maxBytes / 2
+        // Scan backward for line boundaries; `keepFrom` walks to the oldest line
+        // start whose tail (`keepFrom..<end`) still fits `target`.
+        var keepFrom = data.count
+        var index = data.count - 1
+        while index >= 0 {
+            if data[index] == newline, index + 1 < keepFrom {
+                if data.count - (index + 1) > target { break }
+                keepFrom = index + 1
+            }
+            index -= 1
+        }
+        // If the whole file (incl. the leading line, which has no preceding
+        // newline) fits `target`, there's nothing to drop.
+        if data.count <= target { keepFrom = 0 }
+        guard keepFrom > 0, keepFrom < data.count else { return }
+        let trimmed = data.suffix(from: keepFrom)
+        try? trimmed.write(to: url, options: .atomic)
+    }
+
+    /// Delete oldest `samples-*.jsonl` sidecars until within both budgets.
+    private static func pruneSidecars(in directory: URL, maxFiles: Int, maxTotalBytes: Int) {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey]
+        ) else { return }
+        var sidecars = entries.filter {
+            $0.lastPathComponent.hasPrefix("samples-") && $0.pathExtension == "jsonl"
+        }
+        guard !sidecars.isEmpty else { return }
+        func modDate(_ u: URL) -> Date {
+            (try? u.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate ?? .distantPast
+        }
+        func byteSize(_ u: URL) -> Int {
+            (try? u.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+        }
+        // Newest first.
+        sidecars.sort { modDate($0) > modDate($1) }
+        var runningBytes = 0
+        for (offset, sidecar) in sidecars.enumerated() {
+            runningBytes += byteSize(sidecar)
+            if offset >= maxFiles || runningBytes > maxTotalBytes {
+                try? fm.removeItem(at: sidecar)
+            }
         }
     }
 }

@@ -63,6 +63,13 @@ Typical backend‑optimization invocation:
 QWENVOICE_DEBUG=1 QWENVOICE_NATIVE_TELEMETRY_MODE=verbose ./scripts/build.sh run
 ```
 
+### Related benchmark knobs (also propagated over the handshake)
+
+| Env | Effect |
+|---|---|
+| `QWENVOICE_SUPPRESS_WARMUP=1` | Skips proactive prewarm/clone‑priming so the first generation records its own **cold** load (`MacGenerationWarmupCoordinator`). App‑process only. |
+| `QWENVOICE_FORCE_MEMORY_CLASS=floor_8gb_mac` | Forces the device‑memory tier (`NativeDeviceClassGate`), propagated to the engine over `initialize`. Runs the constrained‑tier code paths so memory **pressure is measurable on any hardware**. See §11 "Memory & pressure pass". Accepts the `NativeDeviceMemoryClass` rawValues + aliases `8gb`/`16gb`. |
+
 ---
 
 ## 3. Architecture
@@ -114,6 +121,11 @@ folder when DebugMode is on, so real data is never polluted):
 | `*/native-events.jsonl` | engine/middle | Legacy: chunk‑sequence gaps + encode drops only. |
 
 One JSON object per line. Read with `jq` or Python (examples in [§10](#10-running--reading-a-benchmark)).
+
+**Bounded by design.** These are append‑only but **size‑capped + auto‑pruned** (oldest‑first) by
+`GenerationTelemetryJSONLSink`, so logs can't blow out disk: each `generations.jsonl` (incl. the merged
+file) is front‑trimmed past ~8 MB (`QWENVOICE_DIAGNOSTICS_MAX_MB` scales it), and verbose
+`samples-*.jsonl` sidecars are retained newest‑48 / ≤64 MB. No manual clearing needed for logs.
 
 ---
 
@@ -354,14 +366,52 @@ Prints a `mode × model × cold/warm` table (median over warm): RTF, tokens/s, T
 peak GPU / RSS MB, **`physFoot`** (phys_footprint peak — the Jetsam‑relevant OOM figure),
 **`headMin`** (min available headroom; iOS‑only, `-` on macOS), and **`trims`** (median
 `memory_trim` count for the cell, annotated with the worst level — `soft`/`hard`/`full`; derived
-from `stageMarks`, no new record field). Read‑only; joins `engine/` + `app/` rows by `generationID`.
-Pass a diagnostics dir as `$1` to summarize a different run. **Do not commit the output** as a
-baseline (guard policy); it's an ad‑hoc comparison.
+from `stageMarks`, no new record field). A header line shows the **tier** each row ran under (from
+`notes.deviceClass`) and flags a forced tier. A second block — **GPU MB by stage** (`load → stream
+→ peak → trim`, from `mlxMemoryByStage`) — shows *where* GPU memory grows across the pipeline and how
+much the post‑generation trim reclaims. Read‑only; joins `engine/` + `app/` rows by `generationID`.
+Pass a diagnostics dir as `$1` to summarize a different run. Compact **summaries may be committed**
+under `benchmarks/` (≤256 KB each, **no raw `*.jsonl`** — guard‑enforced); they're reference logs, not
+an auto‑compared baseline (those stay retired). Don't commit the raw diagnostics JSONL.
 
-**Watch for OOM regressions** when optimizing the backend on the `floor8GBMac` tier: a rising
-`physFoot` peak or any `hardTrim` in the `trims` column means a run is shedding model state under
-kernel pressure — the early OOM signal. `trims`/`pressure` read `0` on a high‑memory Mac (the
-pressure monitor never starts there); run the matrix on the constrained tier to exercise them.
+### Memory & pressure pass
+
+RAM usage (physFoot/RSS/peak‑GPU + the per‑stage GPU block) is captured on **every** run. But the
+**memory‑pressure** signals (`trims`/`pressure`) only fire on a pressure‑bound tier
+(`floor8GBMac`/`mid16GBMac`/`iPhonePro`), and `deviceClass()` is derived from real RAM — so on a
+high‑memory dev Mac they read `0`. To measure the constrained‑tier behavior (and pressure) **without
+8 GB hardware**, force the tier:
+
+```sh
+QWENVOICE_DEBUG=1 QWENVOICE_FORCE_MEMORY_CLASS=floor_8gb_mac QWENVOICE_SUPPRESS_WARMUP=1 ./scripts/build.sh run
+```
+
+`QWENVOICE_FORCE_MEMORY_CLASS` (accepts `floor_8gb_mac`/`mid_16gb_mac`/`high_memory_mac`/`iphone_pro`,
+or aliases `8gb`/`16gb`) is read in the app process and **propagated to the engine over the
+`initialize` IPC handshake** (env doesn't cross to the engine process — same path as `telemetryMode`).
+It makes the engine run the floor‑tier code paths: the pressure monitor **starts**, caches are tight,
+single‑gen clears + post‑batch hard trims fire, and idle‑unload is aggressive. Every engine row stamps
+`notes.deviceClass`, so the summarizer header shows `tier: floor_8gb_mac ⚠ forced` — never mistake a
+forced run for native‑tier data.
+
+To exercise **real kernel pressure** (so `memory_pressure` + pressure‑driven `memory_trim` marks
+appear), induce it mid‑generation from a Bash shell while a take is running:
+
+```sh
+sudo memory_pressure -l warn      # or: -l critical
+```
+
+The forced‑tier monitor observes it and the marks land on that generation's timeline. Then
+`python3 scripts/summarize_generation_telemetry.py` → confirm non‑zero `trims`/`pressure` and inspect
+`physFoot` + the GPU‑by‑stage block.
+
+> **Caveat:** on the forced floor tier, **Quality can be downgraded to Speed** by the OOM fallback in
+> `loadModel(id:)`. The row's `modelID` reveals the actual variant served — check it before attributing
+> a Quality cell. The forced tier changes real behavior **only while the env is set**; unset it for
+> normal use.
+
+**Watch for OOM regressions** when optimizing the backend: a rising `physFoot` peak, GPU‑stage peak,
+or any `hardTrim` in `trims` means a run is shedding model state under pressure — the early OOM signal.
 
 **Verify attribution:** for **Custom Voice and Voice Design**, each cold row must show
 `warmState":"cold"` (and carry `upstreamModelLoad` in `stageMarks`); warm rows show `"warm"`. If a

@@ -46,3 +46,10 @@ build_log*.txt
 # Code coverage artifacts
 *.profraw
 .vercel
+
+# Benchmark / diagnostics logs: commit only compact summaries under benchmarks/
+# (guard-enforced <=256 KB). Raw telemetry JSONL stays out of git — it lives on
+# disk under ~/Library/.../QwenVoice[-Debug]/diagnostics and auto-prunes.
+benchmarks/**/*.jsonl
+samples-*.jsonl
+**/diagnostics/
