@@ -75,6 +75,23 @@ def read_jsonl(path):
     return rows
 
 
+# Prompt-length buckets for the benchmark length sweep. Thresholds tied to the
+# fixed corpus (short ~35, medium ~110, long ~330 chars); see
+# docs/reference/telemetry-and-benchmarking.md. Rows with no promptChars
+# (pre-length-capture runs) bucket as "n/a".
+LEN_ORDER = {"short": 0, "medium": 1, "long": 2, "n/a": 3}
+
+
+def len_bucket(prompt_chars):
+    if not prompt_chars:
+        return "n/a"
+    if prompt_chars < 70:
+        return "short"
+    if prompt_chars > 220:
+        return "long"
+    return "medium"
+
+
 def load_runs(diag_dir):
     """Join engine + app rows by generationID. Returns list of per-run dicts."""
     engine = {r.get("generationID"): r for r in read_jsonl(os.path.join(diag_dir, "engine", "generations.jsonl"))}
@@ -119,6 +136,10 @@ def load_runs(diag_dir):
                 # Whether the tier was forced via QWENVOICE_FORCE_MEMORY_CLASS (vs the
                 # native tier) — so a real 8 GB Mac isn't mislabeled "forced".
                 "deviceClassForced": (e.get("notes") or {}).get("deviceClassForced") == "true",
+                # Input script length (notes.promptChars) → bucket for the
+                # short/medium/long sweep. RTF/decode/KV-cache all scale with it.
+                "promptChars": int((e.get("notes") or {}).get("promptChars") or 0),
+                "lenBucket": len_bucket(int((e.get("notes") or {}).get("promptChars") or 0)),
                 # GPU peak MB at pipeline boundaries (mlxMemoryByStage) — shows WHERE
                 # GPU memory grows and how much a trim reclaims.
                 "gpuByStage": gpu_peak_by_stage(e.get("mlxMemoryByStage") or {}),
@@ -229,27 +250,35 @@ def fmt(value, places=2):
 
 def select_headline_cell(cells, requested):
     """Pick the cell to summarize in a ledger row. `requested` is an optional
-    'mode/model/state' selector (model matched as a substring). Default: a warm
-    Custom Voice Quality cell, else any warm cell, else the first cell."""
+    'mode/model/state/len' selector (model matched as a substring; len optional).
+    Default: a warm + medium-length Custom Voice Quality cell, else any warm
+    medium cell, else any warm cell, else the first cell."""
     keys = list(cells.keys())
     if requested:
         parts = requested.split("/")
         want_mode = parts[0] if len(parts) > 0 else ""
         want_model = parts[1] if len(parts) > 1 else ""
         want_state = parts[2] if len(parts) > 2 else ""
+        want_len = parts[3] if len(parts) > 3 else ""
         for key in keys:
-            mode, model_id, state = key
+            mode, model_id, state, lb = key
             if want_mode and mode != want_mode:
                 continue
             if want_model and want_model.lower() not in model_id.lower():
                 continue
             if want_state and state != want_state:
                 continue
+            if want_len and lb != want_len:
+                continue
             return key
         return None
-    # Default preference: custom + quality + warm → any warm → first.
+    # Default preference: custom + quality + warm + medium → any warm+medium →
+    # any warm → first.
     for key in keys:
-        if key[0] == "custom" and "quality" in key[1].lower() and key[2] == "warm":
+        if key[0] == "custom" and "quality" in key[1].lower() and key[2] == "warm" and key[3] == "medium":
+            return key
+    for key in keys:
+        if key[2] == "warm" and key[3] == "medium":
             return key
     for key in keys:
         if key[2] == "warm":
@@ -264,9 +293,9 @@ def emit_ledger_row(cells, label):
     if key is None:
         print("| (no rows) |")
         return 1
-    mode, model_id, state = key
+    mode, model_id, state, lb = key
     group = cells[key]
-    cell = f"{mode}/{short_model(model_id)}/{state}"
+    cell = f"{mode}/{short_model(model_id)}/{state}/{lb}"
     note = (label.get("note") or "").replace("|", "/")
     cols = [
         today_str(),
@@ -303,10 +332,10 @@ def main():
         print("Run the benchmark first (see docs/reference/telemetry-and-benchmarking.md).")
         return 1
 
-    # Group by (mode, modelID, warmState).
+    # Group by (mode, modelID, warmState, lenBucket).
     cells = defaultdict(list)
     for run in runs:
-        cells[(run["mode"], run["modelID"], run["warmState"])].append(run)
+        cells[(run["mode"], run["modelID"], run["warmState"], run["lenBucket"])].append(run)
 
     if args.ledger_row:
         return emit_ledger_row(cells, {"note": args.label, "cell": args.cell})
@@ -317,7 +346,7 @@ def main():
     print(f"\n[{stamp}]")
 
     header = (
-        f"{'mode':<8} {'model':<26} {'state':<5} {'n':>2} "
+        f"{'mode':<8} {'model':<26} {'state':<5} {'len':<6} {'n':>2} "
         f"{'RTF':>6} {'tok/s':>7} {'TTFC ms':>8} {'decode ms':>9} "
         f"{'peakGPU':>8} {'physFoot':>8} {'trims':>9} {'QC':<12}"
     )
@@ -331,12 +360,13 @@ def main():
     print(header)
     print("-" * len(header))
 
-    for key in sorted(cells.keys(), key=lambda k: (k[0], short_model(k[1]), k[2] != "cold")):
-        mode, model_id, state = key
+    cell_sort = lambda k: (k[0], short_model(k[1]), k[2] != "cold", LEN_ORDER.get(k[3], 9))
+    for key in sorted(cells.keys(), key=cell_sort):
+        mode, model_id, state, lb = key
         group = cells[key]
         n = len(group)
         print(
-            f"{mode:<8} {short_model(model_id):<26} {state:<5} {n:>2} "
+            f"{mode:<8} {short_model(model_id):<26} {state:<5} {lb:<6} {n:>2} "
             f"{fmt(med(r['rtf'] for r in group)):>6} "
             f"{fmt(med(r['tokps'] for r in group)):>7} "
             f"{fmt(med(r['ttfcMS'] for r in group), 0):>8} "
@@ -350,17 +380,17 @@ def main():
     # GPU memory by pipeline stage (peak MB) — shows WHERE GPU memory grows and how
     # much the post-generation trim reclaims. Median over each cell's runs.
     gpu_header = (
-        f"{'mode':<8} {'model':<26} {'state':<5} "
+        f"{'mode':<8} {'model':<26} {'state':<5} {'len':<6} "
         f"{'load':>8} {'stream':>8} {'peak':>8} {'trim':>8}"
     )
     print("\nGPU MB by stage (peak; median over cell) — mlxMemoryByStage\n")
     print(gpu_header)
     print("-" * len(gpu_header))
-    for key in sorted(cells.keys(), key=lambda k: (k[0], short_model(k[1]), k[2] != "cold")):
-        mode, model_id, state = key
+    for key in sorted(cells.keys(), key=cell_sort):
+        mode, model_id, state, lb = key
         group = cells[key]
         print(
-            f"{mode:<8} {short_model(model_id):<26} {state:<5} "
+            f"{mode:<8} {short_model(model_id):<26} {state:<5} {lb:<6} "
             f"{fmt(med(r['gpuByStage'].get('load') for r in group), 0):>8} "
             f"{fmt(med(r['gpuByStage'].get('stream') for r in group), 0):>8} "
             f"{fmt(med(r['gpuByStage'].get('peak') for r in group), 0):>8} "

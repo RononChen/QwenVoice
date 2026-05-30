@@ -1447,6 +1447,10 @@ private struct StreamingExecutionContext: Sendable {
             // native, physical-memory-derived tier — so the summarizer doesn't
             // mislabel a real floor_8gb_mac (8 GB Mac) as "forced".
             "deviceClassForced": NativeDeviceClassGate.resolvedForcedClass != nil ? "true" : "false",
+            // Input script length (characters) so the benchmark summarizer can
+            // break results out by prompt length (short / medium / long) — RTF,
+            // decode time, and KV-cache memory all scale with it.
+            "promptChars": String(request.text.count),
         ].merging(notes) { _, caller in caller }
         let record = GenerationTelemetryRecord(
             generationID: generationID.uuidString,
