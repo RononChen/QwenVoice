@@ -546,6 +546,14 @@ struct PCM16StreamLimiter: Sendable {
         // IPC payloads downstream.
         var nonFiniteSamples = 0
         var minimumAppliedGain: Float = 1
+        // Audio-QC accumulators (observational — do not affect limiting).
+        // Sum of squared input magnitudes → whole-clip RMS (dead/near-silent
+        // output detection). Longest *interior* near-silent run in samples (a
+        // run bracketed by audio = a mid-utterance dropout; trailing/leading
+        // silence is excluded). sampleRate-agnostic here; converted to ms at
+        // report build.
+        var sumOfSquares: Double = 0
+        var longestInteriorSilentRunSamples = 0
 
         private static func partsPerMillion(_ value: Float) -> Int {
             Int((Double(value) * 1_000_000).rounded())
@@ -555,9 +563,15 @@ struct PCM16StreamLimiter: Sendable {
     static let ceiling: Float = 0.965
     static let maxSingleSampleStep: Float = 0.42
     static let releaseStepPerSample: Float = 0.002
+    /// Below this absolute input magnitude a sample counts as silence for
+    /// interior-dropout detection.
+    static let silenceFloor: Float = 0.001
 
     private var currentGain: Float = 1
     private var previousOutput: Float?
+    // Cross-`append` silence-run state (a dropout can span chunk boundaries).
+    private var sawAudio = false
+    private var currentSilentRun = 0
     private(set) var metrics = Metrics()
 
     mutating func append(_ samples: [Float], into destination: inout [Int16]) {
@@ -567,6 +581,8 @@ struct PCM16StreamLimiter: Sendable {
         var localGain = currentGain
         var localPreviousOutput = previousOutput
         var localMetrics = metrics
+        var localSawAudio = sawAudio
+        var localSilentRun = currentSilentRun
 
         samples.withUnsafeBufferPointer { buffer in
             guard let base = buffer.baseAddress else { return }
@@ -583,6 +599,22 @@ struct PCM16StreamLimiter: Sendable {
                 let rawMagnitude = abs(sample)
                 localMetrics.rawPeak = max(localMetrics.rawPeak, rawMagnitude)
                 localMetrics.processedSamples += 1
+                localMetrics.sumOfSquares += Double(rawMagnitude) * Double(rawMagnitude)
+                // Interior-dropout tracking: count near-silent runs only after
+                // the first audible sample; close a run (recording its length)
+                // when audio resumes, so leading/trailing silence is excluded.
+                if rawMagnitude < Self.silenceFloor {
+                    if localSawAudio { localSilentRun += 1 }
+                } else {
+                    if localSilentRun > 0 {
+                        localMetrics.longestInteriorSilentRunSamples = max(
+                            localMetrics.longestInteriorSilentRunSamples,
+                            localSilentRun
+                        )
+                        localSilentRun = 0
+                    }
+                    localSawAudio = true
+                }
                 if rawMagnitude > Self.ceiling {
                     localMetrics.samplesAboveCeiling += 1
                 }
@@ -621,6 +653,8 @@ struct PCM16StreamLimiter: Sendable {
 
         currentGain = localGain
         previousOutput = localPreviousOutput
+        sawAudio = localSawAudio
+        currentSilentRun = localSilentRun
         metrics = localMetrics
     }
 }
@@ -957,6 +991,11 @@ private struct StreamingExecutionContext: Sendable {
             derivedMetrics: derivedMetrics,
             mlxMemoryByStage: telemetryActive ? mlxMemorySnapshots : nil,
             chunkTimeline: nil,
+            audioQC: Self.makeAudioQCReport(
+                metrics: scratchBuffer.limiterMetrics,
+                sampleRate: sampleRate,
+                durationSeconds: durationSeconds
+            ),
             rawSamples: telemetryMode.persistsRawSamples ? rawSamples : nil
         )
 
@@ -1342,6 +1381,11 @@ private struct StreamingExecutionContext: Sendable {
             derivedMetrics: derivedMetrics,
             mlxMemoryByStage: telemetryActive ? mlxMemorySnapshots : nil,
             chunkTimeline: chunkTimeline.isEmpty ? nil : chunkTimeline,
+            audioQC: Self.makeAudioQCReport(
+                metrics: scratchBuffer.limiterMetrics,
+                sampleRate: sampleRate,
+                durationSeconds: durationSeconds
+            ),
             rawSamples: telemetryMode.persistsRawSamples ? rawSamples : nil
         )
 
@@ -1389,6 +1433,7 @@ private struct StreamingExecutionContext: Sendable {
         derivedMetrics: [String: Double]? = nil,
         mlxMemoryByStage: [String: NativeMLXMemorySnapshot]? = nil,
         chunkTimeline: [GenerationChunkTelemetry]? = nil,
+        audioQC: AudioQCReport? = nil,
         rawSamples: [TelemetrySample]? = nil
     ) async {
         guard TelemetryGate.resolvedEnabled else { return }
@@ -1415,7 +1460,8 @@ private struct StreamingExecutionContext: Sendable {
             notes: notesWithTier,
             derivedMetrics: derivedMetrics,
             mlxMemoryByStage: mlxMemoryByStage,
-            chunkTimeline: chunkTimeline
+            chunkTimeline: chunkTimeline,
+            audioQC: audioQC
         )
         await GenerationTelemetryJSONLSink.shared.write(
             record: record,
@@ -1432,6 +1478,70 @@ private struct StreamingExecutionContext: Sendable {
                 subdirectory: "engine"
             )
         }
+    }
+
+    /// Build the reference-free `AudioQCReport` from the limiter's per-sample
+    /// metrics. Thresholds are conservative + tunable here — they exist to catch
+    /// GROSS defects (regression tripwire), not to judge subtle perceptual quality
+    /// (that's the listening pass). Fractions are relative to processed samples.
+    static func makeAudioQCReport(
+        metrics: PCM16StreamLimiter.Metrics,
+        sampleRate: Int,
+        durationSeconds: Double
+    ) -> AudioQCReport {
+        let n = metrics.processedSamples
+        let rms = n > 0 ? (metrics.sumOfSquares / Double(n)).squareRoot() : 0
+        let rmsDBFS: Double? = rms > 0 ? 20 * log10(rms) : nil
+        let longestSilenceMS = sampleRate > 0
+            ? Int(Double(metrics.longestInteriorSilentRunSamples) * 1000 / Double(sampleRate))
+            : 0
+        let clipped = metrics.samplesOutsideUnitRange
+        let hot = metrics.samplesAboveCeiling
+        let clicks = metrics.slewLimitedSamples
+        let denom = max(n, 1)
+        let clippedFrac = Double(clipped) / Double(denom)
+        let clickFrac = Double(clicks) / Double(denom)
+        let hotFrac = Double(hot) / Double(denom)
+
+        // Conservative thresholds (documented; tune as the corpus dictates).
+        let dropoutFailMS = 400, dropoutWarnMS = 150
+        let silentFailDBFS = -60.0, lowLevelWarnDBFS = -45.0
+        let clipFailFrac = 0.001, clickFailFrac = 0.005
+        let clickWarnFrac = 0.0005, hotWarnFrac = 0.02
+
+        var flags: [String] = []
+        var verdict: AudioQCReport.Verdict = .pass
+        func raise(_ to: AudioQCReport.Verdict) {
+            if to == .fail { verdict = .fail }
+            else if to == .warn, verdict != .fail { verdict = .warn }
+        }
+
+        if metrics.nonFiniteSamples > 0 { flags.append("nonfinite"); raise(.fail) }
+        if n == 0 { flags.append("empty"); raise(.fail) }
+        if let db = rmsDBFS {
+            if db < silentFailDBFS { flags.append("near_silent"); raise(.fail) }
+            else if db < lowLevelWarnDBFS { flags.append("low_level"); raise(.warn) }
+        } else if n > 0 { flags.append("silent"); raise(.fail) }
+        if longestSilenceMS >= dropoutFailMS { flags.append("dropout:\(longestSilenceMS)ms"); raise(.fail) }
+        else if longestSilenceMS >= dropoutWarnMS { flags.append("dropout:\(longestSilenceMS)ms"); raise(.warn) }
+        if clippedFrac > clipFailFrac { flags.append("clipping"); raise(.fail) }
+        else if clipped > 0 { flags.append("clipping"); raise(.warn) }
+        if clickFrac > clickFailFrac { flags.append("clicks"); raise(.fail) }
+        else if clickFrac > clickWarnFrac { flags.append("clicks"); raise(.warn) }
+        if hotFrac > hotWarnFrac { flags.append("hot"); raise(.warn) }
+
+        return AudioQCReport(
+            verdict: verdict,
+            flags: flags,
+            rmsDBFS: rmsDBFS,
+            peak: Double(metrics.rawPeak),
+            clippedSamples: clipped,
+            hotSamples: hot,
+            nonFiniteSamples: metrics.nonFiniteSamples,
+            clickEvents: clicks,
+            longestSilenceMS: longestSilenceMS,
+            durationSeconds: durationSeconds
+        )
     }
 
     /// Maps the vendored per-chunk `ChunkSubstageTimings` into the Codable

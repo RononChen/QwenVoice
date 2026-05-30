@@ -445,6 +445,31 @@ regressions). For trustworthy deltas: **same machine, quiet (quit other apps), w
 cold vs warm separate; compare **medians** of ≥3 warm; record the SHA. For MLX backend work the needle
 to watch is the dominant `timingsMS` substage (e.g. `qwen_stream_step_eval_total`) alongside RTF.
 
+### Guarding output quality
+
+Perf is only half the story — a backend change must not introduce **audio** regressions (glitches,
+dropouts, garbled words, "sounds worse"). Three layers, increasing in what they catch and what they cost:
+
+1. **Reference-free defect detector — automatic, every run.** The engine runs a per-sample QC pass on
+   the final PCM (extends `PCM16StreamLimiter`) and writes an `audioQC` verdict into the engine row:
+   `pass` / `warn` / `fail` plus flags — `nonfinite` (NaN/Inf model output), `clipping`, `clicks`
+   (chunk-boundary discontinuities — the decoder-drift class), `dropout:Nms` (mid-utterance silence),
+   `near_silent` (dead output). Surfaced as the summarizer's **`QC`** column. **Any `fail` blocks
+   promoting a backend change.** Thresholds are conservative + tunable (`makeAudioQCReport`).
+2. **ASR content accuracy — opt-in.** Launch with `QWENVOICE_TRANSCRIPT_CHECK=1`: after each take the app
+   transcribes it on-device (Apple Speech, no model download) and records word error rate vs the input
+   text → the summarizer's **`WER%`** column. Catches garbled / wrong / dropped words. Needs the Speech
+   permission + an on-device locale model; skips gracefully when unavailable. Adds latency — dev/QC only.
+3. **Human/agent listening pass — mandatory before merging a backend change.** No automated check judges
+   subtle perceptual quality (timbre, prosody, naturalness). Generate the fixed corpus, play each take
+   (drive via computer-use, see [`ui-driving.md`](ui-driving.md)), and listen for hiccups/artifacts/
+   quality. Record the verdict in the benchmark snapshot / `HISTORY.md` note. **This is the real quality
+   gate — the objective tools are a fast tripwire, not a substitute for ears.**
+
+Workflow: run the corpus → any `QC=fail` or spiking `WER%` is a hard stop (investigate before merging) →
+otherwise do the listening pass → record pass/fail. (This deliberately replaces the retired Python
+audio-QC harness with an in-engine, harness-free check.)
+
 ---
 
 ## 12. Extending the telemetry

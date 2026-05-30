@@ -21,9 +21,10 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
     /// v2 added the backend-optimization payload: `derivedMetrics` (RTF, tokens/sec),
     /// `mlxMemoryByStage` (per-stage MLX GPU memory), and `chunkTimeline` (per-chunk
     /// decode substage breakdown). v3 added `modelID` + `warmState` so each row
-    /// self-identifies its benchmark cell (model variant × cold/warm). All optional,
+    /// self-identifies its benchmark cell (model variant × cold/warm). v4 added
+    /// `audioQC` (reference-free output-quality verdict + defect flags). All optional,
     /// so older rows still decode.
-    public static let currentSchemaVersion = 3
+    public static let currentSchemaVersion = 4
 
     public let schemaVersion: Int
     public let generationID: String
@@ -59,6 +60,11 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
     /// Per-chunk decode substage breakdown for streaming runs (cold-start vs
     /// steady-state, stall localization). nil for non-streaming / when gated off.
     public let chunkTimeline: [GenerationChunkTelemetry]?
+    /// Reference-free audio-quality verdict for this take (defect detection on the
+    /// final PCM — NaN/clip/click/dropout/level). The objective regression tripwire
+    /// for backend changes; nil when not computed. Perceptual quality still needs the
+    /// listening pass — this catches gross defects, not subtle "sounds worse".
+    public let audioQC: AudioQCReport?
 
     public init(
         generationID: String,
@@ -77,6 +83,7 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
         derivedMetrics: [String: Double]? = nil,
         mlxMemoryByStage: [String: NativeMLXMemorySnapshot]? = nil,
         chunkTimeline: [GenerationChunkTelemetry]? = nil,
+        audioQC: AudioQCReport? = nil,
         schemaVersion: Int = GenerationTelemetryRecord.currentSchemaVersion,
         processName: String = ProcessInfo.processInfo.processName,
         processIdentifier: Int32 = ProcessInfo.processInfo.processIdentifier
@@ -100,6 +107,66 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
         self.derivedMetrics = derivedMetrics
         self.mlxMemoryByStage = mlxMemoryByStage
         self.chunkTimeline = chunkTimeline
+        self.audioQC = audioQC
+    }
+}
+
+/// Reference-free audio-quality verdict for one generated take, derived from the
+/// `PCM16StreamLimiter` per-sample pass (no stored golden, no model). The objective
+/// half of the quality gate: it catches gross defects (unstable model output,
+/// clipping, chunk-boundary clicks/discontinuities, mid-utterance dropouts, dead
+/// output). It deliberately does NOT judge subtle perceptual quality — that's the
+/// human/agent listening pass. Thresholds are conservative + tunable (see the
+/// builder in `NativeStreamingSynthesisSession`).
+public struct AudioQCReport: Hashable, Codable, Sendable {
+    public enum Verdict: String, Hashable, Codable, Sendable {
+        case pass
+        case warn
+        case fail
+    }
+
+    public let verdict: Verdict
+    /// Human-readable defect tags that tripped (e.g. "nonfinite", "clipping",
+    /// "clicks", "dropout:240ms", "near_silent"). Empty on a clean pass.
+    public let flags: [String]
+    /// Whole-clip RMS in dBFS (nil = total silence).
+    public let rmsDBFS: Double?
+    public let peak: Double
+    /// Samples that exceeded unit range (true digital clipping, pre-limiter).
+    public let clippedSamples: Int
+    /// Samples above the limiter ceiling (hot but not hard-clipped).
+    public let hotSamples: Int
+    /// Non-finite (NaN/Inf) input samples scrubbed by the limiter — model instability.
+    public let nonFiniteSamples: Int
+    /// Slew-limited steps: sample-to-sample jumps beyond the click ceiling
+    /// (chunk-boundary clicks / decoder discontinuities).
+    public let clickEvents: Int
+    /// Longest interior near-silent run (mid-utterance dropout), in milliseconds.
+    public let longestSilenceMS: Int
+    public let durationSeconds: Double
+
+    public init(
+        verdict: Verdict,
+        flags: [String],
+        rmsDBFS: Double?,
+        peak: Double,
+        clippedSamples: Int,
+        hotSamples: Int,
+        nonFiniteSamples: Int,
+        clickEvents: Int,
+        longestSilenceMS: Int,
+        durationSeconds: Double
+    ) {
+        self.verdict = verdict
+        self.flags = flags
+        self.rmsDBFS = rmsDBFS
+        self.peak = peak
+        self.clippedSamples = clippedSamples
+        self.hotSamples = hotSamples
+        self.nonFiniteSamples = nonFiniteSamples
+        self.clickEvents = clickEvents
+        self.longestSilenceMS = longestSilenceMS
+        self.durationSeconds = durationSeconds
     }
 }
 

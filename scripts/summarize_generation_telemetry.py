@@ -79,6 +79,11 @@ def load_runs(diag_dir):
     """Join engine + app rows by generationID. Returns list of per-run dicts."""
     engine = {r.get("generationID"): r for r in read_jsonl(os.path.join(diag_dir, "engine", "generations.jsonl"))}
     app = {r.get("generationID"): r for r in read_jsonl(os.path.join(diag_dir, "app", "generations.jsonl"))}
+    # Opt-in ASR content-accuracy results, written by SpeechContentCheck.
+    content = {
+        r.get("generationID"): r
+        for r in read_jsonl(os.path.join(diag_dir, "app", "content-checks.jsonl"))
+    }
 
     runs = []
     for gid, e in engine.items():
@@ -87,6 +92,8 @@ def load_runs(diag_dir):
         summary = e.get("summary") or {}
         a = app.get(gid) or {}
         app_timings = a.get("timingsMS") or {}
+        qc = e.get("audioQC") or {}
+        wer = (content.get(gid) or {}).get("werPercent")
         trim_count, pressure_count, worst = count_memory_events(e, summary)
         runs.append(
             {
@@ -118,9 +125,38 @@ def load_runs(diag_dir):
                 # GPU peak MB at pipeline boundaries (mlxMemoryByStage) — shows WHERE
                 # GPU memory grows and how much a trim reclaims.
                 "gpuByStage": gpu_peak_by_stage(e.get("mlxMemoryByStage") or {}),
+                # Reference-free audio-quality verdict (engine) + opt-in ASR WER (app).
+                "qcVerdict": qc.get("verdict"),
+                "qcFlags": qc.get("flags") or [],
+                "wer": wer,
             }
         )
     return runs
+
+
+# Worst-first ranking of QC verdicts for cell aggregation.
+_QC_SEVERITY = {"pass": 0, "warn": 1, "fail": 2}
+
+
+def cell_qc(group):
+    """Worst verdict across a cell + the distinct flags that tripped (compact)."""
+    worst, rank = None, -1
+    flags = []
+    for r in group:
+        v = r.get("qcVerdict")
+        if v is None:
+            continue
+        if _QC_SEVERITY.get(v, 0) > rank:
+            rank, worst = _QC_SEVERITY.get(v, 0), v
+        for f in r.get("qcFlags") or []:
+            tag = f.split(":")[0]
+            if tag not in flags:
+                flags.append(tag)
+    if worst is None:
+        return "-"
+    if worst == "pass":
+        return "pass"
+    return f"{worst}:{','.join(flags[:2])}" if flags else worst
 
 
 # Boundary stages we surface for GPU growth, in pipeline order. Each cell takes the
@@ -245,6 +281,8 @@ def emit_ledger_row(cells, label):
         fmt(med(r["ttfcMS"] for r in group), 0),
         fmt(med(r["physFootMB"] for r in group), 0),
         fmt_trims(group),
+        cell_qc(group),
+        fmt(med(r["wer"] for r in group), 1),
         note or "—",
     ]
     print("| " + " | ".join(cols) + " |")
@@ -286,7 +324,7 @@ def main():
     header = (
         f"{'mode':<8} {'model':<26} {'state':<5} {'n':>2} "
         f"{'RTF':>6} {'tok/s':>7} {'TTFC ms':>8} {'decode ms':>9} "
-        f"{'peakGPU':>8} {'peakRSS':>8} {'physFoot':>8} {'headMin':>8} {'trims':>9}"
+        f"{'peakGPU':>8} {'physFoot':>8} {'trims':>9} {'QC':<12} {'WER%':>6}"
     )
     tiers = sorted({r["deviceClass"] for r in runs})
     print(f"\nTelemetry summary — {diag_dir}")
@@ -309,10 +347,10 @@ def main():
             f"{fmt(med(r['ttfcMS'] for r in group), 0):>8} "
             f"{fmt(med(r['decodeLoopMS'] for r in group), 0):>9} "
             f"{fmt(med(r['peakGpuMB'] for r in group), 0):>8} "
-            f"{fmt(med(r['peakRssMB'] for r in group), 0):>8} "
             f"{fmt(med(r['physFootMB'] for r in group), 0):>8} "
-            f"{fmt(med(r['headMinMB'] for r in group), 0):>8} "
-            f"{fmt_trims(group):>9}"
+            f"{fmt_trims(group):>9} "
+            f"{cell_qc(group):<12} "
+            f"{fmt(med(r['wer'] for r in group), 1):>6}"
         )
 
     # GPU memory by pipeline stage (peak MB) — shows WHERE GPU memory grows and how
@@ -338,14 +376,18 @@ def main():
     print(
         "\nRTF = audioSeconds / wallSeconds (>1 faster than realtime). "
         "tok/s = codec tokens/s. TTFC = submit→first chunk. "
-        "decode ms = qwen_token_loop_total. peak*/physFoot/headMin/GPU-stage = MB."
+        "decode ms = qwen_token_loop_total. peakGPU/physFoot/GPU-stage = MB."
     )
     print(
         "physFoot = phys_footprint peak (the figure Jetsam judges — the OOM-relevant "
-        "peak). headMin = min available headroom during the run. "
-        "trims = median memory_trim count [worst level]; raw kernel pressure events "
-        "are also recorded as memory_pressure marks. On the 8 GB tier, a rising "
-        "physFoot or any hardTrim is the early OOM signal."
+        "peak; peakRSS + headMin are in the records too). trims = median memory_trim "
+        "count [worst level]; raw kernel pressure also recorded as memory_pressure marks."
+    )
+    print(
+        "QC = reference-free audio defect verdict (pass / warn / fail:flags — "
+        "nonfinite/clipping/clicks/dropout/near_silent). WER% = ASR content-accuracy "
+        "(opt-in QWENVOICE_TRANSCRIPT_CHECK; '-' when not run). Neither judges subtle "
+        "perceptual quality — that needs the listening pass (see telemetry doc)."
     )
     return 0
 
