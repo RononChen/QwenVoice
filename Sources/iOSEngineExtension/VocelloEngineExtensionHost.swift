@@ -196,7 +196,11 @@ final class VocelloEngineExtensionHost: NSObject, VocelloEngineExtensionXPCProto
     @MainActor
     private func perform(_ command: ExtensionEngineCommand) async throws -> ExtensionEngineReply {
         switch command {
-        case .initialize(let appSupportDirectoryPath):
+        case .initialize(let appSupportDirectoryPath, let telemetryMode):
+            // App-resolved telemetry MODE (env + persisted gesture flag) reaches this
+            // separate extension process only via the handshake. One-way latch; carries
+            // `verbose` so the raw-sample sidecar can fire here too.
+            TelemetryGate.applyHandshakeMode(NativeTelemetryMode(rawValue: telemetryMode) ?? .off)
             let appSupportDirectory = URL(fileURLWithPath: appSupportDirectoryPath, isDirectory: true)
             let runtimeContext = try makeOrReuseRuntimeContext(appSupportDirectory: appSupportDirectory)
             try await runtimeContext.engine.initialize(appSupportDirectory: appSupportDirectory)

@@ -172,10 +172,22 @@ final class VoiceCloningCoordinator: ObservableObject {
                 ) else {
                     throw VoiceCloningCoordinatorError.requestConstructionFailed
                 }
+                AppGenerationTimeline.shared.recordSubmitted(
+                    id: generationRequest.generationID,
+                    mode: generationRequest.modeIdentifier
+                )
                 audioPlayer.setLivePreviewEstimate(
                     LivePreviewEstimate(text: currentDraft.text)
                 )
                 let result = try await ttsEngineStore.generate(generationRequest)
+                AppGenerationTimeline.shared.recordCompleted(
+                    id: generationRequest.generationID,
+                    mode: generationRequest.modeIdentifier,
+                    usedStreaming: result.usedStreaming,
+                    finishReason: result.finishReason?.rawValue,
+                    summary: result.telemetrySummary
+                )
+                GenerationTelemetryMerger.scheduleMerge(generationID: generationRequest.generationID)
 
                 let voiceName = selectedVoice?.name
                     ?? URL(fileURLWithPath: refPath).deletingPathExtension().lastPathComponent
@@ -242,7 +254,8 @@ final class VoiceCloningCoordinator: ObservableObject {
                     transcript: draft.trimmedReferenceTranscript,
                     preparedVoiceID: draft.selectedSavedVoiceID
                 )
-            )
+            ),
+            generationID: UUID()
         )
     }
 
@@ -253,6 +266,10 @@ final class VoiceCloningCoordinator: ObservableObject {
         clonePrimingRequestKey: String?,
         ttsEngineStore: TTSEngineStore
     ) async {
+        // Benchmark cold-start accuracy: when proactive warmup is suppressed, skip
+        // proactive clone priming too so the cold Clone generation does (and records)
+        // its own model load + clone conditioning instead of being pre-primed.
+        guard !MacGenerationWarmupCoordinator.isSuppressed else { return }
         guard !isGenerating, !ttsEngineStore.hasActiveGeneration else { return }
         guard let model = cloneModel,
               isModelAvailable,

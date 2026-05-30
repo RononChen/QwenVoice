@@ -22,6 +22,10 @@ protocol MLXModelCoordinating: AnyObject, Sendable {
     func isPrewarmed(identityKey: String) async -> Bool
     func markPrewarmed(identityKey: String) async
     func clearPrewarmState() async
+    /// Swaps in the per-generation telemetry recorder so model-load stage marks
+    /// (preparedCacheValidation / tokenizerPreparation / upstreamModelLoad) land on
+    /// the same recorder (and start clock) as the rest of the generation timeline.
+    func setTelemetryRecorder(_ recorder: NativeTelemetryRecorder?) async
 }
 
 actor MLXModelLoadCoordinator: MLXModelCoordinating {
@@ -189,7 +193,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
     private let fileManager: FileManager
     private let modelLoader: NativeModelLoader
     private let beforeModelLoad: (@Sendable (String?) -> Void)?
-    private let telemetryRecorder: NativeTelemetryRecorder?
+    private var telemetryRecorder: NativeTelemetryRecorder?
     private let diagnosticEventSink: (@Sendable (String, [String: String]) async -> Void)?
     private var preparedMetadataByDescriptorID: [String: PreparedModelMetadata] = [:]
 
@@ -409,6 +413,10 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
 
     func clearPrewarmState() async {
         prewarmedIdentityKeys.removeAll()
+    }
+
+    func setTelemetryRecorder(_ recorder: NativeTelemetryRecorder?) async {
+        telemetryRecorder = recorder
     }
 
     /// Returns the id of the currently loaded asset, or `nil` when no model

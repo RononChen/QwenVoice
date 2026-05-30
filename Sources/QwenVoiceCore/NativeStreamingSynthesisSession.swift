@@ -50,6 +50,10 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
     private let memoryPolicy: NativeMemoryPolicy
     private let initialMLXMemorySnapshots: [String: NativeMLXMemorySnapshot]
     private let pcmScratchBuffer: PCM16ScratchBuffer?
+    /// Sendable holder for the engine process's app-support directory; read at
+    /// telemetry-write time so the rescued `TelemetrySummary` lands under
+    /// `diagnostics/engine/generations.jsonl`. `nil` for callers that don't supply it.
+    private let diagnosticAppSupportBox: DiagnosticAppSupportBox?
 
     init(
         generationID: UUID,
@@ -68,7 +72,8 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
         qwen3Capabilities: Qwen3TTSModelCapabilities,
         memoryPolicy: NativeMemoryPolicy,
         mlxMemorySnapshots: [String: NativeMLXMemorySnapshot],
-        pcmScratchBuffer: PCM16ScratchBuffer? = nil
+        pcmScratchBuffer: PCM16ScratchBuffer? = nil,
+        diagnosticAppSupportBox: DiagnosticAppSupportBox? = nil
     ) {
         self.generationID = generationID
         self.requestID = requestID
@@ -87,6 +92,7 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
         self.memoryPolicy = memoryPolicy
         self.initialMLXMemorySnapshots = mlxMemorySnapshots
         self.pcmScratchBuffer = pcmScratchBuffer
+        self.diagnosticAppSupportBox = diagnosticAppSupportBox
     }
 
     func run(chunkSink: @escaping @Sendable (GenerationEvent) -> Void) async throws -> GenerationResult {
@@ -109,7 +115,8 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
                 qwen3Capabilities: qwen3Capabilities,
                 memoryPolicy: memoryPolicy,
                 initialMLXMemorySnapshots: initialMLXMemorySnapshots,
-                pcmScratchBuffer: pcmScratchBuffer
+                pcmScratchBuffer: pcmScratchBuffer,
+                diagnosticAppSupportBox: diagnosticAppSupportBox
             )
             let task = Task.detached(priority: .userInitiated) {
                 try await execution.runQualityFirstFinalAudio()
@@ -141,7 +148,8 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
             qwen3Capabilities: qwen3Capabilities,
             memoryPolicy: memoryPolicy,
             initialMLXMemorySnapshots: initialMLXMemorySnapshots,
-            pcmScratchBuffer: pcmScratchBuffer
+            pcmScratchBuffer: pcmScratchBuffer,
+            diagnosticAppSupportBox: diagnosticAppSupportBox
         )
         // `Task.detached` does not inherit the parent's cancellation, so we
         // explicitly forward cancellation through `withTaskCancellationHandler`.
@@ -763,6 +771,7 @@ private struct StreamingExecutionContext: Sendable {
     /// medium-length output) and lets the underlying capacity grow once
     /// to high-water mark and stay there across generations.
     let pcmScratchBuffer: PCM16ScratchBuffer?
+    let diagnosticAppSupportBox: DiagnosticAppSupportBox?
 
     private func scratchBuffer() -> PCM16ScratchBuffer {
         if let pooled = pcmScratchBuffer {
@@ -786,9 +795,12 @@ private struct StreamingExecutionContext: Sendable {
         let outputURL = URL(fileURLWithPath: request.outputPath)
         let sampleRate = model.sampleRate
         let telemetryMode = NativeTelemetryMode.current()
-        let telemetrySampler = telemetryMode.sampleIntervalMS.map {
+        let telemetryActive = telemetryRecorder != nil
+        let telemetrySampler = telemetryMode.sampleIntervalMS(for: memoryPolicy.deviceClass).map {
             NativeTelemetrySampler(
-                startUptimeSeconds: ProcessInfo.processInfo.systemUptime,
+                // Share the stage recorder's start clock so samples and marks join.
+                startUptimeSeconds: telemetryRecorder?.startUptimeSeconds
+                    ?? ProcessInfo.processInfo.systemUptime,
                 sampleIntervalMS: $0
             )
         }
@@ -817,9 +829,18 @@ private struct StreamingExecutionContext: Sendable {
                 stage: .streamFailed,
                 metadata: ["message": error.localizedDescription]
             )
-            _ = await Self.stopTelemetrySampler(
+            let stageMarks = await telemetryRecorder?.snapshot() ?? []
+            let (summary, _) = await Self.stopTelemetrySampler(
                 telemetrySampler,
-                stageMarks: await telemetryRecorder?.snapshot() ?? []
+                stageMarks: stageMarks
+            )
+            await writeEngineTelemetryRecord(
+                summary: summary,
+                stageMarks: stageMarks,
+                usedStreaming: false,
+                finishReason: "failed",
+                counters: [:],
+                notes: ["message": error.localizedDescription]
             )
             Memory.clearCache()
             throw error
@@ -831,9 +852,18 @@ private struct StreamingExecutionContext: Sendable {
                 stage: .streamFailed,
                 metadata: ["finish_reason": finishReason.rawValue]
             )
-            _ = await Self.stopTelemetrySampler(
+            let stageMarks = await telemetryRecorder?.snapshot() ?? []
+            let (summary, _) = await Self.stopTelemetrySampler(
                 telemetrySampler,
-                stageMarks: await telemetryRecorder?.snapshot() ?? []
+                stageMarks: stageMarks
+            )
+            await writeEngineTelemetryRecord(
+                summary: summary,
+                stageMarks: stageMarks,
+                usedStreaming: false,
+                finishReason: finishReason.rawValue,
+                counters: [:],
+                notes: [:]
             )
             Memory.clearCache()
             throw Self.error(for: finishReason)
@@ -892,11 +922,43 @@ private struct StreamingExecutionContext: Sendable {
         }
 
         let durationSeconds = Double(pcmSamples.count) / Double(sampleRate)
-        _ = await Self.stopTelemetrySampler(
-            telemetrySampler,
-            stageMarks: await telemetryRecorder?.snapshot() ?? []
-        )
         await telemetryRecorder?.mark(stage: .streamCompleted)
+        let stageMarks = await telemetryRecorder?.snapshot() ?? []
+        let (summary, rawSamples) = await Self.stopTelemetrySampler(
+            telemetrySampler,
+            stageMarks: stageMarks
+        )
+
+        // Re-read the model's diagnostics post-generation so the finalized MLX
+        // decode-stage totals and counters are surfaced (same rationale as the
+        // streaming path). Quality-first is non-streaming → no per-chunk timeline.
+        let finalTimingsMS = telemetryActive
+            ? timingOverridesMS.merging(model.latestPreparationTimingsMS) { _, new in new }
+            : timingOverridesMS
+        let finalBooleanFlags = booleanFlags.merging(model.latestPreparationBooleanFlags) { _, new in new }
+        let finalStringFlags = stringFlags.merging(model.latestPreparationStringFlags) { _, new in new }
+        let derivedMetrics: [String: Double]? = telemetryActive
+            ? Self.computeDerivedMetrics(
+                audioSeconds: durationSeconds,
+                stageMarks: stageMarks,
+                info: nil,
+                modelTimingsMS: finalTimingsMS
+            )
+            : nil
+
+        await writeEngineTelemetryRecord(
+            summary: summary,
+            stageMarks: stageMarks,
+            usedStreaming: false,
+            finishReason: finishReason.rawValue,
+            counters: [:],
+            notes: [:],
+            timingsMS: finalTimingsMS,
+            derivedMetrics: derivedMetrics,
+            mlxMemoryByStage: telemetryActive ? mlxMemorySnapshots : nil,
+            chunkTimeline: nil,
+            rawSamples: telemetryMode.persistsRawSamples ? rawSamples : nil
+        )
 
         shouldRetainOutput = true
         try? FileManager.default.removeItem(at: sessionDirectory)
@@ -906,9 +968,10 @@ private struct StreamingExecutionContext: Sendable {
             streamSessionDirectory: nil,
             usedStreaming: false,
             finishReason: finishReason,
-            diagnosticTimingsMS: timingOverridesMS,
-            diagnosticBooleanFlags: booleanFlags,
-            diagnosticStringFlags: stringFlags
+            diagnosticTimingsMS: finalTimingsMS,
+            diagnosticBooleanFlags: finalBooleanFlags,
+            diagnosticStringFlags: finalStringFlags,
+            telemetrySummary: summary
         )
     }
 
@@ -1014,12 +1077,21 @@ private struct StreamingExecutionContext: Sendable {
         let outputURL = URL(fileURLWithPath: request.outputPath)
         let sampleRate = model.sampleRate
         let telemetryMode = NativeTelemetryMode.current()
-        let telemetrySampler = telemetryMode.sampleIntervalMS.map {
+        let telemetryStartUptime = telemetryRecorder?.startUptimeSeconds
+            ?? ProcessInfo.processInfo.systemUptime
+        let telemetrySampler = telemetryMode.sampleIntervalMS(for: memoryPolicy.deviceClass).map {
             NativeTelemetrySampler(
-                startUptimeSeconds: ProcessInfo.processInfo.systemUptime,
+                // Share the stage recorder's start clock so samples and marks join.
+                startUptimeSeconds: telemetryStartUptime,
                 sampleIntervalMS: $0
             )
         }
+        // Per-chunk decode timeline + final stats. Only populated when telemetry is
+        // on (recorder non-nil), so there is zero per-chunk cost when gated off.
+        let telemetryActive = telemetryRecorder != nil
+        var chunkTimeline: [GenerationChunkTelemetry] = []
+        var pendingChunkTimings: ChunkSubstageTimings?
+        var latestInfo: AudioGenerationInfo?
         await telemetrySampler?.start()
         await telemetryRecorder?.mark(stage: .streamStartup)
         try FileManager.default.createDirectory(
@@ -1083,9 +1155,13 @@ private struct StreamingExecutionContext: Sendable {
                 switch event {
                 case .token:
                     continue
-                case .chunkTimings:
+                case .chunkTimings(let timings):
+                    // Stash the per-chunk decode breakdown; bound to the next
+                    // `.audio` event below. Free when telemetry is off.
+                    if telemetryActive { pendingChunkTimings = timings }
                     continue
-                case .info:
+                case .info(let info):
+                    if telemetryActive { latestInfo = info }
                     continue
                 case .audio(let samples):
                     let chunkSamples = samples.asArray(Float.self)
@@ -1139,6 +1215,18 @@ private struct StreamingExecutionContext: Sendable {
                     chunkIndex += 1
                     totalFramesWritten += Int64(pcmSamples.count)
 
+                    // Bind the stashed decode-substage breakdown to this chunk.
+                    if telemetryActive, let timings = pendingChunkTimings {
+                        chunkTimeline.append(
+                            makeChunkTelemetry(
+                                chunkIndex: chunkIndex - 1,
+                                timings: timings,
+                                startUptimeSeconds: telemetryStartUptime
+                            )
+                        )
+                        pendingChunkTimings = nil
+                    }
+
                     let chunkDurationSeconds = Double(pcmSamples.count) / Double(sampleRate)
                     let cumulativeDurationSeconds = Double(totalFramesWritten) / Double(sampleRate)
 
@@ -1166,9 +1254,18 @@ private struct StreamingExecutionContext: Sendable {
                 stage: .streamFailed,
                 metadata: ["message": error.localizedDescription]
             )
-            _ = await Self.stopTelemetrySampler(
+            let stageMarks = await telemetryRecorder?.snapshot() ?? []
+            let (summary, _) = await Self.stopTelemetrySampler(
                 telemetrySampler,
-                stageMarks: await telemetryRecorder?.snapshot() ?? []
+                stageMarks: stageMarks
+            )
+            await writeEngineTelemetryRecord(
+                summary: summary,
+                stageMarks: stageMarks,
+                usedStreaming: true,
+                finishReason: "failed",
+                counters: ["chunkCount": chunkIndex],
+                notes: ["message": error.localizedDescription]
             )
             finalWriter.finish()
             try? FileManager.default.removeItem(at: outputURL)
@@ -1197,8 +1294,9 @@ private struct StreamingExecutionContext: Sendable {
         mlxMemorySnapshots["after_final_write"] = NativeMemoryPolicyResolver.snapshot()
 
         let durationSeconds = Double(totalFramesWritten) / Double(sampleRate)
+        await telemetryRecorder?.mark(stage: .streamCompleted)
         let stageMarks = await telemetryRecorder?.snapshot() ?? []
-        _ = await Self.stopTelemetrySampler(
+        let (summary, rawSamples) = await Self.stopTelemetrySampler(
             telemetrySampler,
             stageMarks: stageMarks
         )
@@ -1208,7 +1306,44 @@ private struct StreamingExecutionContext: Sendable {
             Memory.clearCache()
             mlxMemorySnapshots["after_generation_trim"] = NativeMemoryPolicyResolver.snapshot()
         }
-        await telemetryRecorder?.mark(stage: .streamCompleted)
+
+        let resolvedFinishReason: GenerationFinishReason =
+            model.latestPreparationStringFlags["generation_end_reason"] == "token_cap"
+                ? .maxTokens
+                : .eos
+
+        // Re-read the model's diagnostics AFTER the decode loop: the MLX hot-loop
+        // totals (talker forward, code predictor, decoder, stream-step eval/EOS,
+        // token-loop total, generated-code count) are only finalized post-loop, so
+        // the pre-loop `timingOverridesMS` snapshot misses them entirely.
+        let finalTimingsMS = telemetryActive
+            ? timingOverridesMS.merging(model.latestPreparationTimingsMS) { _, new in new }
+            : timingOverridesMS
+        let finalBooleanFlags = booleanFlags.merging(model.latestPreparationBooleanFlags) { _, new in new }
+        let finalStringFlags = stringFlags.merging(model.latestPreparationStringFlags) { _, new in new }
+
+        let derivedMetrics: [String: Double]? = telemetryActive
+            ? Self.computeDerivedMetrics(
+                audioSeconds: durationSeconds,
+                stageMarks: stageMarks,
+                info: latestInfo,
+                modelTimingsMS: finalTimingsMS
+            )
+            : nil
+
+        await writeEngineTelemetryRecord(
+            summary: summary,
+            stageMarks: stageMarks,
+            usedStreaming: true,
+            finishReason: resolvedFinishReason.rawValue,
+            counters: ["chunkCount": chunkIndex],
+            notes: [:],
+            timingsMS: finalTimingsMS,
+            derivedMetrics: derivedMetrics,
+            mlxMemoryByStage: telemetryActive ? mlxMemorySnapshots : nil,
+            chunkTimeline: chunkTimeline.isEmpty ? nil : chunkTimeline,
+            rawSamples: telemetryMode.persistsRawSamples ? rawSamples : nil
+        )
 
         shouldRetainSession = true
         return GenerationResult(
@@ -1216,12 +1351,11 @@ private struct StreamingExecutionContext: Sendable {
             durationSeconds: durationSeconds,
             streamSessionDirectory: sessionDirectory.path,
             usedStreaming: true,
-            finishReason: model.latestPreparationStringFlags["generation_end_reason"] == "token_cap"
-                ? .maxTokens
-                : .eos,
-            diagnosticTimingsMS: timingOverridesMS,
-            diagnosticBooleanFlags: booleanFlags,
-            diagnosticStringFlags: stringFlags
+            finishReason: resolvedFinishReason,
+            diagnosticTimingsMS: finalTimingsMS,
+            diagnosticBooleanFlags: finalBooleanFlags,
+            diagnosticStringFlags: finalStringFlags,
+            telemetrySummary: summary
         )
     }
 
@@ -1238,6 +1372,124 @@ private struct StreamingExecutionContext: Sendable {
         case .mid16GBMac, .highMemoryMac:
             return 0.4
         }
+    }
+
+    /// Persists the rescued sampler `TelemetrySummary` + stage timeline as the
+    /// engine-layer row of the unified telemetry artifact. Runtime-gated and a
+    /// no-op when the gate is off or the app-support directory is unknown — so it
+    /// is safe to call on every terminal path (success, failure, non-EOS finish).
+    private func writeEngineTelemetryRecord(
+        summary: TelemetrySummary,
+        stageMarks: [NativeTelemetryStageMark],
+        usedStreaming: Bool,
+        finishReason: String?,
+        counters: [String: Int],
+        notes: [String: String],
+        timingsMS: [String: Int]? = nil,
+        derivedMetrics: [String: Double]? = nil,
+        mlxMemoryByStage: [String: NativeMLXMemorySnapshot]? = nil,
+        chunkTimeline: [GenerationChunkTelemetry]? = nil,
+        rawSamples: [TelemetrySample]? = nil
+    ) async {
+        guard TelemetryGate.resolvedEnabled else { return }
+        guard let appSupportDirectory = diagnosticAppSupportBox?.url else { return }
+        let record = GenerationTelemetryRecord(
+            generationID: generationID.uuidString,
+            layer: .engine,
+            recordedAt: ISO8601DateFormatter().string(from: Date()),
+            mode: request.modeIdentifier,
+            modelID: request.modelID,
+            warmState: warmState,
+            usedStreaming: usedStreaming,
+            finishReason: finishReason,
+            stageMarks: stageMarks,
+            summary: summary,
+            timingsMS: timingsMS ?? timingOverridesMS,
+            counters: counters,
+            notes: notes,
+            derivedMetrics: derivedMetrics,
+            mlxMemoryByStage: mlxMemoryByStage,
+            chunkTimeline: chunkTimeline
+        )
+        await GenerationTelemetryJSONLSink.shared.write(
+            record: record,
+            appSupportDirectory: appSupportDirectory,
+            subdirectory: "engine"
+        )
+        // Opt-in verbose: persist the raw per-sample memory/timing series to a
+        // per-generation sidecar for deep memory-curve analysis. Off by default.
+        if let rawSamples, !rawSamples.isEmpty {
+            await GenerationTelemetryJSONLSink.shared.writeRawSamples(
+                rawSamples,
+                generationID: generationID.uuidString,
+                appSupportDirectory: appSupportDirectory,
+                subdirectory: "engine"
+            )
+        }
+    }
+
+    /// Maps the vendored per-chunk `ChunkSubstageTimings` into the Codable
+    /// `GenerationChunkTelemetry`, stamping the chunk index and the wall-clock
+    /// arrival (ms since the shared telemetry start clock).
+    private func makeChunkTelemetry(
+        chunkIndex: Int,
+        timings: ChunkSubstageTimings,
+        startUptimeSeconds: TimeInterval
+    ) -> GenerationChunkTelemetry {
+        let arrivalMS = Int((ProcessInfo.processInfo.systemUptime - startUptimeSeconds) * 1_000)
+        return GenerationChunkTelemetry(
+            chunkIndex: chunkIndex,
+            arrivalMS: max(0, arrivalMS),
+            talkerForwardMS: timings.talkerForwardMS,
+            codePredictorMS: timings.codePredictorMS,
+            audioDecoderMS: timings.audioDecoderMS,
+            streamStepEvalMS: timings.streamStepEvalMS,
+            streamStepEOSReadMS: timings.streamStepEOSReadMS,
+            audioChunkEvalMS: timings.audioChunkEvalMS
+        )
+    }
+
+    /// Headline backend throughput KPIs derived from data already gathered:
+    /// audio duration, decode wall time (preferring the model's `.info` event,
+    /// falling back to the stream stage-mark span), the realtime ratio, and
+    /// tokens/sec. Computed once at generation end — no hot-path cost.
+    private static func computeDerivedMetrics(
+        audioSeconds: Double,
+        stageMarks: [NativeTelemetryStageMark],
+        info: AudioGenerationInfo?,
+        modelTimingsMS: [String: Int]
+    ) -> [String: Double] {
+        var metrics: [String: Double] = ["audioSeconds": audioSeconds]
+
+        // Decode wall time: prefer the model's own measurement, else the
+        // streamStartup→streamCompleted span from the stage timeline.
+        let decodeWallSeconds: Double
+        if let info, info.generateTime > 0 {
+            decodeWallSeconds = info.generateTime
+        } else {
+            let startMS = stageMarks.first { $0.stage == NativeRuntimeStage.streamStartup.rawValue }?.tMS
+            let endMS = stageMarks.first { $0.stage == NativeRuntimeStage.streamCompleted.rawValue }?.tMS
+            if let startMS, let endMS, endMS > startMS {
+                decodeWallSeconds = Double(endMS - startMS) / 1_000
+            } else {
+                decodeWallSeconds = 0
+            }
+        }
+        if decodeWallSeconds > 0 {
+            metrics["decodeWallSeconds"] = decodeWallSeconds
+            metrics["audioSecondsPerWallSecond"] = audioSeconds / decodeWallSeconds
+        }
+
+        if let info {
+            metrics["generatedTokenCount"] = Double(info.generationTokenCount)
+            metrics["tokensPerSecond"] = info.tokensPerSecond
+        } else if let codeCount = modelTimingsMS["qwen_generated_code_count"] {
+            metrics["generatedTokenCount"] = Double(codeCount)
+            if decodeWallSeconds > 0 {
+                metrics["tokensPerSecond"] = Double(codeCount) / decodeWallSeconds
+            }
+        }
+        return metrics
     }
 
     private static func stopTelemetrySampler(

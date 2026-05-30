@@ -94,6 +94,10 @@ struct NativePreparedGeneration: Sendable {
     let qwen3Capabilities: Qwen3TTSModelCapabilities
     let memoryPolicy: NativeMemoryPolicy
     let mlxMemorySnapshots: [String: NativeMLXMemorySnapshot]
+    /// The per-generation telemetry recorder (nil when telemetry is gated off).
+    /// Carried to the streaming session so its sampler shares the same start clock
+    /// and its stage marks join the model-load/prewarm marks recorded here.
+    let telemetryRecorder: NativeTelemetryRecorder?
 }
 
 public struct InteractivePrefetchDiagnostics: Codable, Equatable, Sendable {
@@ -135,7 +139,9 @@ actor NativeEngineRuntime {
     private let audioPreparationService: any AudioPreparationService
     private let preparedCloneConditioningCache: NativePreparedCloneConditioningCache
     private let lightweightWarmupText: String
-    private let telemetryRecorder: NativeTelemetryRecorder?
+    /// Swapped per generation in `prepareGeneration` so stage marks land on a fresh
+    /// recorder whose start clock matches the session's memory sampler.
+    private var telemetryRecorder: NativeTelemetryRecorder?
     private let customPrewarmPolicy: NativeCustomPrewarmPolicy
     private let diagnosticEventSink: (@Sendable (String, [String: String]) async -> Void)?
 
@@ -341,6 +347,16 @@ actor NativeEngineRuntime {
 
     func prepareGeneration(for request: GenerationRequest) async throws -> NativePreparedGeneration {
         try GenerationSemantics.validateQwenPromptContract(for: request)
+        // Fresh per-generation stage recorder, started at prepare entry (before model
+        // load / prewarm) so the full backend timeline is measured from one origin.
+        // Propagate to the load coordinator so its cache/tokenizer/model-load marks
+        // share this recorder, and carry it to the session (same start clock as its
+        // memory sampler). Nil — and therefore zero overhead — when telemetry is off.
+        let telemetryRecorder: NativeTelemetryRecorder? = TelemetryGate.resolvedEnabled
+            ? NativeTelemetryRecorder()
+            : nil
+        self.telemetryRecorder = telemetryRecorder
+        await loadCoordinator.setTelemetryRecorder(telemetryRecorder)
         let prepareSignpost = Self.signposter.beginInterval("Native Prepare Generation")
         defer {
             Self.signposter.endInterval("Native Prepare Generation", prepareSignpost)
@@ -534,7 +550,9 @@ actor NativeEngineRuntime {
         )
 
         return NativePreparedGeneration(
-            generationID: UUID(),
+            // Reuse the app-minted ID so app/middle/engine telemetry rows correlate;
+            // fall back to a fresh UUID for callers (e.g. internal batch) passing nil.
+            generationID: request.generationID ?? UUID(),
             requestID: takeNextRequestID(),
             model: model,
             warmState: loadResult.didLoad ? .cold : .warm,
@@ -546,7 +564,8 @@ actor NativeEngineRuntime {
             loadCapabilityProfile: loadResult.capabilityProfile,
             qwen3Capabilities: loadResult.qwen3Capabilities,
             memoryPolicy: memoryPolicy,
-            mlxMemorySnapshots: mlxMemorySnapshots
+            mlxMemorySnapshots: mlxMemorySnapshots,
+            telemetryRecorder: telemetryRecorder
         )
     }
 

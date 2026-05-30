@@ -44,7 +44,7 @@ public struct EngineRequestEnvelope: Codable, Equatable, Sendable {
 }
 
 public enum EngineCommand: Codable, Equatable, Sendable {
-    case initialize(appSupportDirectoryPath: String)
+    case initialize(appSupportDirectoryPath: String, telemetryMode: String)
     case ping
     case loadModel(id: String)
     case unloadModel

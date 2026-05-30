@@ -143,10 +143,22 @@ final class VoiceDesignCoordinator: ObservableObject {
                     model: model,
                     outputPath: outputPath
                 )
+                AppGenerationTimeline.shared.recordSubmitted(
+                    id: generationRequest.generationID,
+                    mode: generationRequest.modeIdentifier
+                )
                 audioPlayer.setLivePreviewEstimate(
                     LivePreviewEstimate(text: text)
                 )
                 let result = try await ttsEngineStore.generate(generationRequest)
+                AppGenerationTimeline.shared.recordCompleted(
+                    id: generationRequest.generationID,
+                    mode: generationRequest.modeIdentifier,
+                    usedStreaming: result.usedStreaming,
+                    finishReason: result.finishReason?.rawValue,
+                    summary: result.telemetrySummary
+                )
+                GenerationTelemetryMerger.scheduleMerge(generationID: generationRequest.generationID)
 
                 var generation = Generation(
                     text: text,
@@ -215,7 +227,8 @@ final class VoiceDesignCoordinator: ObservableObject {
             payload: .design(
                 voiceDescription: draft.voiceDescription,
                 deliveryStyle: draft.emotion
-            )
+            ),
+            generationID: UUID()
         )
     }
 

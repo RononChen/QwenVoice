@@ -714,51 +714,6 @@ public struct NativeMLXMemorySnapshot: Hashable, Codable, Sendable {
     }
 }
 
-public struct NativeBackendPerformanceSample: Hashable, Codable, Sendable {
-    public let coldLoadMS: Int?
-    public let warmGenerationMS: Int?
-    public let timeToFirstAudioMS: Int?
-    public let audioSecondsPerWallSecond: Double?
-    public let chunkWriteTotalMS: Int?
-    public let chunkWriteMaxMS: Int?
-    public let eventDispatchMS: Int?
-    public let finalWriteMS: Int?
-    public let mlxMemoryByStage: [String: NativeMLXMemorySnapshot]
-    public let loadCapabilityProfile: String?
-    public let memoryPolicyName: String?
-    public let streamingTransport: String?
-    public let telemetryMode: String?
-
-    public init(
-        coldLoadMS: Int? = nil,
-        warmGenerationMS: Int? = nil,
-        timeToFirstAudioMS: Int? = nil,
-        audioSecondsPerWallSecond: Double? = nil,
-        chunkWriteTotalMS: Int? = nil,
-        chunkWriteMaxMS: Int? = nil,
-        eventDispatchMS: Int? = nil,
-        finalWriteMS: Int? = nil,
-        mlxMemoryByStage: [String: NativeMLXMemorySnapshot] = [:],
-        loadCapabilityProfile: String? = nil,
-        memoryPolicyName: String? = nil,
-        streamingTransport: String? = nil,
-        telemetryMode: String? = nil
-    ) {
-        self.coldLoadMS = coldLoadMS
-        self.warmGenerationMS = warmGenerationMS
-        self.timeToFirstAudioMS = timeToFirstAudioMS
-        self.audioSecondsPerWallSecond = audioSecondsPerWallSecond
-        self.chunkWriteTotalMS = chunkWriteTotalMS
-        self.chunkWriteMaxMS = chunkWriteMaxMS
-        self.eventDispatchMS = eventDispatchMS
-        self.finalWriteMS = finalWriteMS
-        self.mlxMemoryByStage = mlxMemoryByStage
-        self.loadCapabilityProfile = loadCapabilityProfile
-        self.memoryPolicyName = memoryPolicyName
-        self.streamingTransport = streamingTransport
-        self.telemetryMode = telemetryMode
-    }
-}
 
 public enum NativeLoadCapabilityProfile: String, Hashable, Codable, Sendable {
     case customOnly = "custom_only"
@@ -823,24 +778,60 @@ public struct NativeMemoryPolicy: Hashable, Codable, Sendable {
 public enum NativeTelemetryMode: String, Hashable, Codable, Sendable {
     case off
     case lightweight
+    /// Same cadence as lightweight, but additionally persists the raw per-sample
+    /// memory/timing series to a sidecar for deep memory-curve analysis. Opt-in
+    /// only (`QWENVOICE_NATIVE_TELEMETRY_MODE=verbose`) — never the default.
+    case verbose
 
+    /// Device-tiered memory-sampling cadence. Finer on roomy Macs where the
+    /// sampler's per-tick cost is negligible; coarser on restricted hardware
+    /// (8 GB Macs, iPhone) so the background sampler never competes with
+    /// generation for CPU/Metal. `off` disables sampling entirely.
+    public func sampleIntervalMS(for deviceClass: NativeDeviceMemoryClass) -> Int? {
+        switch self {
+        case .off:
+            return nil
+        case .lightweight, .verbose:
+            switch deviceClass {
+            case .highMemoryMac:
+                return 100
+            case .mid16GBMac:
+                return 250
+            case .floor8GBMac, .iPhonePro:
+                return 500
+            }
+        }
+    }
+
+    /// Back-compat fixed cadence used only when the device class is unknown.
     public var sampleIntervalMS: Int? {
         switch self {
         case .off:
             return nil
-        case .lightweight:
+        case .lightweight, .verbose:
             return 250
         }
     }
+
+    /// Whether the raw `[TelemetrySample]` series should be persisted to a sidecar.
+    public var persistsRawSamples: Bool { self == .verbose }
 
     public static func current(environment: [String: String] = ProcessInfo.processInfo.environment) -> NativeTelemetryMode {
         switch environment["QWENVOICE_NATIVE_TELEMETRY_MODE"]?.lowercased() {
         case "off", "disabled":
             return .off
+        case "verbose", "full", "deep":
+            return .verbose
         case "light", "lightweight":
             return .lightweight
         default:
-            return .off
+            // No explicit env mode. In an engine process the app's mode arrives over
+            // the IPC handshake (env can't cross the process boundary) — honor it so
+            // `verbose` actually reaches the engine. Otherwise follow the master gate.
+            if let handshakeMode = TelemetryGate.handshakeResolvedMode {
+                return handshakeMode
+            }
+            return TelemetryGate.resolvedEnabled ? .lightweight : .off
         }
     }
 }
@@ -953,6 +944,10 @@ public struct GenerationResult: Hashable, Codable, Sendable {
     public let diagnosticTimingsMS: [String: Int]
     public let diagnosticBooleanFlags: [String: Bool]
     public let diagnosticStringFlags: [String: String]
+    /// Headline memory/timing summary rescued from the in-engine telemetry sampler.
+    /// Optional + `decodeIfPresent` keeps the IPC wire and persisted history readable
+    /// across versions; `nil` when telemetry was off for the run.
+    public let telemetrySummary: TelemetrySummary?
 
     public init(
         audioPath: String,
@@ -962,7 +957,8 @@ public struct GenerationResult: Hashable, Codable, Sendable {
         finishReason: GenerationFinishReason? = nil,
         diagnosticTimingsMS: [String: Int] = [:],
         diagnosticBooleanFlags: [String: Bool] = [:],
-        diagnosticStringFlags: [String: String] = [:]
+        diagnosticStringFlags: [String: String] = [:],
+        telemetrySummary: TelemetrySummary? = nil
     ) {
         self.audioPath = audioPath
         self.durationSeconds = durationSeconds
@@ -972,6 +968,7 @@ public struct GenerationResult: Hashable, Codable, Sendable {
         self.diagnosticTimingsMS = diagnosticTimingsMS
         self.diagnosticBooleanFlags = diagnosticBooleanFlags
         self.diagnosticStringFlags = diagnosticStringFlags
+        self.telemetrySummary = telemetrySummary
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -983,6 +980,7 @@ public struct GenerationResult: Hashable, Codable, Sendable {
         case diagnosticTimingsMS
         case diagnosticBooleanFlags
         case diagnosticStringFlags
+        case telemetrySummary
     }
 
     public init(from decoder: Decoder) throws {
@@ -995,6 +993,7 @@ public struct GenerationResult: Hashable, Codable, Sendable {
         diagnosticTimingsMS = try container.decodeIfPresent([String: Int].self, forKey: .diagnosticTimingsMS) ?? [:]
         diagnosticBooleanFlags = try container.decodeIfPresent([String: Bool].self, forKey: .diagnosticBooleanFlags) ?? [:]
         diagnosticStringFlags = try container.decodeIfPresent([String: String].self, forKey: .diagnosticStringFlags) ?? [:]
+        telemetrySummary = try container.decodeIfPresent(TelemetrySummary.self, forKey: .telemetrySummary)
     }
 
     public var audioURL: URL {
@@ -1173,6 +1172,10 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
     public let streamingTitle: String?
     public let languageHint: String?
     public let payload: Payload
+    /// App-minted correlation key. Threaded down so the engine reuses it
+    /// (`NativeEngineRuntime`) and app/middle/engine telemetry rows join.
+    /// Optional + synthesized `Codable` keeps the IPC wire back-compatible.
+    public let generationID: UUID?
 
     public init(
         mode: GenerationMode,
@@ -1185,7 +1188,8 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
         batchTotal: Int? = nil,
         streamingTitle: String? = nil,
         languageHint: String? = nil,
-        payload: Payload
+        payload: Payload,
+        generationID: UUID? = nil
     ) {
         self.mode = mode
         self.modelID = modelID
@@ -1198,6 +1202,7 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
         self.streamingTitle = streamingTitle
         self.languageHint = languageHint
         self.payload = payload
+        self.generationID = generationID
     }
 
     public init(
@@ -1210,7 +1215,8 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
         batchTotal: Int? = nil,
         streamingTitle: String? = nil,
         languageHint: String? = nil,
-        payload: Payload
+        payload: Payload,
+        generationID: UUID? = nil
     ) {
         let resolvedMode: GenerationMode
         switch payload {
@@ -1233,7 +1239,8 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
             batchTotal: batchTotal,
             streamingTitle: streamingTitle,
             languageHint: languageHint,
-            payload: payload
+            payload: payload,
+            generationID: generationID
         )
     }
 

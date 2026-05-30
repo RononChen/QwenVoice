@@ -5,6 +5,18 @@ import QwenVoiceNative
 
 @MainActor
 final class MacGenerationWarmupCoordinator: ObservableObject {
+    /// Benchmark hook: when `QWENVOICE_SUPPRESS_WARMUP` is set (`1`/`true`/`on`/`yes`),
+    /// all proactive warmup/prefetch is skipped, so a cold benchmark generation does —
+    /// and records — its own model load instead of being silently pre-warmed. Resolved
+    /// once per process; off in normal use (no behavior change).
+    static let isSuppressed: Bool = {
+        let value = ProcessInfo.processInfo.environment["QWENVOICE_SUPPRESS_WARMUP"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard let value else { return false }
+        return ["1", "true", "on", "yes"].contains(value)
+    }()
+
     enum WarmupPurpose: String, Equatable, Sendable {
         case finalGenerationReadiness
         case livePreviewReadiness
@@ -113,6 +125,10 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
         snapshot: TTSEngineSnapshot,
         ttsEngineStore: TTSEngineStore
     ) {
+        if Self.isSuppressed {
+            cancelPendingWarmup()
+            return
+        }
         guard let mode,
               let modelID,
               !modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -152,6 +168,10 @@ final class MacGenerationWarmupCoordinator: ObservableObject {
         snapshot: TTSEngineSnapshot,
         ttsEngineStore: TTSEngineStore
     ) {
+        if Self.isSuppressed {
+            cancelPendingWarmup()
+            return
+        }
         guard let context,
               !context.modelID.isEmpty,
               context.isModelAvailable,

@@ -366,6 +366,9 @@ struct ContentView: View {
         plan: SavedVoiceCloneHandoffPlan,
         engineStore: TTSEngineStore
     ) async {
+        // Benchmark cold-start accuracy: skip proactive saved-voice clone preload when
+        // warmup is suppressed (the cold generation records its own load instead).
+        guard !MacGenerationWarmupCoordinator.isSuppressed else { return }
         guard let cloneModelID = plan.cloneModelID?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !cloneModelID.isEmpty else {

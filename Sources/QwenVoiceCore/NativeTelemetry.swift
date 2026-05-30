@@ -17,7 +17,11 @@ public struct NativeTelemetryStageMark: Hashable, Codable, Sendable {
 }
 
 public actor NativeTelemetryRecorder {
-    private let startUptimeSeconds: TimeInterval
+    /// Exposed (immutable, `Sendable`) so the per-generation `NativeTelemetrySampler`
+    /// can be created with the SAME start instant — `NativeTelemetrySampler.decorate`
+    /// joins memory samples to stage marks by `tMS`, so a mismatched start clock
+    /// would break that join.
+    public nonisolated let startUptimeSeconds: TimeInterval
     private var stageMarks: [NativeTelemetryStageMark] = []
 
     public init(startUptimeSeconds: TimeInterval = ProcessInfo.processInfo.systemUptime) {

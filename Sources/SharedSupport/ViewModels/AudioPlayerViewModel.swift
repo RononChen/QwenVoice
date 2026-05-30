@@ -660,6 +660,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     private func handleGenerationChunk(_ chunk: ChunkInfo) {
         let sessionID = chunk.generationID?.uuidString ?? String(chunk.requestID)
         AppPerformanceSignposts.emit("Chunk Received")
+        AppGenerationTimeline.shared.recordFirstChunk(id: sessionID)
         guard !completedLiveSessionIDs.contains(sessionID) else {
             AppPerformanceSignposts.emit("Chunk Dropped Completed")
             return
@@ -941,6 +942,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
                 livePlayerNode.play()
                 livePlaybackStarted = true
                 AppPerformanceSignposts.emit("Live Engine Play")
+                AppGenerationTimeline.shared.recordFirstAudible(id: liveSessionID)
             }
             isPlaying = true
             setLivePreviewPhase(.playing)

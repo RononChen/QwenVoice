@@ -185,7 +185,10 @@ actor XPCNativeEngineCoordinator {
 
     func initialize(appSupportDirectory: URL) async throws {
         initializedAppSupportDirectory = appSupportDirectory
-        _ = try await send(.initialize(appSupportDirectoryPath: appSupportDirectory.path))
+        _ = try await send(.initialize(
+            appSupportDirectoryPath: appSupportDirectory.path,
+            telemetryMode: TelemetryGate.appProcessIntendedMode.rawValue
+        ))
     }
 
     func send(_ command: EngineCommand) async throws -> EngineReply {
@@ -199,7 +202,7 @@ actor XPCNativeEngineCoordinator {
         }
         let transport = ensureConnection()
         switch command {
-        case .initialize(let path):
+        case .initialize(let path, _):
             initializedAppSupportDirectory = URL(fileURLWithPath: path)
             let reply = try await perform(transport: transport, command: command)
             applyReplySideEffects(reply)
@@ -209,7 +212,10 @@ actor XPCNativeEngineCoordinator {
             if !didInitializeCurrentConnection, let initializedAppSupportDirectory {
                 let initializationReply = try await perform(
                     transport: transport,
-                    command: .initialize(appSupportDirectoryPath: initializedAppSupportDirectory.path)
+                    command: .initialize(
+                        appSupportDirectoryPath: initializedAppSupportDirectory.path,
+                        telemetryMode: TelemetryGate.appProcessIntendedMode.rawValue
+                    )
                 )
                 applyReplySideEffects(initializationReply)
                 didInitializeCurrentConnection = true
@@ -631,7 +637,10 @@ actor XPCNativeEngineCoordinator {
 
         do {
             _ = try await send(
-                .initialize(appSupportDirectoryPath: appSupportDirectory.path),
+                .initialize(
+                    appSupportDirectoryPath: appSupportDirectory.path,
+                    telemetryMode: TelemetryGate.appProcessIntendedMode.rawValue
+                ),
                 cancelsReconnectTask: false
             )
             _ = try await send(.ping, cancelsReconnectTask: false)

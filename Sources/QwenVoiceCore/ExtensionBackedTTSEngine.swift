@@ -106,7 +106,10 @@ public final class ExtensionBackedTTSEngine: TTSEngineRuntimeControlling, Active
 
     public func initialize(appSupportDirectory: URL) async throws {
         let reply = try await coordinator.send(
-            .initialize(appSupportDirectoryPath: appSupportDirectory.path)
+            .initialize(
+                appSupportDirectoryPath: appSupportDirectory.path,
+                telemetryMode: TelemetryGate.appProcessIntendedMode.rawValue
+            )
         )
         guard case .snapshot(let snapshot) = reply else {
             throw ExtensionEngineTransportError.invalidReply

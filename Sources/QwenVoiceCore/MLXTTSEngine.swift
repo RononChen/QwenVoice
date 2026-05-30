@@ -398,13 +398,15 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             customPrewarmPolicy: customPrewarmPolicy,
             diagnosticAppSupportBox: diagnosticAppSupportBox,
             streamingSessionFactory: Self.makeStreamingSessionFactory(
-                pcmScratchBuffer: PCM16ScratchBuffer()
+                pcmScratchBuffer: PCM16ScratchBuffer(),
+                diagnosticAppSupportBox: diagnosticAppSupportBox
             )
         )
     }
 
     private static func makeStreamingSessionFactory(
-        pcmScratchBuffer: PCM16ScratchBuffer
+        pcmScratchBuffer: PCM16ScratchBuffer,
+        diagnosticAppSupportBox: DiagnosticAppSupportBox
     ) -> StreamingSessionFactory {
         { generationID, requestID, request, model, streamSessionsDirectory, warmState, timingOverridesMS, booleanFlags, stringFlags, cloneConditioning, wasPrimed, telemetryRecorder, loadCapabilityProfile, qwen3Capabilities, memoryPolicy, mlxMemorySnapshots in
             NativeStreamingSynthesisSession(
@@ -424,7 +426,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
                 qwen3Capabilities: qwen3Capabilities,
                 memoryPolicy: memoryPolicy,
                 mlxMemorySnapshots: mlxMemorySnapshots,
-                pcmScratchBuffer: pcmScratchBuffer
+                pcmScratchBuffer: pcmScratchBuffer,
+                diagnosticAppSupportBox: diagnosticAppSupportBox
             )
         }
     }
@@ -987,7 +990,9 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
     }
 
     private func runGenerationAttempt(_ request: GenerationRequest) async throws -> GenerationResult {
-        await telemetryRecorder?.reset()
+        // The per-generation stage recorder is created inside `prepareGeneration`
+        // (started before model load) and returned in `prepared` so the session's
+        // memory sampler shares its start clock — see NativeEngineRuntime.
         loadState = .running(
             modelID: request.modelID,
             label: request.engineActivityLabel,
@@ -1007,7 +1012,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             prepared.stringFlags,
             prepared.cloneConditioning,
             prepared.wasPrimed,
-            telemetryRecorder,
+            prepared.telemetryRecorder,
             prepared.loadCapabilityProfile,
             prepared.qwen3Capabilities,
             prepared.memoryPolicy,
@@ -1494,7 +1499,7 @@ private actor NativeDiagnosticEventJSONLWriter {
         appSupportDirectoryURL: URL?,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
-        guard NativeTelemetryMode.current(environment: environment) == .lightweight else {
+        guard NativeTelemetryMode.current(environment: environment) != .off else {
             return
         }
         guard let appSupportDirectoryURL else {

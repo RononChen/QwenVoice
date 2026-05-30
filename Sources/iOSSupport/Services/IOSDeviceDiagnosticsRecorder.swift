@@ -38,7 +38,7 @@ final class IOSDeviceDiagnosticsRecorder {
         appSupportDirectory: URL = AppPaths.appSupportDir
     ) -> IOSDeviceDiagnosticsRecorder? {
 #if DEBUG
-        guard NativeTelemetryMode.current(environment: environment) == .lightweight else {
+        guard NativeTelemetryMode.current(environment: environment) != .off else {
             return nil
         }
         guard let runID = environment["QVOICE_IOS_DEVICE_RUN_ID"]?

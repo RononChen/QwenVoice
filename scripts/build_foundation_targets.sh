@@ -19,6 +19,18 @@ prepare_paths() {
   mkdir -p "$FOUNDATION_BUILD_ROOT"
 }
 
+# The foundation build exists only to prove the targets compile. Its DerivedData
+# trees are large (1-2 GB each for the MLX stack) and serve no purpose after the
+# pass/fail is known, so remove them on exit (success OR failure). The small
+# .xcresult bundles + summary.json are kept for inspection. This enforces the
+# "single build at a time" policy: no second build tree lingers on disk.
+cleanup_foundation_derived_data() {
+  rm -rf \
+    "$FOUNDATION_BUILD_ROOT/macos-derived-data" \
+    "$FOUNDATION_BUILD_ROOT/ios-derived-data" \
+    2>/dev/null || true
+}
+
 write_summary() {
   local status="$1"
   local summary_path="$FOUNDATION_BUILD_ROOT/summary.json"
@@ -82,6 +94,7 @@ build_ios() {
 }
 
 prepare_paths
+trap cleanup_foundation_derived_data EXIT
 
 case "$MODE" in
   macos)

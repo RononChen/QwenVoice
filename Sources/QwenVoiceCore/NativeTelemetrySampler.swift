@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import Metal
 
 public struct TelemetrySample: Hashable, Codable, Sendable {
     public let tMS: Int
@@ -38,7 +39,7 @@ public struct TelemetrySample: Hashable, Codable, Sendable {
     }
 }
 
-public struct TelemetrySummary: Codable, Sendable {
+public struct TelemetrySummary: Hashable, Codable, Sendable {
     public let residentStartMB: Double?
     public let residentEndMB: Double?
     public let residentPeakMB: Double?
@@ -89,6 +90,11 @@ public actor NativeTelemetrySampler {
     private let sampleIntervalMS: Int
     private let buffer = TelemetrySampleBuffer()
     private var samplingTask: Task<Void, Never>?
+    /// Resolved once per generation instead of per sample. `IOSMemorySnapshot.capture`
+    /// defaults `device:` to `MTLCreateSystemDefaultDevice()`, which would otherwise
+    /// allocate a fresh Metal device object on every tick — wasteful on restricted
+    /// hardware where the sampler runs alongside generation.
+    private let metalDevice: MTLDevice? = MTLCreateSystemDefaultDevice()
 
     public init(
         startUptimeSeconds: TimeInterval,
@@ -99,16 +105,17 @@ public actor NativeTelemetrySampler {
     }
 
     public func start() async {
-        await buffer.append(sample: Self.captureSample(startUptimeSeconds: startUptimeSeconds))
+        await buffer.append(sample: Self.captureSample(startUptimeSeconds: startUptimeSeconds, device: metalDevice))
         let intervalNanos = UInt64(max(sampleIntervalMS, 1)) * 1_000_000
         let buffer = self.buffer
         let startUptimeSeconds = self.startUptimeSeconds
+        let device = self.metalDevice
         samplingTask = Task.detached(priority: .utility) {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: intervalNanos)
                 guard !Task.isCancelled else { break }
                 await buffer.append(
-                    sample: Self.captureSample(startUptimeSeconds: startUptimeSeconds)
+                    sample: Self.captureSample(startUptimeSeconds: startUptimeSeconds, device: device)
                 )
             }
         }
@@ -117,7 +124,7 @@ public actor NativeTelemetrySampler {
     public func stop(stageMarks: [NativeTelemetryStageMark]) async -> (summary: TelemetrySummary, samples: [TelemetrySample]) {
         samplingTask?.cancel()
         _ = await samplingTask?.value
-        await buffer.append(sample: Self.captureSample(startUptimeSeconds: startUptimeSeconds))
+        await buffer.append(sample: Self.captureSample(startUptimeSeconds: startUptimeSeconds, device: metalDevice))
         let rawSamples = await buffer.snapshot()
         let samples = Self.decorate(samples: rawSamples, stageMarks: stageMarks)
         let summary = Self.summarize(samples: samples, stageMarks: stageMarks)
@@ -186,9 +193,9 @@ public actor NativeTelemetrySampler {
         )
     }
 
-    private static func captureSample(startUptimeSeconds: TimeInterval) -> TelemetrySample {
+    private static func captureSample(startUptimeSeconds: TimeInterval, device: MTLDevice?) -> TelemetrySample {
         let tMS = Int((ProcessInfo.processInfo.systemUptime - startUptimeSeconds) * 1_000)
-        let snapshot = IOSMemorySnapshot.capture()
+        let snapshot = IOSMemorySnapshot.capture(device: device)
         return TelemetrySample(
             tMS: tMS,
             residentMB: snapshot.residentMB,

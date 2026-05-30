@@ -62,6 +62,13 @@ refactoring views.
   `voiceCloning_*` (e.g. `customVoice_speakerPicker`, `voiceDesign_voiceDescriptionField`,
   `voiceCloning_savedVoicePicker`, `*_toneSpeed`); readiness/completion shows as a `*_readiness`
   status ("Ready" → inline player; Design/Clone expose a save-to-Saved-Voices button).
+- **Model variant (benchmarking):** `{mode}_speedVariantButton` / `{mode}_qualityVariantButton`
+  (e.g. `customVoice_speedVariantButton`, `customVoice_qualityVariantButton`) select Speed (4-bit) vs
+  Quality (8-bit). Click the button (or `Left`/`Right` arrow the picker). **Switching variant or mode
+  forces the next generation to be a cold load** (the prior package unloads). For an accurate cold
+  measurement also launch with `QWENVOICE_SUPPRESS_WARMUP=1` (skips proactive prewarm/clone-priming so
+  the cold generation records its own load) — see the benchmark procedure in
+  [`telemetry-and-benchmarking.md`](telemetry-and-benchmarking.md).
 - **Settings:** model rows `settings_package_<id>` + `settings_download_<id>` / `settings_repair_<id>`;
   `preferences_autoPlayToggle`; `settings_preferSpeedEverywhere`; `preferences_openFinderButton`.
   The **version label** carries the hidden **7-tap debug-mode toggle** (`appVersion` Text).
@@ -100,9 +107,19 @@ buffer that only Instruments reads, not the unified log. So don't try to read ti
   Generation` / `Native Model Load` (intervals), `Native First Audio Chunk` / `First Chunk Received`
   (time-to-first-audio), `Live Engine Play`, `Final File Ready`, `Autoplay Start`, `Native Prewarm
   Cache Hit`.
-- **Recommended (durable):** the structured `native-events.jsonl` telemetry from the DebugMode
-  telemetry/probing work — file-based, readable via Bash, no Instruments. Prefer this once it lands;
-  it's the intended benchmark source. Until then, use Instruments for real latency numbers.
+- **Recommended (durable):** the structured per-generation telemetry — file-based, readable via
+  Bash, no Instruments — gated by `TelemetryGate` (env `QWENVOICE_DEBUG=1`, or the app's 7-tap
+  DebugMode flag, which is relayed to the engine process over the `initialize` IPC handshake). Each
+  layer appends one JSON line keyed by the shared `generationID`:
+  - `diagnostics/app/generations.jsonl` — frontend: `submitToFirstChunkMS`, `submitToFirstAudibleMS`,
+    `submitToCompletedMS`, plus the rescued `summary` (peak/headroom/GPU memory, time-to-peak).
+  - `diagnostics/engine-service/generations.jsonl` — middle (XPC) transport: `chunkForwardingSpanMS`,
+    `chunksForwarded`, `chunkGaps`.
+  - `diagnostics/engine/generations.jsonl` — backend: the full stage timeline + memory `summary`.
+  - `diagnostics/generations-merged.jsonl` — all three layers joined by `generationID` (one row per
+    run). This is the intended benchmark source; read it directly.
+  (The legacy `native-events.jsonl` still carries chunk-gap / encode-drop events.) Under
+  `QwenVoice-Debug/` when DebugMode is on. iOS engine-extension rows are deferred with the rest of iOS.
 
 Cold vs warm: force cold by switching the model id (unloads) or letting idle-unload fire; warm =
 back-to-back runs. **Ad-hoc per change — do not commit a baseline matrix.**

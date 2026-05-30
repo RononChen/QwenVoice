@@ -161,6 +161,18 @@ prune_stale_builds() {
     local output_name="${1:-}"
     prune_legacy_build_layout
 
+    # Reclaim a leftover foundation compile-safety DerivedData tree (1-2 GB each).
+    # The foundation script removes these on exit, but a normal build also prunes
+    # them here in case a prior run was interrupted before its trap fired — so only
+    # the single active build/DerivedData tree ever persists.
+    local foundation_root="$ROOT_DIR/build/foundation/local-builds"
+    for stale in "$foundation_root/macos-derived-data" "$foundation_root/ios-derived-data"; do
+        if [ -d "$stale" ]; then
+            echo "==> Removing stale foundation build tree: $stale"
+            rm -rf "$stale"
+        fi
+    done
+
     local keep_app="$ROOT_DIR/build/Vocello.app"
     local killed=false
     while IFS= read -r -d '' candidate; do

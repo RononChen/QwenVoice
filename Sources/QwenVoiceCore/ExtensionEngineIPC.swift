@@ -38,7 +38,7 @@ public struct ExtensionEngineRequestEnvelope: Codable, Equatable, Sendable {
 }
 
 public enum ExtensionEngineCommand: Codable, Equatable, Sendable {
-    case initialize(appSupportDirectoryPath: String)
+    case initialize(appSupportDirectoryPath: String, telemetryMode: String)
     case ping
     case loadModel(id: String)
     case unloadModel
