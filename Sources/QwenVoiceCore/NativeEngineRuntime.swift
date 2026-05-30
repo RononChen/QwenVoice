@@ -222,6 +222,18 @@ actor NativeEngineRuntime {
         await telemetryRecorder?.mark(stage: .unload)
     }
 
+    /// Stamp the raw kernel memory-pressure signal onto the active generation's
+    /// timeline. Distinct from `trimMemory`'s `memory_trim` mark, which records the
+    /// trim *action* — and which is skipped when `acquirePrewarmSlot()` throws on a
+    /// contended slot. This is a pure stage mark (no slot acquisition, no cache
+    /// mutation), so a pressure moment is captured even when the resulting trim
+    /// defers. No-op when no per-generation recorder is active.
+    func recordMemoryPressureObserved(level: NativeMemoryTrimLevel) async {
+        await telemetryRecorder?.mark(stage: "memory_pressure", metadata: [
+            "level": level.rawValue,
+        ])
+    }
+
     func trimMemory(level: NativeMemoryTrimLevel, reason: String) async {
         // Serialize trims with in-flight MLX prewarm bodies so a kernel
         // pressure event cannot clear prepared-component caches while a

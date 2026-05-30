@@ -151,7 +151,9 @@ memory sampler **share one start clock**, so marks and samples align). Stages
 (`NativeRuntimeStage`): `preparedCacheValidation`, `tokenizerPreparation`,
 `upstreamModelLoad`, `prewarm`, `clonePreparation`, `streamStartup`, `firstChunk`,
 `streamCompleted` / `streamFailed`, `unload`. Load/prewarm marks appear only on a **cold**
-run (warm runs skip that work — that's correct, not missing data).
+run (warm runs skip that work — that's correct, not missing data). Two additional
+string‑keyed marks record memory events on pressure‑bound tiers: `memory_pressure` and
+`memory_trim` (see §8).
 
 ### 6.2 Decode breakdown (`timingsMS`)
 
@@ -222,6 +224,21 @@ portion.
   physFootprintMB, compressedMB, headroomMB, gpuAllocatedMB, threads, decorated `stage`/
   `chunkIndex`) to `engine/samples-<generationID>.jsonl` for full memory‑curve analysis.
   Off by default (higher volume).
+- **Kernel memory‑pressure marks** (in `stageMarks`) — on the pressure‑bound tiers
+  (`floor8GBMac` / `mid16GBMac` / `iPhonePro`, where `NativeMemoryPressureMonitor` runs):
+  - `memory_pressure` — the **raw kernel signal** (`metadata.level` = `softTrim`/`hardTrim`),
+    stamped by `NativeEngineRuntime.recordMemoryPressureObserved` the instant the
+    `DispatchSource` event arrives. Always recorded — it takes no prewarm slot.
+  - `memory_trim` — the **trim action** taken in response (`metadata.level` + `reason`, e.g.
+    `macos_memory_pressure_hardTrim`, `post_batch_low_ram`). Written by
+    `NativeEngineRuntime.trimMemory`; skipped if the prewarm slot is contended, hence the
+    separate always‑on `memory_pressure` mark above.
+
+  A run with a `hardTrim` mid‑generation is shedding model state under pressure — an early
+  OOM signal. On a non‑pressure‑bound tier (high‑memory Mac) the monitor never starts, so
+  these marks are absent (correct, not missing data). `headroom*` summary fields populate on
+  iOS only (`os_proc_available_memory`); on macOS they're nil and `phys_footprint` is the
+  OOM‑relevant figure to watch.
 
 ---
 
@@ -334,9 +351,17 @@ python3 scripts/summarize_generation_telemetry.py
 ```
 
 Prints a `mode × model × cold/warm` table (median over warm): RTF, tokens/s, TTFC, decode‑loop ms,
-peak GPU / RSS MB. Read‑only; joins `engine/` + `app/` rows by `generationID`. Pass a diagnostics
-dir as `$1` to summarize a different run. **Do not commit the output** as a baseline (guard policy);
-it's an ad‑hoc comparison.
+peak GPU / RSS MB, **`physFoot`** (phys_footprint peak — the Jetsam‑relevant OOM figure),
+**`headMin`** (min available headroom; iOS‑only, `-` on macOS), and **`trims`** (median
+`memory_trim` count for the cell, annotated with the worst level — `soft`/`hard`/`full`; derived
+from `stageMarks`, no new record field). Read‑only; joins `engine/` + `app/` rows by `generationID`.
+Pass a diagnostics dir as `$1` to summarize a different run. **Do not commit the output** as a
+baseline (guard policy); it's an ad‑hoc comparison.
+
+**Watch for OOM regressions** when optimizing the backend on the `floor8GBMac` tier: a rising
+`physFoot` peak or any `hardTrim` in the `trims` column means a run is shedding model state under
+kernel pressure — the early OOM signal. `trims`/`pressure` read `0` on a high‑memory Mac (the
+pressure monitor never starts there); run the matrix on the constrained tier to exercise them.
 
 **Verify attribution:** for **Custom Voice and Voice Design**, each cold row must show
 `warmState":"cold"` (and carry `upstreamModelLoad` in `stageMarks`); warm rows show `"warm"`. If a
@@ -354,7 +379,9 @@ is correct (clone is warm‑by‑design, above), not a suppression failure.
   for the patch + validation gates. It will surface automatically in the engine row's
   `timingsMS` (the session re‑reads the model post‑loop). Avoid adding `eval()`/`.item()`
   syncs purely to measure — they distort the very thing you're measuring.
-- **New stage mark:** add a `NativeRuntimeStage` case and `recorder.mark(stage:)` at the site.
+- **New stage mark:** add a `NativeRuntimeStage` case and `recorder.mark(stage:)` at the site
+  (or a string‑keyed `recorder.mark(stage: "…")` for one‑off events like `memory_pressure` /
+  `memory_trim` — no enum/schema change, the mark flows through `stageMarks` automatically).
 - **New derived KPI:** extend `computeDerivedMetrics` in `NativeStreamingSynthesisSession`.
 - **New field on the record:** add an optional field to `GenerationTelemetryRecord` (so old
   rows still decode) and bump `currentSchemaVersion`.

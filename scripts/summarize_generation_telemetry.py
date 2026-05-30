@@ -56,6 +56,7 @@ def load_runs(diag_dir):
         summary = e.get("summary") or {}
         a = app.get(gid) or {}
         app_timings = a.get("timingsMS") or {}
+        trim_count, pressure_count, worst = count_memory_events(e, summary)
         runs.append(
             {
                 "generationID": gid,
@@ -70,9 +71,48 @@ def load_runs(diag_dir):
                 "decodeLoopMS": timings.get("qwen_token_loop_total"),
                 "peakGpuMB": summary.get("gpuAllocatedPeakMB"),
                 "peakRssMB": summary.get("residentPeakMB"),
+                # phys_footprint is the figure Jetsam judges on Apple Silicon — the
+                # most OOM-relevant peak. headroomMin = closest the process came to
+                # exhausting its available memory budget during the run.
+                "physFootMB": summary.get("physFootprintPeakMB"),
+                "headMinMB": summary.get("headroomMinMB"),
+                "compressedMB": summary.get("compressedPeakMB"),
+                # Kernel memory-pressure activity during the run (stage marks).
+                "trims": trim_count,
+                "pressure": pressure_count,
+                "worstTrim": worst,
             }
         )
     return runs
+
+
+# Worst-first ranking of trim levels for the `trims` column annotation.
+_TRIM_SEVERITY = {"fullUnload": 3, "hardTrim": 2, "softTrim": 1}
+
+
+def count_memory_events(engine_row, summary):
+    """Count memory_trim / memory_pressure stage marks and the worst trim level.
+
+    Marks live on the engine row's top-level `stageMarks` (and mirror into
+    `summary.stageMarks`); each carries `stage` + `metadata.level`. These are
+    written by NativeEngineRuntime.trimMemory (memory_trim) and
+    recordMemoryPressureObserved (memory_pressure)."""
+    marks = engine_row.get("stageMarks") or summary.get("stageMarks") or []
+    trim_count = 0
+    pressure_count = 0
+    worst_rank = 0
+    worst_label = None
+    for mark in marks:
+        stage = mark.get("stage")
+        level = (mark.get("metadata") or {}).get("level")
+        if stage == "memory_trim":
+            trim_count += 1
+            rank = _TRIM_SEVERITY.get(level, 0)
+            if rank > worst_rank:
+                worst_rank, worst_label = rank, level
+        elif stage == "memory_pressure":
+            pressure_count += 1
+    return trim_count, pressure_count, worst_label
 
 
 def short_model(model_id):
@@ -112,7 +152,7 @@ def main():
     header = (
         f"{'mode':<8} {'model':<26} {'state':<5} {'n':>2} "
         f"{'RTF':>6} {'tok/s':>7} {'TTFC ms':>8} {'decode ms':>9} "
-        f"{'peakGPU':>8} {'peakRSS':>8}"
+        f"{'peakGPU':>8} {'peakRSS':>8} {'physFoot':>8} {'headMin':>8} {'trims':>9}"
     )
     print(f"\nTelemetry summary — {diag_dir}")
     print(f"({len(runs)} runs across {len(cells)} cells; warm shows median)\n")
@@ -130,15 +170,43 @@ def main():
             f"{fmt(med(r['ttfcMS'] for r in group), 0):>8} "
             f"{fmt(med(r['decodeLoopMS'] for r in group), 0):>9} "
             f"{fmt(med(r['peakGpuMB'] for r in group), 0):>8} "
-            f"{fmt(med(r['peakRssMB'] for r in group), 0):>8}"
+            f"{fmt(med(r['peakRssMB'] for r in group), 0):>8} "
+            f"{fmt(med(r['physFootMB'] for r in group), 0):>8} "
+            f"{fmt(med(r['headMinMB'] for r in group), 0):>8} "
+            f"{fmt_trims(group):>9}"
         )
 
     print(
         "\nRTF = audioSeconds / wallSeconds (>1 faster than realtime). "
         "tok/s = codec tokens/s. TTFC = submit→first chunk. "
-        "decode ms = qwen_token_loop_total. peak* = MB."
+        "decode ms = qwen_token_loop_total. peak*/physFoot/headMin = MB."
+    )
+    print(
+        "physFoot = phys_footprint peak (the figure Jetsam judges — the OOM-relevant "
+        "peak). headMin = min available headroom during the run. "
+        "trims = median memory_trim count [worst level]; raw kernel pressure events "
+        "are also recorded as memory_pressure marks. On the 8 GB tier, a rising "
+        "physFoot or any hardTrim is the early OOM signal."
     )
     return 0
+
+
+def fmt_trims(group):
+    """Median memory_trim count for the cell, annotated with the worst level seen."""
+    count = med(r["trims"] for r in group)
+    worst = None
+    worst_rank = 0
+    for r in group:
+        rank = _TRIM_SEVERITY.get(r.get("worstTrim"), 0)
+        if rank > worst_rank:
+            worst_rank, worst = rank, r["worstTrim"]
+    if count is None:
+        return "-"
+    label = f"{int(count)}"
+    if worst:
+        # soft/hard/full — short tag keeps the column narrow.
+        label += f" {worst.replace('Trim', '').replace('Unload', '')[:4]}"
+    return label
 
 
 if __name__ == "__main__":

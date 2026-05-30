@@ -545,6 +545,11 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         let reasonPrefix = deviceClass == .iPhonePro ? "ios_memory_pressure" : "macos_memory_pressure"
         memoryPressureTask = Task { [memoryPressureMonitor] in
             for await level in memoryPressureMonitor.events {
+                // Stamp the raw kernel signal first (always captured), then act on
+                // it. The trim's own `memory_trim` mark is skipped if the prewarm
+                // slot is contended, so this guarantees the pressure moment lands
+                // on the active generation's timeline regardless.
+                await runtime.recordMemoryPressureObserved(level: level)
                 await runtime.trimMemory(
                     level: level,
                     reason: "\(reasonPrefix)_\(level.rawValue)"
