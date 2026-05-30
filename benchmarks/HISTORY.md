@@ -24,3 +24,4 @@ reference ledger, not an auto-compared baseline gate.
 
 | date | sha | cell | RTF | tok/s | TTFC ms | physFoot MB | trims | QC | note |
 |------|-----|------|-----|-------|---------|-------------|-------|----|------|
+| 2026-05-30 | 06166f0 | custom/pro_custom_quality/warm | 0.66 | 8.31 | 1114 | 4079 | 0 | warn:dropout | baseline pre-optimization; QC dropout = natural comma-pause (listening PASS); Quality = genuine 8-bit, native floor tier |
