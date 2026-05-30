@@ -122,6 +122,9 @@ def load_runs(diag_dir):
                 # Resolved device tier this row ran under (notes.deviceClass) —
                 # reveals a forced-tier benchmark and the floor Quality→Speed fallback.
                 "deviceClass": (e.get("notes") or {}).get("deviceClass") or "?",
+                # Whether the tier was forced via QWENVOICE_FORCE_MEMORY_CLASS (vs the
+                # native tier) — so a real 8 GB Mac isn't mislabeled "forced".
+                "deviceClassForced": (e.get("notes") or {}).get("deviceClassForced") == "true",
                 # GPU peak MB at pipeline boundaries (mlxMemoryByStage) — shows WHERE
                 # GPU memory grows and how much a trim reclaims.
                 "gpuByStage": gpu_peak_by_stage(e.get("mlxMemoryByStage") or {}),
@@ -327,12 +330,12 @@ def main():
         f"{'peakGPU':>8} {'physFoot':>8} {'trims':>9} {'QC':<12} {'WER%':>6}"
     )
     tiers = sorted({r["deviceClass"] for r in runs})
+    forced = any(r["deviceClassForced"] for r in runs)
     print(f"\nTelemetry summary — {diag_dir}")
     print(f"({len(runs)} runs across {len(cells)} cells; warm shows median)")
     print(f"tier: {', '.join(tiers)}"
-          + ("   ⚠ forced (QWENVOICE_FORCE_MEMORY_CLASS)"
-             if any(t in ("floor_8gb_mac", "mid_16gb_mac", "iphone_pro") for t in tiers)
-             else "") + "\n")
+          + ("   ⚠ forced (QWENVOICE_FORCE_MEMORY_CLASS)" if forced else "")
+          + "\n")
     print(header)
     print("-" * len(header))
 

@@ -27,7 +27,14 @@ Run all shell work (builds, `log`, Instruments, DB queries) through the **Bash t
 computer-use — Terminal/IDE are restricted tiers where typing is blocked.
 
 **Isolate test data:** launch with `QWENVOICE_DEBUG=1` (or flip the in-app toggle) so generated
-takes land in `QwenVoice-Debug/` instead of polluting the real `QwenVoice/` History.
+takes land in `QwenVoice-Debug/` instead of polluting the real `QwenVoice/` History. **Launch via
+`QWENVOICE_DEBUG=1 ./scripts/build.sh run`** — its `open -na` propagates the shell env to the app.
+**Do NOT direct-exec the bundle binary** (`build/Vocello.app/Contents/MacOS/Vocello`): LaunchServices
+re-launches it and drops the env, so debug mode/telemetry silently won't engage. For ad-hoc env on an
+already-running session, use `launchctl setenv KEY VALUE` then `open` (and `launchctl unsetenv` after).
+To reuse the real app's downloaded weights from a debug-isolated run without a re-download, add
+`QWENVOICE_MODELS_DIR="$HOME/Library/Application Support/QwenVoice/models"` (don't symlink models — it
+breaks the prepared-cache rebuild).
 
 ## Tool mapping + gotchas
 

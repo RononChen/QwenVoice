@@ -1442,8 +1442,13 @@ private struct StreamingExecutionContext: Sendable {
         // policy it ran under — confirms a forced-tier benchmark took effect, and
         // (with modelID) flags the floor-tier Quality→Speed OOM fallback. Reuses
         // the free-form notes field; a caller-supplied key wins on collision.
-        let notesWithTier = ["deviceClass": NativeMemoryPolicyResolver.deviceClass().rawValue]
-            .merging(notes) { _, caller in caller }
+        let notesWithTier = [
+            "deviceClass": NativeMemoryPolicyResolver.deviceClass().rawValue,
+            // Whether the tier was forced (QWENVOICE_FORCE_MEMORY_CLASS) vs the
+            // native, physical-memory-derived tier — so the summarizer doesn't
+            // mislabel a real floor_8gb_mac (8 GB Mac) as "forced".
+            "deviceClassForced": NativeDeviceClassGate.resolvedForcedClass != nil ? "true" : "false",
+        ].merging(notes) { _, caller in caller }
         let record = GenerationTelemetryRecord(
             generationID: generationID.uuidString,
             layer: .engine,
