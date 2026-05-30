@@ -419,6 +419,32 @@ Custom/Design "cold" row says `warm`, warmup suppression wasn't in effect — co
 `QWENVOICE_SUPPRESS_WARMUP=1` reached the app launch. **Voice Cloning rows are always `warm`** — that
 is correct (clone is warm‑by‑design, above), not a suppression failure.
 
+### Tracking performance over time
+
+As optimization advances, track the trend with **committed snapshots + on‑demand comparison** — there
+is intentionally **no auto‑compared baseline gate** (the old comparison harnesses + baseline
+manifests stay retired/guard‑banned; thresholds are a maintainer call).
+
+Two committed artifacts under `benchmarks/` (compact, ≤256 KB, no raw `*.jsonl` — guard‑enforced):
+
+1. **Per‑milestone snapshot** — save the full table before/after a change. `--label` stamps a note;
+   the run is auto‑stamped with the date + short git SHA so the numbers tie to a commit:
+   ```sh
+   python3 scripts/summarize_generation_telemetry.py --label "stepeval fix" > benchmarks/2026-06-02-stepeval.md
+   ```
+2. **`benchmarks/HISTORY.md` ledger** — one compact row per run for the trend at a glance. The row is
+   printed (read‑only); you redirect it to the end of the file:
+   ```sh
+   python3 scripts/summarize_generation_telemetry.py --ledger-row --label "stepeval fix" >> benchmarks/HISTORY.md
+   ```
+   Default headline cell is `custom/quality/warm`; pass `--cell mode/model/state` (model = substring)
+   to track a different one. Columns: date · sha · cell · RTF · tok/s · TTFC · physFoot · trims · note.
+
+**Compare** by `git diff`‑ing two snapshots (or ask the agent to diff the deltas and flag
+regressions). For trustworthy deltas: **same machine, quiet (quit other apps), watch thermals**; keep
+cold vs warm separate; compare **medians** of ≥3 warm; record the SHA. For MLX backend work the needle
+to watch is the dominant `timingsMS` substage (e.g. `qwen_stream_step_eval_total`) alongside RTF.
+
 ---
 
 ## 12. Extending the telemetry

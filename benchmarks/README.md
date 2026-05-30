@@ -5,11 +5,15 @@ benchmark result logs are now permitted in the repo — but **bounded**, so they
 
 ## What may live here
 
-- A saved summary table from `python3 scripts/summarize_generation_telemetry.py` (`.md` / `.txt`).
+- **`HISTORY.md`** — the running ledger: one compact row per benchmark run (date · git SHA · cell ·
+  RTF · tok/s · TTFC · physFoot · trims · note), for watching the trend over time. Append a row with
+  `python3 scripts/summarize_generation_telemetry.py --ledger-row --label "what changed" >> benchmarks/HISTORY.md`.
+- A saved full summary table from `summarize_generation_telemetry.py --label "<note>"` (`.md` / `.txt`)
+  for a milestone — auto-stamped with the date + short SHA so numbers tie to a commit.
 - A small `.json` of headline numbers (RTF, tokens/s, TTFC, peak RAM/GPU) for a dated run.
-- Short notes on what changed between runs (before/after a backend optimization).
 
-Name files by date + context, e.g. `2026-05-30-floor8gb-quality.md`.
+Name milestone files by date + context, e.g. `2026-05-30-floor8gb-quality.md`. Compare runs with
+`git diff` (or ask the agent) — there's no auto-compared baseline gate, by design.
 
 ## Rules (enforced by `scripts/check_project_inputs.sh`)
 

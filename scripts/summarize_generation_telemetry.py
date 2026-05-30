@@ -7,7 +7,19 @@ the per-layer rows by `generationID` and prints a comparison table; for the warm
 runs in a cell it reports the median, for cold the single value (median if several).
 
 Usage:
-    python3 scripts/summarize_generation_telemetry.py [DIAGNOSTICS_DIR]
+    python3 scripts/summarize_generation_telemetry.py [DIAGNOSTICS_DIR] [--label NOTE]
+    python3 scripts/summarize_generation_telemetry.py --ledger-row [--label NOTE] [--cell mode/model/state]
+
+The full table is the default. `--ledger-row` prints ONE Markdown table row (the
+headline cell) for appending to `benchmarks/HISTORY.md` to track performance over
+time, e.g.:
+
+    python3 scripts/summarize_generation_telemetry.py --ledger-row --label "stepeval fix" \\
+        >> benchmarks/HISTORY.md
+
+`--label` stamps a free-form note (e.g. what changed); the run is auto-stamped with
+the current date + short git SHA so a number ties to a commit. Read-only: it never
+writes into the repo itself (you redirect the row).
 
 Default DIAGNOSTICS_DIR:
     ~/Library/Application Support/QwenVoice-Debug/diagnostics
@@ -17,15 +29,34 @@ See docs/reference/telemetry-and-benchmarking.md for the benchmark procedure.
 
 from __future__ import annotations
 
+import argparse
+import datetime
 import json
 import os
 import statistics
-import sys
+import subprocess
 from collections import defaultdict
 
 DEFAULT_DIR = os.path.expanduser(
     "~/Library/Application Support/QwenVoice-Debug/diagnostics"
 )
+
+
+def git_short_sha():
+    """Short HEAD SHA of the repo in CWD, or '-' when unavailable."""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        sha = out.stdout.strip()
+        return sha if out.returncode == 0 and sha else "-"
+    except Exception:
+        return "-"
+
+
+def today_str():
+    return datetime.date.today().isoformat()
 
 
 def read_jsonl(path):
@@ -164,8 +195,75 @@ def fmt(value, places=2):
     return str(value)
 
 
+def select_headline_cell(cells, requested):
+    """Pick the cell to summarize in a ledger row. `requested` is an optional
+    'mode/model/state' selector (model matched as a substring). Default: a warm
+    Custom Voice Quality cell, else any warm cell, else the first cell."""
+    keys = list(cells.keys())
+    if requested:
+        parts = requested.split("/")
+        want_mode = parts[0] if len(parts) > 0 else ""
+        want_model = parts[1] if len(parts) > 1 else ""
+        want_state = parts[2] if len(parts) > 2 else ""
+        for key in keys:
+            mode, model_id, state = key
+            if want_mode and mode != want_mode:
+                continue
+            if want_model and want_model.lower() not in model_id.lower():
+                continue
+            if want_state and state != want_state:
+                continue
+            return key
+        return None
+    # Default preference: custom + quality + warm → any warm → first.
+    for key in keys:
+        if key[0] == "custom" and "quality" in key[1].lower() and key[2] == "warm":
+            return key
+    for key in keys:
+        if key[2] == "warm":
+            return key
+    return keys[0] if keys else None
+
+
+def emit_ledger_row(cells, label):
+    """Print one Markdown table row for benchmarks/HISTORY.md. Columns match the
+    table header seeded in that file."""
+    key = select_headline_cell(cells, label.get("cell"))
+    if key is None:
+        print("| (no rows) |")
+        return 1
+    mode, model_id, state = key
+    group = cells[key]
+    cell = f"{mode}/{short_model(model_id)}/{state}"
+    note = (label.get("note") or "").replace("|", "/")
+    cols = [
+        today_str(),
+        git_short_sha(),
+        cell,
+        fmt(med(r["rtf"] for r in group)),
+        fmt(med(r["tokps"] for r in group)),
+        fmt(med(r["ttfcMS"] for r in group), 0),
+        fmt(med(r["physFootMB"] for r in group), 0),
+        fmt_trims(group),
+        note or "—",
+    ]
+    print("| " + " | ".join(cols) + " |")
+    return 0
+
+
 def main():
-    diag_dir = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_DIR
+    parser = argparse.ArgumentParser(description="Summarize per-generation telemetry.")
+    parser.add_argument("diag_dir", nargs="?", default=DEFAULT_DIR,
+                        help="diagnostics dir (default: QwenVoice-Debug/diagnostics)")
+    parser.add_argument("--label", default="",
+                        help="free-form note stamped on the output / ledger row")
+    parser.add_argument("--ledger-row", action="store_true",
+                        help="print ONE Markdown row for benchmarks/HISTORY.md instead of the table")
+    parser.add_argument("--cell", default="",
+                        help="ledger cell selector 'mode/model/state' (model = substring)")
+    args = parser.parse_args()
+    diag_dir = args.diag_dir
+
     runs = load_runs(diag_dir)
     if not runs:
         print(f"No telemetry rows under {diag_dir}/engine/generations.jsonl")
@@ -176,6 +274,14 @@ def main():
     cells = defaultdict(list)
     for run in runs:
         cells[(run["mode"], run["modelID"], run["warmState"])].append(run)
+
+    if args.ledger_row:
+        return emit_ledger_row(cells, {"note": args.label, "cell": args.cell})
+
+    stamp = f"{today_str()} · {git_short_sha()}"
+    if args.label:
+        stamp += f" · {args.label}"
+    print(f"\n[{stamp}]")
 
     header = (
         f"{'mode':<8} {'model':<26} {'state':<5} {'n':>2} "
