@@ -69,6 +69,10 @@ refactoring views.
   measurement also launch with `QWENVOICE_SUPPRESS_WARMUP=1` (skips proactive prewarm/clone-priming so
   the cold generation records its own load) — see the benchmark procedure in
   [`telemetry-and-benchmarking.md`](telemetry-and-benchmarking.md).
+- **Constrained-tier / memory-pressure runs:** launch with `QWENVOICE_FORCE_MEMORY_CLASS=floor_8gb_mac`
+  to make the engine run the 8 GB code paths (pressure monitor on, tight caches) so memory pressure is
+  measurable on this Mac — induce real pressure with `sudo memory_pressure -l warn` (Bash tool) during a
+  take. See the "Memory & pressure pass" in [`telemetry-and-benchmarking.md`](telemetry-and-benchmarking.md).
 - **Settings:** model rows `settings_package_<id>` + `settings_download_<id>` / `settings_repair_<id>`;
   `preferences_autoPlayToggle`; `settings_preferSpeedEverywhere`; `preferences_openFinderButton`.
   The **version label** carries the hidden **7-tap debug-mode toggle** (`appVersion` Text).

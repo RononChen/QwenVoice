@@ -53,14 +53,15 @@ actor ExtensionEngineCoordinator {
         initializedAppSupportDirectory = appSupportDirectory
         _ = try await send(.initialize(
             appSupportDirectoryPath: appSupportDirectory.path,
-            telemetryMode: TelemetryGate.appProcessIntendedMode.rawValue
+            telemetryMode: TelemetryGate.appProcessIntendedMode.rawValue,
+            forcedMemoryClass: NativeDeviceClassGate.appProcessForcedClassRawValue
         ))
     }
 
     func send(_ command: ExtensionEngineCommand) async throws -> ExtensionEngineReply {
         let transport = try await ensureConnection()
         switch command {
-        case .initialize(let path, _):
+        case .initialize(let path, _, _):
             initializedAppSupportDirectory = URL(fileURLWithPath: path)
             return try await initializeCurrentConnectionIfNeeded(
                 transport: transport,
@@ -252,7 +253,8 @@ actor ExtensionEngineCoordinator {
                 transport: transport,
                 command: .initialize(
                     appSupportDirectoryPath: appSupportDirectory.path,
-                    telemetryMode: TelemetryGate.appProcessIntendedMode.rawValue
+                    telemetryMode: TelemetryGate.appProcessIntendedMode.rawValue,
+                    forcedMemoryClass: NativeDeviceClassGate.appProcessForcedClassRawValue
                 )
             )
             didInitializeCurrentConnection = true

@@ -81,9 +81,37 @@ def load_runs(diag_dir):
                 "trims": trim_count,
                 "pressure": pressure_count,
                 "worstTrim": worst,
+                # Resolved device tier this row ran under (notes.deviceClass) —
+                # reveals a forced-tier benchmark and the floor Quality→Speed fallback.
+                "deviceClass": (e.get("notes") or {}).get("deviceClass") or "?",
+                # GPU peak MB at pipeline boundaries (mlxMemoryByStage) — shows WHERE
+                # GPU memory grows and how much a trim reclaims.
+                "gpuByStage": gpu_peak_by_stage(e.get("mlxMemoryByStage") or {}),
             }
         )
     return runs
+
+
+# Boundary stages we surface for GPU growth, in pipeline order. Each cell takes the
+# first stage present (streaming and quality-first paths name them differently).
+_GPU_STAGE_GROUPS = [
+    ("load", ["after_load", "after_clone_conditioning", "after_prewarm"]),
+    ("stream", ["before_stream", "first_chunk", "before_quality_generation"]),
+    ("peak", ["after_final_write", "after_stream"]),
+    ("trim", ["after_generation_trim"]),
+]
+
+
+def gpu_peak_by_stage(mlx_by_stage):
+    """Pick GPU peak MB at each pipeline boundary group from mlxMemoryByStage."""
+    out = {}
+    for label, candidates in _GPU_STAGE_GROUPS:
+        for stage in candidates:
+            snap = mlx_by_stage.get(stage)
+            if snap and snap.get("peakMB") is not None:
+                out[label] = snap.get("peakMB")
+                break
+    return out
 
 
 # Worst-first ranking of trim levels for the `trims` column annotation.
@@ -154,8 +182,13 @@ def main():
         f"{'RTF':>6} {'tok/s':>7} {'TTFC ms':>8} {'decode ms':>9} "
         f"{'peakGPU':>8} {'peakRSS':>8} {'physFoot':>8} {'headMin':>8} {'trims':>9}"
     )
+    tiers = sorted({r["deviceClass"] for r in runs})
     print(f"\nTelemetry summary — {diag_dir}")
-    print(f"({len(runs)} runs across {len(cells)} cells; warm shows median)\n")
+    print(f"({len(runs)} runs across {len(cells)} cells; warm shows median)")
+    print(f"tier: {', '.join(tiers)}"
+          + ("   ⚠ forced (QWENVOICE_FORCE_MEMORY_CLASS)"
+             if any(t in ("floor_8gb_mac", "mid_16gb_mac", "iphone_pro") for t in tiers)
+             else "") + "\n")
     print(header)
     print("-" * len(header))
 
@@ -176,10 +209,30 @@ def main():
             f"{fmt_trims(group):>9}"
         )
 
+    # GPU memory by pipeline stage (peak MB) — shows WHERE GPU memory grows and how
+    # much the post-generation trim reclaims. Median over each cell's runs.
+    gpu_header = (
+        f"{'mode':<8} {'model':<26} {'state':<5} "
+        f"{'load':>8} {'stream':>8} {'peak':>8} {'trim':>8}"
+    )
+    print("\nGPU MB by stage (peak; median over cell) — mlxMemoryByStage\n")
+    print(gpu_header)
+    print("-" * len(gpu_header))
+    for key in sorted(cells.keys(), key=lambda k: (k[0], short_model(k[1]), k[2] != "cold")):
+        mode, model_id, state = key
+        group = cells[key]
+        print(
+            f"{mode:<8} {short_model(model_id):<26} {state:<5} "
+            f"{fmt(med(r['gpuByStage'].get('load') for r in group), 0):>8} "
+            f"{fmt(med(r['gpuByStage'].get('stream') for r in group), 0):>8} "
+            f"{fmt(med(r['gpuByStage'].get('peak') for r in group), 0):>8} "
+            f"{fmt(med(r['gpuByStage'].get('trim') for r in group), 0):>8}"
+        )
+
     print(
         "\nRTF = audioSeconds / wallSeconds (>1 faster than realtime). "
         "tok/s = codec tokens/s. TTFC = submit→first chunk. "
-        "decode ms = qwen_token_loop_total. peak*/physFoot/headMin = MB."
+        "decode ms = qwen_token_loop_total. peak*/physFoot/headMin/GPU-stage = MB."
     )
     print(
         "physFoot = phys_footprint peak (the figure Jetsam judges — the OOM-relevant "

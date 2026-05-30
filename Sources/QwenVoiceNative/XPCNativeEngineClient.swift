@@ -187,7 +187,8 @@ actor XPCNativeEngineCoordinator {
         initializedAppSupportDirectory = appSupportDirectory
         _ = try await send(.initialize(
             appSupportDirectoryPath: appSupportDirectory.path,
-            telemetryMode: TelemetryGate.appProcessIntendedMode.rawValue
+            telemetryMode: TelemetryGate.appProcessIntendedMode.rawValue,
+            forcedMemoryClass: NativeDeviceClassGate.appProcessForcedClassRawValue
         ))
     }
 
@@ -202,7 +203,7 @@ actor XPCNativeEngineCoordinator {
         }
         let transport = ensureConnection()
         switch command {
-        case .initialize(let path, _):
+        case .initialize(let path, _, _):
             initializedAppSupportDirectory = URL(fileURLWithPath: path)
             let reply = try await perform(transport: transport, command: command)
             applyReplySideEffects(reply)
@@ -214,7 +215,8 @@ actor XPCNativeEngineCoordinator {
                     transport: transport,
                     command: .initialize(
                         appSupportDirectoryPath: initializedAppSupportDirectory.path,
-                        telemetryMode: TelemetryGate.appProcessIntendedMode.rawValue
+                        telemetryMode: TelemetryGate.appProcessIntendedMode.rawValue,
+                        forcedMemoryClass: NativeDeviceClassGate.appProcessForcedClassRawValue
                     )
                 )
                 applyReplySideEffects(initializationReply)
@@ -639,7 +641,8 @@ actor XPCNativeEngineCoordinator {
             _ = try await send(
                 .initialize(
                     appSupportDirectoryPath: appSupportDirectory.path,
-                    telemetryMode: TelemetryGate.appProcessIntendedMode.rawValue
+                    telemetryMode: TelemetryGate.appProcessIntendedMode.rawValue,
+                    forcedMemoryClass: NativeDeviceClassGate.appProcessForcedClassRawValue
                 ),
                 cancelsReconnectTask: false
             )

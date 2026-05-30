@@ -1393,6 +1393,12 @@ private struct StreamingExecutionContext: Sendable {
     ) async {
         guard TelemetryGate.resolvedEnabled else { return }
         guard let appSupportDirectory = diagnosticAppSupportBox?.url else { return }
+        // Stamp the resolved device-memory tier so each row self-identifies which
+        // policy it ran under — confirms a forced-tier benchmark took effect, and
+        // (with modelID) flags the floor-tier Quality→Speed OOM fallback. Reuses
+        // the free-form notes field; a caller-supplied key wins on collision.
+        let notesWithTier = ["deviceClass": NativeMemoryPolicyResolver.deviceClass().rawValue]
+            .merging(notes) { _, caller in caller }
         let record = GenerationTelemetryRecord(
             generationID: generationID.uuidString,
             layer: .engine,
@@ -1406,7 +1412,7 @@ private struct StreamingExecutionContext: Sendable {
             summary: summary,
             timingsMS: timingsMS ?? timingOverridesMS,
             counters: counters,
-            notes: notes,
+            notes: notesWithTier,
             derivedMetrics: derivedMetrics,
             mlxMemoryByStage: mlxMemoryByStage,
             chunkTimeline: chunkTimeline

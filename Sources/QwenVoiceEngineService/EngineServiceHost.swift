@@ -205,12 +205,15 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
     @MainActor
     private func perform(_ command: EngineCommand) async throws -> EngineReply {
         switch command {
-        case .initialize(let appSupportDirectoryPath, let telemetryMode):
+        case .initialize(let appSupportDirectoryPath, let telemetryMode, let forcedMemoryClass):
             // The app process resolves the telemetry MODE (env + the persisted 7-tap
             // gesture flag, neither of which crosses the process boundary) and reports
             // it here. One-way latch — enables durable telemetry in this engine-service
             // process, and carries `verbose` so the raw-sample sidecar can fire.
             TelemetryGate.applyHandshakeMode(NativeTelemetryMode(rawValue: telemetryMode) ?? .off)
+            // Benchmark tier override (env doesn't cross to this process either) —
+            // forces the constrained-tier code paths so memory pressure is measurable.
+            NativeDeviceClassGate.applyHandshakeForcedClass(forcedMemoryClass)
             let runtimeContext = try makeOrReuseRuntimeContext(
                 appSupportDirectory: URL(fileURLWithPath: appSupportDirectoryPath, isDirectory: true)
             )

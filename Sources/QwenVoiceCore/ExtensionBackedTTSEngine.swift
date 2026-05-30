@@ -108,7 +108,8 @@ public final class ExtensionBackedTTSEngine: TTSEngineRuntimeControlling, Active
         let reply = try await coordinator.send(
             .initialize(
                 appSupportDirectoryPath: appSupportDirectory.path,
-                telemetryMode: TelemetryGate.appProcessIntendedMode.rawValue
+                telemetryMode: TelemetryGate.appProcessIntendedMode.rawValue,
+                forcedMemoryClass: NativeDeviceClassGate.appProcessForcedClassRawValue
             )
         )
         guard case .snapshot(let snapshot) = reply else {

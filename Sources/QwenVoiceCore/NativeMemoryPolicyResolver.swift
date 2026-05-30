@@ -15,6 +15,12 @@ public enum NativeMemoryPolicyResolver {
             #endif
         }()
     ) -> NativeDeviceMemoryClass {
+        // Benchmark override (opt-in env, propagated to the engine over the
+        // initialize handshake): force a tier so the constrained-tier code paths
+        // run and memory pressure is measurable on any hardware. nil ⇒ real tier.
+        if let forced = NativeDeviceClassGate.resolvedForcedClass {
+            return forced
+        }
         if isIPhone {
             return .iPhonePro
         }

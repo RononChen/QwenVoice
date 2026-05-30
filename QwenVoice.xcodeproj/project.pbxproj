@@ -144,6 +144,7 @@
 		89F97758995DAD1D29ACAA4A /* MLXAudioCore in Frameworks */ = {isa = PBXBuildFile; productRef = 10BB053B15B150038F4C3B67 /* MLXAudioCore */; };
 		8C368E980B5C4B59C1179736 /* IOSMemoryMetricsBridge.h in Headers */ = {isa = PBXBuildFile; fileRef = 04959460DEEFC35448B5F9F7 /* IOSMemoryMetricsBridge.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		8C675B0590E4A89594D8FE33 /* QwenVoiceCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C1CD42CBFA3E0E68EDA48DEA /* QwenVoiceCore.framework */; };
+		8D9A691EFE792C66890246A2 /* NativeDeviceClassGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94A9B9883FADDCC6CEB61F10 /* NativeDeviceClassGate.swift */; };
 		8E58BE1E09A9430CD949DF6D /* ExtensionEngineTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0C75B51B150DAD46318887D /* ExtensionEngineTransport.swift */; };
 		905A10A270A279A00E700D37 /* TimingExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06F87CB9B9415D7556595B20 /* TimingExtensions.swift */; };
 		92671248BD664D9F6371CEA2 /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = 8F0F57EE1787C0627AD36CC7 /* MLX */; };
@@ -513,6 +514,7 @@
 		8EA3CF699353B8B928488B93 /* uncle_fu.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = uncle_fu.wav; sourceTree = "<group>"; };
 		92BB1E93A79756A33FF71DBB /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		940DC33B01DA7425CEB5E2FF /* EngineServiceTrustPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineServiceTrustPolicy.swift; sourceTree = "<group>"; };
+		94A9B9883FADDCC6CEB61F10 /* NativeDeviceClassGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDeviceClassGate.swift; sourceTree = "<group>"; };
 		94EA9E34083906B2A7FF4DE4 /* AppPerformanceSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPerformanceSignposts.swift; sourceTree = "<group>"; };
 		955EAA47F1E723B2D9DED7AD /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		958B08B9790BD411BEE24FA0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -756,6 +758,7 @@
 				3F056FE32E688786725FCC8D /* ModelAssets.swift */,
 				C5814A0DF5264DE6671474C8 /* ModelRegistry.swift */,
 				05AE04FC3819262A8952F8FB /* NativeCloneSupport.swift */,
+				94A9B9883FADDCC6CEB61F10 /* NativeDeviceClassGate.swift */,
 				67495F1E5B004A4237F787E4 /* NativeEngineRuntime.swift */,
 				1AEE16398D08C10B333F02D3 /* NativeMemoryPolicyResolver.swift */,
 				169AB3C558D285BE2E66158F /* NativeMemoryPressureMonitor.swift */,
@@ -1582,6 +1585,7 @@
 				6F2BABA0C7850D795608204A /* ModelAssets.swift in Sources */,
 				850CDA13E23723B8A92F7D9C /* ModelRegistry.swift in Sources */,
 				06445A839283CCD0ADBFF1C7 /* NativeCloneSupport.swift in Sources */,
+				8D9A691EFE792C66890246A2 /* NativeDeviceClassGate.swift in Sources */,
 				F14BA3E48111E3B4FF7D087B /* NativeEngineRuntime.swift in Sources */,
 				881B6A72F8BD0FAEC1E291D8 /* NativeMemoryPolicyResolver.swift in Sources */,
 				16D2303F9037E8C3CA35EF0F /* NativeMemoryPressureMonitor.swift in Sources */,
