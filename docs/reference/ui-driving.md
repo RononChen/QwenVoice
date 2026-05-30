@@ -1,10 +1,10 @@
 # Driving UI tests, reviews, and benchmarks
 
 How Claude exercises the Vocello UI directly — **macOS via the native `computer-use` MCP** (mouse +
-keyboard + vision), **iOS via the iPhone Mirroring window**. This is live agent-driving, **not** a
-script harness: no `scripts/uitest.sh`, no committed baselines, no smoke/bench runbook files
-(`scripts/check_project_inputs.sh` still bans those). The agent drives the app and reads results; it
-does not commit a test matrix.
+keyboard + vision), **iOS via the iPhone Mirroring window**. This is live agent-driving, **not** an
+XCUITest bundle (`scripts/uitest.sh` / `QwenVoiceTests` stay retired — `scripts/check_project_inputs.sh`
+still bans those). The agent drives the app and reads results. (Benchmark/QC scripts, baselines, and
+summaries under `benchmarks/` are permitted — they're no longer guard-banned.)
 
 ## Principle
 
@@ -147,7 +147,8 @@ buffer that only Instruments reads, not the unified log. So don't try to read ti
   `QwenVoice-Debug/` when DebugMode is on. iOS engine-extension rows are deferred with the rest of iOS.
 
 Cold vs warm: force cold by switching the model id (unloads) or letting idle-unload fire; warm =
-back-to-back runs. **Ad-hoc per change — do not commit a baseline matrix.**
+back-to-back runs. Commit compact snapshots/baselines under `benchmarks/` if useful (≤256 KB, no raw
+`*.jsonl`) — comparison stays manual (`git diff`), with no auto-compared build gate.
 
 ## iOS via iPhone Mirroring (with caveats)
 

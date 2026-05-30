@@ -9,10 +9,12 @@ against.
 
 If anything here disagrees with the code, the code wins — fix this file.
 
-> Scope note: this covers runtime telemetry. There is no committed benchmark *script*
-> harness, no baselines, and no test bundle (`scripts/check_project_inputs.sh` guards
-> those retired surfaces). Benchmarking is **agent/manual‑driven**: drive a generation,
-> then read the JSONL this system writes. UI driving uses the `computer-use` MCP — see
+> Scope note: this covers the runtime telemetry that is the **default** benchmarking path —
+> drive a generation, then read the JSONL this system writes + aggregate with
+> `summarize_generation_telemetry.py`. Benchmarking + output‑quality checks are **first‑class**:
+> committed benchmark/QC scripts, baselines, and summaries are permitted (bounded by the
+> `benchmarks/` cap). Only the **XCUITest test bundle** stays retired
+> (`scripts/check_project_inputs.sh`). UI driving uses the `computer-use` MCP — see
 > [`ui-driving.md`](ui-driving.md).
 
 ---
@@ -313,9 +315,10 @@ dominant `timingsMS` substage across your before/after.
 
 ## 11. Reusable benchmark procedure (full matrix)
 
-A repeatable, accurate sweep over **mode × model variant × cold/warm**. There is no committed
-script harness or baseline (guard‑banned); the procedure drives the UI and reads the JSONL the
-probes write, then aggregates with one read‑only helper. Each engine row self‑identifies its cell
+A repeatable, accurate sweep over **mode × model variant × cold/warm**. The default procedure drives
+the UI and reads the JSONL the probes write, then aggregates with the read‑only helper (committed
+benchmark scripts + baselines are permitted if you want to automate it further). Each engine row
+self‑identifies its cell
 via `mode`, `modelID` (variant‑specific), and `warmState` (`cold`/`warm`).
 
 **Matrix:** 3 modes (Custom Voice / Voice Design / Voice Cloning) × 2 variants (Speed 1.7B 4‑bit /
@@ -375,9 +378,10 @@ from `stageMarks`, no new record field). A header line shows the **tier** each r
 `notes.deviceClass`) and flags a forced tier. A second block — **GPU MB by stage** (`load → stream
 → peak → trim`, from `mlxMemoryByStage`) — shows *where* GPU memory grows across the pipeline and how
 much the post‑generation trim reclaims. Read‑only; joins `engine/` + `app/` rows by `generationID`.
-Pass a diagnostics dir as `$1` to summarize a different run. Compact **summaries may be committed**
-under `benchmarks/` (≤256 KB each, **no raw `*.jsonl`** — guard‑enforced); they're reference logs, not
-an auto‑compared baseline (those stay retired). Don't commit the raw diagnostics JSONL.
+Pass a diagnostics dir as `$1` to summarize a different run. Compact **summaries (and baselines) may be
+committed** under `benchmarks/` (≤256 KB each, **no raw `*.jsonl`** — guard‑enforced); don't commit the
+raw diagnostics JSONL. Comparison stays manual/agent‑driven (`git diff`) — there's no auto‑compared
+baseline *gate*, but committing a baseline file for reference is fine.
 
 ### Memory & pressure pass
 
@@ -426,9 +430,10 @@ is correct (clone is warm‑by‑design, above), not a suppression failure.
 
 ### Tracking performance over time
 
-As optimization advances, track the trend with **committed snapshots + on‑demand comparison** — there
-is intentionally **no auto‑compared baseline gate** (the old comparison harnesses + baseline
-manifests stay retired/guard‑banned; thresholds are a maintainer call).
+As optimization advances, track the trend with **committed snapshots + on‑demand comparison**. There's
+intentionally **no auto‑compared baseline *gate*** (no build fails on a regression — thresholds are a
+maintainer call), but committed baselines, comparison scripts, and snapshots are all permitted under
+`benchmarks/` if you want to automate the comparison.
 
 Two committed artifacts under `benchmarks/` (compact, ≤256 KB, no raw `*.jsonl` — guard‑enforced):
 
@@ -479,8 +484,8 @@ dropouts, garbled words, "sounds worse"). Three layers, increasing in what they 
    gate — the objective tools are a fast tripwire, not a substitute for ears.**
 
 Workflow: run the corpus → any `QC=fail` or spiking `WER%` is a hard stop (investigate before merging) →
-otherwise do the listening pass → record pass/fail. (This deliberately replaces the retired Python
-audio-QC harness with an in-engine, harness-free check.)
+otherwise do the listening pass → record pass/fail. (The in-engine `audioQC` is the harness-free
+default; committed quality-check scripts/baselines under `benchmarks/` are also permitted.)
 
 ---
 

@@ -46,20 +46,15 @@ PROHIBITED_SURFACES=(
     "scripts/ios_device.sh"
     "scripts/ios_device_proof_matrix.sh"
     "scripts/release_ios_testflight.sh"
-    "scripts/bench_ui_generation.sh"
-    "scripts/bench_instruments_trace.sh"
-    "scripts/compare_perf_manifest.sh"
-    "scripts/compare_ui_bench_runs.sh"
-    "scripts/summarize_instruments_signposts.py"
-    "scripts/perf-baseline-manifest.json"
-    "scripts/perf-baseline-manifest-quality.json"
-    "scripts/bootstrap_audio_review_models.sh"
     "scripts/rescue_gate.sh"
     "docs/reference/live-testing.md"
-    "docs/reference/instruments-profiling.md"
-    "docs/reference/backend-hardening-validation-evidence.md"
     "build/uitest"
 )
+# NOTE: benchmarking + output-quality surfaces are intentionally NOT banned —
+# they are first-class here (runtime telemetry, scripts/summarize_generation_telemetry.py,
+# benchmarks/, in-engine audioQC). Committed benchmark/QC scripts + baselines are
+# allowed (bounded by the benchmarks/ cap below). Only the retired XCUITest/QA
+# test-bundle + device/TestFlight surfaces above stay retired.
 
 for prohibited_surface in "${PROHIBITED_SURFACES[@]}"; do
     if [ -e "$PROJECT_DIR/$prohibited_surface" ]; then
@@ -75,48 +70,18 @@ PROHIBITED_REFERENCE_PATTERNS=(
     "tests/perf"
     "docs/reference/testing\.md"
     "docs/reference/live-testing\.md"
-    "docs/reference/instruments-profiling\.md"
-    "docs/reference/backend-hardening-validation-evidence\.md"
     "QwenVoice-macos15.dmg"
     "build/QwenVoice.app"
-    "scripts/harness\.py"
-    "scripts/harness_lib"
-    "scripts/run_generation_benchmark\.py"
-    "scripts/run_ui_generation_benchmark\.py"
-    "scripts/run_generation_quality_audit\.py"
-    "scripts/run_custom_voice_ui_perf_audit\.py"
-    "scripts/audit_generated_audio\.py"
     "scripts/check_qwen3_backend_only\.py"
     "scripts/check_ios_catalog\.py"
     "scripts/refresh_readme_screenshots\.py"
     "scripts/qa\.sh"
-    "scripts/bench_ui_generation\.sh"
-    "scripts/bench_instruments_trace\.sh"
-    "scripts/compare_perf_manifest\.sh"
-    "scripts/compare_ui_bench_runs\.sh"
-    "scripts/summarize_instruments_signposts\.py"
-    "scripts/perf-baseline-manifest"
-    "scripts/bootstrap_audio_review_models\.sh"
     "scripts/rescue_gate\.sh"
-    "scripts/requirements-audio-review-bootstrap\.txt"
-    "scripts/requirements-perf-bootstrap\.txt"
     '\$SCRIPT_DIR/qa\.sh'
     "QW_TEST_SUPPORT"
     "UITestAutomationSupport"
     "UITestStubMacEngine"
     "UITestWindowSizeConfigurator"
-    "BenchmarkRunner"
-    "CustomVoiceUIPerformanceTrace"
-    "BenchmarkSample"
-    "GenerationRequest\\.BenchmarkOptions"
-    "benchmarkOptions"
-    "ChunkProbeMetadata"
-    "probeMetadata"
-    "QWENVOICE_UI_PERF_AUDIT"
-    "QWENVOICE_AUDIO_QC_LIVE"
-    "QWENVOICE_QWEN3_BENCHMARK"
-    "logProbeEvent"
-    "\\[Probe\\."
 )
 
 for removed_pattern in "${PROHIBITED_REFERENCE_PATTERNS[@]}"; do
