@@ -144,6 +144,12 @@ func readStdinText() -> String? {
     return String(data: data, encoding: .utf8)
 }
 
+/// True when stdin is an interactive terminal (a human is typing) — used to decide
+/// whether to show interactive prompts vs. fall back to defaults for scripted/piped runs.
+func isInteractiveStdin() -> Bool {
+    isatty(FileHandle.standardInput.fileDescriptor) != 0
+}
+
 // MARK: - Filesystem helpers (models command)
 
 /// Best-effort total byte size of all regular files under a directory (0 if absent).

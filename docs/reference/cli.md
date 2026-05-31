@@ -62,12 +62,23 @@ vocello generate --mode custom|design|clone --variant speed|quality \
 | `--voice` / `--reference` / `--transcript` | (clone) a saved voice name/id, or a reference `.wav` + optional transcript |
 | `--delivery` | optional delivery style |
 | `--out` | output `.wav` path; default → `<data>/outputs/cli/` |
-| `--stream` | streaming synthesis; reports first-chunk latency (TTFC) |
+| `--stream` | exercise the engine's streaming path at the app's 320ms cadence; reports first-chunk latency (TTFC) + chunk count |
 | `--play` | play the result with `afplay` when done |
 | `--json` | emit a JSON result object instead of the bare path |
 
+`--stream` mirrors the app's engine streaming path (same `streamingInterval` and chunk delivery) and
+reports the user-perceived first-chunk latency, but it does **not** play audio as it generates — there
+is no live preview player; `--play` plays the completed file. Generation output is identical to the
+non-streaming path.
+
+**Selecting a mode** — three equivalent ways: the shortcut subcommands `vocello custom|design|clone …`
+(a `--file` makes them route to `batch`), the explicit `--mode <mode>` flag, or — when you omit `--mode`
+at an interactive terminal — a numbered picker. Scripted/piped runs without `--mode` default to `custom`
+(no prompt). `vocello modes` lists the modes and what each needs.
+
 Prints the output WAV path on stdout (or a JSON object: `audioPath`, `durationSeconds`, `wallSeconds`,
-`realtimeFactor`, `finishReason`, `mode`, `variant`, `modelID`, and `firstChunkMS` when `--stream`).
+`realtimeFactor`, `finishReason`, `mode`, `variant`, `modelID`, and — when `--stream` — `firstChunkMS`
+and `chunks`).
 
 ### `batch` — synthesize many clips with a single model load
 
@@ -97,6 +108,16 @@ vocello speakers list [--json]
 Lists the built-in Qwen3 speaker presets (id, display name, language; the contract default is marked)
 so you don't have to guess `--speaker` ids. Read-only — doesn't boot the engine, so it returns
 instantly.
+
+### `modes` — list the generation modes
+
+```sh
+vocello modes [--json]
+```
+
+Lists the three generation modes (`custom` / `design` / `clone`) and what each needs (`--speaker` /
+`--voice-brief` / `--voice` | `--reference`). Static and instant. Select a mode via the
+`vocello custom|design|clone …` shortcut, `generate --mode <mode>`, or the interactive picker.
 
 ### `models` — inventory installed/available models (read-only)
 

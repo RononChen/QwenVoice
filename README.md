@@ -142,6 +142,7 @@ build/vocello <command> [options]      # run it (runs in place)
 | Command | What it does |
 | --- | --- |
 | `generate` | Synthesize one clip (Custom Voice / Voice Design / Voice Cloning); supports `--stream`, `--json`, and piped stdin. |
+| `custom` / `design` / `clone` | Shortcuts for `generate --mode …` (also pick the mode interactively, or list them with `modes`). |
 | `batch` | Synthesize many clips from a file with a single model load. |
 | `voices` | List, enroll, or delete saved clone voices. |
 | `speakers` | List the built-in Custom Voice speakers. |
@@ -149,13 +150,14 @@ build/vocello <command> [options]      # run it (runs in place)
 | `bench` | Drive the perf/quality matrix and aggregate the results. |
 
 ```sh
-# Generate a clip, or pipe a script in
-build/vocello generate --mode custom --variant speed --text "The train left at dawn."
+# Generate a clip (mode shortcut), or pipe a script in
+build/vocello custom --variant speed --text "The train left at dawn."
 echo "Hello there." | build/vocello generate --variant speed --stream --json
 
-# Bulk synth (one model load) and discover what's installed
-build/vocello batch --file lines.txt --mode custom --variant speed --out-dir /tmp/batch
+# Discover modes/speakers/models, then bulk synth (one model load)
+build/vocello modes
 build/vocello speakers list
+build/vocello batch --file lines.txt --mode custom --variant speed --out-dir /tmp/batch
 ```
 
 stdout is machine-readable (an output path, or JSON with `--json`); progress notes go to stderr. Full

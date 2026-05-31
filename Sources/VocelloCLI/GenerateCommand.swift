@@ -14,6 +14,13 @@ enum GenerateCommand {
         let variant: String
         let modelID: String
         let firstChunkMS: Double?
+        let chunks: Int?
+    }
+
+    /// What a `--stream` run observes off `engine.events`.
+    struct StreamObservation: Sendable {
+        let firstChunkMS: Double?
+        let chunkCount: Int
     }
 
     @MainActor
@@ -22,14 +29,18 @@ enum GenerateCommand {
         if args.flag("help") { printHelp(); return }
         CLIOutput.configure(args)
 
-        let mode = try resolveMode(args)
         let quality = try resolveQuality(args)
         let streaming = args.flag("stream")
 
+        // Resolve text first so a missing-text run fails fast (before any prompt).
         let text = try resolveText(args)
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw CLIError("empty text — pass --text \"…\", --text-file <path>, or pipe text on stdin")
         }
+
+        // Mode: explicit --mode wins; else prompt interactively at a terminal; else
+        // default to custom (keeps scripted/piped runs unchanged).
+        let mode = try resolveModeInteractive(args)
 
         let dataDir = CLIPaths.dataDirectory(override: args.string("data-dir"))
         let manifestOverride = args.string("manifest").map {
@@ -49,23 +60,36 @@ enum GenerateCommand {
 
         let request = GenerationRequest(
             mode: mode, modelID: modelID, text: text, outputPath: outputPath,
-            shouldStream: streaming, payload: payload, generationID: UUID())
+            shouldStream: streaming,
+            // Match the app's interactive streaming cadence so --stream exercises
+            // the same engine chunk path the UI uses (CustomVoiceCoordinator et al.).
+            streamingInterval: streaming ? GenerationSemantics.appStreamingInterval : nil,
+            payload: payload, generationID: UUID())
 
-        // Streaming: drain the engine's event stream on a side task and record
-        // the wall time to the first audio chunk (TTFC) — the user-perceived
-        // latency the non-streaming path can't observe.
+        // Streaming: fully drain the engine's event stream on a side task — record
+        // the wall time to the first audio chunk (TTFC, the user-perceived latency
+        // the non-streaming path can't observe) and count chunks. We consume to the
+        // terminal chunk so the .unbounded macOS stream isn't left with buffered
+        // events; we do NOT render the chunks (no live preview playback).
         let submitWall = Date()
-        let firstChunkTask: Task<Double?, Never>? = streaming ? {
+        let streamTask: Task<StreamObservation, Never>? = streaming ? {
             let events = runtime.engine.events
             return Task.detached(priority: .utility) {
+                var firstChunkMS: Double?
+                var count = 0
                 for await event in events {
                     switch event {
-                    case .chunk: return Date().timeIntervalSince(submitWall) * 1000
-                    case .completed, .failed: return nil
-                    default: continue
+                    case .chunk(let chunk):
+                        if firstChunkMS == nil { firstChunkMS = Date().timeIntervalSince(submitWall) * 1000 }
+                        count += 1
+                        if chunk.isFinal { return StreamObservation(firstChunkMS: firstChunkMS, chunkCount: count) }
+                    case .completed, .failed:
+                        return StreamObservation(firstChunkMS: firstChunkMS, chunkCount: count)
+                    default:
+                        continue
                     }
                 }
-                return nil
+                return StreamObservation(firstChunkMS: firstChunkMS, chunkCount: count)
             }
         }() : nil
 
@@ -73,7 +97,12 @@ enum GenerateCommand {
         let result = try await runtime.engine.generate(request)
         let wall = Date().timeIntervalSince(submitWall)
         var firstChunkMS: Double?
-        if let firstChunkTask { firstChunkMS = await firstChunkTask.value }
+        var chunkCount: Int?
+        if let streamTask {
+            let obs = await streamTask.value
+            firstChunkMS = obs.firstChunkMS
+            chunkCount = obs.chunkCount
+        }
 
         let rtf = wall > 0 ? result.durationSeconds / wall : 0
         if args.flag("json") {
@@ -82,13 +111,14 @@ enum GenerateCommand {
                 wallSeconds: wall, realtimeFactor: rtf,
                 finishReason: result.finishReason?.rawValue,
                 mode: mode.rawValue, variant: quality ? "quality" : "speed",
-                modelID: modelID, firstChunkMS: firstChunkMS))
+                modelID: modelID, firstChunkMS: firstChunkMS, chunks: chunkCount))
         } else {
             // stdout = machine-readable (the path). stderr = human notes.
             print(result.audioPath)
         }
         let ttfc = firstChunkMS.map { " · ttfc=\(String(format: "%.0f", $0))ms" } ?? ""
-        note("✓ \(String(format: "%.2f", result.durationSeconds))s audio · rtf=\(String(format: "%.2f", rtf))\(ttfc) · finish=\(result.finishReason?.rawValue ?? "?")")
+        let chunks = chunkCount.map { " · chunks=\($0)" } ?? ""
+        note("✓ \(String(format: "%.2f", result.durationSeconds))s audio · rtf=\(String(format: "%.2f", rtf))\(ttfc)\(chunks) · finish=\(result.finishReason?.rawValue ?? "?")")
 
         if args.flag("play") {
             let p = Process()
@@ -100,12 +130,46 @@ enum GenerateCommand {
 
     // MARK: - Reusable request building (shared with `batch`)
 
-    static func resolveMode(_ args: Args) throws -> GenerationMode {
-        let modeStr = (args.string("mode") ?? "custom").lowercased()
-        guard let mode = GenerationMode(rawValue: modeStr) else {
-            throw CLIError("invalid --mode '\(modeStr)' (use custom | design | clone)")
+    /// Validate a mode string into a `GenerationMode`.
+    static func parseModeString(_ s: String) throws -> GenerationMode {
+        guard let mode = GenerationMode(rawValue: s.lowercased()) else {
+            throw CLIError("invalid --mode '\(s)' (use custom | design | clone)")
         }
         return mode
+    }
+
+    /// Mode for non-interactive callers (`batch`, the subcommand path): the `--mode`
+    /// flag or the `custom` default — never prompts.
+    static func resolveMode(_ args: Args) throws -> GenerationMode {
+        try parseModeString(args.string("mode") ?? "custom")
+    }
+
+    /// Mode for `generate`: an explicit `--mode` wins; otherwise prompt interactively
+    /// when stdin is a terminal; otherwise default to `custom` (scripted/piped runs).
+    static func resolveModeInteractive(_ args: Args) throws -> GenerationMode {
+        if let explicit = args.string("mode") { return try parseModeString(explicit) }
+        if isInteractiveStdin() { return promptForMode() }
+        return .custom
+    }
+
+    /// Numbered menu on stderr; reads a choice (number or name) from stdin. Falls
+    /// back to `custom` on EOF/blank after a few tries.
+    static func promptForMode() -> GenerationMode {
+        let modes = GenerationMode.allCases
+        for _ in 0..<3 {
+            FileHandle.standardError.write(Data("Select a mode:\n".utf8))
+            for (i, m) in modes.enumerated() {
+                FileHandle.standardError.write(Data("  \(i + 1)) \(m.rawValue)\t\(ModesCommand.info(for: m).summary)\n".utf8))
+            }
+            FileHandle.standardError.write(Data("> ".utf8))
+            guard let line = readLine(strippingNewline: true)?.trimmingCharacters(in: .whitespaces),
+                  !line.isEmpty else { break }
+            if let n = Int(line), n >= 1, n <= modes.count { return modes[n - 1] }
+            if let m = GenerationMode(rawValue: line.lowercased()) { return m }
+            FileHandle.standardError.write(Data("  ? not a valid choice\n".utf8))
+        }
+        FileHandle.standardError.write(Data("• defaulting to custom\n".utf8))
+        return .custom
     }
 
     static func resolveQuality(_ args: Args) throws -> Bool {
@@ -194,8 +258,11 @@ enum GenerateCommand {
           vocello generate --mode custom|design|clone --variant speed|quality \\
                            (--text "…" | --text-file <path> | piped stdin) [--out <path>] [options]
 
+        Selecting a mode: `vocello custom|design|clone …` (shortcut), `--mode <mode>`,
+        or omit it at a terminal for an interactive picker. See `vocello modes`.
+
         Options:
-          --mode         custom (default) | design | clone
+          --mode         custom | design | clone (default custom; prompts at a TTY if omitted)
           --variant      speed (default) | quality
           --text         inline script text ("-" reads stdin)
           --text-file    read script text from a file ("-" reads stdin)
@@ -206,7 +273,8 @@ enum GenerateCommand {
           --transcript   (clone) transcript of the --reference clip
           --delivery     optional delivery style
           --out          output .wav path; default → <data>/outputs/cli/
-          --stream       streaming synthesis; reports first-chunk latency (TTFC)
+          --stream       streaming synthesis at the app's 320ms cadence; reports
+                         first-chunk latency (TTFC) + chunk count (no live playback)
           --play         play the result with afplay when done
           --json         emit a JSON result object on stdout instead of the bare path
           --quiet|--verbose   suppress / expand stderr progress notes
