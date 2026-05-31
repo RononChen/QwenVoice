@@ -46,9 +46,12 @@ enum GenerateCommand {
         }
 
         let outputPath = resolveOutputPath(args, dataDir: dataDir, mode: mode)
-        try FileManager.default.createDirectory(
-            at: URL(fileURLWithPath: outputPath).deletingLastPathComponent(),
-            withIntermediateDirectories: true)
+        // Create the parent dir only when --out actually has one (a bare filename
+        // writes into the cwd — no directory to create).
+        let outParent = URL(fileURLWithPath: outputPath).deletingLastPathComponent()
+        if !outParent.path.isEmpty, outParent.path != "." {
+            try FileManager.default.createDirectory(at: outParent, withIntermediateDirectories: true)
+        }
 
         note("loading \(modelID)…")
         try await runtime.engine.loadModel(id: modelID)
@@ -95,7 +98,9 @@ enum GenerateCommand {
     private static func resolveText(_ args: Args) throws -> String {
         if let t = args.string("text") { return t }
         if let f = args.string("text-file") {
-            return try String(contentsOfFile: (f as NSString).expandingTildeInPath, encoding: .utf8)
+            let path = (f as NSString).expandingTildeInPath
+            do { return try String(contentsOfFile: path, encoding: .utf8) }
+            catch { throw CLIError("could not read --text-file \(path): \(error.localizedDescription)") }
         }
         throw CLIError("missing text — pass --text \"…\" or --text-file <path>")
     }
@@ -108,10 +113,6 @@ enum GenerateCommand {
         return dataDir
             .appendingPathComponent("outputs/cli", isDirectory: true)
             .appendingPathComponent("\(fmt.string(from: Date()))_\(mode.rawValue).wav").path
-    }
-
-    private static func note(_ message: String) {
-        FileHandle.standardError.write(Data("• \(message)\n".utf8))
     }
 
     static func printHelp() {

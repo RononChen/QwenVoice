@@ -6,8 +6,11 @@ struct CLIError: Error, CustomStringConvertible {
     init(_ message: String) { self.description = message }
 }
 
-/// Minimal flag parser: `--key value` pairs, bare `--flag`s, and positionals.
-/// Clean enough for a focused tool without pulling in an external arg-parser dep.
+/// Minimal flag parser: `--key value` pairs, `--key=value`, bare `--flag`s, and
+/// positionals. A bare `--` ends flag parsing (everything after is positional).
+/// Note: a value cannot itself begin with `--` (it would parse as a flag) — use
+/// the `--key=value` form for such values. Clean enough for a focused tool
+/// without pulling in an external arg-parser dependency.
 struct Args {
     private var values: [String: String] = [:]
     private var flags: Set<String> = []
@@ -15,9 +18,15 @@ struct Args {
 
     init(_ argv: [String]) {
         var i = 0
+        var flagsEnded = false
         while i < argv.count {
             let token = argv[i]
-            if token.hasPrefix("--") {
+            if !flagsEnded, token == "--" {
+                flagsEnded = true
+                i += 1
+                continue
+            }
+            if !flagsEnded, token.hasPrefix("--") {
                 let key = String(token.dropFirst(2))
                 if let eq = key.firstIndex(of: "=") {
                     values[String(key[..<eq])] = String(key[key.index(after: eq)...])
@@ -73,4 +82,15 @@ enum CLIPaths {
     }
 }
 
-let vocelloCLIVersion = "0.1.0"
+/// Human-facing progress note → stderr (stdout stays machine-readable). The one
+/// definition shared by every command.
+func note(_ message: String) {
+    FileHandle.standardError.write(Data("• \(message)\n".utf8))
+}
+
+/// Marketing version, preferring the built bundle's CFBundleShortVersionString so
+/// `version` and the store-version seed track the packaged binary; falls back to
+/// the literal for `-target` dev builds where the key may be unset.
+let vocelloCLIVersion: String =
+    (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+        .flatMap { $0.isEmpty ? nil : $0 } ?? "0.1.0"

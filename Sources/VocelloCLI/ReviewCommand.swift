@@ -68,7 +68,10 @@ enum AgyReviewer {
     }
 
     /// Run a process, capturing combined stdout/stderr via a temp file (no pipe
-    /// deadlock on large agent output). Blocks until exit.
+    /// deadlock on large agent output). Blocks until exit — `waitUntilExit()` runs
+    /// synchronously on the @MainActor (review can be a multi-minute agy call).
+    /// Benign here: `vocello` is a single-caller CLI with nothing else on the main
+    /// actor, and the review pass is intentionally sequential.
     @discardableResult
     private static func run(_ exe: String, _ args: [String]) -> (out: String, code: Int32) {
         let logURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("vocello_proc_\(UUID().uuidString).log")
@@ -90,11 +93,20 @@ enum AgyReviewer {
     }
 
     private static func parseHeard(_ out: String) -> String {
-        let upper = out.uppercased()
-        if upper.contains("HEARD: AUDIBLE_DEFECT") || upper.contains("HEARD:AUDIBLE_DEFECT") { return "AUDIBLE_DEFECT" }
-        if upper.contains("HEARD: CLEAN") || upper.contains("HEARD:CLEAN") { return "CLEAN" }
-        if upper.contains("HEARD: CANNOT_LISTEN") || upper.contains("CANNOT_LISTEN") { return "CANNOT_LISTEN" }
-        return "UNPARSED"
+        // Parse the token from the LAST line beginning with `HEARD:` (the rubric
+        // asks agy to end with exactly one such line). Anchoring to that line
+        // avoids prose elsewhere that merely mentions a token misclassifying.
+        guard let heardLine = out.split(separator: "\n")
+            .map({ $0.trimmingCharacters(in: .whitespaces).uppercased() })
+            .last(where: { $0.hasPrefix("HEARD:") })
+        else { return "UNPARSED" }
+        let token = String(heardLine.dropFirst("HEARD:".count)).trimmingCharacters(in: .whitespaces)
+        switch token {
+        case "AUDIBLE_DEFECT": return "AUDIBLE_DEFECT"
+        case "CLEAN": return "CLEAN"
+        case "CANNOT_LISTEN": return "CANNOT_LISTEN"
+        default: return "UNPARSED"
+        }
     }
 
     private static func lastMeaningfulLine(_ out: String) -> String {
@@ -128,8 +140,20 @@ enum ReviewCommand {
         // --diag <dir>: review every flagged clip from a bench run.
         let diag = (args.string("diag").map { ($0 as NSString).expandingTildeInPath })
             ?? CLIPaths.dataDirectory(override: nil).appendingPathComponent("diagnostics").path
-        let flagged = FlaggedClips.discover(diagnosticsDir: diag)
-        guard !flagged.isEmpty else { print("(no flagged clips found under \(diag))"); return }
+        reviewFlagged(diagnosticsDir: diag)
+    }
+
+    /// Discover the flagged clips under a bench run's diagnostics dir, have agy
+    /// listen to each (sequential — agy is heavy), print verdicts, and write the
+    /// review log. Shared by `review --diag` and `bench --review`.
+    @MainActor
+    @discardableResult
+    static func reviewFlagged(diagnosticsDir: String) -> [AgyVerdict] {
+        let flagged = FlaggedClips.discover(diagnosticsDir: diagnosticsDir)
+        guard !flagged.isEmpty else {
+            note("no flagged clips found under \(diagnosticsDir)")
+            return []
+        }
         note("reviewing \(flagged.count) flagged clip(s) via agy (sequential; agy is heavy)…")
         var verdicts: [AgyVerdict] = []
         for f in flagged {
@@ -137,7 +161,8 @@ enum ReviewCommand {
             printVerdict(r)
             verdicts.append(r)
         }
-        FlaggedClips.writeReviewLog(verdicts, diagnosticsDir: diag)
+        FlaggedClips.writeReviewLog(verdicts, diagnosticsDir: diagnosticsDir)
+        return verdicts
     }
 
     static func printVerdict(_ r: AgyVerdict) {
@@ -159,8 +184,6 @@ enum ReviewCommand {
         """)
     }
 }
-
-func note(_ message: String) { FileHandle.standardError.write(Data("• \(message)\n".utf8)) }
 
 /// A flagged clip discovered from a bench run's diagnostics + outputs.
 struct FlaggedClip { let clip: String; let text: String; let len: String; let state: String; let flags: [String] }

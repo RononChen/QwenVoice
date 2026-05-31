@@ -152,6 +152,13 @@ targets:
     platform: macOS
     sources:
       - path: Sources/VocelloCLI
+      # Bundle the contract beside the binary so the CLI resolves it via the
+      # Bundle sweep in CLIRuntime.locateManifestURL — no longer dependent on
+      # being run from the repo root. Uses the explicit resources buildPhase
+      # (same shape as the iOS target / XcodeGen 2.45.4 gotcha) to be safe for
+      # a non-app `tool` product.
+      - path: Sources/Resources/qwenvoice_contract.json
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.qwenvoice.cli

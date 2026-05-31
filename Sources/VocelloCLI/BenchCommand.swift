@@ -22,6 +22,15 @@ enum BenchCommand {
         let args = Args(argv)
         if args.flag("help") { printHelp(); return }
 
+        // Invariant: the filename length token is derived via FlaggedClips.lenBucket
+        // (same function `discover` uses), so producer and consumer agree by
+        // construction. This guards the corpus label still matching its own bucket
+        // (used for the agy text lookup) — fail loudly if a corpus edit drifts past
+        // a threshold instead of silently dropping flagged clips from review.
+        for c in corpus where FlaggedClips.lenBucket(c.text.count) != c.len {
+            throw CLIError("corpus drift: '\(c.len)' text buckets as '\(FlaggedClips.lenBucket(c.text.count))' (\(c.text.count) chars) — adjust the corpus or FlaggedClips.lenBucket thresholds")
+        }
+
         // Telemetry on (in-process) regardless of env; default to the debug-isolated
         // data dir (holds the full model set) unless --data-dir is given.
         TelemetryGate.applyHandshakeMode(.lightweight)
@@ -36,8 +45,7 @@ enum BenchCommand {
 
         let dataDir = CLIPaths.dataDirectory(override: args.string("data-dir"))
         if !args.flag("keep") {
-            // Start clean so the aggregate reflects only this run.
-            try? FileManager.default.removeItem(at: dataDir.appendingPathComponent("diagnostics", isDirectory: true))
+            try clearDiagnosticsIfSafe(dataDir: dataDir, force: args.flag("force"))
         }
 
         note("bench • data: \(dataDir.path)")
@@ -109,19 +117,7 @@ enum BenchCommand {
             guard AgyReviewer.isAvailable else {
                 note("skip --review: `agy` and/or afconvert not available"); return
             }
-            let flagged = FlaggedClips.discover(diagnosticsDir: diagDir.path)
-            if flagged.isEmpty {
-                note("review: no flagged clips")
-            } else {
-                note("agy listening review of \(flagged.count) flagged cell(s) (sequential)…")
-                var verdicts: [AgyVerdict] = []
-                for f in flagged {
-                    let r = AgyReviewer.review(clip: f.clip, text: f.text, len: f.len, state: f.state, flags: f.flags)
-                    ReviewCommand.printVerdict(r)
-                    verdicts.append(r)
-                }
-                FlaggedClips.writeReviewLog(verdicts, diagnosticsDir: diagDir.path)
-            }
+            ReviewCommand.reviewFlagged(diagnosticsDir: diagDir.path)
         }
     }
 
@@ -131,7 +127,11 @@ enum BenchCommand {
     private static func take(_ runtime: CLIRuntime, mode: GenerationMode, modelID: String,
                              payload: GenerationRequest.Payload, len: String, text: String,
                              state: String, n: Int, outDir: URL) async throws {
-        let out = outDir.appendingPathComponent("\(mode.rawValue)_\(modelID)_\(len)_\(state)_\(n).wav").path
+        // Bucket the char count with the SAME function `FlaggedClips.discover`
+        // uses, so the filename and the flagged-row correlation agree by
+        // construction regardless of the bucket thresholds.
+        let lenToken = FlaggedClips.lenBucket(text.count)
+        let out = outDir.appendingPathComponent("\(mode.rawValue)_\(modelID)_\(lenToken)_\(state)_\(n).wav").path
         let request = GenerationRequest(
             mode: mode, modelID: modelID, text: text, outputPath: out,
             shouldStream: false, payload: payload, generationID: UUID())
@@ -158,25 +158,49 @@ enum BenchCommand {
     }
 
     private static func runSummarizer(diagnostics: URL) {
-        let script = FileManager.default.currentDirectoryPath + "/scripts/summarize_generation_telemetry.py"
-        guard FileManager.default.fileExists(atPath: script) else {
-            note("(summarizer not found at \(script); run it manually on \(diagnostics.path))")
+        // Repo-relative dev script: resolve it by walking up from cwd so bench
+        // works from any subdirectory of the repo (mirrors manifest discovery).
+        let rel = "scripts/summarize_generation_telemetry.py"
+        let cwdScript = FileManager.default.currentDirectoryPath + "/" + rel
+        let scriptURL = FileManager.default.fileExists(atPath: cwdScript)
+            ? URL(fileURLWithPath: cwdScript)
+            : CLIRuntime.findUpwards(relativePath: rel, from: FileManager.default.currentDirectoryPath)
+        guard let scriptURL else {
+            note("(summarizer \(rel) not found from \(FileManager.default.currentDirectoryPath); run it manually on \(diagnostics.path))")
             return
         }
         note("aggregating →")
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        p.arguments = ["python3", script, diagnostics.path]
+        p.arguments = ["python3", scriptURL.path, diagnostics.path]
         try? p.run()
         p.waitUntilExit()
+    }
+
+    /// The shipped app's real (non-debug) data dir — never auto-cleared.
+    private static func realAppDataDir() -> URL {
+        let base = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: (NSHomeDirectory() as NSString)
+                .appendingPathComponent("Library/Application Support"), isDirectory: true)
+        return base.appendingPathComponent("QwenVoice", isDirectory: true)
+    }
+
+    /// Clear this run's diagnostics, but refuse to wipe the shipped app's real
+    /// data dir unless --force (bench forces QWENVOICE_DEBUG=1 so the default
+    /// resolves to QwenVoice-Debug; this guards an explicit --data-dir <real>).
+    private static func clearDiagnosticsIfSafe(dataDir: URL, force: Bool) throws {
+        if !force, dataDir.standardizedFileURL.path == realAppDataDir().standardizedFileURL.path {
+            throw CLIError("refusing to clear diagnostics in the real app data dir (\(dataDir.path)); pass --keep to append or --force to override")
+        }
+        // Start clean so the aggregate reflects only this run.
+        try? FileManager.default.removeItem(at: dataDir.appendingPathComponent("diagnostics", isDirectory: true))
     }
 
     private static func parseList(_ s: String?) -> [String]? {
         guard let s, !s.isEmpty else { return nil }
         return s.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty }
     }
-
-    private static func note(_ m: String) { FileHandle.standardError.write(Data("• \(m)\n".utf8)) }
 
     static func printHelp() {
         print("""
@@ -200,6 +224,7 @@ enum BenchCommand {
           --data-dir     runtime dir; default the debug-isolated folder (full model set)
           --manifest     override path to qwenvoice_contract.json
           --keep         append to existing diagnostics (default: clear first)
+          --force        allow clearing even the real (non-debug) app data dir
           --no-summary   skip running the aggregator
           --review       after aggregating, have agy listen to flagged clips + judge
                          real-defect vs false-positive (dev workflow; needs agy + afconvert)

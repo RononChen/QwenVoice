@@ -6,6 +6,11 @@ import Foundation
 @MainActor
 enum VocelloMain {
     static func main() async {
+        // Exit cleanly on Ctrl-C (130 = 128 + SIGINT) instead of dumping a stack.
+        // Partial output left mid-generation is acceptable for a dev/bench tool;
+        // review temp files are defer-cleaned within a run.
+        signal(SIGINT) { _ in exit(130) }
+
         var argv = Array(CommandLine.arguments.dropFirst())
         guard let sub = argv.first else { printUsage(); exit(2) }
         argv.removeFirst()

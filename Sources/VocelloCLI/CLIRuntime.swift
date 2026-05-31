@@ -64,15 +64,37 @@ struct CLIRuntime {
         }
         let fm = FileManager.default
         let exeDir = Bundle.main.bundleURL.deletingLastPathComponent().path
+        // Direct candidates: next to the executable, or cwd == repo root.
         let candidates = [
-            fm.currentDirectoryPath + "/Sources/Resources/qwenvoice_contract.json",
             exeDir + "/qwenvoice_contract.json",
-            exeDir + "/../../../../Sources/Resources/qwenvoice_contract.json",
+            fm.currentDirectoryPath + "/Sources/Resources/qwenvoice_contract.json",
         ]
         for path in candidates where fm.fileExists(atPath: path) {
             return URL(fileURLWithPath: path)
         }
+        // 3) Walk up from cwd so the CLI also resolves the contract when run from
+        // any subdirectory of the repo (dev convenience).
+        if let found = findUpwards(relativePath: "Sources/Resources/qwenvoice_contract.json",
+                                   from: fm.currentDirectoryPath) {
+            return found
+        }
         throw CLIError("Could not locate qwenvoice_contract.json. Pass --manifest <path>.")
+    }
+
+    /// Walk up parent directories from `start`, returning the first existing
+    /// `<dir>/<relativePath>` (stops at the filesystem root). Lets the CLI find
+    /// repo-relative dev assets (the contract, the summarizer script) regardless
+    /// of which subdirectory it's launched from.
+    nonisolated static func findUpwards(relativePath: String, from start: String) -> URL? {
+        let fm = FileManager.default
+        var dir = URL(fileURLWithPath: start, isDirectory: true).standardizedFileURL
+        while true {
+            let candidate = dir.appendingPathComponent(relativePath)
+            if fm.fileExists(atPath: candidate.path) { return candidate }
+            let parent = dir.deletingLastPathComponent()
+            if parent.path == dir.path { return nil }  // reached filesystem root
+            dir = parent
+        }
     }
 
     static func storeVersionSeed(bundle: Bundle = .main) -> String {

@@ -135,6 +135,7 @@
 		784EAF08975FB46C93C6A106 /* VocelloEngineExtensionPoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = B247C43E2FC93D27CFC546C2 /* VocelloEngineExtensionPoint.swift */; };
 		78F9B96AD0F134D9B962BB03 /* QwenVoiceCore-Bridging-Header.h in Headers */ = {isa = PBXBuildFile; fileRef = 37A24CFA152E52E69333925C /* QwenVoiceCore-Bridging-Header.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		792EB7E2673786EEA5BE5929 /* MLXAudioTTS in Frameworks */ = {isa = PBXBuildFile; productRef = F857E8D029366124FA1ADDDB /* MLXAudioTTS */; };
+		798142E93F48855144EDA9F3 /* qwenvoice_contract.json in Resources */ = {isa = PBXBuildFile; fileRef = 617BE72142511CD5043C341E /* qwenvoice_contract.json */; };
 		79DE724D6C80DC46BBA54D68 /* IOSModelDeliveryActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EF5A63343C729E7CA4E694E /* IOSModelDeliveryActor.swift */; };
 		7A3609BE3FA29990DA25C78A /* Qwen3TTSRuntimeProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DBC73A84091D2DFAD12A5AB /* Qwen3TTSRuntimeProfile.swift */; };
 		7A4C342B51D60AB71AC61E0C /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 637866C95AC607A5E0509956 /* SidebarView.swift */; };
@@ -1389,6 +1390,7 @@
 			buildConfigurationList = B8601A4B3C983A8B56672D09 /* Build configuration list for PBXNativeTarget "VocelloCLI" */;
 			buildPhases = (
 				CBCA179DD6D34E69D357E049 /* Sources */,
+				99C91D93196475E574D15C3E /* Resources */,
 				58265E5B698E9C234DE2A332 /* Frameworks */,
 			);
 			buildRules = (
@@ -1614,6 +1616,14 @@
 				2F54EA1E11E2647893BB02D8 /* sohee.wav in Resources */,
 				E4A1017F2F4529E7438EA004 /* uncle_fu.wav in Resources */,
 				AD0B48127CF2337491FCFA0D /* vivian.wav in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		99C91D93196475E574D15C3E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				798142E93F48855144EDA9F3 /* qwenvoice_contract.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
