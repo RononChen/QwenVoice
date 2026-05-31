@@ -3,14 +3,29 @@ import QwenVoiceCore
 
 /// `vocello voices` — manage saved (enrolled) clone voices.
 enum VoicesCommand {
+    struct VoiceJSON: Encodable {
+        let id: String
+        let name: String
+        let audioPath: String
+        let hasTranscript: Bool
+        let qualityWarnings: [String]
+    }
+
     @MainActor
     static func run(_ argv: [String]) async throws {
         var argv = argv
-        let action = argv.first.map { $0.lowercased() } ?? "list"
-        if !argv.isEmpty { argv.removeFirst() }
-        if action == "help" || action == "--help" { printHelp(); return }
+        // Leading non-flag token is the action; default to `list`.
+        let action: String
+        if let first = argv.first?.lowercased(), !first.hasPrefix("--") {
+            action = first; argv.removeFirst()
+        } else {
+            action = "list"
+        }
+        if action == "help" { printHelp(); return }
 
         let args = Args(argv)
+        CLIOutput.configure(args)
+        if args.flag("help") { printHelp(); return }
         let runtime = try await CLIRuntime.bootstrap(
             dataDirectory: CLIPaths.dataDirectory(override: args.string("data-dir")),
             manifestOverride: args.string("manifest").map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) })
@@ -18,6 +33,11 @@ enum VoicesCommand {
         switch action {
         case "list", "ls":
             let voices = try await runtime.engine.listPreparedVoices()
+            if args.flag("json") {
+                emitJSON(voices.map { VoiceJSON(id: $0.id, name: $0.name, audioPath: $0.audioPath,
+                                                hasTranscript: $0.hasTranscript, qualityWarnings: $0.qualityWarnings) })
+                return
+            }
             if voices.isEmpty {
                 print("(no saved voices)")
                 return
@@ -53,11 +73,12 @@ enum VoicesCommand {
         vocello voices — manage saved clone voices
 
         Usage:
-          vocello voices list
+          vocello voices list [--json]
           vocello voices enroll --name <name> --audio <wav> [--transcript "…"]
           vocello voices delete --id <id>
 
         Options:
+          --json       (list) emit JSON instead of a table
           --data-dir   runtime dir (default ~/Library/Application Support/QwenVoice[-Debug])
           --manifest   override path to qwenvoice_contract.json
         """)

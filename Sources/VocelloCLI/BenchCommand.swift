@@ -21,6 +21,7 @@ enum BenchCommand {
     static func run(_ argv: [String]) async throws {
         let args = Args(argv)
         if args.flag("help") { printHelp(); return }
+        CLIOutput.configure(args)
 
         // Invariant: the filename length token is derived via FlaggedClips.lenBucket
         // (same function `discover` uses), so producer and consumer agree by
@@ -33,8 +34,20 @@ enum BenchCommand {
 
         // Telemetry on (in-process) regardless of env; default to the debug-isolated
         // data dir (holds the full model set) unless --data-dir is given.
-        TelemetryGate.applyHandshakeMode(.lightweight)
+        // --telemetry verbose adds the raw per-sample sidecars (the env var carries
+        // it to the sampler).
+        let telemetryVerbose = (args.string("telemetry") ?? "lightweight").lowercased() == "verbose"
+        TelemetryGate.applyHandshakeMode(telemetryVerbose ? .verbose : .lightweight)
+        if telemetryVerbose { setenv("QWENVOICE_NATIVE_TELEMETRY_MODE", "verbose", 1) }
         setenv("QWENVOICE_DEBUG", "1", 0)
+
+        // --force-class: run constrained-tier code paths on any Mac. Must be set
+        // before the device class is first resolved (i.e. before bootstrap).
+        if let tier = args.string("force-class") {
+            let canonical = try canonicalForceClass(tier)
+            setenv("QWENVOICE_FORCE_MEMORY_CLASS", canonical, 1)
+            note("forcing memory class: \(canonical)")
+        }
 
         let modes = parseList(args.string("modes")) ?? ["custom", "design", "clone"]
         let variants = parseList(args.string("variants")) ?? ["speed", "quality"]
@@ -108,8 +121,12 @@ enum BenchCommand {
         note("✓ \(total) takes in \(String(format: "%.0f", Date().timeIntervalSince(started)))s")
 
         let diagDir = dataDir.appendingPathComponent("diagnostics", isDirectory: true)
+        let label = args.string("label") ?? ""
         if !args.flag("no-summary") {
-            runSummarizer(diagnostics: diagDir)
+            runSummarizer(diagnostics: diagDir, label: label)
+        }
+        if args.flag("ledger") {
+            appendLedgerRow(diagnostics: diagDir, label: label)
         }
 
         // Optional agy listening pass over flagged clips (dev workflow only).
@@ -157,24 +174,78 @@ enum BenchCommand {
         corpus.first { $0.len == len }?.text
     }
 
-    private static func runSummarizer(diagnostics: URL) {
-        // Repo-relative dev script: resolve it by walking up from cwd so bench
-        // works from any subdirectory of the repo (mirrors manifest discovery).
-        let rel = "scripts/summarize_generation_telemetry.py"
-        let cwdScript = FileManager.default.currentDirectoryPath + "/" + rel
-        let scriptURL = FileManager.default.fileExists(atPath: cwdScript)
-            ? URL(fileURLWithPath: cwdScript)
-            : CLIRuntime.findUpwards(relativePath: rel, from: FileManager.default.currentDirectoryPath)
-        guard let scriptURL else {
-            note("(summarizer \(rel) not found from \(FileManager.default.currentDirectoryPath); run it manually on \(diagnostics.path))")
+    private static func runSummarizer(diagnostics: URL, label: String) {
+        guard let scriptURL = locateSummarizer() else {
+            note("(summarizer scripts/summarize_generation_telemetry.py not found from \(FileManager.default.currentDirectoryPath); run it manually on \(diagnostics.path))")
             return
         }
         note("aggregating →")
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        p.arguments = ["python3", scriptURL.path, diagnostics.path]
+        var pargs = ["python3", scriptURL.path, diagnostics.path]
+        if !label.isEmpty { pargs += ["--label", label] }
+        p.arguments = pargs
         try? p.run()
         p.waitUntilExit()
+    }
+
+    /// Resolve the repo-relative summarizer by walking up from cwd (mirrors
+    /// manifest discovery), so bench works from any subdirectory of the repo.
+    private static func locateSummarizer() -> URL? {
+        let rel = "scripts/summarize_generation_telemetry.py"
+        let cwd = FileManager.default.currentDirectoryPath
+        if FileManager.default.fileExists(atPath: cwd + "/" + rel) { return URL(fileURLWithPath: cwd + "/" + rel) }
+        return CLIRuntime.findUpwards(relativePath: rel, from: cwd)
+    }
+
+    /// --ledger: capture the summarizer's one-line Markdown ledger row and append
+    /// it to benchmarks/HISTORY.md (the perf-over-time ledger). The committed-log
+    /// guard caps benchmarks/ files at 256 KB — a ledger of rows stays well under.
+    private static func appendLedgerRow(diagnostics: URL, label: String) {
+        guard let scriptURL = locateSummarizer() else { note("(--ledger: summarizer not found; skip)"); return }
+        let cwd = FileManager.default.currentDirectoryPath
+        let historyURL: URL?
+        if FileManager.default.fileExists(atPath: cwd + "/benchmarks/HISTORY.md") {
+            historyURL = URL(fileURLWithPath: cwd + "/benchmarks/HISTORY.md")
+        } else {
+            historyURL = CLIRuntime.findUpwards(relativePath: "benchmarks/HISTORY.md", from: cwd)
+        }
+        guard let historyURL else { note("(--ledger: benchmarks/HISTORY.md not found; skip)"); return }
+
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        var pargs = ["python3", scriptURL.path, diagnostics.path, "--ledger-row"]
+        if !label.isEmpty { pargs += ["--label", label] }
+        p.arguments = pargs
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        do { try p.run() } catch { note("(--ledger: \(error.localizedDescription))"); return }
+        p.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard p.terminationStatus == 0,
+              let row = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !row.isEmpty else {
+            note("(--ledger: summarizer produced no row)"); return
+        }
+        if let fh = try? FileHandle(forWritingTo: historyURL) {
+            defer { try? fh.close() }
+            fh.seekToEndOfFile()
+            if let d = (row + "\n").data(using: .utf8) { fh.write(d) }
+            note("ledger row appended → \(historyURL.path)")
+        } else {
+            note("(--ledger: could not open \(historyURL.path) for append)")
+        }
+    }
+
+    private static func canonicalForceClass(_ raw: String) throws -> String {
+        switch raw.lowercased() {
+        case "floor_8gb_mac", "8gb", "8": return "floor_8gb_mac"
+        case "mid_16gb_mac", "16gb", "16": return "mid_16gb_mac"
+        case "high_memory_mac", "high": return "high_memory_mac"
+        case "iphone_pro", "iphone": return "iphone_pro"
+        default:
+            throw CLIError("invalid --force-class '\(raw)' (use 8gb | 16gb | high | iphone, or the canonical *_mac names)")
+        }
     }
 
     /// The shipped app's real (non-debug) data dir — never auto-cleared.
@@ -221,6 +292,10 @@ enum BenchCommand {
           --warm         warm reps per (cell × length); default 3
           --voice        (clone) saved voice name; default \(defaultCloneVoice)
           --voice-brief  (design) brief; default the standard narrator brief
+          --label "<n>"  stamp a note on the summary / ledger row
+          --ledger       append a one-line row to benchmarks/HISTORY.md (perf ledger)
+          --force-class  run a constrained tier on any Mac: 8gb|16gb|high|iphone
+          --telemetry    lightweight (default) | verbose (raw per-sample sidecars)
           --data-dir     runtime dir; default the debug-isolated folder (full model set)
           --manifest     override path to qwenvoice_contract.json
           --keep         append to existing diagnostics (default: clear first)
@@ -228,6 +303,7 @@ enum BenchCommand {
           --no-summary   skip running the aggregator
           --review       after aggregating, have agy listen to flagged clips + judge
                          real-defect vs false-positive (dev workflow; needs agy + afconvert)
+          --quiet|--verbose   suppress / expand stderr progress notes
         """)
     }
 }

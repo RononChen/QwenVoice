@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#endif
 
 /// A user-facing CLI error whose message is printed verbatim (no stack noise).
 struct CLIError: Error, CustomStringConvertible {
@@ -82,10 +85,85 @@ enum CLIPaths {
     }
 }
 
+// MARK: - Output verbosity
+
+/// CLI output verbosity, set once at command start from `--quiet` / `--verbose`.
+/// stdout (machine-readable surface) is never affected — only the human notes on
+/// stderr are gated.
+enum CLIVerbosity: Int, Comparable {
+    case quiet = 0, normal = 1, verbose = 2
+    static func < (l: CLIVerbosity, r: CLIVerbosity) -> Bool { l.rawValue < r.rawValue }
+}
+
+enum CLIOutput {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var _verbosity: CLIVerbosity = .normal
+
+    static var verbosity: CLIVerbosity {
+        get { lock.lock(); defer { lock.unlock() }; return _verbosity }
+        set { lock.lock(); defer { lock.unlock() }; _verbosity = newValue }
+    }
+
+    /// Configure from parsed args (call once at the start of each command).
+    static func configure(_ args: Args) {
+        if args.flag("quiet") { verbosity = .quiet }
+        else if args.flag("verbose") { verbosity = .verbose }
+    }
+}
+
 /// Human-facing progress note → stderr (stdout stays machine-readable). The one
-/// definition shared by every command.
+/// definition shared by every command. Suppressed under `--quiet`.
 func note(_ message: String) {
+    guard CLIOutput.verbosity >= .normal else { return }
     FileHandle.standardError.write(Data("• \(message)\n".utf8))
+}
+
+/// Extra per-step detail → stderr, only under `--verbose`.
+func noteVerbose(_ message: String) {
+    guard CLIOutput.verbosity >= .verbose else { return }
+    FileHandle.standardError.write(Data("  · \(message)\n".utf8))
+}
+
+// MARK: - JSON output + stdin
+
+/// Print a compact, stable-keyed JSON value to stdout (the machine-readable surface).
+func emitJSON<T: Encodable>(_ value: T) {
+    let enc = JSONEncoder()
+    enc.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+    if let data = try? enc.encode(value), let s = String(data: data, encoding: .utf8) {
+        print(s)
+    }
+}
+
+/// Read all of stdin as UTF-8 when it isn't an interactive TTY (i.e. piped/redirected);
+/// nil otherwise. Lets `generate`/`batch` accept piped text.
+func readStdinText() -> String? {
+    if isatty(FileHandle.standardInput.fileDescriptor) != 0 { return nil }
+    let data = FileHandle.standardInput.readDataToEndOfFile()
+    guard !data.isEmpty else { return nil }
+    return String(data: data, encoding: .utf8)
+}
+
+// MARK: - Filesystem helpers (models command)
+
+/// Best-effort total byte size of all regular files under a directory (0 if absent).
+func directorySize(_ url: URL) -> Int64 {
+    let fm = FileManager.default
+    guard let en = fm.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey]) else { return 0 }
+    var total: Int64 = 0
+    for case let f as URL in en {
+        let v = try? f.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+        if v?.isRegularFile == true { total += Int64(v?.fileSize ?? 0) }
+    }
+    return total
+}
+
+/// Human-readable byte size (e.g. "1.7 GB").
+func humanBytes(_ bytes: Int64) -> String {
+    let fmt = ByteCountFormatter()
+    fmt.allowedUnits = [.useGB, .useMB, .useKB]
+    fmt.countStyle = .file
+    return fmt.string(fromByteCount: bytes)
 }
 
 /// Marketing version, preferring the built bundle's CFBundleShortVersionString so

@@ -19,8 +19,14 @@ enum VocelloMain {
             switch sub {
             case "generate", "gen":
                 try await GenerateCommand.run(argv)
+            case "batch":
+                try await BatchCommand.run(argv)
             case "voices", "voice":
                 try await VoicesCommand.run(argv)
+            case "speakers", "speaker":
+                try await SpeakersCommand.run(argv)
+            case "models", "model":
+                try await ModelsCommand.run(argv)
             case "bench", "benchmark":
                 try await BenchCommand.run(argv)
             case "review":
@@ -46,11 +52,16 @@ enum VocelloMain {
 
         Commands:
           generate   synthesize a clip            (vocello generate --help)
+          batch      synthesize many clips, one model load (vocello batch --help)
           voices     manage saved clone voices    (vocello voices help)
+          speakers   list built-in Custom Voice speakers (vocello speakers help)
+          models     inventory installed models   (vocello models help)
           bench      drive the perf/quality matrix (vocello bench --help)
           review     adjudicate flagged clips by ear via agy (vocello review --help)
           help       show this message
           version    print version
+
+        Global: --json (machine-readable stdout), --quiet / --verbose (stderr notes).
         """)
     }
 }

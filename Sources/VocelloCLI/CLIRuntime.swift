@@ -5,6 +5,15 @@ import QwenVoiceCore
 /// (manifest → platform-expanded registry → `NativeRuntimeFactory.make` →
 /// `engine.initialize`) but without XPC — the CLI links `QwenVoiceCore` and
 /// drives `MLXTTSEngine` directly.
+/// Read-only runtime context (registry + model asset store) for commands that
+/// don't generate audio.
+@MainActor
+struct CLIRegistryContext {
+    let registry: ContractBackedModelRegistry
+    let modelAssetStore: LocalModelAssetStore
+    let modelsDirectory: URL
+}
+
 @MainActor
 struct CLIRuntime {
     let engine: MLXTTSEngine
@@ -28,6 +37,28 @@ struct CLIRuntime {
         )
         try await runtime.engine.initialize(appSupportDirectory: dataDirectory)
         return CLIRuntime(engine: runtime.engine, registry: registry, dataDirectory: dataDirectory)
+    }
+
+    /// Read-only context for discoverability commands (`speakers`, `models`):
+    /// the platform-expanded registry + model asset store, **without** booting
+    /// the engine (`initialize` loads no model but we skip it anyway to keep
+    /// these commands instant). Reuses the same manifest → registry →
+    /// `NativeRuntimeFactory.make` prefix as the full bootstrap.
+    static func bootstrapRegistryOnly(
+        dataDirectory: URL, manifestOverride: URL?
+    ) throws -> CLIRegistryContext {
+        let manifestURL = try manifestOverride ?? locateManifestURL()
+        let deviceClass = NativeMemoryPolicyResolver.deviceClass()
+        let registry = try ContractBackedModelRegistry(manifestURL: manifestURL)
+            .expandedForPlatform(.macOS, deviceClass: deviceClass, includeBaseAliases: true)
+        let components = try NativeRuntimeFactory.make(
+            registry: registry,
+            paths: .rooted(at: dataDirectory),
+            storeVersionSeed: storeVersionSeed())
+        return CLIRegistryContext(
+            registry: components.modelRegistry,
+            modelAssetStore: components.modelAssetStore,
+            modelsDirectory: dataDirectory.appendingPathComponent("models", isDirectory: true))
     }
 
     /// Resolve a (mode, variant) to the variant-scoped model id the engine loads
