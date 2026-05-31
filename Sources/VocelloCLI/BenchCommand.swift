@@ -49,12 +49,13 @@ enum BenchCommand {
             note("forcing memory class: \(canonical)")
         }
 
-        let modes = parseList(args.string("modes")) ?? ["custom", "design", "clone"]
+        var modes = parseList(args.string("modes")) ?? ["custom", "design", "clone"]
         let variants = parseList(args.string("variants")) ?? ["speed", "quality"]
         let lengths = parseList(args.string("lengths")) ?? ["short", "medium", "long"]
         let warm = max(1, Int(args.string("warm") ?? "3") ?? 3)
         let designBrief = args.string("voice-brief") ?? defaultDesignBrief
         let cloneVoiceName = args.string("voice") ?? defaultCloneVoice
+        let ttfc = args.flag("ttfc")
 
         let dataDir = CLIPaths.dataDirectory(override: args.string("data-dir"))
         if !args.flag("keep") {
@@ -69,15 +70,23 @@ enum BenchCommand {
         let outDir = dataDir.appendingPathComponent("outputs/bench", isDirectory: true)
         try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
 
-        // Resolve the clone reference once if clone is in the matrix.
+        // --- Preflight (fail fast / auto-skip up front, not mid-matrix) ---
+        // Clone needs a saved voice; if absent, auto-skip clone unless it's the only mode.
         var cloneReference: CloneReference?
         if modes.contains("clone") {
             let voices = try await runtime.engine.listPreparedVoices()
-            guard let v = voices.first(where: { $0.name == cloneVoiceName || $0.id == cloneVoiceName }) else {
-                throw CLIError("clone bench needs saved voice '\(cloneVoiceName)' (have: \(voices.map(\.name).joined(separator: ", ")))")
+            let have = voices.map(\.name).joined(separator: ", ")
+            if let v = voices.first(where: { $0.name == cloneVoiceName || $0.id == cloneVoiceName }) {
+                cloneReference = CloneReference(audioPath: v.audioPath, transcript: nil, preparedVoiceID: v.id)
+            } else if modes == ["clone"] {
+                throw CLIError("clone bench needs saved voice '\(cloneVoiceName)' (have: \(have.isEmpty ? "none" : have))")
+            } else {
+                note("preflight: no saved voice '\(cloneVoiceName)' — skipping clone (have: \(have.isEmpty ? "none" : have))")
+                modes.removeAll { $0 == "clone" }
             }
-            cloneReference = CloneReference(audioPath: v.audioPath, transcript: nil, preparedVoiceID: v.id)
         }
+        // Every requested (mode × variant) model must be installed — fail fast.
+        try preflightModels(runtime: runtime, modes: modes, variants: variants, dataDir: dataDir)
 
         let coldLen = lengths.contains("medium") ? "medium" : lengths.first
         var total = 0
@@ -127,6 +136,35 @@ enum BenchCommand {
         }
         if args.flag("ledger") {
             appendLedgerRow(diagnostics: diagDir, label: label)
+        }
+
+        // Optional engine first-chunk-latency probe. Runs AFTER the summary so its
+        // streaming rows don't perturb the headline (non-streaming) RTF/decode table.
+        // This is engine-side TTFC — not the app's through-XPC TTFA.
+        if ttfc {
+            note("ttfc probe (warm streaming, after summary)…")
+            var rows: [TTFCRow] = []
+            for modeStr in modes {
+                guard let mode = GenerationMode(rawValue: modeStr) else { continue }
+                for variantStr in variants {
+                    let quality = variantStr.lowercased() == "quality"
+                    guard let modelID = try? runtime.modelID(mode: mode, quality: quality) else { continue }
+                    guard let probeLen = coldLen ?? lengths.first, let probeText = text(for: probeLen) else { continue }
+                    let payload = try payload(for: mode, customSpeaker: runtime.defaultSpeakerID,
+                                              designBrief: designBrief, cloneReference: cloneReference)
+                    try await runtime.engine.loadModel(id: modelID)  // warm
+                    let out = outDir.appendingPathComponent("\(mode.rawValue)_\(modelID)_ttfcprobe.wav").path
+                    let request = GenerationRequest(
+                        mode: mode, modelID: modelID, text: probeText, outputPath: out,
+                        shouldStream: true, streamingInterval: GenerationSemantics.appStreamingInterval,
+                        payload: payload, generationID: UUID())
+                    let (_, ms, _) = try await GenerateCommand.generateObservingFirstChunk(runtime, request)
+                    rows.append(TTFCRow(mode: mode.rawValue, variant: quality ? "quality" : "speed",
+                                        modelID: modelID, firstChunkMS: ms))
+                    note("  ttfc \(mode.rawValue)/\(quality ? "Q" : "S"): \(ms.map { String(format: "%.0f", $0) } ?? "-")ms")
+                }
+            }
+            reportTTFC(rows, diagnostics: diagDir)
         }
 
         // Optional agy listening pass over flagged clips (dev workflow only).
@@ -268,6 +306,53 @@ enum BenchCommand {
         try? FileManager.default.removeItem(at: dataDir.appendingPathComponent("diagnostics", isDirectory: true))
     }
 
+    struct TTFCRow: Encodable {
+        let mode: String
+        let variant: String
+        let modelID: String
+        let firstChunkMS: Double?
+    }
+
+    /// Fail fast if any requested (mode × variant) model isn't installed — so a
+    /// missing model is reported up front, not after part of the matrix has run.
+    @MainActor
+    private static func preflightModels(runtime: CLIRuntime, modes: [String], variants: [String], dataDir: URL) throws {
+        let modelsDir = dataDir.appendingPathComponent("models", isDirectory: true)
+        var missing: [String] = []
+        for modeStr in modes {
+            guard let mode = GenerationMode(rawValue: modeStr) else { continue }
+            for variantStr in variants {
+                let quality = variantStr.lowercased() == "quality"
+                guard let id = try? runtime.modelID(mode: mode, quality: quality) else { continue }
+                if case .available = runtime.registry.availability(forModelID: id, in: modelsDir) { continue }
+                missing.append(id)
+            }
+        }
+        guard missing.isEmpty else {
+            let uniq = Array(Set(missing)).sorted().joined(separator: ", ")
+            throw CLIError("preflight: missing models — \(uniq). Install them in the app (Settings → Model Downloads), or point --data-dir at a populated models dir.")
+        }
+    }
+
+    /// Print the engine first-chunk-latency table (stderr) + write a sidecar JSON.
+    private static func reportTTFC(_ rows: [TTFCRow], diagnostics: URL) {
+        guard !rows.isEmpty else { return }
+        FileHandle.standardError.write(Data(
+            "\nEngine first-chunk latency (TTFC, ms) — warm streaming probe (engine-side, not app/XPC TTFA)\n".utf8))
+        for r in rows {
+            let ms = r.firstChunkMS.map { String(format: "%.0f", $0) } ?? "-"
+            FileHandle.standardError.write(Data("  \(r.mode)/\(r.variant)\t\(ms)\n".utf8))
+        }
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let data = try? enc.encode(rows) {
+            try? FileManager.default.createDirectory(at: diagnostics, withIntermediateDirectories: true)
+            let url = diagnostics.appendingPathComponent("bench-ttfc.json")
+            try? data.write(to: url)
+            note("wrote \(url.path)")
+        }
+    }
+
     private static func parseList(_ s: String?) -> [String]? {
         guard let s, !s.isEmpty else { return nil }
         return s.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty }
@@ -285,6 +370,12 @@ enum BenchCommand {
         Cloning is warm-only. Telemetry is forced on; results land in
         <data>/diagnostics and are summarized by scripts/summarize_generation_telemetry.py.
 
+        Measures engine truth — RTF / decode / memory / audioQC. It does NOT capture
+        the app's end-to-end through-XPC latency (TTFC/TTFA) or the merged 3-layer row
+        (use the app for those); --ttfc adds an engine-side first-chunk probe.
+        Prerequisites: the requested models installed; a saved clone voice for clone
+        (else clone is auto-skipped); agy + afconvert for --review.
+
         Options:
           --modes        comma list (default custom,design,clone)
           --variants     comma list (default speed,quality)
@@ -296,6 +387,8 @@ enum BenchCommand {
           --ledger       append a one-line row to benchmarks/HISTORY.md (perf ledger)
           --force-class  run a constrained tier on any Mac: 8gb|16gb|high|iphone
           --telemetry    lightweight (default) | verbose (raw per-sample sidecars)
+          --ttfc         add an engine first-chunk-latency probe per cell (warm
+                         streaming) → table + diagnostics/bench-ttfc.json
           --data-dir     runtime dir; default the debug-isolated folder (full model set)
           --manifest     override path to qwenvoice_contract.json
           --keep         append to existing diagnostics (default: clear first)

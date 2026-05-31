@@ -150,9 +150,21 @@ is forced on; results land in `<data>/diagnostics` and are summarized by
 | `--ledger` | append a one-line row to `benchmarks/HISTORY.md` (the perf-over-time ledger) |
 | `--force-class` | run a constrained tier on any Mac: `8gb` · `16gb` · `high` · `iphone` (stamps `notes.deviceClass`) |
 | `--telemetry` | `lightweight` (default) · `verbose` (raw per-sample sidecars) |
+| `--ttfc` | add an engine first-chunk-latency probe per cell → table + `diagnostics/bench-ttfc.json` |
 | `--keep` / `--force` | append to existing diagnostics / allow clearing even the real app data dir |
 | `--no-summary` | skip running the aggregator |
 | `--review` | after aggregating, have agy listen to flagged clips (dev-only; needs `agy` + `afconvert`) |
+
+**What it measures.** Engine truth — RTF, decode, memory, per-stage GPU, and the `audioQC` verdict.
+It does **not** capture the app's end-to-end through-XPC latency (TTFC/TTFA) or the merged 3-layer
+telemetry row — those exist only in the real app process topology. `--ttfc` adds an *engine-side*
+first-chunk probe (a warm streaming take per cell, run after the summary so it doesn't perturb the
+RTF/decode medians) — distinct from the app's buffered TTFA.
+
+**Preflight.** Before running, `bench` fails fast if any requested `(mode × variant)` model isn't
+installed (listing the missing ids), and auto-skips `clone` when its saved voice (`--voice`, default
+`A_warm_elderly_woman`) is absent (unless `clone` is the only mode). Prerequisites: the requested
+models installed, a saved clone voice for clone, and `agy` + `afconvert` for `--review`.
 
 ### `review` — adjudicate flagged clips by ear (dev-only)
 

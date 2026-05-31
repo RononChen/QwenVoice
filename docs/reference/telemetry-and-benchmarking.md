@@ -322,7 +322,9 @@ dominant `timingsMS` substage across your before/after.
 > as the benchmark/test driver. Engine telemetry rows (RTF / decode / memory / `audioQC` / `promptChars`)
 > are identical to the app path; the CLI bypasses XPC, so the app/XPC frontend row is absent and the
 > summarizer's end‑to‑end **TTFC shows `-`** (engine‑only boundary — what backend optimization targets).
-> To measure user‑perceived first‑chunk latency, use `vocello generate --stream` (it reports TTFC).
+> To measure first‑chunk latency, use `vocello generate --stream` or `vocello bench --ttfc` (an
+> engine‑side warm probe per cell → a table + `diagnostics/bench-ttfc.json`); both report engine TTFC,
+> not the app's through‑XPC buffered TTFA.
 >
 > One‑command flags fold in the manual workflow below: `--label "<note>"` stamps the summary,
 > `--ledger` appends a row to `benchmarks/HISTORY.md`, `--force-class 8gb|16gb|high|iphone` forces a

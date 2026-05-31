@@ -23,6 +23,57 @@ enum GenerateCommand {
         let chunkCount: Int
     }
 
+    /// Run a request, and when it's streaming, drain `engine.events` on a side task
+    /// to record the engine first-chunk latency (TTFC, ms) and chunk count. Consumes
+    /// to the terminal chunk so the `.unbounded` macOS stream isn't left with buffered
+    /// events; does NOT render chunks (no live playback). Shared by `generate --stream`
+    /// and the `bench --ttfc` probe.
+    @MainActor
+    static func generateObservingFirstChunk(
+        _ runtime: CLIRuntime, _ request: GenerationRequest
+    ) async throws -> (result: GenerationResult, firstChunkMS: Double?, chunkCount: Int?) {
+        let submitWall = Date()
+        let wantedID = request.generationID
+        let streamTask: Task<StreamObservation, Never>? = request.shouldStream ? {
+            let events = runtime.engine.events
+            return Task.detached(priority: .utility) {
+                var firstChunkMS: Double?
+                var count = 0
+                var started = false
+                for await event in events {
+                    switch event {
+                    case .chunk(let chunk):
+                        // `engine.events` is a long-lived process-wide stream; in a
+                        // multi-generation run (e.g. bench) it carries chunks from
+                        // earlier generations — match ours by generationID.
+                        if let wantedID, chunk.generationID != wantedID { continue }
+                        if firstChunkMS == nil { firstChunkMS = Date().timeIntervalSince(submitWall) * 1000 }
+                        started = true
+                        count += 1
+                        if chunk.isFinal { return StreamObservation(firstChunkMS: firstChunkMS, chunkCount: count) }
+                    case .completed, .failed:
+                        // Only our own completion (after our chunks) ends the drain;
+                        // stale terminal events from earlier generations are ignored.
+                        if started { return StreamObservation(firstChunkMS: firstChunkMS, chunkCount: count) }
+                    default:
+                        continue
+                    }
+                }
+                return StreamObservation(firstChunkMS: firstChunkMS, chunkCount: count)
+            }
+        }() : nil
+
+        let result = try await runtime.engine.generate(request)
+        var firstChunkMS: Double?
+        var chunkCount: Int?
+        if let streamTask {
+            let obs = await streamTask.value
+            firstChunkMS = obs.firstChunkMS
+            chunkCount = obs.chunkCount
+        }
+        return (result, firstChunkMS, chunkCount)
+    }
+
     @MainActor
     static func run(_ argv: [String]) async throws {
         let args = Args(argv)
@@ -66,43 +117,10 @@ enum GenerateCommand {
             streamingInterval: streaming ? GenerationSemantics.appStreamingInterval : nil,
             payload: payload, generationID: UUID())
 
-        // Streaming: fully drain the engine's event stream on a side task — record
-        // the wall time to the first audio chunk (TTFC, the user-perceived latency
-        // the non-streaming path can't observe) and count chunks. We consume to the
-        // terminal chunk so the .unbounded macOS stream isn't left with buffered
-        // events; we do NOT render the chunks (no live preview playback).
-        let submitWall = Date()
-        let streamTask: Task<StreamObservation, Never>? = streaming ? {
-            let events = runtime.engine.events
-            return Task.detached(priority: .utility) {
-                var firstChunkMS: Double?
-                var count = 0
-                for await event in events {
-                    switch event {
-                    case .chunk(let chunk):
-                        if firstChunkMS == nil { firstChunkMS = Date().timeIntervalSince(submitWall) * 1000 }
-                        count += 1
-                        if chunk.isFinal { return StreamObservation(firstChunkMS: firstChunkMS, chunkCount: count) }
-                    case .completed, .failed:
-                        return StreamObservation(firstChunkMS: firstChunkMS, chunkCount: count)
-                    default:
-                        continue
-                    }
-                }
-                return StreamObservation(firstChunkMS: firstChunkMS, chunkCount: count)
-            }
-        }() : nil
-
         note("generating (\(text.count) chars)\(streaming ? ", streaming" : "")…")
-        let result = try await runtime.engine.generate(request)
-        let wall = Date().timeIntervalSince(submitWall)
-        var firstChunkMS: Double?
-        var chunkCount: Int?
-        if let streamTask {
-            let obs = await streamTask.value
-            firstChunkMS = obs.firstChunkMS
-            chunkCount = obs.chunkCount
-        }
+        let t0 = Date()
+        let (result, firstChunkMS, chunkCount) = try await generateObservingFirstChunk(runtime, request)
+        let wall = Date().timeIntervalSince(t0)
 
         let rtf = wall > 0 ? result.durationSeconds / wall : 0
         if args.flag("json") {
