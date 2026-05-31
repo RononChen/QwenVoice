@@ -133,15 +133,17 @@ file) is front‑trimmed past ~8 MB (`QWENVOICE_DIAGNOSTICS_MAX_MB` scales it), 
 
 ## 5. The per‑generation record schema
 
-`GenerationTelemetryRecord` (schema v2). Optional fields are omitted from JSON when nil,
-so older v1 rows still decode.
+`GenerationTelemetryRecord` (schema v4). Optional fields are omitted from JSON when nil,
+so older rows still decode.
 
 | Field | Type | Notes |
 |---|---|---|
-| `schemaVersion` | Int | 2. |
+| `schemaVersion` | Int | 4 (v2 added derived/memory/chunk metrics; v3 `modelID`/`warmState`; v4 `audioQC`). |
 | `generationID` | String | Correlation key (UUID). |
-| `layer` | String | `engine` / `engine-service` / `app` / `merged`. |
+| `layer` | String | `engine` / `engine-service` / `engine-extension` / `app` / `merged`. |
 | `mode` | String? | `custom` / `design` / `clone`. |
+| `modelID` | String? | Resolved model variant id (e.g. `pro_custom_quality`). |
+| `warmState` | String? | `cold` / `warm` — the benchmark cell. |
 | `usedStreaming` | Bool? | Streaming vs quality‑first. |
 | `finishReason` | String? | `eos` / `maxTokens` / `failed` / `superseded`. |
 | `stageMarks` | `[{tMS, stage, metadata}]` | Lifecycle timeline (see §6). |
@@ -150,8 +152,9 @@ so older v1 rows still decode.
 | `derivedMetrics` | `[String: Double]?` | Headline KPIs (see §7). |
 | `mlxMemoryByStage` | `[String: {activeMB, cacheMB, peakMB}]?` | MLX GPU memory at each stage (see §8). |
 | `chunkTimeline` | `[GenerationChunkTelemetry]?` | Per‑chunk decode substages (see §6.3). |
+| `audioQC` | `AudioQCReport?` | Reference‑free quality verdict + flags (see "Guarding output quality"). |
 | `summary` | `TelemetrySummary?` | Process memory curve summary (see §8). |
-| `notes` | `[String: String]` | Freeform (e.g. error messages). |
+| `notes` | `[String: String]` | Freeform (e.g. error messages, `deviceClass`, `promptChars`). |
 | `recordedAt` / `processName` / `processIdentifier` | | Provenance. |
 
 ---
@@ -539,7 +542,7 @@ quality-check scripts/baselines under `benchmarks/` are also permitted.)
 
 ---
 
-## 12. See also
+## 13. See also
 
 - [`ui-driving.md`](ui-driving.md) — driving generations + reading timing out‑of‑band; signpost list for Instruments.
 - [`mlx-audio-swift-patching.md`](mlx-audio-swift-patching.md) — vendored backend patch procedure + validation gates.

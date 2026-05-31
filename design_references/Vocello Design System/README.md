@@ -168,7 +168,7 @@ to honor system appearance and for any web/marketing surface.
   + a `glassEffect` tint + a hairline white stroke (`--stroke-card`,
   `0.75 px`) + a 3D depth modifier (top highlight gradient + soft
   drop shadow).
-- Legacy fallback (Reduced Transparency on, or pre-macOS 26) drops the glass
+- Legacy fallback (Reduce Transparency on, or pre-macOS 26) drops the glass
   material and shows the flat opaque fill — depth comes from the stroke only.
 - **No left-border accent stripes.** Identity is carried by the icon color,
   the gold trailing label, or the radial backdrop — never by a colored bar
@@ -273,11 +273,11 @@ symbols in the real Swift source, observed in screenshots and code:
 | Engine ready dot | a small filled circle (status) |
 
 In the **HTML preview, slides, and any web/marketing surface**, we substitute
-SF Symbols with **[Lucide](https://lucide.dev)** — same stroke weight,
-identical visual register, freely licensed, available from a CDN. The mapping
-lives in `ui_kits/mac-app/icons.jsx`. *This is a substitution; please confirm
-with the team and ideally provide PDF exports of the actual SF Symbols used
-if you want pixel parity for marketing artifacts.*
+SF Symbols with **hand-authored inline SVG approximations** — same stroke
+weight (1.6–1.8, matching `regular` SF Symbols) and visual register, no
+external dependency. They live in `ui_kits/mac-app/icons.jsx`. *This is a
+substitution; please confirm with the team and ideally provide PDF exports of
+the actual SF Symbols used if you want pixel parity for marketing artifacts.*
 
 No emoji. No PNG icons. No Material/Fluent/Carbon icon sets. Unicode "•" and
 "·" appear only inside the wordmark eyebrow ("AI·TTS").
@@ -339,20 +339,13 @@ preview/                      Design-system review cards
 
 ui_kits/
   mac-app/                    The macOS app — UI kit
-    README.md
-    index.html                Interactive prototype (Custom Voice → result)
-    icons.jsx                 SF Symbols → Lucide mapping
-    Sidebar.jsx               200-px sidebar + brand lockup + footer
-    TitleBar.jsx              Traffic lights + sidebar toggle
-    Card.jsx                  Studio + glass card primitives
-    Configuration.jsx         Two-row Configuration panel
-    Script.jsx                Script composer (Generate button + char count)
-    EmotionPicker.jsx         Delivery chip cluster
-    SpeedQuality.jsx          Speed / Quality model toggle
-    VoicePicker.jsx           Built-in speaker dropdown
-    Settings.jsx              Settings → Model downloads
-    ReferenceSource.jsx       Voice Cloning source row
-    fonts/                    (Webfont placeholders — see flag below)
+    README.md                 Kit overview + per-file map
+    index.html                Interactive prototype (all six tabs + Generate)
+    icons.jsx                 SF Symbols → inline SVG approximations
+    Card.jsx                  GlassCard + SectionHead primitives
+    Sidebar.jsx               200-px sidebar + brand lockup + footer player
+    GenerationScreens.jsx     Custom Voice / Voice Design / Voice Cloning
+    LibraryScreens.jsx        History / Saved Voices / Settings
 ```
 
 ---
@@ -365,8 +358,8 @@ ui_kits/
   matches are **Inter** (text), **Nunito** (rounded), and **Newsreader**
   (serif). Production marketing surfaces should embed actual Apple fonts
   via the Apple Developer site rather than substituting.
-- **Icons.** SF Symbols can't be embedded on the web; Lucide is the
-  substitute. See `ICONOGRAPHY`.
+- **Icons.** SF Symbols can't be embedded on the web; hand-authored inline SVG
+  approximations are the substitute (`ui_kits/mac-app/icons.jsx`). See `ICONOGRAPHY`.
 - **Glass.** The CSS approximations of Liquid Glass in `colors_and_type.css`
   use `backdrop-filter: blur` + a tint layer. Real Liquid Glass in macOS 26
   refracts a live aurora behind the canvas; the CSS version is a static
