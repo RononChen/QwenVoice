@@ -10,7 +10,8 @@ custom/quality/warm). Rows MUST stay at the end of this file so `>>` lands corre
 Keep this file a compact ledger — no raw JSONL (guard-enforced). See
 docs/reference/telemetry-and-benchmarking.md → "Tracking performance over time".
 
-Columns: date · short git SHA the run measured · cell (mode/model/state) ·
+Columns: date · short git SHA the run measured · cell (mode/model/state[/len];
+the summarizer appends the length bucket — older rows predate it) ·
 RTF (audioSec/wallSec, >1 = faster than realtime) · tok/s (codec tokens/s) ·
 TTFC ms (submit→first chunk) · physFoot MB (phys_footprint peak, the OOM-relevant
 figure) · trims (memory_trim count [worst level]) · QC (reference-free audio

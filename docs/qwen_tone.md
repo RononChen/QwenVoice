@@ -87,4 +87,4 @@ Voice Cloning support text:
 
 - [`../README.md`](../README.md)
 - [`../CLAUDE.md`](../CLAUDE.md) — repo architecture, build, and conventions
-- `Sources/Models/EmotionPreset.swift` — the shipped 9 × 3 preset instruction strings; `Sources/QwenVoiceCore/GenerationSemantics.swift` assembles the Voice Design "Voice character / Delivery" framing.
+- `Sources/Models/EmotionPreset.swift` (macOS) / `Sources/iOSSupport/Models/EmotionPreset.swift` (iOS) — the shipped 9 × 3 preset instruction strings; `Sources/QwenVoiceCore/GenerationSemantics.swift` assembles the Voice Design "Voice character / Delivery" framing.

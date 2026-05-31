@@ -333,8 +333,9 @@ dominant `timingsMS` substage across your before/after.
 > "Guarding output quality"). Full CLI reference: [`cli.md`](cli.md). The computer‑use UI procedure
 > below is retained for manual/visual runs only.
 
-A repeatable, accurate sweep over **mode × model variant × cold/warm**. The default procedure drives
-the UI and reads the JSONL the probes write, then aggregates with the read‑only helper (committed
+A repeatable, accurate sweep over **mode × model variant × cold/warm**. The `vocello` CLI above is the
+default driver; the **manual UI procedure below** drives the app by hand and reads the JSONL the probes
+write, then aggregates with the read‑only helper (it's retained for visual/interactive runs — committed
 benchmark scripts + baselines are permitted if you want to automate it further). Each engine row
 self‑identifies its cell
 via `mode`, `modelID` (variant‑specific), and `warmState` (`cold`/`warm`).

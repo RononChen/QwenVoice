@@ -8,7 +8,7 @@
 > creator-friendly. Apple-native SwiftUI with soft Liquid Glass surfaces,
 > a warm golden brand, and quiet motion.
 
-This design system covers **Vocello 2.0** — the macOS 26 beta of what used to
+This design system covers **Vocello 2.0** — the macOS 26 release of what used to
 ship as QwenVoice. The product is a native, on-device text-to-speech app for
 Apple Silicon Macs. It has three generation workflows (Custom Voice, Voice
 Design, Voice Cloning) and three library/settings surfaces (History, Saved
