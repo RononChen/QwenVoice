@@ -14,6 +14,8 @@ enum VocelloMain {
             switch sub {
             case "generate", "gen":
                 try await GenerateCommand.run(argv)
+            case "voices", "voice":
+                try await VoicesCommand.run(argv)
             case "help", "-h", "--help":
                 printUsage()
             case "version", "--version", "-v":
@@ -35,10 +37,11 @@ enum VocelloMain {
 
         Commands:
           generate   synthesize a clip            (vocello generate --help)
+          voices     manage saved clone voices    (vocello voices help)
           help       show this message
           version    print version
 
-        More commands (voices, bench, review) arrive in later phases.
+        More commands (bench, review) arrive in later phases.
         """)
     }
 }

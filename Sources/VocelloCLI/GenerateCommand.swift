@@ -42,7 +42,7 @@ enum GenerateCommand {
             let brief = try args.require("voice-brief", "a voice description for Voice Design")
             payload = .design(voiceDescription: brief, deliveryStyle: args.string("delivery"))
         case .clone:
-            throw CLIError("clone mode lands in the next phase (needs a saved voice) — use custom or design for now")
+            payload = .clone(reference: try await resolveCloneReference(args, runtime: runtime))
         }
 
         let outputPath = resolveOutputPath(args, dataDir: dataDir, mode: mode)
@@ -70,6 +70,26 @@ enum GenerateCommand {
             p.arguments = [result.audioPath]
             try? p.run(); p.waitUntilExit()
         }
+    }
+
+    /// Build the clone reference from either a saved voice (--voice <name|id>)
+    /// or a raw reference clip (--reference <wav> [--transcript "…"]).
+    @MainActor
+    private static func resolveCloneReference(_ args: Args, runtime: CLIRuntime) async throws -> CloneReference {
+        if let ref = args.string("reference") {
+            let path = (ref as NSString).expandingTildeInPath
+            guard FileManager.default.fileExists(atPath: path) else {
+                throw CLIError("reference audio not found: \(path)")
+            }
+            return CloneReference(audioPath: path, transcript: args.string("transcript"), preparedVoiceID: nil)
+        }
+        let name = try args.require("voice", "a saved voice name/id, or --reference <wav>")
+        let voices = try await runtime.engine.listPreparedVoices()
+        guard let voice = voices.first(where: { $0.name == name || $0.id == name }) else {
+            let avail = voices.map(\.name).joined(separator: ", ")
+            throw CLIError("no saved voice '\(name)' (have: \(avail.isEmpty ? "none" : avail))")
+        }
+        return CloneReference(audioPath: voice.audioPath, transcript: nil, preparedVoiceID: voice.id)
     }
 
     private static func resolveText(_ args: Args) throws -> String {
@@ -109,6 +129,9 @@ enum GenerateCommand {
           --text-file    read script text from a file
           --speaker      (custom) speaker id; default = contract default
           --voice-brief  (design) voice description
+          --voice        (clone) saved voice name or id
+          --reference    (clone) path to a reference .wav (alternative to --voice)
+          --transcript   (clone) transcript of the --reference clip
           --delivery     optional delivery style
           --out          output .wav path; default → <data>/outputs/cli/
           --data-dir     runtime dir (default ~/Library/Application Support/QwenVoice[-Debug])
