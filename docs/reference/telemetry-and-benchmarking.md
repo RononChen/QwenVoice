@@ -396,7 +396,14 @@ peak GPU / RSS MB, **`physFoot`** (phys_footprint peak — the Jetsam‑relevant
 from `stageMarks`, no new record field). A header line shows the **tier** each row ran under (from
 `notes.deviceClass`) and flags a forced tier. A second block — **GPU MB by stage** (`load → stream
 → peak → trim`, from `mlxMemoryByStage`) — shows *where* GPU memory grows across the pipeline and how
-much the post‑generation trim reclaims. Read‑only; joins `engine/` + `app/` rows by `generationID`.
+much the post‑generation trim reclaims. A third block — **Decode breakdown** (`talker · sampCB0 ·
+codePred · code2wav · stepEval · other`, from the `timingsMS` sub‑keys; named + other ≈ decode ms) —
+splits the decode loop. ⚠ These are Swift‑side wall‑clock timers around **lazy** MLX ops, not per‑stage
+GPU compute: `talker`/`codePred` measure graph‑*build* time, the single per‑frame `eval()` makes
+`stepEval` the *fused* compute of Talker+CodePredictor+sampling, and `code2wav`≈0 because the decoder is
+`asyncEval`'d (Phase 2c) and overlaps the token loop (pipelined, not free). To attribute compute per
+stage, capture the os_signpost intervals under Instruments `xctrace`. Read‑only; joins `engine/` +
+`app/` rows by `generationID`.
 Pass a diagnostics dir as `$1` to summarize a different run. Compact **summaries (and baselines) may be
 committed** under `benchmarks/` (≤256 KB each, **no raw `*.jsonl`** — guard‑enforced); don't commit the
 raw diagnostics JSONL. Comparison stays manual/agent‑driven (`git diff`) — there's no auto‑compared
@@ -482,9 +489,18 @@ dropouts, garbled words, "sounds worse"). Two layers, increasing in what they ca
 1. **Reference-free defect detector — automatic, every run.** The engine runs a per-sample QC pass on
    the final PCM (extends `PCM16StreamLimiter`) and writes an `audioQC` verdict into the engine row:
    `pass` / `warn` / `fail` plus flags — `nonfinite` (NaN/Inf model output), `clipping`, `clicks`
-   (chunk-boundary discontinuities — the decoder-drift class), `dropout:Nms` (mid-utterance silence),
+   (chunk-boundary discontinuities — the decoder-drift class), `dropout` (interior silence),
    `near_silent` (dead output). Surfaced as the summarizer's **`QC`** column. **Any `fail` blocks
    promoting a backend change.** Thresholds are conservative + tunable (`makeAudioQCReport`).
+   **Dropout is punctuation-aware** (calibrated 2026-05-31): the model emits a prosodic pause at each
+   sentence/clause boundary, so on long, slow content interior silences legitimately reach ~800 ms — a
+   fixed ≥400 ms fail line cried wolf on natural delivery (every long-content silence mapped to a
+   punctuation mark). Instead the detector counts *long pauses* (≥350 ms) against the text's **pause
+   budget** (interior punctuation boundaries, from `request.text`) and flags only an **excess** beyond it
+   (`dropout:excessN(long/budget)` — ≥2 = fail, 1 = warn) or a single **egregious** gap no natural pause
+   reaches (≥1200 ms = fail `dropout:Nms`; ≥900 ms = warn). A genuine mid-phrase gap that merely *replaces*
+   a punctuation pause (same count, ~same length) is positionally indistinguishable from a comma pause by
+   amplitude alone — that residual is **ear-only**, so the listening pass below stays its gate.
 2. **Listening pass — mandatory before merging a backend change.** No automated check judges subtle
    perceptual quality (timbre, prosody, naturalness). Two ways to run it:
    - **agy ear (default, scriptable):** `vocello bench --review` (or `vocello review --diag <dir>` /

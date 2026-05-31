@@ -554,6 +554,14 @@ struct PCM16StreamLimiter: Sendable {
         // report build.
         var sumOfSquares: Double = 0
         var longestInteriorSilentRunSamples = 0
+        // Lengths (samples) of interior near-silent runs at/above the record
+        // floor, in close order. Converted to ms and counted against the text's
+        // pause budget at report build (punctuation-aware dropout calibration —
+        // the model emits a prosodic pause at each sentence/clause boundary, so a
+        // single long silence is normal; an EXCESS of them, or one egregious gap,
+        // is the real tripwire). Bounded; far more entries than the cap means
+        // pathological output, already caught by near_silent.
+        var interiorSilentRunSamples: [Int] = []
 
         private static func partsPerMillion(_ value: Float) -> Int {
             Int((Double(value) * 1_000_000).rounded())
@@ -566,6 +574,13 @@ struct PCM16StreamLimiter: Sendable {
     /// Below this absolute input magnitude a sample counts as silence for
     /// interior-dropout detection.
     static let silenceFloor: Float = 0.001
+    /// Don't record interior runs below this length (noise filter; well under any
+    /// ms threshold the report applies, even at low sample rates). Recorded only
+    /// when a run closes (audio resumes), so leading/trailing silence is excluded.
+    static let interiorRunRecordFloorSamples = 2_400
+    /// Cap on recorded interior runs — a long clip has a handful; this guards a
+    /// pathological all-silence output from unbounded array growth.
+    static let interiorRunRecordCap = 256
 
     private var currentGain: Float = 1
     private var previousOutput: Float?
@@ -611,6 +626,10 @@ struct PCM16StreamLimiter: Sendable {
                             localMetrics.longestInteriorSilentRunSamples,
                             localSilentRun
                         )
+                        if localSilentRun >= Self.interiorRunRecordFloorSamples,
+                           localMetrics.interiorSilentRunSamples.count < Self.interiorRunRecordCap {
+                            localMetrics.interiorSilentRunSamples.append(localSilentRun)
+                        }
                         localSilentRun = 0
                     }
                     localSawAudio = true
@@ -994,7 +1013,8 @@ private struct StreamingExecutionContext: Sendable {
             audioQC: Self.makeAudioQCReport(
                 metrics: scratchBuffer.limiterMetrics,
                 sampleRate: sampleRate,
-                durationSeconds: durationSeconds
+                durationSeconds: durationSeconds,
+                expectedPauseCount: Self.expectedPauseCount(in: request.text)
             ),
             rawSamples: telemetryMode.persistsRawSamples ? rawSamples : nil
         )
@@ -1384,7 +1404,8 @@ private struct StreamingExecutionContext: Sendable {
             audioQC: Self.makeAudioQCReport(
                 metrics: scratchBuffer.limiterMetrics,
                 sampleRate: sampleRate,
-                durationSeconds: durationSeconds
+                durationSeconds: durationSeconds,
+                expectedPauseCount: Self.expectedPauseCount(in: request.text)
             ),
             rawSamples: telemetryMode.persistsRawSamples ? rawSamples : nil
         )
@@ -1495,7 +1516,8 @@ private struct StreamingExecutionContext: Sendable {
     static func makeAudioQCReport(
         metrics: PCM16StreamLimiter.Metrics,
         sampleRate: Int,
-        durationSeconds: Double
+        durationSeconds: Double,
+        expectedPauseCount: Int
     ) -> AudioQCReport {
         let n = metrics.processedSamples
         let rms = n > 0 ? (metrics.sumOfSquares / Double(n)).squareRoot() : 0
@@ -1503,6 +1525,11 @@ private struct StreamingExecutionContext: Sendable {
         let longestSilenceMS = sampleRate > 0
             ? Int(Double(metrics.longestInteriorSilentRunSamples) * 1000 / Double(sampleRate))
             : 0
+        // Every interior silence run (≥ record floor), in ms — for the
+        // punctuation-aware dropout check below.
+        let interiorSilencesMS: [Int] = sampleRate > 0
+            ? metrics.interiorSilentRunSamples.map { Int(Double($0) * 1000 / Double(sampleRate)) }
+            : []
         let clipped = metrics.samplesOutsideUnitRange
         let hot = metrics.samplesAboveCeiling
         let clicks = metrics.slewLimitedSamples
@@ -1512,10 +1539,23 @@ private struct StreamingExecutionContext: Sendable {
         let hotFrac = Double(hot) / Double(denom)
 
         // Conservative thresholds (documented; tune as the corpus dictates).
-        let dropoutFailMS = 400, dropoutWarnMS = 150
         let silentFailDBFS = -60.0, lowLevelWarnDBFS = -45.0
         let clipFailFrac = 0.001, clickFailFrac = 0.005
         let clickWarnFrac = 0.0005, hotWarnFrac = 0.02
+        // Dropout (punctuation-aware). The model emits a prosodic pause at each
+        // sentence/clause boundary; on long, slow content these legitimately reach
+        // ~800 ms — verified that EVERY long-content interior silence maps to a
+        // punctuation mark, so the old fixed 400 ms fail line cried wolf on natural
+        // delivery. Instead: count "long pauses" against the text's pause budget
+        // (punctuation boundaries) and flag only an EXCESS beyond it, or a single
+        // EGREGIOUS gap no natural pause reaches. A real mid-phrase gap that merely
+        // replaces a punctuation pause (same count, same ballpark length) is
+        // ear-only — the listening pass stays the perceptual gate (telemetry doc).
+        let longPauseMS = 350        // "sentence/long-comma" scale pause
+        let egregiousMS = 1200       // no natural pause reaches this → always a defect
+        let suspiciousSingleMS = 900 // above the observed natural max (~810 ms)
+        let longPauseCount = interiorSilencesMS.filter { $0 >= longPauseMS }.count
+        let excessLongPauses = max(0, longPauseCount - max(0, expectedPauseCount))
 
         var flags: [String] = []
         var verdict: AudioQCReport.Verdict = .pass
@@ -1530,8 +1570,15 @@ private struct StreamingExecutionContext: Sendable {
             if db < silentFailDBFS { flags.append("near_silent"); raise(.fail) }
             else if db < lowLevelWarnDBFS { flags.append("low_level"); raise(.warn) }
         } else if n > 0 { flags.append("silent"); raise(.fail) }
-        if longestSilenceMS >= dropoutFailMS { flags.append("dropout:\(longestSilenceMS)ms"); raise(.fail) }
-        else if longestSilenceMS >= dropoutWarnMS { flags.append("dropout:\(longestSilenceMS)ms"); raise(.warn) }
+        if longestSilenceMS >= egregiousMS {
+            flags.append("dropout:\(longestSilenceMS)ms"); raise(.fail)
+        } else if excessLongPauses >= 2 {
+            flags.append("dropout:excess\(excessLongPauses)(\(longPauseCount)/\(expectedPauseCount))"); raise(.fail)
+        } else if excessLongPauses == 1 {
+            flags.append("dropout:excess1(\(longPauseCount)/\(expectedPauseCount))"); raise(.warn)
+        } else if longestSilenceMS >= suspiciousSingleMS {
+            flags.append("dropout:\(longestSilenceMS)ms"); raise(.warn)
+        }
         if clippedFrac > clipFailFrac { flags.append("clipping"); raise(.fail) }
         else if clipped > 0 { flags.append("clipping"); raise(.warn) }
         if clickFrac > clickFailFrac { flags.append("clicks"); raise(.fail) }
@@ -1550,6 +1597,32 @@ private struct StreamingExecutionContext: Sendable {
             longestSilenceMS: longestSilenceMS,
             durationSeconds: durationSeconds
         )
+    }
+
+    /// The text's *interior* pause budget for the punctuation-aware dropout check:
+    /// the number of sentence/clause boundaries (maximal runs of pause punctuation,
+    /// so "..." or ", " count once), excluding a trailing terminal — that final
+    /// mark ends the clip and produces no interior silence. The model emits a
+    /// prosodic pause at each interior boundary, so this is the count of long
+    /// interior silences that is *expected* and benign. Short text with no interior
+    /// punctuation gets a budget of 0, so any long interior pause there is flagged.
+    static func expectedPauseCount(in text: String) -> Int {
+        let pausePunctuation: Set<Character> = [".", ",", ";", ":", "!", "?", "…", "—"]
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var count = 0
+        var inRun = false
+        for character in trimmed {
+            if pausePunctuation.contains(character) {
+                if !inRun { count += 1; inRun = true }
+            } else {
+                inRun = false
+            }
+        }
+        // Drop the trailing terminal boundary (no interior silence follows it).
+        if let last = trimmed.last, pausePunctuation.contains(last), count > 0 {
+            count -= 1
+        }
+        return count
     }
 
     /// Maps the vendored per-chunk `ChunkSubstageTimings` into the Codable

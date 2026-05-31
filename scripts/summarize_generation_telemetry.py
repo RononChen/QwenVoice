@@ -143,6 +143,9 @@ def load_runs(diag_dir):
                 # GPU peak MB at pipeline boundaries (mlxMemoryByStage) — shows WHERE
                 # GPU memory grows and how much a trim reclaims.
                 "gpuByStage": gpu_peak_by_stage(e.get("mlxMemoryByStage") or {}),
+                # Per-stage decode ms (timingsMS) — shows WHERE the decode loop spends
+                # wall time (Talker / Code Predictor / Code2Wav / eval). Sums ≈ decode ms.
+                "decodeStages": decode_stage_breakdown(timings),
                 # Reference-free audio-quality verdict (engine).
                 "qcVerdict": qc.get("verdict"),
                 "qcFlags": qc.get("flags") or [],
@@ -195,6 +198,41 @@ def gpu_peak_by_stage(mlx_by_stage):
             if snap and snap.get("peakMB") is not None:
                 out[label] = snap.get("peakMB")
                 break
+    return out
+
+
+# Top-level decode-loop stages (timingsMS keys) in pipeline order. The engine
+# attributes the wall clock of the hot token loop to exactly these stages plus an
+# audio-chunk-eval / unattributed remainder (see qwenTokenLoopUnattributedMS in the
+# vendored Qwen3TTS.swift), so named stages + "other" sum to qwen_token_loop_total.
+# This decomposition answers WHERE decode time goes: the Talker forward, the
+# autoregressive 15× Code Predictor loop, the Code2Wav audio decoder, or the
+# frame-boundary eval flush.
+_DECODE_STAGE_KEYS = [
+    ("talker", "qwen_talker_forward_total"),        # Talker (CB0) forward
+    ("sampCB0", "qwen_sample_first_codebook_total"),  # sample first codebook
+    ("codePred", "qwen_code_predictor_total"),      # 15× Code Predictor loop
+    ("code2wav", "qwen_stream_decoder_total"),      # Code2Wav audio decoder
+    ("stepEval", "qwen_stream_step_eval_total"),    # per-frame eval flush
+]
+
+
+def decode_stage_breakdown(timings):
+    """Per-stage decode ms from timingsMS. 'other' = qwen_token_loop_total minus the
+    named stages — it folds the small stages the engine also attributes (codec-embedding
+    assembly, EOS read, audio-chunk eval) plus the unattributed remainder, so the row
+    sums to the loop total. Returns {} when there is no loop total (e.g. load-only rows)."""
+    total = timings.get("qwen_token_loop_total")
+    if not total:
+        return {}
+    out = {}
+    named_sum = 0
+    for label, key in _DECODE_STAGE_KEYS:
+        value = timings.get(key)
+        if isinstance(value, (int, float)):
+            out[label] = value
+            named_sum += value
+    out["other"] = max(0, total - named_sum)
     return out
 
 
@@ -397,10 +435,49 @@ def main():
             f"{fmt(med(r['gpuByStage'].get('trim') for r in group), 0):>8}"
         )
 
+    # Decode-loop breakdown (ms per stage; median over cell) — from timingsMS. Answers
+    # WHERE decode wall time goes: Talker forward vs the autoregressive 15× Code Predictor
+    # loop vs the Code2Wav audio decoder vs the frame-boundary eval flush. Named stages +
+    # "other" sum to the decode ms column (qwen_token_loop_total).
+    dec_header = (
+        f"{'mode':<8} {'model':<26} {'state':<5} {'len':<6} "
+        f"{'talker':>7} {'sampCB0':>7} {'codePred':>8} {'code2wav':>8} {'stepEval':>8} {'other':>7}"
+    )
+    print("\nDecode breakdown (ms; median over cell) — timingsMS (named + other ≈ decode ms)\n")
+    print(dec_header)
+    print("-" * len(dec_header))
+    for key in sorted(cells.keys(), key=cell_sort):
+        mode, model_id, state, lb = key
+        group = cells[key]
+        print(
+            f"{mode:<8} {short_model(model_id):<26} {state:<5} {lb:<6} "
+            f"{fmt(med(r['decodeStages'].get('talker') for r in group), 0):>7} "
+            f"{fmt(med(r['decodeStages'].get('sampCB0') for r in group), 0):>7} "
+            f"{fmt(med(r['decodeStages'].get('codePred') for r in group), 0):>8} "
+            f"{fmt(med(r['decodeStages'].get('code2wav') for r in group), 0):>8} "
+            f"{fmt(med(r['decodeStages'].get('stepEval') for r in group), 0):>8} "
+            f"{fmt(med(r['decodeStages'].get('other') for r in group), 0):>7}"
+        )
+
     print(
         "\nRTF = audioSeconds / wallSeconds (>1 faster than realtime). "
         "tok/s = codec tokens/s. TTFC = submit→first chunk. "
         "decode ms = qwen_token_loop_total. peakGPU/physFoot/GPU-stage = MB."
+    )
+    print(
+        "Decode breakdown (ms, median): talker = qwen_talker_forward_total · "
+        "sampCB0 = qwen_sample_first_codebook_total · codePred = qwen_code_predictor_total "
+        "(15× loop) · code2wav = qwen_stream_decoder_total (audio decoder) · "
+        "stepEval = qwen_stream_step_eval_total · other = remainder (codec-embedding "
+        "assembly + EOS read + audio-chunk eval + unattributed). Named + other ≈ decode ms."
+    )
+    print(
+        "⚠ These are Swift-side wall-clock timers around LAZY MLX ops, not per-stage GPU "
+        "compute. talker/codePred measure graph-BUILD time; the single per-frame eval() makes "
+        "stepEval the fused compute of Talker+CodePredictor+sampling. code2wav≈0 because the "
+        "decoder is asyncEval'd (Phase 2c) and overlaps the token loop — pipelined, not free. "
+        "To attribute compute per stage, capture the os_signpost intervals (Talker Forward / "
+        "Code Predictor Loop / Step Eval Flush / Audio Decoder) under Instruments xctrace."
     )
     print(
         "physFoot = phys_footprint peak (the figure Jetsam judges — the OOM-relevant "
