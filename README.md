@@ -124,7 +124,42 @@ Useful checks:
 More technical details:
 
 - [`CLAUDE.md`](CLAUDE.md) - repo guide: build, architecture, engine invariants, release policy, conventions
+- [`docs/reference/cli.md`](docs/reference/cli.md) - the headless `vocello` command-line tool
 - [`docs/reference/privacy-storage.md`](docs/reference/privacy-storage.md) - local storage and deletion details
+
+## Command-line tool (`vocello`)
+
+Vocello ships a headless command-line tool, `vocello`, built from source alongside the app (it is not
+part of the app download). It drives the same local Swift + MLX engine in-process — no Python, no
+bundled weights, models download from Hugging Face like the app — and serves two roles: scriptable
+local generation from the terminal, and the deterministic driver for the perf/quality benchmarks.
+
+```sh
+./scripts/build.sh cli                 # build build/vocello
+build/vocello <command> [options]      # run it (runs in place)
+```
+
+| Command | What it does |
+| --- | --- |
+| `generate` | Synthesize one clip (Custom Voice / Voice Design / Voice Cloning); supports `--stream`, `--json`, and piped stdin. |
+| `batch` | Synthesize many clips from a file with a single model load. |
+| `voices` | List, enroll, or delete saved clone voices. |
+| `speakers` | List the built-in Custom Voice speakers. |
+| `models` | Inventory installed/available models (state, size). |
+| `bench` | Drive the perf/quality matrix and aggregate the results. |
+
+```sh
+# Generate a clip, or pipe a script in
+build/vocello generate --mode custom --variant speed --text "The train left at dawn."
+echo "Hello there." | build/vocello generate --variant speed --stream --json
+
+# Bulk synth (one model load) and discover what's installed
+build/vocello batch --file lines.txt --mode custom --variant speed --out-dir /tmp/batch
+build/vocello speakers list
+```
+
+stdout is machine-readable (an output path, or JSON with `--json`); progress notes go to stderr. Full
+reference: [`docs/reference/cli.md`](docs/reference/cli.md).
 
 ## License
 

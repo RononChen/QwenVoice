@@ -322,8 +322,14 @@ dominant `timingsMS` substage across your before/after.
 > as the benchmark/test driver. Engine telemetry rows (RTF / decode / memory / `audioQC` / `promptChars`)
 > are identical to the app path; the CLI bypasses XPC, so the app/XPC frontend row is absent and the
 > summarizer's end‑to‑end **TTFC shows `-`** (engine‑only boundary — what backend optimization targets).
-> `--review` adds the agy listening pass over flagged clips (see "Guarding output quality"). The
-> computer‑use UI procedure below is retained for manual/visual runs only.
+> To measure user‑perceived first‑chunk latency, use `vocello generate --stream` (it reports TTFC).
+>
+> One‑command flags fold in the manual workflow below: `--label "<note>"` stamps the summary,
+> `--ledger` appends a row to `benchmarks/HISTORY.md`, `--force-class 8gb|16gb|high|iphone` forces a
+> constrained tier on any Mac (the `QWENVOICE_FORCE_MEMORY_CLASS` knob), and `--telemetry verbose`
+> writes the raw per‑sample sidecars. `--review` adds the agy listening pass over flagged clips (see
+> "Guarding output quality"). Full CLI reference: [`cli.md`](cli.md). The computer‑use UI procedure
+> below is retained for manual/visual runs only.
 
 A repeatable, accurate sweep over **mode × model variant × cold/warm**. The default procedure drives
 the UI and reads the JSONL the probes write, then aggregates with the read‑only helper (committed
