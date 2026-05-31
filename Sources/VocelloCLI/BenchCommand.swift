@@ -99,8 +99,29 @@ enum BenchCommand {
 
         note("✓ \(total) takes in \(String(format: "%.0f", Date().timeIntervalSince(started)))s")
 
+        let diagDir = dataDir.appendingPathComponent("diagnostics", isDirectory: true)
         if !args.flag("no-summary") {
-            runSummarizer(diagnostics: dataDir.appendingPathComponent("diagnostics", isDirectory: true))
+            runSummarizer(diagnostics: diagDir)
+        }
+
+        // Optional agy listening pass over flagged clips (dev workflow only).
+        if args.flag("review") {
+            guard AgyReviewer.isAvailable else {
+                note("skip --review: `agy` and/or afconvert not available"); return
+            }
+            let flagged = FlaggedClips.discover(diagnosticsDir: diagDir.path)
+            if flagged.isEmpty {
+                note("review: no flagged clips")
+            } else {
+                note("agy listening review of \(flagged.count) flagged cell(s) (sequential)…")
+                var verdicts: [AgyVerdict] = []
+                for f in flagged {
+                    let r = AgyReviewer.review(clip: f.clip, text: f.text, len: f.len, state: f.state, flags: f.flags)
+                    ReviewCommand.printVerdict(r)
+                    verdicts.append(r)
+                }
+                FlaggedClips.writeReviewLog(verdicts, diagnosticsDir: diagDir.path)
+            }
         }
     }
 
@@ -180,6 +201,8 @@ enum BenchCommand {
           --manifest     override path to qwenvoice_contract.json
           --keep         append to existing diagnostics (default: clear first)
           --no-summary   skip running the aggregator
+          --review       after aggregating, have agy listen to flagged clips + judge
+                         real-defect vs false-positive (dev workflow; needs agy + afconvert)
         """)
     }
 }

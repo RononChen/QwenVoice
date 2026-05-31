@@ -18,6 +18,8 @@ enum VocelloMain {
                 try await VoicesCommand.run(argv)
             case "bench", "benchmark":
                 try await BenchCommand.run(argv)
+            case "review":
+                try await ReviewCommand.run(argv)
             case "help", "-h", "--help":
                 printUsage()
             case "version", "--version", "-v":
@@ -41,10 +43,9 @@ enum VocelloMain {
           generate   synthesize a clip            (vocello generate --help)
           voices     manage saved clone voices    (vocello voices help)
           bench      drive the perf/quality matrix (vocello bench --help)
+          review     adjudicate flagged clips by ear via agy (vocello review --help)
           help       show this message
           version    print version
-
-        The `review` command (agy audio review) arrives in the next phase.
         """)
     }
 }
