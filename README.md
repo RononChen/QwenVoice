@@ -131,8 +131,9 @@ More technical details:
 
 Vocello ships a headless command-line tool, `vocello`, built from source alongside the app (it is not
 part of the app download). It drives the same local Swift + MLX engine in-process — no Python, no
-bundled weights, models download from Hugging Face like the app — and serves two roles: scriptable
-local generation from the terminal, and the deterministic driver for the perf/quality benchmarks.
+bundled weights — and serves two roles: scriptable local generation from the terminal, and the
+deterministic driver for the perf/quality benchmarks. It uses the models you install in the app
+(Settings → Model downloads); the CLI itself does not download weights.
 
 ```sh
 ./scripts/build.sh cli                 # build build/vocello

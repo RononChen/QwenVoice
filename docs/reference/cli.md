@@ -10,10 +10,11 @@ It serves two roles:
   This replaced computer-use UI-driving for anything scripted.
 
 It links the engine frameworks directly (no XPC), **ships no model weights and no Python**, and runs
-**in place** beside its MLX metallib bundle. Models download from Hugging Face on first use, exactly
-like the app. The `review` command (agy listening pass) is a **dev/benchmark workflow only** — it
-hands dev clips to an external model and is never part of the shipped product; user audio stays
-on-device.
+**in place** beside its MLX metallib bundle. It **reuses the models already installed locally by the
+app** (Settings → Model downloads) — the CLI itself does **not** download weights, so `generate`/`bench`
+error if a requested model isn't installed (`vocello models list` shows what's present). The `review`
+command (agy listening pass) is a **dev/benchmark workflow only** — it hands dev clips to an external
+model and is never part of the shipped product; user audio stays on-device.
 
 ## Build & run
 
