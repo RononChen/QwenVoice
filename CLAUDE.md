@@ -69,7 +69,7 @@ The Xcode project is generated from `project.yml` via XcodeGen — edit `project
 
 ## Architecture
 
-Two-platform Swift codebase with an out-of-process engine per platform.
+Two-platform Swift codebase with an out-of-process engine per platform (macOS XPC service / iOS extension). The `vocello` CLI is a third surface, driving the same engine **in-process**.
 
 - `QwenVoiceCore/` — shared engine semantics: `TTSEngine`, `MLXTTSEngine`, `TTSEngineError`, `GenerationMode`, audio prep.
 - `QwenVoiceBackendCore/` — low-level MLX + audio primitives (model load, synthesis, codecs).
