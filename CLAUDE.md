@@ -126,6 +126,7 @@ iPhone is compile-safe only; on-device generation, memory proof, and TestFlight 
 - [`docs/reference/ios-increased-memory-entitlement-request.md`](docs/reference/ios-increased-memory-entitlement-request.md) — Apple increased-memory entitlement request packet.
 - [`docs/reference/mlx-audio-swift-patching.md`](docs/reference/mlx-audio-swift-patching.md) — vendored backend patch procedure + validation gates.
 - [`docs/reference/telemetry-and-benchmarking.md`](docs/reference/telemetry-and-benchmarking.md) — full telemetry reference: probes across all three layers, the per-generation record schema, MLX decode timings + KPIs, efficiency/tiering, and how to run+read a benchmark.
+- [`benchmarks/`](benchmarks/) — committed benchmark summaries: `HISTORY.md` (perf-over-time ledger), `baseline-*.md` (reference snapshots), and `OPTIMIZATION.md` (standing optimization-progress log — workstreams, findings, what's deferred).
 - [`docs/reference/ui-driving.md`](docs/reference/ui-driving.md) — driving UI tests/reviews/benchmarks via computer-use (macOS) + iPhone Mirroring (iOS).
 - `docs/qwen_tone.md` — prompt/tone guidance for voice generation.
 - `design_references/` — Vocello design system + iOS prototype (read before touching chrome/tints).
