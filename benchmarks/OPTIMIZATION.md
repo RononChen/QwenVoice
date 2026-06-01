@@ -111,11 +111,12 @@ Goal: get Speed (4-bit) Qwen3-TTS running on iPhone 15 Pro (8 GB). Full plan + t
 inventory live in the session plan; this records the standing findings. Engine runs in the iOS ExtensionKit
 extension (separate Jetsam budget).
 
-**Feasibility (isolated engine, Speed 4-bit):** Custom/Design ~2.8–3.3 GB (feasible behind the entitlement);
-Clone/long ~4.7 GB (marginal — needs entitlement ≥~5.2 GB or ~400 MB cut); Quality 8-bit ~5.7 GB+ (out of
-scope — iPhone is 4-bit-only). Hard floor (4-bit weights + activations) ~2.2 GB. **The Apple
-increased-memory entitlement (pending) is the #1 blocking prerequisite** — already declared in the iOS
-entitlements files.
+**Feasibility (isolated engine, Speed 4-bit):** Custom/Design ~2.8–3.3 GB (fits under the default streaming
+limit per §F.1 — the entitlement is headroom insurance, not required); Clone/long ~4.7 GB (marginal — wants
+the raised limit ≥~5.2 GB or a ~400 MB cut); Quality 8-bit ~5.7 GB+ (out of scope — iPhone is 4-bit-only).
+Hard floor (4-bit weights + activations) ~2.2 GB. **The increased-memory entitlement is a self-serve
+capability** (enable it on the App ID — not an Apple grant; already declared in both iOS entitlements files).
+The actual #1 prerequisite is re-establishing on-device build/deploy/proof tooling + on-device validation.
 
 **WS0b decode-loop GPU attribution** — `xctrace --instrument os_signpost`, custom/speed/long, **327 frames /
 31.1 s** wall, native 8 GB Mac (paired Begin/End from the raw `os-signpost` table; the `os-signpost-interval`
@@ -247,8 +248,9 @@ dormant dev/insurance capability that activates only if the token ceiling is eve
 ## iOS-deferred (real, but iPhone is compile-safe only)
 
 Thermal-state monitoring + automatic 0.6B fallback, iPhone jetsam / `memoryLimit` tuning +
-`os_proc_available_memory()` gating, on-device RTF/peak-RAM proof — all pending Apple's increased-memory
-entitlement (see [`../docs/reference/ios-increased-memory-entitlement-request.md`](../docs/reference/ios-increased-memory-entitlement-request.md)).
+`os_proc_available_memory()` gating, on-device RTF/peak-RAM proof — all pending **on-device build/validation
+tooling** (the increased-memory entitlement itself is self-serve; see
+[`../docs/reference/ios-increased-memory-entitlement-request.md`](../docs/reference/ios-increased-memory-entitlement-request.md)).
 Map to `NativeMemoryPolicyResolver` (iPhonePro case).
 
 ## Next step (if resumed)

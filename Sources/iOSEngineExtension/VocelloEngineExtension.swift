@@ -6,8 +6,9 @@ import Foundation
 /// generation runs here so the app process stays light. Connections are handed
 /// to `VocelloEngineExtensionHost`, which adapts the XPC wire protocol.
 ///
-/// Compile-safe only on `main`: on-device execution is deferred pending Apple's
-/// increased-memory entitlement (see CLAUDE.md "Release & iPhone status").
+/// Compile-safe only on `main`: on-device execution is deferred pending on-device
+/// build/validation tooling — the increased-memory entitlement itself is self-serve
+/// (enable on the App ID; see CLAUDE.md "Release & iPhone status").
 @main
 final class VocelloEngineExtension: AppExtension {
     private let host = VocelloEngineExtensionHost()

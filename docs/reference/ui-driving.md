@@ -168,7 +168,7 @@ Custom/Design/Clone mode segmented control.
 **Two preconditions right now:**
 1. The app must already be installed and running on the device — deploy via **Xcode** (the in-repo
    `ios_device.sh` was removed in the harness cleanup).
-2. Real on-device MLX generation is blocked until Apple's increased-memory entitlement
-   ([`ios-increased-memory-entitlement-request.md`](ios-increased-memory-entitlement-request.md)).
-   Until then, Mirroring runs are **UI / flow / visual review** only — generation will block at model
-   admission.
+2. Real on-device MLX generation needs the self-serve increased-memory capability enabled on the App ID and a
+   build signed with it ([`ios-increased-memory-entitlement-request.md`](ios-increased-memory-entitlement-request.md)),
+   plus a deploy path (the in-repo device tooling was removed). Until that's set up, Mirroring runs are
+   **UI / flow / visual review** only — generation may block at model admission.

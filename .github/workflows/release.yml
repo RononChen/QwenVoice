@@ -19,11 +19,12 @@ name: Release
 #     A signed iOS IPA / TestFlight job is intentionally NOT here yet
 #     — it requires the iOS Distribution certificate, provisioning
 #     profiles bound to com.patricedery.vocello and
-#     com.patricedery.vocello.engine-extension, and Apple's approval of the
-#     com.apple.developer.kernel.increased-memory-limit entitlement,
-#     none of which are in place as of v2.0.0. See CLAUDE.md
-#     "Release & iPhone status" and the entitlement request packet
-#     under docs/reference/ for the rollout sequence.
+#     com.patricedery.vocello.engine-extension (with the self-serve
+#     com.apple.developer.kernel.increased-memory-limit capability enabled
+#     on those App IDs), and on-device validation — none of which are in
+#     place as of v2.0.0. See CLAUDE.md "Release & iPhone status" and the
+#     entitlement enablement + readiness guide under docs/reference/ for
+#     the rollout sequence.
 #
 # Toolchain pinning mirrors the local setup documented in CLAUDE.md:
 #   - Xcode 26.0 (project.yml `xcodeVersion: "26.0"`)

@@ -1,42 +1,110 @@
-# iOS Increased Memory Entitlement Request Packet
+# iOS Increased-Memory Entitlement — Enablement & Readiness Guide
 
-This packet is the source of truth for requesting Apple's increased-memory entitlement for the iOS app and engine extension.
+This is the source of truth for enabling Apple's increased-memory entitlement on the iOS app and engine
+extension, verifying it, and the (kept-for-fallback) justification text.
 
 Status context: [`../../CLAUDE.md`](../../CLAUDE.md) § "Release & iPhone status".
 
-> **Note:** the copy-ready request text, identifiers, and Apple-portal steps below are the enduring value of this packet and are unaffected. The on-device evidence-capture and verify recipes (which used the removed `ios_device.sh` / `ios_device_proof_matrix.sh` scripts) are **not currently runnable** — those scripts were removed in the testing-harness cleanup and a device deploy/proof path would need to be re-established before capturing fresh on-device evidence.
+> **TL;DR — there is most likely no "request to Apple" to make.** `com.apple.developer.kernel.increased-memory-limit`
+> is a **self-serve Additional Capability** (Apple DTS confirms it follows the same flow as Multicast
+> Networking): enable it on each App ID, regenerate the provisioning profiles, build. It is **not** a
+> justification-reviewed approval queue. See "How you get it" below for the one definitive self-check and the
+> fallback if your account happens to gate it behind Capability Requests.
+
+> **Note (device tooling):** the on-device *evidence-capture* recipes that used the removed
+> `ios_device.sh` / `ios_device_proof_matrix.sh` scripts are **not currently runnable** — they were removed in
+> the testing-harness cleanup and a device deploy/proof path would need to be re-established. The
+> enablement, the device-free verification (`codesign`/`security`/`verify_ios_release_archive.sh`), and the
+> memory evidence you can already cite (streaming ~3 GB, see `benchmarks/OPTIMIZATION.md` §F.1) do **not**
+> need that tooling.
 
 Apple capability: `com.apple.developer.kernel.increased-memory-limit`
 
-Apple docs:
+Apple docs / references:
 
-- [Request access to managed capabilities](https://developer.apple.com/help/account/capabilities/capability-requests)
-- [Enable app capabilities](https://developer.apple.com/help/account/identifiers/enable-app-capabilities/)
+- [Enable app capabilities](https://developer.apple.com/help/account/identifiers/enable-app-capabilities/) — the self-serve path
 - [Increased Memory Limit entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.kernel.increased-memory-limit)
 - [os_proc_available_memory](https://developer.apple.com/documentation/os/os_proc_available_memory)
+- Apple DTS confirmation it's self-serve (the Multicast "New Process"): [forums/thread/685084](https://developer.apple.com/forums/thread/685084) → [Using the Multicast Networking Additional Capability](https://developer.apple.com/forums/thread/663271)
+- [Request access to managed capabilities](https://developer.apple.com/help/account/capabilities/capability-requests) — **only** if your account gates it behind Capability Requests (fallback)
 
-## Apple Requirements We Need To Satisfy
+## How you get it (self-serve)
 
-Apple treats this as a managed capability: the entitlement must be assigned to the developer account before it can be enabled for an App ID. For an organization team, the Account Holder submits the request. After approval, enable the capability for each App ID and regenerate any provisioning profiles that use those App IDs.
+All entitlements must be authorized by the **provisioning profile** — so you can't just type the key into an
+`.entitlements` file and expect it to take effect; the App ID must carry the capability and the profile must
+be regenerated. But enabling that capability is **self-serve**: Apple DTS (Quinn) confirmed the
+increased-memory-limit entitlement uses the same flow as Multicast Networking ("I just tested that process
+here in my office and it works a treat") — no form, no approval wait.
 
-Apple describes the entitlement as a Boolean value for apps whose core features may perform better with a higher memory limit on supported devices. Apple also says apps must behave correctly if extra memory is unavailable. Use `os_proc_available_memory()` as advisory process-headroom data; it reports bytes the current app process may allocate before hitting its current memory limit, not device-wide free RAM.
+**The one definitive self-check** (only your account can answer it): open the App ID in
+[Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list) and
+look for "Increased Memory Limit":
 
-## Identifiers To Request
+- under the normal **Capabilities** tab → **self-serve**: toggle it on, regenerate profiles, done; or
+- only under the **Capability Requests** tab → **request-gated**: submit the request (use the copy-ready
+  justification below) and enable it after approval.
 
-Request and enable the entitlement for both identifiers:
+Apple describes the entitlement as a Boolean for apps whose core features may perform better with a higher
+memory limit on **supported devices**, and requires apps to behave correctly if extra memory is unavailable.
+Use `os_proc_available_memory()` as advisory process-headroom data — it reports the bytes the current process
+may allocate before its current limit, **not** device-wide free RAM. The increase is best-effort and
+device/OS-dependent (see Caveats).
+
+## Identifiers to enable
+
+Enable the capability for **both** identifiers — the extension is the process that actually hosts the MLX
+runtime, so it (not just the app) needs the raised limit:
 
 - iOS app: `com.patricedery.vocello`
 - iOS engine extension: `com.patricedery.vocello.engine-extension`
-
-The extension identifier is critical because real MLX generation runs in the ExtensionKit engine process, not only in the containing app.
 
 Related identifier:
 
 - App Group: `group.com.patricedery.vocello.shared`
 
-## Copy-Ready Request Text
+## Enable it — portal + build steps
 
-Use this as the main justification in Apple's Capability Requests form:
+1. Sign in to [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list).
+2. Open `com.patricedery.vocello` → **Capabilities** → enable **Increased Memory Limit** → Save.
+   - If it isn't under Capabilities but is under **Capability Requests**, request it first (fallback section
+     below), then enable after approval.
+3. Repeat for `com.patricedery.vocello.engine-extension`.
+4. Regenerate the development **and** distribution provisioning profiles for both identifiers. With Xcode
+   "automatically manage signing" this happens on the next build; with manual signing, recreate the profiles
+   so each one carries the entitlement.
+5. Build for a physical device / archive for distribution. The production entitlements files already declare
+   the key (see Repo evidence map), so a correctly-signed build picks it up.
+6. **Verify the signed binary** (next section) — do not assume; the most common failure is the entitlement
+   missing from the *distribution* profile (see Caveats).
+
+## Verify the signed entitlement (device-free)
+
+These replace the removed `ios_device.sh verify-entitlements` helper and need only a built/exported app — no
+device:
+
+```sh
+# App + extension entitlements as actually signed (expect increased-memory-limit = true):
+codesign -d --entitlements :- /path/to/Vocello.app
+codesign -d --entitlements :- /path/to/Vocello.app/Extensions/VocelloEngineExtension.appex
+
+# Confirm the embedded provisioning profile authorizes it:
+security cms -D -i /path/to/Vocello.app/embedded.mobileprovision | plutil -p - | grep -A1 increased-memory
+```
+
+For a full archive/export check, `scripts/verify_ios_release_archive.sh` validates both the app and the
+extension entitlements against `config/apple-platform-capability-matrix.json` (which declares the expected
+bundle IDs, App Group, and `increased-memory-limit = true` for both targets). Pass condition:
+
+```text
+app:       com.patricedery.vocello                    com.apple.developer.kernel.increased-memory-limit=true
+extension: com.patricedery.vocello.engine-extension   com.apple.developer.kernel.increased-memory-limit=true
+status:    entitlement-ready
+```
+
+## If your account shows it only under Capability Requests (fallback justification)
+
+Use this as the main justification in Apple's Capability Requests form (only needed if the self-check above
+lands you in the request-gated case):
 
 ```text
 Vocello is a private, on-device text-to-speech app for iPhone. Its core feature is local neural speech generation using Qwen3-TTS model packages with MLX on Apple Silicon. The app downloads user-selected model artifacts and performs speech generation locally; prompt text, reference audio, generated audio, and voice data are not uploaded to a server for generation.
@@ -50,9 +118,7 @@ Vocello already includes guardrails for responsible memory use: model admission 
 The entitlement is needed so supported devices can run the app's core on-device speech generation feature reliably while preserving the privacy benefit of local inference. If additional memory is unavailable, Vocello still behaves safely: the app remains usable for UI, model downloads, diagnostics, and user data access, and generation is blocked with a user-visible memory error instead of forcing a risky allocation.
 ```
 
-## Short Form Answers
-
-Use these if Apple's form asks focused questions.
+Short-form answers (if Apple's form asks focused questions):
 
 App or feature requiring entitlement:
 
@@ -84,14 +150,14 @@ How system impact is limited:
 iOS generation is streaming-first; inline PCM preview payloads are skipped by default; extension events are bounded; model admission blocks critical pressure; Qwen3 tokenizer, speech-tokenizer, prefix, and decoder caches are explicitly cleared on iPhone hard-trim/full-unload paths; active generation is canceled under critical memory pressure.
 ```
 
-## Repo Evidence Map
+## Repo evidence map
 
 Current identity and entitlement source of truth:
 
 - `config/apple-platform-capability-matrix.json` declares both iOS bundle IDs, App Group, and the required increased-memory entitlement.
 - `project.yml` signs `VocelloiOS` as `com.patricedery.vocello` and `VocelloEngineExtension` as `com.patricedery.vocello.engine-extension`.
 - `Sources/iOS/VocelloiOS.entitlements` and `Sources/iOSEngineExtension/VocelloEngineExtension.entitlements` include `com.apple.developer.kernel.increased-memory-limit` for approved-profile builds.
-- `Sources/iOS/VocelloiOSLocalDevice.entitlements` and `Sources/iOSEngineExtension/VocelloEngineExtensionLocalDevice.entitlements` intentionally omit the restricted entitlement for ordinary local Debug installs.
+- `Sources/iOS/VocelloiOSLocalDevice.entitlements` and `Sources/iOSEngineExtension/VocelloEngineExtensionLocalDevice.entitlements` intentionally omit the entitlement for ordinary local Debug installs (before you've enabled the capability on the App ID).
 
 Process measurement and guardrails:
 
@@ -109,98 +175,49 @@ Memory-reduction behavior already implemented:
 - `Sources/QwenVoiceCore/NativeEngineRuntime.swift` clears Qwen3 caches on iPhone unload/hard-trim/full-unload paths.
 - `third_party_patches/mlx-audio-swift/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift` exposes `Qwen3TTSMemoryCaches.clearAll()`.
 
-Validation scripts:
+## Memory evidence
 
-- Entitlement presence on the signed app + extension must be re-checked once a device deploy/verify path is re-established (the prior `ios_device.sh verify-entitlements` helper was removed in the testing-harness cleanup).
-- `scripts/verify_ios_release_archive.sh` verifies archive/export entitlements for both app and extension (still in-repo; verifies a manually-produced archive).
+**Available today (device-free):** `benchmarks/OPTIMIZATION.md` §F.1 — the iOS **streaming** path peaks
+**~3 GB flat** with length on iPhone 15 Pro for Custom/Design Speed (short 2901 MB · medium 2860 MB · long-76 s
+2992 MB), at/under the default process limit. So the entitlement is **headroom / Clone-and-long insurance**,
+not a hard blocker for Custom/Design. (The ~7–8 GB figures elsewhere are the *non-streaming* bench path that
+iOS never uses.) This is the necessity/sufficiency evidence to cite.
 
-## Evidence To Capture Before Submitting
-
-> **Not currently runnable.** The `scripts/ios_device.sh` recipes in this section and in *Portal Steps* below were removed in the testing-harness cleanup (see the note at the top of this file). They are kept as the intended shape of the evidence-capture flow; a device deploy/verify path must be re-established before they execute. `scripts/verify_ios_release_archive.sh` (above) does remain in-repo for verifying a manually-produced archive.
-
-Use one clean Debug run without `--enable-increased-memory-limit` to show the current safe-blocking behavior:
-
-```sh
-scripts/ios_device.sh start --run-id entitlement-request-evidence
-# In iPhone Mirroring, attempt a short Custom generation so admission samples the extension.
-scripts/ios_device.sh pull --run-id entitlement-request-evidence
-scripts/ios_device.sh verify-entitlements --run-id entitlement-request-evidence
-```
-
-Extract the extension process evidence:
+**When on-device tooling is re-established** (deferred — `ios_device.sh` was removed), capture an unentitled
+baseline showing safe blocking, then an entitled baseline showing raised headroom. The extension-process rows
+to extract from the diagnostics JSONL:
 
 ```sh
 jq -r '
   select(.engineExtensionImpliedProcessLimitBytes != null)
-  | [
-      .recordedAt,
-      .event,
-      .reason,
+  | [ .recordedAt, .event, .reason,
       (.engineExtensionPhysFootprintMB | floor),
       (.engineExtensionAvailableHeadroomMB | floor),
       (.engineExtensionImpliedProcessLimitMB | floor),
-      .pressureBand,
-      .aggregatePressureBand,
-      .likelyEntitlementBlocked,
-      .entitlementBlockedReason
-    ]
+      .pressureBand, .aggregatePressureBand,
+      .likelyEntitlementBlocked, .entitlementBlockedReason ]
   | @tsv
-' build/Debug/ios-device/runs/entitlement-request-evidence/pulled/diagnostics/memory-contexts.jsonl
+' <pulled>/diagnostics/memory-contexts.jsonl
 ```
 
-Attach or quote the relevant rows showing:
+Look for: extension snapshot present, extension headroom critically low, implied extension limit low,
+aggregate pressure *not* the root cause, `likelyEntitlementBlocked=true`, and `model_admission_blocked`
+recorded instead of a crash — then the same rows showing headroom rising materially once entitled.
 
-- extension snapshot is present,
-- extension available headroom is critically low,
-- implied extension process limit is low,
-- aggregate pressure is not the root cause,
-- `likelyEntitlementBlocked=true`,
-- `model_admission_blocked` is recorded instead of a crash.
+## Caveats / things not to claim
 
-Also attach or quote:
-
-```sh
-cat build/Debug/ios-device/runs/entitlement-request-evidence/entitlements-check.json
-```
-
-This should show the ordinary Debug build is missing the restricted entitlement, which is expected before Apple approval.
-
-## Portal Steps
-
-1. Sign in to [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list) as Account Holder.
-2. Open `com.patricedery.vocello`.
-3. Open the Capability Requests tab.
-4. Request Increased Memory Limit / `com.apple.developer.kernel.increased-memory-limit`.
-5. Repeat for `com.patricedery.vocello.engine-extension`.
-6. After approval, open each App ID's Capabilities tab and enable Increased Memory Limit.
-7. Regenerate development and distribution provisioning profiles for both identifiers.
-8. Build and verify locally:
-
-```sh
-scripts/ios_device.sh build --enable-increased-memory-limit --run-id entitlement-enabled-check
-scripts/ios_device.sh verify-entitlements --enable-increased-memory-limit --run-id entitlement-enabled-check
-```
-
-Pass condition:
-
-```text
-app:       com.patricedery.vocello com.apple.developer.kernel.increased-memory-limit=true
-extension: com.patricedery.vocello.engine-extension com.apple.developer.kernel.increased-memory-limit=true
-status:    entitlement-ready
-```
-
-Then run the first entitled baseline:
-
-```sh
-scripts/ios_device.sh start --run-id memory-entitled-baseline --enable-increased-memory-limit
-```
-
-Before attempting long Custom, Design, or Clone runs, verify the extension's initial `engineExtensionAvailableHeadroomMB` and `engineExtensionImpliedProcessLimitMB` increased materially versus the unentitled baseline.
-
-## Things Not To Claim
-
+- **App-Store-distribution gotcha (verify the signed binary!).** Developers repeatedly report the raised
+  limit *not taking effect* in App Store / TestFlight builds — app still crashes around the default ~6 GB —
+  even though it worked in development. The cause is the entitlement missing from the **distribution**
+  provisioning profile / signing entitlements. Fix: ensure the capability is present in **both** the App ID
+  **and** the signing `entitlements.plist`, and confirm with `codesign -d --entitlements :-` on the actual
+  signed/exported build before submitting.
+- **Best-effort and device/OS-dependent.** The increase is only available on some device models, the exact
+  ceiling is undocumented and varies with device state, and iOS 18+ added a system memory-compressor cap that
+  can still terminate the app. Always gate on `os_proc_available_memory()` and keep the safe fallback.
 - Do not claim the entitlement will be available on every iPhone or iPad model.
 - Do not claim the app will use all available memory.
 - Do not say generation will be attempted even under critical pressure.
-- Do not submit the request only as a performance optimization. Frame it as enabling the core local generation feature on supported devices while preserving safe fallback behavior.
-- Do not request only the containing app entitlement; the engine extension needs the entitlement too.
+- Do not enable it only for the containing app; the engine extension needs it too.
+- If you do hit the request-gated case, frame the justification as enabling the core local generation feature
+  on supported devices with safe fallback — not as a raw performance optimization.
