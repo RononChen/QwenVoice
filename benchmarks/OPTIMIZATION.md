@@ -154,9 +154,13 @@ table collapses because the engine reuses `OS_SIGNPOST_ID_EXCLUSIVE`):
   (≥ the ~500–600-token real generation length) saves ~0 RAM, while a window small enough to cap RAM **drops
   oldest context** → not transparent → fails the strict bar on long content. Its real use is fixing shapes
   for the compile lever above.
-- **Eager `talkerSourceWeights` release:** for the 4-bit model the source dict is the *quantized* safetensors
-  (~1 GB, not 6.8 GB fp32) and MLX arrays are ref-shared with the model params, so the real cold-load saving
-  is uncertain → needs a load-transient peak snapshot to measure before it's worth landing.
+- **Eager `talkerSourceWeights` release — TESTED, no-op (2026-06-01).** Reordered to free the source dict
+  *before* the talker eval (pre-extracting the speaker subset). Clean same-session A/B on custom/speed/long:
+  **no measurable load-peak reduction** (cold/warm physFoot + peakGPU within noise; RTF unchanged). Confirmed
+  the prediction — with no speaker encoder, `talkerSourceWeights` ≈ the talker buffers already held by the
+  model (MLX arrays are ref-shared), so releasing the dict frees ~nothing. Could help only the clone/base
+  **speaker-encoder** path (holds the speaker subset across the eval); re-test there with a saved voice if
+  clone/long RAM becomes the focus. **Reverted (not committed).**
 - **Net (revised after the compile spike):** backend speed gains for 1.7B 4-bit on this stack are **limited**
   — GPU compute (61%) is fixed at this precision, and the build overhead (22%) is not compile-attackable
   (regresses). The primary iPhone RAM unlock is the **entitlement**; transparent backend RAM cuts are modest.
