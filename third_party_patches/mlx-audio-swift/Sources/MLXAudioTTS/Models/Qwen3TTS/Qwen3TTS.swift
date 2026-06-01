@@ -1350,7 +1350,17 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             Memory.clearCache()
         }
 
-        let cache = talker.makeCache()
+        let cache: [any KVCache]
+        if let talkerKVWindow = Qwen3StreamingMemoryTuning.talkerKVGeneratedWindow {
+            // Sliding-window talker KV (constrained tiers): keep = the conditioning
+            // prefill length (control + full text, always at the front of the
+            // sequence), so only old generated audio-codec tokens rotate out.
+            cache = talker.makeRotatingCache(
+                keep: inputEmbedsInit.dim(1), window: talkerKVWindow
+            )
+        } else {
+            cache = talker.makeCache()
+        }
         let codeCache = talker.codePredictor.makeCache()
         let (logits, hidden) = talker(inputEmbedsInit, cache: cache)
         let nextToken = argMax(
@@ -2413,7 +2423,17 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
 
         // Initialize cache and timing
         let startTime = Date()
-        let cache = talker.makeCache()
+        let cache: [any KVCache]
+        if let talkerKVWindow = Qwen3StreamingMemoryTuning.talkerKVGeneratedWindow {
+            // Sliding-window talker KV (constrained tiers): keep = the conditioning
+            // prefill length (control + full text, always at the front of the
+            // sequence), so only old generated audio-codec tokens rotate out.
+            cache = talker.makeRotatingCache(
+                keep: inputEmbedsInit.dim(1), window: talkerKVWindow
+            )
+        } else {
+            cache = talker.makeCache()
+        }
         let isStreaming = onAudioChunk != nil
         var generatedCodes = [MLXArray]()
         if !isStreaming {

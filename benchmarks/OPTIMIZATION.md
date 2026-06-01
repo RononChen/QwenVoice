@@ -198,10 +198,42 @@ blocker for custom/design). The +3.4 GB growth is non-streaming accumulation tha
   yardstick for iOS). Custom/Design Speed ≈ 3 GB flat. Clone streaming untested (no saved voice installed) —
   expect ~3.5–4 GB (speaker conditioning + ~3 GB floor); measure when a clone voice is available.
 - **Talker-KV windowing is unnecessary for iOS** (KV isn't the driver; streaming already keeps peak flat).
-  Parked on `feature/rotating-kv`; recommend discarding unless multi-minute single-shot generations become a
-  use case.
+  Originally parked on `feature/rotating-kv`; the "multi-minute single-shot" escape hatch was later closed too
+  (see **§F.2** — the token cap forecloses it). Final disposition: shipped **env-only, off by default**.
 - For any future bench that wants an iOS-representative peak, use `vocello generate --stream` (or a streaming
   bench mode), **not** the non-streaming full-result path.
+
+### F.2 — Windowing revisited (default-on + toggle) → INERT at the token cap; shipped env-only (2026-06-01)
+
+Revisited per a directive to enable the window on **both platforms, default-on, with a user disable toggle**.
+Built the full feature — per-tier `W = 2048` default, a cross-process `NativeTalkerKVCacheGate`, a Settings
+toggle on macOS + iOS, and the `initialize`-handshake relay — then two findings collapsed the rationale and it
+was scoped back down:
+
+1. **Generation is nondeterministic.** Two identical-config CLI runs of the same text differ (21.4 s vs
+   22.6 s, different SHA) — the sampler is unseeded. So the plan's "byte-identical output" transparency test
+   **cannot hold** regardless of cache. Transparency survives only *by construction*: `RotatingKVCache`
+   returns bit-identical keys/values to `KVCacheSimple` until `offset` exceeds `maxSize`.
+
+2. **The window is INERT at the current token cap.** `maxCacheSize = keep + W = keep + 2048`; tracing
+   `updateInPlace` (`KVCache.swift:518`), the first *rotation* (overwrite of oldest generated KV) fires on
+   **generated token 2049** (`idx == maxCacheSize → idx = keep`). But **`maxNewTokens = 2048`**
+   (`Qwen3GenerationConfiguration()` default, `QwenVoiceBackendCore.swift:20`) — and the engine **hard-errors**
+   at the cap, *discarding* the output (verified: a 535-word / 2894-char script → `NativeRuntimeError …
+   "reached maxNewTokens before EOS. The output was discarded"`, exit 1). Generation therefore stops exactly
+   one token *before* the first rotation. With `W = 2048 = maxNewTokens` the rotating cache **never rotates,
+   never trims, never reorders** → bit-identical KV to `KVCacheSimple` on every realized generation, same peak.
+   The "multi-minute single-shot" use case §F.1 left open **cannot occur** — the token cap forecloses it.
+
+**Net:** `W ≥ maxNewTokens` ⇒ provably transparent but provably useless (no rotation; ~0 RAM benefit atop the
+already-tiny talker KV per §F.1). `W < maxNewTokens` ⇒ *would* rotate, but those generations already error out
+at the cap, and the talker-KV saving is still ~0. No win either way at the current config.
+
+**Disposition (maintainer call):** dropped the default-on per-tier policy, the user-facing Settings toggles
+(both platforms), and the IPC handshake relay. **Merged env-only plumbing** — the `QVOICE_TALKER_KV_WINDOW`
+knob in `NativeMemoryPolicyResolver` + the vendored `RotatingKVCache` talker path — **off by default**. It is
+dormant dev/insurance capability that activates only if the token ceiling is ever raised above the window
+(e.g. `checkpointDefaultMaxNewTokens = 8192`). `feature/rotating-kv` deleted.
 
 ## Invariants / do-NOT (carried from the grounding)
 

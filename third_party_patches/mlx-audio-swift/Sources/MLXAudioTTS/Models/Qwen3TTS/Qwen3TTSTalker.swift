@@ -307,6 +307,15 @@ final class Qwen3TTSTalkerModel: Module {
     func makeCache() -> [any KVCache] {
         layers.map { _ in KVCacheSimple() }
     }
+
+    /// Sliding-window KV cache for constrained tiers (iOS / low-end Mac): keeps the
+    /// first `keep` positions (the conditioning prefix — control + full text) pinned
+    /// forever and rotates only generated audio-codec tokens beyond a window of
+    /// `window` positions. Caps peak KV at `keep + window` instead of growing with
+    /// audio length. Gated by the host via `Qwen3StreamingMemoryTuning.talkerKVGeneratedWindow`.
+    func makeRotatingCache(keep: Int, window: Int) -> [any KVCache] {
+        layers.map { _ in RotatingKVCache(maxSize: keep + window, keep: keep, step: 256) }
+    }
 }
 
 // MARK: - Talker for Conditional Generation (full model)
@@ -352,6 +361,10 @@ final class Qwen3TTSTalkerForConditionalGeneration: Module {
 
     func makeCache() -> [any KVCache] {
         model.makeCache()
+    }
+
+    func makeRotatingCache(keep: Int, window: Int) -> [any KVCache] {
+        model.makeRotatingCache(keep: keep, window: window)
     }
 
     static func sanitize(weights: [String: MLXArray]) -> [String: MLXArray] {

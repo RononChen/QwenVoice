@@ -98,6 +98,26 @@ public enum NativeMemoryPolicyResolver {
             clearOnStreamChunk: policy.clearMLXCacheOnStreamChunkEmit,
             tokenCadence: policy.mlxTokenMemoryClearCadence
         )
+        // Sliding-window talker KV cache (generated-audio-token window). Env override
+        // is the universal testing/sweep knob on any tier; the per-tier default +
+        // user-facing Settings toggle are layered on in the engine wiring step.
+        Qwen3StreamingMemoryTuning.applyTalkerKVWindow(talkerKVGeneratedWindowOverride())
+    }
+
+    /// Generated-audio-token window for the sliding-window talker KV cache, from
+    /// `QVOICE_TALKER_KV_WINDOW` (a positive integer enables it; absent/invalid =
+    /// disabled → unbounded KVCacheSimple). Used for Mac-CLI testing + the window
+    /// sweep before the per-tier defaults land.
+    private static func talkerKVGeneratedWindowOverride(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Int? {
+        guard let raw = environment["QVOICE_TALKER_KV_WINDOW"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            let window = Int(raw), window > 0
+        else {
+            return nil
+        }
+        return window
     }
 
     public static func minimumStreamingInterval(
