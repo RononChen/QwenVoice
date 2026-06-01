@@ -76,7 +76,14 @@ struct IOSStudioCanvas<SetupChips: View>: View {
         self.onPlayerExpand = onPlayerExpand
     }
 
-    @FocusState private var isScriptFocused: Bool
+    // Plain @State (NOT @FocusState): this drives `IOSFlexibleTextEditor`'s
+    // UIKit first-responder binding directly, set by the text view's
+    // begin/end-editing delegate callbacks. A @FocusState here would never
+    // hold its value (it isn't attached to any SwiftUI view via `.focused(...)`),
+    // so it reverted to false after a tap and the editor's updateUIView then
+    // immediately called resignFirstResponder — the keyboard never stayed up.
+    // The sibling composers in IOSGenerationModeViews use the same @State pattern.
+    @State private var isScriptFocused = false
 
     var body: some View {
         // B.3 closed (2026-05-21): composer is now `flex: 1` per the
