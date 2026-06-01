@@ -22,7 +22,7 @@ and on memory (~7.4–8.7 GB physFoot in-process); `trims = 0` everywhere. Perf-
 | C | Punctuation-aware audioQC recalibration | ✅ done + verified | `ac86b8a` (`NativeStreamingSynthesisSession.swift`) |
 | D | CodePredictor RoPE fusion | ⏸ deferred — gated, not recommended | n/a |
 | E | MLXSwift / mlx-swift-lm version bump (0.31.x) | ⏸ deferred — stay pinned, gated | this doc + CLAUDE.md "SPM dependencies" |
-| F | iPhone 1.7B-4bit program — feasibility + WS0b profiling + compile spike | 🔬 profiled; compile lever tested & rejected (2026-06-01) — see §F | this doc + session plan |
+| F | iPhone 1.7B-4bit program — feasibility + WS0b profiling + compile/KV spikes | 🔬 see §F: compile rejected; **iOS RAM premise corrected — streaming peaks ~3 GB flat, KV windowing unneeded** | this doc + session plan |
 
 ## Grounding (the headline conclusion)
 
@@ -168,6 +168,40 @@ table collapses because the engine reuses `OS_SIGNPOST_ID_EXCLUSIVE`):
   **0.6B variant** for on-device use (CLAUDE.md notes it's verified but unlisted), **not** backend
   micro-optimization of the 1.7B decode loop. Worth confirming with one more os_signpost capture whether the
   ~13% inter-frame gap (Code2Wav/plumbing) hides any cheap win before closing speed work.
+
+### F.1 — STREAMING vs NON-STREAMING peak RAM (2026-06-01) — the RAM premise was wrong
+
+Chasing the iOS RAM target via the talker KV cache: a `RotatingKVCache` sliding window for the talker was
+implemented + validated (parked on `feature/rotating-kv`). It is **correct** (audioQC pass with rotation
+forced; full audio; RTF unchanged) but delivers **~0 RAM benefit** — windowing ~380 KV tokens on a 69 s
+generation moved peak <5 MB. The investigation's "talker KV ≈ 2.7 GB / 30–50% of peak" was an **estimate
+that the measurement refutes**: the talker KV is tens of MB, not GB.
+
+**The real driver — and the headline correction to the whole RAM analysis:** the `vocello` bench / CLI
+default is **non-streaming** (accumulates *all* generated codec tokens + decodes the full audio at the end),
+but **iOS is streaming-first** (emits + releases chunks). Measured on the *same* 69–76 s custom/speed input:
+
+| path | gpuAllocPeak | physFoot |
+|---|---|---|
+| non-streaming (bench default) | ~8.0 GB | ~7.6 GB |
+| **streaming (what iOS uses)** | **~3.0 GB** | **~3.0 GB** |
+
+And streaming peak is **flat with length** — short 2901 MB · medium 2860 MB · long-76 s 2992 MB. So the
+non-streaming numbers that drove this entire optimization program (clone ~7–8 GB, "+3.4 GB short→long", the
+"marginal/infeasible" feasibility verdict) **overstate the iOS-relevant peak by ~2.5×**. In the actual iOS
+streaming path, **custom/Speed peaks at ~3 GB regardless of length** — comfortably viable on iPhone 15 Pro
+(at/under even the default ~3.5–4 GB process limit; the entitlement is headroom/clone insurance, not a hard
+blocker for custom/design). The +3.4 GB growth is non-streaming accumulation that iOS never incurs.
+
+**Consequences:**
+- **Re-baseline the iOS feasibility verdict on the STREAMING path** (the bench non-streaming peak is the wrong
+  yardstick for iOS). Custom/Design Speed ≈ 3 GB flat. Clone streaming untested (no saved voice installed) —
+  expect ~3.5–4 GB (speaker conditioning + ~3 GB floor); measure when a clone voice is available.
+- **Talker-KV windowing is unnecessary for iOS** (KV isn't the driver; streaming already keeps peak flat).
+  Parked on `feature/rotating-kv`; recommend discarding unless multi-minute single-shot generations become a
+  use case.
+- For any future bench that wants an iOS-representative peak, use `vocello generate --stream` (or a streaming
+  bench mode), **not** the non-streaming full-result path.
 
 ## Invariants / do-NOT (carried from the grounding)
 
