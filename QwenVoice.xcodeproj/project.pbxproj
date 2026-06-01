@@ -2027,7 +2027,7 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.qvoice.core;
+				PRODUCT_BUNDLE_IDENTIFIER = com.qwenvoice.core;
 				PRODUCT_MODULE_NAME = QwenVoiceCore;
 				PRODUCT_NAME = QwenVoiceCore;
 				SDKROOT = auto;
@@ -2281,7 +2281,7 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.qvoice.backend-core";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.qwenvoice.backend-core";
 				PRODUCT_MODULE_NAME = QwenVoiceBackendCore;
 				PRODUCT_NAME = QwenVoiceBackendCore;
 				SDKROOT = auto;
