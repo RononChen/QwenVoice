@@ -22,6 +22,7 @@ and on memory (~7.4–8.7 GB physFoot in-process); `trims = 0` everywhere. Perf-
 | C | Punctuation-aware audioQC recalibration | ✅ done + verified | `ac86b8a` (`NativeStreamingSynthesisSession.swift`) |
 | D | CodePredictor RoPE fusion | ⏸ deferred — gated, not recommended | n/a |
 | E | MLXSwift / mlx-swift-lm version bump (0.31.x) | ⏸ deferred — stay pinned, gated | this doc + CLAUDE.md "SPM dependencies" |
+| F | iPhone 1.7B-4bit program — feasibility + WS0b decode profiling | 🔬 profiled (2026-06-01) — see §F | this doc + session plan |
 
 ## Grounding (the headline conclusion)
 
@@ -103,6 +104,54 @@ vendored Package.swift mlx-swift & mlx-swift-lm, in lockstep) → `regenerate_pr
 `build_foundation_targets.sh` → `vocello bench` vs `baseline-2026-05-31-641a541.md` + listening pass → keep
 only if RTF/quality/QC are unchanged; otherwise document the blocker and revert. Avoid the `mlx-swift-lm` 3.x
 major line unless a feature specifically requires it.
+
+## F — iPhone 1.7B 4-bit optimization program (2026-06-01)
+
+Goal: get Speed (4-bit) Qwen3-TTS running on iPhone 15 Pro (8 GB). Full plan + the 57-agent verified lever
+inventory live in the session plan; this records the standing findings. Engine runs in the iOS ExtensionKit
+extension (separate Jetsam budget).
+
+**Feasibility (isolated engine, Speed 4-bit):** Custom/Design ~2.8–3.3 GB (feasible behind the entitlement);
+Clone/long ~4.7 GB (marginal — needs entitlement ≥~5.2 GB or ~400 MB cut); Quality 8-bit ~5.7 GB+ (out of
+scope — iPhone is 4-bit-only). Hard floor (4-bit weights + activations) ~2.2 GB. **The Apple
+increased-memory entitlement (pending) is the #1 blocking prerequisite** — already declared in the iOS
+entitlements files.
+
+**WS0b decode-loop GPU attribution** — `xctrace --instrument os_signpost`, custom/speed/long, **327 frames /
+31.1 s** wall, native 8 GB Mac (paired Begin/End from the raw `os-signpost` table; the `os-signpost-interval`
+table collapses because the engine reuses `OS_SIGNPOST_ID_EXCLUSIVE`):
+
+| stage (Σ over 327 frames) | total ms | % gen | mean/frame | nature |
+|---|---|---|---|---|
+| **Step Eval Flush** (single per-frame `eval()`) | 19072 | 61% | 58.3 ms | **GPU compute** — talker + 15×CP + sampling, fused |
+| **Code Predictor Loop** | 5233 | 17% | 16.0 ms | **Swift CPU** — builds the 15-pass graph each frame |
+| **Talker Forward** | 1744 | 6% | 5.3 ms | **Swift CPU** — graph build |
+| inter-frame gap (Code2Wav asyncEval + chunk plumbing) | ~4000 | ~13% | — | overlapped decode |
+| Sample First/Predicted + Codec Embed + EOS | ~620 | 2% | — | mostly build |
+
+**Re-prioritization (supersedes the old workstream D ordering):**
+- **Top speed lever = `compile()` the per-frame graph** to eliminate the **~21 ms/frame (~22%) Swift-side
+  graph-BUILD overhead** (CP Loop 16 ms + Talker 5 ms). `compile` traces once and replays, skipping
+  per-frame op reconstruction. **Numerically transparent.** Blocker: the per-frame forward has *dynamic*
+  shapes because `KVCacheSimple`/`RotatingKVCache` grow the KV each step → shapeless compile recompiles
+  every frame. Requires a **fixed-shape (preallocated + position-masked) KV cache** so shapes are static.
+  Architectural, but the highest-value backend work (≫ RoPE's ~2–3%).
+- **Step Eval Flush (GPU, 61%)** is the model's real compute — largely fixed for 1.7B 4-bit at this
+  precision; no transparent lever (quantization-mode work is pinned out at MLX 0.30.6, see §E).
+- RoPE fusion → `MLXFast.RoPE` (CP + Talker): only a small slice of the 21 ms build → minor; keep as a small
+  follow-on, not the headline (revises D).
+
+**RAM-lever corrections (under the strict no-degradation bar):**
+- **Sliding-window KV is NOT a transparent RAM lever.** `RotatingKVCache` (mlx-swift-lm `KVCache.swift:441`)
+  grows in 256-token steps and only trims once it exceeds `maxSize`; a window large enough to be lossless
+  (≥ the ~500–600-token real generation length) saves ~0 RAM, while a window small enough to cap RAM **drops
+  oldest context** → not transparent → fails the strict bar on long content. Its real use is fixing shapes
+  for the compile lever above.
+- **Eager `talkerSourceWeights` release:** for the 4-bit model the source dict is the *quantized* safetensors
+  (~1 GB, not 6.8 GB fp32) and MLX arrays are ref-shared with the model params, so the real cold-load saving
+  is uncertain → needs a load-transient peak snapshot to measure before it's worth landing.
+- **Net:** the primary iPhone RAM unlock is the **entitlement**; transparent backend RAM cuts are modest. The
+  higher-value backend work is the **speed/compile** lever.
 
 ## Invariants / do-NOT (carried from the grounding)
 
