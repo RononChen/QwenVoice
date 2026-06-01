@@ -116,6 +116,8 @@ Validation scripts:
 
 ## Evidence To Capture Before Submitting
 
+> **Not currently runnable.** The `scripts/ios_device.sh` recipes in this section and in *Portal Steps* below were removed in the testing-harness cleanup (see the note at the top of this file). They are kept as the intended shape of the evidence-capture flow; a device deploy/verify path must be re-established before they execute. `scripts/verify_ios_release_archive.sh` (above) does remain in-repo for verifying a manually-produced archive.
+
 Use one clean Debug run without `--enable-increased-memory-limit` to show the current safe-blocking behavior:
 
 ```sh

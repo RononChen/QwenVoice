@@ -1,6 +1,6 @@
-# Tone and Emotion in QwenVoice
+# Tone and Emotion in Vocello
 
-_Last reviewed: 2026-05-08._
+_Last reviewed: 2026-05-31._
 
 This guide is a supplemental prompt-writing reference for the shipped macOS app. It is supplemental and may lag shipped behavior — when in doubt, trust the sources listed below before this guide.
 
@@ -11,7 +11,7 @@ For current repo truth about app structure, workflows, or supported behavior, tr
 
 ## What the App Exposes
 
-QwenVoice controls tone and emotion through natural-language instructions, not SSML and not explicit sampling sliders.
+Vocello controls tone and emotion through natural-language instructions, not SSML and not explicit sampling sliders.
 
 Current app behavior:
 

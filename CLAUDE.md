@@ -23,7 +23,9 @@ QWENVOICE_DEBUG=1 ./scripts/build.sh run      # launch with the runtime debug to
 npm --prefix website run build                # marketing site production build
 ```
 
-First-time setup: `brew install xcodegen` (required), optionally `brew install xcbeautify` (prettier build output). There is no lint/format/typecheck step — **the build is the typecheck**.
+First-time setup: `brew install xcodegen` (required), optionally `brew install xcbeautify` (prettier build output). XcodeGen is **pinned to 2.45.4** via `.tool-versions` — the version the iOS-resource and `tool`-scheme workarounds below are calibrated to (mise/asdf pick it up automatically; brew users should match it). There is no lint/format/typecheck step — **the build is the typecheck**.
+
+Signing: local `-Onone` ad-hoc builds (`build.sh run` / `build`) need nothing extra. Signed/release builds and any iOS build need `export QWENVOICE_DEVELOPMENT_TEAM=<your-apple-team-id>` (CI sets it from a secret). `scripts/build_and_run.sh` is a thin backward-compat shim that forwards to `build.sh run` — **`./scripts/build.sh run` is canonical.**
 
 ## Source of truth
 
@@ -67,6 +69,20 @@ The Xcode project is generated from `project.yml` via XcodeGen — edit `project
 
 **Runtime data folder.** One folder, selected in `Sources/Services/AppPaths.swift`: `~/Library/Application Support/QwenVoice/` normally, or `QwenVoice-Debug/` when `DebugMode.isEnabled` (so dev work never touches real data). `QWENVOICE_APP_SUPPORT_DIR` overrides the root. `AppDefaults` mirrors this (a `…app.debug` prefs suite when the toggle is on). (Note: there is intentionally **no** models-dir-only override — the prepared-cache overlay lives inside each model dir, so pointing a debug run at the real models dir rebuilds it in place and mutates real model data; copy the package into `QwenVoice-Debug/models/` instead.)
 
+## Naming & bundle identifiers
+
+The product was renamed QwenVoice → Vocello for the 2.0 line, but several `QwenVoice` identifiers are **deliberately kept** to avoid churning tooling. `project.yml` is the source of truth; the map:
+
+- **Product / display:** macOS app ships as `Vocello.app` / `Vocello-macos26.dmg`; the iOS app displays as `Vocello`; the headless CLI binary is `vocello`.
+- **Xcode scheme:** `QwenVoice` (macOS) — kept because `scripts/build.sh` + `scripts/release.sh` hardcode it. Don't rename without updating those.
+- **Swift module names:** the macOS app module stays `QwenVoice` (sibling modules assume that namespace); the iOS app module is `QVoiceiOS`; frameworks are `QwenVoiceCore` / `QwenVoiceBackendCore` / `QwenVoiceNative` / `QwenVoiceEngineSupport`; the CLI is `VocelloCLI`.
+- **Bundle identifiers — two families:**
+  - `com.qwenvoice.*` — everything macOS + shared: app (`com.qwenvoice.app`), XPC service (`com.qwenvoice.app.engine-service`), CLI (`com.qwenvoice.cli`), native framework (`com.qwenvoice.native`), engine-support (`com.qwenvoice.engine-support`), and the cross-platform frameworks `com.qwenvoice.core` / `com.qwenvoice.backend-core`. `project.yml`'s `bundleIdPrefix: com.qwenvoice` is the canonical prefix for these.
+  - `com.patricedery.vocello.*` — the iOS app (`com.patricedery.vocello`), its ExtensionKit extension (`com.patricedery.vocello.engine-extension`), and the App Group (`group.com.patricedery.vocello.shared`). iOS uses the maintainer's App Store team namespace because it ships through App Store / TestFlight under that identity, independent of the macOS Developer-ID distribution.
+  - **Adding a target:** macOS/shared → `com.qwenvoice.*`; iOS → `com.patricedery.vocello.*`.
+- **Versions:** user-facing targets (`QwenVoice`, `VocelloiOS`, `VocelloEngineExtension`) share `MARKETING_VERSION` + `CURRENT_PROJECT_VERSION`; framework targets omit them. Bump all three together.
+- **Privacy:** `patricedery` in iOS bundle IDs is allowed — it's an Apple-portal/technical identifier, never user-facing prose — distinct from the maintainer-privacy rule (Conventions) that bars legal names/emails/home paths from user-facing files. `$(QWENVOICE_DEVELOPMENT_TEAM)` supplies the signing team (CI sets it from a secret; see Quick start).
+
 ## Architecture
 
 Two-platform Swift codebase with an out-of-process engine per platform (macOS XPC service / iOS extension). The `vocello` CLI is a third surface, driving the same engine **in-process**.
@@ -77,7 +93,8 @@ Two-platform Swift codebase with an out-of-process engine per platform (macOS XP
 - `QwenVoiceNative/` — macOS app-facing engine proxy/store/client (bridges XPC to UI).
 - `QwenVoiceEngineSupport/` — native runtime helpers (memory policy, streaming, telemetry).
 - `iOSEngineExtension/` — **iOS ExtensionKit extension** (`VocelloEngineExtension`) running heavy generation off the UI process.
-- `iOS/` + `iOSSupport/` — iOS app surface (`@Observable` `AppModel`, 4-tab IA: Studio / Voices / History / Settings; design tokens are intentionally locked to the macOS values).
+- `iOS/` — iOS app surface (`@Observable` `AppModel`, 4-tab IA: Studio / Voices / History / Settings; design tokens are intentionally locked to the macOS values).
+- `iOSSupport/` — iOS-specific runtime helpers + model wrappers (the iOS counterpart to macOS `Services/` + `QwenVoiceEngineSupport/`). iOS needs its own `AudioService` / `AppPaths` / `DatabaseService` because it coordinates through an **App Group container** and a `UserDefaults` suite that macOS's debug-isolated `AppDefaults.store` doesn't provide. `iOSSupport/Models/` re-wraps the shared `QwenVoiceCore` / `Models` types (`EmotionPreset`, `Generation`, `GenerationDrafts`, `TTSModel`, `TTSContract`) with iOS-only additions (delivery UI state, bundle manifest loader) — the `QwenVoiceCore` types stay canonical.
 - Top-level macOS app: `QwenVoiceApp.swift`, `ContentView.swift`, `Views/`, `ViewModels/`, `Models/`, `Services/`.
 - `VocelloCLI/` — **headless macOS CLI** (`build/vocello`, `type: tool`): `generate` (all modes/variants; `--stream` reports TTFC, `--json`, stdin; mode via `--mode`, the `custom`/`design`/`clone` subcommand shortcuts, or an interactive picker), `batch` (bulk synth, one model load via `generateBatch`), `voices` (list/enroll/delete), `speakers` (list built-in speakers, engine-free), `modes` (list generation modes), `models` (read-only install inventory), `bench` (deterministic perf/quality matrix → telemetry → summarizer; `--label`/`--ledger`/`--force-class`/`--telemetry`/`--ttfc`; preflights models + auto-skips clone if its voice is missing), `review` (agy-as-ear adjudication of flagged clips). Global `--json` / `--quiet` / `--verbose`; stdout machine-readable, stderr notes. Drives `MLXTTSEngine` **in-process** via `NativeRuntimeFactory` (no XPC). The dev benchmark/test driver (replaced computer-use UI-driving) + a user-facing generation surface. Built by `-target` (XcodeGen 2.45.4 SIGTRAPs generating a `tool` scheme); runs in place since MLX's metallib bundle must sit beside the binary. Full reference: [`docs/reference/cli.md`](docs/reference/cli.md).
 
@@ -102,7 +119,7 @@ Benchmarking + output-quality checks are **first-class**: committed benchmark/QC
 
 macOS-first. Signoff = green build + `scripts/release.sh` package (sign/notarize/staple → `build/Vocello-macos26.dmg`) + manual smoke of the packaged `build/Vocello.app`. CI is a single workflow (`.github/workflows/release.yml`): `package` (macOS DMG) + `compile-ios` (iOS compile-safety only) — no tests, benches, or signed IPA.
 
-iPhone is compile-safe only; on-device generation, memory proof, and TestFlight are deferred pending Apple's `com.apple.developer.kernel.increased-memory-limit` entitlement for `com.patricedery.vocello` + `com.patricedery.vocello.engine-extension`. The copy-ready Apple request packet is [`docs/reference/ios-increased-memory-entitlement-request.md`](docs/reference/ios-increased-memory-entitlement-request.md). (The previous on-device deploy/proof tooling was removed and would need re-establishing when iPhone work resumes.)
+iPhone is compile-safe only; on-device generation, memory proof, and TestFlight are deferred pending Apple's `com.apple.developer.kernel.increased-memory-limit` entitlement for `com.patricedery.vocello` + `com.patricedery.vocello.engine-extension`. The copy-ready Apple request packet is [`docs/reference/ios-increased-memory-entitlement-request.md`](docs/reference/ios-increased-memory-entitlement-request.md). (The previous on-device deploy/proof tooling was removed and would need re-establishing when iPhone work resumes.) Two iOS scripts are **intentionally preserved but not wired into any pipeline** — they are manual/deferred tools, not dead code: `scripts/verify_ios_release_archive.sh` (validates a manually-produced archive's entitlements) and `scripts/check_ios_catalog.sh` (validates the bundled iOS model catalog against the contract). Both await the device-tooling rebuild before they become routine.
 
 ## SPM dependencies (pinned in `project.yml`)
 
@@ -110,6 +127,8 @@ iPhone is compile-safe only; on-device generation, memory proof, and TestFlight 
 - `MLXAudio` — **vendored** at `third_party_patches/mlx-audio-swift/` (Vocello-specific patches)
 - `SwiftHuggingFace` 0.9.0 (model downloads)
 - `GRDB` 7.10.0 (local SQLite — history, saved voices, model metadata)
+
+All four are pinned with `exactVersion` (not ranges) for backend determinism — MLX memory semantics, Qwen3-TTS model stability, audio bit-exactness. `mlx-swift-lm`'s version is **transitively chosen by `mlx-swift`**, so don't bump it directly. Review pins quarterly; a minor/major MLX bump goes on a branch behind the bench gate (regenerate → `build_foundation_targets.sh macos`/`ios` → `vocello bench` vs the committed baseline, keep only if RTF/quality/QC are unchanged), never blind.
 
 ## Conventions
 
@@ -129,5 +148,5 @@ iPhone is compile-safe only; on-device generation, memory proof, and TestFlight 
 - [`benchmarks/`](benchmarks/) — committed benchmark summaries: `HISTORY.md` (perf-over-time ledger), `baseline-*.md` (reference snapshots), and `OPTIMIZATION.md` (standing optimization-progress log — workstreams, findings, what's deferred).
 - [`docs/reference/ui-driving.md`](docs/reference/ui-driving.md) — driving UI tests/reviews/benchmarks via computer-use (macOS) + iPhone Mirroring (iOS).
 - `docs/qwen_tone.md` — prompt/tone guidance for voice generation.
-- `design_references/` — Vocello design system + iOS prototype (read before touching chrome/tints).
+- `design_references/` — committed design-system + iOS-prototype export (~15 MB; HTML/JSX/CSS, not the editable Figma source). Read before touching chrome/tints; many `Sources/iOS/*` files cite specific files here as the design source of truth. Refresh by re-exporting from the design tool and replacing the tree wholesale.
 - `website/CLAUDE.md` — marketing-site guidance (React + Vite).

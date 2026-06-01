@@ -149,7 +149,7 @@ is forced on; results land in `<data>/diagnostics` and are summarized by
 | `--voice` / `--voice-brief` | clone voice name / design brief |
 | `--label "<note>"` | stamp a note on the summary / ledger row |
 | `--ledger` | append a one-line row to `benchmarks/HISTORY.md` (the perf-over-time ledger) |
-| `--force-class` | run a constrained tier on any Mac: `8gb` · `16gb` · `high` · `iphone` (stamps `notes.deviceClass`) |
+| `--force-class` | **dev/diagnostic only** — force a constrained memory tier on any Mac: `8gb` · `16gb` · `high` · `iphone` (sets the `QWENVOICE_FORCE_MEMORY_CLASS` knob, relayed to the engine over the `initialize` handshake; stamps `notes.deviceClass`) |
 | `--telemetry` | `lightweight` (default) · `verbose` (raw per-sample sidecars) |
 | `--ttfc` | add an engine first-chunk-latency probe per cell → table + `diagnostics/bench-ttfc.json` |
 | `--keep` / `--force` | append to existing diagnostics / allow clearing even the real app data dir |
