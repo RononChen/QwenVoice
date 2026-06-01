@@ -22,7 +22,7 @@ and on memory (~7.4–8.7 GB physFoot in-process); `trims = 0` everywhere. Perf-
 | C | Punctuation-aware audioQC recalibration | ✅ done + verified | `ac86b8a` (`NativeStreamingSynthesisSession.swift`) |
 | D | CodePredictor RoPE fusion | ⏸ deferred — gated, not recommended | n/a |
 | E | MLXSwift / mlx-swift-lm version bump (0.31.x) | ⏸ deferred — stay pinned, gated | this doc + CLAUDE.md "SPM dependencies" |
-| F | iPhone 1.7B-4bit program — feasibility + WS0b decode profiling | 🔬 profiled (2026-06-01) — see §F | this doc + session plan |
+| F | iPhone 1.7B-4bit program — feasibility + WS0b profiling + compile spike | 🔬 profiled; compile lever tested & rejected (2026-06-01) — see §F | this doc + session plan |
 
 ## Grounding (the headline conclusion)
 
@@ -129,26 +129,24 @@ table collapses because the engine reuses `OS_SIGNPOST_ID_EXCLUSIVE`):
 | inter-frame gap (Code2Wav asyncEval + chunk plumbing) | ~4000 | ~13% | — | overlapped decode |
 | Sample First/Predicted + Codec Embed + EOS | ~620 | 2% | — | mostly build |
 
-**Re-prioritization (supersedes the old workstream D ordering):**
-- **Top speed lever = `compile()` the per-frame graph** to eliminate the **~21 ms/frame (~22%) Swift-side
-  graph-BUILD overhead** (CP Loop 16 ms + Talker 5 ms). `compile` traces once and replays, skipping
-  per-frame op reconstruction. **Numerically transparent.** Blocker: the per-frame forward has *dynamic*
-  shapes because `KVCacheSimple`/`RotatingKVCache` grow the KV each step → shapeless compile recompiles
-  every frame. Requires a **fixed-shape (preallocated + position-masked) KV cache** so shapes are static.
-  Architectural, but the highest-value backend work (≫ RoPE's ~2–3%).
-  - **Obstacle found (2026-06-01):** the ~21 ms build is dominated by constructing the **quantized**
-    `Linear` projections (4-bit model → `QuantizedLinear` after `quantize(model:)`; config bits 4 /
-    group 64 / affine). MLX-Swift 0.30.6 `compile` is **pure-array oriented** — the established pattern only
-    compiles the elementwise SwiGLU (`silu*up`), never the projections, precisely to avoid this. Capturing
-    the quantized forward requires either hand-replicating `quantizedMatmul(x, w, scales:biases:groupSize:bits:)`
-    inside compiled closures (fragile, bit-exactness risk under the strict bar + no test suite) or a
-    fixed-shape-KV + a non-standard whole-module compile. So the lever is **harder/riskier than the headline**;
-    the disciplined next step is a throwaway **validation spike** (compile one layer's static path correctly,
-    verify bit-identical audio + measure the real build-time delta) BEFORE the full vendored rewrite.
+**Findings (supersedes the old workstream D ordering):**
+- **`compile()` the per-frame graph — TESTED & REJECTED (2026-06-01).** The ~21 ms/frame build overhead is
+  dominated by constructing the **quantized** `Linear` projections (4-bit → `QuantizedLinear` after
+  `quantize(model:)`; bits 4 / group 64 / affine). A throwaway validation spike compiled the full talker
+  MLP *including* the quantized projections via `compile(inputs: [gate, up, down], shapeless: true)`. Result:
+  it **builds and runs correctly** (audioQC **pass** — so compiling a quantized forward IS feasible on MLX
+  0.30.6), but it **regressed warm RTF ~5%** in a clean same-session A/B (custom/speed/long: **eager 0.80 vs
+  compiled 0.76**; decode 24.8 s → 27.2 s). Cause: declaring the quantized module params as `inputs:` makes
+  `compile` marshal their state (packed weight + scales + biases) on every call, costing more than the Swift
+  build overhead it removes — and that cost **scales with the compiled region**, so a bigger region (whole
+  layer / the 15-pass CP loop) would regress *more*, not less. **Conclusion: the ~22% build overhead is not
+  productively attackable via MLX 0.30.6 `compile` on this quantized stack; do not pursue the fixed-shape-KV
+  + compile rewrite.** (Only untested variant — baking weights as trace constants with no `inputs:` — is
+  discouraged by MLX docs for module state and risks correctness; not recommended.)
 - **Step Eval Flush (GPU, 61%)** is the model's real compute — largely fixed for 1.7B 4-bit at this
   precision; no transparent lever (quantization-mode work is pinned out at MLX 0.30.6, see §E).
-- RoPE fusion → `MLXFast.RoPE` (CP + Talker): only a small slice of the 21 ms build → minor; keep as a small
-  follow-on, not the headline (revises D).
+- RoPE fusion → `MLXFast.RoPE` (CP + Talker): only a small slice of the build, and the compile spike showed
+  build-time is hard to reclaim cheaply here → expected marginal/uncertain; low priority.
 
 **RAM-lever corrections (under the strict no-degradation bar):**
 - **Sliding-window KV is NOT a transparent RAM lever.** `RotatingKVCache` (mlx-swift-lm `KVCache.swift:441`)
@@ -159,8 +157,13 @@ table collapses because the engine reuses `OS_SIGNPOST_ID_EXCLUSIVE`):
 - **Eager `talkerSourceWeights` release:** for the 4-bit model the source dict is the *quantized* safetensors
   (~1 GB, not 6.8 GB fp32) and MLX arrays are ref-shared with the model params, so the real cold-load saving
   is uncertain → needs a load-transient peak snapshot to measure before it's worth landing.
-- **Net:** the primary iPhone RAM unlock is the **entitlement**; transparent backend RAM cuts are modest. The
-  higher-value backend work is the **speed/compile** lever.
+- **Net (revised after the compile spike):** backend speed gains for 1.7B 4-bit on this stack are **limited**
+  — GPU compute (61%) is fixed at this precision, and the build overhead (22%) is not compile-attackable
+  (regresses). The primary iPhone RAM unlock is the **entitlement**; transparent backend RAM cuts are modest.
+  The realistic path to acceptable **iPhone RTF** is therefore the entitlement + evaluating the smaller/faster
+  **0.6B variant** for on-device use (CLAUDE.md notes it's verified but unlisted), **not** backend
+  micro-optimization of the 1.7B decode loop. Worth confirming with one more os_signpost capture whether the
+  ~13% inter-frame gap (Code2Wav/plumbing) hides any cheap win before closing speed work.
 
 ## Invariants / do-NOT (carried from the grounding)
 
