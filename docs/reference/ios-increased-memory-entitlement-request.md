@@ -11,6 +11,13 @@ Status context: [`../../CLAUDE.md`](../../CLAUDE.md) § "Release & iPhone status
 > justification-reviewed approval queue. See "How you get it" below for the one definitive self-check and the
 > fallback if your account happens to gate it behind Capability Requests.
 
+> **Status — 2026-06-01:** Confirmed self-serve and **enabled** (the plain "Increased Memory Limit" checkbox in
+> the App ID → Capabilities tab) on **both** App IDs — `com.patricedery.vocello` (app) and
+> `com.patricedery.vocello.engine-extension` (engine extension); "Increased Debugging Memory Limit" left off on
+> both (it's the dev-only variant). Setup verified against Apple's official docs (see "Verify" below).
+> **Remaining:** regenerate the provisioning profiles for both App IDs — Xcode "Automatically manage signing"
+> does this on the next build; no Apple approval involved.
+
 > **Note (device tooling):** the on-device *evidence-capture* recipes that used the removed
 > `ios_device.sh` / `ios_device_proof_matrix.sh` scripts are **not currently runnable** — they were removed in
 > the testing-harness cleanup and a device deploy/proof path would need to be re-established. The
@@ -100,6 +107,8 @@ app:       com.patricedery.vocello                    com.apple.developer.kernel
 extension: com.patricedery.vocello.engine-extension   com.apple.developer.kernel.increased-memory-limit=true
 status:    entitlement-ready
 ```
+
+**Confirmed against Apple's official documentation** ([entitlement reference](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.kernel.increased-memory-limit), [Enable app capabilities](https://developer.apple.com/help/account/identifiers/enable-app-capabilities/), and DTS [thread 685084](https://developer.apple.com/forums/thread/685084)): the entitlement is self-serve and enabled **per App ID** (an app extension needs it on its **own** App ID — enabling it only on the containing app does not raise the extension's process limit); `increased-debugging-memory-limit` is the **dev-only** variant (correctly left off for distribution); changing a capability **invalidates provisioning profiles** (regenerate them); it's supported on **iOS/iPadOS** (no visionOS target here, so the documented visionOS ambiguity doesn't apply); and the raised limit is **best-effort** — the app must gate on `os_proc_available_memory()` and fall back safely (already implemented).
 
 ## If your account shows it only under Capability Requests (fallback justification)
 
