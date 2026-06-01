@@ -128,7 +128,9 @@ iPhone is compile-safe only; on-device generation, memory proof, and TestFlight 
 - `SwiftHuggingFace` 0.9.0 (model downloads)
 - `GRDB` 7.10.0 (local SQLite — history, saved voices, model metadata)
 
-All four are pinned with `exactVersion` (not ranges) for backend determinism — MLX memory semantics, Qwen3-TTS model stability, audio bit-exactness. `mlx-swift-lm`'s version is **transitively chosen by `mlx-swift`**, so don't bump it directly. Review pins quarterly; a minor/major MLX bump goes on a branch behind the bench gate (regenerate → `build_foundation_targets.sh macos`/`ios` → `vocello bench` vs the committed baseline, keep only if RTF/quality/QC are unchanged), never blind.
+All four are pinned with `exactVersion` (not ranges) for backend determinism — MLX memory semantics, Qwen3-TTS model stability, audio bit-exactness. `mlx-swift` and its companion `mlx-swift-lm` (2.30.6) are version-coupled and pinned **in two places** — `project.yml` *and* the vendored `third_party_patches/mlx-audio-swift/Package.swift` — so move them in lockstep, never one alone.
+
+**Standing decision: stay pinned.** With a vendored, hand-ported backend and no automated test suite (only the `vocello bench` + listening QC gate), the exact pin is deliberate — don't let SPM float the compute substrate. The known next-step upgrade is `mlx-swift` 0.31.x (latest 0.31.3) + `mlx-swift-lm` 2.31.x, **deferred**: 0.31 changes the quantization API (`Quantizable.toQuantized` gains a `QuantizationMode`; top-level quantize fn), which lands on the 4-bit/8-bit model-load path, so it's a gated upgrade, not a free bump. When bumping (quarterly review, or when a fix/model requires it): branch → edit all pin sites → `regenerate_project.sh` → both `build_foundation_targets.sh` → `vocello bench` vs the committed baseline + listening pass → keep only if RTF/quality/QC are unchanged, never blind. Tracked in [`benchmarks/OPTIMIZATION.md`](benchmarks/OPTIMIZATION.md).
 
 ## Conventions
 

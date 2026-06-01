@@ -113,6 +113,8 @@ cd QwenVoice
 open QwenVoice.xcodeproj
 ```
 
+The Xcode project is generated from [`project.yml`](project.yml) (edit it, not the `.xcodeproj`, then rerun `regenerate_project.sh`). SPM dependencies — MLX, Swift HuggingFace, GRDB, and the vendored mlx-audio — are deliberately **pinned to exact versions** for backend determinism; bumping them follows a benchmark-gated process documented in [`CLAUDE.md`](CLAUDE.md).
+
 Useful checks:
 
 ```sh
@@ -123,7 +125,7 @@ Useful checks:
 
 More technical details:
 
-- [`CLAUDE.md`](CLAUDE.md) - repo guide: build, architecture, engine invariants, release policy, conventions
+- [`CLAUDE.md`](CLAUDE.md) - repo guide: build, architecture, engine invariants, dependency pinning, release policy, conventions
 - [`docs/reference/cli.md`](docs/reference/cli.md) - the headless `vocello` command-line tool
 - [`docs/reference/privacy-storage.md`](docs/reference/privacy-storage.md) - local storage and deletion details
 

@@ -21,6 +21,7 @@ and on memory (~7.4–8.7 GB physFoot in-process); `trims = 0` everywhere. Perf-
 | B | The ~586 ms "dropout" investigation | ✅ done — root-caused | this doc + `641a541` baseline note |
 | C | Punctuation-aware audioQC recalibration | ✅ done + verified | `ac86b8a` (`NativeStreamingSynthesisSession.swift`) |
 | D | CodePredictor RoPE fusion | ⏸ deferred — gated, not recommended | n/a |
+| E | MLXSwift / mlx-swift-lm version bump (0.31.x) | ⏸ deferred — stay pinned, gated | this doc + CLAUDE.md "SPM dependencies" |
 
 ## Grounding (the headline conclusion)
 
@@ -86,6 +87,22 @@ D should only be attempted **after an Instruments os_signpost capture** of one l
 the "Code Predictor Loop" interval is a meaningful fraction of "Step Eval Flush" GPU time. Vendored edit →
 follow [`../docs/reference/mlx-audio-swift-patching.md`](../docs/reference/mlx-audio-swift-patching.md);
 must preserve exact numerics (KV precision).
+
+## E — MLXSwift / mlx-swift-lm version pin (deferred; **stay pinned**)
+
+Pinned `exact: 0.30.6` (mlx-swift) + `2.30.6` (mlx-swift-lm) in **both** `project.yml` and the vendored
+`third_party_patches/mlx-audio-swift/Package.swift`. Latest upstream is **0.31.3** (+ `mlx-swift-lm` 2.31.x;
+a separate 3.x line also exists). **Decision: keep pinned at 0.30.6 / 2.30.6.** Rationale: the backend is
+vendored + hand-ported and there's no automated test suite, so the exact pin keeps the compute substrate
+deterministic; 0.30.6 is the benchmarked, working version and 0.31 adds nothing Vocello needs. 0.31 is **not
+a free bump** — it changes the MLX quantization API (`Quantizable.toQuantized` gains a `QuantizationMode`;
+quantize moved to a top-level fn), which touches the 4-bit (Speed) / 8-bit (Quality) model-load path, and
+it's a core-MLX backend bump that can shift RTF/memory (what these benchmarks track). **When upgrading**
+(quarterly review, or when a fix/model requires it): branch → bump all pin sites (project.yml mlx-swift +
+vendored Package.swift mlx-swift & mlx-swift-lm, in lockstep) → `regenerate_project.sh` → both
+`build_foundation_targets.sh` → `vocello bench` vs `baseline-2026-05-31-641a541.md` + listening pass → keep
+only if RTF/quality/QC are unchanged; otherwise document the blocker and revert. Avoid the `mlx-swift-lm` 3.x
+major line unless a feature specifically requires it.
 
 ## Invariants / do-NOT (carried from the grounding)
 
