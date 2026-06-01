@@ -26,20 +26,11 @@ __pycache__/
 # Dependencies
 Packages/
 
-# Bundled runtime dependencies (downloaded by scripts/)
-Sources/Resources/python/
-Sources/Resources/ffmpeg
-
 # Release build output
 build/
 
 # Git worktrees
 .worktrees/
-
-# CLI user data
-cli/models/
-cli/outputs/
-cli/voices/
 
 # Stale build logs
 build_log*.txt

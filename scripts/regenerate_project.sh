@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Safely regenerate the Xcode project from project.yml.
 # XcodeGen overwrites the entitlements file, so we back it up and restore it.
 

@@ -27,11 +27,11 @@ No tests, no lint config, no GitHub Actions workflow. Behavioral verification is
 
 ## Architecture
 
-`src/App.jsx` is a **thin composer** (~30 lines). All UI is split across:
+`src/App.jsx` is a **thin composer** (~33 lines). All UI is split across:
 
 - `src/sections/` — one file per page section, in render order: `Nav`, `Hero`, `WorkflowBand` (rendered 3× from data), `Listen`, `WhyCloud`, `TryIt`, `HowItRuns`, `Limitations`, `FinalCTA`, `Footer`.
 - `src/components/` — three shared primitives:
-  - `Icon.jsx` — single switch over a ~19-case SVG vocabulary. Also exports `makeWaveBars` (deterministic bar-height generator).
+  - `Icon.jsx` — single switch over an 18-case SVG vocabulary. Also exports `makeWaveBars` (deterministic bar-height generator).
   - `Waveform.jsx` — bar waveform for Listen rows.
   - `TryCanvas.jsx` — canvas-driven animated waveform for the TryIt demo. Reads `DELIVERY_COLORS` from `data/samples.js` and a local `DELIVERY_SHAPES` table; hashed brief content + per-delivery shape parameters drive the rendering.
 - `src/data/` — **single sources of truth**:

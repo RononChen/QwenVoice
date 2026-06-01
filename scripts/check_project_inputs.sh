@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -euo pipefail
 
@@ -31,22 +31,28 @@ for required_surface in "${REQUIRED_SURFACES[@]}"; do
     fi
 done
 
+# Each entry below is a retired surface that must NOT come back without an explicit
+# maintainer decision (see CLAUDE.md "Testing" + "Release & iPhone status").
 PROHIBITED_SURFACES=(
+    # Retired XCUITest / unit-test bundles — validation is CLI-/manual-/agent-driven now.
     "QVoiceBenchmarkUI""Tests"
     "QwenVoiceTests"
     "VocelloUITests"
     "VocelloiOSTests"
+    # Retired test-plan / fixture / perf / screenshot trees from the old harness.
     "tests/Plans"
     "tests/fixtures"
     "tests/perf"
     "tests/screenshots"
     "third_party_patches/mlx-audio-swift/""Tests"
+    # Retired QA / UI-driving / device-deploy / TestFlight scripts (deferred iOS tooling).
     "scripts/qa.sh"
     "scripts/uitest.sh"
     "scripts/ios_device.sh"
     "scripts/ios_device_proof_matrix.sh"
     "scripts/release_ios_testflight.sh"
     "scripts/rescue_gate.sh"
+    # Retired live-testing doc + the UI-test build output dir.
     "docs/reference/live-testing.md"
     "build/uitest"
 )

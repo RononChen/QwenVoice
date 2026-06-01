@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 has_ripgrep() {
     command -v rg >/dev/null 2>&1
