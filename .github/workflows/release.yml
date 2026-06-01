@@ -16,15 +16,14 @@ name: Release
 #   - package: macOS DMG production (signed + notarized + stapled).
 #   - compile-ios: iOS compile-safety only. Runs in parallel with
 #     `package` and does NOT block macOS publishing if it fails.
-#     A signed iOS IPA / TestFlight job is intentionally NOT here yet
-#     — it requires the iOS Distribution certificate, provisioning
-#     profiles bound to com.patricedery.vocello and
-#     com.patricedery.vocello.engine-extension (with the self-serve
-#     com.apple.developer.kernel.increased-memory-limit capability enabled
-#     on those App IDs), and on-device validation — none of which are in
-#     place as of v2.0.0. See CLAUDE.md "Release & iPhone status" and the
-#     entitlement enablement + readiness guide under docs/reference/ for
-#     the rollout sequence.
+#     A signed iOS IPA / TestFlight job is still NOT here — the one
+#     deferred piece. The increased-memory capability is now enabled on
+#     com.patricedery.vocello + com.patricedery.vocello.engine-extension
+#     (self-serve), and on-device build/test tooling is re-established
+#     (scripts/ios_device.sh + the QVOICE_IOS_AUTORUN harness + the
+#     VocelloiOSUITests smoke; see docs/reference/ios-device-testing.md).
+#     A signed lane still needs the iOS Distribution certificate + an
+#     archive-ios CI job. See CLAUDE.md "Release & iPhone status".
 #
 # Toolchain pinning mirrors the local setup documented in CLAUDE.md:
 #   - Xcode 26.0 (project.yml `xcodeVersion: "26.0"`)
@@ -289,20 +288,19 @@ jobs:
     # job and is intentionally NOT a `needs:` dependency — if iOS source
     # regresses, the macOS DMG still ships.
     #
-    # This job does NOT produce a TestFlight-ready IPA. The local iPhone
-    # archive/export/TestFlight tooling was removed in the testing-harness
-    # cleanup; resuming iPhone distribution means re-establishing that
-    # signing/export path first. It also needs three Apple-side prereqs
-    # that are not part of this CI lane:
-    #   1. com.apple.developer.kernel.increased-memory-limit entitlement
-    #      approved by Apple Developer Support for com.patricedery.vocello
-    #      and com.patricedery.vocello.engine-extension.
-    #   2. iOS Distribution certificate enrolled in the configured Apple Developer team.
-    #   3. Provisioning profiles for the app + engine extension bundles
-    #      that include the increased-memory-limit entitlement.
-    # Once those are in place, re-establish the iOS archive/export tooling
-    # and add a sibling `archive-ios` job that imports the iOS dist cert +
-    # profile, exports the IPA, and uploads it as a workflow artifact.
+    # This CI job does NOT produce a TestFlight-ready IPA — that signed
+    # archive/export lane is the one deferred piece. Note (2026-06-01): the
+    # com.apple.developer.kernel.increased-memory-limit capability is
+    # SELF-SERVE (no Apple approval) and is enabled on com.patricedery.vocello
+    # + com.patricedery.vocello.engine-extension; local on-device build/test
+    # tooling is re-established (scripts/ios_device.sh + the QVOICE_IOS_AUTORUN
+    # harness + the VocelloiOSUITests smoke; see
+    # docs/reference/ios-device-testing.md). A CI signed lane still needs:
+    #   1. iOS Distribution certificate enrolled in the Apple Developer team.
+    #   2. Distribution provisioning profiles for the app + engine extension
+    #      bundles that include the increased-memory-limit entitlement.
+    # Then add a sibling `archive-ios` job that imports the dist cert +
+    # profiles, exports the IPA, and uploads it as a workflow artifact.
     name: iOS compile-safety
     runs-on: macos-latest
     timeout-minutes: 30

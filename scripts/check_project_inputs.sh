@@ -31,36 +31,20 @@ for required_surface in "${REQUIRED_SURFACES[@]}"; do
     fi
 done
 
-# Each entry below is a retired surface that must NOT come back without an explicit
-# maintainer decision (see CLAUDE.md "Testing" + "Release & iPhone status").
+# iOS device tooling + a thin XCUITest smoke were RE-ENABLED (maintainer decision,
+# 2026-06-01): the hybrid headless-harness + XCUITest method replaced the retired
+# screen-mirror UI-driving workflow (see CLAUDE.md "Testing" +
+# docs/reference/ios-device-testing.md). The device driver (scripts/ios_device.sh),
+# the VocelloiOSUITests smoke bundle, and the iOS test trees are all allowed again.
+# The only surface still banned is the vendored upstream test tree — don't pull in
+# mlx-audio-swift's own tests / churn.
 PROHIBITED_SURFACES=(
-    # Retired XCUITest / unit-test bundles — validation is CLI-/manual-/agent-driven now.
-    "QVoiceBenchmarkUI""Tests"
-    "QwenVoiceTests"
-    "VocelloUITests"
-    "VocelloiOSTests"
-    # Retired test-plan / fixture / perf / screenshot trees from the old harness.
-    "tests/Plans"
-    "tests/fixtures"
-    "tests/perf"
-    "tests/screenshots"
     "third_party_patches/mlx-audio-swift/""Tests"
-    # Retired QA / UI-driving / device-deploy / TestFlight scripts (deferred iOS tooling).
-    "scripts/qa.sh"
-    "scripts/uitest.sh"
-    "scripts/ios_device.sh"
-    "scripts/ios_device_proof_matrix.sh"
-    "scripts/release_ios_testflight.sh"
-    "scripts/rescue_gate.sh"
-    # Retired live-testing doc + the UI-test build output dir.
-    "docs/reference/live-testing.md"
-    "build/uitest"
 )
-# NOTE: benchmarking + output-quality surfaces are intentionally NOT banned —
-# they are first-class here (runtime telemetry, scripts/summarize_generation_telemetry.py,
-# benchmarks/, in-engine audioQC). Committed benchmark/QC scripts + baselines are
-# allowed (bounded by the benchmarks/ cap below). Only the retired XCUITest/QA
-# test-bundle + device/TestFlight surfaces above stay retired.
+# NOTE: benchmarking, output-quality, AND iOS device/test surfaces are first-class
+# here (runtime telemetry, scripts/summarize_generation_telemetry.py, benchmarks/,
+# in-engine audioQC, scripts/ios_device.sh, the VocelloiOSUITests smoke). Committed
+# benchmark/QC scripts + baselines are allowed (bounded by the benchmarks/ cap below).
 
 for prohibited_surface in "${PROHIBITED_SURFACES[@]}"; do
     if [ -e "$PROJECT_DIR/$prohibited_surface" ]; then
@@ -69,25 +53,17 @@ for prohibited_surface in "${PROHIBITED_SURFACES[@]}"; do
     fi
 done
 
+# General hygiene bans only (kept): vendored upstream tests, stale macOS-15 product /
+# old build-path names, and the Python-script variants (the "no Python backend"
+# standing decision — the .sh versions are canonical). The retired iOS-test /
+# UI-driving / QA reference bans were removed when that workflow was re-enabled.
 PROHIBITED_REFERENCE_PATTERNS=(
-    "QVoiceBenchmarkUI""Tests"
     "third_party_patches/mlx-audio-swift/""Tests"
-    "tests/screenshots"
-    "tests/perf"
-    "docs/reference/testing\.md"
-    "docs/reference/live-testing\.md"
     "QwenVoice-macos15.dmg"
     "build/QwenVoice.app"
     "scripts/check_qwen3_backend_only\.py"
     "scripts/check_ios_catalog\.py"
     "scripts/refresh_readme_screenshots\.py"
-    "scripts/qa\.sh"
-    "scripts/rescue_gate\.sh"
-    '\$SCRIPT_DIR/qa\.sh'
-    "QW_TEST_SUPPORT"
-    "UITestAutomationSupport"
-    "UITestStubMacEngine"
-    "UITestWindowSizeConfigurator"
 )
 
 for removed_pattern in "${PROHIBITED_REFERENCE_PATTERNS[@]}"; do

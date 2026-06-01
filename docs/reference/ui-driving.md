@@ -158,17 +158,13 @@ Cold vs warm: force cold by switching the model id (unloads) or letting idle-unl
 back-to-back runs. Commit compact snapshots/baselines under `benchmarks/` if useful (≤256 KB, no raw
 `*.jsonl`) — comparison stays manual (`git diff`), with no auto-compared build gate.
 
-## iOS via iPhone Mirroring (with caveats)
+## iOS via iPhone Mirroring — DEPRECATED
 
-Open the macOS **iPhone Mirroring** app (mirrors the paired physical iPhone); computer-use drives
-that window like any native app (full tier). Drive the bottom tabs `rootTab_studio` /
-`rootTab_voices` / `rootTab_history` / `rootTab_settings`, the Studio composer, and the
-Custom/Design/Clone mode segmented control.
-
-**Two preconditions right now:**
-1. The app must already be installed and running on the device — deploy via **Xcode** (the in-repo
-   `ios_device.sh` was removed in the harness cleanup).
-2. Real on-device MLX generation needs the self-serve increased-memory capability enabled on the App ID and a
-   build signed with it ([`ios-increased-memory-entitlement-request.md`](ios-increased-memory-entitlement-request.md)),
-   plus a deploy path (the in-repo device tooling was removed). Until that's set up, Mirroring runs are
-   **UI / flow / visual review** only — generation may block at model admission.
+> **Deprecated (2026-06-01).** Driving the iOS app by screen-mirroring the iPhone (computer-use over the
+> macOS **iPhone Mirroring** window) is **no longer the iOS testing method** — it was flaky (focus races,
+> the virtualized SwiftUI accessibility tree, engine-busy rejections) and could not trigger generation
+> headlessly. It has been replaced by the **hybrid on-device method** in
+> [`ios-device-testing.md`](ios-device-testing.md): a headless generation harness (`scripts/ios_device.sh` +
+> the `QVOICE_IOS_AUTORUN` launch trigger, telemetry-driven, no UI) for perf/memory/quality proof, plus a
+> thin `VocelloiOSUITests` XCUITest for UI-flow smoke. Use that for anything scripted. iPhone Mirroring
+> remains fine for **ad-hoc manual visual eyeballing**, but don't script it.
