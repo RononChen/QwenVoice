@@ -27,7 +27,6 @@ public enum NativeMemoryTrimLevel: String, Codable, Hashable, Sendable {
 
 public enum IOSMemoryProcessRole: String, Codable, Hashable, Sendable {
     case app
-    case engineExtension
     case simulator
     case currentProcess
 }
@@ -178,7 +177,6 @@ public struct IOSMemorySnapshot: Hashable, Codable, Sendable {
 
 public struct IOSMemoryContext: Hashable, Codable, Sendable {
     public let appSnapshot: IOSMemorySnapshot
-    public let engineExtensionSnapshot: IOSMemorySnapshot?
     public let pressureBand: IOSMemoryPressureBand
     public let aggregatePressureBand: IOSMemoryPressureBand
     public let worstProcessRole: IOSMemoryProcessRole?
@@ -187,7 +185,6 @@ public struct IOSMemoryContext: Hashable, Codable, Sendable {
 
     public init(
         appSnapshot: IOSMemorySnapshot,
-        engineExtensionSnapshot: IOSMemorySnapshot?,
         pressureBand: IOSMemoryPressureBand,
         aggregatePressureBand: IOSMemoryPressureBand = .healthy,
         worstProcessRole: IOSMemoryProcessRole?,
@@ -195,7 +192,6 @@ public struct IOSMemoryContext: Hashable, Codable, Sendable {
         source: String
     ) {
         self.appSnapshot = appSnapshot
-        self.engineExtensionSnapshot = engineExtensionSnapshot
         self.pressureBand = pressureBand
         self.aggregatePressureBand = aggregatePressureBand
         self.worstProcessRole = worstProcessRole
@@ -203,11 +199,12 @@ public struct IOSMemoryContext: Hashable, Codable, Sendable {
         self.source = source
     }
 
+    // The engine runs in-process, so a context measures the single app process.
+    // The `combined*`/`aggregate*` members below therefore reflect that one process
+    // (names retained for telemetry-schema continuity); the footprint-based aggregate
+    // band stays a live admission criterion distinct from the headroom-based band.
     public var snapshots: [IOSMemorySnapshot] {
-        if let engineExtensionSnapshot {
-            return [appSnapshot, engineExtensionSnapshot]
-        }
-        return [appSnapshot]
+        [appSnapshot]
     }
 
     public var minimumHeadroomBytes: UInt64? {
@@ -301,61 +298,35 @@ public struct IOSMemoryBudgetPolicy: Hashable, Codable, Sendable {
 
     public func context(
         appSnapshot: IOSMemorySnapshot,
-        engineExtensionSnapshot: IOSMemorySnapshot?,
         reason: String,
         source: String
     ) -> IOSMemoryContext {
-        let aggregateBand = aggregateBand(
-            appSnapshot: appSnapshot,
-            engineExtensionSnapshot: engineExtensionSnapshot
-        )
-        let candidates = [appSnapshot, engineExtensionSnapshot].compactMap { snapshot -> (
-            snapshot: IOSMemorySnapshot,
-            band: IOSMemoryPressureBand
-        )? in
-            guard let snapshot else { return nil }
-            return (snapshot, band(for: snapshot))
-        }
-        let worst = candidates.max { lhs, rhs in
-            if lhs.band.severityRank != rhs.band.severityRank {
-                return lhs.band.severityRank < rhs.band.severityRank
-            }
-            return pressureTieBreakerScore(for: lhs.snapshot) < pressureTieBreakerScore(for: rhs.snapshot)
-        }
-
+        let aggregateBand = aggregateBand(appSnapshot: appSnapshot)
+        let appBand = band(for: appSnapshot)
         return IOSMemoryContext(
             appSnapshot: appSnapshot,
-            engineExtensionSnapshot: engineExtensionSnapshot,
-            pressureBand: maxBand(worst?.band ?? .healthy, aggregateBand),
+            pressureBand: maxBand(appBand, aggregateBand),
             aggregatePressureBand: aggregateBand,
-            worstProcessRole: worst?.snapshot.processRole,
+            worstProcessRole: appSnapshot.processRole,
             reason: reason,
             source: source
         )
     }
 
     public func aggregateBand(for context: IOSMemoryContext) -> IOSMemoryPressureBand {
-        aggregateBand(
-            appSnapshot: context.appSnapshot,
-            engineExtensionSnapshot: context.engineExtensionSnapshot
-        )
+        aggregateBand(appSnapshot: context.appSnapshot)
     }
 
-    private func aggregateBand(
-        appSnapshot: IOSMemorySnapshot,
-        engineExtensionSnapshot: IOSMemorySnapshot?
-    ) -> IOSMemoryPressureBand {
-        let footprints = [appSnapshot, engineExtensionSnapshot].compactMap { snapshot in
-            snapshot?.physFootprintBytes
-        }
-        guard !footprints.isEmpty else { return .healthy }
-        let combinedFootprint = footprints.reduce(0, +)
+    // Footprint-based admission criterion, distinct from the headroom-based `band(for:)`.
+    // Measures the single in-process app; the thresholds remain a live pressure gate.
+    private func aggregateBand(appSnapshot: IOSMemorySnapshot) -> IOSMemoryPressureBand {
+        guard let footprint = appSnapshot.physFootprintBytes else { return .healthy }
         if let aggregateCriticalFootprintBytes,
-           combinedFootprint >= aggregateCriticalFootprintBytes {
+           footprint >= aggregateCriticalFootprintBytes {
             return .critical
         }
         if let aggregateGuardedFootprintBytes,
-           combinedFootprint >= aggregateGuardedFootprintBytes {
+           footprint >= aggregateGuardedFootprintBytes {
             return .guarded
         }
         return .healthy
@@ -367,15 +338,6 @@ public struct IOSMemoryBudgetPolicy: Hashable, Codable, Sendable {
             return nil
         }
         return snapshot.totalDeviceRAMBytes - usedBytes
-    }
-
-    private func pressureTieBreakerScore(for snapshot: IOSMemorySnapshot) -> UInt64 {
-        if let headroom = snapshot.availableHeadroomBytes {
-            return snapshot.totalDeviceRAMBytes > headroom
-                ? snapshot.totalDeviceRAMBytes - headroom
-                : 0
-        }
-        return snapshot.physFootprintBytes ?? snapshot.residentBytes ?? 0
     }
 
     public func allowsProactiveWarmOperations(for band: IOSMemoryPressureBand) -> Bool {
@@ -391,9 +353,6 @@ public struct IOSMemoryBudgetPolicy: Hashable, Codable, Sendable {
         includesAggregatePressure: Bool = true
     ) -> IOSMemoryPressureBand {
         var executionBand = band(for: context.appSnapshot)
-        if let engineExtensionSnapshot = context.engineExtensionSnapshot {
-            executionBand = maxBand(executionBand, band(for: engineExtensionSnapshot))
-        }
         if includesAggregatePressure {
             executionBand = maxBand(executionBand, aggregateBand(for: context))
         }
@@ -453,24 +412,6 @@ public struct IOSMemoryBudgetPolicy: Hashable, Codable, Sendable {
         }
     }
 
-    /// Extension process headroom is critically low while aggregate pressure is not —
-    /// typical when the engine extension lacks Apple's increased-memory entitlement.
-    /// Returns `nil` when the extension snapshot is missing.
-    public func likelyEntitlementBlocked(for context: IOSMemoryContext) -> Bool? {
-        guard let engineExtensionSnapshot = context.engineExtensionSnapshot else {
-            return nil
-        }
-        guard context.aggregatePressureBand != .critical else {
-            return false
-        }
-        guard band(for: engineExtensionSnapshot) == .critical,
-              let headroom = engineExtensionSnapshot.availableHeadroomBytes,
-              headroom < guardedHeadroomBytes else {
-            return false
-        }
-        return true
-    }
-
     /// User-visible copy when `guardModelAdmission` blocks model load.
     public func modelAdmissionBlockMessage(
         for context: IOSMemoryContext,
@@ -482,12 +423,6 @@ public struct IOSMemoryBudgetPolicy: Hashable, Codable, Sendable {
         }
         if context.aggregatePressureBand == .guarded, !allowsAggregateGuardedAdmission {
             return "Close apps using memory in the background. Vocello needs more combined memory for the app and voice engine before loading this model."
-        }
-        if !allowsModelAdmission(for: perProcessAdmissionBand) {
-            if likelyEntitlementBlocked(for: context) == true {
-                return "On-device generation needs more memory headroom for the voice engine. Close background apps and try again."
-            }
-            return "Vocello needs more available memory before loading this model. Close background apps and try again."
         }
         return "Vocello needs more available memory before loading this model. Close background apps and try again."
     }

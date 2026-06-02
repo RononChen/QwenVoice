@@ -2,7 +2,7 @@ import Foundation
 
 /// One durable telemetry row for a single generation, written by one layer.
 ///
-/// Every layer (engine / engine-service / engine-extension / app) emits its own
+/// Every layer (engine / engine-service / app) emits its own
 /// record keyed by the same `generationID` (threaded app → engine, see
 /// `NativeEngineRuntime`), so the per-layer JSONL streams join cleanly into the
 /// unified `generations-merged.jsonl` (`layer == "merged"`).
@@ -13,7 +13,6 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
     public enum Layer: String, Hashable, Codable, Sendable {
         case engine
         case engineService = "engine-service"
-        case engineExtension = "engine-extension"
         case app
         case merged
     }

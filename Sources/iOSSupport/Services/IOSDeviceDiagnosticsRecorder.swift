@@ -252,16 +252,6 @@ private struct MemoryContextDiagnosticRecord: Codable {
     let appAvailableHeadroomMB: Double?
     let appImpliedProcessLimitBytes: UInt64?
     let appImpliedProcessLimitMB: Double?
-    let engineExtensionResidentBytes: UInt64?
-    let engineExtensionResidentMB: Double?
-    let engineExtensionPhysFootprintBytes: UInt64?
-    let engineExtensionPhysFootprintMB: Double?
-    let engineExtensionAvailableHeadroomBytes: UInt64?
-    let engineExtensionAvailableHeadroomMB: Double?
-    let engineExtensionImpliedProcessLimitBytes: UInt64?
-    let engineExtensionImpliedProcessLimitMB: Double?
-    let likelyEntitlementBlocked: Bool?
-    let entitlementBlockedReason: String?
     let trimLevel: NativeMemoryTrimLevel?
     let message: String?
     let context: IOSMemoryContext?
@@ -282,10 +272,6 @@ private struct MemoryContextDiagnosticRecord: Codable {
         context: IOSMemoryContext?
     ) {
         let appSnapshot = context?.appSnapshot
-        let engineExtensionSnapshot = context?.engineExtensionSnapshot
-        let entitlementBlocked = context.map {
-            IOSMemoryBudgetPolicy.iPhoneShippingDefault.likelyEntitlementBlocked(for: $0)
-        } ?? nil
 
         self.event = event
         self.recordedAt = recordedAt
@@ -313,20 +299,6 @@ private struct MemoryContextDiagnosticRecord: Codable {
         self.appAvailableHeadroomMB = appSnapshot?.availableHeadroomMB
         self.appImpliedProcessLimitBytes = appSnapshot?.impliedProcessLimitBytes
         self.appImpliedProcessLimitMB = appSnapshot?.impliedProcessLimitMB
-        self.engineExtensionResidentBytes = engineExtensionSnapshot?.residentBytes
-        self.engineExtensionResidentMB = engineExtensionSnapshot?.residentMB
-        self.engineExtensionPhysFootprintBytes = engineExtensionSnapshot?.physFootprintBytes
-        self.engineExtensionPhysFootprintMB = engineExtensionSnapshot?.physFootprintMB
-        self.engineExtensionAvailableHeadroomBytes = engineExtensionSnapshot?.availableHeadroomBytes
-        self.engineExtensionAvailableHeadroomMB = engineExtensionSnapshot?.availableHeadroomMB
-        self.engineExtensionImpliedProcessLimitBytes = engineExtensionSnapshot?.impliedProcessLimitBytes
-        self.engineExtensionImpliedProcessLimitMB = engineExtensionSnapshot?.impliedProcessLimitMB
-        self.likelyEntitlementBlocked = entitlementBlocked
-        if entitlementBlocked == true {
-            self.entitlementBlockedReason = "engine_extension_headroom_below_admission_threshold"
-        } else {
-            self.entitlementBlockedReason = nil
-        }
         self.trimLevel = trimLevel
         self.message = message
         self.context = context
