@@ -50,7 +50,7 @@ the device is auto-discovered or pinned via `$QVOICE_IOS_DEVICE_ID` (neither com
 | Verb | What it does |
 |------|--------------|
 | `doctor` | Environment + device preflight (Xcode, team env, device, built-app entitlement). |
-| `build` | Signed device build, `-Onone`, automatic signing (`-allowProvisioningUpdates`) → `build/ios-device/…/Vocello.app`. |
+| `build` | Signed device build, `-Onone`, automatic signing (`-allowProvisioningUpdates`) → `build/ios/…/Vocello.app` (one shared iOS tree). |
 | `install` | `devicectl device install app` the built app. |
 | `launch [spec]` | Launch via `devicectl`. With a spec → sets the autorun + telemetry env; prints the generated `runID` on stdout. Without → a plain launch. |
 | `pull [dest]` | `devicectl device copy from --domain-type appGroupDataContainer` the `diagnostics/` tree (default `build/ios-diagnostics`). |
@@ -139,15 +139,18 @@ above). It launches, dismisses onboarding if present, and asserts:
 
 Run on a simulator (fast, no signing) or the device:
 
+Always pass `-derivedDataPath build/ios` so device + simulator builds share **one**
+tree (one `SourcePackages`) and don't pollute the global `~/Library/Developer/Xcode/DerivedData`:
+
 ```sh
 # Simulator
 xcodebuild test -project QwenVoice.xcodeproj -scheme VocelloiOS \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath build/ios
 
 # Device
 export QWENVOICE_DEVELOPMENT_TEAM=<team-id>
 xcodebuild test -project QwenVoice.xcodeproj -scheme VocelloiOS \
-  -destination 'id=<device-udid>' -allowProvisioningUpdates
+  -destination 'id=<device-udid>' -derivedDataPath build/ios -allowProvisioningUpdates
 ```
 
 The UI-test target is wired into the `VocelloiOS` scheme's `test` action (and built only
@@ -165,8 +168,8 @@ through refactors; the smoke + any agent UI checks depend on them.
 | Level | Command | Proves |
 |-------|---------|--------|
 | Compile (app) | `scripts/build_foundation_targets.sh ios` | the in-process engine + harness compile |
-| Compile (UI test) | `xcodebuild build-for-testing -scheme VocelloiOS -destination 'platform=iOS Simulator,…'` | the test target compiles + is wired |
-| UI smoke | `xcodebuild test -scheme VocelloiOS -destination …` | launch + IA reachable |
+| Compile (UI test) | `xcodebuild build-for-testing -scheme VocelloiOS -destination 'platform=iOS Simulator,…' -derivedDataPath build/ios` | the test target compiles + is wired |
+| UI smoke | `xcodebuild test -scheme VocelloiOS -destination … -derivedDataPath build/ios` | launch + IA reachable |
 | On-device proof | `scripts/ios_device.sh bench "custom:speed:…"` | real generation, entitlement/memory headroom, RTF/`audioQC` |
 
 ## Still deferred

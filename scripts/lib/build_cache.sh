@@ -173,6 +173,22 @@ prune_stale_builds() {
         fi
     done
 
+    # Reclaim throwaway iOS build sidecars from the hybrid on-device test method
+    # (scripts/ios_device.sh): the disposable build-for-testing sim tree, the pulled
+    # diagnostics dirs (already copied off-device), and the legacy build/ios-device
+    # tree (superseded by the single shared build/ios). The active build/ios and the
+    # macOS build/DerivedData are KEPT as incremental caches.
+    for stale in \
+        "$ROOT_DIR/build/ios-uitest" \
+        "$ROOT_DIR/build/ios-diagnostics" \
+        "$ROOT_DIR/build/ios-diag-check" \
+        "$ROOT_DIR/build/ios-device"; do
+        if [ -e "$stale" ]; then
+            echo "==> Removing throwaway iOS build sidecar: $stale"
+            rm -rf "$stale"
+        fi
+    done
+
     local keep_app="$ROOT_DIR/build/Vocello.app"
     local killed=false
     while IFS= read -r -d '' candidate; do
@@ -180,6 +196,12 @@ prune_stale_builds() {
             continue
         fi
         if [[ "$candidate" == "$ROOT_DIR/build/DerivedData/"* ]]; then
+            continue
+        fi
+        # Preserve the iOS app bundle in the shared iOS tree: a macOS build must not
+        # clobber an in-progress iOS device/sim build (build/ios is its own
+        # incremental tree, like build/DerivedData).
+        if [[ "$candidate" == "$ROOT_DIR/build/ios/"* ]]; then
             continue
         fi
         if ! $killed; then
@@ -200,6 +222,35 @@ prune_stale_builds() {
             rm -f "$candidate"
         done < <(find "$ROOT_DIR/build" -maxdepth 1 -type f -name '*.dmg' -print0 2>/dev/null)
     fi
+
+    warn_if_storage_bloated
+}
+
+# Print a one-line reclaim hint if <dir> exceeds <limit_gb>. Advisory only; uses
+# stat-based `du -sk` (fast) and is a no-op when the dir is absent.
+_storage_warn_dir() {
+    local path="$1" limit_gb="$2" label="$3" flag="${4:-}"
+    [ -d "$path" ] || return 0
+    # Parse `du -sk` with the `read` builtin (no awk/cut dependency on the hot path).
+    local kb _rest limit_kb gb
+    read -r kb _rest < <(du -sk "$path" 2>/dev/null) || true
+    [ -n "${kb:-}" ] || return 0
+    case "$kb" in ''|*[!0-9]*) return 0 ;; esac
+    limit_kb=$(( limit_gb * 1024 * 1024 ))
+    if [ "$kb" -gt "$limit_kb" ]; then
+        gb=$(( kb / 1048576 ))
+        echo "==> [storage] ${label} is ~${gb} GB (>${limit_gb} GB) — reclaim with: scripts/clean_build_caches.sh ${flag}" >&2
+    fi
+}
+
+# Non-fatal advisory called after every build: warn when reclaimable storage crosses
+# a soft threshold (the project build/ tree, or the dev model cache). NEVER deletes,
+# NEVER blocks. Thresholds (GB) overridable via env: QWENVOICE_BUILD_WARN_GB,
+# QWENVOICE_MODELS_WARN_GB.
+warn_if_storage_bloated() {
+    _storage_warn_dir "$ROOT_DIR/build" "${QWENVOICE_BUILD_WARN_GB:-12}" "build/" "--aggressive"
+    _storage_warn_dir "$HOME/Library/Application Support/QwenVoice-Debug/models" \
+        "${QWENVOICE_MODELS_WARN_GB:-10}" "QwenVoice-Debug/models" "--models"
 }
 
 # Run xcodebuild, piping output through xcbeautify when it's on PATH and

@@ -39,9 +39,15 @@ SCHEME="VocelloiOS"
 CONFIG="Release"
 BUNDLE_ID="com.patricedery.vocello"
 APP_GROUP="group.com.patricedery.vocello.shared"
-DERIVED="$ROOT_DIR/build/ios-device"
+# Single shared iOS DerivedData tree: device (iphoneos) + simulator (build-for-testing)
+# builds coexist here with one SourcePackages, so iOS build trees don't multiply.
+# Swept/reclaimed by scripts/clean_build_caches.sh (--aggressive) + build.sh's prune.
+DERIVED="$ROOT_DIR/build/ios"
 APP_PATH="$DERIVED/Build/Products/Release-iphoneos/Vocello.app"
 PROJECT="$ROOT_DIR/QwenVoice.xcodeproj"
+
+# Reuse the shared storage-bloat advisory (warn-only; never deletes).
+. "$ROOT_DIR/scripts/lib/build_cache.sh"
 
 note() { printf '\033[0;36m==>\033[0m %s\n' "$*" >&2; }
 warn() { printf '\033[0;33m[warn]\033[0m %s\n' "$*" >&2; }
@@ -129,6 +135,7 @@ cmd_build() {
     build
   [[ -d "$APP_PATH" ]] || die "build finished but $APP_PATH is missing"
   note "built $APP_PATH"
+  warn_if_storage_bloated
 }
 
 cmd_install() {
