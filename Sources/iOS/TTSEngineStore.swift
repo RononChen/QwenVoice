@@ -316,10 +316,15 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
     @discardableResult
     func refreshMemoryContext(reason: String, source: String = "store") async -> IOSMemoryContext {
         let appSnapshot = memorySnapshotProvider()
-        let engineSnapshot = await backend.captureMemorySnapshot(role: .engineExtension)
+        // The engine now runs IN-PROCESS (commit 7822a8a), so there is no separate
+        // extension process to measure. Capturing role:.engineExtension just re-samples
+        // THIS process and double-counts it in the combined/aggregate footprint, which
+        // inflates the pressure band (e.g. a 2.7 GB app reads as ~5.4 GB and falsely trips
+        // the 5.2 GB aggregate-critical threshold). Pass nil so the band + combined metrics
+        // reflect the real single process. (Matches refreshMemoryPolicy, already nil.)
         let context = memoryBudgetPolicy.context(
             appSnapshot: appSnapshot,
-            engineExtensionSnapshot: engineSnapshot,
+            engineExtensionSnapshot: nil,
             reason: reason,
             source: source
         )
