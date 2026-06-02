@@ -107,9 +107,18 @@ major line unless a feature specifically requires it.
 
 ## F — iPhone 1.7B 4-bit optimization program (2026-06-01)
 
+> **Superseded for the *current* iOS state — see [`../docs/reference/ios-engine-optimization.md`](../docs/reference/ios-engine-optimization.md).**
+> §F below is the original backend-feasibility study (its decode-loop + RAM-lever findings are still valid and
+> shared by both platforms). But its **process model is out of date**: the engine no longer runs in an
+> ExtensionKit extension — it runs **in-process in the app** (`7822a8a`; the extension was removed in
+> `aed617c` because a non-UI extension's Jetsam cap can't be raised by the entitlement). On-device generation
+> now works (iPhone 17 Pro, RTF ~1.6–1.9, ~3 GB streaming peak, 0 trims). The iOS-engine doc is the live iOS
+> progress + roadmap record.
+
 Goal: get Speed (4-bit) Qwen3-TTS running on iPhone 15 Pro (8 GB). Full plan + the 57-agent verified lever
-inventory live in the session plan; this records the standing findings. Engine runs in the iOS ExtensionKit
-extension (separate Jetsam budget).
+inventory live in the session plan; this records the standing findings. (Historical note: this study assumed
+the engine ran in the iOS ExtensionKit extension with a separate Jetsam budget — that approach was abandoned
+in favor of the in-process engine; see the doc linked above.)
 
 **Feasibility (isolated engine, Speed 4-bit):** Custom/Design ~2.8–3.3 GB (fits under the default streaming
 limit per §F.1 — the entitlement is headroom insurance, not required); Clone/long ~4.7 GB (marginal — wants
@@ -245,13 +254,16 @@ dormant dev/insurance capability that activates only if the token ceiling is eve
   `MLXTTSEngine.events` `.unbounded`.
 - Don't "fix" the phantom 1.7B arch bugs (projection / speaker-dim / MRoPE are correct).
 
-## iOS-deferred (real, but iPhone is compile-safe only)
+## iOS (now on-device-capable — see the iOS-engine doc)
 
-Thermal-state monitoring + automatic 0.6B fallback, iPhone jetsam / `memoryLimit` tuning +
-`os_proc_available_memory()` gating, on-device RTF/peak-RAM proof — all pending **on-device build/validation
-tooling** (the increased-memory entitlement itself is self-serve; see
-[`../docs/reference/ios-increased-memory-entitlement-request.md`](../docs/reference/ios-increased-memory-entitlement-request.md)).
-Map to `NativeMemoryPolicyResolver` (iPhonePro case).
+iPhone is no longer compile-safe-only: on-device build/validation tooling is established, the entitlement is
+enabled, and generation works on device (in-process). The `os_proc_available_memory()` gating + per-tier
+policy are implemented (`NativeMemoryPolicyResolver` iPhonePro case + `IOSMemoryBudgetPolicy`); no hard
+`memoryLimit` (reverted `b77c08e`). The remaining iOS levers (thermal-state monitoring + automatic 0.6B
+fallback, the 0.6B variant evaluation, an 8 GB-device proof, the signed-IPA/TestFlight lane) + the full
+progress record live in
+[`../docs/reference/ios-engine-optimization.md`](../docs/reference/ios-engine-optimization.md). Entitlement
+detail: [`../docs/reference/ios-increased-memory-entitlement-request.md`](../docs/reference/ios-increased-memory-entitlement-request.md).
 
 ## Next step (if resumed)
 
