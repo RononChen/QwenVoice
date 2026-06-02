@@ -1,0 +1,276 @@
+import Foundation
+import QwenVoiceCore
+import UIKit
+
+/// Headless on-device generation harness — the iOS analog of `vocello bench`.
+///
+/// Fires **only** when `QVOICE_IOS_AUTORUN` is present and non-empty in the launch
+/// environment, so it ships completely inert (a normal user launch never sets it).
+/// `scripts/ios_device.sh bench` sets it — together with `QWENVOICE_DEBUG=1` (lights
+/// up `TelemetryGate`, so the engine appends its decode/RTF/audioQC row to
+/// `diagnostics/engine/generations.jsonl`) and `QVOICE_IOS_DEVICE_RUN_ID=<runID>`
+/// (tags the run) — launches the app over `devicectl`, polls for the completion
+/// sentinel, then pulls the App-Group `diagnostics/` tree and runs the summarizer.
+///
+/// Spec format (the env value): `<mode>:<variant>:<text>`, e.g.
+/// `custom:speed:Hello from Vocello on device`. `mode ∈ custom|design|clone`,
+/// `variant ∈ speed|quality` (iPhone resolves speed-only regardless), and the text is
+/// everything after the second `:` (so it may itself contain colons). Forgiving:
+/// a bare `1`/`on`/`true`/`yes`, a bare mode, or a partial spec all fall back to
+/// sensible defaults.
+///
+/// The harness drives the same in-process `TTSEngineStore.generate(_:)` the UI uses —
+/// no UI interaction — then writes `diagnostics/<runID>/autorun-done.json`. It never
+/// calls `exit()`; the app stays up so the script can pull the diagnostics container.
+@MainActor
+enum IOSAutorunHarness {
+    private static let environmentKey = "QVOICE_IOS_AUTORUN"
+    private static let runIDKey = "QVOICE_IOS_DEVICE_RUN_ID"
+
+    /// Default benchmark sentence — long enough to exercise streaming chunking,
+    /// free of any personal/sensitive content.
+    private static let defaultText =
+        "Vocello on-device autorun check. The quick brown fox jumps over the lazy dog, "
+        + "then pauses, takes a breath, and reads one more sentence aloud."
+    /// Default Voice Design brief when a `design` run supplies only text.
+    private static let defaultVoiceBrief =
+        "A warm, friendly narrator with a calm, measured pace."
+
+    struct Spec {
+        var mode: GenerationMode
+        var variant: ModelVariantKind
+        var text: String
+    }
+
+    /// True when the launch environment requested an autorun.
+    static var isRequested: Bool {
+        guard let raw = ProcessInfo.processInfo.environment[environmentKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
+        return !raw.isEmpty
+    }
+
+    /// Kick off the autorun if requested. Safe to call once after engine init;
+    /// no-op when `QVOICE_IOS_AUTORUN` is unset. Runs detached on the MainActor so it
+    /// doesn't block app startup.
+    static func runIfRequested(engine: TTSEngineStore) {
+        guard isRequested else { return }
+        let spec = parseSpec(ProcessInfo.processInfo.environment[environmentKey] ?? "")
+        Task { @MainActor in
+            await run(spec: spec, engine: engine)
+        }
+    }
+
+    // MARK: - Spec parsing
+
+    static func parseSpec(_ raw: String) -> Spec {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        var spec = Spec(mode: .custom, variant: .speed, text: defaultText)
+        guard !["", "1", "on", "true", "yes"].contains(trimmed.lowercased()) else {
+            return spec
+        }
+        let parts = trimmed
+            .split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+            .map(String.init)
+        if let first = parts.first, let mode = GenerationMode(rawValue: first.lowercased()) {
+            spec.mode = mode
+        }
+        if parts.count >= 2 {
+            switch parts[1].lowercased() {
+            case "quality", "hq": spec.variant = .quality
+            case "speed", "fast", "": spec.variant = .speed
+            default: break
+            }
+        }
+        if parts.count >= 3, !parts[2].isEmpty {
+            spec.text = parts[2]
+        }
+        return spec
+    }
+
+    // MARK: - Run
+
+    private static func run(spec: Spec, engine: TTSEngineStore) async {
+        let runID = safeRunID(from: ProcessInfo.processInfo.environment[runIDKey]) ?? "autorun"
+        let generationID = UUID()
+        let startedAt = Date()
+        print("[autorun] start mode=\(spec.mode.rawValue) variant=\(spec.variant.rawValue) runID=\(runID) chars=\(spec.text.count)")
+
+        // Device/bundle fields read here (MainActor) — UIDevice is MainActor-isolated,
+        // so they cannot be struct property defaults under Swift 6 strict concurrency.
+        let device = UIDevice.current
+        var record = SentinelRecord(
+            runID: runID,
+            generationID: generationID.uuidString,
+            mode: spec.mode.rawValue,
+            variant: spec.variant.rawValue,
+            text: spec.text,
+            startedAt: ISO8601DateFormatter().string(from: startedAt),
+            deviceModel: device.model,
+            systemName: device.systemName,
+            systemVersion: device.systemVersion,
+            bundleVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+            buildVersion: Bundle.main.object(forInfoDictionaryKey: kCFBundleVersionKey as String) as? String
+        )
+
+        do {
+            guard let model = ModelDescriptor.model(for: spec.mode) else {
+                throw HarnessError("no model in the contract for mode '\(spec.mode.rawValue)'")
+            }
+            record.modelID = model.id
+            record.modelName = model.name
+
+            let payload = try await buildPayload(spec: spec, model: model, engine: engine)
+
+            print("[autorun] loading \(model.id)…")
+            try await engine.loadModel(id: model.id)
+
+            let outputPath = makeOutputPath(runID: runID, model: model)
+            let request = GenerationRequest(
+                mode: spec.mode,
+                modelID: model.id,
+                text: spec.text,
+                outputPath: outputPath,
+                shouldStream: true,
+                streamingInterval: GenerationSemantics.appStreamingInterval,
+                payload: payload,
+                generationID: generationID
+            )
+
+            print("[autorun] generating…")
+            let t0 = Date()
+            let result = try await engine.generate(request)
+            let wall = Date().timeIntervalSince(t0)
+            let rtf = wall > 0 ? result.durationSeconds / wall : 0
+
+            record.status = "ok"
+            record.audioPath = result.audioPath
+            record.durationSeconds = result.durationSeconds
+            record.wallSeconds = wall
+            record.realtimeFactor = rtf
+            record.finishReason = result.finishReason?.rawValue
+            print(String(
+                format: "[autorun] ✓ %.2fs audio · rtf=%.2f · finish=%@",
+                result.durationSeconds, rtf, result.finishReason?.rawValue ?? "?"
+            ))
+        } catch is CancellationError {
+            record.status = "error"
+            record.error = "cancelled"
+            print("[autorun] ✗ cancelled")
+        } catch {
+            record.status = "error"
+            record.error = error.localizedDescription
+            print("[autorun] ✗ \(error.localizedDescription)")
+        }
+
+        record.finishedAt = ISO8601DateFormatter().string(from: Date())
+        writeSentinel(record, runID: runID)
+    }
+
+    @MainActor
+    private static func buildPayload(
+        spec: Spec,
+        model: ModelDescriptor,
+        engine: TTSEngineStore
+    ) async throws -> GenerationRequest.Payload {
+        switch spec.mode {
+        case .custom:
+            return .custom(
+                speakerID: ModelDescriptor.defaultSpeaker,
+                deliveryStyle: nil
+            )
+        case .design:
+            return .design(
+                voiceDescription: defaultVoiceBrief,
+                deliveryStyle: nil
+            )
+        case .clone:
+            let voices = try await engine.listPreparedVoices()
+            guard let voice = voices.first else {
+                throw HarnessError("clone autorun needs a saved voice (none enrolled on this device)")
+            }
+            return .clone(
+                reference: CloneReference(
+                    audioPath: voice.audioPath,
+                    transcript: nil,
+                    preparedVoiceID: voice.id
+                )
+            )
+        }
+    }
+
+    // MARK: - Paths & sentinel
+
+    private static func makeOutputPath(runID: String, model: ModelDescriptor) -> String {
+        let dir = AppPaths.outputsDir
+            .appendingPathComponent(model.outputSubfolder, isDirectory: true)
+            .appendingPathComponent("autorun", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("\(runID).wav", isDirectory: false).path
+    }
+
+    private static func writeSentinel(_ record: SentinelRecord, runID: String) {
+        let dir = AppPaths.appSupportDir
+            .appendingPathComponent("diagnostics", isDirectory: true)
+            .appendingPathComponent(runID, isDirectory: true)
+        let url = dir.appendingPathComponent("autorun-done.json", isDirectory: false)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(record).write(to: url, options: .atomic)
+            print("[autorun] sentinel → \(url.path)")
+        } catch {
+            print("[autorun] could not write sentinel: \(error.localizedDescription)")
+        }
+    }
+
+    /// Mirror `IOSDeviceDiagnosticsRecorder` / `MLXTTSEngine` run-ID sanitization so
+    /// the sentinel lands in the same `diagnostics/<runID>/` directory.
+    private static func safeRunID(from rawValue: String?) -> String? {
+        guard let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        let safe = trimmed.map { character -> Character in
+            if character.isLetter || character.isNumber || character == "-" || character == "_" {
+                return character
+            }
+            return "_"
+        }
+        return String(safe)
+    }
+
+    private struct HarnessError: LocalizedError {
+        let message: String
+        init(_ message: String) { self.message = message }
+        var errorDescription: String? { message }
+    }
+
+    private struct SentinelRecord: Codable {
+        // `var` (not `let`) for the defaulted fields: a `let` with an initial value is
+        // skipped by Codable decode (warning) and, for the device fields, a default
+        // expression touching MainActor `UIDevice` would be evaluated in the nonisolated
+        // synthesized init (Swift 6 error). So defaults stay literal/`var`, and device/
+        // bundle fields are passed in from the @MainActor call site.
+        var schemaVersion = 1
+        let runID: String
+        let generationID: String
+        let mode: String
+        let variant: String
+        let text: String
+        let startedAt: String
+        var finishedAt: String?
+        var status = "error"
+        var modelID: String?
+        var modelName: String?
+        var audioPath: String?
+        var durationSeconds: Double?
+        var wallSeconds: Double?
+        var realtimeFactor: Double?
+        var finishReason: String?
+        var error: String?
+        let deviceModel: String
+        let systemName: String
+        let systemVersion: String
+        let bundleVersion: String?
+        let buildVersion: String?
+    }
+}

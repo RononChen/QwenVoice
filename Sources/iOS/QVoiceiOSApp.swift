@@ -6,12 +6,12 @@ import QwenVoiceCore
 
 /// iOS app entry point.
 ///
-/// **Compile-safe only on `main`.** On-device generation, memory proof, and
-/// TestFlight are deferred pending on-device build/validation tooling — the
-/// `com.apple.developer.kernel.increased-memory-limit` entitlement itself is
-/// self-serve (enable on the App ID; see CLAUDE.md "Release & iPhone status").
-/// The app builds and the UI runs; heavy generation routes to
-/// `VocelloEngineExtension` (ExtensionKit).
+/// **On-device-capable.** Heavy generation runs **in-process in the app** via
+/// `NativeRuntimeFactory` (see `IOSAppBootstrap.makeBackend`) — the app process gets
+/// the `com.apple.developer.kernel.increased-memory-limit` entitlement's raised limit,
+/// whereas the (now-dormant) `VocelloEngineExtension` did not and was jetsam-killed
+/// loading the model. The headless `IOSAutorunHarness` (`QVOICE_IOS_AUTORUN`) drives a
+/// generation with no UI for `scripts/ios_device.sh bench`; it ships inert.
 @main
 struct QVoiceiOSApp: App {
     @StateObject private var deps = IOSAppDependenciesContainer()
@@ -114,6 +114,9 @@ struct QVoiceiOSApp: App {
                 try await engine.initialize(appSupportDirectory: AppPaths.appSupportDir)
                 await engine.refreshMemoryContext(reason: "engine_initialized", source: "app")
                 print("[QVoiceiOSApp] Engine initialized.")
+                // Headless on-device bench/smoke driver. No-op unless QVOICE_IOS_AUTORUN
+                // is set in the launch environment (scripts/ios_device.sh bench).
+                IOSAutorunHarness.runIfRequested(engine: engine)
             } catch {
                 didInitializeEngine = false
 #if DEBUG

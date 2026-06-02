@@ -47,10 +47,13 @@ schemes:
     build:
       targets:
         VocelloiOS: all
+        VocelloiOSUITests: [test]
     run:
       config: Release
     test:
       config: Release
+      targets:
+        - VocelloiOSUITests
     profile:
       config: Release
     analyze:
@@ -420,3 +423,29 @@ targets:
         product: MLX
       - package: SwiftHuggingFace
         product: HuggingFace
+
+  # Thin XCUITest UI-flow smoke (host = VocelloiOS). Asserts launch + the 4-tab IA +
+  # the Studio composer/mode-control via the stable accessibilityIdentifiers. The
+  # durable replacement (with scripts/ios_device.sh) for the deprecated screen-mirror
+  # UI driving — see docs/reference/ios-device-testing.md. Runs on device or simulator
+  # via: xcodebuild test -scheme VocelloiOS -destination 'id=<UDID>' (or a sim).
+  VocelloiOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/VocelloiOSUITests
+    dependencies:
+      - target: VocelloiOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.patricedery.vocello.uitests
+        PRODUCT_NAME: VocelloiOSUITests
+        PRODUCT_MODULE_NAME: VocelloiOSUITests
+        TEST_TARGET_NAME: VocelloiOS
+        SWIFT_VERSION: "6"
+        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: $(QWENVOICE_DEVELOPMENT_TEAM)
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTS_MACCATALYST: NO
