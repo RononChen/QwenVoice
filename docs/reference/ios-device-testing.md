@@ -37,7 +37,8 @@ hardware; git history preserves it).
   Downloads, or just run the app and install it) — the harness loads it; it does not
   download. A missing model surfaces as a clean sentinel error, not a hang.
 
-The increased-memory entitlement is enabled + verified on both App IDs — see
+The increased-memory entitlement is enabled + verified on the app's App ID (the engine is
+in-process — there is no extension App ID) — see
 [`ios-increased-memory-entitlement-request.md`](ios-increased-memory-entitlement-request.md).
 
 - **Screen mirroring (observation, on by default):** device commands auto-start macOS **iPhone Mirroring**
@@ -178,13 +179,68 @@ through refactors; the smoke + any agent UI checks depend on them.
 
 ---
 
+## 3. Simulator UI review (the fake engine)
+
+For **visual UI work** (layout, chrome, flows, keyboard behavior) the Simulator is the right
+tool — no device, no signing, no models, no Metal/MLX. On the simulator the app swaps to
+`IOSSimulatorTTSEngine` at compile time (`#if targetEnvironment(simulator)` in
+`IOSAppBootstrap`), a fake that fabricates real per-mode WAV audio and drives the full
+generation lifecycle. (Generation *quality* still needs the device harness above — the fake
+is for exercising the UI, not the model.)
+
+### `scripts/ios_sim.sh` — the simulator counterpart to `ios_device.sh`
+
+No `QWENVOICE_DEVELOPMENT_TEAM` needed (unsigned). Shares the one `build/ios` tree.
+
+| Verb | What it does |
+|------|--------------|
+| `doctor` | Xcode + simulator preflight; resolves the target sim; turns the **software keyboard on** (disconnects the hardware keyboard so the on-screen keyboard + the Studio "Done" accessory bar render). |
+| `build` | Build for the `iphonesimulator` SDK (`-Onone`, `CODE_SIGNING_ALLOWED=NO`); greps the log for `** BUILD SUCCEEDED **`. |
+| `install` | Boot the sim + `open -a Simulator` + `simctl install` the built app. |
+| `run [--no-seed] [--rebuild]` | `build-if-stale → boot → install → launch SEEDED`, then open the Simulator window. **Seeded** = fake models installed (Studio shows "Generate", not "Install") + sample voices + history, so every surface is populated. `--no-seed` launches the empty / onboarding state. |
+| `shot [path]` | `simctl io … screenshot` the booted sim (default `build/ios-sim-shot.png`). |
+| `ui-test` | Run the `VocelloiOSUITests` smoke (§2) on the sim. |
+
+```sh
+scripts/ios_sim.sh run            # build + launch the seeded app; Simulator opens for clicking
+scripts/ios_sim.sh shot out.png   # capture what's on screen
+scripts/ios_sim.sh ui-test        # the launch/navigation smoke
+```
+
+Target a specific sim with `QVOICE_IOS_SIM=<name|udid>` (else it auto-picks a booted iPhone,
+then the newest-iOS iPhone, preferring Pro). Tune the seed with the env the fake engine reads:
+
+| Env var | Effect |
+|---------|--------|
+| `QVOICE_SIM_FAKE_MODELS` | `all` (default) / `custom` / `design` / `clone` / `<ids>` / `none` — which models report installed. |
+| `QVOICE_SIM_SEED_DATA` | `voices,history` (default) — seed a saved voice + a History entry. |
+| `QVOICE_SIM_BACKEND_SCENARIO` | `success` (default) / `slow` (watch progress UI) / `fail` (error-state UI). |
+| `QVOICE_SIM_BACKEND_DELAY_MS` | Override the fake generation delay. |
+
+**Software keyboard:** the `ConnectHardwareKeyboard=false` default takes effect on the next
+Simulator launch — if Simulator is already open, quit + relaunch it (or toggle I/O ▸ Keyboard ▸
+Connect Hardware Keyboard off) so the on-screen keyboard appears.
+
+### Agent-driven UI checks (Claude)
+
+To verify a UI change myself I can drive the sim two ways, both reusing `build/ios`:
+- **CLI**: `scripts/ios_sim.sh run` then `scripts/ios_sim.sh shot <path>` and read the screenshot.
+- **`xcodebuildmcp` MCP**: `build_run_sim` → `screenshot` / `snapshot_ui` (the accessibility tree
+  with `elementRef`s) → `tap` / `type_text` to drive a flow. Use real taps — the SwiftUI a11y
+  tree is virtualized (e.g. `textInput_textEditor` only materializes after a focus tap). This is
+  the sanctioned iOS UI-driving path; **driving the real device via iPhone Mirroring stays
+  deprecated** (see [`ui-driving.md`](ui-driving.md)) — *Simulator* driving is fine.
+
+---
+
 ## Verification ladder
 
 | Level | Command | Proves |
 |-------|---------|--------|
 | Compile (app) | `scripts/build_foundation_targets.sh ios` | the in-process engine + harness compile |
 | Compile (UI test) | `xcodebuild build-for-testing -scheme VocelloiOS -destination 'platform=iOS Simulator,…' -derivedDataPath build/ios` | the test target compiles + is wired |
-| UI smoke | `xcodebuild test -scheme VocelloiOS -destination … -derivedDataPath build/ios` | launch + IA reachable |
+| UI smoke | `xcodebuild test -scheme VocelloiOS -destination … -derivedDataPath build/ios` (or `scripts/ios_sim.sh ui-test`) | launch + IA reachable |
+| Sim UI review | `scripts/ios_sim.sh run` + `scripts/ios_sim.sh shot` | the full UI renders + is navigable with the fake engine (visual review — no device) |
 | On-device proof | `scripts/ios_device.sh bench "custom:speed:…"` | real generation, entitlement/memory headroom, RTF/`audioQC` |
 
 ## Still deferred

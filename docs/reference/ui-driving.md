@@ -175,3 +175,12 @@ back-to-back runs. Commit compact snapshots/baselines under `benchmarks/` if use
 > Mirroring before every device command, so the phone stays **locked + screen-dark (OLED burn-in safe)** and you
 > watch on the Mac — and crucially, iPhone Mirroring keeps a *locked* device reachable to `devicectl` (a locked
 > phone without mirroring drops to "unavailable"). Opt out with `QVOICE_IOS_NO_MIRROR=1`.
+
+## iOS via the Simulator — sanctioned (the fast UI loop)
+
+What's deprecated above is driving the **physical device** through the iPhone-Mirroring window. Driving the
+**iOS Simulator** is fine and is the preferred path for visual UI work: the app compile-swaps to the fake
+`IOSSimulatorTTSEngine` on the sim (no models, no Metal/MLX, no signing), so the full UI runs. Use
+`scripts/ios_sim.sh` (`run` to build + launch the seeded app, `shot` to screenshot) or the `xcodebuildmcp` MCP
+(`build_run_sim` / `screenshot` / `snapshot_ui` / `tap`). Real taps are still required (the SwiftUI a11y tree
+is virtualized). Full reference: [`ios-device-testing.md`](ios-device-testing.md) → "Simulator UI review".
