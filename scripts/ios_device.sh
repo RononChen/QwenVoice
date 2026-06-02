@@ -18,7 +18,8 @@
 #   scripts/ios_device.sh build                   # signed device build (-Onone)
 #   scripts/ios_device.sh install                 # install the built app
 #   scripts/ios_device.sh launch [spec]           # launch (with autorun if spec given)
-#   scripts/ios_device.sh pull [dest]             # pull the App-Group diagnostics tree
+#   scripts/ios_device.sh console [spec]          # attached launch, stream [autorun] stdout live
+#   scripts/ios_device.sh pull [dest]             # pull the app-container diagnostics mirror
 #   scripts/ios_device.sh bench [spec] [--label "note"]
 #                                                 # build→install→autorun→pull→summarize
 #
@@ -169,20 +170,44 @@ print(json.dumps({
   fi
 }
 
-# pull [dest]: copy the App-Group diagnostics tree to dest (default build/ios-diagnostics).
+# console [spec]: launch ATTACHED (devicectl --console) with the autorun env and stream
+# the app's stdout live (the `[autorun] …` prints). Blocks until the app exits / Ctrl-C.
+# Best for diagnosing a failed bench — you watch exactly where the harness gets.
+cmd_console() {
+  local spec="${1:-custom:speed:Console diagnostic autorun.}"
+  [[ "$spec" == *:* ]] || spec="custom:speed:$spec"
+  local dev; dev="$(resolve_device)"
+  local run_id="ios-console-$(date +%Y%m%d-%H%M%S)"
+  note "attached launch ($spec), runID=$run_id — Ctrl-C to detach"
+  local env_json
+  env_json="$(QV_SPEC="$spec" QV_RUNID="$run_id" python3 -c '
+import json, os
+print(json.dumps({
+    "QWENVOICE_DEBUG": "1",
+    "QVOICE_IOS_DEVICE_RUN_ID": os.environ["QV_RUNID"],
+    "QVOICE_IOS_AUTORUN": os.environ["QV_SPEC"],
+}))')"
+  xcrun devicectl device process launch --device "$dev" --console --terminate-existing \
+    -e "$env_json" "$BUNDLE_ID"
+}
+
+# pull [dest]: copy the diagnostics mirror to dest (default build/ios-diagnostics).
+# IMPORTANT: devicectl `copy from` can read the app's OWN data container
+# (appDataContainer) but NOT the App-Group container — any App-Group source fails with
+# a bogus "File paths cannot contain '..'". So IOSAutorunHarness mirrors the sentinel +
+# engine telemetry to Library/Caches/Vocello/diagnostics in the app container, and we
+# pull from there. devicectl copies the SOURCE DIR'S CONTENTS into dest.
 cmd_pull() {
   local dest="${1:-$ROOT_DIR/build/ios-diagnostics}"
   local dev; dev="$(resolve_device)"
   mkdir -p "$dest"
-  note "pulling diagnostics from App Group → $dest"
+  note "pulling diagnostics from app container → $dest"
   # 1>&2: keep devicectl chatter off this function's stdout (reserved for the path).
-  # The bench poll suppresses stderr at the call site; a bare `pull` shows it.
   xcrun devicectl device copy from --device "$dev" \
-    --domain-type appGroupDataContainer --domain-identifier "$APP_GROUP" \
-    --source diagnostics --destination "$dest" 1>&2 \
-    || die "could not pull diagnostics (has a telemetry run happened? is the app group present?)"
-  # devicectl nests the copied 'diagnostics' dir under dest. stdout = ONLY the path.
-  if [[ -d "$dest/diagnostics" ]]; then printf '%s\n' "$dest/diagnostics"; else printf '%s\n' "$dest"; fi
+    --domain-type appDataContainer --domain-identifier "$BUNDLE_ID" \
+    --source "Library/Caches/Vocello/diagnostics" --destination "$dest" 1>&2 \
+    || die "could not pull diagnostics (has an autorun happened on THIS installed build?)"
+  printf '%s\n' "$dest"
 }
 
 cmd_bench() {
@@ -206,35 +231,44 @@ cmd_bench() {
   local dest="$ROOT_DIR/build/ios-diagnostics"
   rm -rf "$dest"
   note "waiting for autorun sentinel (runID=$run_id, timeout=${timeout}s)…"
-  local waited=0 diag="" sentinel=""
+  local waited=0 sentinel=""
   while (( waited < timeout )); do
     sleep 10; waited=$((waited + 10))
-    diag="$(cmd_pull "$dest" 2>/dev/null | tail -1 || true)"
-    sentinel="$diag/$run_id/autorun-done.json"
-    if [[ -f "$sentinel" ]]; then
+    cmd_pull "$dest" >/dev/null 2>&1 || true
+    # devicectl nesting varies, so locate the sentinel by name+runID rather than a fixed path.
+    sentinel="$(find "$dest" -name autorun-done.json -path "*/${run_id}/*" 2>/dev/null | head -1)"
+    if [[ -n "$sentinel" && -f "$sentinel" ]]; then
       note "sentinel found after ${waited}s"
       break
     fi
     note "…still generating (${waited}s)"
   done
 
-  [[ -f "$sentinel" ]] || die "no sentinel after ${timeout}s — model not downloaded on device? check: $0 launch (no spec) then watch the app"
+  [[ -n "$sentinel" && -f "$sentinel" ]] || die "no sentinel after ${timeout}s — autorun didn't write. Diagnose live with: $0 console \"$spec\""
+
+  # The summarizer reads <dir>/engine/generations.jsonl — find the dir that holds it.
+  local diag="$dest"
+  local engine_jsonl; engine_jsonl="$(find "$dest" -path '*/engine/generations.jsonl' 2>/dev/null | head -1)"
+  [[ -n "$engine_jsonl" ]] && diag="$(dirname "$(dirname "$engine_jsonl")")"
 
   note "── autorun result ─────────────────────────────"
-  python3 -c '
+  # Heredoc (quoted delimiter) so the Python body needs no shell-quote escaping.
+  python3 - "$sentinel" <<'PY' >&2 || true
 import json, sys
 r = json.load(open(sys.argv[1]))
-print(f"  status   : {r.get(\"status\")}")
-print(f"  mode     : {r.get(\"mode\")} / {r.get(\"variant\")}")
-print(f"  model    : {r.get(\"modelID\")}")
+def num(x): return x if isinstance(x, (int, float)) else 0.0
+print("  status   :", r.get("status"))
+print("  mode     :", r.get("mode"), "/", r.get("variant"))
+print("  model    :", r.get("modelID"))
 if r.get("status") == "ok":
-    print(f"  audio    : {r.get(\"durationSeconds\"):.2f}s   wall {r.get(\"wallSeconds\"):.2f}s   rtf {r.get(\"realtimeFactor\"):.2f}")
-    print(f"  finish   : {r.get(\"finishReason\")}")
-    print(f"  out      : {r.get(\"audioPath\")}")
+    print("  audio    : %.2fs   wall %.2fs   rtf %.2f"
+          % (num(r.get("durationSeconds")), num(r.get("wallSeconds")), num(r.get("realtimeFactor"))))
+    print("  finish   :", r.get("finishReason"))
+    print("  out      :", r.get("audioPath"))
 else:
-    print(f"  error    : {r.get(\"error\")}")
-print(f"  device   : {r.get(\"deviceModel\")} {r.get(\"systemName\")} {r.get(\"systemVersion\")}")
-' "$sentinel" >&2
+    print("  error    :", r.get("error"))
+print("  device   :", r.get("deviceModel"), r.get("systemName"), r.get("systemVersion"))
+PY
 
   note "── telemetry summary (engine decode / RTF / audioQC / RAM) ──"
   python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$diag" \
@@ -251,11 +285,12 @@ main() {
     build)   cmd_build "$@" ;;
     install) cmd_install "$@" ;;
     launch)  cmd_launch "$@" ;;
+    console) cmd_console "$@" ;;
     pull)    cmd_pull "$@" ;;
     bench)   cmd_bench "$@" ;;
     help|-h|--help)
       sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//' >&2 ;;
-    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|pull|bench|help)" ;;
+    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|pull|bench|help)" ;;
   esac
 }
 

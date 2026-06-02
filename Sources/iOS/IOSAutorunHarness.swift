@@ -209,18 +209,73 @@ enum IOSAutorunHarness {
     }
 
     private static func writeSentinel(_ record: SentinelRecord, runID: String) {
-        let dir = AppPaths.appSupportDir
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = (try? encoder.encode(record)) ?? Data()
+
+        // 1) Canonical: the App-Group diagnostics dir, where the engine also writes its
+        //    telemetry (`diagnostics/engine/generations.jsonl`).
+        let groupRunDir = AppPaths.appSupportDir
             .appendingPathComponent("diagnostics", isDirectory: true)
             .appendingPathComponent(runID, isDirectory: true)
-        let url = dir.appendingPathComponent("autorun-done.json", isDirectory: false)
+        writeData(data, to: groupRunDir.appendingPathComponent("autorun-done.json", isDirectory: false),
+                  label: "sentinel (app-group)")
+
+        // 2) Pullable mirror in the app's OWN container. devicectl `copy from
+        //    --domain-type appDataContainer` CAN pull this, but it CANNOT pull the
+        //    App-Group container (confirmed: any source there fails with a bogus
+        //    "File paths cannot contain '..'"). scripts/ios_device.sh pulls
+        //    `Library/Caches/Vocello/diagnostics` from appDataContainer, so the bench
+        //    needs the sentinel + the engine telemetry here too.
+        guard let pullableRoot = pullableDiagnosticsDir() else { return }
+        writeData(data, to: pullableRoot.appendingPathComponent(runID, isDirectory: true)
+                    .appendingPathComponent("autorun-done.json", isDirectory: false),
+                  label: "sentinel (pullable)")
+        mirrorEngineTelemetry(into: pullableRoot)
+    }
+
+    /// The app's OWN container Caches dir (`Library/Caches/Vocello/diagnostics`) — the
+    /// devicectl-pullable export location for the on-device bench (the App-Group
+    /// container is NOT pullable). Mirrors the app-container path
+    /// `IOSDeviceDiagnosticsRecorder` already uses.
+    private static func pullableDiagnosticsDir() -> URL? {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Vocello", isDirectory: true)
+            .appendingPathComponent("diagnostics", isDirectory: true)
+    }
+
+    private static func writeData(_ data: Data, to url: URL, label: String) {
         do {
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(record).write(to: url, options: .atomic)
-            print("[autorun] sentinel → \(url.path)")
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: url, options: .atomic)
+            print("[autorun] \(label) → \(url.path)")
         } catch {
-            print("[autorun] could not write sentinel: \(error.localizedDescription)")
+            print("[autorun] could not write \(label): \(error.localizedDescription)")
+        }
+    }
+
+    /// Copy the per-layer telemetry the summarizer reads from the (non-pullable)
+    /// App-Group `diagnostics/` into the pullable mirror, so
+    /// `summarize_generation_telemetry.py` runs on the pulled tree. JSONL only
+    /// (small, size-capped) — no audio.
+    private static func mirrorEngineTelemetry(into pullableRoot: URL) {
+        let source = AppPaths.appSupportDir.appendingPathComponent("diagnostics", isDirectory: true)
+        let fileManager = FileManager.default
+        for layer in ["engine", "engine-service", "app"] {
+            let from = source.appendingPathComponent(layer, isDirectory: true)
+                .appendingPathComponent("generations.jsonl", isDirectory: false)
+            guard fileManager.fileExists(atPath: from.path) else { continue }
+            let to = pullableRoot.appendingPathComponent(layer, isDirectory: true)
+                .appendingPathComponent("generations.jsonl", isDirectory: false)
+            do {
+                try fileManager.createDirectory(
+                    at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
+                if fileManager.fileExists(atPath: to.path) { try fileManager.removeItem(at: to) }
+                try fileManager.copyItem(at: from, to: to)
+            } catch {
+                print("[autorun] could not mirror \(layer) telemetry: \(error.localizedDescription)")
+            }
         }
     }
 
