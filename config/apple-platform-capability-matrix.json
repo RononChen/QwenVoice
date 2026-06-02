@@ -48,22 +48,6 @@
         "supportsMemoryTrim": false,
         "supportsPreparedVoiceManagement": true
       }
-    },
-    "extension": {
-      "bundleIdentifier": "com.patricedery.vocello.engine-extension",
-      "applicationGroups": [
-        "group.com.patricedery.vocello.shared"
-      ],
-      "booleanEntitlements": {
-        "com.apple.developer.kernel.increased-memory-limit": true
-      },
-      "engineCapabilities": {
-        "supportsBatchGeneration": false,
-        "supportsAudioPreparation": true,
-        "supportsInteractivePrefetch": true,
-        "supportsMemoryTrim": true,
-        "supportsPreparedVoiceManagement": true
-      }
     }
   }
 }

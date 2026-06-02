@@ -46,7 +46,7 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
     @Published private(set) var clonePreparationState: ClonePreparationState = .idle
     @Published private(set) var latestEvent: GenerationEvent?
     @Published private(set) var hasActiveGeneration = false
-    @Published private(set) var extensionLifecycleState: ExtensionEngineLifecycleState = .idle
+    @Published private(set) var engineLifecycleState: EngineLifecycleState = .idle
 
     let modelRegistry: any ModelRegistry
     let supportsSavedVoiceMutation: Bool
@@ -400,8 +400,8 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         if latestEvent != retainedLatestEvent {
             latestEvent = retainedLatestEvent
         }
-        if extensionLifecycleState != retainedSnapshot.lifecycleState {
-            extensionLifecycleState = retainedSnapshot.lifecycleState
+        if engineLifecycleState != retainedSnapshot.lifecycleState {
+            engineLifecycleState = retainedSnapshot.lifecycleState
         }
         let snapshotHasActiveGeneration: Bool
         if case .running(_, let label, _) = retainedSnapshot.loadState,
@@ -751,7 +751,7 @@ final class AnyTTSEngineBackend {
     private let setAllowsProactiveWarmOperationsBlock: (Bool) -> Void
     private let trimMemoryBlock: (NativeMemoryTrimLevel, String) async -> Void
     private let captureMemorySnapshotBlock: (IOSMemoryProcessRole) async -> IOSMemorySnapshot?
-    private let extensionLifecycleStateBlock: () -> ExtensionEngineLifecycleState
+    private let engineLifecycleStateBlock: () -> EngineLifecycleState
 
     init<Engine: TTSEngine & AnyObject>(
         engine: Engine,
@@ -824,7 +824,7 @@ final class AnyTTSEngineBackend {
         } else {
             self.captureMemorySnapshotBlock = { _ in nil }
         }
-        self.extensionLifecycleStateBlock = {
+        self.engineLifecycleStateBlock = {
             Self.frontendLifecycleState(for: engine)
         }
     }
@@ -833,7 +833,7 @@ final class AnyTTSEngineBackend {
         let snapshot = snapshotBlock()
         return TTSEngineFrontendState(
             isReady: snapshot.isReady,
-            lifecycleState: extensionLifecycleStateBlock(),
+            lifecycleState: engineLifecycleStateBlock(),
             loadState: snapshot.loadState,
             clonePreparationState: snapshot.clonePreparationState,
             latestEvent: snapshot.latestEvent,
@@ -877,12 +877,11 @@ final class AnyTTSEngineBackend {
         await captureMemorySnapshotBlock(role)
     }
 
+    // The iOS engine runs in-process (MLXTTSEngine / the simulator fake); there is no
+    // separate extension process with a real lifecycle, so synthesize a health state.
     private static func frontendLifecycleState<Engine: TTSEngine>(
         for engine: Engine
-    ) -> ExtensionEngineLifecycleState {
-        if let engine = engine as? ExtensionBackedTTSEngine {
-            return engine.lifecycleState
-        }
+    ) -> EngineLifecycleState {
         if engine.isReady {
             return .connected
         }

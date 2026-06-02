@@ -9,7 +9,7 @@ import OSLog
 // MARK: - QwenVoiceCore Runtime Ownership
 //
 // `NativeStreamingSynthesisSession` is now owned by `QwenVoiceCore` and is
-// shared by the active macOS XPC service and iPhone engine-extension paths.
+// shared by the active macOS XPC service and the iPhone in-process engine.
 // Keep behavior changes here aligned with the platform host adapters.
 
 protocol NativeStreamingSessionRunning {

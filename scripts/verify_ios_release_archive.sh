@@ -69,46 +69,27 @@ verify_app_bundle() {
     bundle_id="$(plist_read "$info_plist" CFBundleIdentifier)"
     [ "$bundle_id" = "$IOS_APP_BUNDLE_ID" ] || fail "$label app bundle identifier mismatch: expected $IOS_APP_BUNDLE_ID, got ${bundle_id:-missing}"
 
+    # The iOS engine runs in-process (MLXTTSEngine) — the app embeds NO
+    # ExtensionKit extension. (The old VocelloEngineExtension .appex was removed:
+    # a non-UI extension is Jetsam-capped at a tiny per-process budget that the
+    # increased-memory-limit entitlement does not raise.)
     local extension_paths=()
     while IFS= read -r extension_path; do
         extension_paths+=("$extension_path")
     done < <(find "$app_path" -type d -name '*.appex' | sort)
-    [ "${#extension_paths[@]}" -eq 1 ] || fail "$label app must embed exactly one .appex bundle; found ${#extension_paths[@]}"
-
-    local extension_path="${extension_paths[0]}"
-    case "$extension_path" in
-        */Extensions/*.appex|*/PlugIns/*.appex) ;;
-        *)
-            fail "$label extension is embedded in an unexpected location: $extension_path"
-            ;;
-    esac
-
-    local extension_info_plist="$extension_path/Info.plist"
-    [ -f "$extension_info_plist" ] || fail "$label extension Info.plist missing: $extension_info_plist"
-
-    local extension_bundle_id
-    extension_bundle_id="$(plist_read "$extension_info_plist" CFBundleIdentifier)"
-    [ "$extension_bundle_id" = "$IOS_EXTENSION_BUNDLE_ID" ] || fail "$label extension bundle identifier mismatch: expected $IOS_EXTENSION_BUNDLE_ID, got ${extension_bundle_id:-missing}"
+    [ "${#extension_paths[@]}" -eq 0 ] || fail "$label app must embed zero .appex bundles (engine is in-process); found ${#extension_paths[@]}: ${extension_paths[*]}"
 
     local app_entitlements="$temp_root/${label}_app_entitlements.plist"
-    local extension_entitlements="$temp_root/${label}_extension_entitlements.plist"
     entitlements_to_file "$app_path" "$app_entitlements"
-    entitlements_to_file "$extension_path" "$extension_entitlements"
 
     for required_app_group in "${IOS_REQUIRED_APP_GROUPS[@]}"; do
         plist_array_contains "$app_entitlements" "com.apple.security.application-groups" "$required_app_group" \
             || fail "$label app is missing App Group $required_app_group"
-        plist_array_contains "$extension_entitlements" "com.apple.security.application-groups" "$required_app_group" \
-            || fail "$label extension is missing App Group $required_app_group"
     done
 
     if [ "$IOS_APP_EXPECTS_INCREASED_MEMORY_LIMIT" = "true" ]; then
         plist_bool_true "$app_entitlements" "com.apple.developer.kernel.increased-memory-limit" \
             || fail "$label app is missing com.apple.developer.kernel.increased-memory-limit=true"
-    fi
-    if [ "$IOS_EXTENSION_EXPECTS_INCREASED_MEMORY_LIMIT" = "true" ]; then
-        plist_bool_true "$extension_entitlements" "com.apple.developer.kernel.increased-memory-limit" \
-            || fail "$label extension is missing com.apple.developer.kernel.increased-memory-limit=true"
     fi
 }
 
@@ -129,13 +110,11 @@ EXPORT_DIR="$(cd "$(dirname "$EXPORT_DIR")" && pwd)/$(basename "$EXPORT_DIR")"
 METADATA_PATH="$(cd "$(dirname "$METADATA_PATH")" && pwd)/$(basename "$METADATA_PATH")"
 
 IOS_APP_BUNDLE_ID="$(matrix_read "iOS/app/bundleIdentifier")"
-IOS_EXTENSION_BUNDLE_ID="$(matrix_read "iOS/extension/bundleIdentifier")"
 IOS_REQUIRED_APP_GROUPS=()
 while IFS= read -r required_app_group; do
     IOS_REQUIRED_APP_GROUPS+=("$required_app_group")
 done < <(matrix_read "iOS/app/applicationGroups")
 IOS_APP_EXPECTS_INCREASED_MEMORY_LIMIT="$(matrix_read "iOS/app/booleanEntitlements/com.apple.developer.kernel.increased-memory-limit")"
-IOS_EXTENSION_EXPECTS_INCREASED_MEMORY_LIMIT="$(matrix_read "iOS/extension/booleanEntitlements/com.apple.developer.kernel.increased-memory-limit")"
 
 TEMP_ROOT="$(mktemp -d)"
 cleanup() {
@@ -173,7 +152,7 @@ TESTFLIGHT_UPLOAD_STATUS="$(metadata_read "$METADATA_PATH" testflight_upload_sta
 echo "=== Vocello iPhone: Verify Release Archive ==="
 echo ""
 
-echo "[1/3] Verifying archived app and extension..."
+echo "[1/3] Verifying archived app (in-process engine, no extension)..."
 verify_app_bundle "$ARCHIVE_APP_PATH" "archive" "$TEMP_ROOT"
 echo "[1/3] Archive bundle verification OK"
 echo ""

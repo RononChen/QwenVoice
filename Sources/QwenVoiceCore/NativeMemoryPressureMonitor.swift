@@ -2,9 +2,9 @@ import Foundation
 
 /// Subscribes to kernel memory-pressure events and publishes the translated
 /// `NativeMemoryTrimLevel` to interested consumers. macOS uses it for the
-/// XPC engine process on 8 GB and 16 GB Macs; iOS uses it inside the
-/// engine-extension process so MLX can shed cache based on its own pressure
-/// events, not only the host app's notifications.
+/// XPC engine process on 8 GB and 16 GB Macs; iOS uses it in the app process
+/// (the engine runs in-process) so MLX can shed cache based on kernel pressure
+/// events.
 ///
 /// Mapping from kernel pressure event to trim level:
 ///

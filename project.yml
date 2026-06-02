@@ -78,8 +78,6 @@ targets:
           - "QwenVoiceEngineSupport/**"
           - "iOS"
           - "iOS/**"
-          - "iOSEngineExtension"
-          - "iOSEngineExtension/**"
           - "iOSSupport"
           - "iOSSupport/**"
           - "QwenVoiceNative"
@@ -313,43 +311,6 @@ targets:
       - package: SwiftHuggingFace
         product: HuggingFace
 
-  VocelloEngineExtension:
-    type: extensionkit-extension
-    platform: iOS
-    sources:
-      - path: Sources/iOSEngineExtension
-      - path: Sources/Resources/qwenvoice_contract.json
-        buildPhase: resources
-      - path: Sources/PrivacyInfo.xcprivacy
-        buildPhase: resources
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.patricedery.vocello.engine-extension
-        PRODUCT_NAME: VocelloEngineExtension
-        PRODUCT_MODULE_NAME: VocelloEngineExtension
-        MARKETING_VERSION: "2.0.0"
-        CURRENT_PROJECT_VERSION: "16"
-        SWIFT_VERSION: "6"
-        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
-        GENERATE_INFOPLIST_FILE: NO
-        INFOPLIST_FILE: Sources/iOSEngineExtension/Info.plist
-        EX_ENABLE_EXTENSION_POINT_GENERATION: YES
-        QVOICE_IOS_APP_GROUP_IDENTIFIER: group.com.patricedery.vocello.shared
-        QVOICE_IOS_EXTENSION_ENTITLEMENTS: Sources/iOSEngineExtension/VocelloEngineExtension.entitlements
-        CODE_SIGN_ENTITLEMENTS: $(QVOICE_IOS_EXTENSION_ENTITLEMENTS)
-        CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: $(QWENVOICE_DEVELOPMENT_TEAM)
-    dependencies:
-      - target: QwenVoiceCore
-      - package: MLXAudio
-        product: MLXAudioCore
-      - package: MLXAudio
-        product: MLXAudioTTS
-      - package: MLXSwift
-        product: MLX
-      - package: SwiftHuggingFace
-        product: HuggingFace
-
   VocelloiOS:
     type: application
     platform: iOS
@@ -397,7 +358,6 @@ targets:
         INFOPLIST_KEY_QVoiceModelCatalogURL: $(QVOICE_IOS_DEFAULT_MODEL_CATALOG_URL)
         INFOPLIST_KEY_QVoiceSharedAppGroupIdentifier: $(QVOICE_IOS_APP_GROUP_IDENTIFIER)
         INFOPLIST_KEY_CFBundleDisplayName: Vocello
-        EX_ENABLE_EXTENSION_POINT_GENERATION: YES
         MARKETING_VERSION: "2.0.0"
         CURRENT_PROJECT_VERSION: "16"
         SWIFT_VERSION: "6"
@@ -413,12 +373,6 @@ targets:
     dependencies:
       - package: GRDB
       - target: QwenVoiceCore
-      # Dormant since 7822a8a: generation runs in-process (NativeRuntimeFactory), nothing
-      # instantiates ExtensionBackedTTSEngine on hardware. embed: false stops shipping the
-      # unused .appex (smaller app) while keeping the target compile-verified. Full removal
-      # of the target + Sources/iOSEngineExtension is a later step.
-      - target: VocelloEngineExtension
-        embed: false
       - package: MLXAudio
         product: MLXAudioCore
       - package: MLXAudio

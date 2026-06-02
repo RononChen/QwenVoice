@@ -353,8 +353,8 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
                 includeBaseAliases: true
             )
         // Skip the dedicated custom-prewarm step on floor8GBMac to
-        // match the iOS extension's policy (which has done this since
-        // launch — see VocelloEngineExtensionHost. The prewarm cost
+        // match the iOS in-process engine's policy (which has done this
+        // since launch). The prewarm cost
         // moves into the generation proper rather than running upfront,
         // and on a memory-constrained Mac that's the right trade:
         // model load completes faster, peak RSS at startup is lower,

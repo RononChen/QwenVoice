@@ -16,7 +16,7 @@ struct IOSEngineLifecycleToast: View {
             }
         }
         .iosAppAnimation(IOSSelectionMotion.miniPlayerSlide, value: visibleState)
-        .onReceive(ttsEngine.$extensionLifecycleState.removeDuplicates()) { newState in
+        .onReceive(ttsEngine.$engineLifecycleState.removeDuplicates()) { newState in
             handle(newState: newState)
         }
         .onDisappear {

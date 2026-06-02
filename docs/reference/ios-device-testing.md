@@ -16,9 +16,11 @@ complementary tools, neither of which drives the UI by pixels:
 Why this exists: on-device generation is the never-CI-tested path (real Jetsam, real
 model download, the in-process engine + increased-memory entitlement). iPhone Mirroring
 + computer-use was flaky for it (focus races, disconnects, engine-busy rejections) and
-couldn't run headlessly. See also: generation moved **in-process in the app** (commit
-`7822a8a`) because the `VocelloEngineExtension` non-UI extension is Jetsam-capped and the
-entitlement does **not** raise that cap — the app process does get the raised limit.
+couldn't run headlessly. See also: generation runs **in-process in the app** (since commit
+`7822a8a`) — a non-UI ExtensionKit extension is Jetsam-capped at a tiny per-process budget
+the entitlement does **not** raise, so it could never load the model; the app process *does*
+get the raised limit. The dead extension target was removed entirely (it never ran on
+hardware; git history preserves it).
 
 ---
 

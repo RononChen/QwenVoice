@@ -9,7 +9,7 @@ import QwenVoiceCore
 /// **On-device-capable.** Heavy generation runs **in-process in the app** via
 /// `NativeRuntimeFactory` (see `IOSAppBootstrap.makeBackend`) — the app process gets
 /// the `com.apple.developer.kernel.increased-memory-limit` entitlement's raised limit,
-/// whereas the (now-dormant) `VocelloEngineExtension` did not and was jetsam-killed
+/// whereas the (since-removed) `VocelloEngineExtension` did not and was jetsam-killed
 /// loading the model. The headless `IOSAutorunHarness` (`QVOICE_IOS_AUTORUN`) drives a
 /// generation with no UI for `scripts/ios_device.sh bench`; it ships inert.
 @main
@@ -82,7 +82,7 @@ struct QVoiceiOSApp: App {
                                     audioPlayer.abortLivePreviewIfNeeded()
                                 }
                             }
-                            .onReceive(engine.$extensionLifecycleState.removeDuplicates()) { lifecycleState in
+                            .onReceive(engine.$engineLifecycleState.removeDuplicates()) { lifecycleState in
                                 switch lifecycleState {
                                 case .interrupted, .invalidated:
                                     audioPlayer.abortLivePreviewIfNeeded()

@@ -140,7 +140,7 @@ so older rows still decode.
 |---|---|---|
 | `schemaVersion` | Int | 4 (v2 added derived/memory/chunk metrics; v3 `modelID`/`warmState`; v4 `audioQC`). |
 | `generationID` | String | Correlation key (UUID). |
-| `layer` | String | `engine` / `engine-service` / `engine-extension` / `app` / `merged`. |
+| `layer` | String | `engine` / `engine-service` / `app` / `merged`. (The retired iOS `engine-extension` layer no longer emits — iOS runs in-process.) |
 | `mode` | String? | `custom` / `design` / `clone`. |
 | `modelID` | String? | Resolved model variant id (e.g. `pro_custom_quality`). |
 | `warmState` | String? | `cold` / `warm` — the benchmark cell. |

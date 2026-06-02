@@ -3,10 +3,11 @@ import Foundation
 /// iOS filesystem paths — the iOS counterpart to `Sources/Services/AppPaths.swift`.
 ///
 /// Unlike macOS (which resolves a per-user `~/Library/Application Support/QwenVoice[-Debug]/`
-/// directory), iOS resolves an **App Group container** shared with
-/// `VocelloEngineExtension`, so the app and the out-of-process engine read and
-/// write the same models, history, and saved voices. `QVOICE_APP_SUPPORT_DIR`
-/// overrides the root.
+/// directory), iOS resolves an **App Group container** (`group.com.patricedery.vocello.shared`),
+/// so models, history, and saved voices live in a stable shared location. The
+/// engine runs in-process (`MLXTTSEngine`); the App Group container is retained
+/// so a future companion surface (widget, share extension) can read the same
+/// data without migration. `QVOICE_APP_SUPPORT_DIR` overrides the root.
 enum AppPaths {
     static let appSupportOverrideEnvironmentKey = "QVOICE_APP_SUPPORT_DIR"
     private static let defaultSharedAppGroupIdentifier = "group.com.patricedery.vocello.shared"

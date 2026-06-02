@@ -7,13 +7,10 @@ import Foundation
 /// Engine-protocol-level error type. Adopted by every conformer of
 /// `TTSEngine` and by every throwing function on that protocol once the
 /// typed-throws sweep is complete. Conformers catch downstream typed
-/// errors (e.g. `AudioPreparationError`, `DocumentIOError`,
-/// `ExtensionEngineHostManagerError`) and rethrow them as
-/// `.generationFailed(<localized description>)`. The cross-process
-/// transports (`Sources/QwenVoiceNative/XPCNativeEngineClient.swift`,
-/// `Sources/QwenVoiceCore/ExtensionBackedTTSEngine.swift`) carry
-/// instances of this type across `NSXPCConnection` and `AppExtension`
-/// boundaries.
+/// errors (e.g. `AudioPreparationError`, `DocumentIOError`) and rethrow
+/// them as `.generationFailed(<localized description>)`. The macOS
+/// cross-process transport (`Sources/QwenVoiceNative/XPCNativeEngineClient.swift`)
+/// carries instances of this type across the `NSXPCConnection` boundary.
 public enum TTSEngineError: LocalizedError, Equatable {
     case notInitialized
     case unknownModel(String)
@@ -303,8 +300,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
     /// levels to `runtime.trimMemory(...)`. On high-memory Macs the
     /// monitor is created but never started — there's no value in
     /// reacting on machines that aren't pressure-bound. On iOS the
-    /// engine-extension path starts the same monitor for the iPhonePro
-    /// tier so the process running MLX can shed cache on kernel pressure.
+    /// in-process engine starts the same monitor for the iPhonePro
+    /// tier so the app process running MLX can shed cache on kernel pressure.
     private var memoryPressureMonitor: NativeMemoryPressureMonitor
     private var memoryPressureTask: Task<Void, Never>?
     private var stopCleanupTask: Task<Void, Never>?

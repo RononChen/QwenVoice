@@ -152,7 +152,8 @@ buffer that only Instruments reads, not the unified log. So don't try to read ti
   - `diagnostics/generations-merged.jsonl` — all three layers joined by `generationID` (one row per
     run). This is the intended benchmark source; read it directly.
   (The legacy `native-events.jsonl` still carries chunk-gap / encode-drop events.) Under
-  `QwenVoice-Debug/` when DebugMode is on. iOS engine-extension rows are deferred with the rest of iOS.
+  `QwenVoice-Debug/` when DebugMode is on. iOS runs the engine in-process, so its telemetry lands in the
+  `app`/`engine` layers (there is no separate `engine-extension` layer on iOS).
 
 Cold vs warm: force cold by switching the model id (unloads) or letting idle-unload fire; warm =
 back-to-back runs. Commit compact snapshots/baselines under `benchmarks/` if useful (≤256 KB, no raw
