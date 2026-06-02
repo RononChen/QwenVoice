@@ -200,11 +200,13 @@ public enum NativeMemoryPolicyResolver {
         Double(bytes) / Double(1_024 * 1_024)
     }
 
+    // Runtime experimentation override (off unless the env var is set). Now available on
+    // the Release device build too (project rule: debug capabilities are runtime-gated, not
+    // compiled out) so MLX cache / memory-limit tuning can be exercised on hardware.
     private static func debugMegabytesOverride(
         _ key: String,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Int? {
-#if DEBUG
         guard let rawValue = environment[key]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               let megabytes = Int(rawValue),
@@ -212,8 +214,5 @@ public enum NativeMemoryPolicyResolver {
             return nil
         }
         return megabytes * 1_024 * 1_024
-#else
-        return nil
-#endif
     }
 }

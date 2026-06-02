@@ -80,9 +80,10 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         self.memoryBudgetPolicy = memoryBudgetPolicy
         self.memorySnapshotProvider = memorySnapshotProvider
         self.diagnosticsRecorder = IOSDeviceDiagnosticsRecorder.makeIfEnabled()
-#if DEBUG
+        // Runtime test knob (off unless QVOICE_IOS_MEMORY_GUARD_FORCE_CRITICAL_ONCE is set),
+        // now available on the Release device build too (project rule: debug capabilities are
+        // runtime-gated, not compiled out) so the memory guard can be exercised on hardware.
         self.debugForceCriticalOnceArmed = Self.debugForceCriticalOnceEnabled()
-#endif
         let initialAppSnapshot = memorySnapshotProvider()
         self.latestMemoryContext = memoryBudgetPolicy.context(
             appSnapshot: initialAppSnapshot,
@@ -586,11 +587,11 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
     }
 
     private func shouldEnforceCriticalMemoryContext(_ context: IOSMemoryContext) -> Bool {
-#if DEBUG
+        // Only the env-forced test path (below) drives this true; real critical pressure is
+        // handled by the band guard. Runtime-gated so it works on the Release device build.
         if context.reason.contains("debug_force_critical_once") {
             return true
         }
-#endif
         return false
     }
 
@@ -630,8 +631,9 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         )
     }
 
+    // Env-forced memory-band test knobs (below). Runtime-gated (no #if DEBUG) so they work
+    // on the Release device build; both are inert unless their env var is set.
     private func contextApplyingDebugForcedBand(_ context: IOSMemoryContext) -> IOSMemoryContext {
-#if DEBUG
         guard let forcedBand = Self.debugForcedMemoryBand(),
               forcedBand.severityRank > context.pressureBand.severityRank else {
             return context
@@ -641,13 +643,9 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
             overridingBand: forcedBand,
             reason: "\(context.reason)_debug_force_\(forcedBand.rawValue)"
         )
-#else
-        return context
-#endif
     }
 
     private func contextApplyingDebugCriticalOnceIfNeeded(_ context: IOSMemoryContext) -> IOSMemoryContext {
-#if DEBUG
         guard debugForceCriticalOnceArmed else { return context }
         debugForceCriticalOnceArmed = false
         let forcedContext = Self.context(
@@ -662,9 +660,6 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
             context: forcedContext
         )
         return forcedContext
-#else
-        return context
-#endif
     }
 
     private static func context(
@@ -683,7 +678,7 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         )
     }
 
-#if DEBUG
+    // Runtime test knobs (env-gated, off by default) — usable on the Release device build.
     private static func debugForcedMemoryBand(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> IOSMemoryPressureBand? {
@@ -709,7 +704,6 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
             return false
         }
     }
-#endif
 
     private static func megabytesString(_ bytes: UInt64) -> String {
         String(format: "%.1f", Double(bytes) / 1_048_576)
