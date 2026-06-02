@@ -19,9 +19,15 @@
 #   scripts/ios_device.sh install                 # install the built app
 #   scripts/ios_device.sh launch [spec]           # launch (with autorun if spec given)
 #   scripts/ios_device.sh console [spec]          # attached launch, stream [autorun] stdout live
+#   scripts/ios_device.sh mirror                  # start iPhone Mirroring + confirm device reachable
 #   scripts/ios_device.sh pull [dest]             # pull the app-container diagnostics mirror
 #   scripts/ios_device.sh bench [spec] [--label "note"]
 #                                                 # build→install→autorun→pull→summarize
+#
+# Observation: every device command auto-starts macOS iPhone Mirroring (watch on the Mac;
+# the phone stays locked + screen-dark, OLED-safe; mirroring also keeps a LOCKED device
+# reachable to devicectl). Opt out with QVOICE_IOS_NO_MIRROR=1. Lock the phone once per
+# session (Apple has no Mac-side lock CLI) or rely on Auto-Lock.
 #
 # Autorun spec: <mode>:<variant>:<text> (default custom:speed:<built-in sentence>).
 #   mode ∈ custom|design|clone, variant ∈ speed|quality (iPhone is speed-only).
@@ -30,6 +36,7 @@
 #   QWENVOICE_DEVELOPMENT_TEAM   (required for build/install) Apple team id
 #   QVOICE_IOS_DEVICE_ID         (optional) devicectl device id/name/udid; else auto
 #   QVOICE_IOS_BENCH_TIMEOUT     (optional) bench sentinel timeout seconds (default 300)
+#   QVOICE_IOS_NO_MIRROR         (optional) set to 1 to skip auto-starting iPhone Mirroring
 
 set -euo pipefail
 
@@ -53,6 +60,37 @@ PROJECT="$ROOT_DIR/QwenVoice.xcodeproj"
 note() { printf '\033[0;36m==>\033[0m %s\n' "$*" >&2; }
 warn() { printf '\033[0;33m[warn]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[0;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
+
+MIRROR_APP="iPhone Mirroring"   # bundle com.apple.ScreenContinuity
+
+# Auto-start macOS iPhone Mirroring for OBSERVATION before on-device work: the phone stays
+# locked + screen-dark (OLED-safe) and you watch live on the Mac. KEY: iPhone Mirroring
+# sustains the CoreDevice tunnel, so a LOCKED device stays `devicectl`-reachable (a
+# locked phone WITHOUT mirroring drops to "unavailable"). Idempotent + fast when already up.
+# Opt out with QVOICE_IOS_NO_MIRROR=1. (Locking the phone itself is an Apple security
+# boundary — no Mac-side CLI does it — so lock once per session, it then stays locked while
+# mirroring, or rely on the phone's Auto-Lock; iPhone Mirroring reconnects on auto-lock.)
+ensure_mirror() {
+  [[ "${QVOICE_IOS_NO_MIRROR:-}" == "1" ]] && return 0
+  if pgrep -fq "iPhone Mirroring" 2>/dev/null \
+     && xcrun devicectl list devices 2>/dev/null | grep -qi "available"; then
+    return 0   # already mirroring and a device is reachable
+  fi
+  note "starting iPhone Mirroring (observation; keeps a locked device reachable, OLED-safe)…"
+  open -a "$MIRROR_APP" >/dev/null 2>&1 || warn "could not launch iPhone Mirroring ($MIRROR_APP)"
+  local waited=0
+  while (( waited < 30 )); do
+    if xcrun devicectl list devices 2>/dev/null | grep -qi "available"; then
+      note "iPhone Mirroring up; device reachable."
+      return 0
+    fi
+    sleep 3; waited=$((waited + 3))
+  done
+  warn "device not 'available' yet — LOCK your iPhone (or wait for Auto-Lock) so iPhone Mirroring connects, then re-run."
+}
+
+# mirror: start/foreground iPhone Mirroring + confirm the device is reachable (manual use).
+cmd_mirror() { ensure_mirror; }
 
 require_team() {
   [[ -n "${QWENVOICE_DEVELOPMENT_TEAM:-}" ]] \
@@ -280,17 +318,23 @@ PY
 
 main() {
   local sub="${1:-help}"; shift || true
+  # Auto-start iPhone Mirroring before any device-touching command (observation + keeps a
+  # locked device reachable). `mirror` calls ensure_mirror itself; help/none skip it.
+  case "$sub" in
+    doctor|build|install|launch|console|pull|bench) ensure_mirror ;;
+  esac
   case "$sub" in
     doctor)  cmd_doctor "$@" ;;
     build)   cmd_build "$@" ;;
     install) cmd_install "$@" ;;
     launch)  cmd_launch "$@" ;;
     console) cmd_console "$@" ;;
+    mirror)  cmd_mirror "$@" ;;
     pull)    cmd_pull "$@" ;;
     bench)   cmd_bench "$@" ;;
     help|-h|--help)
       sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//' >&2 ;;
-    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|pull|bench|help)" ;;
+    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|mirror|pull|bench|help)" ;;
   esac
 }
 

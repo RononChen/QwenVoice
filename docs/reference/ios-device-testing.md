@@ -38,6 +38,13 @@ entitlement does **not** raise that cap — the app process does get the raised 
 The increased-memory entitlement is enabled + verified on both App IDs — see
 [`ios-increased-memory-entitlement-request.md`](ios-increased-memory-entitlement-request.md).
 
+- **Screen mirroring (observation, on by default):** device commands auto-start macOS **iPhone Mirroring**
+  so you watch the live app on the Mac while the phone stays **locked + screen-dark (OLED burn-in safe)**.
+  iPhone Mirroring also keeps a *locked* device reachable to `devicectl` (a locked phone without mirroring
+  goes "unavailable"). **Lock the phone once** per session (Apple exposes no Mac-side lock CLI; it then stays
+  locked while mirroring) or rely on Auto-Lock — iPhone Mirroring reconnects when the phone auto-locks. Opt
+  out with `QVOICE_IOS_NO_MIRROR=1`; start it manually with `scripts/ios_device.sh mirror`.
+
 ---
 
 ## 1. Headless generation harness
@@ -47,13 +54,19 @@ The increased-memory entitlement is enabled + verified on both App IDs — see
 A small `devicectl` driver. The signing team comes from `$QWENVOICE_DEVELOPMENT_TEAM`;
 the device is auto-discovered or pinned via `$QVOICE_IOS_DEVICE_ID` (neither committed).
 
+Every device verb below first runs an **auto-mirror preflight** (`ensure_mirror`): it starts
+macOS iPhone Mirroring and waits for the device to be `devicectl`-reachable, so you watch
+on the Mac with the phone locked + screen-dark (OLED-safe). Opt out with `QVOICE_IOS_NO_MIRROR=1`.
+
 | Verb | What it does |
 |------|--------------|
 | `doctor` | Environment + device preflight (Xcode, team env, device, built-app entitlement). |
 | `build` | Signed device build, `-Onone`, automatic signing (`-allowProvisioningUpdates`) → `build/ios/…/Vocello.app` (one shared iOS tree). |
 | `install` | `devicectl device install app` the built app. |
 | `launch [spec]` | Launch via `devicectl`. With a spec → sets the autorun + telemetry env; prints the generated `runID` on stdout. Without → a plain launch. |
-| `pull [dest]` | `devicectl device copy from --domain-type appGroupDataContainer` the `diagnostics/` tree (default `build/ios-diagnostics`). |
+| `console [spec]` | Attached `--console` launch — streams the app's `[autorun]` stdout live (best for diagnosing a failed run). |
+| `mirror` | Start macOS iPhone Mirroring + confirm the device is reachable (the preflight, runnable on its own). |
+| `pull [dest]` | `devicectl device copy from --domain-type appDataContainer --source Library/Caches/Vocello/diagnostics` (the app's pullable mirror — the App-Group container is NOT devicectl-readable). Default dest `build/ios-diagnostics`. |
 | `bench [spec] [--label "note"]` | The full loop: `build → install → launch-with-autorun → poll the sentinel → pull diagnostics → summarize`. Exits non-zero if the generation failed. |
 
 ```sh

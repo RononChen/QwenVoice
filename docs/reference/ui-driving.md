@@ -166,5 +166,11 @@ back-to-back runs. Commit compact snapshots/baselines under `benchmarks/` if use
 > headlessly. It has been replaced by the **hybrid on-device method** in
 > [`ios-device-testing.md`](ios-device-testing.md): a headless generation harness (`scripts/ios_device.sh` +
 > the `QVOICE_IOS_AUTORUN` launch trigger, telemetry-driven, no UI) for perf/memory/quality proof, plus a
-> thin `VocelloiOSUITests` XCUITest for UI-flow smoke. Use that for anything scripted. iPhone Mirroring
-> remains fine for **ad-hoc manual visual eyeballing**, but don't script it.
+> thin `VocelloiOSUITests` XCUITest for UI-flow smoke. Use that for anything scripted.
+>
+> **Observation-mirroring is encouraged — and is now the standing on-device rule.** What stays deprecated is
+> *driving* the UI via the mirror (computer-use taps). *Watching* the live app via macOS **iPhone Mirroring**
+> while the headless harness runs is the recommended workflow: `scripts/ios_device.sh` auto-starts iPhone
+> Mirroring before every device command, so the phone stays **locked + screen-dark (OLED burn-in safe)** and you
+> watch on the Mac — and crucially, iPhone Mirroring keeps a *locked* device reachable to `devicectl` (a locked
+> phone without mirroring drops to "unavailable"). Opt out with `QVOICE_IOS_NO_MIRROR=1`.
