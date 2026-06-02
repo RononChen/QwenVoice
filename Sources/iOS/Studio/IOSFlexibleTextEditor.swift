@@ -45,7 +45,39 @@ struct IOSFlexibleTextEditor: UIViewRepresentable {
         view.autocapitalizationType = .sentences
         view.smartQuotesType = .yes
         view.smartDashesType = .yes
+        // Keyboard-dismiss affordance. The composer fills the canvas with the
+        // voice/tone setup chips + Generate CTA sitting *below* it, so once the
+        // keyboard is up the user needs a discoverable way to lower it and reach
+        // those controls. A "Done" accessory bar is the iOS-standard answer
+        // (Notes / Mail). `target: nil` + `resignFirstResponder` walks the
+        // responder chain to this text view (the first responder); its
+        // `textViewDidEndEditing` then drives `isFocused` back to false — no extra
+        // state, no retain cycle. (SwiftUI's `.toolbar(.keyboard)` is unreliable
+        // here: it doesn't track this UIViewRepresentable's UIKit focus.)
+        view.inputAccessoryView = Self.makeKeyboardAccessory(tintColor: tintColor)
         return view
+    }
+
+    /// A minimal keyboard accessory bar with a single right-aligned **Done**
+    /// button that resigns the first responder. Sized to the keyboard width by
+    /// UIKit once attached as `inputAccessoryView`.
+    private static func makeKeyboardAccessory(tintColor: UIColor) -> UIToolbar {
+        let toolbar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 0, height: 44))
+        toolbar.barStyle = .black            // match the locked dark composer chrome
+        toolbar.tintColor = tintColor        // "Done" picks up the mode accent
+        let done = UIBarButtonItem(
+            title: "Done",
+            style: .done,
+            target: nil,
+            action: #selector(UIResponder.resignFirstResponder)
+        )
+        done.accessibilityIdentifier = "textInput_keyboardDoneButton"
+        toolbar.items = [
+            UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil),
+            done
+        ]
+        toolbar.sizeToFit()
+        return toolbar
     }
 
     func updateUIView(_ view: NoIntrinsicHeightTextView, context: Context) {
@@ -60,6 +92,8 @@ struct IOSFlexibleTextEditor: UIViewRepresentable {
         }
         if view.tintColor != tintColor {
             view.tintColor = tintColor
+            // Keep the "Done" accessory accent in sync when the mode tint changes.
+            (view.inputAccessoryView as? UIToolbar)?.tintColor = tintColor
         }
 
         if let isFocused {
