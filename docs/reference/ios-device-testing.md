@@ -223,13 +223,19 @@ Connect Hardware Keyboard off) so the on-screen keyboard appears.
 
 ### Agent-driven UI checks (Claude)
 
-To verify a UI change myself I can drive the sim two ways, both reusing `build/ios`:
+To verify a UI change myself I can drive the sim three ways, all reusing `build/ios`:
 - **CLI**: `scripts/ios_sim.sh run` then `scripts/ios_sim.sh shot <path>` and read the screenshot.
+- **axiom `xcui` / `axe`**: `axe describe-ui --udid <sim>` (read the accessibility tree),
+  `axe tap --label "…" --udid <sim>` / `axe tap -x … -y …`, `axe type`, `axe screenshot`. `axe`
+  (the `xcui` dependency) installs **without Homebrew** via **`scripts/install_axe.sh`** (pinned +
+  sha-verified; puts `axe` in `~/.local/bin`); confirm with `xcui doctor` (`"ok": true`).
 - **`xcodebuildmcp` MCP**: `build_run_sim` → `screenshot` / `snapshot_ui` (the accessibility tree
-  with `elementRef`s) → `tap` / `type_text` to drive a flow. Use real taps — the SwiftUI a11y
-  tree is virtualized (e.g. `textInput_textEditor` only materializes after a focus tap). This is
-  the sanctioned iOS UI-driving path; **driving the real device via iPhone Mirroring stays
-  deprecated** (see [`ui-driving.md`](ui-driving.md)) — *Simulator* driving is fine.
+  with `elementRef`s) → `tap` / `type_text` to drive a flow (note: the MCP's UI-automation tools
+  may need enabling in XcodeBuildMCP's config).
+
+Use real taps — the SwiftUI a11y tree is virtualized (e.g. `textInput_textEditor` only materializes
+after a focus tap). This is the sanctioned iOS UI-driving path; **driving the real device via iPhone
+Mirroring stays deprecated** (see [`ui-driving.md`](ui-driving.md)) — *Simulator* driving is fine.
 
 ---
 
