@@ -1043,8 +1043,8 @@ struct IOSPrimaryCTAButton: View {
                     Image(systemName: symbol)
                         .font(.system(size: 18, weight: .semibold))
                         .symbolRenderingMode(.hierarchical)
-                        // Tinted glyph accent, like the pills' tinted symbols.
-                        .foregroundStyle(tint)
+                        // White glyph, matching the label so icon + text read as one unit.
+                        .foregroundStyle(foregroundInk)
                 }
                 Text(title)
                     .font(.system(size: 17, weight: .semibold))
