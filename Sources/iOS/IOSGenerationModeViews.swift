@@ -167,13 +167,7 @@ struct IOSCustomVoiceView: View {
         IOSStudioSetupChip(
             eyebrow: "Voice",
             value: speakerDisplayName,
-            leadingAvatar: AnyView(
-                IOSVoiceAvatar(
-                    seed: draft.selectedSpeaker,
-                    initials: speakerDisplayName,
-                    diameter: IOSStudioSetupChip.iconDiameter
-                )
-            ),
+            leadingSymbol: "person.fill",
             tint: IOSBrandTheme.custom,
             accessibilityID: "studioChip_voice",
             action: presentVoicePicker
