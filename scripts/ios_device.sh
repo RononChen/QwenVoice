@@ -20,6 +20,7 @@
 #   scripts/ios_device.sh launch [spec]           # launch (with autorun if spec given)
 #   scripts/ios_device.sh console [spec]          # attached launch, stream [autorun] stdout live
 #   scripts/ios_device.sh mirror                  # start iPhone Mirroring + confirm device reachable
+#   scripts/ios_device.sh shot [out.png]          # capture the iPhone Mirroring window (device screen) → PNG
 #   scripts/ios_device.sh pull [dest]             # pull the app-container diagnostics mirror
 #   scripts/ios_device.sh bench [spec] [--label "note"]
 #                                                 # build→install→autorun→pull→summarize
@@ -91,6 +92,52 @@ ensure_mirror() {
 
 # mirror: start/foreground iPhone Mirroring + confirm the device is reachable (manual use).
 cmd_mirror() { ensure_mirror; }
+
+# shot [out.png]: capture the iPhone Mirroring window (the live device screen) to a PNG — the
+# device analog of `ios_sim.sh shot`, for visual UI review on REAL hardware. devicectl has no
+# screenshot and this Mac has no libimobiledevice, so we screencapture the Mirroring window region.
+# NOT pixel-exact (includes the Mirroring chrome / device bezel at window scale) — it's for judging
+# layout / color / spacing. We CAPTURE only; navigating across screens is done by tapping the phone
+# (coordinate-based mirror-DRIVING stays deprecated). First run may prompt for Screen Recording +
+# Automation permission for the controlling terminal (System Settings → Privacy & Security).
+cmd_shot() {
+  local out="${1:-$ROOT_DIR/build/device-shot.png}"
+  command -v screencapture >/dev/null 2>&1 || die "screencapture not found (macOS only)"
+  mkdir -p "$(dirname "$out")"
+
+  # Bring Mirroring frontmost so the captured region isn't occluded by another window.
+  open -a "$MIRROR_APP" >/dev/null 2>&1 || true
+  osascript -e "tell application \"$MIRROR_APP\" to activate" >/dev/null 2>&1 || true
+  sleep 0.6
+
+  # Read the Mirroring window's screen rect (points, top-left origin — same space screencapture -R uses).
+  local rect
+  rect="$(osascript <<'OSA' 2>/dev/null || true
+tell application "System Events"
+  if not (exists process "iPhone Mirroring") then return ""
+  tell process "iPhone Mirroring"
+    if (count of windows) is 0 then return ""
+    set p to position of window 1
+    set s to size of window 1
+    -- Coerce each number to text BEFORE concatenating; `integer & ","` builds a list, not a string.
+    set x to ((item 1 of p) as integer) as text
+    set y to ((item 2 of p) as integer) as text
+    set w to ((item 1 of s) as integer) as text
+    set h to ((item 2 of s) as integer) as text
+    return x & "," & y & "," & w & "," & h
+  end tell
+end tell
+OSA
+)"
+
+  [[ -n "$rect" ]] || die "couldn't read the iPhone Mirroring window — open + connect it first ('$0 mirror', showing the device), and grant Automation permission if prompted"
+
+  note "capturing iPhone Mirroring window [$rect] → $out"
+  screencapture -x -R "$rect" "$out" \
+    || die "screencapture failed — grant Screen Recording permission to this terminal (System Settings → Privacy & Security → Screen Recording), then retry"
+  [[ -s "$out" ]] || die "screencapture produced an empty file — check Screen Recording permission"
+  printf '%s\n' "$out"
+}
 
 require_team() {
   [[ -n "${QWENVOICE_DEVELOPMENT_TEAM:-}" ]] \
@@ -321,7 +368,7 @@ main() {
   # Auto-start iPhone Mirroring before any device-touching command (observation + keeps a
   # locked device reachable). `mirror` calls ensure_mirror itself; help/none skip it.
   case "$sub" in
-    doctor|build|install|launch|console|pull|bench) ensure_mirror ;;
+    doctor|build|install|launch|console|pull|bench|shot) ensure_mirror ;;
   esac
   case "$sub" in
     doctor)  cmd_doctor "$@" ;;
@@ -330,11 +377,12 @@ main() {
     launch)  cmd_launch "$@" ;;
     console) cmd_console "$@" ;;
     mirror)  cmd_mirror "$@" ;;
+    shot)    cmd_shot "$@" ;;
     pull)    cmd_pull "$@" ;;
     bench)   cmd_bench "$@" ;;
     help|-h|--help)
-      sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//' >&2 ;;
-    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|mirror|pull|bench|help)" ;;
+      sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//' >&2 ;;
+    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|mirror|shot|pull|bench|help)" ;;
   esac
 }
 
