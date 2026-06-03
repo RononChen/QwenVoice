@@ -776,7 +776,8 @@ struct IOSStudioSetupChip: View {
             IOSSetupChipPill(
                 symbol: leadingSymbol,
                 abbreviation: abbreviation,
-                tint: tint
+                tint: tint,
+                isPlaceholder: isPlaceholder
             )
             // Placeholder (unset reference / brief) reads dimmer. The pill
             // expands to fill its equal share of the row (see setupRow).
@@ -799,6 +800,7 @@ struct IOSSetupChipPill: View {
     let symbol: String
     let abbreviation: String
     let tint: Color
+    var isPlaceholder: Bool = false
     var height: CGFloat = IOSStudioSetupChip.pillHeight
 
     @Environment(\.iosReduceTransparencyEnabled) private var reduceTransparency
@@ -809,11 +811,18 @@ struct IOSSetupChipPill: View {
                 .font(.system(size: 18, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(tint)
-            Text(abbreviation)
-                .font(.system(size: 15, weight: .semibold))
-                .tracking(0.5)
-                .foregroundStyle(tint)
-                .lineLimit(1)
+            if isPlaceholder {
+                // Unset slot: a "+" add affordance instead of a value abbreviation.
+                Image(systemName: "plus")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(tint)
+            } else {
+                Text(abbreviation)
+                    .font(.system(size: 15, weight: .semibold))
+                    .tracking(0.5)
+                    .foregroundStyle(tint)
+                    .lineLimit(1)
+            }
         }
         .frame(maxWidth: .infinity)
         .frame(height: height)
