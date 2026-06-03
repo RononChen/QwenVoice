@@ -1,4 +1,5 @@
 import AVFoundation
+import Observation
 import SwiftUI
 
 /// "Just generated" hero player in Studio's dock area, after a take
@@ -19,7 +20,7 @@ struct IOSStudioInlinePlayerCard: View {
     var onDismiss: () -> Void
     var onExpand: (() -> Void)?
 
-    @StateObject private var controller = IOSInlinePlaybackController()
+    @State private var controller = IOSInlinePlaybackController()
     @Environment(\.iosReduceMotionEnabled) private var reduceMotion
 
     private let referenceHeight: CGFloat = 127
@@ -40,7 +41,9 @@ struct IOSStudioInlinePlayerCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            waveformRow
+            // Per-tick currentTime/progress lives in this child only, so the parent
+            // body (chrome + shadow below) no longer re-renders on every display-link tick.
+            InlineWaveformProgressRow(controller: controller, item: item, tint: tint, onExpand: onExpand)
             controlsRow
         }
         .padding(.horizontal, 16)
@@ -75,46 +78,6 @@ struct IOSStudioInlinePlayerCard: View {
             return .opacity
         }
         return .move(edge: .bottom).combined(with: .opacity)
-    }
-
-    // MARK: - Waveform row
-
-    private var waveformRow: some View {
-        HStack(spacing: 12) {
-            Text(controller.formatted(time: controller.currentTime))
-                .font(.system(size: 13, weight: .semibold).monospacedDigit())
-                .foregroundStyle(IOSAppTheme.textSecondary)
-                .frame(width: 36, alignment: .leading)
-
-            GeometryReader { proxy in
-                IOSWaveformBars(
-                    seed: item.waveformSeed,
-                    barCount: 38,
-                    tint: tint,
-                    progress: controller.progress,
-                    isAnimating: false,
-                    unplayedColor: Color.white.opacity(0.18),
-                    style: .player
-                )
-                .contentShape(Rectangle())
-                .gesture(scrubGesture(width: proxy.size.width))
-                .onTapGesture { onExpand?() }
-            }
-            .frame(height: 36)
-
-            Text(controller.formatted(time: controller.duration))
-                .font(.system(size: 13, weight: .semibold).monospacedDigit())
-                .foregroundStyle(IOSAppTheme.textSecondary)
-                .frame(width: 36, alignment: .trailing)
-        }
-    }
-
-    private func scrubGesture(width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 4)
-            .onChanged { value in
-                let ratio = max(0, min(1, value.location.x / max(1, width)))
-                controller.scrub(to: ratio)
-            }
     }
 
     // MARK: - Controls row
@@ -197,13 +160,70 @@ struct IOSStudioInlinePlayerCard: View {
     }
 }
 
+// MARK: - Waveform progress row
+
+/// The per-tick-varying slice of the inline player, isolated into its own view so the
+/// parent card's chrome (background/stroke/shadow) doesn't re-render on every display-link
+/// tick. Reads `controller.currentTime`/`progress`/`duration` (tracked via @Observable);
+/// the parent reads only `isPlaying`.
+private struct InlineWaveformProgressRow: View {
+    let controller: IOSInlinePlaybackController
+    let item: IOSStudioInlinePlayerItem
+    let tint: Color
+    var onExpand: (() -> Void)?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(controller.formatted(time: controller.currentTime))
+                .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                .foregroundStyle(IOSAppTheme.textSecondary)
+                .frame(width: 36, alignment: .leading)
+
+            GeometryReader { proxy in
+                IOSWaveformBars(
+                    seed: item.waveformSeed,
+                    barCount: 38,
+                    tint: tint,
+                    progress: controller.progress,
+                    isAnimating: false,
+                    unplayedColor: Color.white.opacity(0.18),
+                    style: .player
+                )
+                .contentShape(Rectangle())
+                .gesture(scrubGesture(width: proxy.size.width))
+                .onTapGesture { onExpand?() }
+            }
+            .frame(height: 36)
+
+            Text(controller.formatted(time: controller.duration))
+                .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                .foregroundStyle(IOSAppTheme.textSecondary)
+                .frame(width: 36, alignment: .trailing)
+        }
+    }
+
+    private func scrubGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 4)
+            .onChanged { value in
+                let ratio = max(0, min(1, value.location.x / max(1, width)))
+                controller.scrub(to: ratio)
+            }
+    }
+}
+
 // MARK: - Playback controller
 
+// @Observable (not ObservableObject) so SwiftUI tracks per-property: the card chrome
+// (background/stroke/shadow) reads only `isPlaying` (changes on play/pause), while the
+// per-tick `currentTime`/`progress` is read solely by the extracted InlineWaveformProgressRow.
+// With the old ObservableObject, object-level objectWillChange re-rendered the whole card
+// (incl. shadow) on every display-link tick regardless of view decomposition.
 @MainActor
-final class IOSInlinePlaybackController: NSObject, ObservableObject {
-    @Published private(set) var isPlaying: Bool = false
-    @Published private(set) var currentTime: TimeInterval = 0
-    @Published private(set) var duration: TimeInterval = 0
+@Observable
+final class IOSInlinePlaybackController: NSObject {
+    private(set) var isPlaying: Bool = false
+    private(set) var currentTime: TimeInterval = 0
+    private(set) var duration: TimeInterval = 0
 
     private var player: AVAudioPlayer?
     private var displayLink: CADisplayLink?
@@ -281,7 +301,9 @@ final class IOSInlinePlaybackController: NSObject, ObservableObject {
     private func startDisplayLink() {
         stopDisplayLink()
         let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 20, maximum: 60, preferred: 30)
+        // ~38 waveform bars and a per-second time label don't need 30fps; ~15fps keeps the
+        // progress smooth at half the ticks (iOS frontend perf audit, Wave 3).
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 8, maximum: 30, preferred: 15)
         link.add(to: .main, forMode: .common)
         displayLink = link
     }
