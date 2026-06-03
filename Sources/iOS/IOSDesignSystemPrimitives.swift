@@ -440,7 +440,6 @@ enum IOSBottomSheetChrome {
     static let cornerRadius: CGFloat = 22
     static let voicePickerHeight: CGFloat = 430
     static let deliveryPickerHeight: CGFloat = 470
-    static let voiceBriefHeight: CGFloat = 520
     static let referenceClipHeight: CGFloat = 430
     static let modelInstallHeight: CGFloat = 430
 

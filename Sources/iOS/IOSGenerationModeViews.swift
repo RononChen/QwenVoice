@@ -689,7 +689,7 @@ struct IOSVoiceDesignView: View {
                     tint: IOSBrandTheme.design,
                     presentation: .edgeToEdge(
                         bottomSafeAreaInset: bottomSafeAreaInset,
-                        height: IOSBottomSheetChrome.voiceBriefHeight
+                        height: IOSBottomSheetChrome.expandedHeight(forScreenHeight: availableHeight)
                     ),
                     onDismiss: dismiss
                 )
