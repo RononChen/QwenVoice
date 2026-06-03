@@ -37,13 +37,14 @@ struct RootView: View {
         // The legacy `IOSStudioShellScreen` no longer paints a canopy or its
         // own dock; it just hosts the per-screen body and the engine /
         // now-playing toast safe-area insets.
+        // Perf (iOS frontend audit, Wave 2): the mode backdrop is painted by each
+        // screen's IOSStudioShellScreen, which sits INSIDE the NavigationStack and whose
+        // IOSModeBackdrop has an opaque `canvasTop` base — so it fully occludes any
+        // backdrop painted here. RootView previously also painted one (tinted by
+        // activeBackdropTint): a full-screen RadialGradient + .plusLighter blend pass that
+        // was never visible. Dropping it removes one offscreen-composited backdrop layer
+        // per redraw across all tabs, pixel-identical (verified by sim shot parity).
         ZStack {
-            IOSModeBackdrop(
-                tint: activeBackdropTint,
-                intensity: .warm
-            )
-            .ignoresSafeArea()
-
             activeScreen
         }
         .iosAppAnimation(Theme.Motion.easeOut, value: appModel.tab)
@@ -137,10 +138,6 @@ struct RootView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
         }
-    }
-
-    private var activeBackdropTint: Color {
-        appModel.tab.dockAccent(studioMode: appModel.studioMode.mode)
     }
 
     @ViewBuilder
