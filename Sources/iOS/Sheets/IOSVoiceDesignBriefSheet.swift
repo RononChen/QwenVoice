@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Bottom sheet that lets the user edit the Voice Design brief, replacing
 /// the legacy inline `IOSVoiceDesignSetupCard` editor. Multi-line text
@@ -13,13 +14,19 @@ struct IOSVoiceDesignBriefSheet: View {
     var onDismiss: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
-    @FocusState private var isFocused: Bool
+    // Plain @State (not @FocusState): the brief uses a UITextView wrapper (IOSBriefTextEditor)
+    // that bridges focus through this Bool via its begin/end-editing delegate.
+    @State private var isFocused = false
 
+    // Research-aligned (official Qwen3-TTS VoiceDesign): each combines several of age, gender,
+    // tone, timbre, accent, pace, and use-case — the attributes the model's own example
+    // descriptions lean on — kept to one dense sentence. Six options fill the tall sheet.
     private let startingPoints = [
-        "A warm, deep narrator with a subtle British accent.",
-        "A bright young female, energetic and conversational.",
-        "A gravelly older male, slow, late-night radio.",
-        "A calm, careful narrator, clear diction, neutral.",
+        "A warm, deep male narrator with a subtle British accent.",
+        "A bright young woman, energetic and conversational.",
+        "A gravelly older man, slow and intimate, late-night radio.",
+        "A calm, neutral narrator with clear diction and steady pacing.",
+        "A soft, breathy young woman, gentle and reassuring.",
     ]
 
     var body: some View {
@@ -39,13 +46,11 @@ struct IOSVoiceDesignBriefSheet: View {
                     .padding(.bottom, 16)
 
                 ZStack(alignment: .topLeading) {
-                    TextEditor(text: $voiceDescription)
-                        .focused($isFocused)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(IOSAppTheme.textPrimary)
-                        .scrollContentBackground(.hidden)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
+                    IOSBriefTextEditor(
+                        text: $voiceDescription,
+                        isFocused: $isFocused,
+                        tintColor: UIColor(tint)
+                    )
 
                     if voiceDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text("A warm, deep narrator with a subtle British accent.")
@@ -56,7 +61,9 @@ struct IOSVoiceDesignBriefSheet: View {
                             .allowsHitTesting(false)
                     }
                 }
-                .frame(height: 116)
+                // ~7 lines tall — proportionate to the 500-char brief without dominating the
+                // sheet; the TextEditor scrolls when the description runs longer.
+                .frame(height: 160)
                 .background {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(Color.white.opacity(0.04))
@@ -65,8 +72,31 @@ struct IOSVoiceDesignBriefSheet: View {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .stroke(isFocused ? tint.opacity(0.40) : tint.opacity(0.22), lineWidth: 0.5)
                 }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 18)
+                .padding(.horizontal, 20)
+                .onChange(of: voiceDescription) { _, newValue in
+                    // Clamp the voice DESCRIPTION to its own limit (decoupled from the 150-char
+                    // spoken-script limit). No model cap exists for the open-weights VoiceDesign
+                    // model; this is a UX bound that keeps briefs concise.
+                    let limit = IOSGenerationTextLimitPolicy.descriptionLimit
+                    if newValue.count > limit {
+                        voiceDescription = String(newValue.prefix(limit))
+                    }
+                }
+
+                HStack {
+                    Spacer(minLength: 0)
+                    Text("\(voiceDescription.count)/\(IOSGenerationTextLimitPolicy.descriptionLimit)")
+                        .font(.system(size: 12, weight: .medium).monospacedDigit())
+                        .foregroundStyle(
+                            voiceDescription.count >= IOSGenerationTextLimitPolicy.descriptionLimit
+                                ? tint
+                                : IOSAppTheme.textTertiary
+                        )
+                        .accessibilityIdentifier("voiceBrief_charCount")
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 6)
+                .padding(.bottom, 18)
 
                 Text("Starting points".uppercased())
                     .font(.system(size: 11, weight: .semibold))
@@ -113,5 +143,61 @@ struct IOSVoiceDesignBriefSheet: View {
     private func closeSheet() {
         onDismiss?()
         dismiss()
+    }
+}
+
+/// Multi-line brief editor backed by a `UITextView` with **scroll bounce disabled** — SwiftUI's
+/// `TextEditor` rubber-bands at the top/bottom (and `.scrollBounceBehavior(.basedOnSize)` only
+/// suppresses it while the text fits). `bounces = false` removes the elastic overscroll entirely
+/// while still scrolling once the brief overflows the box. Focus is bridged to a `Bool` binding
+/// (drives the box's focus stroke); `Return` inserts a newline as in the stock editor.
+private struct IOSBriefTextEditor: UIViewRepresentable {
+    @Binding var text: String
+    var isFocused: Binding<Bool>
+    var tintColor: UIColor
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.delegate = context.coordinator
+        view.backgroundColor = .clear
+        view.font = .systemFont(ofSize: 16, weight: .medium)
+        view.textColor = IOSAppTheme.textPrimaryUIColor
+        view.tintColor = tintColor
+        view.isScrollEnabled = true
+        view.bounces = false               // no rubber-band, even when the brief overflows
+        view.alwaysBounceVertical = false
+        view.showsVerticalScrollIndicator = true
+        // Aligns the caret/first line with the placeholder Text overlaid by the parent ZStack
+        // (which uses 16pt horizontal / 18pt vertical padding).
+        view.textContainerInset = UIEdgeInsets(top: 18, left: 16, bottom: 12, right: 16)
+        view.textContainer.lineFragmentPadding = 0
+        view.autocapitalizationType = .sentences
+        view.autocorrectionType = .default
+        view.smartQuotesType = .yes
+        view.smartDashesType = .yes
+        return view
+    }
+
+    func updateUIView(_ view: UITextView, context: Context) {
+        if view.text != text { view.text = text }
+        if view.tintColor != tintColor { view.tintColor = tintColor }
+        if isFocused.wrappedValue, !view.isFirstResponder {
+            DispatchQueue.main.async { view.becomeFirstResponder() }
+        } else if !isFocused.wrappedValue, view.isFirstResponder {
+            DispatchQueue.main.async { view.resignFirstResponder() }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var parent: IOSBriefTextEditor
+        init(_ parent: IOSBriefTextEditor) { self.parent = parent }
+
+        func textViewDidChange(_ textView: UITextView) {
+            if parent.text != textView.text { parent.text = textView.text }
+        }
+        func textViewDidBeginEditing(_ textView: UITextView) { parent.isFocused.wrappedValue = true }
+        func textViewDidEndEditing(_ textView: UITextView) { parent.isFocused.wrappedValue = false }
     }
 }
