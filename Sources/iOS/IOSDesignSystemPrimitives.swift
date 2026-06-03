@@ -978,9 +978,14 @@ struct IOSSearchField: View {
 
 // MARK: - Primary CTA
 
-/// Large gradient button used as the Studio Generate CTA. Tints to the
-/// active mode's color; respects Reduce Transparency by falling back to a
-/// flat fill.
+/// Primary CTA "glass hero" button (Studio Generate/Install, Onboarding,
+/// Recording overlay, sheet Install). Built from the same lit-tint material as
+/// the selector pills (`IOSSetupChipPill`) — a translucent tint gradient,
+/// hairline white strokes, a mode-tinted glow — but dialed up to be the
+/// brightest, largest member of the family so it reads as the primary action
+/// while staying cohesive with the surrounding glass UI. Tints to whatever
+/// color the caller passes (Studio = per-mode gold/lavender/terracotta).
+/// Respects Reduce Transparency with an opaque deep-tint fill (no glow).
 struct IOSPrimaryCTAButton: View {
     let title: String
     let symbol: String?
@@ -990,27 +995,25 @@ struct IOSPrimaryCTAButton: View {
 
     @Environment(\.iosReduceTransparencyEnabled) private var reduceTransparency
 
+    // Warm off-white label, legible on the translucent tinted fill (matches the
+    // app text-primary). Under Reduce Transparency the fill is a deep opaque
+    // tint, so the same off-white stays legible.
     private var foregroundInk: Color {
-        Color(red: 13.0 / 255.0, green: 14.0 / 255.0, blue: 18.0 / 255.0)
+        IOSAppTheme.textPrimary
     }
 
     private var backgroundFill: AnyShapeStyle {
         if reduceTransparency {
-            return AnyShapeStyle(tint)
+            // Opaque deep-tint fill so the off-white label keeps contrast.
+            return AnyShapeStyle(tint.mix(with: .black, by: 0.42, in: .perceptual))
         }
 
-        // Matches studio.jsx Generate CTA:
-        //   linear-gradient(180deg, tint 0%,
-        //     color-mix(in oklch, tint 80%, black) 100%)
-        // SwiftUI's Color.mix(with:by:in:) (iOS 18+) gives the
-        // OKLCH darkening; .perceptual is the closest mixing
-        // space SwiftUI exposes.
+        // Same recipe as the selector pills (tint gradient over the dark
+        // canvas), brighter (0.46→0.24 vs the pills' 0.30→0.14) so the CTA is
+        // the standout tinted surface while staying the same translucent glass.
         return AnyShapeStyle(
             LinearGradient(
-                colors: [
-                    tint,
-                    tint.mix(with: .black, by: 0.20, in: .perceptual)
-                ],
+                colors: [tint.opacity(0.46), tint.opacity(0.24)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -1039,12 +1042,15 @@ struct IOSPrimaryCTAButton: View {
                 if let symbol {
                     Image(systemName: symbol)
                         .font(.system(size: 18, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                        // Tinted glyph accent, like the pills' tinted symbols.
+                        .foregroundStyle(tint)
                 }
                 Text(title)
                     .font(.system(size: 17, weight: .semibold))
                     .tracking(-0.17)
+                    .foregroundStyle(foregroundInk)
             }
-            .foregroundStyle(foregroundInk)
             .frame(maxWidth: .infinity)
             .frame(height: 56)
             .background {
@@ -1052,14 +1058,18 @@ struct IOSPrimaryCTAButton: View {
                     .fill(backgroundFill)
             }
             .overlay {
-                // border: 0.5px solid rgba(255,255,255,0.18) per .vc-cta
                 Capsule(style: .continuous)
-                    .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
+                    .stroke(Color.white.opacity(0.16), lineWidth: 0.8)
+            }
+            .overlay {
+                Capsule(style: .continuous)
+                    .inset(by: 0.65)
+                    .stroke(Color.white.opacity(0.06), lineWidth: 0.55)
             }
             .overlay(alignment: .top) {
-                // inset 0 1px 0 rgba(255,255,255,0.25) — top-edge sheen
+                // Lit top edge — sheen masked to the upper half.
                 Capsule(style: .continuous)
-                    .stroke(Color.white.opacity(0.25), lineWidth: 0.6)
+                    .stroke(Color.white.opacity(0.22), lineWidth: 0.6)
                     .mask(
                         LinearGradient(
                             colors: [.white, .clear],
@@ -1068,9 +1078,10 @@ struct IOSPrimaryCTAButton: View {
                         )
                     )
             }
-            // box-shadow 0 6px 18px rgba(0,0,0,0.30) per .vc-cta
-            // (SwiftUI radius ≈ CSS blur / 2 → 9)
-            .shadow(color: .black.opacity(0.30), radius: 9, x: 0, y: 6)
+            // Mode-colored hero glow (stronger than the pills' 0.28 @ r8) +
+            // a faint ambient shadow for grounding. Glow drops under RT.
+            .shadow(color: reduceTransparency ? .clear : tint.opacity(0.35), radius: 16, x: 0, y: 4)
+            .shadow(color: .black.opacity(0.22), radius: 10, x: 0, y: 6)
         }
         .buttonStyle(.plain)
         .opacity(isEnabled ? 1.0 : 0.42)
