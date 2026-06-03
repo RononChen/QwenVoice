@@ -650,7 +650,12 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
                 chunk = nil
             }
             guard let chunk else { return }
-            Task { @MainActor [weak self] in
+            // The observer is registered with `queue: .main`, so this closure runs on
+            // the main thread = the MainActor's executor. `assumeIsolated` invokes the
+            // handler synchronously and drops the per-chunk `Task { @MainActor }`
+            // scheduling hop (mirrors the broker fast-path above) — one less wakeup per
+            // chunk during the time-sensitive streaming phase.
+            MainActor.assumeIsolated {
                 self?.handleGenerationChunk(chunk)
             }
         }

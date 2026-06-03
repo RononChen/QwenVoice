@@ -188,7 +188,8 @@ struct IOSPlayerSheet: View {
             barCount: 42,
             tint: item.modeTint,
             progress: controller.progress,
-            isAnimating: controller.isPlaying,
+            // Honor Reduce Motion (CLAUDE.md): freeze the perpetual waveform when on.
+            isAnimating: controller.isPlaying && !reduceMotion,
             unplayedColor: Color.white.opacity(0.14),
             style: .big
         )

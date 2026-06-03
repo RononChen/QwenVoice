@@ -207,8 +207,13 @@ struct IOSWaveformBars: View {
     }
 
     var body: some View {
-        if isAnimating {
-            TimelineView(.animation) { context in
+        // Only `.big` consumes `phase` (see amplitude(at:phase:)); `.mini`/`.player`
+        // render identical frames every tick, so animating them is pure churn. Gate the
+        // per-frame TimelineView to `.big` and cap it to ~24fps (vsync-aligned). The
+        // generating dock + recording overlay (.mini) and history thumbnails (.player)
+        // fall through to a single static draw — pixel-identical, zero per-frame cost.
+        if isAnimating && style == .big {
+            TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { context in
                 bars(phase: context.date.timeIntervalSinceReferenceDate)
             }
         } else {
