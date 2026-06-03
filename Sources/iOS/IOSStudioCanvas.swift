@@ -116,6 +116,11 @@ struct IOSStudioCanvas<SetupChips: View>: View {
         // immediately above that reservation.
         .padding(.bottom, IOSStudioCanvasLayout.tabDockReservation)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // Keep the composer layout fixed: the keyboard OVERLAYS the bottom
+        // (chips + Generate + tab dock stay put, covered) instead of reflowing
+        // the whole canvas up into a cramped strip. The composer is the top,
+        // flex element so the text you're typing stays visible above the keyboard.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .iosAppAnimation(IOSDesignMotion.stateChange, value: genState)
     }
 

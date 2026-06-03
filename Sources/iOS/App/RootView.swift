@@ -59,6 +59,15 @@ struct RootView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             TabDock()
         }
+        // Pin all bottom chrome (dock + toast) AND the active screen so the
+        // on-screen keyboard OVERLAYS them instead of riding the whole layout up.
+        // This is safe app-wide: every text editor that must sit above the keyboard
+        // lives in an isolated `.sheet` / `.fullScreenCover` (the design-brief, batch,
+        // and recorder editors) — those are separate presentations unaffected by
+        // this modifier. The bottom-panel overlays reachable from here are pickers
+        // (delivery/voice/language/install — no keyboard), and the only inline
+        // editor below this is the Studio composer, which we intend to overlay.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .tint(Theme.Brand.gold)
         .overlay {

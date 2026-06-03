@@ -45,39 +45,17 @@ struct IOSFlexibleTextEditor: UIViewRepresentable {
         view.autocapitalizationType = .sentences
         view.smartQuotesType = .yes
         view.smartDashesType = .yes
-        // Keyboard-dismiss affordance. The composer fills the canvas with the
-        // voice/tone setup chips + Generate CTA sitting *below* it, so once the
-        // keyboard is up the user needs a discoverable way to lower it and reach
-        // those controls. A "Done" accessory bar is the iOS-standard answer
-        // (Notes / Mail). `target: nil` + `resignFirstResponder` walks the
-        // responder chain to this text view (the first responder); its
-        // `textViewDidEndEditing` then drives `isFocused` back to false — no extra
-        // state, no retain cycle. (SwiftUI's `.toolbar(.keyboard)` is unreliable
-        // here: it doesn't track this UIViewRepresentable's UIKit focus.)
-        view.inputAccessoryView = Self.makeKeyboardAccessory(tintColor: tintColor)
+        // The Return key doubles as "Done": it's labelled accordingly and dismisses
+        // the keyboard (handled in `shouldChangeTextIn` below) rather than inserting a
+        // newline. Multi-line scripts still work via PASTE (the placeholder says "Type
+        // or paste your script") — a pasted "\n" is part of a larger replacement and
+        // isn't intercepted; only a lone Return keypress dismisses.
+        view.returnKeyType = .done
+        // No `inputAccessoryView` (a UIKit accessory bar docks at the screen bottom
+        // when there's no on-screen keyboard). The dismiss affordances are the Return
+        // ("Done") key above and the tap-outside window recognizer in the Coordinator;
+        // both end-editing, which the `isFocused` binding mirrors.
         return view
-    }
-
-    /// A minimal keyboard accessory bar with a single right-aligned **Done**
-    /// button that resigns the first responder. Sized to the keyboard width by
-    /// UIKit once attached as `inputAccessoryView`.
-    private static func makeKeyboardAccessory(tintColor: UIColor) -> UIToolbar {
-        let toolbar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 0, height: 44))
-        toolbar.barStyle = .black            // match the locked dark composer chrome
-        toolbar.tintColor = tintColor        // "Done" picks up the mode accent
-        let done = UIBarButtonItem(
-            title: "Done",
-            style: .done,
-            target: nil,
-            action: #selector(UIResponder.resignFirstResponder)
-        )
-        done.accessibilityIdentifier = "textInput_keyboardDoneButton"
-        toolbar.items = [
-            UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil),
-            done
-        ]
-        toolbar.sizeToFit()
-        return toolbar
     }
 
     func updateUIView(_ view: NoIntrinsicHeightTextView, context: Context) {
@@ -92,8 +70,6 @@ struct IOSFlexibleTextEditor: UIViewRepresentable {
         }
         if view.tintColor != tintColor {
             view.tintColor = tintColor
-            // Keep the "Done" accessory accent in sync when the mode tint changes.
-            (view.inputAccessoryView as? UIToolbar)?.tintColor = tintColor
         }
 
         if let isFocused {
@@ -111,8 +87,10 @@ struct IOSFlexibleTextEditor: UIViewRepresentable {
         Coordinator(self)
     }
 
-    final class Coordinator: NSObject, UITextViewDelegate {
+    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         var parent: IOSFlexibleTextEditor
+        private weak var managedTextView: UITextView?
+        private weak var dismissTap: UITapGestureRecognizer?
 
         init(_ parent: IOSFlexibleTextEditor) {
             self.parent = parent
@@ -126,12 +104,75 @@ struct IOSFlexibleTextEditor: UIViewRepresentable {
             }
         }
 
+        // Return ("Done") key dismisses instead of inserting a newline. A lone Return
+        // arrives as replacement text "\n"; a multi-line PASTE arrives as a larger
+        // string and is inserted normally, so pasted scripts keep their line breaks.
+        func textView(
+            _ textView: UITextView,
+            shouldChangeTextIn range: NSRange,
+            replacementText text: String
+        ) -> Bool {
+            if text == "\n" {
+                textView.resignFirstResponder()
+                return false
+            }
+            return true
+        }
+
         func textViewDidBeginEditing(_ textView: UITextView) {
             parent.isFocused?.wrappedValue = true
+            installDismissTap(for: textView)
         }
 
         func textViewDidEndEditing(_ textView: UITextView) {
             parent.isFocused?.wrappedValue = false
+            removeDismissTap()
+        }
+
+        // MARK: - Tap-outside-to-dismiss
+        //
+        // The keyboard OVERLAYS the bottom controls, and the full-height composer
+        // fills the visible area — so a SwiftUI background tap-catcher would have
+        // almost no surface. Instead, while editing, a window-level tap recognizer
+        // dismisses the keyboard when the user taps anywhere OUTSIDE the text view
+        // (the mode header, around the composer, or a now-covered control). It
+        // doesn't swallow those taps (`cancelsTouchesInView = false`), so tapping a
+        // control still triggers it; taps inside the text view keep placing the
+        // caret. The "Done" bar remains the primary, always-visible affordance.
+
+        private func installDismissTap(for textView: UITextView) {
+            guard dismissTap == nil, let window = textView.window else { return }
+            let tap = UITapGestureRecognizer(target: self, action: #selector(handleDismissTap(_:)))
+            tap.cancelsTouchesInView = false
+            tap.delegate = self
+            window.addGestureRecognizer(tap)
+            dismissTap = tap
+            managedTextView = textView
+        }
+
+        private func removeDismissTap() {
+            if let tap = dismissTap {
+                tap.view?.removeGestureRecognizer(tap)
+            }
+            dismissTap = nil
+            managedTextView = nil
+        }
+
+        @objc private func handleDismissTap(_ recognizer: UITapGestureRecognizer) {
+            guard let textView = managedTextView, textView.isFirstResponder else { return }
+            let point = recognizer.location(in: textView)
+            // Taps inside the editor keep editing (caret); only outside dismisses.
+            if !textView.bounds.contains(point) {
+                textView.resignFirstResponder()
+            }
+        }
+
+        // Don't block any other gesture (buttons, scrolling, the text view's own taps).
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+        ) -> Bool {
+            true
         }
     }
 }
