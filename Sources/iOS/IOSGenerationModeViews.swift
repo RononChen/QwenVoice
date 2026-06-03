@@ -2,6 +2,36 @@ import SwiftUI
 import UniformTypeIdentifiers
 import QwenVoiceCore
 
+/// Two-letter UPPERCASE abbreviations for the Studio selector pills
+/// (`IOSStudioSetupChip`). Voice/Delivery/brief use the first two letters of
+/// the selected value; Language reuses the standard language-code tag
+/// (`IOSVoicePickerLanguage.tag`, e.g. Chinese → "ZH"); unset slots show "—".
+private enum IOSStudioChipAbbreviation {
+    static let placeholder = "—"
+
+    /// First two letters of a value, uppercased ("Aiden" → "AI", "Neutral" → "NE").
+    static func prefix2(_ text: String) -> String {
+        String(text.prefix(2)).uppercased()
+    }
+
+    /// Name initials: first letter of the first two words, else first two
+    /// letters. Mirrors `IOSVoicePickerOption.initials`.
+    static func initials(_ name: String) -> String {
+        let words = name.split(separator: " ")
+        if words.count >= 2 {
+            return "\(words[0].prefix(1))\(words[1].prefix(1))".uppercased()
+        }
+        return prefix2(name)
+    }
+
+    /// Standard 2-letter language code (Chinese → "ZH", English → "EN"); falls
+    /// back to the first two letters ("Auto" → "AU").
+    static func language(_ displayName: String) -> String {
+        let tag = IOSVoicePickerLanguage.tag(for: displayName) ?? displayName
+        return String(tag.prefix(2)).uppercased()
+    }
+}
+
 struct IOSCustomVoiceView: View {
     @EnvironmentObject private var ttsEngine: TTSEngineStore
     @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
@@ -167,6 +197,7 @@ struct IOSCustomVoiceView: View {
         IOSStudioSetupChip(
             eyebrow: "Voice",
             value: speakerDisplayName,
+            abbreviation: IOSStudioChipAbbreviation.prefix2(speakerDisplayName),
             leadingSymbol: "person.fill",
             tint: IOSBrandTheme.custom,
             accessibilityID: "studioChip_voice",
@@ -175,6 +206,7 @@ struct IOSCustomVoiceView: View {
         IOSStudioSetupChip(
             eyebrow: "Delivery",
             value: deliveryChipLabel,
+            abbreviation: IOSStudioChipAbbreviation.prefix2(draft.delivery.selectedPresetLabel),
             leadingSymbol: "theatermasks.fill",
             tint: IOSEmotionPresetPalette.dotColor(forID: draft.delivery.selectedPresetID),
             accessibilityID: "studioChip_delivery",
@@ -185,6 +217,7 @@ struct IOSCustomVoiceView: View {
         IOSStudioSetupChip(
             eyebrow: "Language",
             value: draft.selectedLanguage.displayName,
+            abbreviation: IOSStudioChipAbbreviation.language(draft.selectedLanguage.displayName),
             leadingSymbol: "globe",
             tint: IOSBrandTheme.custom,
             accessibilityID: "studioChip_language",
@@ -406,6 +439,13 @@ struct IOSVoiceDesignView: View {
         return trimmed.isEmpty ? "Describe the voice" : trimmed
     }
 
+    private var briefChipAbbreviation: String {
+        let trimmed = draft.voiceDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty
+            ? IOSStudioChipAbbreviation.placeholder
+            : IOSStudioChipAbbreviation.prefix2(trimmed)
+    }
+
     private var activeModel: TTSModel? {
         TTSModel.model(for: .design)
     }
@@ -610,6 +650,7 @@ struct IOSVoiceDesignView: View {
         IOSStudioSetupChip(
             eyebrow: "Voice brief",
             value: briefChipLabel,
+            abbreviation: briefChipAbbreviation,
             leadingSymbol: "wand.and.stars",
             tint: IOSBrandTheme.design,
             isPlaceholder: draft.voiceDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -619,6 +660,7 @@ struct IOSVoiceDesignView: View {
         IOSStudioSetupChip(
             eyebrow: "Delivery",
             value: deliveryChipLabel,
+            abbreviation: IOSStudioChipAbbreviation.prefix2(draft.delivery.selectedPresetLabel),
             leadingSymbol: "theatermasks.fill",
             tint: IOSEmotionPresetPalette.dotColor(forID: draft.delivery.selectedPresetID),
             accessibilityID: "studioChip_delivery",
@@ -627,6 +669,7 @@ struct IOSVoiceDesignView: View {
         IOSStudioSetupChip(
             eyebrow: "Language",
             value: draft.selectedLanguage.displayName,
+            abbreviation: IOSStudioChipAbbreviation.language(draft.selectedLanguage.displayName),
             leadingSymbol: "globe",
             tint: IOSBrandTheme.design,
             accessibilityID: "studioChip_language",
@@ -820,6 +863,12 @@ struct IOSVoiceCloningView: View {
         if let voice = selectedVoice { return voice.name }
         if draft.referenceAudioPath != nil { return "Imported clip" }
         return "Choose reference"
+    }
+
+    private var referenceChipAbbreviation: String {
+        if let voice = selectedVoice { return IOSStudioChipAbbreviation.initials(voice.name) }
+        if draft.referenceAudioPath != nil { return "IM" }
+        return IOSStudioChipAbbreviation.placeholder
     }
 
     private var cloneModel: TTSModel? {
@@ -1099,6 +1148,7 @@ struct IOSVoiceCloningView: View {
         IOSStudioSetupChip(
             eyebrow: draft.referenceAudioPath == nil ? "Reference" : "Voice",
             value: referenceChipLabel,
+            abbreviation: referenceChipAbbreviation,
             leadingSymbol: draft.referenceAudioPath == nil ? "mic.fill" : "person.wave.2.fill",
             tint: IOSBrandTheme.clone,
             isPlaceholder: draft.referenceAudioPath == nil,
@@ -1108,6 +1158,7 @@ struct IOSVoiceCloningView: View {
         IOSStudioSetupChip(
             eyebrow: "Language",
             value: draft.selectedLanguage.displayName,
+            abbreviation: IOSStudioChipAbbreviation.language(draft.selectedLanguage.displayName),
             leadingSymbol: "globe",
             tint: IOSBrandTheme.clone,
             accessibilityID: "studioChip_language",

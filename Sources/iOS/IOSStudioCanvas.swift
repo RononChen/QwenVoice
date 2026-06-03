@@ -202,12 +202,11 @@ struct IOSStudioCanvas<SetupChips: View>: View {
     // MARK: - Setup row
 
     private var setupRow: some View {
-        // Icon-only selector orbs, left-aligned as a cohesive cluster under the
-        // section header (consistent whether the mode has 2 or 3 orbs — they don't
-        // spread to the screen edges).
-        HStack(alignment: .center, spacing: 18) {
+        // Equal-width selector pills that fill the row. The same horizontal
+        // padding (16) as the dock area means the 2-or-3 pills together span
+        // exactly the Generate button's width below.
+        HStack(alignment: .center, spacing: 8) {
             setupChips
-            Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 10)

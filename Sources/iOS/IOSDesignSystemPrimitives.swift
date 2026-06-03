@@ -726,23 +726,26 @@ struct IOSBottomSheet<Content: View>: View {
 
 // MARK: - Setup chip
 
-/// Icon-only Studio selector. A single large, premium tinted icon "orb" is the
-/// whole control — no value caption, no card chrome. The current value + the
-/// category ("Voice: Aiden") live in the VoiceOver label and the picker that
-/// tapping opens. (Earlier two-line / tile variants either cropped the value or
-/// read as boxy placeholders in a third-of-row chip; the icon-only orb is the
-/// clean icon-led answer.)
+/// Studio selector pill. Keeps the orb's lit-tint styling (tint gradient fill,
+/// glass strokes, soft tint glow) but in a full-width capsule showing the SF
+/// Symbol on the left + a two-letter UPPERCASE abbreviation of the current
+/// selection on the right (e.g. `person.fill` + "AI"). The 2-or-3 pills are
+/// equal-width and fill the setup row so they span the Generate button's width
+/// (see `IOSStudioCanvas.setupRow`). The full value + category ("Voice: Aiden")
+/// live in the VoiceOver label and the picker that tapping opens.
 ///
-/// Uses the app's tinted-icon language: `IOSSetupChipIcon` for symbols,
-/// `IOSVoiceAvatar` for the voice slot (it encodes the chosen speaker).
+/// Uses the app's tinted language via `IOSSetupChipPill`. `IOSVoiceAvatar` is
+/// no longer used here (the voice slot is a symbol pill like the others).
 struct IOSStudioSetupChip: View {
-    /// Shared orb size — Voice avatars (built by callers) must match this.
+    /// Shared avatar diameter — voice avatars elsewhere align to this.
     static let iconDiameter: CGFloat = 54
+    /// Pill height for the selector row.
+    static let pillHeight: CGFloat = 46
 
-    let eyebrow: String       // category — VoiceOver label only, not rendered
-    let value: String
-    let leadingSymbol: String?
-    let leadingAvatar: AnyView?
+    let eyebrow: String        // category — VoiceOver label only, not rendered
+    let value: String          // full value — VoiceOver label only, not rendered
+    let abbreviation: String   // rendered 2-letter (UPPERCASE) badge
+    let leadingSymbol: String
     let tint: Color
     let isPlaceholder: Bool
     let accessibilityID: String?
@@ -751,8 +754,8 @@ struct IOSStudioSetupChip: View {
     init(
         eyebrow: String,
         value: String,
-        leadingSymbol: String? = nil,
-        leadingAvatar: AnyView? = nil,
+        abbreviation: String,
+        leadingSymbol: String,
         tint: Color = IOSBrandTheme.accent,
         isPlaceholder: Bool = false,
         accessibilityID: String? = nil,
@@ -760,8 +763,8 @@ struct IOSStudioSetupChip: View {
     ) {
         self.eyebrow = eyebrow
         self.value = value
+        self.abbreviation = abbreviation
         self.leadingSymbol = leadingSymbol
-        self.leadingAvatar = leadingAvatar
         self.tint = tint
         self.isPlaceholder = isPlaceholder
         self.accessibilityID = accessibilityID
@@ -770,20 +773,16 @@ struct IOSStudioSetupChip: View {
 
     var body: some View {
         Button(action: action) {
-            Group {
-                if let leadingAvatar {
-                    leadingAvatar
-                        .frame(width: Self.iconDiameter, height: Self.iconDiameter)
-                } else if let leadingSymbol {
-                    IOSSetupChipIcon(symbol: leadingSymbol, tint: tint, diameter: Self.iconDiameter)
-                }
-            }
-            // Icon-only: the orb IS the control — no value caption, no card chrome.
-            // The current value lives in the picker + the VoiceOver label below.
-            // Placeholder (unset reference / brief) reads dimmer. The orb hugs its
-            // natural size; the row groups them (see IOSStudioCanvas.setupRow).
+            IOSSetupChipPill(
+                symbol: leadingSymbol,
+                abbreviation: abbreviation,
+                tint: tint
+            )
+            // Placeholder (unset reference / brief) reads dimmer. The pill
+            // expands to fill its equal share of the row (see setupRow).
             .opacity(isPlaceholder ? 0.55 : 1)
-            .contentShape(Rectangle())
+            .frame(maxWidth: .infinity)
+            .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(eyebrow): \(value)")
@@ -792,32 +791,44 @@ struct IOSStudioSetupChip: View {
     }
 }
 
-/// Premium "lit tinted" icon used by the Studio setup chips: a soft tint
-/// gradient fill, the app's standard glass strokes, a faint tint glow, and a
-/// hierarchical glyph in the tint. Honors Reduce Transparency (flat fill, no
-/// glow). The voice slot uses `IOSVoiceAvatar` instead (it encodes the speaker).
-struct IOSSetupChipIcon: View {
+/// Premium "lit tinted" pill used by the Studio setup chips: a soft tint
+/// gradient fill, the app's standard glass strokes, a faint tint glow, an SF
+/// Symbol + a two-letter abbreviation in the tint. Honors Reduce Transparency
+/// (flat fill, no glow).
+struct IOSSetupChipPill: View {
     let symbol: String
+    let abbreviation: String
     let tint: Color
-    var diameter: CGFloat = IOSStudioSetupChip.iconDiameter
+    var height: CGFloat = IOSStudioSetupChip.pillHeight
 
     @Environment(\.iosReduceTransparencyEnabled) private var reduceTransparency
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(fillStyle)
-            Circle()
-                .stroke(Color.white.opacity(0.12), lineWidth: 0.8)
-            Circle()
-                .inset(by: 0.65)
-                .stroke(Color.white.opacity(0.04), lineWidth: 0.55)
+        HStack(spacing: 6) {
             Image(systemName: symbol)
-                .font(.system(size: diameter * 0.45, weight: .semibold))
+                .font(.system(size: 18, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(tint)
+            Text(abbreviation)
+                .font(.system(size: 15, weight: .semibold))
+                .tracking(0.5)
+                .foregroundStyle(tint)
+                .lineLimit(1)
         }
-        .frame(width: diameter, height: diameter)
+        .frame(maxWidth: .infinity)
+        .frame(height: height)
+        .background {
+            Capsule(style: .continuous).fill(fillStyle)
+        }
+        .overlay {
+            Capsule(style: .continuous)
+                .stroke(Color.white.opacity(0.12), lineWidth: 0.8)
+        }
+        .overlay {
+            Capsule(style: .continuous)
+                .inset(by: 0.65)
+                .stroke(Color.white.opacity(0.04), lineWidth: 0.55)
+        }
         .shadow(color: reduceTransparency ? .clear : tint.opacity(0.28), radius: 8, y: 1)
     }
 
