@@ -198,7 +198,9 @@ struct IOSCustomVoiceView: View {
             eyebrow: "Voice",
             value: speakerDisplayName,
             abbreviation: IOSStudioChipAbbreviation.prefix2(speakerDisplayName),
-            leadingSymbol: "person.fill",
+            // Mirrors the macOS per-mode glyph (QwenVoiceCore GenerationMode.iconName =
+            // "person.wave.2"), .fill variant to match the iOS pills' filled styling.
+            leadingSymbol: "person.wave.2.fill",
             tint: IOSBrandTheme.custom,
             accessibilityID: "studioChip_voice",
             action: presentVoicePicker
@@ -651,7 +653,9 @@ struct IOSVoiceDesignView: View {
             eyebrow: "Voice brief",
             value: briefChipLabel,
             abbreviation: briefChipAbbreviation,
-            leadingSymbol: "wand.and.stars",
+            // Mirrors the macOS Voice Design glyph (GenerationMode.iconName = "text.bubble"),
+            // .fill to match the iOS pills' filled styling — a text bubble reads as "describe it".
+            leadingSymbol: "text.bubble.fill",
             tint: IOSBrandTheme.design,
             isPlaceholder: draft.voiceDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             accessibilityID: "studioChip_voiceBrief",
@@ -1149,7 +1153,10 @@ struct IOSVoiceCloningView: View {
             eyebrow: draft.referenceAudioPath == nil ? "Reference" : "Voice",
             value: referenceChipLabel,
             abbreviation: referenceChipAbbreviation,
-            leadingSymbol: draft.referenceAudioPath == nil ? "mic.fill" : "person.wave.2.fill",
+            // MacOS Voice Cloning glyph is "waveform.badge.plus"; we use plain "waveform" here so
+            // the badge's "+" doesn't double up with the unset "+" placeholder (the placeholder is
+            // the sole add cue). Constant across set/unset — the value slot conveys the state.
+            leadingSymbol: "waveform",
             tint: IOSBrandTheme.clone,
             isPlaceholder: draft.referenceAudioPath == nil,
             accessibilityID: "studioChip_reference",
