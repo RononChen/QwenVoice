@@ -7,8 +7,8 @@ import SwiftUI
 /// the picker.
 ///
 /// One instance lives in `IOSVoicePickerSheet` as `@StateObject` so
-/// preview state survives recents-carousel + filter + search re-
-/// renders but resets when the sheet dismisses.
+/// preview state survives filter + search re-renders but resets when
+/// the sheet dismisses.
 @MainActor
 final class IOSVoicePreviewPlayer: NSObject, ObservableObject {
     /// The voice id currently previewing, or `nil` when no audio is

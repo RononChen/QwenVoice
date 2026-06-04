@@ -20,12 +20,11 @@ struct IOSVoiceDesignBriefSheet: View {
 
     // Research-aligned (official Qwen3-TTS VoiceDesign): each combines several of age, gender,
     // tone, timbre, accent, pace, and use-case — the attributes the model's own example
-    // descriptions lean on — kept to one dense sentence. Six options fill the tall sheet.
+    // descriptions lean on — kept to one dense sentence. A few options fill the tall sheet.
     private let startingPoints = [
         "A warm, deep male narrator with a subtle British accent.",
         "A bright young woman, energetic and conversational.",
         "A gravelly older man, slow and intimate, late-night radio.",
-        "A calm, neutral narrator with clear diction and steady pacing.",
         "A soft, breathy young woman, gentle and reassuring.",
     ]
 
@@ -97,6 +96,22 @@ struct IOSVoiceDesignBriefSheet: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 6)
                 .padding(.bottom, 18)
+
+                // Explicit confirm: apply the typed brief (the binding already writes through
+                // live) and close. Sits above the keyboard while editing; the Starting points
+                // below are alternative one-tap confirms. Disabled until something is written —
+                // the header X still closes an empty sheet.
+                IOSPrimaryCTAButton(
+                    title: "Done",
+                    tint: tint,
+                    isEnabled: !voiceDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ) {
+                    isFocused = false
+                    closeSheet()
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
+                .accessibilityIdentifier("voiceBrief_confirm")
 
                 Text("Starting points".uppercased())
                     .font(.system(size: 11, weight: .semibold))

@@ -232,7 +232,6 @@ struct IOSCustomVoiceView: View {
             AnyView(
                 IOSVoicePickerSheet(
                     speakers: voicePickerOptions,
-                    recents: Array(voicePickerOptions.prefix(3)),
                     selectedID: Binding(
                         get: { draft.selectedSpeaker },
                         set: { newSpeaker in

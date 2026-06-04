@@ -306,12 +306,12 @@ struct IOSQwenLanguagePickerSheet: View {
 /// list.
 struct IOSVoicePickerSheet: View {
     let speakers: [IOSVoicePickerOption]
-    let recents: [IOSVoicePickerOption]
     @Binding var selectedID: String
     let tint: Color
     var onDismiss: (() -> Void)?
     var presentation: IOSBottomSheetPresentationStyle = .system
 
+    @Environment(\.dismiss) private var dismiss
     @State private var search: String = ""
     @StateObject private var previewer = IOSVoicePreviewPlayer()
     /// R3-FU G.2.1 (2026-05-21): selected language tag, or
@@ -392,10 +392,6 @@ struct IOSVoicePickerSheet: View {
                         .padding(.horizontal, 20)
                 }
 
-                if !recents.isEmpty && search.isEmpty && selectedFilter == IOSVoicePickerSheet.allFilterID {
-                    recentsCarousel
-                }
-
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(alignment: .leading, spacing: 4) {
                         ForEach(filtered) { option in
@@ -433,127 +429,104 @@ struct IOSVoicePickerSheet: View {
         }
     }
 
-    private var recentsCarousel: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Recently used".uppercased())
-                .font(.system(size: 11, weight: .semibold))
-                .tracking(0.88)
-                .foregroundStyle(IOSAppTheme.textSecondary)
-                .padding(.horizontal, 20)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(recents) { option in
-                        Button {
-                            selectedID = option.id
-                            IOSHaptics.selection()
-                        } label: {
-                            VStack(spacing: 6) {
-                                IOSVoiceAvatar(seed: option.id, initials: option.initials, diameter: 48)
-                                Text(option.name)
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(IOSAppTheme.textSecondary)
-                                    .lineLimit(1)
-                            }
-                            .frame(width: 72)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 20)
-            }
-            .padding(.bottom, 16)
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(Color.white.opacity(0.06))
-                    .frame(height: 0.5)
-                    .padding(.horizontal, 20)
-            }
-        }
-    }
-
     private func row(for option: IOSVoicePickerOption) -> some View {
         let isSelected = option.id == selectedID
         let isPreviewing = previewer.currentlyPlayingID == option.id
-        return Button {
+        // The row is a plain tappable surface (contentShape + onTapGesture), NOT an
+        // outer Button — the trailing preview play Button must stay an independent
+        // tap target. Nesting a Button inside a Button's label is a SwiftUI
+        // hit-testing trap that swallowed the row's select tap. A Button consumes
+        // its own taps, so the play button stays isolated (the equivalent of the
+        // reference design's stopPropagation()). Per design, tapping the row
+        // selects the voice AND closes the sheet in one gesture.
+        return HStack(alignment: .center, spacing: 12) {
+            IOSVoiceAvatar(seed: option.id, initials: option.initials, diameter: 44)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(option.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(IOSAppTheme.textPrimary)
+                if let subtitle = option.subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(IOSAppTheme.textSecondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            // R3 G.2 (2026-05-21): per design_references/Vocello iOS/
+            // sheets.jsx VoicePickerSheet row, the trailing cluster
+            // carries a small uppercase language pill so users can
+            // tell English / British / Japanese voices apart at a
+            // glance. Nil tag hides the pill.
+            if let tag = option.languageTag, !tag.isEmpty {
+                Text(tag.uppercased())
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(0.4)
+                    .foregroundStyle(IOSAppTheme.textSecondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background {
+                        Capsule(style: .continuous)
+                            .fill(Color.white.opacity(0.08))
+                    }
+            }
+
+            // Phase 3 G.2.3 (2026-05-21): per-row preview play button.
+            // Plays ~2-3 s of a bundled voice sample from
+            // Sources/Resources/voice-previews/{id}.wav. Toggles
+            // play↔pause when the same voice is tapped a second
+            // time. Tapping a different voice's button stops the
+            // current preview and starts the new one. As a real Button
+            // it consumes its own taps, so it previews WITHOUT selecting
+            // or closing the sheet.
+            Button {
+                previewer.toggle(voiceID: option.id)
+                IOSHaptics.selection()
+            } label: {
+                IOSPlayerIconButtonChrome(
+                    symbol: isPreviewing ? "pause.fill" : "play.fill",
+                    isActive: isPreviewing,
+                    size: 40,
+                    symbolSize: 16
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isPreviewing ? "Stop preview" : "Preview voice")
+
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(tint)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background {
+            RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
+                .fill(isSelected ? IOSAppTheme.accentWash(tint) : Color.clear)
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 0.5)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
             previewer.stop()
             selectedID = option.id
             IOSHaptics.selection()
-        } label: {
-            HStack(alignment: .center, spacing: 12) {
-                IOSVoiceAvatar(seed: option.id, initials: option.initials, diameter: 44)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(option.name)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(IOSAppTheme.textPrimary)
-                    if let subtitle = option.subtitle {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(IOSAppTheme.textSecondary)
-                            .lineLimit(1)
-                    }
-                }
-
-                Spacer(minLength: 8)
-
-                // R3 G.2 (2026-05-21): per design_references/Vocello iOS/
-                // sheets.jsx VoicePickerSheet row, the trailing cluster
-                // carries a small uppercase language pill so users can
-                // tell English / British / Japanese voices apart at a
-                // glance. Nil tag hides the pill.
-                if let tag = option.languageTag, !tag.isEmpty {
-                    Text(tag.uppercased())
-                        .font(.system(size: 10, weight: .semibold))
-                        .tracking(0.4)
-                        .foregroundStyle(IOSAppTheme.textSecondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background {
-                            Capsule(style: .continuous)
-                                .fill(Color.white.opacity(0.08))
-                        }
-                }
-
-                // Phase 3 G.2.3 (2026-05-21): per-row preview play button.
-                // Plays ~2-3 s of a bundled voice sample from
-                // Sources/Resources/voice-previews/{id}.wav. Toggles
-                // play↔pause when the same voice is tapped a second
-                // time. Tapping a different voice's button stops the
-                // current preview and starts the new one.
-                Button {
-                    previewer.toggle(voiceID: option.id)
-                    IOSHaptics.selection()
-                } label: {
-                    IOSPlayerIconButtonChrome(
-                        symbol: isPreviewing ? "pause.fill" : "play.fill",
-                        isActive: isPreviewing,
-                        size: 40,
-                        symbolSize: 16
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(isPreviewing ? "Stop preview" : "Preview voice")
-
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(tint)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background {
-                RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
-                    .fill(isSelected ? IOSAppTheme.accentWash(tint) : Color.clear)
-            }
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(Color.white.opacity(0.06))
-                    .frame(height: 0.5)
-            }
+            closeSheet()
         }
-        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private func closeSheet() {
+        onDismiss?()
+        dismiss()
     }
 }
 
