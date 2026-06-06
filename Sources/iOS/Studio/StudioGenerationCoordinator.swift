@@ -39,14 +39,22 @@ final class StudioGenerationCoordinator {
     /// Swift concurrency generics; callers do the casting.
     var generationTask: Task<Void, Never>?
 
+    /// Metadata for the live-preview dock card, set when a streaming attempt
+    /// starts and cleared on any terminal transition. The dock shows the live
+    /// card only while this is non-nil AND the shared player is actually
+    /// streaming audible audio (see `studioGenState`).
+    var liveItem: IOSStudioLivePreviewItem?
+
     init(mode: GenerationMode) {
         self.mode = mode
     }
 
     /// Marks a generation attempt as started. Clears any prior error.
-    func start() {
+    /// Pass `live:` to enable the live-preview dock card for streaming runs.
+    func start(live: IOSStudioLivePreviewItem? = nil) {
         errorMessage = nil
         lastCompletedOutput = nil
+        liveItem = live
         isGenerating = true
     }
 
@@ -55,6 +63,7 @@ final class StudioGenerationCoordinator {
     func finish() {
         isGenerating = false
         generationTask = nil
+        liveItem = nil
     }
 
     /// Surfaces a completed take to the dock area + clears in-flight.
@@ -62,6 +71,7 @@ final class StudioGenerationCoordinator {
         lastCompletedOutput = item
         isGenerating = false
         generationTask = nil
+        liveItem = nil
     }
 
     /// Sets an error and clears the in-flight flag.
@@ -69,6 +79,7 @@ final class StudioGenerationCoordinator {
         errorMessage = message
         isGenerating = false
         generationTask = nil
+        liveItem = nil
     }
 
     /// Clears the inline player (user dismissed it).

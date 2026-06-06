@@ -59,7 +59,16 @@ struct IOSCustomVoiceView: View {
     }
 
     private var studioGenState: IOSStudioGenState {
-        if coordinator.isGenerating { return .generating }
+        if coordinator.isGenerating {
+            // Show the live-preview card once the shared player is actually streaming
+            // audible audio; keep the compact generating bar during prepare/buffering.
+            if audioPlayer.isLiveStream,
+               audioPlayer.activeGeneratePreviewVisibilityState == .ready,
+               let live = coordinator.liveItem {
+                return .live(live)
+            }
+            return .generating
+        }
         if let output = coordinator.lastCompletedOutput { return .complete(output) }
         return .idle
     }
@@ -314,7 +323,15 @@ struct IOSCustomVoiceView: View {
             return
         }
 
-        coordinator.start()
+        // Same seed for the live + final card so the decorative waveform doesn't change shape.
+        let seed = IOSStableVisualHash.int(promptText)
+        coordinator.start(live: IOSStudioLivePreviewItem(
+            voiceName: speakerDisplayName,
+            modeLabel: "Custom",
+            mode: .custom,
+            transcript: promptText,
+            waveformSeed: seed
+        ))
 
         coordinator.generationTask = Task {
             defer {
@@ -375,7 +392,7 @@ struct IOSCustomVoiceView: View {
                             modeLabel: "Custom",
                             mode: .custom,
                             transcript: promptText,
-                            waveformSeed: IOSStableVisualHash.int(result.audioPath),
+                            waveformSeed: seed,
                             autoplay: false,
                             ownedBySharedPlayer: true
                         )
@@ -423,7 +440,16 @@ struct IOSVoiceDesignView: View {
     private var lastCompletedOutput: IOSStudioInlinePlayerItem? { coordinator.lastCompletedOutput }
 
     private var studioGenState: IOSStudioGenState {
-        if coordinator.isGenerating { return .generating }
+        if coordinator.isGenerating {
+            // Show the live-preview card once the shared player is actually streaming
+            // audible audio; keep the compact generating bar during prepare/buffering.
+            if audioPlayer.isLiveStream,
+               audioPlayer.activeGeneratePreviewVisibilityState == .ready,
+               let live = coordinator.liveItem {
+                return .live(live)
+            }
+            return .generating
+        }
         if let output = coordinator.lastCompletedOutput { return .complete(output) }
         return .idle
     }
@@ -765,7 +791,15 @@ struct IOSVoiceDesignView: View {
             return
         }
 
-        coordinator.start()
+        // Same seed for the live + final card so the decorative waveform doesn't change shape.
+        let seed = IOSStableVisualHash.int(promptText)
+        coordinator.start(live: IOSStudioLivePreviewItem(
+            voiceName: briefChipLabel,
+            modeLabel: "Design",
+            mode: .design,
+            transcript: promptText,
+            waveformSeed: seed
+        ))
 
         coordinator.generationTask = Task {
             defer {
@@ -822,7 +856,7 @@ struct IOSVoiceDesignView: View {
                             modeLabel: "Design",
                             mode: .design,
                             transcript: promptText,
-                            waveformSeed: IOSStableVisualHash.int(result.audioPath),
+                            waveformSeed: seed,
                             autoplay: false,
                             ownedBySharedPlayer: true
                         )
@@ -869,7 +903,16 @@ struct IOSVoiceCloningView: View {
     private var lastCompletedOutput: IOSStudioInlinePlayerItem? { coordinator.lastCompletedOutput }
 
     private var studioGenState: IOSStudioGenState {
-        if coordinator.isGenerating { return .generating }
+        if coordinator.isGenerating {
+            // Show the live-preview card once the shared player is actually streaming
+            // audible audio; keep the compact generating bar during prepare/buffering.
+            if audioPlayer.isLiveStream,
+               audioPlayer.activeGeneratePreviewVisibilityState == .ready,
+               let live = coordinator.liveItem {
+                return .live(live)
+            }
+            return .generating
+        }
         if let output = coordinator.lastCompletedOutput { return .complete(output) }
         return .idle
     }
@@ -1279,7 +1322,15 @@ struct IOSVoiceCloningView: View {
             return
         }
 
-        coordinator.start()
+        // Same seed for the live + final card so the decorative waveform doesn't change shape.
+        let seed = IOSStableVisualHash.int(promptText)
+        coordinator.start(live: IOSStudioLivePreviewItem(
+            voiceName: referenceChipLabel,
+            modeLabel: "Clone",
+            mode: .clone,
+            transcript: promptText,
+            waveformSeed: seed
+        ))
 
         coordinator.generationTask = Task {
             defer {
@@ -1358,7 +1409,7 @@ struct IOSVoiceCloningView: View {
                             modeLabel: "Clone",
                             mode: .clone,
                             transcript: promptText,
-                            waveformSeed: IOSStableVisualHash.int(result.audioPath),
+                            waveformSeed: seed,
                             autoplay: false,
                             ownedBySharedPlayer: true
                         )

@@ -44,7 +44,7 @@ struct IOSStudioInlinePlayerCard: View {
         VStack(alignment: .leading, spacing: 12) {
             // Per-tick currentTime/progress lives in this child only, so the parent
             // body (chrome + shadow below) no longer re-renders on every display-link tick.
-            InlineWaveformProgressRow(controller: controller, item: item, tint: tint, onExpand: onExpand)
+            InlineWaveformProgressRow(controller: controller, waveformSeed: item.waveformSeed, tint: tint, onExpand: onExpand)
             controlsRow
         }
         .padding(.horizontal, 16)
@@ -173,10 +173,13 @@ struct IOSStudioInlinePlayerCard: View {
 /// parent card's chrome (background/stroke/shadow) doesn't re-render on every display-link
 /// tick. Reads `controller.currentTime`/`progress`/`duration` (tracked via @Observable);
 /// the parent reads only `isPlaying`.
-private struct InlineWaveformProgressRow: View {
+struct InlineWaveformProgressRow: View {
     let controller: IOSInlinePlaybackController
-    let item: IOSStudioInlinePlayerItem
+    let waveformSeed: Int
     let tint: Color
+    /// Scrubbing is disabled during a live preview (seek is a no-op until the final
+    /// file exists) — the waveform is a pure progress indicator then.
+    var scrubEnabled: Bool = true
     var onExpand: (() -> Void)?
 
     var body: some View {
@@ -188,7 +191,7 @@ private struct InlineWaveformProgressRow: View {
 
             GeometryReader { proxy in
                 IOSWaveformBars(
-                    seed: item.waveformSeed,
+                    seed: waveformSeed,
                     barCount: 38,
                     tint: tint,
                     progress: controller.progress,
@@ -197,7 +200,7 @@ private struct InlineWaveformProgressRow: View {
                     style: .player
                 )
                 .contentShape(Rectangle())
-                .gesture(scrubGesture(width: proxy.size.width))
+                .gesture(scrubGesture(width: proxy.size.width), isEnabled: scrubEnabled)
                 .onTapGesture { onExpand?() }
             }
             .frame(height: 36)
@@ -245,7 +248,13 @@ final class IOSInlinePlaybackController: NSObject {
     private weak var sharedPlayer: AudioPlayerViewModel?
     private var adoptedURL: URL?
 
+    // Live-mirror mode: the generation is still streaming, so there is no final
+    // file URL to key on yet. We mirror/forward the shared player unconditionally
+    // (it owns the live preview). The final card later re-adopts by URL (matched).
+    private var isLiveMirroring = false
+
     private var isAdopting: Bool {
+        if isLiveMirroring, sharedPlayer != nil { return true }
         guard player == nil, let shared = sharedPlayer, let url = adoptedURL else { return false }
         return shared.currentFilePath == url.path
     }
@@ -260,6 +269,19 @@ final class IOSInlinePlaybackController: NSObject {
         self.sharedPlayer = sharedPlayer
         self.adoptedURL = url
         self.loadedURL = url
+        self.isPlaying = sharedPlayer.isPlaying
+        self.currentTime = sharedPlayer.currentTime
+        self.duration = sharedPlayer.duration
+        startDisplayLink()
+    }
+
+    /// Mirror the shared player's LIVE streaming preview (generation still in flight,
+    /// no final file URL yet). Forwards play/pause to the shared player and mirrors
+    /// its position/duration via the display-link tick. Never spawns its own player.
+    func adoptLive(sharedPlayer: AudioPlayerViewModel) {
+        self.sharedPlayer = sharedPlayer
+        self.isLiveMirroring = true
+        self.adoptedURL = nil
         self.isPlaying = sharedPlayer.isPlaying
         self.currentTime = sharedPlayer.currentTime
         self.duration = sharedPlayer.duration

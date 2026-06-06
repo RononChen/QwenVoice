@@ -128,10 +128,13 @@ struct IOSStudioCanvas<SetupChips: View>: View {
     }
 
     private var dockAreaHeight: CGFloat {
-        if case .complete = genState {
+        switch genState {
+        case .complete, .live:
+            // Same tall height for both so the live→complete swap has NO height jump.
             return IOSStudioCanvasLayout.completeDockAreaHeight
+        default:
+            return IOSStudioCanvasLayout.compactDockAreaHeight
         }
-        return IOSStudioCanvasLayout.compactDockAreaHeight
     }
 
     // MARK: - Composer pad
@@ -228,6 +231,12 @@ struct IOSStudioCanvas<SetupChips: View>: View {
             generateCTA
         case .generating:
             generatingBar
+        case .live(let live):
+            IOSStudioLivePreviewCard(
+                item: live,
+                tint: tint,
+                onCancel: onCancel
+            )
         case .complete(let item):
             IOSStudioInlinePlayerCard(
                 item: item,
@@ -371,7 +380,24 @@ struct IOSStudioCanvas<SetupChips: View>: View {
 enum IOSStudioGenState: Equatable {
     case idle
     case generating
+    /// Live streaming preview is audible while generation is still in flight —
+    /// the dock shows a player card (progressing waveform + play/pause + cancel)
+    /// that seamlessly becomes the `.complete` card when generation finishes.
+    case live(IOSStudioLivePreviewItem)
     case complete(IOSStudioInlinePlayerItem)
+}
+
+/// Lightweight payload for the live-preview dock card (no audio URL — the final
+/// file doesn't exist yet). Carries only what the live card chrome needs; the
+/// shared `AudioPlayerViewModel` owns the actual streaming playback.
+struct IOSStudioLivePreviewItem: Equatable {
+    let voiceName: String
+    let modeLabel: String
+    let mode: GenerationMode
+    let transcript: String
+    /// Identical to the eventual `.complete` item's seed (prompt-derived) so the
+    /// decorative waveform shape does not change across the live→final swap.
+    let waveformSeed: Int
 }
 
 struct IOSStudioInlinePlayerItem: Equatable {
