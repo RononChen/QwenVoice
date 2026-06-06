@@ -5,8 +5,9 @@
 > in-process, deterministically — plus `voices` / `speakers` / `models` discovery — and replaced
 > computer-use UI-driving because computer-use is flaky for *driving generation* (MCP disconnects,
 > focus races, engine-busy rejections). See [`cli.md`](cli.md) + `telemetry-and-benchmarking.md` §11.
-> **computer-use here is for what the CLI can't do: visual/UX review** (layout, tints, Liquid Glass +
-> Reduce Motion/Transparency fallbacks) and **iOS via iPhone Mirroring**.
+> **computer-use here is for what the CLI can't do: interactive UI-driven operations + visual/UX review**
+> (layout, tints, Liquid Glass + Reduce Motion/Transparency fallbacks) — macOS directly and **iOS via iPhone
+> Mirroring**. (Sanctioned, maintainer decision 2026-06-06.)
 
 How Claude exercises the Vocello UI directly — **macOS via the native `computer-use` MCP** (mouse +
 keyboard + vision), **iOS via the iPhone Mirroring window**. This is live agent-driving, **not** an
@@ -159,34 +160,41 @@ Cold vs warm: force cold by switching the model id (unloads) or letting idle-unl
 back-to-back runs. Commit compact snapshots/baselines under `benchmarks/` if useful (≤256 KB, no raw
 `*.jsonl`) — comparison stays manual (`git diff`), with no auto-compared build gate.
 
-## iOS via iPhone Mirroring — DEPRECATED
+## iOS via iPhone Mirroring (reinstated 2026-06-06)
 
-> **Deprecated (2026-06-01).** Driving the iOS app by screen-mirroring the iPhone (computer-use over the
-> macOS **iPhone Mirroring** window) is **no longer the iOS testing method** — it was flaky (focus races,
-> the virtualized SwiftUI accessibility tree, engine-busy rejections) and could not trigger generation
-> headlessly. It has been replaced by the **hybrid on-device method** in
-> [`ios-device-testing.md`](ios-device-testing.md): a headless generation harness (`scripts/ios_device.sh` +
-> the `QVOICE_IOS_AUTORUN` launch trigger, telemetry-driven, no UI) for perf/memory/quality proof, plus a
-> thin `VocelloiOSUITests` XCUITest for UI-flow smoke. Use that for anything scripted.
+> **Reinstated (maintainer decision, 2026-06-06).** Driving the iOS app by computer-use over the macOS
+> **iPhone Mirroring** window is a **sanctioned method for interactive UI-driven operations + UI design/review**
+> (it had been deprecated 2026-06-01; that's reversed). Drive with `mcp__computer-use__*` against the Mirroring
+> window: load the toolkit, `request_access` (the Mirroring app resolves as **full** tier), screenshot to
+> locate elements by sight, then tap/type/key. Practical notes from real use: the Mirroring connection can
+> pause ("Connexion en pause" → click **Reprendre"**); a locked phone auto-locks mid-session (relaunch needs an
+> unlock); and there's ~2–3s screenshot/click latency, so to catch a transient state (e.g. the live-preview
+> card mid-generation) use `computer_batch` (click → short wait → screenshot) rather than separate calls.
 >
-> **Observation-mirroring is encouraged — and is now the standing on-device rule.** What stays deprecated is
-> *driving* the UI via the mirror (computer-use taps). *Watching* the live app via macOS **iPhone Mirroring**
-> while the headless harness runs is the recommended workflow: `scripts/ios_device.sh` auto-starts iPhone
-> Mirroring before every device command, so the phone stays **locked + screen-dark (OLED burn-in safe)** and you
-> watch on the Mac — and crucially, iPhone Mirroring keeps a *locked* device reachable to `devicectl` (a locked
-> phone without mirroring drops to "unavailable"). Opt out with `QVOICE_IOS_NO_MIRROR=1`.
+> **What each method is for (they complement, none deprecated except the Simulator):**
+> - **computer-use over Mirroring** — interactive UI-driven operations + visual/UX design/review.
+> - **XCUITest** (`scripts/ios_device.sh ui-test`) — automated/regression UI-flow tests.
+> - **headless harness** (`scripts/ios_device.sh bench` + `QVOICE_IOS_AUTORUN`, telemetry-driven, no UI) —
+>   scripted perf/memory/quality proof. Prefer this (not computer-use) for **scripted generation benchmarks**.
+>
+> **Observation-mirroring is also still the standing rule:** `scripts/ios_device.sh` auto-starts iPhone
+> Mirroring before every device command, so a *headless* run can be watched on the Mac with the phone
+> **locked + screen-dark (OLED burn-in safe)** — and crucially, iPhone Mirroring keeps a *locked* device
+> reachable to `devicectl` (a locked phone without mirroring drops to "unavailable"). Opt out with
+> `QVOICE_IOS_NO_MIRROR=1`.
 
 ## iOS UI testing — on-device XCUITest (standing method)
 
-**Maintainer decision, 2026-06-04: the Simulator is retired for this project.** The standing autonomous
-UI test/control/review path is the **`VocelloiOSUITests` XCUITest suite run on the device** via
-**`scripts/ios_device.sh ui-test`** (Apple's official on-device UI framework — *not* the deprecated
-mirror-pixel driving above). Review via `scripts/ios_device.sh shot` + the `.xcresult`. Full reference:
+**Maintainer decision, 2026-06-04: the Simulator is retired for this project.** The standing **automated**
+UI-test path is the **`VocelloiOSUITests` XCUITest suite run on the device** via
+**`scripts/ios_device.sh ui-test`** (Apple's official on-device UI framework). It complements — does not
+replace — interactive computer-use-over-Mirroring driving + design/review (above). Review via
+`scripts/ios_device.sh shot` + the `.xcresult`. Full reference:
 [`ios-device-testing.md`](ios-device-testing.md) → §2 "XCUITest on the device".
 
 ### iOS via the Simulator — RETIRED (kept, not used)
 
 The Simulator path (`scripts/ios_sim.sh`, the fake `IOSSimulatorTTSEngine`, `QVOICE_SIM_*` seeding, AXe /
 `scripts/install_axe.sh`, and the `xcodebuildmcp` sim tools) stays **in-tree but inert** — don't reach for
-it for UI review. (What was always deprecated — driving the **physical device** through the iPhone-Mirroring
-window — remains deprecated.)
+it for UI review. (Driving the **physical device** via computer-use over iPhone Mirroring is **reinstated** as
+of 2026-06-06 — see the section above; only the Simulator stays retired.)
