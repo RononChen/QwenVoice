@@ -852,9 +852,12 @@ public enum NativeStreamingOutputPolicy: String, Hashable, Codable, Sendable {
 
 /// Opt-out switch for the per-chunk PCM preview Data materialization.
 /// Audio files on disk are unaffected; only the in-flight preview data
-/// carried by `GenerationEvent.chunk` is suppressed. Physical iOS devices
-/// default to skip so PCM bytes do not copy through JSON/XPC unless a debug
-/// run explicitly opts in.
+/// carried by `GenerationEvent.chunk` is controlled here. **Defaults to
+/// `.emit` on every platform** — iOS streaming-playback consumes this PCM
+/// to play audio live during generation, and the iOS engine runs
+/// in-process so the bytes never cross XPC/JSON (the old `.skip` default
+/// was a dead-extension-era artifact). Set `QWENVOICE_STREAMING_PREVIEW_DATA=off`
+/// to suppress it (e.g. to isolate memory in a benchmark).
 public enum NativeStreamingPreviewDataPolicy: String, Hashable, Codable, Sendable {
     case emit
     case skip
@@ -866,11 +869,7 @@ public enum NativeStreamingPreviewDataPolicy: String, Hashable, Codable, Sendabl
         case "off", "skip", "false", "0", "no":
             return .skip
         default:
-#if os(iOS) && !targetEnvironment(simulator)
-            return .skip
-#else
             return .emit
-#endif
         }
     }
 }

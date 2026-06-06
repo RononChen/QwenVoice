@@ -63,6 +63,9 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
     private let diagnosticsRecorder: IOSDeviceDiagnosticsRecorder?
     private(set) var latestMemoryContext: IOSMemoryContext
     private var changeObserver: AnyCancellable?
+    /// Drains the engine's full ordered event stream (preview PCM intact) and forwards each
+    /// `.chunk` to NotificationCenter for live playback. Runs for the store's lifetime.
+    private var chunkForwardTask: Task<Void, Never>?
     private var activeGenerationDepth = 0
     private var lastForwardedChunkIdentity: GenerationChunkDeliveryIdentity?
     private var activeGenerationMemoryGuardTask: Task<Void, Never>?
@@ -104,6 +107,39 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
                     self?.syncFromBackend()
                 }
             }
+        startChunkForwardingIfAvailable()
+    }
+
+    deinit {
+        chunkForwardTask?.cancel()
+    }
+
+    /// For in-process engines (iOS), drain the FULL ordered event stream and forward each
+    /// streamed `.chunk` (with its preview PCM intact) to NotificationCenter. The snapshot path
+    /// (`syncFromSnapshot`) only sees the coalesced, preview-stripped `latestEvent`, so it can't
+    /// carry the audio needed for live playback — this is the channel that does.
+    private func startChunkForwardingIfAvailable() {
+        guard let events = backend.events else { return }
+        chunkForwardTask = Task { @MainActor [weak self] in
+            for await event in events {
+                guard let self else { return }
+                guard case .chunk(let chunk) = event else { continue }
+                guard chunk.previewAudio != nil || chunk.chunkPath != nil else { continue }
+                NotificationCenter.default.post(
+                    name: .generationChunkReceived,
+                    object: self,
+                    userInfo: [
+                        "chunk": chunk,
+                        "generationID": chunk.generationID as Any,
+                        "requestID": chunk.requestID as Any,
+                        "title": chunk.title,
+                        "chunkPath": chunk.chunkPath as Any,
+                        "streamSessionDirectory": chunk.streamSessionDirectory as Any,
+                        "cumulativeDurationSeconds": chunk.cumulativeDurationSeconds as Any,
+                    ]
+                )
+            }
+        }
     }
 
     func supportsMode(_ mode: GenerationMode) -> Bool {
@@ -413,6 +449,11 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
             memoryBudgetPolicy.allowsProactiveWarmOperations(for: latestMemoryContext.pressureBand)
         )
 
+        // When the backend exposes its full event stream, `chunkForwardTask` forwards chunks
+        // (with preview PCM intact); the snapshot's `latestEvent` is coalesced + preview-stripped,
+        // so skip the lossy snapshot forward to avoid posting payload-less duplicates.
+        guard backend.events == nil else { return }
+
         guard let latestEvent = rawLatestEvent,
               let chunkIdentity = latestEvent.chunkDeliveryIdentity,
               lastForwardedChunkIdentity != chunkIdentity else {
@@ -717,6 +758,9 @@ final class AnyTTSEngineBackend {
     let supportsModelManagementMutation: Bool
     let supportedModes: Set<GenerationMode>
     let stateDidChange: AnyPublisher<Void, Never>
+    /// Full, ordered event stream with per-chunk preview PCM intact (in-process engines only;
+    /// nil otherwise). The store drains this to forward streamed audio for live playback.
+    let events: AsyncStream<GenerationEvent>?
 
     private let snapshotBlock: () -> TTSEngineFrontendState
     private let supportDecisionBlock: (GenerationRequest) -> GenerationSupportDecision
@@ -760,6 +804,7 @@ final class AnyTTSEngineBackend {
         self.stateDidChange = engine.objectWillChange
             .map { _ in () }
             .eraseToAnyPublisher()
+        self.events = (engine as? any TTSEngineEventStreaming)?.events
         self.snapshotBlock = {
             TTSEngineFrontendState(
                 isReady: engine.isReady,

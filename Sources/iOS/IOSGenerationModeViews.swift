@@ -326,6 +326,10 @@ struct IOSCustomVoiceView: View {
             }
             let outputPath = makeOutputPath(subfolder: model.outputSubfolder, text: promptText)
             do {
+                // Live streaming playback: estimate the buffer up front, then let
+                // AudioPlayerViewModel play chunks as they arrive (it already subscribes on
+                // iOS) and seamlessly hand off to the final file at completion.
+                audioPlayer.setLivePreviewEstimate(LivePreviewEstimate(text: promptText))
                 let result = try await ttsEngine.generate(
                     GenerationRequest(
                         mode: .custom,
@@ -342,6 +346,11 @@ struct IOSCustomVoiceView: View {
                                 : nil
                         )
                     )
+                )
+                audioPlayer.completeStreamingPreview(
+                    result: result,
+                    title: String(promptText.prefix(40)),
+                    shouldAutoPlay: AudioService.shouldAutoPlay
                 )
                 let generation = Generation(
                     text: promptText,
@@ -367,7 +376,8 @@ struct IOSCustomVoiceView: View {
                             mode: .custom,
                             transcript: promptText,
                             waveformSeed: IOSStableVisualHash.int(result.audioPath),
-                            autoplay: AudioService.shouldAutoPlay
+                            autoplay: false,
+                            ownedBySharedPlayer: true
                         )
                     )
                 }
@@ -767,6 +777,7 @@ struct IOSVoiceDesignView: View {
             }
             let outputPath = makeOutputPath(subfolder: model.outputSubfolder, text: promptText)
             do {
+                audioPlayer.setLivePreviewEstimate(LivePreviewEstimate(text: promptText))
                 let result = try await ttsEngine.generate(
                     GenerationRequest(
                         mode: .design,
@@ -781,6 +792,11 @@ struct IOSVoiceDesignView: View {
                             deliveryStyle: draft.resolvedDeliveryInstruction
                         )
                     )
+                )
+                audioPlayer.completeStreamingPreview(
+                    result: result,
+                    title: String(promptText.prefix(40)),
+                    shouldAutoPlay: AudioService.shouldAutoPlay
                 )
                 let generation = Generation(
                     text: promptText,
@@ -807,7 +823,8 @@ struct IOSVoiceDesignView: View {
                             mode: .design,
                             transcript: promptText,
                             waveformSeed: IOSStableVisualHash.int(result.audioPath),
-                            autoplay: AudioService.shouldAutoPlay
+                            autoplay: false,
+                            ownedBySharedPlayer: true
                         )
                     )
                 }
@@ -1293,6 +1310,7 @@ struct IOSVoiceCloningView: View {
                 }
 
                 let outputPath = makeOutputPath(subfolder: model.outputSubfolder, text: promptText)
+                audioPlayer.setLivePreviewEstimate(LivePreviewEstimate(text: promptText))
                 let result = try await ttsEngine.generate(
                     GenerationRequest(
                         mode: .clone,
@@ -1310,6 +1328,11 @@ struct IOSVoiceCloningView: View {
                             )
                         )
                     )
+                )
+                audioPlayer.completeStreamingPreview(
+                    result: result,
+                    title: String(promptText.prefix(40)),
+                    shouldAutoPlay: AudioService.shouldAutoPlay
                 )
                 let voiceName = selectedVoice?.name ?? URL(fileURLWithPath: refPath).deletingPathExtension().lastPathComponent
                 let generation = Generation(
@@ -1336,7 +1359,8 @@ struct IOSVoiceCloningView: View {
                             mode: .clone,
                             transcript: promptText,
                             waveformSeed: IOSStableVisualHash.int(result.audioPath),
-                            autoplay: AudioService.shouldAutoPlay
+                            autoplay: false,
+                            ownedBySharedPlayer: true
                         )
                     )
                 }

@@ -39,7 +39,7 @@ public enum TTSEngineError: LocalizedError, Equatable {
 public typealias MLXTTSEngineError = TTSEngineError
 
 @MainActor
-public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReporting {
+public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReporting, TTSEngineEventStreaming {
     private static let lightweightWarmupText = "Hi."
     public static var lightweightWarmupTextForUI: String { lightweightWarmupText }
 

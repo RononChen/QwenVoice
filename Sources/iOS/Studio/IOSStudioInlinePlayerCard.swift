@@ -21,6 +21,7 @@ struct IOSStudioInlinePlayerCard: View {
     var onExpand: (() -> Void)?
 
     @State private var controller = IOSInlinePlaybackController()
+    @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
     @Environment(\.iosReduceMotionEnabled) private var reduceMotion
 
     private let referenceHeight: CGFloat = 127
@@ -65,7 +66,13 @@ struct IOSStudioInlinePlayerCard: View {
         .shadow(color: Color.black.opacity(0.22), radius: 5, x: 0, y: 2)
         .transition(cardTransition)
         .task(id: item.audioURL) {
-            await controller.load(url: item.audioURL, autoplay: item.autoplay)
+            if item.ownedBySharedPlayer {
+                // The shared player already owns this generation's playback (live preview →
+                // seamless hand-off). Mirror/forward it instead of starting a second player.
+                controller.adopt(sharedPlayer: audioPlayer, url: item.audioURL)
+            } else {
+                await controller.load(url: item.audioURL, autoplay: item.autoplay)
+            }
         }
         .onDisappear {
             controller.stop()
@@ -229,9 +236,56 @@ final class IOSInlinePlaybackController: NSObject {
     private var displayLink: CADisplayLink?
     private var loadedURL: URL?
 
+    // Streaming-adoption mode. For a generation owned by the shared AudioPlayerViewModel
+    // (it played the live preview during generation and seamlessly handed off to the final
+    // file), this controller MIRRORS + FORWARDS to that shared player instead of starting a
+    // second AVAudioPlayer (which would double the audio). The `isAdopting` guard keys on the
+    // shared player still playing this exact file; if it moves on (e.g. the user plays a
+    // History item), we lazily fall back to our own player so the card can replay independently.
+    private weak var sharedPlayer: AudioPlayerViewModel?
+    private var adoptedURL: URL?
+
+    private var isAdopting: Bool {
+        guard player == nil, let shared = sharedPlayer, let url = adoptedURL else { return false }
+        return shared.currentFilePath == url.path
+    }
+
     var progress: Double {
         guard duration > 0 else { return 0 }
         return min(1.0, max(0.0, currentTime / duration))
+    }
+
+    /// Adopt the shared player for a generation it already owns (no second AVAudioPlayer).
+    func adopt(sharedPlayer: AudioPlayerViewModel, url: URL) {
+        self.sharedPlayer = sharedPlayer
+        self.adoptedURL = url
+        self.loadedURL = url
+        self.isPlaying = sharedPlayer.isPlaying
+        self.currentTime = sharedPlayer.currentTime
+        self.duration = sharedPlayer.duration
+        startDisplayLink()
+    }
+
+    /// Lazily create our own player from the adopted URL once the shared player has moved on,
+    /// so the card can replay/scrub independently. Resumes from the last mirrored position.
+    @discardableResult
+    private func ensureOwnPlayer() -> Bool {
+        if player != nil { return true }
+        guard let url = adoptedURL ?? loadedURL else { return false }
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default, options: [])
+            try session.setActive(true, options: [])
+            let p = try AVAudioPlayer(contentsOf: url)
+            p.delegate = self
+            p.prepareToPlay()
+            p.currentTime = min(currentTime, max(0, p.duration - 0.05))
+            self.player = p
+            self.duration = p.duration
+            return true
+        } catch {
+            return false
+        }
     }
 
     func load(url: URL, autoplay: Bool) async {
@@ -255,19 +309,38 @@ final class IOSInlinePlaybackController: NSObject {
     }
 
     func play() {
-        guard let player else { return }
+        if isAdopting {
+            sharedPlayer?.play()
+            isPlaying = true
+            startDisplayLink()
+            return
+        }
+        guard ensureOwnPlayer(), let player else { return }
         player.play()
         isPlaying = true
         startDisplayLink()
     }
 
     func pause() {
+        if isAdopting {
+            sharedPlayer?.pause()
+            isPlaying = false
+            stopDisplayLink()
+            return
+        }
         player?.pause()
         isPlaying = false
         stopDisplayLink()
     }
 
     func togglePlayback() {
+        if isAdopting {
+            sharedPlayer?.togglePlayPause()
+            let playing = sharedPlayer?.isPlaying ?? false
+            isPlaying = playing
+            if playing { startDisplayLink() } else { stopDisplayLink() }
+            return
+        }
         if isPlaying { pause() } else {
             if let player, !player.isPlaying, currentTime >= duration {
                 player.currentTime = 0
@@ -278,14 +351,26 @@ final class IOSInlinePlaybackController: NSObject {
     }
 
     func stop() {
+        // When adopting, never stop the shared (global) player on card teardown — just stop
+        // mirroring it. Only our own player is stopped.
+        if sharedPlayer != nil && player == nil {
+            stopDisplayLink()
+            return
+        }
         player?.stop()
         isPlaying = false
         stopDisplayLink()
     }
 
     func scrub(to fraction: Double) {
+        let clamped = max(0, min(1, fraction))
+        if isAdopting {
+            sharedPlayer?.seek(to: clamped)
+            currentTime = sharedPlayer?.currentTime ?? (duration * clamped)
+            return
+        }
         guard let player else { return }
-        let target = duration * max(0, min(1, fraction))
+        let target = duration * clamped
         player.currentTime = target
         currentTime = target
     }
@@ -314,6 +399,12 @@ final class IOSInlinePlaybackController: NSObject {
     }
 
     @objc private func tick(_ link: CADisplayLink) {
+        if isAdopting, let shared = sharedPlayer {
+            isPlaying = shared.isPlaying
+            currentTime = shared.currentTime
+            if shared.duration > 0 { duration = shared.duration }
+            return
+        }
         guard let player else { return }
         currentTime = player.currentTime
         if !player.isPlaying && isPlaying {

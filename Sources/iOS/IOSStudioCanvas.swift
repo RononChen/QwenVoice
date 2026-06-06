@@ -382,6 +382,10 @@ struct IOSStudioInlinePlayerItem: Equatable {
     let transcript: String
     let waveformSeed: Int
     let autoplay: Bool
+    /// True when the shared AudioPlayerViewModel already owns this generation's playback
+    /// (live preview during generation → seamless hand-off). The inline card then mirrors/
+    /// forwards that shared player instead of starting its own AVAudioPlayer (no double audio).
+    var ownedBySharedPlayer: Bool = false
 
     static func == (lhs: IOSStudioInlinePlayerItem, rhs: IOSStudioInlinePlayerItem) -> Bool {
         lhs.audioURL == rhs.audioURL

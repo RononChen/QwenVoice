@@ -125,6 +125,15 @@ public protocol TTSEngine: ObservableObject {
     func clearVisibleError()
 }
 
+/// Engines that expose the full, ordered `GenerationEvent` stream — with each chunk's
+/// preview PCM payload **intact** (the `latestEvent` snapshot strips it, and coalescing
+/// drops intermediate chunks). In-process transport consumers (the iOS app) drain this to
+/// play streamed audio live during generation. Out-of-process (macOS XPC) consumes the same
+/// stream inside the engine service.
+public protocol TTSEngineEventStreaming: AnyObject {
+    var events: AsyncStream<GenerationEvent> { get }
+}
+
 @MainActor
 public protocol TTSEngineRuntimeControlling: TTSEngine {
     func prefetchInteractiveReadinessIfNeeded(
