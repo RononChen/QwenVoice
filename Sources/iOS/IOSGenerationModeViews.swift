@@ -364,6 +364,16 @@ struct IOSCustomVoiceView: View {
                         )
                     )
                 )
+                // If the user cancelled while the take was generating, discard it: don't
+                // play it, don't persist it as a clip, and remove the orphaned WAV. The
+                // engine has already completed + cleaned up via its normal path here (this is
+                // iOS-only — it does NOT alter engine lifecycle/loadState), so this just
+                // suppresses surfacing an unwanted result. Keeps cancelled takes out of History.
+                if Task.isCancelled {
+                    try? FileManager.default.removeItem(atPath: result.audioPath)
+                    audioPlayer.abortLivePreviewIfNeeded()
+                    return
+                }
                 audioPlayer.completeStreamingPreview(
                     result: result,
                     title: String(promptText.prefix(40)),
@@ -404,8 +414,15 @@ struct IOSCustomVoiceView: View {
                 await MainActor.run { coordinator.errorMessage = nil }
             } catch {
                 audioPlayer.abortLivePreviewIfNeeded()
-                await MainActor.run { coordinator.fail(error.localizedDescription) }
-                IOSHaptics.warning()
+                if Task.isCancelled {
+                    // A user cancel can surface as a wrapped engine error (not a bare
+                    // CancellationError) — treat it as a clean cancel, not a failure banner.
+                    // iOS-only: does not touch engine lifecycle/cleanup.
+                    await MainActor.run { coordinator.errorMessage = nil }
+                } else {
+                    await MainActor.run { coordinator.fail(error.localizedDescription) }
+                    IOSHaptics.warning()
+                }
             }
         }
     }
@@ -827,6 +844,16 @@ struct IOSVoiceDesignView: View {
                         )
                     )
                 )
+                // If the user cancelled while the take was generating, discard it: don't
+                // play it, don't persist it as a clip, and remove the orphaned WAV. The
+                // engine has already completed + cleaned up via its normal path here (this is
+                // iOS-only — it does NOT alter engine lifecycle/loadState), so this just
+                // suppresses surfacing an unwanted result. Keeps cancelled takes out of History.
+                if Task.isCancelled {
+                    try? FileManager.default.removeItem(atPath: result.audioPath)
+                    audioPlayer.abortLivePreviewIfNeeded()
+                    return
+                }
                 audioPlayer.completeStreamingPreview(
                     result: result,
                     title: String(promptText.prefix(40)),
@@ -868,8 +895,15 @@ struct IOSVoiceDesignView: View {
                 await MainActor.run { coordinator.errorMessage = nil }
             } catch {
                 audioPlayer.abortLivePreviewIfNeeded()
-                await MainActor.run { coordinator.fail(error.localizedDescription) }
-                IOSHaptics.warning()
+                if Task.isCancelled {
+                    // A user cancel can surface as a wrapped engine error (not a bare
+                    // CancellationError) — treat it as a clean cancel, not a failure banner.
+                    // iOS-only: does not touch engine lifecycle/cleanup.
+                    await MainActor.run { coordinator.errorMessage = nil }
+                } else {
+                    await MainActor.run { coordinator.fail(error.localizedDescription) }
+                    IOSHaptics.warning()
+                }
             }
         }
     }
@@ -1380,6 +1414,16 @@ struct IOSVoiceCloningView: View {
                         )
                     )
                 )
+                // If the user cancelled while the take was generating, discard it: don't
+                // play it, don't persist it as a clip, and remove the orphaned WAV. The
+                // engine has already completed + cleaned up via its normal path here (this is
+                // iOS-only — it does NOT alter engine lifecycle/loadState), so this just
+                // suppresses surfacing an unwanted result. Keeps cancelled takes out of History.
+                if Task.isCancelled {
+                    try? FileManager.default.removeItem(atPath: result.audioPath)
+                    audioPlayer.abortLivePreviewIfNeeded()
+                    return
+                }
                 audioPlayer.completeStreamingPreview(
                     result: result,
                     title: String(promptText.prefix(40)),
@@ -1421,8 +1465,15 @@ struct IOSVoiceCloningView: View {
                 await MainActor.run { coordinator.errorMessage = nil }
             } catch {
                 audioPlayer.abortLivePreviewIfNeeded()
-                await MainActor.run { coordinator.fail(error.localizedDescription) }
-                IOSHaptics.warning()
+                if Task.isCancelled {
+                    // A user cancel can surface as a wrapped engine error (not a bare
+                    // CancellationError) — treat it as a clean cancel, not a failure banner.
+                    // iOS-only: does not touch engine lifecycle/cleanup.
+                    await MainActor.run { coordinator.errorMessage = nil }
+                } else {
+                    await MainActor.run { coordinator.fail(error.localizedDescription) }
+                    IOSHaptics.warning()
+                }
             }
         }
     }
