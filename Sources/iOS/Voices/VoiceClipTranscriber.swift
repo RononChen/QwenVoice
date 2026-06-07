@@ -1,78 +1,108 @@
 import AVFoundation
 import Foundation
+import NaturalLanguage
+import QwenVoiceCore
 import Speech
 
-/// Best-effort **on-device** transcription of a finished reference WAV, used to pre-fill the
-/// (editable, optional) transcript when enrolling a recorded voice.
+/// Best-effort **on-device** transcription + language detection of a finished reference WAV, used
+/// to pre-fill the (editable, optional) transcript and to auto-set the Clone language when enrolling
+/// a recorded voice.
 ///
-/// The transcript is OPTIONAL for Qwen3-TTS cloning — it improves prompt quality + enables the
-/// conditioning cache, but generation works without it (see `NativeCloneSupport.swift`). So every
-/// failure path returns `nil` and the enrollment flow is never blocked.
+/// Covers **all Qwen3-TTS languages** whose on-device recognition model is already installed on the
+/// device (no downloads). For each candidate language it transcribes the clip on-device, then uses
+/// `NLLanguageRecognizer` to score how strongly the resulting text is actually in that language —
+/// a far more reliable signal than `SFSpeechRecognizer`'s (often-zero) confidence. The user's
+/// preferred device languages are tried first, so the common case matches on the first pass.
 ///
-/// **Language:** the recording's language can differ from the app's (e.g. an English UI user who
-/// speaks French). `SFSpeechRecognizer` has no language auto-detect, so we transcribe with each of
-/// the user's **preferred languages** (`Locale.preferredLanguages`, on-device-capable only) and
-/// keep the best result — confidence-ranked, falling back to the first non-empty pass when
-/// on-device confidence isn't reported. Audio never leaves the device (`requiresOnDeviceRecognition`).
+/// Everything degrades to `nil` (no transcript, language `.auto`) so enrollment is never blocked,
+/// and audio never leaves the device (`requiresOnDeviceRecognition`).
 enum VoiceClipTranscriber {
-    /// Max recognition passes (each is a full pass over the clip; the user's top languages first).
-    private static let maxCandidates = 2
+    /// Score at/above which we accept a candidate's language as the detected one.
+    private static let confidentLanguageScore = 0.5
+    /// Score at/above which we stop trying further candidates (a clear match).
+    private static let earlyExitScore = 0.85
+    /// Below this, the transcript looks like noise → don't fill it.
+    private static let minimumUsableScore = 0.2
 
-    static func transcribe(url: URL) async -> String? {
+    static func transcribe(url: URL) async -> (text: String, language: Qwen3SupportedLanguage)? {
         guard await requestAuthorization() else { return nil }
 
-        var best: (text: String, confidence: Float)?
-        var firstNonEmpty: String?
+        var best: (text: String, language: Qwen3SupportedLanguage, score: Double, confidence: Float)?
 
-        for locale in candidateLocales() {
-            guard let pass = await recognize(url: url, locale: locale) else { continue }
-            if firstNonEmpty == nil { firstNonEmpty = pass.text }
-            if best == nil || pass.confidence > best!.confidence {
-                best = pass
+        for candidate in candidateLocales() {
+            guard let pass = await recognize(url: url, locale: candidate.locale) else { continue }
+            let score = languageMatchScore(text: pass.text, expected: candidate.language)
+
+            let isBetter: Bool
+            if let best {
+                isBetter = score != best.score ? score > best.score : pass.confidence > best.confidence
+            } else {
+                isBetter = true
             }
-            // A clearly-confident pass means we found the right language — stop early.
-            if pass.confidence >= 0.85 { break }
+            if isBetter {
+                best = (pass.text, candidate.language, score, pass.confidence)
+            }
+            if score >= earlyExitScore { break }
         }
 
-        // Prefer the highest-confidence pass; if confidence was never reported (on-device often
-        // leaves it at 0), fall back to the first non-empty (the top preferred language).
-        let chosen: String?
-        if let best, best.confidence > 0 {
-            chosen = best.text
-        } else {
-            chosen = firstNonEmpty
-        }
-        let trimmed = chosen?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (trimmed?.isEmpty == false) ? trimmed : nil
+        guard let best, best.score >= minimumUsableScore else { return nil }
+        // Confident → use the detected language; weak → fill the transcript but leave language .auto.
+        let language = best.score >= confidentLanguageScore ? best.language : .auto
+        return (best.text, language)
     }
 
-    /// The user's preferred languages mapped to supported on-device recognition locales (deduped
-    /// by language code, in preference order), capped to a couple of passes.
-    private static func candidateLocales() -> [Locale] {
-        let supported = SFSpeechRecognizer.supportedLocales()
-        var result: [Locale] = []
-        var seenLanguages = Set<String>()
+    /// One on-device-capable locale per Qwen language, the user's preferred languages first.
+    private static func candidateLocales() -> [(locale: Locale, language: Qwen3SupportedLanguage)] {
+        let preferred = Locale.preferredLanguages
 
-        for identifier in Locale.preferredLanguages {
-            guard let language = Locale(identifier: identifier).language.languageCode?.identifier,
-                  !seenLanguages.contains(language) else { continue }
-            let match = supported.first { locale in
-                locale.language.languageCode?.identifier == language
-                    && (SFSpeechRecognizer(locale: locale)?.supportsOnDeviceRecognition ?? false)
+        func regionRank(_ locale: Locale) -> Int {
+            for (i, pref) in preferred.enumerated()
+            where pref.caseInsensitiveCompare(locale.identifier) == .orderedSame {
+                return i // exact preferred match
             }
-            if let match {
-                seenLanguages.insert(language)
-                result.append(match)
+            for (i, pref) in preferred.enumerated()
+            where Locale(identifier: pref).language.languageCode?.identifier
+                == locale.language.languageCode?.identifier {
+                return 100 + i // same language as a preferred one
             }
-            if result.count >= maxCandidates { break }
+            return 1000 // not a preferred language
         }
 
-        if result.isEmpty,
-           let fallback = SFSpeechRecognizer(),
-           fallback.supportsOnDeviceRecognition {
-            result = [fallback.locale]
+        // Keep one locale per Qwen language, preferring the user's region variant.
+        var byLanguage: [Qwen3SupportedLanguage: (locale: Locale, rank: Int)] = [:]
+        for locale in SFSpeechRecognizer.supportedLocales() {
+            let language = Qwen3SupportedLanguage.normalized(locale.language.languageCode?.identifier)
+            guard language != .auto else { continue }
+            guard SFSpeechRecognizer(locale: locale)?.supportsOnDeviceRecognition == true else { continue }
+            let rank = regionRank(locale)
+            if let existing = byLanguage[language], existing.rank <= rank { continue }
+            byLanguage[language] = (locale, rank)
         }
-        return result
+
+        return byLanguage
+            .map { (language: $0.key, locale: $0.value.locale, rank: $0.value.rank) }
+            .sorted { lhs, rhs in
+                lhs.rank != rhs.rank ? lhs.rank < rhs.rank : lhs.language.rawValue < rhs.language.rawValue
+            }
+            .map { (locale: $0.locale, language: $0.language) }
+    }
+
+    /// NaturalLanguage probability mass that the text is in `expected` (handles script/region
+    /// variants like zh-Hans/zh-Hant, pt-BR/pt-PT by collapsing to the base language code).
+    private static func languageMatchScore(text: String, expected: Qwen3SupportedLanguage) -> Double {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return 0 }
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(trimmed)
+        var score = 0.0
+        for (language, probability) in recognizer.languageHypotheses(withMaximum: 5) {
+            let code = Locale(identifier: language.rawValue).language.languageCode?.identifier
+                ?? language.rawValue
+            if Qwen3SupportedLanguage.normalized(code) == expected {
+                score += probability
+            }
+        }
+        return score
     }
 
     private static func recognize(url: URL, locale: Locale) async -> (text: String, confidence: Float)? {

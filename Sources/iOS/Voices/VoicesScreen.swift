@@ -46,14 +46,16 @@ struct VoicesScreen: View {
         )
         .fullScreenCover(isPresented: $isRecordVoicePresented) {
             IOSRecordVoiceSheet(
-                onEnrolled: { voice, transcript in
+                onEnrolled: { voice, transcript, language in
                     isRecordVoicePresented = false
-                    // Same staging as tapping a saved voice → Clone mode, pre-loaded.
+                    // Same staging as tapping a saved voice → Clone mode, pre-loaded; carry the
+                    // detected reference language so the Clone Language picker is pre-set.
                     appModel.pendingVoiceCloningHandoff = PendingVoiceCloningHandoff(
                         savedVoiceID: voice.id,
                         wavPath: voice.wavPath,
                         transcript: transcript,
-                        transcriptLoadError: nil
+                        transcriptLoadError: nil,
+                        language: language
                     )
                     appModel.studioMode = .clone
                     appModel.tab = .studio

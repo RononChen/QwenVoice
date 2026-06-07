@@ -1290,6 +1290,10 @@ struct IOSVoiceCloningView: View {
             wavPath: pendingSavedVoiceHandoff.wavPath,
             transcript: pendingSavedVoiceHandoff.transcript
         )
+        // Auto-set the Clone language to the detected reference language (record→enroll flow).
+        if pendingSavedVoiceHandoff.language != .auto {
+            draft.selectedLanguage = pendingSavedVoiceHandoff.language
+        }
         transcriptLoadError = pendingSavedVoiceHandoff.transcriptLoadError
         hydratedSavedVoiceID = pendingSavedVoiceHandoff.savedVoiceID
         self.pendingSavedVoiceHandoff = nil

@@ -10,8 +10,9 @@ import SwiftUI
 /// Presented as a `.fullScreenCover`. Phase 1 renders the recorder inline; phase 2 shows a warm
 /// backdrop with the naming `.sheet` on top (so we never nest two full-screen covers).
 struct IOSRecordVoiceSheet: View {
-    /// Called once the voice is enrolled. `transcript` is the confirmed (possibly empty) text.
-    var onEnrolled: (Voice, String) -> Void
+    /// Called once the voice is enrolled with the confirmed (possibly empty) `transcript` and the
+    /// detected reference `language` (`.auto` if undetected) to pre-set the Clone language.
+    var onEnrolled: (Voice, String, Qwen3SupportedLanguage) -> Void
     var onDismiss: () -> Void
 
     @EnvironmentObject private var ttsEngine: TTSEngineStore
@@ -21,6 +22,7 @@ struct IOSRecordVoiceSheet: View {
     @State private var capturedURL: URL?
     @State private var suggestedName: String = ""
     @State private var transcript: String = ""
+    @State private var detectedLanguage: Qwen3SupportedLanguage = .auto
     @State private var isNamingPresented = false
     @State private var enrollError: String?
     @State private var pendingVoiceForReview: PreparedVoice?
@@ -85,9 +87,10 @@ struct IOSRecordVoiceSheet: View {
                     cleanupCapturedFile()
                     isNamingPresented = false
                     let confirmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let language = detectedLanguage
                     Task {
                         await savedVoicesViewModel.refresh(using: ttsEngine)
-                        onEnrolled(voice, confirmed)
+                        onEnrolled(voice, confirmed, language)
                     }
                 }
                 .accessibilityIdentifier("recordVoice_keepDespiteWarning")
@@ -111,12 +114,16 @@ struct IOSRecordVoiceSheet: View {
 
     // MARK: - Actions
 
-    /// On-device best-effort transcription; only fills the field if the user hasn't typed one.
+    /// On-device best-effort transcription + language detection across all Qwen languages; only
+    /// fills the field/language if the user hasn't already provided one.
     private func autoTranscribe(_ url: URL) async {
-        guard let text = await VoiceClipTranscriber.transcribe(url: url) else { return }
+        guard let result = await VoiceClipTranscriber.transcribe(url: url) else { return }
         await MainActor.run {
             if transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                transcript = text
+                transcript = result.text
+            }
+            if detectedLanguage == .auto {
+                detectedLanguage = result.language
             }
         }
     }
@@ -138,7 +145,7 @@ struct IOSRecordVoiceSheet: View {
                 await savedVoicesViewModel.refresh(using: ttsEngine)
                 cleanupCapturedFile()
                 isNamingPresented = false
-                onEnrolled(voice, trimmedTranscript)
+                onEnrolled(voice, trimmedTranscript, detectedLanguage)
             } else {
                 // Soft/hard warning: the voice is on disk; let the user confirm or re-record.
                 pendingVoiceForReview = voice
