@@ -3121,7 +3121,13 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         let refEnd = max(refStart, refCount - 2)
         let refTextIds = refIds[0..., refStart ..< refEnd]
 
-        let targetChatText = "<|im_start|>assistant\n\(text)<|im_end|>\n<|im_start|>assistant\n"
+        // The tokenizer is ByteLevel BPE with add_prefix_space:false, and `combinedTextIds` below
+        // concatenates ref + target tokens with no separator. Without a leading space the first
+        // target token lacks its word-boundary marker and glues to the reference transcript, so the
+        // model drops short first words (e.g. FR "Ce"). Normalize exactly one leading space so the
+        // first target token is word-boundary-marked (idempotent if the caller already added one).
+        let boundaryMarkedText = " " + text.drop(while: { $0.isWhitespace })
+        let targetChatText = "<|im_start|>assistant\n\(boundaryMarkedText)<|im_end|>\n<|im_start|>assistant\n"
         let targetIds = MLXArray(tokenizer.encode(text: targetChatText).map { Int32($0) }).reshaped(1, -1)
         let targetCount = targetIds.dim(1)
         let targetStart = min(3, targetCount)
