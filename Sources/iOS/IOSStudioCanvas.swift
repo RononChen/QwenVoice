@@ -5,6 +5,9 @@ private enum IOSStudioCanvasLayout {
     static let tabDockReservation: CGFloat = 97
     static let compactDockAreaHeight: CGFloat = 64
     static let completeDockAreaHeight: CGFloat = 135
+    /// Extra dock height when the completed card carries the "Save as voice" button (Voice Design),
+    /// matching the card's added button row so the dock expands instead of overlapping the chips.
+    static let saveAsVoiceExtraHeight: CGFloat = 52
     static let dockBottomPadding: CGFloat = 8
 }
 
@@ -37,6 +40,8 @@ struct IOSStudioCanvas<SetupChips: View>: View {
     let onInstallModel: () -> Void
     let onPlayerDismiss: () -> Void
     let onPlayerExpand: (() -> Void)?
+    /// When provided (Voice Design), the completed player card shows a "Save as voice" button.
+    let onSaveAsVoice: (() -> Void)?
 
     init(
         mode: GenerationMode,
@@ -55,7 +60,8 @@ struct IOSStudioCanvas<SetupChips: View>: View {
         onCancel: @escaping () -> Void,
         onInstallModel: @escaping () -> Void,
         onPlayerDismiss: @escaping () -> Void,
-        onPlayerExpand: (() -> Void)? = nil
+        onPlayerExpand: (() -> Void)? = nil,
+        onSaveAsVoice: (() -> Void)? = nil
     ) {
         self.mode = mode
         self._script = script
@@ -74,6 +80,7 @@ struct IOSStudioCanvas<SetupChips: View>: View {
         self.onInstallModel = onInstallModel
         self.onPlayerDismiss = onPlayerDismiss
         self.onPlayerExpand = onPlayerExpand
+        self.onSaveAsVoice = onSaveAsVoice
     }
 
     // Plain @State (NOT @FocusState): this drives `IOSFlexibleTextEditor`'s
@@ -129,8 +136,13 @@ struct IOSStudioCanvas<SetupChips: View>: View {
 
     private var dockAreaHeight: CGFloat {
         switch genState {
-        case .complete, .live:
-            // Same tall height for both so the live→complete swap has NO height jump.
+        case .complete:
+            // Grow to fit the "Save as voice" button (Voice Design) so the dock expands + pushes the
+            // chips up, instead of the taller card overflowing upward over them.
+            return IOSStudioCanvasLayout.completeDockAreaHeight
+                + (onSaveAsVoice != nil ? IOSStudioCanvasLayout.saveAsVoiceExtraHeight : 0)
+        case .live:
+            // Base height (no save button while streaming) so the live→complete morph stays smooth.
             return IOSStudioCanvasLayout.completeDockAreaHeight
         default:
             return IOSStudioCanvasLayout.compactDockAreaHeight
@@ -233,7 +245,8 @@ struct IOSStudioCanvas<SetupChips: View>: View {
                 tint: tint,
                 onDismiss: onPlayerDismiss,
                 onCancel: onCancel,
-                onExpand: onPlayerExpand
+                onExpand: onPlayerExpand,
+                onSaveAsVoice: onSaveAsVoice
             )
             .id("studioPlayerCard")
         } else {

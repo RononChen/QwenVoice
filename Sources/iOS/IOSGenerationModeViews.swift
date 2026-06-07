@@ -439,6 +439,12 @@ struct IOSCustomVoiceView: View {
     }
 }
 
+/// A designed voice just saved from the Design result, carried by the "Use in Clone" confirmation.
+private struct IOSDesignedVoiceSaveResult: Equatable {
+    let voice: PreparedVoice
+    let transcript: String
+}
+
 struct IOSVoiceDesignView: View {
     @EnvironmentObject private var ttsEngine: TTSEngineStore
     @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
@@ -460,6 +466,8 @@ struct IOSVoiceDesignView: View {
     /// being asked whether to keep or discard. Mirrors the macOS
     /// SavedVoiceSheet flow.
     @State private var pendingVoiceForReview: PreparedVoice?
+    /// A designed voice that was just saved → drives the "Saved ✓ · Use in Clone" confirmation banner.
+    @State private var savedDesignedResult: IOSDesignedVoiceSaveResult?
 
     // Generation lifecycle moved to AppModel.designCoordinator (Phase 3b).
     private var coordinator: StudioGenerationCoordinator { appModel.designCoordinator }
@@ -624,10 +632,14 @@ struct IOSVoiceDesignView: View {
                                     await MainActor.run {
                                         if voice.qualityWarnings.isEmpty {
                                             savedVoicesViewModel.insertOrReplace(voice)
+                                            let usedTranscript = saveSheetTranscript
                                             isSaveSheetPresented = false
                                             saveSheetSuggestedName = ""
                                             saveSheetTranscript = ""
                                             saveError = nil
+                                            savedDesignedResult = IOSDesignedVoiceSaveResult(
+                                                voice: voice, transcript: usedTranscript
+                                            )
                                         } else {
                                             // Soft warning: voice is on disk
                                             // but pending user confirmation.
@@ -662,11 +674,13 @@ struct IOSVoiceDesignView: View {
                     Button("Keep voice") {
                         pendingVoiceForReview = nil
                         savedVoicesViewModel.insertOrReplace(voice)
+                        let usedTranscript = saveSheetTranscript
                         isSaveSheetPresented = false
                         saveSheetSuggestedName = ""
                         saveSheetTranscript = ""
                         saveError = nil
                         Task { await savedVoicesViewModel.refresh(using: ttsEngine) }
+                        savedDesignedResult = IOSDesignedVoiceSaveResult(voice: voice, transcript: usedTranscript)
                     }
                     .accessibilityIdentifier("voicesEnroll_keepDespiteWarning")
                 }
@@ -685,6 +699,106 @@ struct IOSVoiceDesignView: View {
             } message: { voice in
                 Text(PreparedVoiceQualityWarning.summary(for: voice.qualityWarnings))
             }
+            .overlay(alignment: .top) {
+                if let result = savedDesignedResult {
+                    savedVoiceBanner(result)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .iosAppAnimation(IOSSelectionMotion.miniPlayerSlide, value: savedDesignedResult)
+            .task(id: savedDesignedResult) {
+                guard savedDesignedResult != nil else { return }
+                try? await Task.sleep(for: .seconds(6))
+                guard !Task.isCancelled else { return }
+                savedDesignedResult = nil
+            }
+    }
+
+    // MARK: - Save designed voice → reuse in Clone
+
+    /// Open the (existing) save-voice sheet for the just-generated designed clip, prefilled with a
+    /// name suggestion from the brief + the script as the transcript.
+    private func presentSaveDesignedVoice() {
+        guard canSaveVoice else { return }
+        if saveSheetSuggestedName.isEmpty {
+            saveSheetSuggestedName = suggestedDesignedVoiceName()
+        }
+        if saveSheetTranscript.isEmpty {
+            saveSheetTranscript = promptText
+        }
+        isSaveSheetPresented = true
+    }
+
+    private func suggestedDesignedVoiceName() -> String {
+        let brief = draft.voiceDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !brief.isEmpty else { return "Designed voice" }
+        let words = brief.split(whereSeparator: { $0 == " " || $0.isNewline }).prefix(3)
+        let joined = words.joined(separator: " ")
+        guard !joined.isEmpty else { return "Designed voice" }
+        return joined.prefix(1).uppercased() + joined.dropFirst()
+    }
+
+    /// Stage the saved designed voice as the Clone reference + jump to Clone (same handoff the
+    /// record→enroll flow uses).
+    private func useDesignedVoiceInClone(_ result: IOSDesignedVoiceSaveResult) {
+        savedDesignedResult = nil
+        appModel.pendingVoiceCloningHandoff = PendingVoiceCloningHandoff(
+            savedVoiceID: result.voice.id,
+            wavPath: result.voice.wavPath,
+            transcript: result.transcript,
+            transcriptLoadError: nil,
+            language: PromptLanguageDetector.detect(result.transcript)
+        )
+        appModel.studioMode = .clone
+        appModel.tab = .studio
+    }
+
+    private func savedVoiceBanner(_ result: IOSDesignedVoiceSaveResult) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(IOSBrandTheme.design)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Saved “\(result.voice.name)”")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(IOSAppTheme.textPrimary)
+                    .lineLimit(1)
+                Text("Now in your voices.")
+                    .font(.caption)
+                    .foregroundStyle(IOSAppTheme.textSecondary)
+            }
+
+            Spacer(minLength: 8)
+
+            Button {
+                IOSHaptics.selection()
+                useDesignedVoiceInClone(result)
+            } label: {
+                Text("Use in Clone")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(IOSBrandTheme.clone)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background { Capsule(style: .continuous).fill(IOSBrandTheme.clone.opacity(0.16)) }
+                    .overlay { Capsule(style: .continuous).stroke(IOSBrandTheme.clone.opacity(0.32), lineWidth: 0.75) }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("design_savedVoice_useInClone")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background {
+            RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
+                .fill(IOSBottomSheetChrome.background)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
+                .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+        }
+        .shadow(color: Color.black.opacity(0.30), radius: 16, x: 0, y: 6)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
     }
 
     @ViewBuilder
@@ -712,7 +826,8 @@ struct IOSVoiceDesignView: View {
             },
             onInstallModel: { selectedTab = .settings },
             onPlayerDismiss: { coordinator.dismissInlinePlayer() },
-            onPlayerExpand: expandInlinePlayer
+            onPlayerExpand: expandInlinePlayer,
+            onSaveAsVoice: canSaveVoice ? { presentSaveDesignedVoice() } : nil
         )
         .opacity(chromeOpacity)
         .iosAppAnimation(IOSSelectionMotion.modeCrossfade, value: isGenerationActive)

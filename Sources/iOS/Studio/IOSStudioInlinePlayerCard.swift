@@ -55,6 +55,8 @@ struct IOSStudioPlayerCard: View {
     var onDismiss: () -> Void
     var onCancel: () -> Void
     var onExpand: (() -> Void)?
+    /// When provided (Voice Design), the completed card shows a "Save as voice" button.
+    var onSaveAsVoice: (() -> Void)?
 
     @State private var controller = IOSInlinePlaybackController()
     @State private var pulse = false
@@ -63,6 +65,14 @@ struct IOSStudioPlayerCard: View {
     @Environment(\.iosReduceMotionEnabled) private var reduceMotion
 
     private let referenceHeight: CGFloat = 127
+    private let saveAsVoiceRowHeight: CGFloat = 52
+
+    /// Show "Save as voice" only on a COMPLETED card when the host provides the action (Voice
+    /// Design). The live preview keeps the base height so the live→complete morph stays smooth.
+    private var showsSaveAsVoice: Bool {
+        if case .complete = phase, onSaveAsVoice != nil { return true }
+        return false
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -77,12 +87,16 @@ struct IOSStudioPlayerCard: View {
                 onExpand: phase.isLive ? nil : onExpand
             )
             controlsRow
+
+            if showsSaveAsVoice {
+                saveAsVoiceButton
+            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 14)
         .padding(.bottom, 16)
         .frame(maxWidth: .infinity)
-        .frame(height: referenceHeight)
+        .frame(height: referenceHeight + (showsSaveAsVoice ? saveAsVoiceRowHeight : 0))
         .background {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .fill(Color(red: 13 / 255, green: 14 / 255, blue: 18 / 255).opacity(0.85))
@@ -163,6 +177,29 @@ struct IOSStudioPlayerCard: View {
         }
         // Card stays put; only the status line + trailing cluster cross-fade between phases.
         .animation(reduceMotion ? nil : IOSDesignMotion.stateChange, value: phase.isLive)
+    }
+
+    /// Full-width "Save as voice" CTA on a completed Design card — enrolls the generated clip as a
+    /// reusable voice (usable in Voice Cloning). Tinted with the card's mode color.
+    private var saveAsVoiceButton: some View {
+        Button {
+            IOSHaptics.selection()
+            onSaveAsVoice?()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "waveform.badge.plus")
+                    .font(.system(size: 14, weight: .semibold))
+                Text("Save as voice")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .foregroundStyle(tint)
+            .frame(maxWidth: .infinity)
+            .frame(height: 40)
+            .background { Capsule(style: .continuous).fill(tint.opacity(0.16)) }
+            .overlay { Capsule(style: .continuous).stroke(tint.opacity(0.32), lineWidth: 0.75) }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("studio_inlinePlayer_saveAsVoice")
     }
 
     private var playPauseButton: some View {
@@ -288,6 +325,13 @@ struct InlineWaveformProgressRow: View {
 
     @Environment(\.iosReduceMotionEnabled) private var reduceMotion
 
+    // Monotonic-handoff guard: the live playhead is `currentTime / estimate`; the completed playhead is
+    // `currentTime / actualDuration`. When the real duration is slightly longer than the estimate, the
+    // fraction drops a frame at the morph → the bar twitches backward. We hold the bar at its last live
+    // position until real playback catches up, then release (so scrubbing still works).
+    @State private var lastStreamingFraction: Double = 0
+    @State private var holdFloor: Double = 0
+
     private var isStreaming: Bool { liveEstimate != nil }
 
     /// Estimate floored by what's actually been generated so the buffer fill can't overflow
@@ -306,6 +350,14 @@ struct InlineWaveformProgressRow: View {
         return min(bufferedFraction, controller.currentTime / resolvedEstimate)
     }
 
+    /// Playhead actually drawn: clamped to the last live position across the live→complete morph so the
+    /// denominator change (estimate → actual duration) can't step the bar backward. `holdFloor == 0`
+    /// (the normal case + after catch-up/scrub) passes `playheadFraction` straight through.
+    private var displayedPlayhead: Double {
+        guard !isStreaming, holdFloor > 0 else { return playheadFraction }
+        return max(playheadFraction, holdFloor)
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             Text(controller.formatted(time: controller.currentTime))
@@ -318,7 +370,7 @@ struct InlineWaveformProgressRow: View {
                     seed: waveformSeed,
                     barCount: 38,
                     tint: tint,
-                    progress: playheadFraction,
+                    progress: displayedPlayhead,
                     isAnimating: isStreaming && !reduceMotion,
                     unplayedColor: Color.white.opacity(0.18),
                     style: .player,
@@ -329,6 +381,25 @@ struct InlineWaveformProgressRow: View {
                 .onTapGesture { onExpand?() }
             }
             .frame(height: 36)
+            .onChange(of: isStreaming) { _, streaming in
+                if streaming {
+                    // New live preview → drop any stale hold.
+                    lastStreamingFraction = 0
+                    holdFloor = 0
+                } else {
+                    // The morph: hold the bar at the last live position so the denominator switch
+                    // (estimate → actual duration) can't step it backward.
+                    holdFloor = lastStreamingFraction
+                }
+            }
+            .onChange(of: controller.currentTime) { _, _ in
+                if isStreaming {
+                    lastStreamingFraction = playheadFraction
+                } else if holdFloor > 0, playheadFraction >= holdFloor {
+                    // Real playback caught up to the held position → release (scrubbing works again).
+                    holdFloor = 0
+                }
+            }
 
             // Always the real (generated-so-far → final) duration — stable format, never wraps,
             // and doesn't change "by much" across the live→complete morph. The estimate stays
@@ -343,6 +414,8 @@ struct InlineWaveformProgressRow: View {
     private func scrubGesture(width: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 4)
             .onChanged { value in
+                // User took control → drop the morph hold so a scrub (either direction) isn't clamped.
+                holdFloor = 0
                 let ratio = max(0, min(1, value.location.x / max(1, width)))
                 controller.scrub(to: ratio)
             }
