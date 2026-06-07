@@ -319,10 +319,8 @@ struct IOSQwenLanguagePickerSheet: View {
 
                 Spacer(minLength: 8)
 
-                if isRecommended(language) {
-                    IOSStatusBadge(text: "Recommended", tone: .accent(tint))
-                        .accessibilityIdentifier("languagePickerBadge_recommended_\(language.rawValue)")
-                }
+                // Recommendation is conveyed by the "Recommended" section header + top placement
+                // (no per-row badge — it duplicated the header and truncated on narrow rows).
 
                 // Always reserve the checkmark slot (invisible when unselected) so rows stay aligned.
                 Image(systemName: "checkmark")
@@ -539,10 +537,9 @@ struct IOSVoicePickerSheet: View {
                     // carries a small uppercase language pill so users can
                     // tell English / British / Japanese voices apart at a
                     // glance. Nil tag hides the pill.
-                    if option.isRecommended {
-                        IOSStatusBadge(text: "Recommended", tone: .accent(tint))
-                            .accessibilityIdentifier("voicePickerBadge_recommended_\(option.id)")
-                    } else if let tag = option.languageTag, !tag.isEmpty {
+                    // Recommendation is conveyed by the "Recommended" section header + top
+                    // placement; rows keep their language pill (no per-row "Recommended" badge).
+                    if let tag = option.languageTag, !tag.isEmpty {
                         Text(tag.uppercased())
                             .font(.system(size: 10, weight: .semibold))
                             .tracking(0.4)
@@ -853,13 +850,10 @@ struct IOSReferenceClipSheet: View {
 
                 Spacer(minLength: 8)
 
-                if option.isRecommended {
-                    IOSStatusBadge(text: "Recommended", tone: .accent(IOSBrandTheme.clone))
-                        .accessibilityIdentifier("voicePickerBadge_recommended_\(option.id)")
-                }
+                // Recommendation is conveyed by the "Recommended" section header + top placement.
 
                 // Always reserve the checkmark slot (invisible when unselected) so recommended
-                // badges + rows stay aligned across selected and unselected rows.
+                // rows stay aligned across selected and unselected rows.
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 16))
                     .foregroundStyle(IOSBrandTheme.clone)
