@@ -165,9 +165,16 @@ struct IOSCustomVoiceView: View {
         isGenerating || ttsEngine.hasActiveGeneration
     }
 
+    @State private var detectedPromptLanguage: Qwen3SupportedLanguage = .auto
+
     var body: some View {
         pageContent
             .accessibilityIdentifier("screen_customVoice")
+            .task(id: promptText) {
+                try? await Task.sleep(for: .milliseconds(350))
+                guard !Task.isCancelled else { return }
+                detectedPromptLanguage = PromptLanguageDetector.detect(promptText)
+            }
     }
 
     @ViewBuilder
@@ -265,6 +272,7 @@ struct IOSCustomVoiceView: View {
                 IOSQwenLanguagePickerSheet(
                     selectedLanguage: $draft.selectedLanguage,
                     tint: IOSBrandTheme.custom,
+                    recommended: detectedPromptLanguage,
                     onDismiss: dismiss,
                     presentation: .edgeToEdge(
                         bottomSafeAreaInset: bottomSafeAreaInset,
@@ -306,7 +314,9 @@ struct IOSCustomVoiceView: View {
                 id: spec.id,
                 name: spec.displayName,
                 subtitle: spec.shortDescription ?? spec.nativeLanguage,
-                languageTag: IOSVoicePickerLanguage.tag(for: spec.nativeLanguage)
+                languageTag: IOSVoicePickerLanguage.tag(for: spec.nativeLanguage),
+                isRecommended: detectedPromptLanguage != .auto
+                    && TTSModel.qwenLanguage(forSpeaker: spec.id) == detectedPromptLanguage
             )
         }
     }
@@ -569,9 +579,16 @@ struct IOSVoiceDesignView: View {
         isGenerating || ttsEngine.hasActiveGeneration
     }
 
+    @State private var detectedPromptLanguage: Qwen3SupportedLanguage = .auto
+
     var body: some View {
         pageContent
             .accessibilityIdentifier("screen_voiceDesign")
+            .task(id: promptText) {
+                try? await Task.sleep(for: .milliseconds(350))
+                guard !Task.isCancelled else { return }
+                detectedPromptLanguage = PromptLanguageDetector.detect(promptText)
+            }
             .sheet(isPresented: Binding(
                 get: { isSaveSheetPresented },
                 set: { isPresented in
@@ -757,6 +774,7 @@ struct IOSVoiceDesignView: View {
                 IOSQwenLanguagePickerSheet(
                     selectedLanguage: $draft.selectedLanguage,
                     tint: IOSBrandTheme.design,
+                    recommended: detectedPromptLanguage,
                     onDismiss: dismiss,
                     presentation: .edgeToEdge(
                         bottomSafeAreaInset: bottomSafeAreaInset,
@@ -1090,9 +1108,20 @@ struct IOSVoiceCloningView: View {
         isGenerating || ttsEngine.hasActiveGeneration
     }
 
+    @State private var detectedPromptLanguage: Qwen3SupportedLanguage = .auto
+    @State private var savedVoiceLanguages: [String: Qwen3SupportedLanguage] = [:]
+
     var body: some View {
         pageContent
             .accessibilityIdentifier("screen_voiceCloning")
+            .task(id: promptText) {
+                try? await Task.sleep(for: .milliseconds(350))
+                guard !Task.isCancelled else { return }
+                detectedPromptLanguage = PromptLanguageDetector.detect(promptText)
+            }
+            .task(id: savedVoices) {
+                await refreshSavedVoiceLanguages()
+            }
             .task {
                 guard isActive else { return }
                 if ttsEngine.isReady {
@@ -1262,6 +1291,7 @@ struct IOSVoiceCloningView: View {
                 IOSQwenLanguagePickerSheet(
                     selectedLanguage: $draft.selectedLanguage,
                     tint: IOSBrandTheme.clone,
+                    recommended: detectedPromptLanguage,
                     onDismiss: dismiss,
                     presentation: .edgeToEdge(
                         bottomSafeAreaInset: bottomSafeAreaInset,
@@ -1277,9 +1307,31 @@ struct IOSVoiceCloningView: View {
             IOSVoicePickerOption(
                 id: voice.id,
                 name: voice.name,
-                subtitle: "Cloned reference"
+                subtitle: "Cloned reference",
+                isRecommended: detectedPromptLanguage != .auto
+                    && savedVoiceLanguages[voice.id] == detectedPromptLanguage
             )
         }
+    }
+
+    /// Infer each saved voice's language from its transcript sidecar (off the main thread), cached
+    /// so the reference picker can recommend voices matching the typed prompt. Cheap (a handful of
+    /// short text-only NL passes); recomputed only when the saved-voice list changes.
+    private func refreshSavedVoiceLanguages() async {
+        let entries = savedVoices.map { (id: $0.id, wavPath: $0.wavPath) }
+        let map = await Task.detached(priority: .utility) { () -> [String: Qwen3SupportedLanguage] in
+            var result: [String: Qwen3SupportedLanguage] = [:]
+            for entry in entries {
+                let txtURL = URL(fileURLWithPath: entry.wavPath)
+                    .deletingPathExtension()
+                    .appendingPathExtension("txt")
+                guard let transcript = try? String(contentsOf: txtURL, encoding: .utf8) else { continue }
+                let language = PromptLanguageDetector.detect(transcript)
+                if language != .auto { result[entry.id] = language }
+            }
+            return result
+        }.value
+        savedVoiceLanguages = map
     }
 
 

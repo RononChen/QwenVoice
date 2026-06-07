@@ -231,6 +231,8 @@ struct IOSQwenLanguagePickerSheet: View {
     @Binding var selectedLanguage: Qwen3SupportedLanguage
     let tint: Color
     var includesAuto = true
+    /// Detected prompt language to float to the top + badge as recommended (`nil`/`.auto` = none).
+    var recommended: Qwen3SupportedLanguage? = nil
     var onDismiss: (() -> Void)?
     var presentation: IOSBottomSheetPresentationStyle = .system
 
@@ -240,13 +242,23 @@ struct IOSQwenLanguagePickerSheet: View {
         includesAuto ? Qwen3SupportedLanguage.allCases : Qwen3SupportedLanguage.selectableCases
     }
 
+    private func isRecommended(_ language: Qwen3SupportedLanguage) -> Bool {
+        guard let recommended, recommended != .auto else { return false }
+        return language == recommended
+    }
+
     var body: some View {
         IOSBottomSheetSurface(title: "Language", tint: tint, presentation: presentation, onDismiss: onDismiss) {
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(languages, id: \.self) { language in
-                        languageButton(language)
+                LazyVStack(alignment: .leading, spacing: 4) {
+                    let recommendedLanguages = languages.filter(isRecommended)
+                    let others = languages.filter { !isRecommended($0) }
+                    if !recommendedLanguages.isEmpty {
+                        sectionHeader("Recommended")
+                        ForEach(recommendedLanguages, id: \.self) { languageButton($0) }
+                        sectionHeader("All languages")
                     }
+                    ForEach(others, id: \.self) { languageButton($0) }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 24)
@@ -256,6 +268,35 @@ struct IOSQwenLanguagePickerSheet: View {
         }
     }
 
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.system(size: 10, weight: .semibold))
+            .tracking(0.7)
+            .foregroundStyle(IOSAppTheme.textTertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 8)
+            .padding(.bottom, 2)
+    }
+
+    /// Leading badge mirroring the voice picker's avatar: a tinted circle with the language's
+    /// 2-letter code (globe for Auto).
+    @ViewBuilder
+    private func leadingBadge(_ language: Qwen3SupportedLanguage) -> some View {
+        ZStack {
+            Circle().fill(tint.opacity(0.18))
+            if language == .auto {
+                Image(systemName: "globe")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(tint)
+            } else {
+                Text(IOSVoicePickerLanguage.tag(for: language.displayName) ?? "")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(tint)
+            }
+        }
+        .frame(width: 44, height: 44)
+    }
+
     private func languageButton(_ language: Qwen3SupportedLanguage) -> some View {
         let isSelected = selectedLanguage == language
         return Button {
@@ -263,31 +304,45 @@ struct IOSQwenLanguagePickerSheet: View {
             IOSHaptics.selection()
             closeSheet()
         } label: {
-            HStack(spacing: 12) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(isSelected ? tint : IOSAppTheme.textTertiary)
+            HStack(alignment: .center, spacing: 12) {
+                leadingBadge(language)
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 1) {
                     Text(language.displayName)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(IOSAppTheme.textPrimary)
                     Text(language == .auto ? "Infer from script or transcript." : "Use Qwen3's \(language.displayName) path.")
                         .font(.caption)
                         .foregroundStyle(IOSAppTheme.textSecondary)
+                        .lineLimit(1)
                 }
 
-                Spacer(minLength: 0)
+                Spacer(minLength: 8)
+
+                if isRecommended(language) {
+                    IOSStatusBadge(text: "Recommended", tone: .accent(tint))
+                        .accessibilityIdentifier("languagePickerBadge_recommended_\(language.rawValue)")
+                }
+
+                // Always reserve the checkmark slot (invisible when unselected) so rows stay aligned.
+                Image(systemName: "checkmark")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(tint)
+                    .opacity(isSelected ? 1 : 0)
+                    .frame(width: 18)
+                    .accessibilityHidden(true)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
             .background {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isSelected ? IOSAppTheme.accentWash(tint) : Color.white.opacity(0.04))
+                RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
+                    .fill(isSelected ? IOSAppTheme.accentWash(tint) : Color.clear)
             }
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(isSelected ? tint.opacity(0.34) : Color.white.opacity(0.08), lineWidth: 0.8)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color.white.opacity(0.06))
+                    .frame(height: 0.5)
             }
         }
         .buttonStyle(.plain)
@@ -396,9 +451,14 @@ struct IOSVoicePickerSheet: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(alignment: .leading, spacing: 4) {
-                        ForEach(filtered) { option in
-                            row(for: option)
+                        let recommended = filtered.filter(\.isRecommended)
+                        let others = filtered.filter { !$0.isRecommended }
+                        if !recommended.isEmpty {
+                            sectionHeader("Recommended")
+                            ForEach(recommended) { row(for: $0) }
+                            if !others.isEmpty { sectionHeader("All voices") }
                         }
+                        ForEach(others) { row(for: $0) }
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 24)
@@ -429,6 +489,16 @@ struct IOSVoicePickerSheet: View {
                 )
             }
         }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.system(size: 10, weight: .semibold))
+            .tracking(0.7)
+            .foregroundStyle(IOSAppTheme.textTertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 8)
+            .padding(.bottom, 2)
     }
 
     private func row(for option: IOSVoicePickerOption) -> some View {
@@ -469,7 +539,10 @@ struct IOSVoicePickerSheet: View {
                     // carries a small uppercase language pill so users can
                     // tell English / British / Japanese voices apart at a
                     // glance. Nil tag hides the pill.
-                    if let tag = option.languageTag, !tag.isEmpty {
+                    if option.isRecommended {
+                        IOSStatusBadge(text: "Recommended", tone: .accent(tint))
+                            .accessibilityIdentifier("voicePickerBadge_recommended_\(option.id)")
+                    } else if let tag = option.languageTag, !tag.isEmpty {
                         Text(tag.uppercased())
                             .font(.system(size: 10, weight: .semibold))
                             .tracking(0.4)
@@ -506,12 +579,14 @@ struct IOSVoicePickerSheet: View {
             .accessibilityLabel(isPreviewing ? "Stop preview" : "Preview voice")
             .accessibilityIdentifier("voicePickerPreview_\(option.id)")
 
-            if isSelected {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(tint)
-                    .accessibilityHidden(true)
-            }
+            // Always reserve the checkmark slot (invisible when unselected) so the play button +
+            // badge/pill stay aligned across selected and unselected rows.
+            Image(systemName: "checkmark")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(tint)
+                .opacity(isSelected ? 1 : 0)
+                .frame(width: 18)
+                .accessibilityHidden(true)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -600,12 +675,21 @@ struct IOSVoicePickerOption: Identifiable, Equatable {
     /// Caller passes "EN" / "EN-UK" / "JA" / "ZH" / "Saved" etc. Nil hides
     /// the pill.
     let languageTag: String?
+    /// Highlighted as recommended for the typed prompt's detected language.
+    var isRecommended: Bool
 
-    init(id: String, name: String, subtitle: String?, languageTag: String? = nil) {
+    init(
+        id: String,
+        name: String,
+        subtitle: String?,
+        languageTag: String? = nil,
+        isRecommended: Bool = false
+    ) {
         self.id = id
         self.name = name
         self.subtitle = subtitle
         self.languageTag = languageTag
+        self.isRecommended = isRecommended
     }
 
     var initials: String {
@@ -643,14 +727,18 @@ struct IOSReferenceClipSheet: View {
                     sourcePicker
 
                     if !savedVoices.isEmpty {
-                        Text("Saved voices")
-                            .font(.system(size: 10, weight: .semibold))
-                            .tracking(0.7)
-                            .foregroundStyle(IOSAppTheme.textTertiary)
-                            .padding(.top, 6)
-
-                        ForEach(savedVoices) { option in
-                            row(for: option)
+                        let recommended = savedVoices.filter(\.isRecommended)
+                        let others = savedVoices.filter { !$0.isRecommended }
+                        if recommended.isEmpty {
+                            savedVoicesHeader("Saved voices")
+                            ForEach(others) { row(for: $0) }
+                        } else {
+                            savedVoicesHeader("Recommended")
+                            ForEach(recommended) { row(for: $0) }
+                            if !others.isEmpty {
+                                savedVoicesHeader("All voices")
+                                ForEach(others) { row(for: $0) }
+                            }
                         }
                     }
                 }
@@ -735,6 +823,14 @@ struct IOSReferenceClipSheet: View {
         .buttonStyle(.plain)
     }
 
+    private func savedVoicesHeader(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.system(size: 10, weight: .semibold))
+            .tracking(0.7)
+            .foregroundStyle(IOSAppTheme.textTertiary)
+            .padding(.top, 6)
+    }
+
     private func row(for option: IOSVoicePickerOption) -> some View {
         let isSelected = option.id == selectedSavedVoiceID
         return Button {
@@ -757,11 +853,19 @@ struct IOSReferenceClipSheet: View {
 
                 Spacer(minLength: 8)
 
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 16))
-                        .foregroundStyle(IOSBrandTheme.clone)
+                if option.isRecommended {
+                    IOSStatusBadge(text: "Recommended", tone: .accent(IOSBrandTheme.clone))
+                        .accessibilityIdentifier("voicePickerBadge_recommended_\(option.id)")
                 }
+
+                // Always reserve the checkmark slot (invisible when unselected) so recommended
+                // badges + rows stay aligned across selected and unselected rows.
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(IOSBrandTheme.clone)
+                    .opacity(isSelected ? 1 : 0)
+                    .frame(width: 20)
+                    .accessibilityHidden(true)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
