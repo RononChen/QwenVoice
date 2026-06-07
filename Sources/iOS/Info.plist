@@ -38,6 +38,8 @@
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Vocello records reference clips you use to clone voices on-device. Recordings stay on this iPhone.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Vocello transcribes your reference recording on-device to improve clone quality. Audio never leaves your iPhone.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 </dict>

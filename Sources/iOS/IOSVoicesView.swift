@@ -15,6 +15,8 @@ struct IOSVoicesView: View {
     @Binding var selectedTab: IOSAppTab
     let onSelectBuiltInSpeaker: (SpeakerDescriptor) -> Void
     let onSelectSavedVoice: (Voice) -> Void
+    /// Surface the record → name → enroll flow (the call-site presents it + handles the handoff).
+    let onRecordNewVoice: () -> Void
 
     @EnvironmentObject private var ttsEngine: TTSEngineStore
     @EnvironmentObject private var savedVoicesViewModel: SavedVoicesViewModel
@@ -125,10 +127,9 @@ struct IOSVoicesView: View {
     private var saveACallCard: some View {
         Button {
             IOSHaptics.selection()
-            selectedTab = .studio
-            // The actual draft-mode preset (clone) is set by the call-site
-            // closure plumbed through QVoiceiOSRootView; here we just
-            // surface the affordance.
+            // Launch record → name → enroll. The call-site (VoicesScreen) presents the flow and,
+            // on enrollment, stages the Clone handoff + navigates to Studio.
+            onRecordNewVoice()
         } label: {
             HStack(spacing: 12) {
                 ZStack {

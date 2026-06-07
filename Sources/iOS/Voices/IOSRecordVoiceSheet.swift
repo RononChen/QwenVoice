@@ -1,0 +1,173 @@
+import QwenVoiceCore
+import SwiftUI
+
+/// Record → auto-transcribe → name → enroll a **permanent, reusable** saved voice, launched from
+/// the Voices tab's "Save a new voice" card. Reuses `IOSRecordingOverlay` for capture and
+/// `IOSSaveVoiceSheet` for naming; enrolls via `enrollPreparedVoice` (which copies the clip into
+/// the voices dir + optionally writes the transcript sidecar). On success it hands the new voice
+/// back to the caller (`onEnrolled`) which navigates to Clone mode pre-loaded with it.
+///
+/// Presented as a `.fullScreenCover`. Phase 1 renders the recorder inline; phase 2 shows a warm
+/// backdrop with the naming `.sheet` on top (so we never nest two full-screen covers).
+struct IOSRecordVoiceSheet: View {
+    /// Called once the voice is enrolled. `transcript` is the confirmed (possibly empty) text.
+    var onEnrolled: (Voice, String) -> Void
+    var onDismiss: () -> Void
+
+    @EnvironmentObject private var ttsEngine: TTSEngineStore
+    @EnvironmentObject private var savedVoicesViewModel: SavedVoicesViewModel
+
+    @State private var phase: Phase = .recording
+    @State private var capturedURL: URL?
+    @State private var suggestedName: String = ""
+    @State private var transcript: String = ""
+    @State private var isNamingPresented = false
+    @State private var enrollError: String?
+    @State private var pendingVoiceForReview: PreparedVoice?
+
+    private enum Phase { case recording, naming }
+
+    var body: some View {
+        ZStack {
+            switch phase {
+            case .recording:
+                IOSRecordingOverlay(
+                    onComplete: { url in
+                        // The recorder deletes its temp WAV on `.onDisappear` (stopWithoutSaving),
+                        // which fires the moment we switch to `.naming`. Copy it out FIRST so the
+                        // file still exists when the user taps Save.
+                        let stable = stashRecording(url) ?? url
+                        capturedURL = stable
+                        suggestedName = ""
+                        transcript = ""
+                        enrollError = nil
+                        phase = .naming
+                        isNamingPresented = true
+                        Task { await autoTranscribe(stable) }
+                    },
+                    onCancel: { onDismiss() }
+                )
+            case .naming:
+                ZStack {
+                    IOSModeBackdrop(tint: IOSBrandTheme.clone, intensity: .warm)
+                    Color(red: 13 / 255, green: 14 / 255, blue: 18 / 255).opacity(0.70)
+                        .ignoresSafeArea()
+                }
+                .preferredColorScheme(.dark)
+            }
+        }
+        .sheet(isPresented: $isNamingPresented) {
+            IOSSaveVoiceSheet(
+                title: "Save this voice",
+                suggestedName: $suggestedName,
+                transcript: $transcript,
+                errorMessage: enrollError,
+                clipAudioURL: capturedURL,
+                onCancel: {
+                    isNamingPresented = false
+                    onDismiss()
+                },
+                onSave: { Task { await performEnroll() } }
+            )
+        }
+        .alert(
+            "Reference outside recommended range",
+            isPresented: Binding(
+                get: { pendingVoiceForReview != nil },
+                set: { if !$0 { pendingVoiceForReview = nil } }
+            ),
+            presenting: pendingVoiceForReview
+        ) { voice in
+            if !PreparedVoiceQualityWarning.isHardBlocking(voice.qualityWarnings) {
+                Button("Keep voice") {
+                    pendingVoiceForReview = nil
+                    savedVoicesViewModel.insertOrReplace(voice)
+                    cleanupCapturedFile()
+                    isNamingPresented = false
+                    let confirmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+                    Task {
+                        await savedVoicesViewModel.refresh(using: ttsEngine)
+                        onEnrolled(voice, confirmed)
+                    }
+                }
+                .accessibilityIdentifier("recordVoice_keepDespiteWarning")
+            }
+            Button("Discard and re-record", role: .destructive) {
+                let voiceID = voice.id
+                pendingVoiceForReview = nil
+                Task { try? await ttsEngine.deletePreparedVoice(id: voiceID) }
+                // Back to the recorder for another take.
+                cleanupCapturedFile()
+                isNamingPresented = false
+                phase = .recording
+            }
+            .accessibilityIdentifier("recordVoice_discardOnWarning")
+            Button("Cancel", role: .cancel) { pendingVoiceForReview = nil }
+                .accessibilityIdentifier("recordVoice_cancelOnWarning")
+        } message: { voice in
+            Text(PreparedVoiceQualityWarning.summary(for: voice.qualityWarnings))
+        }
+    }
+
+    // MARK: - Actions
+
+    /// On-device best-effort transcription; only fills the field if the user hasn't typed one.
+    private func autoTranscribe(_ url: URL) async {
+        guard let text = await VoiceClipTranscriber.transcribe(url: url) else { return }
+        await MainActor.run {
+            if transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                transcript = text
+            }
+        }
+    }
+
+    private func performEnroll() async {
+        guard let url = capturedURL else { return }
+        let name = suggestedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        enrollError = nil
+        let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            let voice = try await ttsEngine.enrollPreparedVoice(
+                name: name,
+                audioPath: url.path,
+                transcript: trimmedTranscript.isEmpty ? nil : trimmedTranscript
+            )
+            if voice.qualityWarnings.isEmpty {
+                savedVoicesViewModel.insertOrReplace(voice)
+                await savedVoicesViewModel.refresh(using: ttsEngine)
+                cleanupCapturedFile()
+                isNamingPresented = false
+                onEnrolled(voice, trimmedTranscript)
+            } else {
+                // Soft/hard warning: the voice is on disk; let the user confirm or re-record.
+                pendingVoiceForReview = voice
+            }
+        } catch {
+            enrollError = error.localizedDescription
+        }
+    }
+
+    /// Copy the just-finished recording into our own temp dir so the recorder's `.onDisappear`
+    /// cleanup can't delete it before enrollment. Returns the stable copy (or nil on failure →
+    /// caller falls back to the original URL).
+    private func stashRecording(_ url: URL) -> URL? {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voice-enroll", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dest = dir.appendingPathComponent("\(UUID().uuidString).wav", isDirectory: false)
+        do {
+            try FileManager.default.copyItem(at: url, to: dest)
+            return dest
+        } catch {
+            return nil
+        }
+    }
+
+    private func cleanupCapturedFile() {
+        if let url = capturedURL {
+            try? FileManager.default.removeItem(at: url)
+        }
+        capturedURL = nil
+    }
+}

@@ -589,6 +589,7 @@ struct IOSVoiceDesignView: View {
                         suggestedName: $saveSheetSuggestedName,
                         transcript: $saveSheetTranscript,
                         errorMessage: saveError,
+                        clipAudioURL: URL(fileURLWithPath: saveSheetAudioPath),
                         onCancel: {
                             isSaveSheetPresented = false
                             saveSheetSuggestedName = ""

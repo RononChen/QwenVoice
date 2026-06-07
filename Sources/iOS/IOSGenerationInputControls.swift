@@ -341,44 +341,193 @@ struct IOSMultilineTextView: UIViewRepresentable {
     }
 }
 
+/// Premium "save a voice" sheet matching Vocello's custom bottom-sheet chrome (grabber, glass,
+/// terracotta, header ✕). When a `clipAudioURL` is supplied it leads with a clip-review card
+/// (waveform + playback + duration + quality) so the user reviews the recording before naming.
+/// The keyboard is NOT opened on appear — it rises only when a field is tapped, leaving the space
+/// for the clip card and a clean layout.
 struct IOSSaveVoiceSheet: View {
     let title: String
     @Binding var suggestedName: String
     @Binding var transcript: String
     let errorMessage: String?
+    /// When present, show the clip-review card (review the recording before saving).
+    var clipAudioURL: URL? = nil
     let onCancel: () -> Void
     let onSave: () -> Void
 
+    @StateObject private var clipPlayer = ClipReviewPlayer()
+    @FocusState private var isNameFocused: Bool
+    // Real focus binding for the transcript editor — without it the field would resign first
+    // responder on every parent re-render (keystroke). The coordinator keeps it in sync.
+    @State private var isTranscriptFocused = false
+
+    private let tint = IOSBrandTheme.clone
+    private let transcriptHeight: CGFloat = 132
+
+    private var trimmedName: String {
+        suggestedName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Name") {
-                    TextField("Saved voice name", text: $suggestedName)
-                }
-
-                Section("Transcript") {
-                    IOSMultilineTextView(text: $transcript, placeholder: "Optional transcript")
-                        .frame(minHeight: 120)
-                }
-
-                if let errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .foregroundStyle(.red)
+        IOSBottomSheetSurface(title: title, tint: tint, presentation: .system, onDismiss: onCancel) {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    if let clipAudioURL {
+                        clipReviewCard(url: clipAudioURL)
                     }
+
+                    fieldSection(label: "Name") {
+                        TextField("Name this voice", text: $suggestedName)
+                            .focused($isNameFocused)
+                            .foregroundStyle(IOSAppTheme.textPrimary)
+                            .submitLabel(.done)
+                            .onSubmit { dismissKeyboard() }
+                            .iosSelectionFieldChrome(tint: tint, isFocused: isNameFocused)
+                    }
+
+                    fieldSection(
+                        label: "What you said",
+                        caption: "Auto-transcribed · optional"
+                    ) {
+                        IOSMultilineTextView(
+                            text: $transcript,
+                            placeholder: "What you said in the recording",
+                            tint: tint,
+                            isFocused: $isTranscriptFocused
+                        )
+                        .frame(height: transcriptHeight)
+                    }
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    IOSPrimaryCTAButton(
+                        title: "Save voice",
+                        symbol: "checkmark",
+                        tint: tint,
+                        isEnabled: !trimmedName.isEmpty,
+                        action: {
+                            dismissKeyboard()
+                            onSave()
+                        }
+                    )
+                    .padding(.top, 4)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
+            }
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .presentationDragIndicator(.hidden)
+        .interactiveDismissDisabled(true)
+        .onAppear {
+            if let clipAudioURL { clipPlayer.load(url: clipAudioURL) }
+        }
+        .onDisappear { clipPlayer.stop() }
+    }
+
+    // MARK: - Sections
+
+    private func fieldSection<Content: View>(
+        label: String,
+        caption: String? = nil,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text(label)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(IOSAppTheme.textSecondary)
+                if let caption {
+                    Text(caption)
+                        .font(.caption)
+                        .foregroundStyle(IOSAppTheme.textTertiary)
                 }
             }
-            .navigationTitle(title)
-            .tint(IOSBrandTheme.accent)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", action: onCancel)
+            content()
+        }
+    }
+
+    private func clipReviewCard(url: URL) -> some View {
+        HStack(spacing: 14) {
+            Button {
+                IOSHaptics.selection()
+                clipPlayer.toggle()
+            } label: {
+                ZStack {
+                    Circle().fill(tint.opacity(0.2))
+                    Image(systemName: clipPlayer.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(tint)
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save", action: onSave)
-                        .disabled(suggestedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(clipPlayer.isPlaying ? "Pause" : "Play recording")
+
+            VStack(alignment: .leading, spacing: 8) {
+                IOSWaveformBars(
+                    seed: abs(url.lastPathComponent.hashValue),
+                    barCount: 28,
+                    tint: tint,
+                    progress: clipPlayer.progress,
+                    isAnimating: false,
+                    unplayedColor: tint.opacity(0.30),
+                    style: .player
+                )
+                .frame(height: 26)
+
+                HStack(spacing: 8) {
+                    Text(durationLabel(clipPlayer.duration))
+                        .font(.caption.weight(.medium))
+                        .monospacedDigit()
+                        .foregroundStyle(IOSAppTheme.textSecondary)
+                    Spacer(minLength: 8)
+                    let hint = clipQualityHint(duration: clipPlayer.duration)
+                    IOSStatusBadge(text: hint.label, tone: hint.tone)
                 }
             }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity)
+        .background {
+            RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
+                .fill(IOSAppTheme.glassSurfaceFillMuted.opacity(0.6))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: IOSCornerRadius.card, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 0.8)
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func dismissKeyboard() {
+        isNameFocused = false
+        isTranscriptFocused = false
+    }
+
+    private func durationLabel(_ seconds: TimeInterval) -> String {
+        guard seconds.isFinite, seconds > 0 else { return "0:00" }
+        let total = Int(seconds.rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
+    /// Pre-save quality hint from the clip length, aligned with the clone-reference window
+    /// (10–20 s sweet spot, acceptable to ~30 s). The recorder caps at 20 s, so recorded clips
+    /// read "Good length"; this mainly informs imported / generated clips.
+    private func clipQualityHint(duration: TimeInterval) -> (label: String, tone: IOSStatusBadge.Tone) {
+        guard duration > 0 else { return ("Ready", .muted) }
+        switch duration {
+        case ..<10: return ("A bit short", .warning)
+        case 10...30: return ("Good length", .success)
+        default: return ("A bit long", .warning)
         }
     }
 }

@@ -19,6 +19,8 @@ import QwenVoiceCore
 struct VoicesScreen: View {
     @Environment(AppModel.self) private var appModel
 
+    @State private var isRecordVoicePresented = false
+
     var body: some View {
         @Bindable var appModel = appModel
 
@@ -39,7 +41,25 @@ struct VoicesScreen: View {
                 )
                 appModel.studioMode = .clone
                 appModel.tab = .studio
-            }
+            },
+            onRecordNewVoice: { isRecordVoicePresented = true }
         )
+        .fullScreenCover(isPresented: $isRecordVoicePresented) {
+            IOSRecordVoiceSheet(
+                onEnrolled: { voice, transcript in
+                    isRecordVoicePresented = false
+                    // Same staging as tapping a saved voice → Clone mode, pre-loaded.
+                    appModel.pendingVoiceCloningHandoff = PendingVoiceCloningHandoff(
+                        savedVoiceID: voice.id,
+                        wavPath: voice.wavPath,
+                        transcript: transcript,
+                        transcriptLoadError: nil
+                    )
+                    appModel.studioMode = .clone
+                    appModel.tab = .studio
+                },
+                onDismiss: { isRecordVoicePresented = false }
+            )
+        }
     }
 }

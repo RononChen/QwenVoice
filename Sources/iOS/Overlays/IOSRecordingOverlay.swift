@@ -119,16 +119,15 @@ struct IOSRecordingOverlay: View {
                     .frame(maxWidth: 280)
             }
 
-            IOSWaveformBars(
-                seed: 31,
-                barCount: 32,
+            // LIVE level meter driven by the real mic amplitude — bars rise when you speak
+            // and fall when silent, so you can see your voice is heard + recorded.
+            IOSLiveLevelMeter(
+                levels: recorder.levels,
                 tint: IOSBrandTheme.clone,
-                progress: recorder.isRecording || recorder.elapsed > 0 ? 1.0 : 0.0,
-                isAnimating: recorder.isRecording && !reduceMotion,
-                unplayedColor: Color.white.opacity(0.14)
+                isActive: recorder.isRecording
             )
             .frame(height: 96)
-            .opacity(recorder.isRecording || recorder.elapsed > 0 ? 1 : 0.45)
+            .opacity(recorder.isRecording ? 1 : (recorder.elapsed > 0 ? 0.8 : 0.4))
 
             Text(statusLabel)
                 .font(.system(size: 14, weight: .medium))
@@ -230,9 +229,15 @@ final class IOSReferenceClipRecorder: NSObject, ObservableObject {
     @Published private(set) var isRecording: Bool = false
     @Published private(set) var elapsed: Double = 0
     @Published private(set) var amplitude: Double = 0
+    /// Rolling history of recent mic levels (oldest → newest, 0…1) that drives the live
+    /// level meter so the user can SEE their voice being heard + recorded.
+    @Published private(set) var levels: [Double] = []
     @Published var showsPermissionAlert: Bool = false
     @Published private(set) var permissionDenied: Bool = false
     @Published private(set) var lastSavedURL: URL?
+
+    /// ~80 ms/sample × 48 ≈ a 3.8 s scrolling window.
+    private let maxLevels = 48
 
     private var recorder: AVAudioRecorder?
     private var meteringTimer: Timer?
@@ -303,6 +308,7 @@ final class IOSReferenceClipRecorder: NSObject, ObservableObject {
             self.startedAt = Date()
             self.elapsed = 0
             self.amplitude = 0
+            self.levels = []
             startMetering()
         } catch {
             isRecording = false
@@ -332,6 +338,7 @@ final class IOSReferenceClipRecorder: NSObject, ObservableObject {
         isRecording = false
         elapsed = 0
         amplitude = 0
+        levels = []
         try? AVAudioSession.sharedInstance().setActive(false)
     }
 
@@ -359,6 +366,10 @@ final class IOSReferenceClipRecorder: NSObject, ObservableObject {
         let dB = Double(recorder.averagePower(forChannel: 0))
         let normalized = pow(max(0, (dB + 50) / 50), 1.4)
         amplitude = min(1.0, normalized)
+        levels.append(amplitude)
+        if levels.count > maxLevels {
+            levels.removeFirst(levels.count - maxLevels)
+        }
         elapsed = Date().timeIntervalSince(startedAt)
         if elapsed >= Self.maxDuration + 0.4 {
             // Hardware cap reached; auto-stop and keep the WAV.
@@ -387,5 +398,60 @@ extension IOSReferenceClipRecorder: AVAudioRecorderDelegate {
                 self.lastSavedURL = recorder.url
             }
         }
+    }
+}
+
+// MARK: - Live level meter
+
+/// A clean scrolling level meter for the recorder: each bar is a recent mic-amplitude sample
+/// (newest on the right), centered so it reads as a waveform. It's driven by the REAL input
+/// (`recorder.levels`), so it visibly rises when the user speaks and falls when silent —
+/// honest feedback that the voice is being heard + recorded. Data-driven (no decorative
+/// animation), so it stays truthful under Reduce Motion.
+struct IOSLiveLevelMeter: View {
+    let levels: [Double]
+    let tint: Color
+    var isActive: Bool = true
+
+    private let barCount = 48
+    private let spacing: CGFloat = 3
+
+    var body: some View {
+        GeometryReader { geo in
+            let barWidth = max(2.5, (geo.size.width - spacing * CGFloat(barCount - 1)) / CGFloat(barCount))
+            HStack(alignment: .center, spacing: spacing) {
+                ForEach(0..<barCount, id: \.self) { i in
+                    let level = sample(at: i)
+                    let height = max(3, geo.size.height * CGFloat(0.04 + 0.96 * level))
+                    Capsule(style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [tint, tint.opacity(0.55)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .frame(width: barWidth, height: height)
+                        .opacity(opacity(at: i))
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
+        }
+    }
+
+    /// Bar index 0 = left/oldest … `barCount-1` = right/newest; left-pad with silence until
+    /// the buffer fills so the live edge scrolls in from the right.
+    private func sample(at index: Int) -> Double {
+        let offsetFromNewest = (barCount - 1) - index
+        let srcIndex = levels.count - 1 - offsetFromNewest
+        guard srcIndex >= 0, srcIndex < levels.count else { return 0 }
+        return min(1, max(0, levels[srcIndex]))
+    }
+
+    /// Gentle left-fade so the live leading edge (the current voice) reads brightest.
+    private func opacity(at index: Int) -> Double {
+        guard isActive else { return 0.3 }
+        let t = Double(index) / Double(max(1, barCount - 1))
+        return 0.4 + 0.6 * t
     }
 }
