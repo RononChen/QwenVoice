@@ -929,7 +929,6 @@ struct IOSVoiceCloningView: View {
     @State private var isImporterPresented = false
     @State private var isTranscriptExpanded = false
     @State private var isScriptFocused = false
-    @State private var isBatchSheetPresented = false
     @State private var isRecorderPresented = false
 
     // Generation lifecycle moved to AppModel.cloneCoordinator (Phase 3b).
@@ -1132,35 +1131,6 @@ struct IOSVoiceCloningView: View {
                     coordinator.fail(error.localizedDescription)
                 }
             }
-            .sheet(isPresented: $isBatchSheetPresented) {
-                IOSBatchGenerationSheet(
-                    mode: .clone,
-                    tint: IOSGenerationSection.clone.primaryActionTint,
-                    requestBuilder: { line in
-                        guard let model = cloneModel,
-                              let refPath = draft.referenceAudioPath
-                        else { return nil }
-                        let outputPath = makeOutputPath(subfolder: model.outputSubfolder, text: line)
-                        let request = GenerationRequest(
-                            mode: .clone,
-                            modelID: model.id,
-                            text: line,
-                            outputPath: outputPath,
-                            shouldStream: true,
-                            streamingInterval: GenerationSemantics.appStreamingInterval,
-                            languageHint: draft.selectedLanguage.rawValue,
-                            payload: .clone(
-                                reference: CloneReference(
-                                    audioPath: refPath,
-                                    transcript: draft.referenceTranscript.isEmpty ? nil : draft.referenceTranscript,
-                                    preparedVoiceID: draft.selectedSavedVoiceID
-                                )
-                            )
-                        )
-                        return (request, model)
-                    }
-                )
-            }
             .fullScreenCover(isPresented: $isRecorderPresented) {
                 IOSRecordingOverlay(
                     onComplete: { url in
@@ -1222,22 +1192,6 @@ struct IOSVoiceCloningView: View {
                 onPlayerDismiss: { coordinator.dismissInlinePlayer() },
                 onPlayerExpand: expandInlinePlayer
             )
-
-            if isBatchTriggerEnabled {
-                Button {
-                    IOSHaptics.selection()
-                    isBatchSheetPresented = true
-                } label: {
-                    Label("Generate batch…", systemImage: "list.bullet.indent")
-                        .font(.footnote.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                }
-                .buttonStyle(.bordered)
-                .tint(IOSGenerationSection.clone.primaryActionTint)
-                .accessibilityIdentifier("textInput_generateBatchButton")
-                .padding(.horizontal, 16)
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -1327,12 +1281,6 @@ struct IOSVoiceCloningView: View {
         }
     }
 
-    private var isBatchTriggerEnabled: Bool {
-        ttsEngine.isReady
-            && !ttsEngine.hasActiveGeneration
-            && isModelAvailable
-            && draft.referenceAudioPath != nil
-    }
 
     private func consumePendingSavedVoiceHandoffIfNeeded() {
         guard let pendingSavedVoiceHandoff else { return }
