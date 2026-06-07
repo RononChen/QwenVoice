@@ -463,7 +463,7 @@ struct IOSVoiceAvatar: View {
                 .stroke(Color.white.opacity(0.10), lineWidth: 0.75)
             Text(initials)
                 .font(.system(size: diameter * 0.36, weight: .semibold, design: .rounded))
-                .foregroundStyle(Color(red: 13 / 255, green: 14 / 255, blue: 18 / 255).opacity(0.85))
+                .foregroundStyle(IOSAppTheme.textPrimary)
         }
         .frame(width: diameter, height: diameter)
     }
