@@ -121,15 +121,17 @@ failure is recorded, not crashed.
 
 ### Where the data lives + how it's pulled
 
-Both the engine telemetry and the sentinel land in the **App-Group container**
-(`AppPaths.appSupportDir` = `group.com.patricedery.vocello.shared`), under `diagnostics/`.
-`pull`/`bench` copy it with:
+At runtime the engine telemetry and the sentinel are written to the **App-Group container**
+(`AppPaths.appSupportDir` = `group.com.patricedery.vocello.shared`), under `diagnostics/`. But
+`devicectl` **cannot** read an app-group container, so the autorun harness also **mirrors** them into
+the app's own data container at `Library/Caches/Vocello/diagnostics` (which `devicectl` *can* read).
+`pull`/`bench` copy from that mirror:
 
 ```sh
 xcrun devicectl device copy from --device <id> \
-  --domain-type appGroupDataContainer \
-  --domain-identifier group.com.patricedery.vocello.shared \
-  --source diagnostics --destination build/ios-diagnostics
+  --domain-type appDataContainer \
+  --domain-identifier com.patricedery.vocello \
+  --source Library/Caches/Vocello/diagnostics --destination build/ios-diagnostics
 ```
 
 The summarizer reads the pulled tree directly:

@@ -453,7 +453,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         var capturedContinuation: AsyncStream<GenerationEvent>.Continuation!
         // macOS must keep `.unbounded` so the playback chunk-delivery path never
         // drops `.chunk` events under load (see chunk-stream contract above).
-        // iOS keeps a bounded cap because the engine extension is memory-tight.
+        // iOS keeps a bounded cap because the in-process iOS engine is memory-tight.
         #if os(iOS)
         let bufferingPolicy: AsyncStream<GenerationEvent>.Continuation.BufferingPolicy = .bufferingNewest(64)
         #else
