@@ -82,7 +82,7 @@ struct DeliveryInputState: Equatable {
 
 struct CustomVoiceDraft: Equatable {
     var selectedSpeaker = TTSModel.defaultSpeaker
-    var selectedLanguage = Qwen3SupportedLanguage.english
+    var selectedLanguage = Qwen3SupportedLanguage.auto
     var delivery = DeliveryInputState()
     var text = ""
 
