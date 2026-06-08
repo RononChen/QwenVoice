@@ -730,11 +730,13 @@ private struct IOSModelRow: View {
         .lineLimit(1)
     }
 
+    // Match the Studio per-mode voice-selector chip glyphs (IOSGenerationModeViews) so the download
+    // list reads the same as the mode UI — more representative than the old generic mic/wand glyphs.
     private var modelIconName: String {
         switch model.mode {
-        case .custom: return "mic.fill"
-        case .design: return "wand.and.stars"
-        case .clone: return "waveform"
+        case .custom: return "person.wave.2.fill"   // Custom "Voice" chip
+        case .design: return "text.bubble.fill"     // Design "Voice brief" chip
+        case .clone: return "waveform"              // Clone "Reference" chip (unchanged)
         }
     }
 
