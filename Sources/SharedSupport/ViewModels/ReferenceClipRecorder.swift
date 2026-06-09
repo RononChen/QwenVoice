@@ -19,6 +19,17 @@ final class ReferenceClipRecorder: NSObject, ObservableObject {
     @Published var showsPermissionAlert: Bool = false
     @Published private(set) var permissionDenied: Bool = false
     @Published private(set) var lastSavedURL: URL?
+    /// True when the last `start()` attempt couldn't begin capturing —
+    /// typically no input device (Macs without a microphone) or a hardware
+    /// failure. Cleared on the next successful start or `reset()`.
+    @Published private(set) var recordingFailed: Bool = false
+
+    /// Whether the system reports any audio-input hardware at all. Always
+    /// true on iPhone; on a Mac without a microphone the record UI should
+    /// disable capture and explain instead of failing silently.
+    static var hasAvailableInputDevice: Bool {
+        AVCaptureDevice.default(for: .audio) != nil
+    }
 
     /// ~80 ms/sample × 48 ≈ a 3.8 s scrolling window.
     private let maxLevels = 48
@@ -86,11 +97,13 @@ final class ReferenceClipRecorder: NSObject, ObservableObject {
             recorder.isMeteringEnabled = true
             recorder.delegate = self
             guard recorder.record(forDuration: Self.maxDuration + 0.5) else {
+                recordingFailed = true
                 return
             }
 
             self.recorder = recorder
             self.isRecording = true
+            self.recordingFailed = false
             self.startedAt = Date()
             self.elapsed = 0
             self.amplitude = 0
@@ -98,6 +111,7 @@ final class ReferenceClipRecorder: NSObject, ObservableObject {
             startMetering()
         } catch {
             isRecording = false
+            recordingFailed = true
         }
     }
 
@@ -135,6 +149,7 @@ final class ReferenceClipRecorder: NSObject, ObservableObject {
     func reset() {
         stopWithoutSaving()
         lastSavedURL = nil
+        recordingFailed = false
     }
 
     private func startMetering() {

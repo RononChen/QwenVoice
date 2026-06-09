@@ -23,6 +23,7 @@ final class VoiceCloningCoordinator: ObservableObject {
     @Published var isDragOver = false
     @Published var presentedSheet: VoiceCloningPresentedSheet?
     private var generationTask: Task<Void, Never>?
+    private var transcriptionTask: Task<Void, Never>?
 
     func presentBatch(draft: VoiceCloningDraft) {
         presentedSheet = .batch(.clone(draft: draft))
@@ -425,5 +426,37 @@ final class VoiceCloningCoordinator: ObservableObject {
         draft.wrappedValue.selectedSavedVoiceID = nil
         transcriptLoadError = nil
         hydratedSavedVoiceID = nil
+        autoTranscribeReference(path: path, draft: draft)
+    }
+
+    /// Best-effort on-device transcription of a freshly imported/recorded
+    /// reference clip (saved-voice selection already hydrates the sidecar
+    /// transcript, so this only runs on the fresh-file path). Fills the
+    /// transcript only if it's still empty when the pass finishes, and
+    /// auto-sets the language only from `.auto` — never overwriting user
+    /// input. Mirrors the iOS record→enroll contract (`onEnrolled`).
+    private func autoTranscribeReference(
+        path: String,
+        draft: Binding<VoiceCloningDraft>
+    ) {
+        transcriptionTask?.cancel()
+        let trimmed = draft.wrappedValue.referenceTranscript
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty else { return }
+        transcriptionTask = Task {
+            guard let result = await VoiceClipTranscriber.transcribe(
+                url: URL(fileURLWithPath: path)
+            ) else { return }
+            guard !Task.isCancelled else { return }
+            // The reference may have changed while transcribing.
+            guard draft.wrappedValue.referenceAudioPath == path else { return }
+            if draft.wrappedValue.referenceTranscript
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                draft.wrappedValue.referenceTranscript = result.text
+            }
+            if draft.wrappedValue.selectedLanguage == .auto, result.language != .auto {
+                draft.wrappedValue.selectedLanguage = result.language
+            }
+        }
     }
 }

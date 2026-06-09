@@ -162,6 +162,8 @@ struct SavedVoiceSheet: View {
     /// at enrollment time.
     @State private var pendingVoiceForReview: Voice?
     @State private var isRecordSheetPresented = false
+    @State private var isTranscribing = false
+    @State private var transcriptionTask: Task<Void, Never>?
 
     init(
         configuration: SavedVoiceSheetConfiguration,
@@ -261,9 +263,20 @@ struct SavedVoiceSheet: View {
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Transcript (recommended for reusable clones)")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        Text("Transcript (recommended for reusable clones)")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+
+                        if isTranscribing {
+                            ProgressView()
+                                .controlSize(.mini)
+                            Text("Transcribing on-device…")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("voicesEnroll_transcribeStatus")
+                        }
+                    }
 
                     TextEditor(text: $transcript)
                         .font(.body)
@@ -337,6 +350,12 @@ struct SavedVoiceSheet: View {
         .onChange(of: name) { _, _ in
             errorMessage = nil
         }
+        .onChange(of: audioPath) { _, newPath in
+            autoTranscribeIfNeeded(path: newPath)
+        }
+        .onDisappear {
+            transcriptionTask?.cancel()
+        }
         .sheet(isPresented: $isRecordSheetPresented) {
             RecordReferenceClipSheet { url in
                 audioPath = url.path
@@ -381,6 +400,31 @@ struct SavedVoiceSheet: View {
         } catch {
             await MainActor.run {
                 existingNormalizedNames = []
+            }
+        }
+    }
+
+    /// Best-effort on-device transcription of a freshly picked/recorded clip.
+    /// Only fills the transcript if the user hasn't typed one by the time the
+    /// pass finishes; never blocks enrollment (degrades to nothing on failure).
+    private func autoTranscribeIfNeeded(path: String) {
+        transcriptionTask?.cancel()
+        isTranscribing = false
+
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPath.isEmpty,
+              transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              FileManager.default.fileExists(atPath: trimmedPath) else { return }
+
+        isTranscribing = true
+        transcriptionTask = Task {
+            defer { isTranscribing = false }
+            guard let result = await VoiceClipTranscriber.transcribe(
+                url: URL(fileURLWithPath: trimmedPath)
+            ) else { return }
+            guard !Task.isCancelled, audioPath == path else { return }
+            if transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                transcript = result.text
             }
         }
     }

@@ -53,12 +53,23 @@ struct RecordReferenceClipSheet: View {
         }
     }
 
+    private var hasInputDevice: Bool {
+        ReferenceClipRecorder.hasAvailableInputDevice
+    }
+
     private var statusLabel: String {
         switch stage {
         case .idle:
-            return recorder.permissionDenied
-                ? "Microphone access is denied. Enable it in System Settings to record."
-                : "Click Record, then read 10–20 s of clean, natural speech. Quiet room. One voice."
+            if !hasInputDevice {
+                return "No microphone detected. Connect a microphone or audio-input device to record."
+            }
+            if recorder.permissionDenied {
+                return "Microphone access is denied. Enable it in System Settings to record."
+            }
+            if recorder.recordingFailed {
+                return "Recording couldn't start. Check your microphone in System Settings → Sound, then try again."
+            }
+            return "Click Record, then read 10–20 s of clean, natural speech. Quiet room. One voice."
         case .recording:
             if recorder.elapsed < ReferenceClipRecorder.minDuration {
                 return "Keep recording. 10 second minimum."
@@ -140,7 +151,7 @@ struct RecordReferenceClipSheet: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(AppTheme.voiceCloning)
-                    .disabled(recorder.permissionDenied)
+                    .disabled(recorder.permissionDenied || !hasInputDevice)
                     .accessibilityIdentifier("recordClip_record")
                 case .recording:
                     Button {
