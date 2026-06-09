@@ -209,6 +209,17 @@ enum AppTheme {
         }
     }
 
+    /// Canonical per-mode SF Symbol, matching the sidebar's mode icons —
+    /// keep Settings rows, sidebar items, and any future mode chips on the
+    /// same glyphs (`c196f11` analog from iOS).
+    static func modeGlyph(for mode: GenerationMode) -> String {
+        switch mode {
+        case .custom: return "person.wave.2"
+        case .design: return "text.bubble"
+        case .clone: return "waveform.badge.plus"
+        }
+    }
+
     static func accentWash(_ color: Color, for colorScheme: ColorScheme) -> Color {
         color.opacity(colorScheme == .dark ? 0.20 : 0.09)
     }

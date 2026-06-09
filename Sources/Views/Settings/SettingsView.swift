@@ -344,9 +344,10 @@ private struct ModelDownloadRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Circle()
-                    .fill(AppTheme.modeColor(for: mode))
-                    .frame(width: 8, height: 8)
+                Image(systemName: AppTheme.modeGlyph(for: mode))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AppTheme.modeColor(for: mode))
+                    .frame(width: 16)
                     .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 2) {

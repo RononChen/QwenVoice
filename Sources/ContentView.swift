@@ -61,9 +61,11 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 
     var iconName: String {
         switch self {
-        case .customVoice: return "person.wave.2"
-        case .voiceDesign: return "text.bubble"
-        case .voiceCloning: return "waveform.badge.plus"
+        // Generation modes use the canonical per-mode glyphs so the sidebar
+        // and Settings model rows stay matched.
+        case .customVoice: return AppTheme.modeGlyph(for: .custom)
+        case .voiceDesign: return AppTheme.modeGlyph(for: .design)
+        case .voiceCloning: return AppTheme.modeGlyph(for: .clone)
         case .history: return "clock.arrow.circlepath"
         case .voices: return "person.2.wave.2"
         case .settings: return "gearshape"
