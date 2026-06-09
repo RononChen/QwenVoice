@@ -36,7 +36,10 @@ final class MacWarmupAdmissionPolicy {
         static func fromEnvironment(
             _ environment: [String: String] = ProcessInfo.processInfo.environment
         ) -> Mode {
-            Mode(rawValue: environment["QWENVOICE_MAC_WARM_GATE"] ?? "") ?? .records
+            // Default flipped records → enforce 2026-06-09 after the live
+            // pressured validation (simulated hardTrim → both the live-level
+            // and cool-down deferral paths observed on the floor tier).
+            Mode(rawValue: environment["QWENVOICE_MAC_WARM_GATE"] ?? "") ?? .enforce
         }
     }
 

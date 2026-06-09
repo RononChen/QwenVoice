@@ -299,8 +299,9 @@ in-process iOS model would be more elegant. Verdict: **keep XPC** —
    per ~5 s generation.
 2. **Warm-admission discipline** (iOS port) — `MacWarmupAdmissionPolicy` defers *proactive* warms while
    the app-process kernel pressure level is soft/hardTrim on floor8GB/mid16GB (+30 s post-hardTrim
-   hysteresis on floor). `QWENVOICE_MAC_WARM_GATE=off|records|enforce` (default `records` pending one
-   pressured validation cycle — needs `sudo memory_pressure -S -l warn`). User generations never gated.
+   hysteresis on floor). `QWENVOICE_MAC_WARM_GATE=off|records|enforce` (default `enforce` since 2026-06-09 — pressured
+   validation done: simulated hardTrim produced both `memory pressure (hardTrim)` and
+   `post-hardTrim cool-down` deferral events on the native floor tier). User generations never gated.
 3. **Idle-unload churn fix** (found during validation; possibly the real historical lag source) — the
    warm coordinator cleared `completedContext` on every idle transition, so after each 120 s floor-tier
    idle-unload it immediately re-warmed the ~2.3 GB model: an endless unload→reload churn that defeated
@@ -313,13 +314,11 @@ in-process iOS model would be more elegant. Verdict: **keep XPC** —
    no auto-reconnect, lazy relaunch. Measured: service exited on schedule (RSS → 0), follow-up
    generation relaunched transparently, `warmState: cold`, TTFC 2814 ms vs ~1220 ms warm.
 
-**Residual:** flip `QWENVOICE_MAC_WARM_GATE` default to `enforce` after one sudo-pressured validation;
-the post-retirement readiness note briefly shows "Preparing Custom Voice" (cosmetic; no connection is
+**Residual:** the post-retirement readiness note briefly shows "Preparing Custom Voice" (cosmetic; no connection is
 actually made). Ledger rows: `pre-ui-kpi baseline` and `post smoothness ws sanity` (2026-06-09).
 
 ## Next step (if resumed)
 
 The only open lever is **D**, and only after the Instruments os_signpost capture above justifies it. The
 quality tripwire (C) is in place; everything else the report proposed is already implemented or iOS-deferred.
-For UI smoothness (G), watch the `uiMaxStall ms` ledger column across releases; flip the warm gate to
-`enforce` after the pressured validation cycle.
+For UI smoothness (G), watch the `uiMaxStall ms` ledger column across releases.
