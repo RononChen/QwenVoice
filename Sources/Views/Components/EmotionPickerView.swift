@@ -135,7 +135,7 @@ struct EmotionPickerView: View {
         .tint(showsIntensityPicker ? AppTheme.emotionColor(for: selectedPreset?.id ?? "neutral") : .secondary)
         .opacity(showsIntensityPicker ? 1 : 0.6)
         .disabled(!showsIntensityPicker)
-        .animation(.easeInOut(duration: 0.2), value: showsIntensityPicker)
+        .appAnimation(.easeInOut(duration: 0.2), value: showsIntensityPicker)
         .accessibilityIdentifier("\(accessibilityPrefix)_intensityPicker")
         .onChange(of: intensity) { _, _ in
             if selectedPreset != nil {

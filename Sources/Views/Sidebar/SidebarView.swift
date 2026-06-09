@@ -254,8 +254,8 @@ private struct SidebarRow: View {
                     isHovered = false
                 }
             }
-            .animation(.easeOut(duration: 0.14), value: isHovered)
-            .animation(.easeOut(duration: 0.14), value: isSelected)
+            .appAnimation(.easeOut(duration: 0.14), value: isHovered)
+            .appAnimation(.easeOut(duration: 0.14), value: isSelected)
             .disabled(isDisabled)
             .accessibilityLabel(item.rawValue)
             .accessibilityValue(accessibilityStateValue)
