@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Observation
 import QwenVoiceNative
 import SwiftUI
 import UniformTypeIdentifiers
@@ -15,15 +16,16 @@ enum VoiceCloningCoordinatorError: Error {
 }
 
 @MainActor
-final class VoiceCloningCoordinator: ObservableObject {
-    @Published var isGenerating = false
-    @Published var errorMessage: String?
-    @Published var transcriptLoadError: String?
-    @Published var hydratedSavedVoiceID: String?
-    @Published var isDragOver = false
-    @Published var presentedSheet: VoiceCloningPresentedSheet?
-    private var generationTask: Task<Void, Never>?
-    private var transcriptionTask: Task<Void, Never>?
+@Observable
+final class VoiceCloningCoordinator {
+    var isGenerating = false
+    var errorMessage: String?
+    var transcriptLoadError: String?
+    var hydratedSavedVoiceID: String?
+    var isDragOver = false
+    var presentedSheet: VoiceCloningPresentedSheet?
+    @ObservationIgnored private var generationTask: Task<Void, Never>?
+    @ObservationIgnored private var transcriptionTask: Task<Void, Never>?
 
     func presentBatch(draft: VoiceCloningDraft) {
         presentedSheet = .batch(.clone(draft: draft))

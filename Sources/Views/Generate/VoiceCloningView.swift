@@ -43,7 +43,7 @@ enum VoiceCloningReferenceAudioSupport {
 struct VoiceCloningView: View {
     @Binding private var draft: VoiceCloningDraft
     @Binding private var pendingSavedVoiceHandoff: PendingVoiceCloningHandoff?
-    @StateObject private var coordinator = VoiceCloningCoordinator()
+    @State private var coordinator = VoiceCloningCoordinator()
 
     @ObservedObject private var ttsEngineStore: TTSEngineStore
     @ObservedObject private var modelManager: ModelManagerViewModel
