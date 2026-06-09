@@ -405,6 +405,7 @@ struct IOSCustomVoiceView: View {
                     generation,
                     caller: "IOSCustomVoiceView"
                 )
+                IOSSavedOutputsDestination.exportIfConfigured(internalAudioPath: result.audioPath)
                 await MainActor.run {
                     coordinator.complete(
                         IOSStudioInlinePlayerItem(
@@ -1010,6 +1011,7 @@ struct IOSVoiceDesignView: View {
                     generation,
                     caller: "IOSVoiceDesignView"
                 )
+                IOSSavedOutputsDestination.exportIfConfigured(internalAudioPath: result.audioPath)
                 saveSheetAudioPath = result.audioPath
                 await MainActor.run {
                     coordinator.complete(
@@ -1568,6 +1570,7 @@ struct IOSVoiceCloningView: View {
                     generation,
                     caller: "IOSVoiceCloningView"
                 )
+                IOSSavedOutputsDestination.exportIfConfigured(internalAudioPath: result.audioPath)
                 await MainActor.run {
                     coordinator.complete(
                         IOSStudioInlinePlayerItem(

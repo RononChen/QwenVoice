@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 import QwenVoiceCore
 
 @MainActor
@@ -42,6 +43,10 @@ private struct IOSSettingsView: View {
     @AppStorage("autoPlay") private var autoPlay = true
     @AppStorage(IOSAppDefaults.reduceMotionEnabledKey) private var reduceMotionEnabled = false
     @AppStorage(IOSAppDefaults.reduceTransparencyEnabledKey) private var reduceTransparencyEnabled = false
+    // Drives the "Saved outputs" row value reactively (empty == internal "Keep in app (History)").
+    @AppStorage(IOSSavedOutputsDestination.displayNameKey) private var savedOutputsName = ""
+    @State private var isSavedOutputsDialogPresented = false
+    @State private var isFolderPickerPresented = false
 
     private var previewSettingsState: IOSPreviewSettingsState? {
         IOSPreviewRuntime.current?.definition.settingsState
@@ -100,8 +105,9 @@ private struct IOSSettingsView: View {
                         IOSSettingsReferenceValueRow(
                             symbol: "bookmark",
                             title: "Saved outputs",
-                            value: "On My iPhone",
-                            showsChevron: true
+                            value: savedOutputsName.isEmpty ? "Keep in app (History)" : savedOutputsName,
+                            showsChevron: true,
+                            action: { isSavedOutputsDialogPresented = true }
                         )
 
                         IOSSettingsReferenceDivider()
@@ -145,6 +151,24 @@ private struct IOSSettingsView: View {
         }
         .task {
             await modelManager.refresh()
+        }
+        .confirmationDialog(
+            "Saved outputs",
+            isPresented: $isSavedOutputsDialogPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Keep in app (History)") { IOSSavedOutputsDestination.clearFolder() }
+            Button("Choose a Folder…") { isFolderPickerPresented = true }
+        } message: {
+            Text("Generated clips are always kept on this iPhone for History. Optionally also copy each new clip to a folder you choose — Files or iCloud Drive.")
+        }
+        .fileImporter(
+            isPresented: $isFolderPickerPresented,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false
+        ) { result in
+            guard case let .success(urls) = result, let url = urls.first else { return }
+            try? IOSSavedOutputsDestination.setFolder(url)
         }
     }
 
@@ -326,8 +350,19 @@ private struct IOSSettingsReferenceValueRow: View {
     let title: String
     let value: String
     let showsChevron: Bool
+    /// When set, the whole row becomes tappable (e.g. the "Saved outputs" destination picker).
+    var action: (() -> Void)? = nil
 
     var body: some View {
+        if let action {
+            Button(action: action) { rowContent }
+                .buttonStyle(.plain)
+        } else {
+            rowContent
+        }
+    }
+
+    private var rowContent: some View {
         HStack(spacing: 12) {
             IOSSettingsUtilityIcon(symbol: symbol)
 
@@ -351,6 +386,7 @@ private struct IOSSettingsReferenceValueRow: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
 
