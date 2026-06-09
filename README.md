@@ -26,7 +26,7 @@
 - 🎙️ **Three ways to make a voice** — pick a built-in speaker, describe one in plain language, or clone a reference clip you have rights to.
 - 🔒 **Private by default** — after a one-time model download, every line renders on your device. No scripts uploaded, no audio sent to a cloud TTS service.
 - ⚡ **Native Swift + MLX** — no Python runtime, no bundled weights, no per-line meter and no cloud queue.
-- 📱 **iPhone arriving soon** — the same on-device engine on Apple Silicon iPhone, in the final stretch before release.
+- 📱 **iPhone arriving soon** — the same on-device engine on Apple Silicon iPhone; on-device generation already works, with the App Store / TestFlight distribution lane still in progress.
 
 ## Get Vocello
 
@@ -45,7 +45,7 @@
     </td>
     <td valign="top">
       <p>Vocello is coming to iPhone — the <strong>same local, private engine</strong>, running <strong>fully on-device</strong> on Apple Silicon. Write a script, pick or describe a voice, and generate speech without a cloud round-trip, exactly like the Mac app.</p>
-      <p><strong>On-device generation already works.</strong> The app is in the final stretch before it ships through the <strong>App Store / TestFlight</strong> (not GitHub Releases). No public release date yet.</p>
+      <p><strong>On-device generation already works.</strong> The remaining piece is the <strong>App Store / TestFlight</strong> distribution lane (not GitHub Releases), which is still in progress. No public release date yet.</p>
       <p>This is what the native Swift + MLX rebuild was for: replacing the old bundled Python runtime with an engine that runs entirely on-device — the only way to bring Vocello to iPhone.</p>
       <p><strong>Want to follow along?</strong> Star ⭐ and watch 👀 the repo for updates.</p>
     </td>
