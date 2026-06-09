@@ -32,3 +32,4 @@ reference ledger, not an auto-compared baseline gate.
 | 2026-06-06 | b961cc8 | custom/iphone_pro_speed/cold/long | 1.841 | 23.0 | - | 2621 | 0 | pass | iOS DEVICE A/B — live-preview OFF (.skip, pre-feature). iPhone 17 Pro, median of 3, autorun harness |
 | 2026-06-06 | b961cc8 | custom/iphone_pro_speed/cold/long | 1.844 | 23.0 | - | 2717 | 0 | pass | iOS DEVICE A/B — live-preview ON (.emit, feature). RTF +0.2% / physFoot +3.7% vs OFF = within noise; 0 trims, QC pass ⇒ live streaming playback has no generation-perf/memory cost |
 | 2026-06-09 | 1e80357 | custom/pro_custom_speed/warm/medium | 0.84 | 10.52 | - | 4757 | 0 | pass | pre-ui-kpi baseline (smoothness ws, speed-only) | - |
+| 2026-06-09 | 50c74ff | custom/pro_custom_speed/warm/medium | 0.83 | 10.38 | - | 4535 | 0 | pass | post smoothness ws (KPI+admission+retirement) sanity | - |

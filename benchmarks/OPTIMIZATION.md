@@ -277,7 +277,49 @@ under the 4.5 GB guard), **0 memory trims** across all 12 runs, audioQC all pass
 [`HISTORY.md`](HISTORY.md). The `scripts/ios_device.sh` launch now forwards caller-set `QWENVOICE_*`/`QVOICE_*`
 env, so this A/B is repeatable (`QWENVOICE_STREAMING_PREVIEW_DATA=off scripts/ios_device.sh bench …`).
 
+## G — macOS UI smoothness under engine load (2026-06-09; XPC kept)
+
+**The architecture question, settled.** The XPC engine service was introduced (`228d3cd`, 2026-04-18)
+because the SwiftUI UI lagged under engine load on RAM-constrained Macs. Investigated whether the
+in-process iOS model would be more elegant. Verdict: **keep XPC** —
+- Per-chunk XPC wire cost is metadata-dominated (~<2 KB; PCM travels by file path), and the per-chunk
+  UI path was already clean (off-MainActor producer, `.utility` drain, zero per-chunk `@Published`).
+  IPC was never the lag.
+- iOS proves smoothness comes from *memory discipline*, not process model — so the discipline was
+  ported instead (below).
+- XPC uniquely provides (1) proven crash isolation (the 2026-05-15 MLX C++ assertion killed the
+  *service*; the app survived + reconnected) and (2) the retirement lever below, which in-process can
+  never have. A dev-only in-process A/B mode was considered and declined.
+
+**Shipped (all validated live on a native 8 GB Mac):**
+1. **UI-responsiveness KPI** — `MainThreadStallWatchdog` (SharedSupport/Telemetry): 100 ms main-thread
+   heartbeat during generations; `uiStallCount50/250`, `uiMaxStallMS`, `uiHeartbeats` in the app-layer
+   row counters; `UIstall` summarizer column + trailing `uiMaxStall ms` ledger column. "The UI lags" is
+   now a number. First sample (XPC, custom/speed, native floor tier): 3 stalls >50 ms, max 241–262 ms
+   per ~5 s generation.
+2. **Warm-admission discipline** (iOS port) — `MacWarmupAdmissionPolicy` defers *proactive* warms while
+   the app-process kernel pressure level is soft/hardTrim on floor8GB/mid16GB (+30 s post-hardTrim
+   hysteresis on floor). `QWENVOICE_MAC_WARM_GATE=off|records|enforce` (default `records` pending one
+   pressured validation cycle — needs `sudo memory_pressure -S -l warn`). User generations never gated.
+3. **Idle-unload churn fix** (found during validation; possibly the real historical lag source) — the
+   warm coordinator cleared `completedContext` on every idle transition, so after each 120 s floor-tier
+   idle-unload it immediately re-warmed the ~2.3 GB model: an endless unload→reload churn that defeated
+   the memory policy. Idle-unloads now stick on floor8GBMac. First post-fix generation: **0 UI stalls**
+   (vs 3/max-262 ms pre-fix; small sample, watch the ledger column).
+4. **Service retirement-to-reclaim** — the XPC-only lever: model unload returns weights, but MLX heap
+   fragmentation + Metal shader caches stay resident until process exit. `shutdownWhenIdle` IPC +
+   `MacEngineServiceLifecycleCoordinator` (floor tier, idle + hardTrim-or-5-min-dwell + 30 s grace;
+   `QWENVOICE_ENGINE_RETIRE_DWELL_SECONDS` dev override). Client marks the exit expected → no error UI,
+   no auto-reconnect, lazy relaunch. Measured: service exited on schedule (RSS → 0), follow-up
+   generation relaunched transparently, `warmState: cold`, TTFC 2814 ms vs ~1220 ms warm.
+
+**Residual:** flip `QWENVOICE_MAC_WARM_GATE` default to `enforce` after one sudo-pressured validation;
+the post-retirement readiness note briefly shows "Preparing Custom Voice" (cosmetic; no connection is
+actually made). Ledger rows: `pre-ui-kpi baseline` and `post smoothness ws sanity` (2026-06-09).
+
 ## Next step (if resumed)
 
 The only open lever is **D**, and only after the Instruments os_signpost capture above justifies it. The
 quality tripwire (C) is in place; everything else the report proposed is already implemented or iOS-deferred.
+For UI smoothness (G), watch the `uiMaxStall ms` ledger column across releases; flip the warm gate to
+`enforce` after the pressured validation cycle.
