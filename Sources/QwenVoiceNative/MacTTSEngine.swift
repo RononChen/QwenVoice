@@ -26,4 +26,14 @@ public protocol MacTTSEngine: AnyObject, Sendable {
     func deletePreparedVoice(id: String) async throws
     func clearGenerationActivity()
     func clearVisibleError()
+
+    /// Optional capability — retire the engine's backing process while idle
+    /// so the OS reclaims memory model unload can't (MLX fragmentation,
+    /// Metal shader caches). Only meaningful for out-of-process engines;
+    /// the default is a no-op that reports "not retired".
+    func retireServiceIfIdle() async -> Bool
+}
+
+public extension MacTTSEngine {
+    func retireServiceIfIdle() async -> Bool { false }
 }

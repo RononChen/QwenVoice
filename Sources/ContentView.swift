@@ -148,6 +148,9 @@ struct ContentView: View {
     @State private var pendingVoiceCloningHandoff: PendingVoiceCloningHandoff?
     @State private var didCompleteInitialAvailabilityRefresh = false
     @StateObject private var generationWarmupCoordinator = MacGenerationWarmupCoordinator()
+    /// Retires the idle XPC engine service on pressured 8 GB Macs (full
+    /// memory reclaim); plain @State — it publishes nothing.
+    @State private var engineLifecycleCoordinator = MacEngineServiceLifecycleCoordinator()
 
     private var currentWindowTitle: String {
         selectedItem?.rawValue ?? "Vocello"
@@ -427,6 +430,12 @@ struct ContentView: View {
     private func handleEngineSnapshotChange(_ newSnapshot: TTSEngineSnapshot) {
         generationWarmupCoordinator.observe(snapshot: newSnapshot)
         scheduleGenerationWarmupIfNeeded(for: selectedItem)
+        engineLifecycleCoordinator.observe(
+            snapshot: newSnapshot,
+            hasActiveGeneration: ttsEngineStore.hasActiveGeneration,
+            ttsEngineStore: ttsEngineStore,
+            warmupCoordinator: generationWarmupCoordinator
+        )
     }
 
     private func handleGenerationDraftChange() {

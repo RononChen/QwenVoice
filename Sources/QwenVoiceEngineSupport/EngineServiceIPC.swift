@@ -64,6 +64,12 @@ public enum EngineCommand: Codable, Equatable, Sendable {
     case deletePreparedVoice(id: String)
     case clearGenerationActivity
     case clearVisibleError
+    /// Ask the service to exit once idle so the OS reclaims ALL engine
+    /// memory (MLX heap fragmentation + Metal shader caches — things model
+    /// unload never returns). The service refuses while a generation is
+    /// active; the client treats the subsequent connection drop as expected
+    /// (no error UI, no auto-reconnect) and lazily relaunches on next use.
+    case shutdownWhenIdle
 }
 
 public struct EngineReplyEnvelope: Codable, Equatable, Sendable {

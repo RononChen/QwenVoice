@@ -164,6 +164,10 @@ actor XPCNativeEngineCoordinator {
     private let reconnectDelays: [Duration]
     private var reconnectAttempt = 0
     private var reconnectTask: Task<Void, Never>?
+    /// Set while a `shutdownWhenIdle` retirement is in flight so the
+    /// resulting connection drop is treated as expected — no error UI,
+    /// no auto-reconnect; the next command lazily relaunches the service.
+    private var expectedRetirement = false
 
     init(
         onSnapshot: @escaping @Sendable (TTSEngineSnapshot) -> Void,
@@ -545,11 +549,44 @@ actor XPCNativeEngineCoordinator {
             pendingRequest.resume(.failure(transportError))
         }
 
-        if canRecover {
+        if expectedRetirement {
+            // Retirement-to-reclaim: the service exit was requested by us.
+            // Publish a clean idle snapshot (honest-by-behavior: any next
+            // command lazily reconnects + auto-initializes) and skip both
+            // the "Reconnecting…" state and the reconnect attempt — a
+            // reconnect would relaunch the service and defeat the reclaim.
+            expectedRetirement = false
+            Self.logger.info("Engine service retired (expected exit); lazy relaunch on next use.")
+            publishRetiredSnapshot()
+        } else if canRecover {
             publishRecoveringSnapshot()
             scheduleReconnect()
         } else {
             publishUnavailableSnapshot(message: visibleMessage)
+        }
+    }
+
+    /// Retirement-to-reclaim (constrained Macs): ask the idle service to
+    /// exit so the OS reclaims everything model unload can't (MLX heap
+    /// fragmentation, Metal shader caches). Returns false when the service
+    /// refused (busy) or requests are in flight; true when retired (or
+    /// there was no live connection to retire).
+    func retireServiceIfIdle() async -> Bool {
+        guard pendingRequests.isEmpty, reconnectTask == nil else { return false }
+        guard activeConnection != nil else { return true }
+        expectedRetirement = true
+        do {
+            _ = try await send(.shutdownWhenIdle)
+            return true
+        } catch is EngineTransportError {
+            // The 250 ms exit grace can race the reply — the drop is the
+            // retirement succeeding; handleDisconnect consumed the flag.
+            return true
+        } catch {
+            // Remote refusal (a generation grabbed the engine between our
+            // check and the service's) or another remote error.
+            expectedRetirement = false
+            return false
         }
     }
 
@@ -576,6 +613,17 @@ actor XPCNativeEngineCoordinator {
         case .timedOut, .staleOrMismatchedReply, .invalidReply:
             false
         }
+    }
+
+    private func publishRetiredSnapshot() {
+        onSnapshot(
+            TTSEngineSnapshot(
+                isReady: true,
+                loadState: .idle,
+                clonePreparationState: .idle,
+                visibleErrorMessage: nil
+            )
+        )
     }
 
     private func publishRecoveringSnapshot() {
@@ -792,6 +840,10 @@ public final class XPCNativeEngineClient: MacTTSEngine, @unchecked Sendable {
         _ = try await coordinator.send(.unloadModel)
     }
 
+    public func retireServiceIfIdle() async -> Bool {
+        await coordinator.retireServiceIfIdle()
+    }
+
     public func ensureModelLoadedIfNeeded(id: String) async {
         await coordinator.fireAndForget(.ensureModelLoadedIfNeeded(id: id))
     }
@@ -967,6 +1019,8 @@ private extension EngineCommand {
             "clearGenerationActivity"
         case .clearVisibleError:
             "clearVisibleError"
+        case .shutdownWhenIdle:
+            "shutdownWhenIdle"
         }
     }
 
@@ -981,7 +1035,7 @@ private extension EngineCommand {
             .seconds(180)
         case .ping, .cancelClonePreparationIfNeeded, .cancelActiveGeneration,
              .listPreparedVoices, .enrollPreparedVoice, .deletePreparedVoice,
-             .clearGenerationActivity, .clearVisibleError:
+             .clearGenerationActivity, .clearVisibleError, .shutdownWhenIdle:
             .seconds(10)
         }
     }

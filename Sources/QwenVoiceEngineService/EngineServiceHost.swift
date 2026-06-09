@@ -20,6 +20,10 @@ private actor ServiceActiveGenerationCoordinator {
 
     private var activeGeneration: ActiveGeneration?
 
+    var hasActive: Bool {
+        activeGeneration != nil
+    }
+
     func register(cancel: @escaping @Sendable () -> Void) throws -> UUID {
         guard activeGeneration == nil else {
             throw TTSEngineError.generationFailed(
@@ -334,6 +338,25 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
             return .void
         case .clearVisibleError:
             try requireRuntimeContext().engine.clearVisibleError()
+            return .void
+        case .shutdownWhenIdle:
+            // Retirement-to-reclaim: exiting is the only way to return MLX
+            // heap fragmentation + Metal shader caches to the OS. Refuse
+            // while generating; the client treats the exit as expected and
+            // relaunches lazily on the next command.
+            guard await !activeGenerationCoordinator.hasActive else {
+                throw TTSEngineError.generationFailed(
+                    "Engine is busy; retirement refused."
+                )
+            }
+            if let runtimeContext {
+                try? await runtimeContext.engine.unloadModel()
+            }
+            // Grace period so the `.void` reply flushes over the wire
+            // before the process dies.
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) {
+                exit(0)
+            }
             return .void
         }
     }

@@ -60,6 +60,15 @@ public final class TTSEngineStore: ObservableObject {
         try await engine.unloadModel()
     }
 
+    /// Retire the engine's backing process while idle (see
+    /// `MacTTSEngine.retireServiceIfIdle`). Refused client-side when a
+    /// generation is active.
+    @discardableResult
+    public func retireServiceIfIdle() async -> Bool {
+        guard !hasActiveGeneration else { return false }
+        return await engine.retireServiceIfIdle()
+    }
+
     public func ensureModelLoadedIfNeeded(id: String) async {
         await engine.ensureModelLoadedIfNeeded(id: id)
     }
