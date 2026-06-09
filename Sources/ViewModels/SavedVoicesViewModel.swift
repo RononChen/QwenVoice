@@ -1,16 +1,18 @@
 import Foundation
+import Observation
 import QwenVoiceNative
 
 @MainActor
-final class SavedVoicesViewModel: ObservableObject {
-    @Published private(set) var voices: [Voice] = SavedVoicesSessionCache.voices
-    @Published private(set) var isLoading = false
-    @Published private(set) var loadError: String?
+@Observable
+final class SavedVoicesViewModel {
+    private(set) var voices: [Voice] = SavedVoicesSessionCache.voices
+    private(set) var isLoading = false
+    private(set) var loadError: String?
 
-    private var hasLoadedOnce = !SavedVoicesSessionCache.voices.isEmpty
-    private var pendingRefresh = false
-    private var loadTask: Task<Void, Never>?
-    private weak var lastTTSEngineStore: TTSEngineStore?
+    @ObservationIgnored private var hasLoadedOnce = !SavedVoicesSessionCache.voices.isEmpty
+    @ObservationIgnored private var pendingRefresh = false
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
+    @ObservationIgnored private weak var lastTTSEngineStore: TTSEngineStore?
 
     func ensureLoaded(using ttsEngineStore: TTSEngineStore) async {
         guard ttsEngineStore.isReady else { return }

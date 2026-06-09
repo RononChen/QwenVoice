@@ -114,7 +114,7 @@ enum HistorySortOrder: String, CaseIterable, Identifiable {
 struct HistoryView: View {
     @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
     @EnvironmentObject private var ttsEngineStore: TTSEngineStore
-    @EnvironmentObject private var savedVoicesViewModel: SavedVoicesViewModel
+    @Environment(SavedVoicesViewModel.self) private var savedVoicesViewModel
     @EnvironmentObject private var generationLibraryEvents: GenerationLibraryEvents
     @Binding var searchText: String
     @Binding var sortOrder: HistorySortOrder

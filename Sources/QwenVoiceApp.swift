@@ -10,7 +10,7 @@ struct QwenVoiceApp: App {
     @State private var didInitializeSelectedTTSEngine = false
     @StateObject private var audioPlayer = AudioPlayerViewModel()
     @StateObject private var modelManager = ModelManagerViewModel()
-    @StateObject private var savedVoicesViewModel = SavedVoicesViewModel()
+    @State private var savedVoicesViewModel = SavedVoicesViewModel()
     @StateObject private var appCommandRouter = AppCommandRouter.shared
     @StateObject private var generationLibraryEvents = GenerationLibraryEvents.shared
     @StateObject private var appStartupCoordinator = AppStartupCoordinator()
@@ -126,7 +126,7 @@ struct QwenVoiceApp: App {
                     .environmentObject(audioPlayer)
                     .environmentObject(audioPlayer.playbackProgress)
                     .environmentObject(modelManager)
-                    .environmentObject(savedVoicesViewModel)
+                    .environment(savedVoicesViewModel)
                     .environmentObject(appCommandRouter)
                     .environmentObject(generationLibraryEvents)
                     .frame(minWidth: 720, minHeight: 560)

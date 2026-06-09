@@ -12,7 +12,7 @@ private struct VoicesAlertState: Identifiable {
 struct VoicesView: View {
     @EnvironmentObject private var ttsEngineStore: TTSEngineStore
     @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
-    @EnvironmentObject private var savedVoicesViewModel: SavedVoicesViewModel
+    @Environment(SavedVoicesViewModel.self) private var savedVoicesViewModel
 
     let enrollRequestID: UUID?
     let canUseInVoiceCloning: Bool
