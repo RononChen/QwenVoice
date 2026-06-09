@@ -25,7 +25,7 @@ npm --prefix website run build                # marketing site production build
 
 First-time setup: `brew install xcodegen` (required), optionally `brew install xcbeautify` (prettier build output). XcodeGen is **pinned to 2.45.4** via `.tool-versions` — the version the iOS-resource and `tool`-scheme workarounds below are calibrated to (mise/asdf pick it up automatically; brew users should match it). There is no lint/format/typecheck step — **the build is the typecheck**.
 
-Signing: local `-Onone` ad-hoc builds (`build.sh run` / `build`) need nothing extra. Signed/release builds and any iOS build need `export QWENVOICE_DEVELOPMENT_TEAM=<your-apple-team-id>` (CI sets it from a secret). `scripts/build_and_run.sh` is a thin backward-compat shim that forwards to `build.sh run` — **`./scripts/build.sh run` is canonical.**
+Signing: local `-Onone` builds (`build.sh run` / `build`) **auto-sign with the first Apple Development identity in the keychain** so macOS TCC permission grants (mic/speech) survive rebuilds — ad-hoc signing changed the code identity every build and re-prompted (the project's historical permission pain; root-caused + fixed 2026-06-09). `QWENVOICE_DEV_SIGNING_IDENTITY` overrides (`"-"` forces ad-hoc); diagnose anything permission-related with `scripts/permissions_doctor.sh` (full model: [`docs/reference/macos-permissions.md`](docs/reference/macos-permissions.md) — incl. the macOS **Siri gate** that silently auto-denies speech recognition, and the `QWENVOICE_FAKE_MIC_WAV` virtual microphone for mic-less machines). Signed/release builds and any iOS build need `export QWENVOICE_DEVELOPMENT_TEAM=<your-apple-team-id>` (CI sets it from a secret). `scripts/build_and_run.sh` is a thin backward-compat shim that forwards to `build.sh run` — **`./scripts/build.sh run` is canonical.**
 
 ## Source of truth
 
@@ -169,6 +169,7 @@ All four are pinned with `exactVersion` (not ranges) for backend determinism —
 
 - [`docs/reference/cli.md`](docs/reference/cli.md) — the headless `vocello` CLI: all commands/flags, build/run, and benchmark recipes.
 - [`docs/reference/privacy-storage.md`](docs/reference/privacy-storage.md) — local model/output/history/voice storage, App Group, and deletion paths.
+- [`docs/reference/macos-permissions.md`](docs/reference/macos-permissions.md) — macOS TCC/permissions: the signing↔TCC model, dev signing, per-process permission map, Siri gate, permission UX inventory, doctor usage, virtual microphone.
 - [`docs/reference/ios-engine-optimization.md`](docs/reference/ios-engine-optimization.md) — iOS engine optimization **progress + roadmap**: in-process architecture, the per-app memory model + per-tier policy, the streaming-first RAM win, measured on-device performance, and prioritized future work (the iOS counterpart to `benchmarks/OPTIMIZATION.md`).
 - [`docs/reference/ios-increased-memory-entitlement-request.md`](docs/reference/ios-increased-memory-entitlement-request.md) — iOS increased-memory entitlement enablement + readiness guide (self-serve capability, device-free verification, fallback justification text).
 - [`docs/reference/mlx-audio-swift-patching.md`](docs/reference/mlx-audio-swift-patching.md) — vendored backend patch procedure + validation gates.
