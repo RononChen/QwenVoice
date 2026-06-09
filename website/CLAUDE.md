@@ -82,7 +82,7 @@ Mode colors are referenced via CSS custom properties: rows pass them through `--
 
 ## Assets
 
-- `public/assets/screens/` — three Mac app screenshots (`custom-voice.png`, `voice-design.png`, `voice-cloning.png`).
+- `public/assets/screens/` — four Mac app screenshots (`custom-voice.png`, `voice-design.png`, `voice-cloning.png`, `model-downloads.png`).
 - `public/assets/voice-samples/` — three WAV clips for the Listen rows; filenames match the `SAMPLES[*].src` field in `data/samples.js`.
 - `public/assets/app-icon-1024.png`, `vocello-header-mark.png`, `social_preview.png` — brand artwork.
 

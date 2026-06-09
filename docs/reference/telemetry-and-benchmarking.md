@@ -425,7 +425,7 @@ QWENVOICE_DEBUG=1 QWENVOICE_FORCE_MEMORY_CLASS=floor_8gb_mac QWENVOICE_SUPPRESS_
 ```
 
 `QWENVOICE_FORCE_MEMORY_CLASS` (accepts `floor_8gb_mac`/`mid_16gb_mac`/`high_memory_mac`/`iphone_pro`,
-or aliases `8gb`/`16gb`) is read in the app process and **propagated to the engine over the
+or aliases `8gb`/`16gb`/`high`/`iphone`) is read in the app process and **propagated to the engine over the
 `initialize` IPC handshake** (env doesn't cross to the engine process — same path as `telemetryMode`).
 It makes the engine run the floor‑tier code paths: the pressure monitor **starts**, caches are tight,
 single‑gen clears + post‑batch hard trims fire, and idle‑unload is aggressive. Every engine row stamps

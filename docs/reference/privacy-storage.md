@@ -55,7 +55,7 @@ Maintained iPhone subtrees:
 
 - `models/` stores verified installed model files.
 - `downloads/` and `staging/` store in-progress model delivery state.
-- `outputs/` stores generated audio.
+- `outputs/` stores generated audio. The user can optionally also copy each new clip to an external Files/iCloud folder via Settings → "Saved outputs" (a user-granted security-scoped bookmark; no new entitlement). The internal copy here is always kept and is what History plays from.
 - `voices/` stores saved voice reference assets.
 - `cache/` stores required runtime cache data.
 

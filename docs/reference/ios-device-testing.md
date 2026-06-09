@@ -72,8 +72,10 @@ on the Mac with the phone locked + screen-dark (OLED-safe). Opt out with `QVOICE
 | `launch [spec]` | Launch via `devicectl`. With a spec → sets the autorun + telemetry env; prints the generated `runID` on stdout. Without → a plain launch. |
 | `console [spec]` | Attached `--console` launch — streams the app's `[autorun]` stdout live (best for diagnosing a failed run). |
 | `mirror` | Start macOS iPhone Mirroring + confirm the device is reachable (the preflight, runnable on its own). |
+| `shot [path]` | `screencapture` the macOS iPhone Mirroring window → a real device screenshot (default `build/device-shot.png`). Brings Mirroring frontmost first. |
 | `pull [dest]` | `devicectl device copy from --domain-type appDataContainer --source Library/Caches/Vocello/diagnostics` (the app's pullable mirror — the App-Group container is NOT devicectl-readable). Default dest `build/ios-diagnostics`. |
 | `bench [spec] [--label "note"]` | The full loop: `build → install → launch-with-autorun → poll the sentinel → pull diagnostics → summarize`. Exits non-zero if the generation failed. |
+| `ui-test [target]` | Run the `VocelloiOSUITests` XCUITest suite on the device (`xcodebuild test`) — the standing automated UI-test method (see §2). Optional `target` scopes to a class, e.g. `VocelloiOSUITests/VocelloiOSSheetUITests`. |
 
 ```sh
 export QWENVOICE_DEVELOPMENT_TEAM=<team-id>
