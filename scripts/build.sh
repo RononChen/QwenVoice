@@ -36,6 +36,8 @@ BUILD_CACHE_DIR="$BUILD_DIR/.cache"
 
 # shellcheck source=lib/build_cache.sh
 . "$SCRIPT_DIR/lib/build_cache.sh"
+# shellcheck source=lib/dev_signing.sh
+. "$SCRIPT_DIR/lib/dev_signing.sh"
 
 usage() {
     cat <<EOF
@@ -60,6 +62,21 @@ build_app() {
     ensure_project_regenerated
     ensure_spm_resolved "$DERIVED_DATA" "" dev
 
+    # Stable dev signing: a real Apple Development identity keeps the app's
+    # designated requirement constant across rebuilds, so TCC grants
+    # (mic/speech) survive the dev loop. Hardened runtime stays OFF for dev
+    # builds (matching the old ad-hoc behavior, and keeping lldb attachable
+    # via the injected get-task-allow); release.sh re-signs with
+    # `--options runtime` for the DMG. See scripts/lib/dev_signing.sh.
+    local signing_identity
+    signing_identity="$(resolve_dev_signing_identity)"
+    if [ "$signing_identity" = "-" ]; then
+        echo "==> warning: no Apple Development identity found; signing ad-hoc — TCC grants (mic/speech) will NOT survive rebuilds" >&2
+    else
+        echo "==> Code signing identity: $signing_identity"
+    fi
+    sync_dev_signing_cache "$signing_identity" "$XCODEBUILD_APP" "$APP_BUNDLE"
+
     echo "==> Building $SCHEME_NAME (single config, -Onone dev build, $DESTINATION)..."
     xcb_run \
         -project "$ROOT_DIR/QwenVoice.xcodeproj" \
@@ -68,7 +85,9 @@ build_app() {
         -destination "$DESTINATION" \
         -derivedDataPath "$DERIVED_DATA" \
         -onlyUsePackageVersionsFromResolvedFile \
-        CODE_SIGN_IDENTITY="-" \
+        CODE_SIGN_STYLE=Manual \
+        CODE_SIGN_IDENTITY="$signing_identity" \
+        ENABLE_HARDENED_RUNTIME=NO \
         CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION=YES \
         SWIFT_OPTIMIZATION_LEVEL="-Onone" \
         SWIFT_COMPILATION_MODE="incremental" \
@@ -88,6 +107,9 @@ build_app() {
         echo "error: built app binary not found at $APP_BINARY" >&2
         exit 1
     fi
+    assert_signing_identity "$APP_BUNDLE" "$signing_identity"
+    assert_signing_identity "$APP_BUNDLE/Contents/XPCServices/QwenVoiceEngineService.xpc" "$signing_identity"
+    record_dev_signing_identity "$signing_identity"
     echo "==> Build ready: $APP_BUNDLE"
     prune_stale_builds
 }
