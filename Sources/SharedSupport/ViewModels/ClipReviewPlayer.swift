@@ -34,11 +34,13 @@ final class ClipReviewPlayer: NSObject, ObservableObject {
 
     private func play() {
         guard let player else { return }
+        #if os(iOS)
         // The recorder leaves the session on `.record`/deactivated — switch to playback so the
-        // clip comes out of the speaker.
+        // clip comes out of the speaker. (macOS has no AVAudioSession; output routing is direct.)
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .default, options: [])
         try? session.setActive(true, options: [])
+        #endif
         player.play()
         isPlaying = true
         startTimer()
