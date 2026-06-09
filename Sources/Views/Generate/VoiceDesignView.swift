@@ -4,7 +4,7 @@ import SwiftUI
 
 struct VoiceDesignView: View {
     @Binding private var draft: VoiceDesignDraft
-    @StateObject private var coordinator = VoiceDesignCoordinator()
+    @State private var coordinator = VoiceDesignCoordinator()
     /// Language detected from the typed script; floats the matching language
     /// to a "Recommended" section in the language picker.
     @State private var detectedPromptLanguage: Qwen3SupportedLanguage = .auto

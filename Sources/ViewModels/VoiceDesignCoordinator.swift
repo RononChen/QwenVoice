@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import QwenVoiceNative
 import SwiftUI
 
@@ -33,13 +34,14 @@ struct VoiceDesignSavedVoiceCandidate: Equatable {
 }
 
 @MainActor
-final class VoiceDesignCoordinator: ObservableObject {
-    @Published var isGenerating = false
-    @Published var errorMessage: String?
-    @Published var presentedSheet: VoiceDesignPresentedSheet?
-    @Published var actionAlert: VoiceDesignActionAlert?
-    @Published var latestSavedVoiceCandidate: VoiceDesignSavedVoiceCandidate?
-    private var generationTask: Task<Void, Never>?
+@Observable
+final class VoiceDesignCoordinator {
+    var isGenerating = false
+    var errorMessage: String?
+    var presentedSheet: VoiceDesignPresentedSheet?
+    var actionAlert: VoiceDesignActionAlert?
+    var latestSavedVoiceCandidate: VoiceDesignSavedVoiceCandidate?
+    @ObservationIgnored private var generationTask: Task<Void, Never>?
 
     func currentSavedVoiceCandidate(for draft: VoiceDesignDraft) -> VoiceDesignSavedVoiceCandidate? {
         guard let latestSavedVoiceCandidate,
