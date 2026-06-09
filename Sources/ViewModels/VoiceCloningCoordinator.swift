@@ -417,7 +417,7 @@ final class VoiceCloningCoordinator: ObservableObject {
         hydratedSavedVoiceID = voice.id
     }
 
-    private func replaceReference(
+    func replaceReference(
         with path: String,
         draft: Binding<VoiceCloningDraft>
     ) {

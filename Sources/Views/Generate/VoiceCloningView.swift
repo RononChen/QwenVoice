@@ -192,6 +192,8 @@ struct VoiceCloningView: View {
             && !isGenerating
     }
 
+    @State private var isRecordSheetPresented = false
+
     var body: some View {
         PageScaffold(
             accessibilityIdentifier: "screen_voiceCloning",
@@ -275,6 +277,11 @@ struct VoiceCloningView: View {
                 .environmentObject(audioPlayer)
             }
         }
+        .sheet(isPresented: $isRecordSheetPresented) {
+            RecordReferenceClipSheet { url in
+                coordinator.replaceReference(with: url.path, draft: $draft)
+            }
+        }
     }
 }
 
@@ -318,6 +325,7 @@ private extension VoiceCloningView {
                     savedVoicesLoadError: savedVoicesLoadError,
                     transcriptLoadError: coordinator.transcriptLoadError,
                     browseForAudio: { coordinator.browseForAudio(draft: $draft) },
+                    recordReference: { isRecordSheetPresented = true },
                     clearReference: { coordinator.clearReference(draft: $draft) },
                     retrySavedVoices: { Task { await savedVoicesViewModel.refresh(using: ttsEngineStore) } }
                 )
@@ -436,6 +444,7 @@ private struct VoiceCloningReferenceSettings: View {
     let savedVoicesLoadError: String?
     let transcriptLoadError: String?
     let browseForAudio: () -> Void
+    let recordReference: () -> Void
     let clearReference: () -> Void
     let retrySavedVoices: () -> Void
 
@@ -448,6 +457,7 @@ private struct VoiceCloningReferenceSettings: View {
                 savedVoices: savedVoices,
                 selectedSavedVoiceID: $selectedSavedVoiceID,
                 browseForAudio: browseForAudio,
+                recordReference: recordReference,
                 referenceAudioPath: referenceAudioPath
             )
         } supporting: {
@@ -669,6 +679,7 @@ private struct CloneSourceRow: View {
     let savedVoices: [Voice]
     @Binding var selectedSavedVoiceID: String?
     let browseForAudio: () -> Void
+    let recordReference: () -> Void
     let referenceAudioPath: String?
 
     var body: some View {
@@ -679,6 +690,7 @@ private struct CloneSourceRow: View {
                 }
 
                 importButton
+                recordButton
 
                 Spacer(minLength: 0)
             }
@@ -689,9 +701,10 @@ private struct CloneSourceRow: View {
                 }
 
                 importButton
+                recordButton
             }
         }
-        .help("Choose a saved voice or import a reference clip you own or have permission to clone.")
+        .help("Choose a saved voice, import a reference clip, or record one with your microphone. Use clips you own or have permission to clone.")
     }
 
     @ViewBuilder
@@ -726,6 +739,19 @@ private struct CloneSourceRow: View {
         .tint(AppTheme.voiceCloning)
         .controlSize(.small)
         .accessibilityIdentifier("voiceCloning_importButton")
+    }
+
+    private var recordButton: some View {
+        Button {
+            recordReference()
+        } label: {
+            Label("Record", systemImage: "mic.fill")
+                .font(.system(size: 12, weight: .semibold))
+        }
+        .buttonStyle(.bordered)
+        .tint(AppTheme.voiceCloning)
+        .controlSize(.small)
+        .accessibilityIdentifier("voiceCloning_recordReferenceButton")
     }
 }
 

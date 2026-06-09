@@ -161,6 +161,7 @@ struct SavedVoiceSheet: View {
     /// Driven by `MLXTTSEngine.savedReferenceQualityWarnings(forAudioAt:)`
     /// at enrollment time.
     @State private var pendingVoiceForReview: Voice?
+    @State private var isRecordSheetPresented = false
 
     init(
         configuration: SavedVoiceSheetConfiguration,
@@ -248,6 +249,14 @@ struct SavedVoiceSheet: View {
                         }
                         .buttonStyle(.bordered)
                         .accessibilityIdentifier("voicesEnroll_browseButton")
+
+                        Button {
+                            isRecordSheetPresented = true
+                        } label: {
+                            Label("Record...", systemImage: "mic.fill")
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("voicesEnroll_recordButton")
                     }
                 }
 
@@ -327,6 +336,11 @@ struct SavedVoiceSheet: View {
         }
         .onChange(of: name) { _, _ in
             errorMessage = nil
+        }
+        .sheet(isPresented: $isRecordSheetPresented) {
+            RecordReferenceClipSheet { url in
+                audioPath = url.path
+            }
         }
         .alert(
             "Reference outside recommended range",
