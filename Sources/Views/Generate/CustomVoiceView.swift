@@ -120,7 +120,7 @@ struct CustomVoiceReadinessPresentation: Equatable {
 
 struct CustomVoiceView: View {
     @Binding private var draft: CustomVoiceDraft
-    @StateObject private var coordinator = CustomVoiceCoordinator()
+    @State private var coordinator = CustomVoiceCoordinator()
     /// Language detected from the typed script; floats matching speakers and
     /// the matching language to "Recommended" sections in the pickers.
     @State private var detectedPromptLanguage: Qwen3SupportedLanguage = .auto

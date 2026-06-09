@@ -1,14 +1,16 @@
 import Foundation
+import Observation
 import QwenVoiceCore
 import QwenVoiceNative
 import SwiftUI
 
 @MainActor
-final class CustomVoiceCoordinator: ObservableObject {
-    @Published var isGenerating = false
-    @Published var errorMessage: String?
-    @Published var presentedSheet: CustomVoicePresentedSheet?
-    private var generationTask: Task<Void, Never>?
+@Observable
+final class CustomVoiceCoordinator {
+    var isGenerating = false
+    var errorMessage: String?
+    var presentedSheet: CustomVoicePresentedSheet?
+    @ObservationIgnored private var generationTask: Task<Void, Never>?
 
     func presentBatch(draft: CustomVoiceDraft) {
         presentedSheet = .batch(.custom(draft: draft))
