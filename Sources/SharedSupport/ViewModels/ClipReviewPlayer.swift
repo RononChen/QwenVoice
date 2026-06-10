@@ -53,6 +53,9 @@ final class ClipReviewPlayer: NSObject, ObservableObject {
     }
 
     func stop() {
+        // AVAudioPlayer holds its delegate unsafe-unowned — clear it before
+        // releasing so a late finish callback can't touch a freed pointer.
+        player?.delegate = nil
         player?.stop()
         player = nil
         url = nil

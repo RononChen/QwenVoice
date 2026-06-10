@@ -68,6 +68,12 @@ struct BatchGenerationSheet: View {
         .padding(24)
         .frame(minWidth: 520, minHeight: 440)
         .profileBackground(AppTheme.canvasBackground)
+        .onDisappear {
+            // The Cancel button is the normal path; this catches programmatic
+            // dismissal/window close so a headless batch can't keep the
+            // engine's generation slot occupied invisibly.
+            coordinator.cancelIfDismissedWhileProcessing()
+        }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             guard coordinator.outcome == nil else { return false }
             guard let provider = providers.first else { return false }

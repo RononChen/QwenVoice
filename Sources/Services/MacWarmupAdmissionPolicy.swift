@@ -78,6 +78,9 @@ final class MacWarmupAdmissionPolicy {
 
     deinit {
         eventTask?.cancel()
+        // Cancelling the consumer Task alone leaves the kernel DispatchSource
+        // firing and the AsyncStream open — stop the monitor itself too.
+        monitor.stop()
     }
 
     /// The raw decision, independent of mode.

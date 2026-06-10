@@ -274,6 +274,9 @@ struct VoiceCloningView: View {
             // Settings — clear the hint and retry the transcript auto-fill.
             coordinator.refreshTranscriptionAvailability(draft: $draft)
         }
+        .onDisappear {
+            coordinator.cancelPendingTranscription()
+        }
         .sheet(item: $coordinator.presentedSheet) { presentedSheet in
             switch presentedSheet {
             case .batch(let configuration):

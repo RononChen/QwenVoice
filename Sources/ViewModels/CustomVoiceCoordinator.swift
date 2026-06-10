@@ -123,13 +123,17 @@ final class CustomVoiceCoordinator {
         audioPlayer: AudioPlayerViewModel
     ) {
         guard isGenerating || generationTask != nil else { return }
+        // Reset state synchronously (already on MainActor) — routing it
+        // through a second Task raced the generation task's own defer and
+        // could null a FRESH generation's handle if the user re-generated
+        // quickly, leaving its cancel button inert.
         generationTask?.cancel()
-        Task { @MainActor in
-            try? await ttsEngineStore.cancelActiveGeneration()
-            audioPlayer.abortLivePreviewIfNeeded()
-            self.errorMessage = nil
-            self.isGenerating = false
-            self.generationTask = nil
+        generationTask = nil
+        isGenerating = false
+        errorMessage = nil
+        audioPlayer.abortLivePreviewIfNeeded()
+        Task { @MainActor [weak ttsEngineStore] in
+            try? await ttsEngineStore?.cancelActiveGeneration()
         }
     }
 

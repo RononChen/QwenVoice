@@ -236,14 +236,25 @@ final class VoiceCloningCoordinator {
         audioPlayer: AudioPlayerViewModel
     ) {
         guard isGenerating || generationTask != nil else { return }
+        // Reset state synchronously (already on MainActor) — routing it
+        // through a second Task raced the generation task's own defer and
+        // could null a FRESH generation's handle if the user re-generated
+        // quickly, leaving its cancel button inert.
         generationTask?.cancel()
-        Task { @MainActor in
-            try? await ttsEngineStore.cancelActiveGeneration()
-            audioPlayer.abortLivePreviewIfNeeded()
-            self.errorMessage = nil
-            self.isGenerating = false
-            self.generationTask = nil
+        generationTask = nil
+        isGenerating = false
+        errorMessage = nil
+        audioPlayer.abortLivePreviewIfNeeded()
+        Task { @MainActor [weak ttsEngineStore] in
+            try? await ttsEngineStore?.cancelActiveGeneration()
         }
+    }
+
+    /// Cancel any in-flight auto-transcription (called from onDisappear so a
+    /// navigated-away view never leaves SFSpeechRecognizer work running).
+    func cancelPendingTranscription() {
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
     }
 
     static func makeGenerationRequest(
@@ -374,19 +385,23 @@ final class VoiceCloningCoordinator {
     ) -> Bool {
         guard let provider = providers.first else { return false }
         let allowedExtensions = VoiceCloningReferenceAudioSupport.allowedFileExtensions
-        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { data, _ in
+        // NSItemProvider resolves on its own queue and can take seconds on
+        // slow volumes — [weak self] so an in-flight drop never pins this
+        // coordinator (and its tasks) past the view's life.
+        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { [weak self] data, _ in
             guard let data = data as? Data,
                   let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
             let ext = url.pathExtension.lowercased()
+            let path = url.path
             guard allowedExtensions.contains(ext) else {
-                Task { @MainActor in
-                    self.errorMessage = "Unsupported file type '.\(ext)'. Drop an audio file (\(VoiceCloningReferenceAudioSupport.supportedFormatDescription))."
+                Task { @MainActor [weak self] in
+                    self?.errorMessage = "Unsupported file type '.\(ext)'. Drop an audio file (\(VoiceCloningReferenceAudioSupport.supportedFormatDescription))."
                 }
                 return
             }
 
-            Task { @MainActor in
-                self.replaceReference(with: url.path, draft: draft)
+            Task { @MainActor [weak self] in
+                self?.replaceReference(with: path, draft: draft)
             }
         }
         return true
@@ -473,7 +488,8 @@ final class VoiceCloningCoordinator {
         case .available, .notDetermined:
             transcriptionUnavailableMessage = nil
         }
-        transcriptionTask = Task {
+        transcriptionTask = Task { @MainActor [weak self] in
+            guard self != nil else { return }
             guard let result = await VoiceClipTranscriber.transcribe(
                 url: URL(fileURLWithPath: path)
             ) else { return }

@@ -78,6 +78,8 @@ final class MacEngineServiceLifecycleCoordinator {
         armedTask?.cancel()
         dwellRecheckTask?.cancel()
         pressureEventTask?.cancel()
+        // Stop the kernel DispatchSource + finish the stream, not just the consumer.
+        monitor.stop()
     }
 
     /// Feed every snapshot / activity change here (ContentView's existing

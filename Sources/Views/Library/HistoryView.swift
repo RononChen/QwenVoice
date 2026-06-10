@@ -33,11 +33,18 @@ private struct HistoryListItem: Identifiable, Sendable {
         self.saveVoiceConfiguration = Self.makeSaveVoiceConfiguration(for: generation)
     }
 
-    private static func formattedDate(for date: Date) -> String {
+    // Cached — DateFormatter construction is ~1-2 ms and this runs once per
+    // history row on every reload. Items are built on a single serial
+    // Task.detached, so the shared (non-thread-safe) formatter is safe.
+    nonisolated(unsafe) private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    private static func formattedDate(for date: Date) -> String {
+        dateFormatter.string(from: date)
     }
 
     private static func makeSaveVoiceConfiguration(for generation: Generation) -> SavedVoiceSheetConfiguration? {

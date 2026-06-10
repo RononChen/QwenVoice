@@ -712,6 +712,15 @@ final class BatchGenerationCoordinator: ObservableObject {
         }
     }
 
+    /// Sheet-dismissal safety net: if the sheet disappears while a batch is
+    /// still processing (programmatic dismissal, window close — anything but
+    /// the Cancel button), cancel the run so it can't keep generating and
+    /// holding the engine's generation slot with no visible UI.
+    func cancelIfDismissedWhileProcessing() {
+        guard isProcessing else { return }
+        cancelBatch(dismiss: {})
+    }
+
     func cancelBatch(
         dismiss: @escaping () -> Void
     ) {

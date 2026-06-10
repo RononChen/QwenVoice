@@ -300,25 +300,30 @@ private struct LiveLevelMeterBars: View {
     private let spacing: CGFloat = 3
 
     var body: some View {
-        GeometryReader { geo in
-            let barWidth = max(2.5, (geo.size.width - spacing * CGFloat(barCount - 1)) / CGFloat(barCount))
-            HStack(alignment: .center, spacing: spacing) {
-                ForEach(0..<barCount, id: \.self) { i in
-                    let level = sample(at: i)
-                    let height = max(3, geo.size.height * CGFloat(0.04 + 0.96 * level))
-                    Capsule(style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [tint, tint.opacity(0.55)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .frame(width: barWidth, height: height)
-                        .opacity(opacity(at: i))
-                }
+        // Canvas instead of a 48-Capsule ForEach: the meter redraws at
+        // 12.5 Hz while recording, so one draw call beats 48 view updates
+        // (matters on the 8 GB tier when generation runs concurrently).
+        Canvas { context, size in
+            let barWidth = max(2.5, (size.width - spacing * CGFloat(barCount - 1)) / CGFloat(barCount))
+            for i in 0..<barCount {
+                let level = sample(at: i)
+                let height = max(3, size.height * CGFloat(0.04 + 0.96 * level))
+                let x = CGFloat(i) * (barWidth + spacing)
+                let y = (size.height - height) / 2
+                let rect = CGRect(x: x, y: y, width: barWidth, height: height)
+                let gradient = Gradient(colors: [
+                    tint.opacity(opacity(at: i)),
+                    tint.opacity(0.55 * opacity(at: i)),
+                ])
+                context.fill(
+                    Path(roundedRect: rect, cornerRadius: barWidth / 2),
+                    with: .linearGradient(
+                        gradient,
+                        startPoint: CGPoint(x: rect.midX, y: rect.minY),
+                        endPoint: CGPoint(x: rect.midX, y: rect.maxY)
+                    )
+                )
             }
-            .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
         }
     }
 
