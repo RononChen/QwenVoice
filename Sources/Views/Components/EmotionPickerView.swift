@@ -7,6 +7,12 @@ struct EmotionPickerView: View {
     var accentColor: Color = AppTheme.accent
     var accessibilityPrefix: String = "delivery"
     var showsLabel: Bool = true
+    /// Column layout for the merged configuration line: the tone and
+    /// intensity pickers each get a caption label above them
+    /// (`ConfigurationColumn`), and `leadingColumns` (e.g. the Language
+    /// column) joins the same row.
+    var usesColumnLabels: Bool = false
+    var leadingColumns: AnyView? = nil
 
     @State private var selectedPreset: EmotionPreset?
     @State private var intensity: EmotionIntensity = .normal
@@ -88,11 +94,24 @@ struct EmotionPickerView: View {
         .labelsHidden()
         .pickerStyle(.menu)
         .focusEffectDisabled()
-        .frame(minWidth: LayoutConstants.configurationControlMinWidth, maxWidth: 240, alignment: .leading)
+        .frame(
+            minWidth: usesColumnLabels ? 110 : LayoutConstants.configurationControlMinWidth,
+            maxWidth: 240,
+            alignment: .leading
+        )
         .accessibilityIdentifier("\(accessibilityPrefix)_tonePicker")
     }
 
+    @ViewBuilder
     private var toneControlRow: some View {
+        if usesColumnLabels {
+            columnToneRow
+        } else {
+            inlineToneRow
+        }
+    }
+
+    private var inlineToneRow: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .center, spacing: 12) {
                 tonePicker
@@ -108,6 +127,50 @@ struct EmotionPickerView: View {
                 if reservesIntensitySlot {
                     intensityInlineSlot
                 }
+            }
+        }
+    }
+
+    /// Merged configuration line: leading columns (e.g. Language) + Delivery
+    /// + Intensity share one row, each with a caption label above its
+    /// control. The stacked variant is a safety net for extreme cases
+    /// (large accessibility type) — the single line fits at every legal
+    /// window/sidebar combination.
+    private var columnToneRow: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 12) {
+                deliveryColumns
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                if let leadingColumns {
+                    leadingColumns
+                }
+
+                HStack(alignment: .top, spacing: 12) {
+                    ConfigurationColumn(label: "Delivery") { tonePicker }
+
+                    if reservesIntensitySlot {
+                        ConfigurationColumn(label: "Intensity", isEnabled: showsIntensityPicker) {
+                            intensityPicker
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var deliveryColumns: some View {
+        if let leadingColumns {
+            leadingColumns
+        }
+
+        ConfigurationColumn(label: "Delivery") { tonePicker }
+
+        if reservesIntensitySlot {
+            ConfigurationColumn(label: "Intensity", isEnabled: showsIntensityPicker) {
+                intensityPicker
             }
         }
     }

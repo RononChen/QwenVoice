@@ -150,8 +150,7 @@ private extension VoiceDesignView {
         ) {
             VStack(alignment: .leading, spacing: 0) {
                 briefSettings
-                languageSettings
-                deliverySettings
+                languageAndDeliverySettings
             }
         }
         .overlay(alignment: .topLeading) {
@@ -226,28 +225,37 @@ private extension VoiceDesignView {
         VoiceDesignBriefSettings(voiceDescription: $draft.voiceDescription)
     }
 
-    var languageSettings: some View {
-        QwenLanguagePickerRow(
-            selectedLanguage: $draft.selectedLanguage,
-            accentColor: AppTheme.voiceDesign,
-            accessibilityPrefix: "voiceDesign",
-            showsDefaultHelp: false,
-            recommended: detectedPromptLanguage
-        )
-    }
-
-    var deliverySettings: some View {
-        GenerationSetupRow(
-            label: "Delivery",
-            accessibilityIdentifier: "voiceDesign_toneSpeed"
-        ) {
+    /// One merged line: Language + Delivery + Intensity columns share the
+    /// row (Custom tone spans full width below, inside the delivery
+    /// controls) — mirrors the Custom Voice panel.
+    var languageAndDeliverySettings: some View {
+        VStack(alignment: .leading, spacing: 4) {
             DeliveryControlsView(
                 emotion: $draft.emotion,
                 accentColor: AppTheme.voiceDesign,
                 isCompact: true,
-                showsLabel: false
+                showsLabel: false,
+                usesColumnLabels: true,
+                leadingColumns: AnyView(languageColumn)
             )
         }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("voiceDesign_toneSpeed")
+    }
+
+    var languageColumn: some View {
+        ConfigurationColumn(label: "Language") {
+            QwenLanguagePicker(
+                selectedLanguage: $draft.selectedLanguage,
+                accentColor: AppTheme.voiceDesign,
+                accessibilityPrefix: "voiceDesign",
+                recommended: detectedPromptLanguage,
+                minWidth: 110
+            )
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("voiceDesign_languageSetup")
     }
 
     var generationReadiness: some View {

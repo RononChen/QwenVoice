@@ -863,6 +863,25 @@ extension ConfigurationFieldRow where Supporting == EmptyView {
     }
 }
 
+/// Caption-above-control column for the merged configuration line —
+/// the same label idiom as the Delivery panel's "Custom tone" field
+/// (footnote semibold, secondary; tertiary when the control is dimmed).
+struct ConfigurationColumn<Content: View>: View {
+    let label: String
+    var isEnabled: Bool = true
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(isEnabled ? .secondary : .tertiary)
+
+            content()
+        }
+    }
+}
+
 struct DeliveryControlsView: View {
     @Binding var emotion: String
     var deliveryProfile: Binding<DeliveryProfile?>? = nil
@@ -870,6 +889,8 @@ struct DeliveryControlsView: View {
     var accessibilityPrefix: String = "delivery"
     var isCompact: Bool = false
     var showsLabel: Bool = true
+    var usesColumnLabels: Bool = false
+    var leadingColumns: AnyView? = nil
 
     var body: some View {
         EmotionPickerView(
@@ -877,24 +898,29 @@ struct DeliveryControlsView: View {
             deliveryProfile: deliveryProfile,
             accentColor: accentColor,
             accessibilityPrefix: accessibilityPrefix,
-            showsLabel: showsLabel
+            showsLabel: showsLabel,
+            usesColumnLabels: usesColumnLabels,
+            leadingColumns: leadingColumns
         )
         .optionalAccessibilityIdentifier(isCompact ? nil : "\(accessibilityPrefix)_toneCard")
     }
 }
 
-struct QwenLanguagePickerRow: View {
+/// The bare Qwen language menu picker, shared by `QwenLanguagePickerRow`
+/// (side-label form row) and the merged Language / Delivery / Intensity
+/// configuration line (caption-above column).
+struct QwenLanguagePicker: View {
     @Binding var selectedLanguage: Qwen3SupportedLanguage
     var accentColor: Color = AppTheme.accent
     var accessibilityPrefix: String = "qwenLanguage"
     var includesAuto = true
-    var hint: String?
-    var showsDefaultHelp = true
     /// Language detected from the typed prompt (`PromptLanguageDetector`).
     /// When confident (non-`.auto`), it floats to a "Recommended" section at
     /// the top of the menu — mirroring the iOS picker treatment. Tags are
     /// unchanged, so selection bindings and accessibility ids are unaffected.
     var recommended: Qwen3SupportedLanguage? = nil
+    var minWidth: CGFloat = LayoutConstants.configurationControlMinWidth
+    var maxWidth: CGFloat = 220
 
     private var options: [Qwen3SupportedLanguage] {
         includesAuto ? Qwen3SupportedLanguage.allCases : Qwen3SupportedLanguage.selectableCases
@@ -906,33 +932,53 @@ struct QwenLanguagePickerRow: View {
     }
 
     var body: some View {
+        Picker("Language", selection: $selectedLanguage) {
+            if let recommendedOption {
+                Section("Recommended for your script") {
+                    Text(recommendedOption.displayName).tag(recommendedOption)
+                }
+                Section("All languages") {
+                    ForEach(options.filter { $0 != recommendedOption }, id: \.self) { language in
+                        Text(language.displayName).tag(language)
+                    }
+                }
+            } else {
+                ForEach(options, id: \.self) { language in
+                    Text(language.displayName).tag(language)
+                }
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .focusEffectDisabled()
+        .frame(minWidth: minWidth, maxWidth: maxWidth, alignment: .leading)
+        .tint(accentColor)
+        .accessibilityValue(selectedLanguage.displayName)
+        .accessibilityIdentifier("\(accessibilityPrefix)_languagePicker")
+    }
+}
+
+struct QwenLanguagePickerRow: View {
+    @Binding var selectedLanguage: Qwen3SupportedLanguage
+    var accentColor: Color = AppTheme.accent
+    var accessibilityPrefix: String = "qwenLanguage"
+    var includesAuto = true
+    var hint: String?
+    var showsDefaultHelp = true
+    var recommended: Qwen3SupportedLanguage? = nil
+
+    var body: some View {
         GenerationSetupRow(
             label: "Language",
             accessibilityIdentifier: "\(accessibilityPrefix)_languageSetup"
         ) {
-            Picker("Language", selection: $selectedLanguage) {
-                if let recommendedOption {
-                    Section("Recommended for your script") {
-                        Text(recommendedOption.displayName).tag(recommendedOption)
-                    }
-                    Section("All languages") {
-                        ForEach(options.filter { $0 != recommendedOption }, id: \.self) { language in
-                            Text(language.displayName).tag(language)
-                        }
-                    }
-                } else {
-                    ForEach(options, id: \.self) { language in
-                        Text(language.displayName).tag(language)
-                    }
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .focusEffectDisabled()
-            .frame(minWidth: LayoutConstants.configurationControlMinWidth, maxWidth: 220, alignment: .leading)
-            .tint(accentColor)
-            .accessibilityValue(selectedLanguage.displayName)
-            .accessibilityIdentifier("\(accessibilityPrefix)_languagePicker")
+            QwenLanguagePicker(
+                selectedLanguage: $selectedLanguage,
+                accentColor: accentColor,
+                accessibilityPrefix: accessibilityPrefix,
+                includesAuto: includesAuto,
+                recommended: recommended
+            )
         } supporting: {
             if let hint, !hint.isEmpty {
                 GenerationSetupHint(

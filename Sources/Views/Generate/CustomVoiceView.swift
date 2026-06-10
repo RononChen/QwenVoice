@@ -268,10 +268,10 @@ private extension CustomVoiceView {
         ) {
             VStack(alignment: .leading, spacing: 0) {
                 speakerSettings
-                languageSettings
                 if supportsDeliveryControl {
-                    deliverySettings
+                    languageAndDeliverySettings
                 } else {
+                    languageOnlySettings
                     deliveryUnsupportedHint
                 }
             }
@@ -352,29 +352,61 @@ private extension CustomVoiceView {
         }
     }
 
-    var languageSettings: some View {
-        QwenLanguagePickerRow(
-            selectedLanguage: $draft.selectedLanguage,
-            accentColor: AppTheme.customVoice,
-            accessibilityPrefix: "customVoice",
-            hint: languageHintMessage,
-            showsDefaultHelp: false,
-            recommended: detectedPromptLanguage
-        )
-    }
-
-    var deliverySettings: some View {
-        GenerationSetupRow(
-            label: "Delivery",
-            accessibilityIdentifier: "customVoice_toneSpeed"
-        ) {
+    /// One merged line: Language + Delivery + Intensity columns share the
+    /// row (Custom tone spans full width below, inside the delivery
+    /// controls). The language hint, when present, spans the full panel
+    /// width under the line.
+    var languageAndDeliverySettings: some View {
+        VStack(alignment: .leading, spacing: 4) {
             DeliveryControlsView(
                 emotion: $draft.emotion,
                 accentColor: AppTheme.customVoice,
                 isCompact: true,
-                showsLabel: false
+                showsLabel: false,
+                usesColumnLabels: true,
+                leadingColumns: AnyView(languageColumn)
+            )
+
+            if let languageHintMessage {
+                GenerationSetupHint(
+                    message: languageHintMessage,
+                    accessibilityIdentifier: "customVoice_languageHint"
+                )
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("customVoice_toneSpeed")
+    }
+
+    /// Language alone (delivery unsupported by the active model): same
+    /// column idiom, picker capped at its usual width.
+    var languageOnlySettings: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            languageColumn
+
+            if let languageHintMessage {
+                GenerationSetupHint(
+                    message: languageHintMessage,
+                    accessibilityIdentifier: "customVoice_languageHint"
+                )
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    var languageColumn: some View {
+        ConfigurationColumn(label: "Language") {
+            QwenLanguagePicker(
+                selectedLanguage: $draft.selectedLanguage,
+                accentColor: AppTheme.customVoice,
+                accessibilityPrefix: "customVoice",
+                recommended: detectedPromptLanguage,
+                minWidth: 110
             )
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("customVoice_languageSetup")
     }
 
     var deliveryUnsupportedHint: some View {
