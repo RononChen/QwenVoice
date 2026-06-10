@@ -852,6 +852,16 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             )
             return annotated
         } catch {
+            // A user-initiated cancel is not an error. Reset state fully (the
+            // engine must never stay stranded in .running — see the engine
+            // invariants) but surface NO error: no visibleErrorMessage, no
+            // .failed event, so the sidebar never flashes "Error" after the
+            // user pressed Cancel. Mirrors the clone-preparation catch above.
+            if error is CancellationError {
+                loadState = .loaded(modelID: request.modelID)
+                try? FileManager.default.removeItem(at: URL(fileURLWithPath: request.outputPath))
+                throw error
+            }
             if Self.isRetryableAllocationFailure(error) {
                 let cleanupStartedAt = ContinuousClock.now
                 try? FileManager.default.removeItem(at: URL(fileURLWithPath: request.outputPath))
@@ -876,6 +886,11 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
                     )
                     return annotated
                 } catch {
+                    if error is CancellationError {
+                        loadState = .loaded(modelID: request.modelID)
+                        try? FileManager.default.removeItem(at: URL(fileURLWithPath: request.outputPath))
+                        throw error
+                    }
                     let surfacedError = NativeRuntimeError.wrapping(
                         error,
                         stage: .streamStartup,
