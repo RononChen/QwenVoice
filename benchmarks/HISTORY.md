@@ -42,3 +42,4 @@ reference ledger, not an auto-compared baseline gate.
 | 2026-06-09 | 23be8d4 | custom/pro_custom_speed/warm/long | 1.02 | 12.81 | - | 5913 | 0 | pass | P3 fused CP RoPE (bf16-ULP numerics delta; gate pending) | - |
 | 2026-06-09 | f3cd2aa | clone/pro_clone_speed/warm/long | 0.58 | 7.21 | - | 7226 | 0 | pass | P4 KV-quant A/B: off (P3 binary) | - |
 | 2026-06-09 | f3cd2aa | clone/pro_clone_speed/warm/long | 0.53 | 6.57 | - | 6955 | 0 | pass | P4 KV-quant A/B: 8-bit | - |
+| 2026-06-09 | fc3aaf8 | custom/pro_custom_speed/warm/medium | 1.11 | 13.82 | - | 4493 | 0 | pass | P6 final full-matrix (P0-P4) | - |

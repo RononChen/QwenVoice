@@ -406,6 +406,18 @@ GPU-bound workload; the launch-bound reality made it 10×).
 - **GPU cacheLimit re-sweep**: not re-run this program; current per-tier values stand (set during
   the iOS program; no P0–P4 row shows cache-pressure misfit). Open as a low-priority follow-up.
 
+### P5 — iPhone 15 Pro simulation: validated (memory dimension PASS)
+
+On-device under `--sim-device iphone15pro` (5,000 MB clamp; rows stamped `simulatedDevice`):
+custom/long **RTF 1.89** / physFoot 2,723 MB (margin 2,277 MB ≥ the 500 MB bar); clone **RTF 1.62**
+/ 3,332 MB (margin 1,668 MB ≥ 300 MB); **0 trims, QC pass, clone gate ON** (proven by execution).
+On-device RTF sits at the top of the pre-program 1.6–1.9 band (P3's launch-bound win is smaller on
+the A19 than the M2 — its launch overhead is lower, consistent with the P0 theory). Ops note: the
+first launch of a freshly installed build can exceed the default 300 s autorun sentinel timeout
+(cold Metal-shader compile) — use `QVOICE_IOS_BENCH_TIMEOUT=600` after installing a new binary.
+The analytic 15 Pro compute projection (0.60× ⇒ RTF ≈ 1.0–1.1 post-§H) and the real-device gate
+remain as documented in ios-engine-optimization.md §9.
+
 ### P6 — Final full-matrix validation (macOS, native floor tier)
 
 `P6 final full-matrix (P0-P4)` ledger row + the 12-cell speed matrix: **QC pass on every cell**

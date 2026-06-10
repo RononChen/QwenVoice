@@ -304,7 +304,10 @@ simulation** runs the full on-device matrix on the 17 Pro under the 8 GB tier's 
 `scripts/ios_device.sh bench --sim-device iphone15pro …` clamps the effective per-process limit to
 **5,000 MB** (the conservative bottom of the entitled band) inside `IOSMemorySnapshot.capture()`, so
 bands, admission, and the clone gate (5,000 ≥ 4,500 ⇒ stays ON) all behave as on the smaller device;
-rows self-stamp `notes.simulatedDevice`. **This simulates the MEMORY dimension only.** Compute cannot
+rows self-stamp `notes.simulatedDevice`. **Measured 2026-06-09 (iPhone 17 Pro, post-§H engine):
+custom/long RTF 1.89, physFoot 2,723 MB (margin 2,277 MB); clone RTF 1.62, physFoot 3,332 MB
+(margin 1,668 MB); 0 trims, QC pass, clone gate ON (proven by execution) — simulated PASS on the
+memory dimension.** **This simulates the MEMORY dimension only.** Compute cannot
 be hardware-simulated: A17 Pro sustained GPU ≈ **0.60×** A19 Pro (band 0.55–0.65; LPDDR5 ~60 vs
 ~68 GB/s; A17 throttles harder) ⇒ from the 17 Pro's measured RTF 1.6–1.9, the **analytic 15 Pro
 projection is RTF ≈ 0.9–1.2** — brushing realtime, which is exactly why the real-device gate above
