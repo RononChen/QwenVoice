@@ -299,6 +299,18 @@ change without a confirmed-real defect.
 custom + clone on a real 8 GB device and confirm RTF / 0-trims / clone-gate-on. Until then, 8 GB
 viability is inferred (streaming ~3 GB flat), not proven.
 
+*De-risking harness (2026-06-09, OPTIMIZATION.md §H P5):* the **iPhone 15 Pro restriction
+simulation** runs the full on-device matrix on the 17 Pro under the 8 GB tier's entitled budget —
+`scripts/ios_device.sh bench --sim-device iphone15pro …` clamps the effective per-process limit to
+**5,000 MB** (the conservative bottom of the entitled band) inside `IOSMemorySnapshot.capture()`, so
+bands, admission, and the clone gate (5,000 ≥ 4,500 ⇒ stays ON) all behave as on the smaller device;
+rows self-stamp `notes.simulatedDevice`. **This simulates the MEMORY dimension only.** Compute cannot
+be hardware-simulated: A17 Pro sustained GPU ≈ **0.60×** A19 Pro (band 0.55–0.65; LPDDR5 ~60 vs
+~68 GB/s; A17 throttles harder) ⇒ from the 17 Pro's measured RTF 1.6–1.9, the **analytic 15 Pro
+projection is RTF ≈ 0.9–1.2** — brushing realtime, which is exactly why the real-device gate above
+stays open (streaming playback tolerance to sub-realtime decode is the question only hardware
+answers). A simulated row is labeled evidence, never proof.
+
 **P2 — signed-IPA / TestFlight lane.** The one deferred *distribution* piece. Needs (1) an iOS
 Distribution certificate in the team and (2) a sibling `archive-ios` CI job to the existing
 `compile-ios` job in `.github/workflows/release.yml`. Local on-device build/test is already

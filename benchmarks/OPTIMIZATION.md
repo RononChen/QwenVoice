@@ -317,8 +317,98 @@ in-process iOS model would be more elegant. Verdict: **keep XPC** —
 **Residual:** the post-retirement readiness note briefly shows "Preparing Custom Voice" (cosmetic; no connection is
 actually made). Ledger rows: `pre-ui-kpi baseline` and `post smoothness ws sanity` (2026-06-09).
 
+## H — Qwen3-specialization program (2026-06-09; branch `engine-risk`)
+
+The exhaustive backend program: specialize the vendored tree for Qwen3-TTS, close the remaining
+speed/RAM levers under the standing quality gates, and build an iPhone-15-Pro restriction simulation
+for the maintainer's 17 Pro. Phases P0–P6; per-phase ledger rows labeled `P<n>-…`.
+
+### P0 — Instruments compute attribution (the long-gated capture, finally run)
+
+Capture: `xctrace record --template "Metal System Trace" --instrument os_signpost --launch -- vocello
+bench --modes custom --variants speed --lengths long --warm 2` on the native 8 GB M2 (trace overhead
+≈25%: RTF 0.64–0.70 under trace vs 0.85 clean — fractions are the deliverable, not absolutes).
+Signpost interval table parsed clean (no WS0b collapse on Xcode 26 xctrace). Warm-gen attribution
+(consistent across both warm gens, 270–279 frames each):
+
+| Window (signpost) | % of generation wall | GPU busy inside the window |
+|---|---|---|
+| Step Eval Flush (the fused per-frame eval) | 66–67% | **41–50%** |
+| Code Predictor Loop (graph build, 15 passes) | 13–15% | **3–5% (idle)** |
+| └ Code Predictor Step (per-pass build, ~1.0 ms × 15 × frame) | 12–13% | — |
+| Talker Forward (graph build) | 4–5% | **2–5% (idle)** |
+| Sampling (first + predicted codebooks) | ~1.6% | — |
+| **Whole generation** | 100% | **31–37%** |
+
+**The headline finding: the workload is kernel-launch/CPU-bound, not GPU-bound.** Even inside the
+fused eval the GPU idles half the time (batch-1 tiny-matmul launch gaps in the MLX Metal scheduler);
+during the ~23%-of-wall graph-build phases it is essentially idle, so every ms of Swift build cost
+removed converts ≈1:1 to wall time. Decision table outcomes:
+
+- GPU busy 31–37% « 80% → **P2 (graph-build/allocator elimination) is first-order. GO.**
+- CP RoPE fusion (§D) → **GO with revised rationale**: the win is ~6 graph-build ops → 1 fused op per
+  CP pass (×15×~300 frames of CPU build), not GPU time. §D's "2–3% RTF (GPU)" framing is obsolete.
+- Sampling-stall lever → not opened: Sample First Codebook ≈0.2% wall; the eval-window idle is
+  launch-shaped, not a token-read stall.
+- Audio Decoder row: N/A in this capture — `bench` runs the quality-first batch path (no streaming
+  decoder signposts). The decode shows up as the ~23% GPU-busy remainder outside stepEval.
+- **Structural ceiling (recorded, not actionable at 0.30.6):** the ~50% launch-gap idle inside
+  stepEval is only addressable by graph capture/compile — measured −5% at 0.30.6 (§F WS0b). Re-test
+  under the gated 0.31.x bump (§E) whenever that happens.
+- Clone/long capture: skipped as not decision-relevant (identical per-frame loop; clone differs in
+  prefill, and P4's KV decision is a physFoot A/B, not a trace question).
+
+### P1 — Vendored tree specialized to Qwen3-TTS (`a2b5f15`)
+
+Deleted ~36K of ~49K LOC: STT/STS/VAD/LID/G2P/UI/Tools targets+products+executables, eight non-Mimi
+codec families, `Mimi/Mimi.swift`+`AudioCodecModel.swift`, dead Core files (AudioPlayer,
+AudioSessionManager, PCMStreamConverter, UnigramTokenizer), unused swift-transformers/MLXLLM deps.
+Compiler-arbitrated keeps: `Seanet.swift` (SeanetEncoder is the speaker-encoder front end),
+`AudioUtils.swift`+`DSP.swift` (clone path uses `loadAudioArray`/`computeMelSpectrogram`). Both
+foundation builds green; clone path validated post-prune (0.55 warm vs 0.56 baseline, QC pass).
+Honesty note: the row labeled `P1 vendored Qwen3 specialization` benched a stale pre-P1 binary
+(`build.sh build` does not rebuild the CLI) — it serves as the fresh same-day baseline instead;
+P1's real gate was the link step plus the later clone validation.
+
+### P2 — Sampler scratch + CP step constants (`0c3a313`; ~+1% wall, allocator relief)
+
+CP sampler scratch (the 14 CP samples/frame re-allocated arange/zeros/-inf — ~17K allocs per
+generation), dtype-keyed -inf row caches for topK/topP, zeros/eos caches, CP pass-0 mask memo.
+Same-conditions A/B (P1-only control vs P2): warm RTF 0.80 → 0.81, stepEval/frame 67.9 → 65.8 ms,
+codePred/frame 16.3 → 16.0 ms. Within noise on wall but consistently positive; main value is
+allocator pressure (iPhone-relevant) + build-phase reduction. **Thermal lesson:** warm cells can
+read *slower than cold* on a heat-soaked 8 GB M2 — accept/reject benching needs cool-downs and
+same-day controls (the 2026-05-31 "0.85" is a fresh-machine number).
+
+### P3 — Fused CP RoPE (`f3cd2aa`; **+26% — the 8 GB Mac crosses realtime**)
+
+`MLXFast.RoPE` (offset-based) replaces the manual rotate-half chain in the code predictor:
+~600 fewer kernel launches per frame on the launch-bound decode. **custom/speed/long warm RTF
+0.81 → 1.02**; stepEval/frame 65.8 → ~50 ms; codePred build 16.0 → 11.3 ms; clone 0.55 → 0.58.
+Numerics: fused kernel rotates in fp32 vs the old bf16-quantized tables — probe measured exactly
+1–2 bf16 ULPs on q/k (a precision improvement, not identical token streams), so the full
+perceptual gate ran: audioQC pass + agy listening on fresh custom/design/clone takes, all clean.
+The talker keeps its manual path — 3D interleaved MRoPE `[24,20,20]` is not expressible by
+`MLXFast.RoPE` (a possible future lever only if decode-time positions prove degenerate-equal).
+§D is hereby **closed: implemented, far above its estimated ceiling** (the 2–3% estimate assumed a
+GPU-bound workload; the launch-bound reality made it 10×).
+
+### P4 — RAM levers (`6f9f04b`; KV-quant NOT shipped)
+
+- **8-bit talker KV** (via `attentionWithCacheUpdate`, behavior-identical for plain caches):
+  clone/long saves 271 MB physFoot but costs **−8.6% RTF** (dequant kernels on a launch-bound
+  decode). No tier has a RAM emergency that justifies it (iPhone clone ~3.3 GB vs 5–6 GB entitled,
+  0 trims) → **env-only dev knob** `QVOICE_TALKER_KV_QUANT=8|4`, default off, never combined with
+  the rotating-window cache.
+- **Load-peak transient**: closed without chunked binding — on-device evidence (0 trims, flat
+  ~2.4–3.3 GB streaming peaks, §F) shows the load transient is not a binding constraint on any
+  shipping tier.
+- **GPU cacheLimit re-sweep**: not re-run this program; current per-tier values stand (set during
+  the iOS program; no P0–P4 row shows cache-pressure misfit). Open as a low-priority follow-up.
+
 ## Next step (if resumed)
 
-The only open lever is **D**, and only after the Instruments os_signpost capture above justifies it. The
-quality tripwire (C) is in place; everything else the report proposed is already implemented or iOS-deferred.
-For UI smoothness (G), watch the `uiMaxStall ms` ledger column across releases.
+§H is the active program (branch `engine-risk`): P2 hot-path build/allocator work is first-order per
+the P0 capture; then gated P3 (RoPE fusion, token-identity gate), P4 RAM levers (KV-quant A/B with
+the clone listening gate), P5 iPhone-15-Pro sim harness, P6 wrap-up. §D is superseded by the §H P0
+decision table. For UI smoothness (G), watch the `uiMaxStall ms` ledger column across releases.
