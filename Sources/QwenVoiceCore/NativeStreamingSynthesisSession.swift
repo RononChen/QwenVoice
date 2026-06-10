@@ -1462,7 +1462,7 @@ private struct StreamingExecutionContext: Sendable {
         // Stamp the resolved device-memory tier so each row self-identifies which
         // policy it ran under — confirms a forced-tier benchmark took effect.
         // Reuses the free-form notes field; a caller-supplied key wins on collision.
-        let notesWithTier = [
+        var tierNotes = [
             "deviceClass": NativeMemoryPolicyResolver.deviceClass().rawValue,
             // Whether the tier was forced (QWENVOICE_FORCE_MEMORY_CLASS) vs the
             // native, physical-memory-derived tier — so the summarizer doesn't
@@ -1472,7 +1472,16 @@ private struct StreamingExecutionContext: Sendable {
             // break results out by prompt length (short / medium / long) — RTF,
             // decode time, and KV-cache memory all scale with it.
             "promptChars": String(request.text.count),
-        ].merging(notes) { _, caller in caller }
+        ]
+        if let simLimit = IOSMemorySnapshot.simulatedProcessLimitBytes {
+            // Restriction-simulation rows must self-identify — a simulated
+            // iPhone-15-Pro run must never read as a real-device proof.
+            tierNotes["simulatedProcessLimitMB"] = String(simLimit / 1_048_576)
+            if let profile = ProcessInfo.processInfo.environment["QVOICE_IOS_SIM_DEVICE"] {
+                tierNotes["simulatedDevice"] = profile
+            }
+        }
+        let notesWithTier = tierNotes.merging(notes) { _, caller in caller }
         let record = GenerationTelemetryRecord(
             generationID: generationID.uuidString,
             layer: .engine,

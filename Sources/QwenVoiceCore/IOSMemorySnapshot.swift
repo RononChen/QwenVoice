@@ -105,17 +105,53 @@ public struct IOSMemorySnapshot: Hashable, Codable, Sendable {
         Self.bytesToMB(gpuRecommendedWorkingSetBytes)
     }
 
+    /// Dev-only restriction simulation: clamp the *effective* per-process
+    /// memory limit so a bigger iPhone behaves like a smaller one (e.g. run
+    /// the iPhone 15 Pro's ~5.0 GB entitled budget on a 17 Pro). Resolved
+    /// once per process from `QVOICE_IOS_SIMULATED_PROCESS_LIMIT_MB`
+    /// (explicit MB) or the `QVOICE_IOS_SIM_DEVICE` profile map. The clamp
+    /// is applied to the headroom inside `capture()`, so every consumer —
+    /// budget bands, aggregate admission, the clone capability gate,
+    /// telemetry — sees the smaller device with no per-call-site changes.
+    /// It only simulates the MEMORY dimension; GPU compute and thermal
+    /// behavior of the smaller device cannot be simulated (see
+    /// docs/reference/ios-engine-optimization.md §9).
+    public static let simulatedProcessLimitBytes: UInt64? = {
+        let environment = ProcessInfo.processInfo.environment
+        if let raw = environment["QVOICE_IOS_SIMULATED_PROCESS_LIMIT_MB"],
+           let megabytes = UInt64(raw), megabytes > 0 {
+            return megabytes * 1_048_576
+        }
+        switch environment["QVOICE_IOS_SIM_DEVICE"]?.lowercased() {
+        case "iphone15pro":
+            // Bottom of the community-measured 5.0–5.5 GB entitled band on
+            // 8 GB iPhones — conservative: passing here implies passing on
+            // whatever the real device grants.
+            return 5_000 * 1_048_576
+        default:
+            return nil
+        }
+    }()
+
     public static func capture(
         role: IOSMemoryProcessRole = .currentProcess,
         device: MTLDevice? = MTLCreateSystemDefaultDevice()
     ) -> IOSMemorySnapshot {
         let metrics = taskMemoryMetrics()
+        var headroom = availableProcessMemory()
+        if let simLimit = simulatedProcessLimitBytes,
+           let realHeadroom = headroom,
+           let footprint = metrics.physFootprintBytes {
+            let realLimit = footprint + realHeadroom
+            let effectiveLimit = min(realLimit, simLimit)
+            headroom = effectiveLimit > footprint ? effectiveLimit - footprint : 0
+        }
         return IOSMemorySnapshot(
             processRole: role,
             pid: getpid(),
             capturedAtUptimeSeconds: ProcessInfo.processInfo.systemUptime,
             totalDeviceRAMBytes: ProcessInfo.processInfo.physicalMemory,
-            availableHeadroomBytes: availableProcessMemory(),
+            availableHeadroomBytes: headroom,
             residentBytes: metrics.residentBytes,
             physFootprintBytes: metrics.physFootprintBytes,
             compressedBytes: metrics.compressedBytes,

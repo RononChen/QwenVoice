@@ -306,11 +306,17 @@ cmd_pull() {
 cmd_bench() {
   require_team
   local spec="custom:speed:" label=""
-  # parse: first non-flag arg = spec; --label "note"
+  # parse: first non-flag arg = spec; --label "note"; --sim-device <profile>
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --label) label="${2:-}"; shift 2 ;;
       --label=*) label="${1#*=}"; shift ;;
+      # Restriction simulation (memory dimension only): forwards
+      # QVOICE_IOS_SIM_DEVICE so the app clamps its effective per-process
+      # limit to the profile's entitled budget (iphone15pro → 5000 MB).
+      # Rows self-stamp notes.simulatedDevice; GPU/thermal are NOT simulated.
+      --sim-device) export QVOICE_IOS_SIM_DEVICE="${2:-}"; shift 2 ;;
+      --sim-device=*) export QVOICE_IOS_SIM_DEVICE="${1#*=}"; shift ;;
       *) spec="$1"; shift ;;
     esac
   done
