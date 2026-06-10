@@ -16,7 +16,6 @@ struct SidebarFooterPresentation: Equatable {
 }
 
 struct SidebarStatusView: View {
-    @Environment(\.colorScheme) private var colorScheme
     let sidebarStatus: SidebarStatus
     let clearError: @MainActor () -> Void
 
@@ -199,23 +198,23 @@ struct SidebarStatusView: View {
         #if QW_UI_LIQUID
         if #available(macOS 26, *) {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(colorScheme == .dark ? Color.clear : AppTheme.inlineFill.opacity(0.62))
+                .fill(Color.clear)
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .strokeBorder(
-                            color.opacity(colorScheme == .dark ? strokeOpacity : strokeOpacity * 0.56),
-                            lineWidth: colorScheme == .dark ? 1 : 0.85
+                            color.opacity(strokeOpacity),
+                            lineWidth: 1
                         )
                 )
                 .glassEffect(
-                    // Dark-mode tint used to be full `color` which left the
+                    // The tint used to be full `color` which left the
                     // banner reading as a solid red/amber brick; dropping
                     // to 0.38 lets the glass refract the canvas behind
                     // while still keeping the error identity colour.
-                    .regular.tint(colorScheme == .dark ? color.opacity(0.38) : color.opacity(0.18)),
+                    .regular.tint(color.opacity(0.38)),
                     in: .rect(cornerRadius: 8)
                 )
-                .glass3DDepth(radius: 8, intensity: colorScheme == .dark ? 0.55 : 0.22)
+                .glass3DDepth(radius: 8, intensity: 0.55)
         } else {
             statusBackgroundLegacy(color: color, fillOpacity: fillOpacity, strokeOpacity: strokeOpacity)
         }

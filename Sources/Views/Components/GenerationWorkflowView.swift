@@ -210,7 +210,6 @@ enum StudioCardStyle {
 }
 
 struct StudioSectionCard<Content: View>: View {
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.cardGlassTint) private var cardGlassTint
 
     let title: String
@@ -284,16 +283,16 @@ struct StudioSectionCard<Content: View>: View {
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
                                 .strokeBorder(
                                     cardGlassTint.map {
-                                        AppTheme.accentStroke($0, for: colorScheme).opacity(0.55)
-                                    } ?? AppTheme.cardStroke.opacity(AppTheme.surfaceStrokeOpacity(for: colorScheme)),
-                                    lineWidth: AppTheme.surfaceStrokeWidth(for: colorScheme)
+                                        AppTheme.accentStroke($0).opacity(0.55)
+                                    } ?? AppTheme.cardStroke.opacity(AppTheme.surfaceStrokeOpacity),
+                                    lineWidth: AppTheme.surfaceStrokeWidth
                                 )
                         )
                 )
                 .glassEffect(
                     .regular.tint(
                         cardGlassTint.map {
-                            AppTheme.surfaceGlassTint($0, for: colorScheme)
+                            AppTheme.surfaceGlassTint($0)
                         } ?? AppTheme.smokedGlassTint
                     ),
                     in: .rect(cornerRadius: 16)
@@ -317,17 +316,14 @@ struct StudioSectionCard<Content: View>: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(
-                        AppTheme.cardStroke.opacity(
-                            colorScheme == .dark ? 0.20 : AppTheme.surfaceStrokeOpacity(for: colorScheme)
-                        ),
-                        lineWidth: colorScheme == .dark ? 0.5 : 1
+                        AppTheme.cardStroke.opacity(0.20),
+                        lineWidth: 0.5
                     )
             )
     }
 }
 
 struct CompactConfigurationSection<Content: View>: View {
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.cardGlassTint) private var cardGlassTint
 
     let title: String
@@ -368,26 +364,21 @@ struct CompactConfigurationSection<Content: View>: View {
                         .overlay(
                             RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous)
                                 .strokeBorder(
-                                    AppTheme.inlineStroke.opacity(
-                                        colorScheme == .dark
-                                            ? AppTheme.surfaceStrokeOpacity(for: colorScheme)
-                                            : AppTheme.surfaceStrokeOpacity(for: colorScheme) * 0.88
-                                    ),
-                                    lineWidth: AppTheme.surfaceStrokeWidth(for: colorScheme)
+                                    AppTheme.inlineStroke.opacity(AppTheme.surfaceStrokeOpacity),
+                                    lineWidth: AppTheme.surfaceStrokeWidth
                                 )
                         )
                         .glassEffect(
                             .regular.tint(
                                 cardGlassTint.map {
-                                    AppTheme.surfaceGlassTint($0, for: colorScheme)
+                                    AppTheme.surfaceGlassTint($0)
                                 } ?? AppTheme.smokedGlassTint
                             ),
                             in: .rect(cornerRadius: panelCornerRadius)
                         )
                         .glass3DDepth(
                             radius: panelCornerRadius,
-                            intensity: (colorScheme == .dark ? 1.0 : 0.72)
-                                * (cardGlassTint == nil ? 1.0 : 1.15)
+                            intensity: cardGlassTint == nil ? 1.0 : 1.15
                         )
                 } else {
                     compactPanelLegacyBackground

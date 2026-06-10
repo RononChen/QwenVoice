@@ -66,8 +66,6 @@ private struct SidebarBrandHeader: View {
 }
 
 private struct SidebarRow: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     let item: SidebarItem
     @Binding var selection: SidebarItem?
     let isDisabled: Bool
@@ -92,26 +90,24 @@ private struct SidebarRow: View {
                                 // Voice Design, terracotta for Voice
                                 // Cloning. Matches the non-liquid
                                 // fallback in `borderColor`.
-                                AppTheme.sidebarColor(for: item).opacity(
-                                    colorScheme == .dark ? 0.55 : 0.42
-                                ),
-                                lineWidth: colorScheme == .dark ? AppTheme.surfaceStrokeWidth(for: colorScheme) : 0.9
+                                AppTheme.sidebarColor(for: item).opacity(0.55),
+                                lineWidth: AppTheme.surfaceStrokeWidth
                             )
                     )
                     .glassEffect(.regular.tint(AppTheme.smokedGlassTint).interactive(), in: .rect(cornerRadius: 8))
-                    .glass3DDepth(radius: 8, intensity: colorScheme == .dark ? 0.5 : 0.28)
+                    .glass3DDepth(radius: 8, intensity: 0.5)
             } else if isHovered {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(AppTheme.sidebarHoverFill)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .strokeBorder(
-                                AppTheme.sidebarHoverStroke.opacity(colorScheme == .dark ? 1.0 : 0.72),
-                                lineWidth: colorScheme == .dark ? AppTheme.surfaceStrokeWidth(for: colorScheme) : 0.85
+                                AppTheme.sidebarHoverStroke,
+                                lineWidth: AppTheme.surfaceStrokeWidth
                             )
                     )
                     .glassEffect(.regular.tint(AppTheme.smokedGlassTint).interactive(), in: .rect(cornerRadius: 8))
-                    .glass3DDepth(radius: 8, intensity: colorScheme == .dark ? 0.25 : 0.16)
+                    .glass3DDepth(radius: 8, intensity: 0.25)
             } else {
                 Color.clear
             }
@@ -320,7 +316,6 @@ struct SidebarView: View {
 }
 
 private struct SidebarFooterRegion: View {
-    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
     @EnvironmentObject private var ttsEngineStore: TTSEngineStore
 
@@ -343,7 +338,7 @@ private struct SidebarFooterRegion: View {
     var body: some View {
         VStack(spacing: 0) {
             Rectangle()
-                .fill(AppTheme.railStroke.opacity(colorScheme == .dark ? 0.9 : 0.34))
+                .fill(AppTheme.railStroke.opacity(0.9))
                 .frame(height: 1)
 
             VStack(alignment: .leading, spacing: 10) {
@@ -352,7 +347,7 @@ private struct SidebarFooterRegion: View {
 
                     if footerPresentation.showsStandaloneStatus {
                         Rectangle()
-                            .fill(AppTheme.railStroke.opacity(colorScheme == .dark ? 0.65 : 0.22))
+                            .fill(AppTheme.railStroke.opacity(0.65))
                             .frame(height: 1)
                     }
                 }
@@ -373,6 +368,6 @@ private struct SidebarFooterRegion: View {
             .padding(.bottom, LayoutConstants.shellPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(AppTheme.railBackground.opacity(colorScheme == .dark ? 1.0 : 0.985))
+        .background(AppTheme.railBackground)
     }
 }

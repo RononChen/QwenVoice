@@ -46,8 +46,7 @@ struct TextInputView: View {
         )
         .glassTextField(
             radius: 10,
-            strokeColor: isEditorFocused ? buttonColor.opacity(0.24) : AppTheme.fieldStroke,
-            strokeWidth: isEditorFocused ? 1.05 : 0.95
+            strokeColor: isEditorFocused ? buttonColor.opacity(0.24) : AppTheme.fieldStroke
         )
         .accessibilityIdentifier("textInput_textEditor")
         .frame(maxHeight: usesFlexibleEmbeddedHeight ? .infinity : nil, alignment: .topLeading)
