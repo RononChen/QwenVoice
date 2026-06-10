@@ -126,6 +126,41 @@ final class CodePredictorDecoderLayer: Module {
     }
 }
 
+// MARK: - Code Predictor Step Constants
+
+/// Per-generation memo of the code predictor's per-pass position embeddings
+/// and the pass-0 causal mask. The CP cache is trimmed to offset 0 before
+/// every frame, so each frame replays the identical position sequence:
+/// pass 0 sees positions [0, 1] (seqLen 2 + a 2-token causal mask), passes
+/// 1…14 see the single position [offset]. Rebuilding the RoPE tables and the
+/// mask per pass per frame was pure graph-build churn on the CPU-bound path
+/// (P0 capture: GPU ~3–5% busy during the CP loop). Values are computed by
+/// the exact code path they replace (the closures below), so they are
+/// bit-identical; dtype is constant for a generation.
+final class CodePredictorStepConstants {
+    private var positionEmbeddings: [Int: (MLXArray, MLXArray)] = [:]
+    private var causalMasks: [Int: MLXArray] = [:]
+
+    fileprivate func positionEmbeddings(
+        offset: Int,
+        seqLen: Int,
+        compute: () -> (MLXArray, MLXArray)
+    ) -> (MLXArray, MLXArray) {
+        let key = (offset << 8) | seqLen
+        if let cached = positionEmbeddings[key] { return cached }
+        let fresh = compute()
+        positionEmbeddings[key] = fresh
+        return fresh
+    }
+
+    fileprivate func causalMask(seqLen: Int, compute: () -> MLXArray) -> MLXArray {
+        if let cached = causalMasks[seqLen] { return cached }
+        let fresh = compute()
+        causalMasks[seqLen] = fresh
+        return fresh
+    }
+}
+
 // MARK: - Code Predictor Model (inner)
 
 final class CodePredictorModel: Module {
@@ -153,7 +188,8 @@ final class CodePredictorModel: Module {
         _ inputsEmbeds: MLXArray,
         positionIds: MLXArray? = nil,
         mask: MLXArray? = nil,
-        cache: [any KVCache]? = nil
+        cache: [any KVCache]? = nil,
+        stepConstants: CodePredictorStepConstants? = nil
     ) -> MLXArray {
         let (batch, seqLen, _) = (inputsEmbeds.dim(0), inputsEmbeds.dim(1), inputsEmbeds.dim(2))
 
@@ -163,19 +199,34 @@ final class CodePredictorModel: Module {
             0
         }
 
-        let posIds: MLXArray
-        if let positionIds {
-            posIds = positionIds
-        } else {
-            let pos = MLXArray(Int32(offset) ..< Int32(offset + seqLen)).reshaped(1, seqLen)
-            posIds = broadcast(pos, to: [batch, seqLen])
+        let computePosEmbeddings: () -> (MLXArray, MLXArray) = {
+            let posIds: MLXArray
+            if let positionIds {
+                posIds = positionIds
+            } else {
+                let pos = MLXArray(Int32(offset) ..< Int32(offset + seqLen)).reshaped(1, seqLen)
+                posIds = broadcast(pos, to: [batch, seqLen])
+            }
+            return self.rotaryEmb(inputsEmbeds, positionIds: posIds)
         }
-
-        let posEmbeddings = rotaryEmb(inputsEmbeds, positionIds: posIds)
+        let posEmbeddings: (MLXArray, MLXArray)
+        if let stepConstants, positionIds == nil, batch == 1 {
+            posEmbeddings = stepConstants.positionEmbeddings(
+                offset: offset, seqLen: seqLen, compute: computePosEmbeddings
+            )
+        } else {
+            posEmbeddings = computePosEmbeddings()
+        }
 
         var causalMask = mask
         if causalMask == nil, seqLen > 1 {
-            causalMask = MultiHeadAttention.createAdditiveCausalMask(seqLen).asType(inputsEmbeds.dtype)
+            if let stepConstants {
+                causalMask = stepConstants.causalMask(seqLen: seqLen) {
+                    MultiHeadAttention.createAdditiveCausalMask(seqLen).asType(inputsEmbeds.dtype)
+                }
+            } else {
+                causalMask = MultiHeadAttention.createAdditiveCausalMask(seqLen).asType(inputsEmbeds.dtype)
+            }
         }
 
         var x = inputsEmbeds
@@ -225,14 +276,18 @@ final class Qwen3TTSCodePredictor: Module {
         positionIds: MLXArray? = nil,
         mask: MLXArray? = nil,
         cache: [any KVCache]? = nil,
-        generationStep: Int = 0
+        generationStep: Int = 0,
+        stepConstants: CodePredictorStepConstants? = nil
     ) -> (MLXArray, [any KVCache]?, Int) {
         var embeds = inputsEmbeds
         if let proj = projection {
             embeds = proj(embeds)
         }
 
-        let x = model(embeds, positionIds: positionIds, mask: mask, cache: cache)
+        let x = model(
+            embeds, positionIds: positionIds, mask: mask, cache: cache,
+            stepConstants: stepConstants
+        )
         let logits = lmHead[generationStep](x)
         return (logits, cache, generationStep + 1)
     }

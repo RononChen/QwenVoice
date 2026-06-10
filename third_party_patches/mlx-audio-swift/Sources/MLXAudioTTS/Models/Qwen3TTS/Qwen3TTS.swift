@@ -2560,6 +2560,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         var inputEmbeds = inputEmbedsInit
         let eosTokenArray = MLXArray([Int32(eosTokenId)]).reshaped(1, 1)
         let codeCache = talker.codePredictor.makeCache()
+        // Per-generation memo of the CP's per-pass RoPE tables + pass-0 mask
+        // (identical every frame — the cache is trimmed to 0 below).
+        let codePredictorStepConstants = CodePredictorStepConstants()
 
         if onAudioChunk != nil {
             speechTokenizer.decoder.resetStreamingState()
@@ -2577,6 +2580,11 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             withEOS: suppressTokensWithEOS,
             dtype: .float32
         )
+        // Separate scratch for the code-predictor sampler (different vocab; no
+        // suppress pairs prepared, so suppression stays disabled there exactly
+        // as before — this only caches the arange/zeros/-inf rows that were
+        // re-allocated 14× per frame). Sized lazily from the first CP logits.
+        var codePredictorScratch: Qwen3SamplerScratch?
 
         for _ in 0 ..< effectiveMaxTokens {
             try Task.checkCancellation()
@@ -2640,7 +2648,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 }
 
                 let (codeLogits, _, _) = talker.codePredictor(
-                    codeInput, cache: codeCache, generationStep: codeIdx
+                    codeInput, cache: codeCache, generationStep: codeIdx,
+                    stepConstants: codePredictorStepConstants
                 )
                 Qwen3Signposts.signposter.endInterval(
                     "Code Predictor Step",
@@ -2651,12 +2660,16 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 let samplePredictedCodebookStartedAt = ContinuousClock.now
                 let samplePredictedCodebookSignpost =
                     Qwen3Signposts.signposter.beginInterval("Sample Predicted Codebook")
+                if codePredictorScratch == nil {
+                    codePredictorScratch = Qwen3SamplerScratch(vocabSize: codeLogits.dim(-1))
+                }
                 let nextCode = sampleToken(
                     codeLogits,
                     temperature: temperature,
                     topP: topP,
                     topK: topK,
-                    minP: minP
+                    minP: minP,
+                    scratch: codePredictorScratch
                 )
                 Qwen3Signposts.signposter.endInterval(
                     "Sample Predicted Codebook",
@@ -3597,8 +3610,46 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             return repetitionTokenIDsMLX
         }
 
+        // Single-slot/per-count caches below: sampler shapes are constant for a
+        // whole generation (batch 1, fixed vocab, fixed topK), so the per-token
+        // rebuilds were pure allocator + graph-build churn. All consumers
+        // (putAlong/which/takeAlong) are functional — cached inputs are never
+        // mutated.
+        private var zerosCache: MLXArray?
+        private var zerosCacheShape: [Int] = []
+
         func zerosInt32(matching shape: [Int]) -> MLXArray {
-            MLXArray.zeros(shape, type: Int32.self)
+            if shape == zerosCacheShape, let zerosCache { return zerosCache }
+            let zeros = MLXArray.zeros(shape, type: Int32.self)
+            zerosCache = zeros
+            zerosCacheShape = shape
+            return zeros
+        }
+
+        private var negInfRowCache: [Int: MLXArray] = [:]
+        private var negInfRowDType: DType?
+
+        /// `[1, count]` of -inf in the logits dtype (topK mask block / topP full row).
+        func negInfRow(count: Int, dtype: DType) -> MLXArray {
+            if negInfRowDType != dtype {
+                negInfRowCache.removeAll()
+                negInfRowDType = dtype
+            }
+            if let cached = negInfRowCache[count] { return cached }
+            let row = MLXArray.full([1, count], values: negInfScalar, dtype: dtype)
+            negInfRowCache[count] = row
+            return row
+        }
+
+        private var eosIndexCache: MLXArray?
+        private var eosIndexValue: Int = .min
+
+        func eosIndex(_ tokenID: Int) -> MLXArray {
+            if tokenID == eosIndexValue, let eosIndexCache { return eosIndexCache }
+            let index = MLXArray([Int32(tokenID)]).reshaped(1, 1)
+            eosIndexCache = index
+            eosIndexValue = tokenID
+            return index
         }
     }
 
@@ -3675,11 +3726,16 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             let kth = min(topK - 1, max(vocabSize - 1, 0))
             if kth >= 0 {
                 let maskIdx = argPartition(-logitsSlice, kth: kth, axis: -1)[0..., topK...]
-                let negInf = MLXArray.full(
-                    maskIdx.shape,
-                    values: scratch?.negInfScalar ?? MLXArray(-Float.infinity),
-                    dtype: logitsSlice.dtype
-                )
+                let negInf: MLXArray
+                if let scratch, maskIdx.dim(0) == 1 {
+                    negInf = scratch.negInfRow(count: maskIdx.dim(-1), dtype: logitsSlice.dtype)
+                } else {
+                    negInf = MLXArray.full(
+                        maskIdx.shape,
+                        values: scratch?.negInfScalar ?? MLXArray(-Float.infinity),
+                        dtype: logitsSlice.dtype
+                    )
+                }
                 filteredLogits = putAlong(filteredLogits, maskIdx, values: negInf, axis: -1)
             }
         }
@@ -3709,11 +3765,16 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             // Keep tokens that are in the top_p nucleus
             let threshold = 1.0 - topP
             let mask = cumProbsOrigOrder .> threshold
-            let negInf = MLXArray.full(
-                filteredLogits.shape,
-                values: scratch?.negInfScalar ?? MLXArray(-Float.infinity),
-                dtype: filteredLogits.dtype
-            )
+            let negInf: MLXArray
+            if let scratch, filteredLogits.dim(0) == 1 {
+                negInf = scratch.negInfRow(count: filteredLogits.dim(-1), dtype: filteredLogits.dtype)
+            } else {
+                negInf = MLXArray.full(
+                    filteredLogits.shape,
+                    values: scratch?.negInfScalar ?? MLXArray(-Float.infinity),
+                    dtype: filteredLogits.dtype
+                )
+            }
             filteredLogits = which(mask, filteredLogits, negInf)
         }
 
@@ -3750,7 +3811,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         }
 
         if let eosLogit, let eosTokenId {
-            let eosIdx = MLXArray([Int32(eosTokenId)]).reshaped(1, 1)
+            let eosIdx = scratch?.eosIndex(eosTokenId) ?? MLXArray([Int32(eosTokenId)]).reshaped(1, 1)
             filteredLogits = putAlong(filteredLogits, eosIdx, values: eosLogit, axis: -1)
         }
 
