@@ -16,6 +16,7 @@ final class CodePredictorAttention: Module {
     let numKvHeads: Int
     let headDim: Int
     let scale: Float
+    let ropeBase: Float
 
     @ModuleInfo(key: "q_proj") var qProj: Linear
     @ModuleInfo(key: "k_proj") var kProj: Linear
@@ -29,6 +30,7 @@ final class CodePredictorAttention: Module {
         self.numKvHeads = config.numKeyValueHeads
         self.headDim = config.headDim
         self.scale = 1.0 / Foundation.sqrt(Float(headDim))
+        self.ropeBase = config.ropeTheta
 
         _qProj.wrappedValue = Linear(config.hiddenSize, numHeads * headDim, bias: config.attentionBias)
         _kProj.wrappedValue = Linear(config.hiddenSize, numKvHeads * headDim, bias: config.attentionBias)
@@ -40,7 +42,7 @@ final class CodePredictorAttention: Module {
 
     func callAsFunction(
         _ x: MLXArray,
-        positionEmbeddings: (MLXArray, MLXArray),
+        offset: Int,
         mask: MLXArray? = nil,
         cache: (any KVCache)? = nil
     ) -> MLXArray {
@@ -57,11 +59,21 @@ final class CodePredictorAttention: Module {
         k = k.transposed(0, 2, 1, 3)
         v = v.transposed(0, 2, 1, 3)
 
-        let (cosVal, sinVal) = positionEmbeddings
-        let cosE = expandedDimensions(cosVal, axis: 1)
-        let sinE = expandedDimensions(sinVal, axis: 1)
-        q = q * cosE + cpRotateHalf(q) * sinE
-        k = k * cosE + cpRotateHalf(k) * sinE
+        // Fused RoPE: one kernel per tensor instead of the ~5-op rotate-half
+        // chain — fewer ops to graph-build AND fewer kernels to launch, both
+        // first-order on this launch-bound decode (P0 capture, §H).
+        // traditional: false == the rotate-half layout the manual path used.
+        let qRot = MLXFast.RoPE(
+            q, dimensions: headDim, traditional: false, base: ropeBase,
+            scale: 1.0, offset: offset
+        )
+        let kRot = MLXFast.RoPE(
+            k, dimensions: headDim, traditional: false, base: ropeBase,
+            scale: 1.0, offset: offset
+        )
+
+        q = qRot
+        k = kRot
 
         if let cache {
             (k, v) = cache.update(keys: k, values: v)
@@ -72,13 +84,6 @@ final class CodePredictorAttention: Module {
         )
         return oProj(output.transposed(0, 2, 1, 3).reshaped(batch, seqLen, -1))
     }
-}
-
-func cpRotateHalf(_ x: MLXArray) -> MLXArray {
-    let half = x.dim(-1) / 2
-    let x1 = x[.ellipsis, ..<half]
-    let x2 = x[.ellipsis, half...]
-    return concatenated([-x2, x1], axis: -1)
 }
 
 // MARK: - Code Predictor MLP
@@ -116,11 +121,11 @@ final class CodePredictorDecoderLayer: Module {
 
     func callAsFunction(
         _ x: MLXArray,
-        positionEmbeddings: (MLXArray, MLXArray),
+        offset: Int,
         mask: MLXArray? = nil,
         cache: (any KVCache)? = nil
     ) -> MLXArray {
-        var out = x + selfAttn(inputLayernorm(x), positionEmbeddings: positionEmbeddings, mask: mask, cache: cache)
+        var out = x + selfAttn(inputLayernorm(x), offset: offset, mask: mask, cache: cache)
         out = out + mlp(postAttentionLayernorm(out))
         return out
     }
@@ -128,30 +133,13 @@ final class CodePredictorDecoderLayer: Module {
 
 // MARK: - Code Predictor Step Constants
 
-/// Per-generation memo of the code predictor's per-pass position embeddings
-/// and the pass-0 causal mask. The CP cache is trimmed to offset 0 before
-/// every frame, so each frame replays the identical position sequence:
-/// pass 0 sees positions [0, 1] (seqLen 2 + a 2-token causal mask), passes
-/// 1…14 see the single position [offset]. Rebuilding the RoPE tables and the
-/// mask per pass per frame was pure graph-build churn on the CPU-bound path
-/// (P0 capture: GPU ~3–5% busy during the CP loop). Values are computed by
-/// the exact code path they replace (the closures below), so they are
-/// bit-identical; dtype is constant for a generation.
+/// Per-generation memo of the code predictor's pass-0 causal mask. The CP
+/// cache is trimmed to offset 0 before every frame, so each frame replays the
+/// identical position sequence and the 2-token mask is constant; rebuilding
+/// it per frame was graph-build churn on the CPU-bound path (P0 capture, §H).
+/// (RoPE needs no tables here — it is fused into the attention kernel.)
 final class CodePredictorStepConstants {
-    private var positionEmbeddings: [Int: (MLXArray, MLXArray)] = [:]
     private var causalMasks: [Int: MLXArray] = [:]
-
-    fileprivate func positionEmbeddings(
-        offset: Int,
-        seqLen: Int,
-        compute: () -> (MLXArray, MLXArray)
-    ) -> (MLXArray, MLXArray) {
-        let key = (offset << 8) | seqLen
-        if let cached = positionEmbeddings[key] { return cached }
-        let fresh = compute()
-        positionEmbeddings[key] = fresh
-        return fresh
-    }
 
     fileprivate func causalMask(seqLen: Int, compute: () -> MLXArray) -> MLXArray {
         if let cached = causalMasks[seqLen] { return cached }
@@ -168,7 +156,6 @@ final class CodePredictorModel: Module {
     @ModuleInfo(key: "codec_embedding") var codecEmbedding: [Embedding]
     let layers: [CodePredictorDecoderLayer]
     @ModuleInfo var norm: RMSNorm
-    let rotaryEmb: Qwen3TTSRotaryEmbedding
 
     init(config: Qwen3TTSTalkerCodePredictorConfig, talkerHiddenSize: Int) {
         self.config = config
@@ -177,16 +164,10 @@ final class CodePredictorModel: Module {
         }
         self.layers = (0 ..< config.numHiddenLayers).map { CodePredictorDecoderLayer(config: config, layerIdx: $0) }
         _norm.wrappedValue = RMSNorm(dimensions: config.hiddenSize, eps: config.rmsNormEps)
-        self.rotaryEmb = Qwen3TTSRotaryEmbedding(
-            dim: config.headDim,
-            maxPositionEmbeddings: config.maxPositionEmbeddings,
-            base: config.ropeTheta
-        )
     }
 
     func callAsFunction(
         _ inputsEmbeds: MLXArray,
-        positionIds: MLXArray? = nil,
         mask: MLXArray? = nil,
         cache: [any KVCache]? = nil,
         stepConstants: CodePredictorStepConstants? = nil
@@ -199,25 +180,8 @@ final class CodePredictorModel: Module {
             0
         }
 
-        let computePosEmbeddings: () -> (MLXArray, MLXArray) = {
-            let posIds: MLXArray
-            if let positionIds {
-                posIds = positionIds
-            } else {
-                let pos = MLXArray(Int32(offset) ..< Int32(offset + seqLen)).reshaped(1, seqLen)
-                posIds = broadcast(pos, to: [batch, seqLen])
-            }
-            return self.rotaryEmb(inputsEmbeds, positionIds: posIds)
-        }
-        let posEmbeddings: (MLXArray, MLXArray)
-        if let stepConstants, positionIds == nil, batch == 1 {
-            posEmbeddings = stepConstants.positionEmbeddings(
-                offset: offset, seqLen: seqLen, compute: computePosEmbeddings
-            )
-        } else {
-            posEmbeddings = computePosEmbeddings()
-        }
-
+        // RoPE is applied inside the attention via the fused kernel — offset-
+        // based; CP positions are always contiguous from the cache offset.
         var causalMask = mask
         if causalMask == nil, seqLen > 1 {
             if let stepConstants {
@@ -231,7 +195,7 @@ final class CodePredictorModel: Module {
 
         var x = inputsEmbeds
         for (i, layer) in layers.enumerated() {
-            x = layer(x, positionEmbeddings: posEmbeddings, mask: causalMask, cache: cache?[i])
+            x = layer(x, offset: offset, mask: causalMask, cache: cache?[i])
         }
         return norm(x)
     }
@@ -273,7 +237,6 @@ final class Qwen3TTSCodePredictor: Module {
 
     func callAsFunction(
         _ inputsEmbeds: MLXArray,
-        positionIds: MLXArray? = nil,
         mask: MLXArray? = nil,
         cache: [any KVCache]? = nil,
         generationStep: Int = 0,
@@ -285,7 +248,7 @@ final class Qwen3TTSCodePredictor: Module {
         }
 
         let x = model(
-            embeds, positionIds: positionIds, mask: mask, cache: cache,
+            embeds, mask: mask, cache: cache,
             stepConstants: stepConstants
         )
         let logits = lmHead[generationStep](x)

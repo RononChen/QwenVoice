@@ -35,3 +35,8 @@ reference ledger, not an auto-compared baseline gate.
 | 2026-06-06 | b961cc8 | custom/iphone_pro_speed/cold/long | 1.844 | 23.0 | - | 2717 | 0 | pass | iOS DEVICE A/B — live-preview ON (.emit, feature). RTF +0.2% / physFoot +3.7% vs OFF = within noise; 0 trims, QC pass ⇒ live streaming playback has no generation-perf/memory cost |
 | 2026-06-09 | 1e80357 | custom/pro_custom_speed/warm/medium | 0.84 | 10.52 | - | 4757 | 0 | pass | pre-ui-kpi baseline (smoothness ws, speed-only) | - |
 | 2026-06-09 | 50c74ff | custom/pro_custom_speed/warm/medium | 0.83 | 10.38 | - | 4535 | 0 | pass | post smoothness ws (KPI+admission+retirement) sanity | - |
+| 2026-06-09 | a2b5f15 | custom/pro_custom_speed/warm/medium | 0.83 | 10.38 | - | 4486 | 0 | pass | P1 vendored Qwen3 specialization (expect unchanged) | - |
+| 2026-06-09 | a2b5f15 | custom/pro_custom_speed/warm/long | 0.80 | 10.04 | - | 6078 | 0 | warn:dropout | P2 sampler scratch + CP step constants (P1+P2 binary) | - |
+| 2026-06-09 | a2b5f15 | custom/pro_custom_speed/warm/long | 0.81 | 10.17 | - | 6285 | 0 | pass | P2 re-run after cool-down (clone via prepared voice) | - |
+| 2026-06-09 | a2b5f15 | custom/pro_custom_speed/warm/long | 0.80 | 9.94 | - | 6231 | 0 | pass | P2 A/B control: P1-only binary, same conditions | - |
+| 2026-06-09 | 23be8d4 | custom/pro_custom_speed/warm/long | 1.02 | 12.81 | - | 5913 | 0 | pass | P3 fused CP RoPE (bf16-ULP numerics delta; gate pending) | - |
