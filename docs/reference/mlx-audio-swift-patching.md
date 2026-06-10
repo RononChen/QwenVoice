@@ -18,14 +18,15 @@ The upstream package is moving quickly and Vocello depends on a specific combina
 third_party_patches/mlx-audio-swift/
 ├── Package.swift
 ├── Sources/
-│   ├── MLXAudioCore/
-│   ├── MLXAudioTTS/
-│   ├── MLXAudioSTS/
-│   ├── MLXAudioSTT/
-│   ├── MLXAudioVAD/
-│   └── MLXAudioLID/
+│   ├── MLXAudioCore/      # audio I/O + DSP + model-load utilities (Qwen3-live subset)
+│   ├── MLXAudioCodecs/    # Mimi transformer/conv/quantization/seanet primitives only
+│   └── MLXAudioTTS/       # Qwen3-TTS (the only model family)
 └── …
 ```
+
+The snapshot was **specialized to Qwen3-TTS on 2026-06-09** — the upstream multi-model
+targets (STT/STS/VAD/LID/G2P/UI/Tools) and non-Mimi codec families were deleted
+(restorable from upstream `fcbd04d`; see `UPSTREAM.md`).
 
 The vendor tree is referenced from the root `project.yml` as:
 
@@ -43,7 +44,7 @@ The vendor copy tracks upstream `mlx-audio-swift` `v0.1.2` commit `fcbd04daa1bfe
 - **Reusable Qwen3 clone prompts.** `Qwen3TTSVoiceClonePrompt` persists `manifest.json`, `ref_codes.safetensors`, and `speaker_embedding.safetensors` for Saved Voices and transient `.qvoice_clone_prompts` entries. Manifest metadata includes schema version, model id, language, source-audio fingerprint, transcript presence/hash, x-vector mode, runtime-profile signature, and creation time so stale or mismatched artifacts are rebuilt instead of silently reused.
 - **Chunked and full-result generation.** `Qwen3TTSModel` exposes both full-result and chunked Custom Voice, Voice Design, and Voice Cloning generation methods. macOS batch can remain quality-first/full-result, while iOS uses Vocello's internal chunked final-file pipeline for memory safety. Do not describe that app pipeline as Qwen's public Python true end-to-end streaming API.
 - **Truncation is a failure.** The vendor layer reports `eos`, `maxTokens`, `cancelled`, or `failed` completion. `QwenVoiceCore` treats `maxTokens` as a quality failure instead of accepting a truncated waveform.
-- **Deterministic app link surface.** The root app routes through `QwenVoiceBackendCore`. The vendored `Package.swift` may still expose additional upstream products and tools so the snapshot stays close to upstream.
+- **Deterministic app link surface.** The root app routes through `QwenVoiceBackendCore`. The vendored `Package.swift` exposes only the three Qwen3-live products (`MLXAudioCore`, `MLXAudioCodecs`, `MLXAudioTTS`); the snapshot is intentionally specialized and no longer tracks the upstream multi-model surface — an upstream sync is a selective re-port, not a rebase.
 - **No repo-owned Python backend.** Nothing in the vendor tree reintroduces a Python bridge. This is a hard rule; see the Apple-platform QA gate.
 - **Legacy streaming probes.** Per-chunk sub-stage timings, Instruments signposts, and async chunk eval probes are retained only for diagnostics and future preview experiments. They are not the production quality path and must not be used to change final waveform semantics without a fresh quality signoff.
 

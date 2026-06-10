@@ -6,7 +6,9 @@ This directory is a vendored snapshot of:
 https://github.com/Blaizzy/mlx-audio-swift
 ```
 
-It is copied into the root repository as source, not tracked as a nested git submodule. The root `project.yml` now routes production use through the QwenVoice-owned `QwenVoiceBackendCore` target, which re-exports only the MLX, `MLXAudioCore`, and `MLXAudioTTS` surfaces needed by Vocello. The vendored package manifest may expose additional upstream products and tools so the snapshot stays close to upstream.
+It is copied into the root repository as source, not tracked as a nested git submodule. The root `project.yml` routes production use through the QwenVoice-owned `QwenVoiceBackendCore` target, which re-exports only the MLX, `MLXAudioCore`, and `MLXAudioTTS` surfaces needed by Vocello.
+
+**Specialized to Qwen3-TTS on 2026-06-09.** The upstream multi-model surface was deleted from the snapshot: the `MLXAudioSTT`/`MLXAudioSTS`/`MLXAudioVAD`/`MLXAudioLID`/`MLXAudioG2P`/`MLXAudioUI`/`Tools` targets, the eight non-Mimi codec families (`BigVGAN`, `DACVAE`, `Descript`, `EcapaTdnn`, `Encodec`, `FishS1DAC`, `SNAC`, `Vocos`), `Mimi/Mimi.swift` + `AudioCodecModel.swift` (the Qwen3 speech tokenizer uses only the Mimi `Transformer`/`Conv`/`Quantization`/`Seanet` primitives), and the unused `MLXAudioCore` files (`AudioPlayer`, `AudioSessionManager`, `PCMStreamConverter`, `UnigramTokenizer`). ~36K of ~49K LOC removed; everything is restorable from upstream `fcbd04d` or git history. The snapshot intentionally no longer stays close to upstream — a future upstream sync is a selective re-port of specific fixes into the Qwen3 surface, not a rebase.
 
 ## Local Delta Rationale
 
