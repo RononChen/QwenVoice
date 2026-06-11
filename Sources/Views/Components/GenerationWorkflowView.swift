@@ -906,9 +906,14 @@ struct QwenLanguagePicker: View {
     var accessibilityPrefix: String = "qwenLanguage"
     var includesAuto = true
     /// Language detected from the typed prompt (`PromptLanguageDetector`).
-    /// When confident (non-`.auto`), it floats to a "Recommended" section at
-    /// the top of the menu — mirroring the iOS picker treatment. Tags are
-    /// unchanged, so selection bindings and accessibility ids are unaffected.
+    /// When confident (non-`.auto`): the `.auto` row (and therefore the closed
+    /// menu button, which mirrors the selected tag's label) reads
+    /// "French (Auto)" — the selector auto-shows the detected language while
+    /// `.auto` keeps meaning "follow detection" — and the detected language is
+    /// tagged "— Detected" in a "Recommended for your script" section at the
+    /// top of the menu. Picking the tagged row pins the language; picking the
+    /// Auto row resumes following. Tags are unchanged, so selection bindings
+    /// and accessibility ids are unaffected.
     var recommended: Qwen3SupportedLanguage? = nil
     var minWidth: CGFloat = LayoutConstants.configurationControlMinWidth
     var maxWidth: CGFloat = 220
@@ -922,15 +927,22 @@ struct QwenLanguagePicker: View {
         return recommended
     }
 
+    private var autoRowLabel: String {
+        LanguageSelectionPresentation.buttonLabel(
+            selected: .auto,
+            detected: recommendedOption ?? .auto
+        )
+    }
+
     var body: some View {
         Picker("Language", selection: $selectedLanguage) {
             if let recommendedOption {
                 Section("Recommended for your script") {
-                    Text(recommendedOption.displayName).tag(recommendedOption)
+                    Text("\(recommendedOption.displayName) — Detected").tag(recommendedOption)
                 }
                 Section("All languages") {
                     ForEach(options.filter { $0 != recommendedOption }, id: \.self) { language in
-                        Text(language.displayName).tag(language)
+                        Text(language == .auto ? autoRowLabel : language.displayName).tag(language)
                     }
                 }
             } else {
@@ -944,7 +956,12 @@ struct QwenLanguagePicker: View {
         .focusEffectDisabled()
         .frame(minWidth: minWidth, maxWidth: maxWidth, alignment: .leading)
         .tint(accentColor)
-        .accessibilityValue(selectedLanguage.displayName)
+        .accessibilityValue(
+            LanguageSelectionPresentation.buttonLabel(
+                selected: selectedLanguage,
+                detected: recommendedOption ?? .auto
+            )
+        )
         .accessibilityIdentifier("\(accessibilityPrefix)_languagePicker")
     }
 }

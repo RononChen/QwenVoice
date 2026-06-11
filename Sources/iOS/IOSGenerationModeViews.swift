@@ -234,8 +234,16 @@ struct IOSCustomVoiceView: View {
         .opacity(supportsDeliveryControl ? 1 : 0.45)
         IOSStudioSetupChip(
             eyebrow: "Language",
-            value: draft.selectedLanguage.displayName,
-            abbreviation: IOSStudioChipAbbreviation.language(draft.selectedLanguage.displayName),
+            value: LanguageSelectionPresentation.buttonLabel(
+                selected: draft.selectedLanguage,
+                detected: detectedPromptLanguage
+            ),
+            abbreviation: IOSStudioChipAbbreviation.language(
+                LanguageSelectionPresentation.effective(
+                    selected: draft.selectedLanguage,
+                    detected: detectedPromptLanguage
+                ).displayName
+            ),
             leadingSymbol: "globe",
             tint: IOSBrandTheme.custom,
             accessibilityID: "studioChip_language",
@@ -251,8 +259,11 @@ struct IOSCustomVoiceView: View {
                     selectedID: Binding(
                         get: { draft.selectedSpeaker },
                         set: { newSpeaker in
+                            // Picking a speaker no longer pins the language —
+                            // the language token describes the TEXT's language,
+                            // which the selector follows via detection (Auto);
+                            // mirrors the macOS behavior change.
                             draft.selectedSpeaker = newSpeaker
-                            draft.selectedLanguage = TTSModel.qwenLanguage(forSpeaker: newSpeaker)
                         }
                     ),
                     tint: IOSBrandTheme.custom,
@@ -859,8 +870,16 @@ struct IOSVoiceDesignView: View {
         )
         IOSStudioSetupChip(
             eyebrow: "Language",
-            value: draft.selectedLanguage.displayName,
-            abbreviation: IOSStudioChipAbbreviation.language(draft.selectedLanguage.displayName),
+            value: LanguageSelectionPresentation.buttonLabel(
+                selected: draft.selectedLanguage,
+                detected: detectedPromptLanguage
+            ),
+            abbreviation: IOSStudioChipAbbreviation.language(
+                LanguageSelectionPresentation.effective(
+                    selected: draft.selectedLanguage,
+                    detected: detectedPromptLanguage
+                ).displayName
+            ),
             leadingSymbol: "globe",
             tint: IOSBrandTheme.design,
             accessibilityID: "studioChip_language",
@@ -1360,8 +1379,16 @@ struct IOSVoiceCloningView: View {
         )
         IOSStudioSetupChip(
             eyebrow: "Language",
-            value: draft.selectedLanguage.displayName,
-            abbreviation: IOSStudioChipAbbreviation.language(draft.selectedLanguage.displayName),
+            value: LanguageSelectionPresentation.buttonLabel(
+                selected: draft.selectedLanguage,
+                detected: detectedPromptLanguage
+            ),
+            abbreviation: IOSStudioChipAbbreviation.language(
+                LanguageSelectionPresentation.effective(
+                    selected: draft.selectedLanguage,
+                    detected: detectedPromptLanguage
+                ).displayName
+            ),
             leadingSymbol: "globe",
             tint: IOSBrandTheme.clone,
             accessibilityID: "studioChip_language",

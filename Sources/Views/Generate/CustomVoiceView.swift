@@ -155,13 +155,20 @@ struct CustomVoiceView: View {
     }
 
     private var languageHintMessage: String? {
-        guard draft.selectedLanguage != .auto,
-              draft.selectedLanguage != speakerNativeLanguage else {
+        // Judge the EFFECTIVE language (the detected one while the selector
+        // follows Auto, the pinned pick otherwise) so the native-speaker hint
+        // fires for e.g. French text + Aiden even before any manual pick.
+        let effectiveLanguage = LanguageSelectionPresentation.effective(
+            selected: draft.selectedLanguage,
+            detected: detectedPromptLanguage
+        )
+        guard effectiveLanguage != .auto,
+              effectiveLanguage != speakerNativeLanguage else {
             return nil
         }
         let speakerName = TTSModel.speakerDescriptor(id: draft.selectedSpeaker)?.displayName
             ?? draft.selectedSpeaker.capitalized
-        return "\(speakerName) is native to \(speakerNativeLanguage.displayName). \(draft.selectedLanguage.displayName) can still work, but pronunciation is usually best in the speaker's native language."
+        return "\(speakerName) is native to \(speakerNativeLanguage.displayName). \(effectiveLanguage.displayName) can still work, but pronunciation is usually best in the speaker's native language."
     }
 
     private var readinessPresentation: CustomVoiceReadinessPresentation {
@@ -347,8 +354,12 @@ private extension CustomVoiceView {
             selectedSpeaker: $draft.selectedSpeaker,
             recommendedLanguage: detectedPromptLanguage
         ) { speaker in
+            // Picking a speaker no longer pins the language to the speaker's
+            // native language — the language token describes the TEXT's
+            // language, which the selector now follows via detection (Auto).
+            // The picker's "Recommended for your script" speaker section and
+            // the native-speaker hint cover the pairing guidance instead.
             draft.selectedSpeaker = speaker
-            draft.selectedLanguage = TTSModel.qwenLanguage(forSpeaker: speaker)
         }
     }
 

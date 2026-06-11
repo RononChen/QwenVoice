@@ -3,7 +3,12 @@ import QwenVoiceCore
 
 struct CustomVoiceDraft: Equatable {
     var selectedSpeaker = TTSModel.defaultSpeaker
-    var selectedLanguage = Qwen3SupportedLanguage.english
+    // .auto = follow the typed prompt's detected language (the selector shows
+    // the effective language, e.g. "French (Auto)"). Matches the other modes;
+    // generation resolves .auto through the same detector, and undetectable
+    // text falls back to english in qwenLanguageHint's custom branch — so the
+    // old .english default's behavior is preserved for English scripts.
+    var selectedLanguage = Qwen3SupportedLanguage.auto
     var emotion = DeliveryProfile.neutralInstruction
     var text = ""
 
