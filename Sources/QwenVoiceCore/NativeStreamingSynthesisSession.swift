@@ -1481,6 +1481,14 @@ private struct StreamingExecutionContext: Sendable {
                 tierNotes["simulatedDevice"] = profile
             }
         }
+        // Bench delivery cells (vocello bench --delivery) stamp the preset id so
+        // the summarizer/review can segregate instruct-bearing takes from the
+        // plain matrix. Read via getenv (not ProcessInfo) because the in-process
+        // CLI updates it per take; only the id is recorded, never user text.
+        if let rawDelivery = getenv("QWENVOICE_BENCH_DELIVERY") {
+            let delivery = String(cString: rawDelivery)
+            if !delivery.isEmpty { tierNotes["delivery"] = delivery }
+        }
         let notesWithTier = tierNotes.merging(notes) { _, caller in caller }
         let record = GenerationTelemetryRecord(
             generationID: generationID.uuidString,

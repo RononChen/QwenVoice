@@ -146,6 +146,11 @@ def load_runs(diag_dir):
                 # short/medium/long sweep. RTF/decode/KV-cache all scale with it.
                 "promptChars": int((e.get("notes") or {}).get("promptChars") or 0),
                 "lenBucket": len_bucket(int((e.get("notes") or {}).get("promptChars") or 0)),
+                # Bench delivery-cell id (notes.delivery, "<preset>.<intensity>")
+                # for instruct-bearing takes from `vocello bench --delivery`.
+                # Empty for plain matrix takes; delivery rows are segregated into
+                # their own block so the headline cells stay comparable.
+                "delivery": (e.get("notes") or {}).get("delivery") or "",
                 # GPU peak MB at pipeline boundaries (mlxMemoryByStage) — shows WHERE
                 # GPU memory grows and how much a trim reclaims.
                 "gpuByStage": gpu_peak_by_stage(e.get("mlxMemoryByStage") or {}),
@@ -390,10 +395,16 @@ def main():
         print("Run the benchmark first (see docs/reference/telemetry-and-benchmarking.md).")
         return 1
 
-    # Group by (mode, modelID, warmState, lenBucket).
+    # Group by (mode, modelID, warmState, lenBucket). Delivery rows (instruct-
+    # bearing `bench --delivery` takes) go into their own table keyed by the
+    # delivery id, so they never perturb the headline cells or the ledger row.
     cells = defaultdict(list)
+    delivery_cells = defaultdict(list)
     for run in runs:
-        cells[(run["mode"], run["modelID"], run["warmState"], run["lenBucket"])].append(run)
+        if run["delivery"]:
+            delivery_cells[(run["mode"], run["modelID"], run["warmState"], run["delivery"])].append(run)
+        else:
+            cells[(run["mode"], run["modelID"], run["warmState"], run["lenBucket"])].append(run)
 
     if args.ledger_row:
         return emit_ledger_row(cells, {"note": args.label, "cell": args.cell})
@@ -411,7 +422,7 @@ def main():
     tiers = sorted({r["deviceClass"] for r in runs})
     forced = any(r["deviceClassForced"] for r in runs)
     print(f"\nTelemetry summary — {diag_dir}")
-    print(f"({len(runs)} runs across {len(cells)} cells; warm shows median)")
+    print(f"({len(runs)} runs across {len(cells) + len(delivery_cells)} cells; warm shows median)")
     print(f"tier: {', '.join(tiers)}"
           + ("   ⚠ forced (QWENVOICE_FORCE_MEMORY_CLASS)" if forced else "")
           + "\n")
@@ -435,6 +446,31 @@ def main():
             f"{fmt_ui_stall(group):>9} "
             f"{cell_qc(group):<12}"
         )
+
+    # Delivery cells (vocello bench --delivery): instruct-bearing takes, keyed by
+    # the delivery preset id instead of the length bucket (they all run the medium
+    # text). Kept out of the tables above so the headline matrix stays comparable;
+    # QC + the listening pass are the point of these rows.
+    if delivery_cells:
+        d_header = (
+            f"{'mode':<8} {'model':<26} {'state':<5} {'delivery':<16} {'n':>2} "
+            f"{'RTF':>6} {'tok/s':>7} {'decode ms':>9} {'physFoot':>8} {'QC':<12}"
+        )
+        print("\nDelivery cells (--delivery; medium text, instruct-bearing) — notes.delivery\n")
+        print(d_header)
+        print("-" * len(d_header))
+        d_sort = lambda k: (k[0], short_model(k[1]), k[2] != "cold", k[3])
+        for key in sorted(delivery_cells.keys(), key=d_sort):
+            mode, model_id, state, delivery = key
+            group = delivery_cells[key]
+            print(
+                f"{mode:<8} {short_model(model_id):<26} {state:<5} {delivery:<16} {len(group):>2} "
+                f"{fmt(med(r['rtf'] for r in group)):>6} "
+                f"{fmt(med(r['tokps'] for r in group)):>7} "
+                f"{fmt(med(r['decodeLoopMS'] for r in group), 0):>9} "
+                f"{fmt(med(r['physFootMB'] for r in group), 0):>8} "
+                f"{cell_qc(group):<12}"
+            )
 
     # GPU memory by pipeline stage (peak MB) — shows WHERE GPU memory grows and how
     # much the post-generation trim reclaims. Median over each cell's runs.

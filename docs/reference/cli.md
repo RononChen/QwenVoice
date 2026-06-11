@@ -147,6 +147,7 @@ is forced on; results land in `<data>/diagnostics` and are summarized by
 | `--modes` / `--variants` / `--lengths` | matrix axes (comma lists) |
 | `--warm` | warm reps per (cell × length); default 3 |
 | `--voice` / `--voice-brief` | clone voice name / design brief |
+| `--delivery [list]` | add **instruct-bearing delivery cells** (Custom/Design, warm, medium text, 1 take each): comma list of `<preset>[.<intensity>]` (e.g. `happy.strong,calm.normal`); the bare flag runs the default set (`happy.strong,calm.normal,whisper.normal`). Rows are stamped `notes.delivery` and summarized in their own block, so the headline matrix and `--ledger` row stay comparable; the plain warm takes double as the neutral reference for listening A/Bs |
 | `--label "<note>"` | stamp a note on the summary / ledger row |
 | `--ledger` | append a one-line row to `benchmarks/HISTORY.md` (the perf-over-time ledger) |
 | `--force-class` | **dev/diagnostic only** — force a constrained memory tier on any Mac: `8gb` · `16gb` · `high` · `iphone` (sets the `QWENVOICE_FORCE_MEMORY_CLASS` knob, relayed to the engine over the `initialize` handshake; stamps `notes.deviceClass`) |
@@ -172,13 +173,16 @@ models installed, a saved clone voice for clone, and `agy` + `afconvert` for `--
 ### `review` — adjudicate flagged clips by ear (dev-only)
 
 ```sh
-vocello review --clip <wav> [--text "…"] [--flags dropout:469ms]
+vocello review --clip <wav> [--text "…"] [--flags dropout:469ms] [--delivery happy.strong]
 vocello review --diag <diagnostics-dir>      # review all flagged clips from a bench run
 ```
 
 Transcodes each flagged clip to m4a and hands it to `agy` (multimodal) to judge real-defect vs
 false-positive (e.g. a natural comma pause). **Dev/benchmark workflow only** — agy receives dev clips,
-never shipped user audio. Verdicts land in `<diag>/review/review.jsonl`.
+never shipped user audio. Verdicts land in `<diag>/review/review.jsonl`. Delivery cells from
+`bench --delivery` carry their preset id automatically in `--diag` mode (and `--delivery` supplies it
+for a single `--clip`), so agy judges an intentional whisper or slow emotional pacing as intended
+style rather than a defect.
 
 ## Examples
 

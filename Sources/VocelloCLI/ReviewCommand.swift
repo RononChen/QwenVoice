@@ -7,6 +7,9 @@ struct AgyVerdict: Sendable {
     let len: String
     let state: String
     let flags: [String]
+    /// Bench delivery-cell id (`<preset>.<intensity>`) when the take carried a
+    /// delivery instruction; nil for plain matrix takes.
+    let delivery: String?
     /// real_defect | false_positive | uncertain
     let verdict: String
     let heard: String          // AUDIBLE_DEFECT | CLEAN | CANNOT_LISTEN | (raw)
@@ -23,9 +26,11 @@ enum AgyReviewer {
     static var isAvailable: Bool { resolveAgy() != nil && FileManager.default.isExecutableFile(atPath: "/usr/bin/afconvert") }
 
     @MainActor
-    static func review(clip: String, text: String, len: String, state: String, flags: [String]) -> AgyVerdict {
+    static func review(clip: String, text: String, len: String, state: String, flags: [String],
+                       delivery: String? = nil) -> AgyVerdict {
         func v(_ verdict: String, _ heard: String, _ reason: String) -> AgyVerdict {
-            AgyVerdict(clip: clip, len: len, state: state, flags: flags, verdict: verdict, heard: heard, reason: reason)
+            AgyVerdict(clip: clip, len: len, state: state, flags: flags, delivery: delivery,
+                       verdict: verdict, heard: heard, reason: reason)
         }
         guard let agy = resolveAgy() else { return v("uncertain", "NO_AGY", "agy not found on PATH") }
 
@@ -38,9 +43,21 @@ enum AgyReviewer {
         }
         defer { try? FileManager.default.removeItem(atPath: m4a) }
 
+        // Delivery cells: tell agy what delivery the take was ASKED for, so an
+        // intentional whisper / slow grief pacing / hushed dynamic is judged as
+        // intended style, not as a near-silence or dropout defect.
+        var deliveryContext = ""
+        if let delivery {
+            let instruction = Self.deliveryInstruction(for: delivery)
+            deliveryContext = """
+             The clip was INTENTIONALLY generated with the delivery instruction: \
+            "\(instruction ?? delivery)" — whispering, slow emotional pacing, or hushed \
+            dynamics that match that instruction are intended style, not defects.
+            """
+        }
         let rubric = """
         Listen to the audio at: \(m4a) — use your own multimodal audio hearing only (do NOT use any external/cloud speech-to-text tool, and do NOT read project files). \
-        It should say: "\(text)". An automated reference-free detector flagged: \(flags.joined(separator: ", ")). \
+        It should say: "\(text)".\(deliveryContext) An automated reference-free detector flagged: \(flags.joined(separator: ", ")). \
         Listening to the actual audio, is there an AUDIBLE unnatural silence gap, glitch, click, pop, or dropout mid-utterance, or does it sound like clean natural speech (with at most the natural brief pause at a comma or sentence boundary)? \
         Give ONE sentence describing what you actually hear, then end with a final line exactly one of: HEARD: AUDIBLE_DEFECT  /  HEARD: CLEAN  /  HEARD: CANNOT_LISTEN
         """
@@ -92,6 +109,18 @@ enum AgyReviewer {
         return (out, p.terminationStatus)
     }
 
+    /// Resolve a bench delivery-cell id (`<preset>.<intensity>`) back to the
+    /// preset's instruction string for the listening rubric. Returns nil for
+    /// ids that no longer match a shipped preset (the id itself is then shown).
+    static func deliveryInstruction(for id: String) -> String? {
+        let parts = id.split(separator: ".").map(String.init)
+        guard let preset = EmotionPreset.preset(id: parts.first) else { return nil }
+        let intensity = parts.count > 1
+            ? EmotionIntensity.allCases.first(where: { $0.rpcValue == parts[1] })
+            : EmotionIntensity.normal
+        return preset.instruction(for: intensity ?? .normal)
+    }
+
     private static func parseHeard(_ out: String) -> String {
         // Parse the token from the LAST line beginning with `HEARD:` (the rubric
         // asks agy to end with exactly one such line). Anchoring to that line
@@ -132,7 +161,8 @@ enum ReviewCommand {
             let text = args.string("text") ?? ""
             let flags = (args.string("flags") ?? "unspecified").split(separator: ",").map(String.init)
             note("reviewing \(path) via agy…")
-            let r = AgyReviewer.review(clip: path, text: text, len: "?", state: "?", flags: flags)
+            let r = AgyReviewer.review(clip: path, text: text, len: "?", state: "?", flags: flags,
+                                       delivery: args.string("delivery"))
             printVerdict(r)
             return
         }
@@ -157,7 +187,8 @@ enum ReviewCommand {
         note("reviewing \(flagged.count) flagged clip(s) via agy (sequential; agy is heavy)…")
         var verdicts: [AgyVerdict] = []
         for f in flagged {
-            let r = AgyReviewer.review(clip: f.clip, text: f.text, len: f.len, state: f.state, flags: f.flags)
+            let r = AgyReviewer.review(clip: f.clip, text: f.text, len: f.len, state: f.state,
+                                       flags: f.flags, delivery: f.delivery)
             printVerdict(r)
             verdicts.append(r)
         }
@@ -167,7 +198,8 @@ enum ReviewCommand {
 
     static func printVerdict(_ r: AgyVerdict) {
         let mark = r.verdict == "real_defect" ? "✗ REAL DEFECT" : r.verdict == "false_positive" ? "✓ false positive" : "? uncertain"
-        print("\(mark)  [\(r.len)/\(r.state)] \(r.flags.joined(separator: ",")) — \(r.reason)")
+        let cell = r.delivery.map { "\(r.len)/\(r.state)/\($0)" } ?? "\(r.len)/\(r.state)"
+        print("\(mark)  [\(cell)] \(r.flags.joined(separator: ",")) — \(r.reason)")
     }
 
     static func printHelp() {
@@ -175,8 +207,12 @@ enum ReviewCommand {
         vocello review — adjudicate flagged clips by ear (agy multimodal listening)
 
         Usage:
-          vocello review --clip <wav> [--text "…"] [--flags dropout:469ms]
+          vocello review --clip <wav> [--text "…"] [--flags dropout:469ms] [--delivery happy.strong]
           vocello review --diag <diagnostics-dir>     # review all flagged clips from a bench run
+
+        --delivery tells agy the clip was intentionally generated with that
+        delivery preset (so e.g. whispering isn't judged a defect); bench
+        delivery cells carry it automatically in --diag mode.
 
         Transcodes each clip to m4a (afconvert) and hands it to `agy` to LISTEN and
         judge real-defect vs false-positive (e.g. a natural comma pause). Dev workflow
@@ -186,11 +222,20 @@ enum ReviewCommand {
 }
 
 /// A flagged clip discovered from a bench run's diagnostics + outputs.
-struct FlaggedClip { let clip: String; let text: String; let len: String; let state: String; let flags: [String] }
+/// `delivery` is the bench delivery-cell id (`<preset>.<intensity>`) when the
+/// take carried a delivery instruction, nil for plain matrix takes.
+struct FlaggedClip {
+    let clip: String
+    let text: String
+    let len: String
+    let state: String
+    let flags: [String]
+    let delivery: String?
+}
 
 /// Correlates flagged engine telemetry rows (audioQC warn/fail) to the bench
-/// output WAVs by the `<mode>_<modelID>_<len>_<state>_<n>.wav` naming convention,
-/// one representative clip per flagged cell.
+/// output WAVs by the `<mode>_<modelID>_<len>_<state>[_d-<delivery>]_<n>.wav`
+/// naming convention, one representative clip per flagged cell.
 enum FlaggedClips {
     static func lenBucket(_ chars: Int) -> String {
         chars == 0 ? "n/a" : chars < 70 ? "short" : chars > 220 ? "long" : "medium"
@@ -211,17 +256,35 @@ enum FlaggedClips {
             let mode = row["mode"] as? String ?? "?"
             let modelID = (row["modelID"] as? String ?? "?").split(separator: "/").last.map(String.init) ?? "?"
             let state = row["warmState"] as? String ?? "?"
-            let chars = Int((row["notes"] as? [String: Any])?["promptChars"] as? String ?? "0") ?? 0
+            let notes = row["notes"] as? [String: Any]
+            let chars = Int(notes?["promptChars"] as? String ?? "0") ?? 0
+            let delivery = (notes?["delivery"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             let len = lenBucket(chars)
-            let key = "\(mode)|\(modelID)|\(len)|\(state)"
+            let key = "\(mode)|\(modelID)|\(len)|\(state)|\(delivery ?? "")"
             if seen.contains(key) { continue }
             seen.insert(key)
-            let pattern = "\(mode)_\(modelID)_\(len)_\(state)_"
-            guard let f = files.filter({ $0.hasPrefix(pattern) && $0.hasSuffix(".wav") }).sorted().first else { continue }
+            // Delivery takes carry a `_d-<delivery>` token after the state; a
+            // plain row must NOT pick up a delivery file (the audio differs by
+            // design — e.g. a whisper take would wrongly "clear" a plain flag),
+            // so the plain pattern requires the rep index right after the state.
+            let prefix: String
+            let matches: (String) -> Bool
+            if let delivery {
+                prefix = "\(mode)_\(modelID)_\(len)_\(state)_d-\(delivery)_"
+                matches = { $0.hasPrefix(prefix) && $0.hasSuffix(".wav") }
+            } else {
+                prefix = "\(mode)_\(modelID)_\(len)_\(state)_"
+                matches = { f in
+                    guard f.hasPrefix(prefix), f.hasSuffix(".wav") else { return false }
+                    return f.dropFirst(prefix.count).first?.isNumber == true
+                }
+            }
+            guard let f = files.filter(matches).sorted().first else { continue }
             result.append(FlaggedClip(
                 clip: (benchOut as NSString).appendingPathComponent(f),
                 text: BenchCommand.corpus.first { $0.len == len }?.text ?? "",
-                len: len, state: state, flags: (qc["flags"] as? [String]) ?? []))
+                len: len, state: state, flags: (qc["flags"] as? [String]) ?? [],
+                delivery: delivery))
         }
         return result
     }
@@ -232,10 +295,11 @@ enum FlaggedClips {
         let url = URL(fileURLWithPath: (dir as NSString).appendingPathComponent("review.jsonl"))
         var lines = ""
         for v in verdicts {
-            let obj: [String: Any] = [
+            var obj: [String: Any] = [
                 "clip": (v.clip as NSString).lastPathComponent, "len": v.len, "state": v.state,
                 "flags": v.flags, "verdict": v.verdict, "heard": v.heard, "reason": v.reason,
             ]
+            if let delivery = v.delivery { obj["delivery"] = delivery }
             if let d = try? JSONSerialization.data(withJSONObject: obj), let s = String(data: d, encoding: .utf8) {
                 lines += s + "\n"
             }

@@ -16,6 +16,51 @@ enum BenchCommand {
     static let defaultDesignBrief = "A warm, calm middle-aged male narrator with a clear, measured pace."
     static let defaultCloneVoice = "A_warm_elderly_woman"
 
+    /// Default delivery cells for `--delivery` (bare flag): one expressive, one
+    /// calm, one whisper — the three preset families with distinct acoustic
+    /// signatures, so QC + the listening pass cover the delivery spectrum.
+    static let defaultDeliverySet = ["happy.strong", "calm.normal", "whisper.normal"]
+
+    /// A resolved delivery cell: `id` is the stable `<preset>.<intensity>` token
+    /// (stamped into the telemetry note + filename), `instruction` the preset's
+    /// instruction string sent as `deliveryStyle`.
+    struct DeliveryItem {
+        let id: String
+        let instruction: String
+    }
+
+    /// Parse `--delivery` items (`<preset>[.<intensity>]`, intensity defaults to
+    /// normal) against the shared EmotionPreset table. Fails loudly on unknown
+    /// presets/intensities and on neutral (which sends no instruction — a plain
+    /// warm take already covers it).
+    static func resolveDeliveryItems(_ spec: String?) throws -> [DeliveryItem] {
+        let tokens = parseList(spec) ?? defaultDeliverySet
+        return try tokens.map { token in
+            let parts = token.split(separator: ".").map(String.init)
+            guard (1...2).contains(parts.count),
+                  let preset = EmotionPreset.preset(id: parts[0]) else {
+                let known = EmotionPreset.all.map(\.id).joined(separator: ", ")
+                throw CLIError("unknown delivery preset '\(token)' (use <preset>[.<intensity>]; presets: \(known))")
+            }
+            guard preset.id != "neutral" else {
+                throw CLIError("delivery cell 'neutral' is redundant — the plain warm take already runs without an instruction")
+            }
+            let intensity: EmotionIntensity
+            if parts.count == 2 {
+                guard let resolved = EmotionIntensity.allCases.first(where: { $0.rpcValue == parts[1] }) else {
+                    throw CLIError("unknown delivery intensity '\(parts[1])' (use subtle | normal | strong)")
+                }
+                intensity = resolved
+            } else {
+                intensity = .normal
+            }
+            return DeliveryItem(
+                id: "\(preset.id).\(intensity.rpcValue)",
+                instruction: preset.instruction(for: intensity)
+            )
+        }
+    }
+
     @MainActor
     static func run(_ argv: [String]) async throws {
         let args = Args(argv)
@@ -55,6 +100,16 @@ enum BenchCommand {
         let designBrief = args.string("voice-brief") ?? defaultDesignBrief
         let cloneVoiceName = args.string("voice") ?? defaultCloneVoice
         let ttfc = args.flag("ttfc")
+        // --delivery [list]: instruct-bearing cells on top of the plain matrix.
+        // Value form picks the cells; the bare flag runs the default set.
+        let deliveryItems: [DeliveryItem]
+        if let deliverySpec = args.string("delivery") {
+            deliveryItems = try resolveDeliveryItems(deliverySpec)
+        } else if args.flag("delivery") {
+            deliveryItems = try resolveDeliveryItems(nil)
+        } else {
+            deliveryItems = []
+        }
 
         let dataDir = CLIPaths.dataDirectory(override: args.string("data-dir"))
         if !args.flag("keep") {
@@ -123,6 +178,25 @@ enum BenchCommand {
                         total += 1
                     }
                 }
+
+                // Delivery cells (--delivery): instruct-bearing warm takes on the
+                // medium text, one per requested preset.intensity. Custom/Design
+                // only — the clone checkpoints have no instruction control. The
+                // plain warm takes above double as the neutral reference for the
+                // listening comparison; the summarizer segregates these rows via
+                // the notes.delivery stamp so the headline matrix stays clean.
+                if !deliveryItems.isEmpty, mode != .clone, let deliveryText = text(for: "medium") {
+                    for item in deliveryItems {
+                        let deliveryPayload = try Self.payload(
+                            for: mode, customSpeaker: runtime.defaultSpeakerID,
+                            designBrief: designBrief, cloneReference: cloneReference,
+                            deliveryStyle: item.instruction)
+                        try await take(runtime, mode: mode, modelID: modelID, payload: deliveryPayload,
+                                       len: "medium", text: deliveryText, state: "warm", n: 0,
+                                       outDir: outDir, delivery: item.id)
+                        total += 1
+                    }
+                }
             }
         }
 
@@ -180,27 +254,34 @@ enum BenchCommand {
     @MainActor
     private static func take(_ runtime: CLIRuntime, mode: GenerationMode, modelID: String,
                              payload: GenerationRequest.Payload, len: String, text: String,
-                             state: String, n: Int, outDir: URL) async throws {
+                             state: String, n: Int, outDir: URL, delivery: String? = nil) async throws {
         // Bucket the char count with the SAME function `FlaggedClips.discover`
         // uses, so the filename and the flagged-row correlation agree by
         // construction regardless of the bucket thresholds.
         let lenToken = FlaggedClips.lenBucket(text.count)
-        let out = outDir.appendingPathComponent("\(mode.rawValue)_\(modelID)_\(lenToken)_\(state)_\(n).wav").path
+        // Delivery takes extend the state token (`warm_d-<preset>.<intensity>`)
+        // so the filename and the engine row's notes.delivery stamp agree —
+        // FlaggedClips builds its lookup pattern from both.
+        let stateToken = delivery.map { "\(state)_d-\($0)" } ?? state
+        let out = outDir.appendingPathComponent("\(mode.rawValue)_\(modelID)_\(lenToken)_\(stateToken)_\(n).wav").path
         let request = GenerationRequest(
             mode: mode, modelID: modelID, text: text, outputPath: out,
             shouldStream: false, payload: payload, generationID: UUID())
+        if let delivery { setenv("QWENVOICE_BENCH_DELIVERY", delivery, 1) }
+        defer { if delivery != nil { unsetenv("QWENVOICE_BENCH_DELIVERY") } }
         let t0 = Date()
         let result = try await runtime.engine.generate(request)
         let wall = Date().timeIntervalSince(t0)
+        let deliveryTag = delivery.map { "/\($0)" } ?? ""
         FileHandle.standardError.write(Data(
-            "  \(mode.rawValue)/\(modelID.hasSuffix("quality") ? "Q" : "S")/\(len)/\(state)#\(n)  \(String(format: "%.2f", result.durationSeconds))s audio in \(String(format: "%.1f", wall))s\n".utf8))
+            "  \(mode.rawValue)/\(modelID.hasSuffix("quality") ? "Q" : "S")/\(len)/\(state)\(deliveryTag)#\(n)  \(String(format: "%.2f", result.durationSeconds))s audio in \(String(format: "%.1f", wall))s\n".utf8))
     }
 
     private static func payload(for mode: GenerationMode, customSpeaker: String, designBrief: String,
-                                cloneReference: CloneReference?) throws -> GenerationRequest.Payload {
+                                cloneReference: CloneReference?, deliveryStyle: String? = nil) throws -> GenerationRequest.Payload {
         switch mode {
-        case .custom: return .custom(speakerID: customSpeaker, deliveryStyle: nil)
-        case .design: return .design(voiceDescription: designBrief, deliveryStyle: nil)
+        case .custom: return .custom(speakerID: customSpeaker, deliveryStyle: deliveryStyle)
+        case .design: return .design(voiceDescription: designBrief, deliveryStyle: deliveryStyle)
         case .clone:
             guard let cloneReference else { throw CLIError("clone reference unavailable") }
             return .clone(reference: cloneReference)
@@ -382,6 +463,13 @@ enum BenchCommand {
           --warm         warm reps per (cell × length); default 3
           --voice        (clone) saved voice name; default \(defaultCloneVoice)
           --voice-brief  (design) brief; default the standard narrator brief
+          --delivery [list]  add instruct-bearing cells (Custom/Design, warm, medium
+                         text, 1 take each): comma list of <preset>[.<intensity>]
+                         (e.g. happy.strong,calm.normal); bare flag runs the
+                         default set (\(defaultDeliverySet.joined(separator: ","))).
+                         Rows are stamped notes.delivery and summarized in their
+                         own block so the headline matrix stays comparable; the
+                         plain warm takes double as the neutral reference.
           --label "<n>"  stamp a note on the summary / ledger row
           --ledger       append a one-line row to benchmarks/HISTORY.md (perf ledger)
           --force-class  run a constrained tier on any Mac: 8gb|16gb|high|iphone

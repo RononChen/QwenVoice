@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import QwenVoiceCore
 import QwenVoiceNative
 
 enum BatchSegmentationMode: String, Codable, Equatable {

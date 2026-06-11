@@ -1,13 +1,19 @@
 import Foundation
 
-enum EmotionIntensity: Int, CaseIterable, Identifiable {
+// Single source of truth for the delivery (tone/emotion) presets, shared by the
+// macOS app, the iOS app, and the `vocello` CLI (bench/review delivery cells).
+// Previously duplicated as Sources/Models/EmotionPreset.swift and
+// Sources/iOSSupport/Models/EmotionPreset.swift, which had to be edited in
+// lockstep; consolidated here so preset copy changes land once.
+
+public enum EmotionIntensity: Int, CaseIterable, Identifiable, Sendable {
     case subtle = 0
     case normal = 1
     case strong = 2
 
-    var id: Int { rawValue }
+    public var id: Int { rawValue }
 
-    var label: String {
+    public var label: String {
         switch self {
         case .subtle: "Subtle"
         case .normal: "Normal"
@@ -15,7 +21,7 @@ enum EmotionIntensity: Int, CaseIterable, Identifiable {
         }
     }
 
-    var rpcValue: String {
+    public var rpcValue: String {
         switch self {
         case .subtle: "subtle"
         case .normal: "normal"
@@ -24,22 +30,34 @@ enum EmotionIntensity: Int, CaseIterable, Identifiable {
     }
 }
 
-struct DeliveryProfile: Equatable {
-    static let neutralInstruction = "Neutral"
+public struct DeliveryProfile: Equatable, Sendable {
+    public static let neutralInstruction = "Neutral"
 
-    let presetID: String?
-    let intensity: EmotionIntensity?
-    let customText: String?
-    let finalInstruction: String
+    public let presetID: String?
+    public let intensity: EmotionIntensity?
+    public let customText: String?
+    public let finalInstruction: String
 
-    static let neutral = DeliveryProfile(
+    public init(
+        presetID: String?,
+        intensity: EmotionIntensity?,
+        customText: String?,
+        finalInstruction: String
+    ) {
+        self.presetID = presetID
+        self.intensity = intensity
+        self.customText = customText
+        self.finalInstruction = finalInstruction
+    }
+
+    public static let neutral = DeliveryProfile(
         presetID: "neutral",
         intensity: nil,
         customText: nil,
         finalInstruction: neutralInstruction
     )
 
-    static func isNeutralInstruction(_ instruction: String) -> Bool {
+    public static func isNeutralInstruction(_ instruction: String) -> Bool {
         let normalized = instruction
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
@@ -49,23 +67,23 @@ struct DeliveryProfile: Equatable {
             || normalized == "neutral tone"
     }
 
-    var trimmedInstruction: String {
+    public var trimmedInstruction: String {
         finalInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    var trimmedCustomText: String? {
+    public var trimmedCustomText: String? {
         customText?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    var isNeutral: Bool {
+    public var isNeutral: Bool {
         DeliveryProfile.isNeutralInstruction(trimmedInstruction)
     }
 
-    var isMeaningful: Bool {
+    public var isMeaningful: Bool {
         !isNeutral
     }
 
-    static func preset(_ preset: EmotionPreset, intensity: EmotionIntensity) -> DeliveryProfile {
+    public static func preset(_ preset: EmotionPreset, intensity: EmotionIntensity) -> DeliveryProfile {
         DeliveryProfile(
             presetID: preset.id,
             intensity: preset.id == "neutral" ? nil : intensity,
@@ -74,7 +92,7 @@ struct DeliveryProfile: Equatable {
         )
     }
 
-    static func custom(_ text: String) -> DeliveryProfile {
+    public static func custom(_ text: String) -> DeliveryProfile {
         DeliveryProfile(
             presetID: nil,
             intensity: .normal,
@@ -84,22 +102,34 @@ struct DeliveryProfile: Equatable {
     }
 }
 
-struct EmotionPreset: Identifiable {
-    let id: String
-    let label: String
-    let sfSymbol: String
-    let instructions: [EmotionIntensity: String]
+public struct EmotionPreset: Identifiable, Sendable {
+    public let id: String
+    public let label: String
+    public let sfSymbol: String
+    public let instructions: [EmotionIntensity: String]
 
-    func instruction(for intensity: EmotionIntensity) -> String {
+    public init(
+        id: String,
+        label: String,
+        sfSymbol: String,
+        instructions: [EmotionIntensity: String]
+    ) {
+        self.id = id
+        self.label = label
+        self.sfSymbol = sfSymbol
+        self.instructions = instructions
+    }
+
+    public func instruction(for intensity: EmotionIntensity) -> String {
         instructions[intensity] ?? instructions[.normal] ?? DeliveryProfile.neutralInstruction
     }
 
-    static func preset(id: String?) -> EmotionPreset? {
+    public static func preset(id: String?) -> EmotionPreset? {
         guard let id else { return nil }
         return all.first(where: { $0.id == id })
     }
 
-    static let all: [EmotionPreset] = [
+    public static let all: [EmotionPreset] = [
         EmotionPreset(
             id: "neutral",
             label: "Neutral",

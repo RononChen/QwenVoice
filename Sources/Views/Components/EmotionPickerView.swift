@@ -1,3 +1,4 @@
+import QwenVoiceCore
 import SwiftUI
 
 struct EmotionPickerView: View {
