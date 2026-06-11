@@ -3712,6 +3712,18 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             return argMax(logitsSlice, axis: -1, keepDims: true)
         }
 
+        // Sampling-order fix (ported from upstream mlx-audio a730a68, #735):
+        // scale by temperature BEFORE the truncation filters so top-p/min-p
+        // operate on the tempered distribution that is actually sampled.
+        // Filtering raw logits and dividing by temperature only at the final
+        // categorical() made the nucleus temperature-blind — wrong (too
+        // narrow/wide) truncation for any temperature ≠ 1 once topP < 1 or
+        // minP > 0 is in play. top-k is rank-based and unaffected either way.
+        // The final categorical() therefore samples at T = 1.0 below.
+        if temperature != 1.0 {
+            logitsSlice = logitsSlice / temperature
+        }
+
         // Preserve EOS logit so top-k/top-p/min-p do not permanently suppress it.
         let eosLogit: MLXArray? = if let eosTokenId, eosTokenId >= 0, eosTokenId < logitsSlice.dim(-1) {
             logitsSlice[0..., eosTokenId ..< (eosTokenId + 1)]
@@ -3815,8 +3827,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             filteredLogits = putAlong(filteredLogits, eosIdx, values: eosLogit, axis: -1)
         }
 
-        // Sample with temperature
-        let token = categorical(filteredLogits / temperature)
+        // Logits are already temperature-scaled above — sample at T = 1.0.
+        let token = categorical(filteredLogits)
         return token.reshaped(1, 1)
     }
 

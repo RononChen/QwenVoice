@@ -40,6 +40,7 @@ Retained QwenVoice deltas:
 - Qwen3-TTS quality-first full-result generation using official sampling defaults and full-text nonstreaming conditioning for Custom Voice and Voice Design.
 - Final WAV/output integration and production diagnostic metadata.
 - Incremental `Set<Int>` maintenance for Qwen3 repetition-penalty token IDs in the hot generation loop (`Qwen3TTS.swift`), avoiding per-token `Array(Set(tokens))` rebuilds during streaming decode.
+- Sampling-order fix re-ported from upstream Python mlx-audio `a730a68` (#735, 2026-05-22): `sampleToken` scales logits by temperature immediately after the greedy check and samples `categorical()` at T = 1.0, so top-p/min-p truncate the tempered distribution. (The v0.1.2-era order filtered raw logits and divided by temperature only at the final sample — temperature-blind nucleus truncation. Mathematically a no-op at the shipped official defaults `topP=1.0 / minP=0`; prerequisite for any topP/minP-based delivery tuning.)
 
 Intentionally omitted from the owned production path:
 
