@@ -3,7 +3,7 @@
 Durable record of backend/MLX + output-quality optimization work — what was investigated, decided,
 shipped, and deferred. The blow-by-blow lives in git history + `HISTORY.md`; this file is the **standing
 status** so a future session (or maintainer) can resume without re-deriving it. Anchored to the reference
-baseline. Point-in-time as of **2026-06-09** (§H is the active program record).
+baseline. Point-in-time as of **2026-06-11** (§H complete; §I is the delivery-accuracy program record).
 
 ## Reference baseline
 
@@ -427,6 +427,41 @@ dominated by design). Headline vs the same-day pre-program baseline: **custom/wa
 0.83 → 1.11 (+34%)**; custom/warm/long 0.80 → 1.07 (+34%); clone/long 0.55 → 0.63 (+15%);
 physFoot unchanged (4493 vs 4486). Listening: agy 3-mode adjudication clean (P3 gate); nothing
 flagged in the final matrix.
+
+## I — Delivery-accuracy program (2026-06-11; deep-research-driven)
+
+Research basis: a 7-agent sweep (HF hub map, the Qwen3-TTS technical report + instruct-TTS literature,
+official docs + community practice, upstream mlx-audio survey, internal pipeline trace). Key external
+facts: all 6 pinned mlx-community revisions = hub HEAD (official weights never changed since launch — no
+checkpoint to chase); instruct adherence is highest for concrete acoustic wording (InstructTTSEval APS/DSD
+77–85 vs role-play 61–68); negative constraints are officially endorsed; instruct-based dialect switching
+does not work; clone+instruct awaits an unreleased 25Hz VoiceEditing checkpoint (watch item).
+
+Shipped (each gated by bench `--delivery` QC + agy listening):
+
+- **Bench delivery axis** (`fb2cd0a`): `vocello bench --delivery` instruct-bearing cells (notes.delivery
+  stamp + `_d-<id>_` filenames; summarizer segregates them; review rubric is delivery-aware). Presets
+  consolidated into `QwenVoiceCore/EmotionPreset.swift` (was duplicated macOS/iOS).
+- **Sampler-order fix** (`1c8d9f5`, vendored; upstream mlx-audio #735): temperature scaling now precedes
+  top-p/min-p truncation. No-op at official defaults; prerequisite for any topP/minP tuning.
+- **Auto-language Latin fix** (`eceeb6d`): NLLanguageRecognizer-backed detection in
+  `GenerationSemantics.qwenLanguageHint` — French/German/Spanish/Portuguese/Italian text under Auto now
+  gets the right language token (was: english token + wrongly-appended diction reinforcement). Engine rows
+  stamp `notes.languageHint`.
+- **Official speaker descriptions** (`bc73b70`) + **presets v2** (`e9671c7`): anti-laughter clauses on
+  happy/excited Strong, pitch/pace cues added, 3 new presets (Surprised — wording strengthened after a
+  listening iteration; Narrator; News), Voice Design briefs 4→8, `docs/qwen_tone.md` refreshed.
+
+**Sampling A/Bs (first pass, single-take agy comparisons) — shipped defaults won all three; nothing
+adopted:** (1) community "stability recipe" temp 0.8/topP 0.9 on calm — control steadier, treatment
+drifted breathy; (2) subtalker temp 0.7 on happy-strong — treatment read flatter/neutral, not
+steadier-timbred; (3) English diction reinforcement OFF — ON expressed the emotion *more* strongly and
+crisper (the dilution hypothesis did not hold; the diction-token skip-list already prevents redundancy).
+Knobs remain as dev A/B surfaces (resolved once at launch, official behavior when unset):
+`QWENVOICE_TALKER_TEMP` / `QWENVOICE_TALKER_TOPP` (app policies), `QWENVOICE_TALKER_TOPK` /
+`QWENVOICE_TALKER_MINP` / `QWENVOICE_SUBTALKER_TEMP|TOPK|TOPP` (vendored `Qwen3SamplingOverrides`),
+`QWENVOICE_ENGLISH_DICTION_REINFORCEMENT=off` (GenerationSemantics). Single-take A/Bs are directional,
+not conclusive — re-run with more reps + the maintainer's ear before ever shipping a non-default.
 
 ## Next step (if resumed)
 

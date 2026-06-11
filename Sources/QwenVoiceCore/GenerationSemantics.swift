@@ -180,10 +180,24 @@ public enum GenerationSemantics {
         }
     }
 
+    /// Dev A/B gate: `QWENVOICE_ENGLISH_DICTION_REINFORCEMENT=off` skips the
+    /// English diction-reinforcement append entirely, so a listening pass can
+    /// judge whether the extra clause dilutes emotion-instruction adherence.
+    /// Resolved once; production default is unchanged (reinforcement on).
+    private static let englishDictionReinforcementDisabled: Bool = {
+        let raw = ProcessInfo.processInfo.environment["QWENVOICE_ENGLISH_DICTION_REINFORCEMENT"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return raw == "off" || raw == "0" || raw == "false" || raw == "no"
+    }()
+
     public static func englishDictionReinforcedInstruction(
         baseInstruction: String?,
         language: String
     ) -> String? {
+        guard !englishDictionReinforcementDisabled else {
+            return baseInstruction
+        }
         guard Qwen3TTSRuntimeProfile.normalizedLanguage(language) == "english" else {
             return baseInstruction
         }

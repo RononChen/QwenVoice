@@ -299,6 +299,53 @@ private enum Qwen3GenerationSpeedProfile: String, Sendable {
     }
 }
 
+/// Sampling knobs that MLXLMCommon's `GenerateParameters` cannot carry
+/// (it has no topK/minP fields) plus the official `generation_config`'s
+/// independent subtalker (code-predictor) sampling surface. Defaults
+/// reproduce the official checkpoint behavior exactly: talker topK 50,
+/// minP off, subtalker inheriting the talker values (the official
+/// subtalker_{temperature,top_k,top_p} ship identical to the talker's).
+/// Env knobs exist for delivery-tuning A/Bs (dev workflow; resolved once):
+///   QWENVOICE_TALKER_TOPK / QWENVOICE_TALKER_MINP
+///   QWENVOICE_SUBTALKER_TEMP / QWENVOICE_SUBTALKER_TOPK / QWENVOICE_SUBTALKER_TOPP
+struct Qwen3SamplingOverrides: Sendable {
+    var talkerTopK: Int = 50
+    var talkerMinP: Float = 0.0
+    /// nil = inherit the talker's effective value for that knob.
+    var subtalkerTemperature: Float?
+    var subtalkerTopK: Int?
+    var subtalkerTopP: Float?
+
+    static let shared = resolveFromEnvironment()
+
+    static func resolveFromEnvironment(
+        _ env: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Qwen3SamplingOverrides {
+        var overrides = Qwen3SamplingOverrides()
+        if let raw = env["QWENVOICE_TALKER_TOPK"], let value = Int(raw), value > 0 {
+            overrides.talkerTopK = value
+        }
+        if let raw = env["QWENVOICE_TALKER_MINP"], let value = Float(raw), value >= 0 {
+            overrides.talkerMinP = value
+        }
+        if let raw = env["QWENVOICE_SUBTALKER_TEMP"], let value = Float(raw), value > 0 {
+            overrides.subtalkerTemperature = value
+        }
+        if let raw = env["QWENVOICE_SUBTALKER_TOPK"], let value = Int(raw), value > 0 {
+            overrides.subtalkerTopK = value
+        }
+        if let raw = env["QWENVOICE_SUBTALKER_TOPP"], let value = Float(raw), value > 0 {
+            overrides.subtalkerTopP = value
+        }
+        return overrides
+    }
+
+    var isOfficialDefault: Bool {
+        talkerTopK == 50 && talkerMinP == 0
+            && subtalkerTemperature == nil && subtalkerTopK == nil && subtalkerTopP == nil
+    }
+}
+
 private enum Qwen3StreamingGenerationMode: String, Sendable {
     case custom
     case design
@@ -1793,10 +1840,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             refAudio: refAudio,
             refText: refText,
             temperature: generationParameters.temperature,
-            topK: 50,
+            topK: Qwen3SamplingOverrides.shared.talkerTopK,
             topP: generationParameters.topP,
             repetitionPenalty: generationParameters.repetitionPenalty ?? 1.05,
-            minP: 0.0,
+            minP: Qwen3SamplingOverrides.shared.talkerMinP,
             maxTokens: generationParameters.maxTokens ?? 4096,
             memoryClearCadence: Self.productionFullResultMemoryClearCadence
         )
@@ -1860,10 +1907,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     refAudio: refAudio,
                     refText: refText,
                     temperature: temp,
-                    topK: 50,
+                    topK: Qwen3SamplingOverrides.shared.talkerTopK,
                     topP: topP,
                     repetitionPenalty: repPenalty,
-                    minP: 0.0,
+                    minP: Qwen3SamplingOverrides.shared.talkerMinP,
                     maxTokens: maxTokens,
                     streamingInterval: streamingInterval,
                     streamStepEvalPolicy: nil,
@@ -1915,10 +1962,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             refAudio: nil,
             refText: nil,
             temperature: generationParameters.temperature,
-            topK: 50,
+            topK: Qwen3SamplingOverrides.shared.talkerTopK,
             topP: generationParameters.topP,
             repetitionPenalty: generationParameters.repetitionPenalty ?? 1.05,
-            minP: 0.0,
+            minP: Qwen3SamplingOverrides.shared.talkerMinP,
             maxTokens: generationParameters.maxTokens ?? 2_048,
             textConditioningMode: .fullTextNonStreaming,
             customVoiceProfile: nil,
@@ -1950,10 +1997,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             refAudio: nil,
             refText: nil,
             temperature: generationParameters.temperature,
-            topK: 50,
+            topK: Qwen3SamplingOverrides.shared.talkerTopK,
             topP: generationParameters.topP,
             repetitionPenalty: generationParameters.repetitionPenalty ?? 1.05,
-            minP: 0.0,
+            minP: Qwen3SamplingOverrides.shared.talkerMinP,
             maxTokens: generationParameters.maxTokens ?? 2_048,
             textConditioningMode: .fullTextNonStreaming,
             customVoiceProfile: nil,
@@ -1987,10 +2034,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             refText: nil,
             voiceClonePrompt: voiceClonePrompt,
             temperature: generationParameters.temperature,
-            topK: 50,
+            topK: Qwen3SamplingOverrides.shared.talkerTopK,
             topP: generationParameters.topP,
             repetitionPenalty: generationParameters.repetitionPenalty ?? 1.05,
-            minP: 0.0,
+            minP: Qwen3SamplingOverrides.shared.talkerMinP,
             maxTokens: generationParameters.maxTokens ?? 2_048,
             textConditioningMode: .fullTextNonStreaming,
             customVoiceProfile: nil,
@@ -2046,10 +2093,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     refAudio: nil,
                     refText: nil,
                     temperature: generationParameters.temperature,
-                    topK: 50,
+                    topK: Qwen3SamplingOverrides.shared.talkerTopK,
                     topP: generationParameters.topP,
                     repetitionPenalty: generationParameters.repetitionPenalty ?? 1.05,
-                    minP: 0.0,
+                    minP: Qwen3SamplingOverrides.shared.talkerMinP,
                     maxTokens: generationParameters.maxTokens ?? 4096,
                     streamingInterval: streamingInterval,
                     customVoiceProfile: customVoiceProfile,
@@ -2108,10 +2155,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     refAudio: nil,
                     refText: nil,
                     temperature: generationParameters.temperature,
-                    topK: 50,
+                    topK: Qwen3SamplingOverrides.shared.talkerTopK,
                     topP: generationParameters.topP,
                     repetitionPenalty: generationParameters.repetitionPenalty ?? 1.05,
-                    minP: 0.0,
+                    minP: Qwen3SamplingOverrides.shared.talkerMinP,
                     maxTokens: generationParameters.maxTokens ?? 4096,
                     streamingInterval: streamingInterval,
                     streamStepEvalPolicy: streamStepEvalPolicy,
@@ -2171,10 +2218,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     refText: nil,
                     voiceClonePrompt: voiceClonePrompt,
                     temperature: generationParameters.temperature,
-                    topK: 50,
+                    topK: Qwen3SamplingOverrides.shared.talkerTopK,
                     topP: generationParameters.topP,
                     repetitionPenalty: generationParameters.repetitionPenalty ?? 1.05,
-                    minP: 0.0,
+                    minP: Qwen3SamplingOverrides.shared.talkerMinP,
                     maxTokens: generationParameters.maxTokens ?? 4096,
                     streamingInterval: streamingInterval,
                     streamStepEvalPolicy: streamStepEvalPolicy,
@@ -2663,11 +2710,17 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 if codePredictorScratch == nil {
                     codePredictorScratch = Qwen3SamplerScratch(vocabSize: codeLogits.dim(-1))
                 }
+                // Subtalker (code-predictor) sampling: the official
+                // generation_config carries independent subtalker_* knobs that
+                // ship identical to the talker's — inherit by default, override
+                // via Qwen3SamplingOverrides for delivery-tuning A/Bs (e.g. a
+                // lower subtalker temperature for steadier timbre at constant
+                // talker prosody).
                 let nextCode = sampleToken(
                     codeLogits,
-                    temperature: temperature,
-                    topP: topP,
-                    topK: topK,
+                    temperature: Qwen3SamplingOverrides.shared.subtalkerTemperature ?? temperature,
+                    topP: Qwen3SamplingOverrides.shared.subtalkerTopP ?? topP,
+                    topK: Qwen3SamplingOverrides.shared.subtalkerTopK ?? topK,
                     minP: minP,
                     scratch: codePredictorScratch
                 )

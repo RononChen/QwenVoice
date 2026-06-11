@@ -5,6 +5,27 @@ import Foundation
 @preconcurrency import MLXLMCommon
 @preconcurrency import QwenVoiceBackendCore
 
+/// Dev-only talker sampling overrides for delivery-tuning A/Bs (e.g. the
+/// community stability recipe temp 0.8 / topP 0.9 vs the official 0.9 / 1.0).
+/// Resolved once from the environment; production defaults are unchanged when
+/// the knobs are unset. The subtalker (code-predictor) counterparts live in
+/// the vendored backend (`Qwen3SamplingOverrides`: QWENVOICE_SUBTALKER_*).
+enum Qwen3TalkerSamplingEnvOverride {
+    static let temperature: Float? = floatValue("QWENVOICE_TALKER_TEMP")
+    static let topP: Float? = floatValue("QWENVOICE_TALKER_TOPP")
+
+    private static func floatValue(_ key: String) -> Float? {
+        guard let raw = ProcessInfo.processInfo.environment[key],
+              let value = Float(raw), value > 0 else { return nil }
+        return value
+    }
+
+    static func apply(to parameters: inout GenerateParameters) {
+        if let temperature { parameters.temperature = temperature }
+        if let topP { parameters.topP = topP }
+    }
+}
+
 enum Qwen3CustomVoiceGenerationParameterPolicy {
     static let temperature: Float = Qwen3GenerationConfiguration.officialQualityDefault.temperature
     static let topP: Float = Qwen3GenerationConfiguration.officialQualityDefault.topP
@@ -15,6 +36,7 @@ enum Qwen3CustomVoiceGenerationParameterPolicy {
         parameters.temperature = temperature
         parameters.topP = topP
         parameters.repetitionPenalty = Qwen3GenerationConfiguration.officialQualityDefault.repetitionPenalty
+        Qwen3TalkerSamplingEnvOverride.apply(to: &parameters)
         return parameters
     }
 
@@ -33,6 +55,7 @@ enum Qwen3QualityGenerationParameterPolicy {
         parameters.temperature = official.temperature
         parameters.topP = official.topP
         parameters.repetitionPenalty = official.repetitionPenalty
+        Qwen3TalkerSamplingEnvOverride.apply(to: &parameters)
         return parameters
     }
 
