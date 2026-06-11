@@ -17,55 +17,55 @@
     "aiden": {
       "displayName": "Aiden",
       "nativeLanguage": "English",
-      "shortDescription": "English-native male preset for clear American English delivery.",
+      "shortDescription": "English-native sunny American male voice with a clear midrange.",
       "isEnglishNative": true
     },
     "ryan": {
       "displayName": "Ryan",
       "nativeLanguage": "English",
-      "shortDescription": "English-native male preset with a more energetic delivery.",
+      "shortDescription": "English-native dynamic male voice with strong rhythmic drive — naturally expressive.",
       "isEnglishNative": true
     },
     "vivian": {
       "displayName": "Vivian",
       "nativeLanguage": "Chinese",
-      "shortDescription": "Chinese-native female preset; best quality with Chinese text.",
+      "shortDescription": "Chinese-native bright, slightly edgy young female voice.",
       "isEnglishNative": false
     },
     "serena": {
       "displayName": "Serena",
       "nativeLanguage": "Chinese",
-      "shortDescription": "Chinese-native female preset; best quality with Chinese text.",
+      "shortDescription": "Chinese-native warm, gentle young female voice.",
       "isEnglishNative": false
     },
     "uncle_fu": {
       "displayName": "Uncle Fu",
       "nativeLanguage": "Chinese",
-      "shortDescription": "Chinese-native seasoned male preset with a low, mellow timbre.",
+      "shortDescription": "Chinese-native seasoned male voice with a low, mellow timbre.",
       "isEnglishNative": false
     },
     "dylan": {
       "displayName": "Dylan",
       "nativeLanguage": "Chinese",
-      "shortDescription": "Chinese-native Beijing male preset with a clear, natural timbre.",
+      "shortDescription": "Chinese-native youthful male voice with a clear, natural timbre (Beijing dialect).",
       "isEnglishNative": false
     },
     "eric": {
       "displayName": "Eric",
       "nativeLanguage": "Chinese",
-      "shortDescription": "Chinese-native Chengdu male preset with a slightly husky brightness.",
+      "shortDescription": "Chinese-native lively Chengdu male voice with a slightly husky brightness (Sichuan dialect).",
       "isEnglishNative": false
     },
     "ono_anna": {
       "displayName": "Ono Anna",
       "nativeLanguage": "Japanese",
-      "shortDescription": "Japanese-native playful female preset with a light, nimble timbre.",
+      "shortDescription": "Japanese-native playful female voice with a light, nimble timbre.",
       "isEnglishNative": false
     },
     "sohee": {
       "displayName": "Sohee",
       "nativeLanguage": "Korean",
-      "shortDescription": "Korean-native warm, expressive female preset.",
+      "shortDescription": "Korean-native warm female voice with rich emotion.",
       "isEnglishNative": false
     }
   },
