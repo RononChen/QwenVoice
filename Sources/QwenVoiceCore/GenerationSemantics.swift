@@ -440,7 +440,16 @@ public enum GenerationSemantics {
         if trimmed.unicodeScalars.contains(where: \.isCJKScalar) {
             return .chinese
         }
-        return nil
+        // Latin scripts are indistinguishable by Unicode range — resolve
+        // French/German/Spanish/Portuguese/Italian/English via the shared
+        // NLLanguageRecognizer detector (confidence-gated; .auto when
+        // ambiguous). Without this, Custom Voice fell back to the english
+        // language token for ANY Latin-script text under Auto — misdirecting
+        // e.g. French text AND wrongly appending the English diction
+        // reinforcement to its delivery instruction. (Official guidance:
+        // an explicit language outperforms Auto.)
+        let recognized = PromptLanguageDetector.detect(trimmed)
+        return recognized == .auto ? nil : recognized
     }
 }
 

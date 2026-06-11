@@ -1472,6 +1472,12 @@ private struct StreamingExecutionContext: Sendable {
             // break results out by prompt length (short / medium / long) — RTF,
             // decode time, and KV-cache memory all scale with it.
             "promptChars": String(request.text.count),
+            // Resolved Qwen3 language for this generation (explicit hint or
+            // text-detected) — verifies Auto-language resolution (incl. the
+            // Latin-script NLLanguageRecognizer path) and gives delivery
+            // benchmarks the language variable. Clone rows may differ when a
+            // resolved transcript later refines the detection.
+            "languageHint": GenerationSemantics.qwenLanguageHint(for: request),
         ]
         if let simLimit = IOSMemorySnapshot.simulatedProcessLimitBytes {
             // Restriction-simulation rows must self-identify — a simulated
