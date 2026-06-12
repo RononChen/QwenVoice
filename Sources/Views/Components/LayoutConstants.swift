@@ -40,7 +40,11 @@ enum LayoutConstants {
     static let composerEmbeddedEditorInset: CGFloat = 6
     static let composerEmbeddedPlaceholderHorizontalPadding: CGFloat = 12
     static let composerEmbeddedPlaceholderVerticalPadding: CGFloat = 12
-    static let generationComposerFooterMinHeight: CGFloat = 60
+    /// 48 fits the two-line readiness note; anything taller (save CTA,
+    /// error row) grows the footer content-first. 60 made Voice Design's
+    /// minimum content height overshoot the default 720×560 viewport by a
+    /// few points and forced a canvas scrollbar (v2.1.0 release QA).
+    static let generationComposerFooterMinHeight: CGFloat = 48
     static let generationPageTopPadding: CGFloat = 4
     static let generationPageBottomPadding: CGFloat = 8
 }
