@@ -311,20 +311,26 @@ private struct IOSHistoryLibrarySection: View {
 
     /// Clears the whole history; with `deleteAudio` false the WAVs stay on
     /// disk (GitHub #48). The database is the source of truth for the file
-    /// sweep so rows beyond the loaded list are covered too.
+    /// sweep so rows beyond the loaded list are covered too. The fetch +
+    /// file sweep + delete run off the main thread (a large history's worth
+    /// of synchronous removeItem calls would stall the UI — 2026-06-12
+    /// release-QA audit); state updates hop back to the MainActor.
     private func performClearAll(deleteAudio: Bool) {
-        do {
-            if deleteAudio {
-                let allGenerations = try DatabaseService.shared.fetchAllGenerations()
-                let fileManager = FileManager.default
-                for generation in allGenerations where fileManager.fileExists(atPath: generation.audioPath) {
-                    try? fileManager.removeItem(atPath: generation.audioPath)
+        Task.detached(priority: .userInitiated) {
+            do {
+                if deleteAudio {
+                    let allGenerations = try DatabaseService.shared.fetchAllGenerations()
+                    let fileManager = FileManager.default
+                    for generation in allGenerations where fileManager.fileExists(atPath: generation.audioPath) {
+                        try? fileManager.removeItem(atPath: generation.audioPath)
+                    }
                 }
+                try DatabaseService.shared.deleteAllGenerations()
+                await MainActor.run { reload() }
+            } catch {
+                let message = error.localizedDescription
+                await MainActor.run { errorMessage = message }
             }
-            try DatabaseService.shared.deleteAllGenerations()
-            reload()
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 

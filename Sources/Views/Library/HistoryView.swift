@@ -34,17 +34,23 @@ private struct HistoryListItem: Identifiable, Sendable {
     }
 
     // Cached — DateFormatter construction is ~1-2 ms and this runs once per
-    // history row on every reload. Items are built on a single serial
-    // Task.detached, so the shared (non-thread-safe) formatter is safe.
+    // history row on every reload. Lock-protected because items are built on
+    // TWO executors: reloadHistory's Task.detached (pool thread) AND
+    // handleGenerationAppended on the MainActor — DateFormatter itself is not
+    // thread-safe, and a generation completing mid-reload would otherwise
+    // race the shared instance (2026-06-12 release-QA concurrency audit).
     nonisolated(unsafe) private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter
     }()
+    private static let dateFormatterLock = NSLock()
 
     private static func formattedDate(for date: Date) -> String {
-        dateFormatter.string(from: date)
+        dateFormatterLock.lock()
+        defer { dateFormatterLock.unlock() }
+        return dateFormatter.string(from: date)
     }
 
     private static func makeSaveVoiceConfiguration(for generation: Generation) -> SavedVoiceSheetConfiguration? {
@@ -548,39 +554,50 @@ private extension HistoryView {
     /// Clears the whole history. With `deleteAudio` false (GitHub #48), only
     /// the database rows and session cache go — the WAVs stay on disk. The
     /// database is the source of truth for the file sweep (not the loaded
-    /// list) so rows from other sessions are covered too.
+    /// list) so rows from other sessions are covered too. The fetch + file
+    /// sweep + delete run off the main thread (a large history's worth of
+    /// synchronous removeItem calls would stall the UI — 2026-06-12
+    /// release-QA audit); state updates hop back to the MainActor.
     func performClearAll(deleteAudio: Bool) {
-        var fileFailures = 0
-        do {
-            if deleteAudio {
-                let allGenerations = try DatabaseService.shared.fetchAllGenerations()
-                let fileManager = FileManager.default
-                for generation in allGenerations where fileManager.fileExists(atPath: generation.audioPath) {
-                    do {
-                        try fileManager.removeItem(atPath: generation.audioPath)
-                    } catch {
-                        fileFailures += 1
+        Task.detached(priority: .userInitiated) {
+            var fileFailures = 0
+            do {
+                if deleteAudio {
+                    let allGenerations = try DatabaseService.shared.fetchAllGenerations()
+                    let fileManager = FileManager.default
+                    for generation in allGenerations where fileManager.fileExists(atPath: generation.audioPath) {
+                        do {
+                            try fileManager.removeItem(atPath: generation.audioPath)
+                        } catch {
+                            fileFailures += 1
+                        }
                     }
                 }
+                try DatabaseService.shared.deleteAllGenerations()
+            } catch {
+                let message = error.localizedDescription
+                await MainActor.run {
+                    presentActionAlert(
+                        title: "Clear History Error",
+                        message: "Failed to clear history: \(message)"
+                    )
+                }
+                return
             }
-            try DatabaseService.shared.deleteAllGenerations()
-        } catch {
-            presentActionAlert(
-                title: "Clear History Error",
-                message: "Failed to clear history: \(error.localizedDescription)"
-            )
-            return
-        }
 
-        items = []
-        itemsRevision &+= 1
-        HistorySessionCache.generations = []
+            let failures = fileFailures
+            await MainActor.run {
+                items = []
+                itemsRevision &+= 1
+                HistorySessionCache.generations = []
 
-        if fileFailures > 0 {
-            presentActionAlert(
-                title: "Clear History Warning",
-                message: "History cleared, but \(fileFailures) audio file\(fileFailures == 1 ? "" : "s") could not be deleted."
-            )
+                if failures > 0 {
+                    presentActionAlert(
+                        title: "Clear History Warning",
+                        message: "History cleared, but \(failures) audio file\(failures == 1 ? "" : "s") could not be deleted."
+                    )
+                }
+            }
         }
     }
 
