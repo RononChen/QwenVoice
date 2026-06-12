@@ -154,7 +154,8 @@ final class CustomVoiceCoordinator {
                 speakerID: draft.selectedSpeaker,
                 deliveryStyle: model.supportsInstructionControl ? draft.emotion : nil
             ),
-            generationID: UUID()
+            generationID: UUID(),
+            variation: GenerationVariationPreference.requestValue()
         )
     }
 

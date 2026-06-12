@@ -241,7 +241,8 @@ final class VoiceDesignCoordinator {
                 voiceDescription: draft.voiceDescription,
                 deliveryStyle: draft.emotion
             ),
-            generationID: UUID()
+            generationID: UUID(),
+            variation: GenerationVariationPreference.requestValue()
         )
     }
 

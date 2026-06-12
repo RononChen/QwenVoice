@@ -81,6 +81,11 @@ private struct HistoryActionAlert: Identifiable {
     let id = UUID()
     let title: String
     let message: String
+    /// When set, the alert renders as a destructive confirm/cancel pair
+    /// instead of a single OK (used by the clear-history flow, which rides
+    /// this proven presentation slot).
+    var confirmTitle: String? = nil
+    var onConfirm: (() -> Void)? = nil
 }
 
 @MainActor private enum HistorySessionCache {
@@ -118,6 +123,25 @@ enum HistorySortOrder: String, CaseIterable, Identifiable {
     }
 }
 
+/// Toolbar→view bridge for the clear-history actions (mirrors the Voices
+/// screen's enroll-request pattern): the window toolbar bumps the request,
+/// HistoryView confirms and performs it. `keepFiles` answers GitHub #48 —
+/// purge the history list without touching the generated audio on disk.
+struct HistoryClearRequest: Equatable {
+    enum Scope: Equatable {
+        case keepFiles
+        case deleteFiles
+    }
+
+    let scope: Scope
+    let id: UUID
+
+    init(scope: Scope) {
+        self.scope = scope
+        self.id = UUID()
+    }
+}
+
 struct HistoryView: View {
     @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
     @EnvironmentObject private var ttsEngineStore: TTSEngineStore
@@ -125,6 +149,7 @@ struct HistoryView: View {
     @EnvironmentObject private var generationLibraryEvents: GenerationLibraryEvents
     @Binding var searchText: String
     @Binding var sortOrder: HistorySortOrder
+    @Binding var clearRequest: HistoryClearRequest?
 
     @State private var items: [HistoryListItem] = HistorySessionCache.generations.map(HistoryListItem.init)
     @State private var isLoading = false
@@ -156,6 +181,33 @@ struct HistoryView: View {
                 }
             }
             .onDisappear(perform: handleDisappear)
+            .onChange(of: clearRequest) { _, request in
+                guard let request else { return }
+                // Defer the binding reset — writing the parent's state back
+                // to nil synchronously inside this view's update can drop
+                // the whole change.
+                Task { @MainActor in clearRequest = nil }
+                guard !items.isEmpty else {
+                    presentActionAlert(title: "History Is Empty", message: "There are no history entries to clear.")
+                    return
+                }
+                switch request.scope {
+                case .keepFiles:
+                    actionAlert = HistoryActionAlert(
+                        title: "Clear History?",
+                        message: "This removes all \(items.count) history entries. The generated audio files stay on disk in your outputs folder.",
+                        confirmTitle: "Clear History",
+                        onConfirm: { performClearAll(deleteAudio: false) }
+                    )
+                case .deleteFiles:
+                    actionAlert = HistoryActionAlert(
+                        title: "Clear History and Delete Audio?",
+                        message: "This permanently deletes all \(items.count) history entries and their audio files.",
+                        confirmTitle: "Delete Everything",
+                        onConfirm: { performClearAll(deleteAudio: true) }
+                    )
+                }
+            }
             .alert("Delete Generation?", isPresented: $showDeleteConfirmation) {
                 Button("Cancel", role: .cancel) {
                     itemToDelete = nil
@@ -170,11 +222,20 @@ struct HistoryView: View {
                 Text("This will permanently delete the generation and its audio file.")
             }
             .alert(item: $actionAlert) { alert in
-                Alert(
-                    title: Text(alert.title),
-                    message: Text(alert.message),
-                    dismissButton: .default(Text("OK"))
-                )
+                if let confirmTitle = alert.confirmTitle, let onConfirm = alert.onConfirm {
+                    Alert(
+                        title: Text(alert.title),
+                        message: Text(alert.message),
+                        primaryButton: .destructive(Text(confirmTitle), action: onConfirm),
+                        secondaryButton: .cancel()
+                    )
+                } else {
+                    Alert(
+                        title: Text(alert.title),
+                        message: Text(alert.message),
+                        dismissButton: .default(Text("OK"))
+                    )
+                }
             }
             .sheet(item: $savedVoiceSheetConfiguration) { configuration in
                 SavedVoiceSheet(configuration: configuration) { voice in
@@ -481,6 +542,45 @@ private extension HistoryView {
             return .deleted
         } catch {
             return .audioCleanupFailure(error.localizedDescription)
+        }
+    }
+
+    /// Clears the whole history. With `deleteAudio` false (GitHub #48), only
+    /// the database rows and session cache go — the WAVs stay on disk. The
+    /// database is the source of truth for the file sweep (not the loaded
+    /// list) so rows from other sessions are covered too.
+    func performClearAll(deleteAudio: Bool) {
+        var fileFailures = 0
+        do {
+            if deleteAudio {
+                let allGenerations = try DatabaseService.shared.fetchAllGenerations()
+                let fileManager = FileManager.default
+                for generation in allGenerations where fileManager.fileExists(atPath: generation.audioPath) {
+                    do {
+                        try fileManager.removeItem(atPath: generation.audioPath)
+                    } catch {
+                        fileFailures += 1
+                    }
+                }
+            }
+            try DatabaseService.shared.deleteAllGenerations()
+        } catch {
+            presentActionAlert(
+                title: "Clear History Error",
+                message: "Failed to clear history: \(error.localizedDescription)"
+            )
+            return
+        }
+
+        items = []
+        itemsRevision &+= 1
+        HistorySessionCache.generations = []
+
+        if fileFailures > 0 {
+            presentActionAlert(
+                title: "Clear History Warning",
+                message: "History cleared, but \(fileFailures) audio file\(fileFailures == 1 ? "" : "s") could not be deleted."
+            )
         }
     }
 

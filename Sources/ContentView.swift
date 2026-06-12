@@ -141,6 +141,7 @@ struct ContentView: View {
     @State private var pendingHighlightedMode: GenerationMode?
     @State private var historySearchText = ""
     @State private var historySortOrder: HistorySortOrder = .newest
+    @State private var historyClearRequest: HistoryClearRequest?
     @State private var voicesEnrollRequestID: UUID?
     @State private var customVoiceDraft = CustomVoiceDraft()
     @State private var voiceDesignDraft = VoiceDesignDraft()
@@ -264,6 +265,7 @@ struct ContentView: View {
                 selectedItem: selectedItem,
                 historySortOrder: $historySortOrder,
                 historySearchText: $historySearchText,
+                historyClearRequest: $historyClearRequest,
                 voicesEnrollRequestID: $voicesEnrollRequestID
             )
         }
@@ -323,7 +325,8 @@ struct ContentView: View {
         case .history:
             HistoryView(
                 searchText: $historySearchText,
-                sortOrder: $historySortOrder
+                sortOrder: $historySortOrder,
+                clearRequest: $historyClearRequest
             )
         case .voices:
             VoicesView(
@@ -655,31 +658,52 @@ private struct MainWindowToolbar: ToolbarContent {
     let selectedItem: SidebarItem?
     @Binding var historySortOrder: HistorySortOrder
     @Binding var historySearchText: String
+    @Binding var historyClearRequest: HistoryClearRequest?
     @Binding var voicesEnrollRequestID: UUID?
 
     var body: some ToolbarContent {
+        // Separate ToolbarItems (not one HStack) so macOS can overflow each
+        // control individually at narrow window widths — a single combined
+        // item collapses into one unusable "Sort" overflow row.
         if selectedItem == .history {
             ToolbarItem {
-                HStack(spacing: 10) {
-                    Menu {
-                        Picker("Sort", selection: $historySortOrder) {
-                            ForEach(HistorySortOrder.allCases) { order in
-                                Text(order.label).tag(order)
-                            }
+                Menu {
+                    Picker("Sort", selection: $historySortOrder) {
+                        ForEach(HistorySortOrder.allCases) { order in
+                            Text(order.label).tag(order)
                         }
-                    } label: {
-                        Image(systemName: "arrow.up.arrow.down.circle")
                     }
-                    .accessibilityLabel("Sort history")
-                    .accessibilityIdentifier("history_sortPicker")
-
-                    ToolbarSearchField(
-                        text: $historySearchText,
-                        placeholder: "Search history",
-                        accessibilityIdentifier: "history_searchField"
-                    )
-                    .frame(width: 220)
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down.circle")
                 }
+                .accessibilityLabel("Sort history")
+                .accessibilityIdentifier("history_sortPicker")
+            }
+
+            ToolbarItem {
+                Menu {
+                    Button("Clear History (Keep Audio Files)…") {
+                        historyClearRequest = HistoryClearRequest(scope: .keepFiles)
+                    }
+                    .accessibilityIdentifier("history_clearKeepFiles")
+                    Button("Clear History and Delete Audio…", role: .destructive) {
+                        historyClearRequest = HistoryClearRequest(scope: .deleteFiles)
+                    }
+                    .accessibilityIdentifier("history_clearDeleteFiles")
+                } label: {
+                    Image(systemName: "trash.circle")
+                }
+                .accessibilityLabel("Clear history")
+                .accessibilityIdentifier("history_clearMenu")
+            }
+
+            ToolbarItem {
+                ToolbarSearchField(
+                    text: $historySearchText,
+                    placeholder: "Search history",
+                    accessibilityIdentifier: "history_searchField"
+                )
+                .frame(width: 180)
             }
         }
 

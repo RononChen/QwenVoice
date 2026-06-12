@@ -5,14 +5,25 @@ import Foundation
 @preconcurrency import MLXLMCommon
 @preconcurrency import QwenVoiceBackendCore
 
-/// Dev-only talker sampling overrides for delivery-tuning A/Bs (e.g. the
-/// community stability recipe temp 0.8 / topP 0.9 vs the official 0.9 / 1.0).
-/// Resolved once from the environment; production defaults are unchanged when
-/// the knobs are unset. The subtalker (code-predictor) counterparts live in
-/// the vendored backend (`Qwen3SamplingOverrides`: QWENVOICE_SUBTALKER_*).
-enum Qwen3TalkerSamplingEnvOverride {
-    static let temperature: Float? = floatValue("QWENVOICE_TALKER_TEMP")
-    static let topP: Float? = floatValue("QWENVOICE_TALKER_TOPP")
+/// Talker sampling overrides, applied in the generation-parameter policies.
+/// Two layers, env (dev A/B) winning over the per-request variation:
+///
+/// - **Per-request variation** (GitHub #47): `NativeEngineRuntime.
+///   prepareGeneration` stamps the request's `Qwen3SamplingVariation` here
+///   before the handlers resolve parameters. Single-mutator by construction —
+///   the engine's model-operation gate admits one generation at a time — so
+///   the `nonisolated(unsafe)` static is sound (same contract as the
+///   single-owner notes on `UnsafeSpeechGenerationModel`).
+/// - **Env knobs** (dev-only, resolved once): QWENVOICE_TALKER_TEMP / _TOPP,
+///   for delivery-tuning A/Bs. The subtalker counterparts live in the
+///   vendored backend (`Qwen3SamplingOverrides`: QWENVOICE_SUBTALKER_*).
+///
+/// With neither set, production sampling is the official checkpoint default.
+enum Qwen3TalkerSamplingOverride {
+    nonisolated(unsafe) static var requestVariation: Qwen3SamplingVariation?
+
+    static let envTemperature: Float? = floatValue("QWENVOICE_TALKER_TEMP")
+    static let envTopP: Float? = floatValue("QWENVOICE_TALKER_TOPP")
 
     private static func floatValue(_ key: String) -> Float? {
         guard let raw = ProcessInfo.processInfo.environment[key],
@@ -21,8 +32,18 @@ enum Qwen3TalkerSamplingEnvOverride {
     }
 
     static func apply(to parameters: inout GenerateParameters) {
-        if let temperature { parameters.temperature = temperature }
-        if let topP { parameters.topP = topP }
+        switch requestVariation {
+        case .balanced:
+            parameters.temperature = 0.8
+            parameters.topP = 0.95
+        case .consistent:
+            parameters.temperature = 0.7
+            parameters.topP = 0.9
+        case .expressive, nil:
+            break  // official checkpoint defaults
+        }
+        if let envTemperature { parameters.temperature = envTemperature }
+        if let envTopP { parameters.topP = envTopP }
     }
 }
 
@@ -36,7 +57,7 @@ enum Qwen3CustomVoiceGenerationParameterPolicy {
         parameters.temperature = temperature
         parameters.topP = topP
         parameters.repetitionPenalty = Qwen3GenerationConfiguration.officialQualityDefault.repetitionPenalty
-        Qwen3TalkerSamplingEnvOverride.apply(to: &parameters)
+        Qwen3TalkerSamplingOverride.apply(to: &parameters)
         return parameters
     }
 
@@ -55,7 +76,7 @@ enum Qwen3QualityGenerationParameterPolicy {
         parameters.temperature = official.temperature
         parameters.topP = official.topP
         parameters.repetitionPenalty = official.repetitionPenalty
-        Qwen3TalkerSamplingEnvOverride.apply(to: &parameters)
+        Qwen3TalkerSamplingOverride.apply(to: &parameters)
         return parameters
     }
 

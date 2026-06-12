@@ -168,6 +168,13 @@ private enum IOSHistoryBucket: Int, CaseIterable, Identifiable {
     }
 }
 
+/// Identifiable wrapper driving the clear-history confirmation alert.
+/// `keepFiles` answers GitHub #48 — purge the list, keep the audio on disk.
+private struct IOSHistoryClearConfirmation: Identifiable {
+    let deleteAudio: Bool
+    var id: String { deleteAudio ? "deleteFiles" : "keepFiles" }
+}
+
 private struct IOSHistoryLibrarySection: View {
     @State private var items: [Generation] = []
     @State private var errorMessage: String?
@@ -177,13 +184,35 @@ private struct IOSHistoryLibrarySection: View {
     @State private var groupedItems: [(bucket: IOSHistoryBucket, items: [Generation])] = []
     @State private var filteredItemCount = 0
     @State private var reloadTask: Task<Void, Never>?
+    @State private var clearConfirmation: IOSHistoryClearConfirmation?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            IOSSearchField(text: $searchQuery, placeholder: "Search transcript or voice")
-                .padding(.horizontal, 20)
-                .padding(.bottom, 10)
-                .accessibilityIdentifier("historySearchField")
+            HStack(spacing: 10) {
+                IOSSearchField(text: $searchQuery, placeholder: "Search transcript or voice")
+                    .accessibilityIdentifier("historySearchField")
+
+                Menu {
+                    Button("Clear History (Keep Audio Files)…") {
+                        clearConfirmation = IOSHistoryClearConfirmation(deleteAudio: false)
+                    }
+                    .accessibilityIdentifier("historyClearKeepFiles")
+                    Button("Clear History and Delete Audio…", role: .destructive) {
+                        clearConfirmation = IOSHistoryClearConfirmation(deleteAudio: true)
+                    }
+                    .accessibilityIdentifier("historyClearDeleteFiles")
+                } label: {
+                    Image(systemName: "trash.circle")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(items.isEmpty ? IOSAppTheme.textTertiary : IOSAppTheme.textSecondary)
+                        .frame(width: 34, height: 34)
+                }
+                .disabled(items.isEmpty)
+                .accessibilityLabel("Clear history")
+                .accessibilityIdentifier("historyClearMenu")
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 10)
 
             IOSHistoryFilterChips(selection: $modeFilter)
                 .padding(.bottom, 0)
@@ -256,6 +285,46 @@ private struct IOSHistoryLibrarySection: View {
             try? await Task.sleep(for: .milliseconds(150))
             guard !Task.isCancelled else { return }
             debouncedQuery = searchQuery
+        }
+        .alert(item: $clearConfirmation) { confirmation in
+            if confirmation.deleteAudio {
+                Alert(
+                    title: Text("Clear History and Delete Audio?"),
+                    message: Text("This permanently deletes all \(items.count) history entries and their audio files."),
+                    primaryButton: .destructive(Text("Delete Everything")) {
+                        performClearAll(deleteAudio: true)
+                    },
+                    secondaryButton: .cancel()
+                )
+            } else {
+                Alert(
+                    title: Text("Clear History?"),
+                    message: Text("This removes all \(items.count) history entries. The generated audio files stay on the device."),
+                    primaryButton: .destructive(Text("Clear History")) {
+                        performClearAll(deleteAudio: false)
+                    },
+                    secondaryButton: .cancel()
+                )
+            }
+        }
+    }
+
+    /// Clears the whole history; with `deleteAudio` false the WAVs stay on
+    /// disk (GitHub #48). The database is the source of truth for the file
+    /// sweep so rows beyond the loaded list are covered too.
+    private func performClearAll(deleteAudio: Bool) {
+        do {
+            if deleteAudio {
+                let allGenerations = try DatabaseService.shared.fetchAllGenerations()
+                let fileManager = FileManager.default
+                for generation in allGenerations where fileManager.fileExists(atPath: generation.audioPath) {
+                    try? fileManager.removeItem(atPath: generation.audioPath)
+                }
+            }
+            try DatabaseService.shared.deleteAllGenerations()
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 

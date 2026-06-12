@@ -1153,6 +1153,26 @@ public enum CloneReferenceContextResolver {
     }
 }
 
+/// User-facing sampling variation for a generation (GitHub #47). Maps to
+/// talker temperature/top-p in the engine: `expressive` is the official
+/// checkpoint default (most take-to-take variety); the other two trade
+/// liveliness for consistency across regenerations. Note from the 2026-06-11
+/// listening A/Bs: official defaults sounded best — this is a consistency
+/// control, not a quality ladder, and `expressive` stays the default.
+public enum Qwen3SamplingVariation: String, Codable, Hashable, Sendable, CaseIterable {
+    case expressive
+    case balanced
+    case consistent
+
+    public var displayName: String {
+        switch self {
+        case .expressive: return "Expressive"
+        case .balanced: return "Balanced"
+        case .consistent: return "Consistent"
+        }
+    }
+}
+
 public struct GenerationRequest: Hashable, Codable, Sendable {
     public enum Payload: Hashable, Codable, Sendable {
         case custom(speakerID: String, deliveryStyle: String?)
@@ -1175,6 +1195,14 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
     /// (`NativeEngineRuntime`) and app/middle/engine telemetry rows join.
     /// Optional + synthesized `Codable` keeps the IPC wire back-compatible.
     public let generationID: UUID?
+    /// Deterministic-sampling seed. When set, the engine seeds the MLX RNG
+    /// before decoding, so the same request + seed reproduces the same take
+    /// ("regenerate exactly"; stabilizes batches). Optional + synthesized
+    /// `Codable` keeps the IPC wire back-compatible. (GitHub #47/#30)
+    public let seed: UInt64?
+    /// Sampling variation (talker temperature/top-p shaping). nil/expressive
+    /// = official defaults. Wire-back-compatible like `seed`.
+    public let variation: Qwen3SamplingVariation?
 
     public init(
         mode: GenerationMode,
@@ -1188,7 +1216,9 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
         streamingTitle: String? = nil,
         languageHint: String? = nil,
         payload: Payload,
-        generationID: UUID? = nil
+        generationID: UUID? = nil,
+        seed: UInt64? = nil,
+        variation: Qwen3SamplingVariation? = nil
     ) {
         self.mode = mode
         self.modelID = modelID
@@ -1202,6 +1232,8 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
         self.languageHint = languageHint
         self.payload = payload
         self.generationID = generationID
+        self.seed = seed
+        self.variation = variation
     }
 
     public init(
@@ -1215,7 +1247,9 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
         streamingTitle: String? = nil,
         languageHint: String? = nil,
         payload: Payload,
-        generationID: UUID? = nil
+        generationID: UUID? = nil,
+        seed: UInt64? = nil,
+        variation: Qwen3SamplingVariation? = nil
     ) {
         let resolvedMode: GenerationMode
         switch payload {
@@ -1239,7 +1273,9 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
             streamingTitle: streamingTitle,
             languageHint: languageHint,
             payload: payload,
-            generationID: generationID
+            generationID: generationID,
+            seed: seed,
+            variation: variation
         )
     }
 

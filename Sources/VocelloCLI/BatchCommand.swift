@@ -54,13 +54,20 @@ enum BatchCommand {
         fmt.locale = Locale(identifier: "en_US_POSIX")
         let stamp = fmt.string(from: Date())
 
+        // --seed applies the SAME seed to every item: each item's sampling
+        // stream is then deterministic for its text, and re-running the batch
+        // reproduces it (community testing also reports a fixed seed reduces
+        // cross-segment timbre drift; GitHub #30/#47).
+        let seed = try GenerateCommand.parseSeed(args)
+        let variation = try GenerateCommand.parseVariation(args)
         var requests: [GenerationRequest] = []
         requests.reserveCapacity(lines.count)
         for (i, line) in lines.enumerated() {
             let out = outDir.appendingPathComponent("\(stamp)_\(mode.rawValue)_\(String(format: "%03d", i)).wav").path
             requests.append(GenerationRequest(
                 mode: mode, modelID: modelID, text: line, outputPath: out,
-                shouldStream: false, payload: payload, generationID: UUID()))
+                shouldStream: false, payload: payload, generationID: UUID(),
+                seed: seed, variation: variation))
         }
 
         note("loading \(modelID)…")
@@ -145,6 +152,9 @@ enum BatchCommand {
           --transcript   (clone) transcript of the --reference clip
           --delivery     optional delivery style (applies to all clips)
           --out-dir      output directory; default → <data>/outputs/cli/batch/
+          --seed         deterministic sampling seed, applied to every item
+                         (re-running the batch reproduces it; steadier segments)
+          --variation    expressive (default, official) | balanced | consistent
           --play         play each result with afplay when done
           --json         emit a JSON summary on stdout instead of one path per line
           --quiet|--verbose   suppress / expand stderr progress notes

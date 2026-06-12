@@ -1,5 +1,6 @@
 import Foundation
 import MLX
+import MLXRandom
 @preconcurrency import MLXAudioCore
 @preconcurrency import MLXAudioTTS
 import OSLog
@@ -359,6 +360,16 @@ actor NativeEngineRuntime {
 
     func prepareGeneration(for request: GenerationRequest) async throws -> NativePreparedGeneration {
         try GenerationSemantics.validateQwenPromptContract(for: request)
+        // Per-request sampling controls (GitHub #47/#30). Safe here because
+        // the model-operation gate admits one generation at a time:
+        // - Seed: makes the decode's RNG stream deterministic, so the same
+        //   request + seed reproduces the same take.
+        // - Variation: stamped for the generation-parameter policies to map
+        //   into talker temperature/top-p (nil/expressive = official).
+        if let seed = request.seed {
+            MLXRandom.seed(seed)
+        }
+        Qwen3TalkerSamplingOverride.requestVariation = request.variation
         // Fresh per-generation stage recorder, started at prepare entry (before model
         // load / prewarm) so the full backend timeline is measured from one origin.
         // Propagate to the load coordinator so its cache/tokenizer/model-load marks

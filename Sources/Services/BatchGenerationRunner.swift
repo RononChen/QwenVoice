@@ -373,7 +373,8 @@ struct BatchGenerationRequest {
                     deliveryStyle: model.supportsInstructionControl
                         ? (emotion ?? DeliveryProfile.neutralInstruction)
                         : nil
-                )
+                ),
+                variation: GenerationVariationPreference.requestValue()
             )
         case .design:
             return QwenVoiceNative.GenerationRequest(
@@ -387,7 +388,8 @@ struct BatchGenerationRequest {
                 payload: .design(
                     voiceDescription: voiceDescription ?? "",
                     deliveryStyle: emotion ?? DeliveryProfile.neutralInstruction
-                )
+                ),
+                variation: GenerationVariationPreference.requestValue()
             )
         case .clone:
             return QwenVoiceNative.GenerationRequest(
@@ -403,7 +405,8 @@ struct BatchGenerationRequest {
                         audioPath: refAudio ?? "",
                         transcript: refText
                     )
-                )
+                ),
+                variation: GenerationVariationPreference.requestValue()
             )
         }
     }

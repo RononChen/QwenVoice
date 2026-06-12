@@ -278,7 +278,8 @@ final class VoiceCloningCoordinator {
                     preparedVoiceID: draft.selectedSavedVoiceID
                 )
             ),
-            generationID: UUID()
+            generationID: UUID(),
+            variation: GenerationVariationPreference.requestValue()
         )
     }
 

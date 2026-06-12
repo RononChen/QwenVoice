@@ -115,7 +115,9 @@ enum GenerateCommand {
             // Match the app's interactive streaming cadence so --stream exercises
             // the same engine chunk path the UI uses (CustomVoiceCoordinator et al.).
             streamingInterval: streaming ? GenerationSemantics.appStreamingInterval : nil,
-            payload: payload, generationID: UUID())
+            payload: payload, generationID: UUID(),
+            seed: try parseSeed(args),
+            variation: try parseVariation(args))
 
         note("generating (\(text.count) chars)\(streaming ? ", streaming" : "")…")
         let t0 = Date()
@@ -147,6 +149,26 @@ enum GenerateCommand {
     }
 
     // MARK: - Reusable request building (shared with `batch`)
+
+    /// `--seed N` — deterministic sampling: the same request + seed
+    /// reproduces the same take (GitHub #47/#30).
+    static func parseSeed(_ args: Args) throws -> UInt64? {
+        guard let raw = args.string("seed") else { return nil }
+        guard let seed = UInt64(raw) else {
+            throw CLIError("invalid --seed '\(raw)' (use an unsigned integer)")
+        }
+        return seed
+    }
+
+    /// `--variation expressive|balanced|consistent` — talker sampling
+    /// shaping (default expressive = official checkpoint sampling).
+    static func parseVariation(_ args: Args) throws -> Qwen3SamplingVariation? {
+        guard let raw = args.string("variation") else { return nil }
+        guard let variation = Qwen3SamplingVariation(rawValue: raw.lowercased()) else {
+            throw CLIError("invalid --variation '\(raw)' (use expressive | balanced | consistent)")
+        }
+        return variation
+    }
 
     /// Validate a mode string into a `GenerationMode`.
     static func parseModeString(_ s: String) throws -> GenerationMode {
@@ -290,6 +312,9 @@ enum GenerateCommand {
           --reference    (clone) path to a reference .wav (alternative to --voice)
           --transcript   (clone) transcript of the --reference clip
           --delivery     optional delivery style
+          --seed         deterministic sampling seed — same request + seed
+                         reproduces the same take
+          --variation    expressive (default, official) | balanced | consistent
           --out          output .wav path; default → <data>/outputs/cli/
           --stream       streaming synthesis at the app's 320ms cadence; reports
                          first-chunk latency (TTFC) + chunk count (no live playback)

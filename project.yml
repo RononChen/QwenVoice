@@ -257,6 +257,10 @@ targets:
         product: MLXAudioTTS
       - package: MLXSwift
         product: MLX
+      # Deterministic-sampling seed (GenerationRequest.seed → MLXRandom.seed
+      # in prepareGeneration). Product link only — the MLXSwift pin is untouched.
+      - package: MLXSwift
+        product: MLXRandom
       - package: SwiftHuggingFace
         product: HuggingFace
 

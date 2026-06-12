@@ -31,6 +31,8 @@ struct SettingsView: View {
 
     @AppStorage("autoPlay", store: AppDefaults.store) private var autoPlay = true
     @AppStorage("outputDirectory", store: AppDefaults.store) private var outputDirectory = ""
+    @AppStorage(GenerationVariationPreference.key, store: AppDefaults.store)
+    private var generationVariation = GenerationVariationPreference.defaultValue
     /// Bound to `MacModelVariantPreferences.preferSpeedEverywhereKey`.
     /// When ON, every generation mode resolves to the Speed variant
     /// regardless of per-mode preferences or hardware recommendations.
@@ -84,6 +86,26 @@ struct SettingsView: View {
                     Toggle("Auto-play generated audio", isOn: $autoPlay)
                         .tint(AppTheme.preferences)
                         .accessibilityIdentifier("preferences_autoPlayToggle")
+                }
+
+                Section {
+                    Picker("Variation", selection: $generationVariation) {
+                        ForEach(Qwen3SamplingVariation.allCases, id: \.rawValue) { variation in
+                            Text(variation.displayName).tag(variation.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("settings_generationVariation")
+                    Text(
+                        "How much takes vary when regenerating the same text. " +
+                        "Expressive is the model's official sampling (liveliest); " +
+                        "Balanced and Consistent trade some liveliness for steadier, more repeatable takes."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                } header: {
+                    Text("Generation")
                 }
 
                 Section {

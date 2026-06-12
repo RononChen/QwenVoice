@@ -62,6 +62,8 @@ vocello generate --mode custom|design|clone --variant speed|quality \
 | `--voice-brief` | (design) plain-language voice description |
 | `--voice` / `--reference` / `--transcript` | (clone) a saved voice name/id, or a reference `.wav` + optional transcript |
 | `--delivery` | optional delivery style |
+| `--seed` | deterministic sampling seed — the same request + seed reproduces the same take bit-for-bit |
+| `--variation` | `expressive` (default, official sampling) · `balanced` · `consistent` — trades take-to-take liveliness for repeatability |
 | `--out` | output `.wav` path; default → `<data>/outputs/cli/` |
 | `--stream` | exercise the engine's streaming path at the app's 320ms cadence; reports first-chunk latency (TTFC) + chunk count |
 | `--play` | play the result with `afplay` when done |
@@ -90,7 +92,9 @@ vocello batch --file <path|-> --mode … --variant … \
 
 One non-empty line per clip; all clips share the same voice/mode/variant, so the engine runs them
 through **one loaded model** — far faster than repeated `generate` calls. Reads stdin when `--file` is
-omitted or `-`. Prints one output WAV path per line (or a JSON summary with `--json`).
+omitted or `-`. Prints one output WAV path per line (or a JSON summary with `--json`). Also accepts
+`--seed` (applied to every item — re-running the batch reproduces it, and a fixed seed steadies
+cross-segment character) and `--variation`, like `generate`.
 
 ### `voices` — manage saved clone voices
 
