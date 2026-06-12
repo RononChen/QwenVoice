@@ -281,6 +281,13 @@ struct BatchGenerationRequest {
     let voiceDescription: String?
     let refAudio: String?
     let refText: String?
+    /// One sampling seed shared by every item in the batch (GitHub #30):
+    /// segments of one batch keep a steadier character/pacing than fully
+    /// independent draws (community-verified for long-form chunking), and
+    /// Voice Design batches stop re-rolling a different voice per segment
+    /// quite as wildly. Minted per batch run, so separate batches still
+    /// differ from each other.
+    let batchSeed: UInt64
 
     init(
         mode: GenerationMode,
@@ -292,7 +299,8 @@ struct BatchGenerationRequest {
         languageHint: String? = nil,
         voiceDescription: String?,
         refAudio: String?,
-        refText: String?
+        refText: String?,
+        batchSeed: UInt64 = UInt64.random(in: UInt64.min...UInt64.max)
     ) {
         self.mode = mode
         self.model = model
@@ -304,6 +312,7 @@ struct BatchGenerationRequest {
         self.voiceDescription = voiceDescription
         self.refAudio = refAudio
         self.refText = refText
+        self.batchSeed = batchSeed
     }
 
     func validationError(isModelAvailable: Bool, recoveryDetail: String) -> String? {
@@ -374,6 +383,7 @@ struct BatchGenerationRequest {
                         ? (emotion ?? DeliveryProfile.neutralInstruction)
                         : nil
                 ),
+                seed: batchSeed,
                 variation: GenerationVariationPreference.requestValue()
             )
         case .design:
@@ -389,6 +399,7 @@ struct BatchGenerationRequest {
                     voiceDescription: voiceDescription ?? "",
                     deliveryStyle: emotion ?? DeliveryProfile.neutralInstruction
                 ),
+                seed: batchSeed,
                 variation: GenerationVariationPreference.requestValue()
             )
         case .clone:
@@ -406,6 +417,7 @@ struct BatchGenerationRequest {
                         transcript: refText
                     )
                 ),
+                seed: batchSeed,
                 variation: GenerationVariationPreference.requestValue()
             )
         }
