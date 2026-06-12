@@ -204,7 +204,7 @@ jobs:
         with:
           path: |
             ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
-            build/Release/source-packages
+            build/source-packages
           key: spm-${{ runner.os }}-xcode26-${{ hashFiles('QwenVoice.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: |
             spm-${{ runner.os }}-xcode26-
@@ -228,13 +228,14 @@ jobs:
       - name: Resolve produced artifact paths
         id: artifacts
         run: |
-          # release.sh always names the DMG <output-name>.dmg under
-          # build/Release/. Default basename is Vocello-macos26.
+          # release.sh always names the DMG <output-name>.dmg directly
+          # under build/ (single build-dir layout). Default basename is
+          # Vocello-macos26.
           output_name="${{ inputs.output_name }}"
           [ -z "$output_name" ] && output_name="Vocello-macos26"
-          dmg="build/Release/${output_name}.dmg"
-          metadata="build/Release/release-metadata.txt"
-          [ -f "$dmg" ] || { echo "missing: $dmg" >&2; ls -la build/Release/ >&2; exit 1; }
+          dmg="build/${output_name}.dmg"
+          metadata="build/release-metadata.txt"
+          [ -f "$dmg" ] || { echo "missing: $dmg" >&2; ls -la build/ >&2; exit 1; }
           [ -f "$metadata" ] || { echo "missing: $metadata" >&2; exit 1; }
           echo "dmg=$dmg" >> "$GITHUB_OUTPUT"
           echo "metadata=$metadata" >> "$GITHUB_OUTPUT"
@@ -326,7 +327,7 @@ jobs:
         with:
           path: |
             ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
-            build/Debug/foundation/local-builds/ios-derived-data/SourcePackages
+            build/foundation/local-builds/ios-derived-data/SourcePackages
           key: spm-ios-${{ runner.os }}-xcode26-${{ hashFiles('QwenVoice.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: |
             spm-ios-${{ runner.os }}-xcode26-
@@ -339,7 +340,7 @@ jobs:
 
       - name: Compile iOS targets (no code signing)
         # CODE_SIGNING_ALLOWED=NO inside the script — produces an unsigned
-        # .app + .appex under build/Debug/foundation/local-builds/.
+        # .app under build/foundation/local-builds/.
         # Purely a "does this still compile" gate.
         run: ./scripts/build_foundation_targets.sh ios
 
@@ -348,6 +349,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ios-compile-xcresult
-          path: build/Debug/foundation/local-builds/vocello-ios-generic-build.xcresult
+          path: build/foundation/local-builds/vocello-ios-generic-build.xcresult
           if-no-files-found: warn
           retention-days: 14
