@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct AppLaunchConfiguration {
@@ -5,7 +6,9 @@ struct AppLaunchConfiguration {
 
     static let current = AppLaunchConfiguration()
 
-    init(animationsEnabled: Bool = true) {
+    /// Resolved once at launch, like the rest of this configuration —
+    /// Reduce Motion is honored on the next launch if toggled mid-session.
+    init(animationsEnabled: Bool = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion) {
         self.animationsEnabled = animationsEnabled
     }
 
