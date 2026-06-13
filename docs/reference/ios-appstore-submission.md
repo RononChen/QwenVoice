@@ -4,6 +4,16 @@ The end-to-end steps to ship **Vocello for iPhone** (`com.patricedery.vocello`) 
 
 Source-of-truth rule: if this disagrees with the code, the code wins.
 
+**Verified on device (2026-06-13, iPhone 17 Pro):** the development build signs, installs, and runs
+end-to-end. `scripts/ios_device.sh` now **auto-derives the signing team** from the keychain's Apple
+Development certificate (no `QWENVOICE_DEVELOPMENT_TEAM` needed for local dev builds; it also falls back to
+offline manual signing if no Apple ID is in Xcode). The development provisioning profile already carries
+`increased-memory-limit`, and on-device generation is healthy — RTF ~1.8 warm, ~2.7 GB peak (well within the
+8 GB-class iPhone budget), 0 memory trims, audio-QC pass; `VocelloiOSUITests` pass on the device; and the UI
+holds with no clipping at the largest accessibility Dynamic Type size. **Still maintainer-only below:** the
+**Distribution** cert + **App Store** provisioning profile (regenerated to carry `increased-memory-limit`) +
+the ASC record/metadata/upload.
+
 ## 0. One-time account prerequisites
 
 - [ ] Apple Developer Program membership active; latest Program License Agreement accepted.
