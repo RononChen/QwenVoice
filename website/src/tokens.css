@@ -80,10 +80,13 @@
   --emotion-sad:      #8C9EC7;
   --emotion-angry:    #C75233;
   --emotion-fearful:  #9E80C7;
+  --emotion-surprised:#5FB8C2;
   --emotion-whisper:  #9E9EA8;
   --emotion-dramatic: #C785A8;
   --emotion-calm:     #9EBC9E;
   --emotion-excited:  #EB9452;
+  --emotion-narrator: #C7A36F;
+  --emotion-news:     #7E93B0;
 
   /* ---------- Semantic — DEFAULT (dark)  ------------------------------ */
   /* Vocello's home is dark mode; semantic tokens default there. */

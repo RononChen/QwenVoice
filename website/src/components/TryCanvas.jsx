@@ -2,15 +2,18 @@ import React, { useEffect, useRef } from "react";
 import { DELIVERY_COLORS } from "../data/samples.js";
 
 const DELIVERY_SHAPES = {
-  Neutral:  { amp: 0.70, density: 1.00, noise: 0.15, env: 1.00, rate: 0.040 },
-  Happy:    { amp: 0.78, density: 1.10, noise: 0.14, env: 1.00, rate: 0.045 },
-  Sad:      { amp: 0.50, density: 0.80, noise: 0.10, env: 1.40, rate: 0.025 },
-  Angry:    { amp: 0.95, density: 1.20, noise: 0.22, env: 0.90, rate: 0.060 },
-  Fearful:  { amp: 0.62, density: 1.18, noise: 0.28, env: 1.10, rate: 0.055 },
-  Whisper:  { amp: 0.35, density: 0.70, noise: 0.30, env: 1.25, rate: 0.025 },
-  Dramatic: { amp: 1.00, density: 1.15, noise: 0.20, env: 0.85, rate: 0.050 },
-  Calm:     { amp: 0.55, density: 0.85, noise: 0.08, env: 1.20, rate: 0.030 },
-  Excited:  { amp: 0.90, density: 1.30, noise: 0.25, env: 0.95, rate: 0.070 },
+  Neutral:   { amp: 0.70, density: 1.00, noise: 0.15, env: 1.00, rate: 0.040 },
+  Happy:     { amp: 0.78, density: 1.10, noise: 0.14, env: 1.00, rate: 0.045 },
+  Sad:       { amp: 0.50, density: 0.80, noise: 0.10, env: 1.40, rate: 0.025 },
+  Angry:     { amp: 0.95, density: 1.20, noise: 0.22, env: 0.90, rate: 0.060 },
+  Fearful:   { amp: 0.62, density: 1.18, noise: 0.28, env: 1.10, rate: 0.055 },
+  Surprised: { amp: 0.92, density: 1.05, noise: 0.24, env: 0.80, rate: 0.075 },
+  Whisper:   { amp: 0.35, density: 0.70, noise: 0.30, env: 1.25, rate: 0.025 },
+  Dramatic:  { amp: 1.00, density: 1.15, noise: 0.20, env: 0.85, rate: 0.050 },
+  Calm:      { amp: 0.55, density: 0.85, noise: 0.08, env: 1.20, rate: 0.030 },
+  Excited:   { amp: 0.90, density: 1.30, noise: 0.25, env: 0.95, rate: 0.070 },
+  Narrator:  { amp: 0.66, density: 0.95, noise: 0.09, env: 1.15, rate: 0.034 },
+  News:      { amp: 0.72, density: 1.05, noise: 0.06, env: 0.95, rate: 0.046 },
 };
 
 const DEFAULT_SHAPE = DELIVERY_SHAPES.Neutral;

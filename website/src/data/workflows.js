@@ -12,7 +12,7 @@ export const WORKFLOWS = [
     body: "Choose one of nine built-in Qwen3-TTS CustomVoice speaker presets, set the delivery, and turn a script into a clean spoken line. The simplest path when you want a consistent voice right away.",
     points: [
       ["Nine built-in speaker presets", "English, Chinese, Japanese, and Korean native presets, each tuned to its language."],
-      ["Delivery + intensity", "Nine delivery presets: Neutral, Happy, Sad, Angry, Fearful, Whisper, Dramatic, Calm, and Excited. Non-neutral presets support Subtle, Normal, or Strong."],
+      ["Delivery + intensity", "Twelve delivery presets: Neutral, Happy, Sad, Angry, Fearful, Surprised, Whisper, Dramatic, Calm, Excited, Narrator, and News. Non-neutral presets support Subtle, Normal, or Strong."],
       ["Custom tone field", "Describe the delivery in your own words when the chips aren't enough."],
     ],
     shot: "assets/screens/custom-voice.png",

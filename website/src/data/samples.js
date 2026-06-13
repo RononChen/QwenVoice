@@ -40,10 +40,13 @@ export const DELIVERIES = [
   { label: "Sad", color: "var(--emotion-sad)" },
   { label: "Angry", color: "var(--emotion-angry)" },
   { label: "Fearful", color: "var(--emotion-fearful)" },
+  { label: "Surprised", color: "var(--emotion-surprised)" },
   { label: "Whisper", color: "var(--emotion-whisper)" },
   { label: "Dramatic", color: "var(--emotion-dramatic)" },
   { label: "Calm", color: "var(--emotion-calm)" },
   { label: "Excited", color: "var(--emotion-excited)" },
+  { label: "Narrator", color: "var(--emotion-narrator)" },
+  { label: "News", color: "var(--emotion-news)" },
 ];
 
 export const DELIVERY_COLORS = {
@@ -52,8 +55,11 @@ export const DELIVERY_COLORS = {
   Sad: "#8C9EC7",
   Angry: "#C75233",
   Fearful: "#9E80C7",
+  Surprised: "#5FB8C2",
   Whisper: "#9E9EA8",
   Dramatic: "#C785A8",
   Calm: "#9EBC9E",
   Excited: "#EB9452",
+  Narrator: "#C7A36F",
+  News: "#7E93B0",
 };
