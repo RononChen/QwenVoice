@@ -38,6 +38,7 @@ struct IOSSettingsContainerView: View {
 private struct IOSSettingsView: View {
     @EnvironmentObject private var modelManager: ModelManagerViewModel
     @EnvironmentObject private var modelInstaller: IOSModelInstallerViewModel
+    @Environment(\.openURL) private var openURL
 
     @Binding var selectedTab: IOSAppTab
     @AppStorage("autoPlay") private var autoPlay = true
@@ -116,7 +117,7 @@ private struct IOSSettingsView: View {
                             symbol: "arrow.down.to.line",
                             title: "Storage",
                             value: storageSummaryText,
-                            showsChevron: true
+                            showsChevron: false
                         )
 
                         IOSSettingsReferenceDivider()
@@ -135,6 +136,38 @@ private struct IOSSettingsView: View {
                             title: "Reduce Transparency",
                             isOn: $reduceTransparencyEnabled,
                             tint: IOSBrandTheme.accent
+                        )
+                    }
+
+                    IOSSettingsReferenceSection(title: "About") {
+                        IOSSettingsReferenceValueRow(
+                            symbol: "hand.raised.fill",
+                            title: "Privacy Policy",
+                            value: "",
+                            showsChevron: true,
+                            action: { open("https://vocello.vercel.app/privacy") }
+                        )
+
+                        IOSSettingsReferenceDivider()
+
+                        IOSSettingsReferenceValueRow(
+                            symbol: "chevron.left.forwardslash.chevron.right",
+                            title: "Open source & licenses",
+                            value: "",
+                            showsChevron: true,
+                            action: { open("https://github.com/PowerBeef/QwenVoice") }
+                        )
+
+                        IOSSettingsReferenceDivider()
+
+                        // Permission recovery: mic / speech access is requested in-flow;
+                        // if denied, this is the path back without leaving the app guessing.
+                        IOSSettingsReferenceValueRow(
+                            symbol: "gearshape.fill",
+                            title: "Open iOS Settings",
+                            value: "Permissions",
+                            showsChevron: true,
+                            action: { open(UIApplication.openSettingsURLString) }
                         )
                     }
 
@@ -184,6 +217,11 @@ private struct IOSSettingsView: View {
         previewSettingsState?.sample(for: model)?.status
             ?? modelManager.statuses[model.id]
             ?? .checking
+    }
+
+    private func open(_ urlString: String) {
+        guard let url = URL(string: urlString) else { return }
+        openURL(url)
     }
 
     private func install(_ model: TTSModel) {

@@ -21,6 +21,7 @@ struct IOSOnboardingFlow: View {
             IOSModeBackdrop(tint: IOSBrandTheme.accent, intensity: .warm)
 
             VStack(spacing: 0) {
+                topBar
                 pages
                 pagination
                 ctaButton
