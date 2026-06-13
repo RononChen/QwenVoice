@@ -643,6 +643,9 @@ private struct IOSSavedVoicesLibrarySection: View {
                                         }
                                         await savedVoicesViewModel.refresh(using: ttsEngine)
                                     } catch {
+                                        // Surface the failure: a deleted-but-failed voice would
+                                        // otherwise just stay in the list with no signal.
+                                        await MainActor.run { IOSHaptics.warning() }
                                         #if DEBUG
                                         print("[IOSSavedVoicesLibrarySection] delete failed: \(error.localizedDescription)")
                                         #endif
