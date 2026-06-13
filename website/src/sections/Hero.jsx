@@ -14,8 +14,9 @@ export const Hero = () => (
           A voice studio that <span className="accent-gold">never leaves</span> your Mac.
         </h1>
         <p className="hero-sub">
-          Write a script, choose a preset or voice brief, and generate speech locally
-          on your Apple Silicon Mac after the model download.
+          Write a script, pick a preset or describe a voice, and generate speech locally
+          on your Apple Silicon Mac. Ten languages, faster than realtime, after a one-time
+          model download.
         </p>
         <div className="hero-ctas">
           <a className="btn btn-primary" href={RELEASE_LATEST} target="_blank" rel="noreferrer">

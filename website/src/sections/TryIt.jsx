@@ -8,15 +8,16 @@ export const TryIt = () => {
 
   return (
     <section className="section try-section" id="try" aria-labelledby="try-title">
-      <div className="container try-inner">
+      <div className="container">
+      <div className="try-inner">
         <div className="try-copy">
           <p className="section-note">Interactive voice brief</p>
           <h2 id="try-title" className="section-title try-title">
             Describe a voice.<br />Watch it take shape.
           </h2>
           <p className="section-sub try-sub">
-            A demo of the Voice Design surface. Type a brief, pick a delivery preset,
-            and the waveform shifts with your choices. In Vocello, the same brief
+            A demo of the Voice Design surface. Type a brief, pick one of twelve delivery
+            presets, and the waveform shifts with your choices. In Vocello, the same brief
             generates real audio locally on your Mac.
           </p>
 
@@ -56,6 +57,19 @@ export const TryIt = () => {
             Visualization only.
           </div>
         </div>
+      </div>
+
+      <figure className="try-shot">
+        <div className="window">
+          <img
+            src="assets/screens/delivery-presets.png"
+            alt="The Vocello delivery menu open, listing all twelve presets from Neutral to News"
+          />
+        </div>
+        <figcaption className="try-shot-caption">
+          All twelve presets, each with subtle, normal, and strong intensity, live in the app.
+        </figcaption>
+      </figure>
       </div>
     </section>
   );
