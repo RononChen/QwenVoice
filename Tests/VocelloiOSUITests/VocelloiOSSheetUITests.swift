@@ -25,8 +25,18 @@ final class VocelloiOSSheetUITests: XCTestCase {
         // state (ignored on a real device, which uses the in-process MLX engine).
         app.launchEnvironment["QVOICE_SIM_FAKE_MODELS"] = "all"
         app.launchEnvironment["QVOICE_SIM_SEED_DATA"] = "voices,history"
+        // These tests drive only the Studio chrome + bottom-sheet pickers (no audio
+        // generation), so skip the heavy on-launch engine model load. On the device that
+        // load (~2.3 GB) ran on every per-test relaunch and contended the accessibility
+        // server, making the Studio-surface waits flaky across the batch. The pickers'
+        // data (built-in speakers, languages, brief editor) comes from the contract, not
+        // the engine, so they populate regardless.
+        app.launchEnvironment["QVOICE_IOS_DISABLE_ENGINE"] = "1"
         app.launch()
         dismissOnboardingIfPresent()
+        // Absorb cold-launch latency once here: wait for the Studio surface to render
+        // before any test body runs, instead of failing mid-test in selectMode.
+        _ = app.descendants(matching: .any)["generateSection_custom"].waitForExistence(timeout: 30)
     }
 
     override func tearDown() {
@@ -121,7 +131,7 @@ final class VocelloiOSSheetUITests: XCTestCase {
     /// Tap a Studio selector pill (by label) and wait for the bottom sheet to open.
     private func openSheet(viaChipLabelPrefix prefix: String) {
         let chip = button(labelPrefix: prefix)
-        XCTAssertTrue(chip.waitForExistence(timeout: 15), "selector pill '\(prefix)…' should exist")
+        XCTAssertTrue(chip.waitForExistence(timeout: 30), "selector pill '\(prefix)…' should exist")
         chip.tap()
         XCTAssertTrue(
             element("bottomSheet_close").waitForExistence(timeout: 10),
@@ -130,14 +140,14 @@ final class VocelloiOSSheetUITests: XCTestCase {
     }
 
     @discardableResult
-    private func waitFor(_ identifier: String, timeout: TimeInterval = 15) -> Bool {
+    private func waitFor(_ identifier: String, timeout: TimeInterval = 30) -> Bool {
         element(identifier).waitForExistence(timeout: timeout)
     }
 
     /// Tap a mode segment (Custom/Design/Clone). A no-op if already selected; harmless.
     private func selectMode(_ identifier: String) {
         let segment = element(identifier)
-        XCTAssertTrue(segment.waitForExistence(timeout: 15), "mode segment \(identifier) should exist")
+        XCTAssertTrue(segment.waitForExistence(timeout: 30), "mode segment \(identifier) should exist")
         segment.tap()
     }
 

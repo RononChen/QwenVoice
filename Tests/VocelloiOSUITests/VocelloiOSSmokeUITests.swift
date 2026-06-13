@@ -18,6 +18,10 @@ final class VocelloiOSSmokeUITests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
         app = XCUIApplication()
+        // Pure UI-navigation smoke (no audio generation): skip the heavy on-launch engine
+        // model load so the accessibility server stays responsive and launches are
+        // fast/deterministic. Engine generation is covered by the headless bench harness.
+        app.launchEnvironment["QVOICE_IOS_DISABLE_ENGINE"] = "1"
         app.launch()
         dismissOnboardingIfPresent()
     }
@@ -73,7 +77,7 @@ final class VocelloiOSSmokeUITests: XCTestCase {
     }
 
     @discardableResult
-    private func waitFor(_ identifier: String, timeout: TimeInterval = 15) -> Bool {
+    private func waitFor(_ identifier: String, timeout: TimeInterval = 30) -> Bool {
         element(identifier).waitForExistence(timeout: timeout)
     }
 
