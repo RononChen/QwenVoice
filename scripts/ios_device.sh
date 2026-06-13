@@ -9,9 +9,12 @@
 # generation with no UI and writes a completion sentinel + telemetry into the
 # App-Group container, and this script pulls them back and summarizes.
 #
-# Privacy: the signing team comes from $QWENVOICE_DEVELOPMENT_TEAM (never hardcoded,
-# matching project.yml). The device is auto-discovered, or pinned via
-# $QVOICE_IOS_DEVICE_ID — neither is committed.
+# Privacy: the signing team is DERIVED AT RUNTIME from the local keychain (the OU of
+# the "Apple Development" cert) — never hardcoded/committed; $QWENVOICE_DEVELOPMENT_TEAM
+# overrides. The device is auto-discovered, or pinned via $QVOICE_IOS_DEVICE_ID —
+# neither is committed. Signing uses automatic provisioning by default and falls back
+# to OFFLINE manual signing (the already-installed dev profile + the Apple Development
+# identity) when no Apple ID is signed into Xcode — so no account login is needed.
 #
 # Usage:
 #   scripts/ios_device.sh doctor                  # environment + device preflight
@@ -35,7 +38,10 @@
 #   mode ∈ custom|design|clone, variant ∈ speed|quality (iPhone is speed-only).
 #
 # Env:
-#   QWENVOICE_DEVELOPMENT_TEAM   (required for build/install) Apple team id
+#   QWENVOICE_DEVELOPMENT_TEAM   (optional) Apple team id; auto-derived from the keychain
+#                                Apple Development cert OU when unset
+#   QVOICE_IOS_MANUAL_SIGN       (optional) set to 1 to force offline manual signing
+#                                (otherwise automatic, with auto-fallback to manual)
 #   QVOICE_IOS_DEVICE_ID         (optional) devicectl device id/name/udid; else auto
 #   QVOICE_IOS_BENCH_TIMEOUT     (optional) bench sentinel timeout seconds (default 300)
 #   QVOICE_IOS_NO_MIRROR         (optional) set to 1 to skip auto-starting iPhone Mirroring
@@ -55,6 +61,7 @@ APP_GROUP="group.com.patricedery.vocello.shared"
 DERIVED="$ROOT_DIR/build/ios"
 APP_PATH="$DERIVED/Build/Products/Release-iphoneos/Vocello.app"
 PROJECT="$ROOT_DIR/QwenVoice.xcodeproj"
+PROFILES_DIR="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
 
 # Reuse the shared storage-bloat advisory (warn-only; never deletes).
 . "$ROOT_DIR/scripts/lib/build_cache.sh"
@@ -140,9 +147,73 @@ OSA
   printf '%s\n' "$out"
 }
 
+# ─── Code signing (all values DERIVED AT RUNTIME; never hardcoded/committed) ──────
+# Team id = the OU of the keychain "Apple Development" cert. NOTE: the team is the
+# cert's OU, NOT the parenthetical in its CN ("Apple Development: …(XXXXXXXXXX)") —
+# that parenthetical is a per-developer identifier; mistaking it for the team yields
+# "No Account for Team …". $QWENVOICE_DEVELOPMENT_TEAM overrides if set.
+derive_team() {
+  if [[ -n "${QWENVOICE_DEVELOPMENT_TEAM:-}" ]]; then
+    printf '%s' "$QWENVOICE_DEVELOPMENT_TEAM"; return 0
+  fi
+  local t
+  t="$(security find-certificate -c "Apple Development" -p 2>/dev/null \
+        | openssl x509 -noout -subject 2>/dev/null \
+        | grep -oE 'OU=[A-Z0-9]+' | head -1 | cut -d= -f2)"
+  [[ -n "$t" ]] || return 1
+  export QWENVOICE_DEVELOPMENT_TEAM="$t"
+  printf '%s' "$t"
+}
+
 require_team() {
-  [[ -n "${QWENVOICE_DEVELOPMENT_TEAM:-}" ]] \
-    || die "set QWENVOICE_DEVELOPMENT_TEAM=<apple-team-id> first (matches project.yml)"
+  derive_team >/dev/null \
+    || die "no signing team — set QWENVOICE_DEVELOPMENT_TEAM=<apple-team-id>, or install an 'Apple Development' certificate (Xcode → Settings → Accounts) so it can be auto-derived from the keychain"
+}
+
+# Echo the NAME of the installed *development* provisioning profile (get-task-allow=true)
+# whose application-identifier == <team>.<BUNDLE_ID>. Empty if none. Lets manual signing
+# reuse an already-present profile with zero Apple-account round-trip.
+find_dev_profile_name() {
+  local team="$1"
+  [[ -d "$PROFILES_DIR" ]] || return 0
+  local f plist appid gta name
+  for f in "$PROFILES_DIR"/*.mobileprovision; do
+    [[ -e "$f" ]] || continue
+    plist="$(security cms -D -i "$f" 2>/dev/null)" || continue
+    gta="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' /dev/stdin <<<"$plist" 2>/dev/null)"
+    [[ "$gta" == "true" ]] || continue
+    appid="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin <<<"$plist" 2>/dev/null)"
+    if [[ "$appid" == "$team.$BUNDLE_ID" ]]; then
+      name="$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<<"$plist" 2>/dev/null)"
+      [[ -n "$name" ]] && { printf '%s' "$name"; return 0; }
+    fi
+  done
+  return 0
+}
+
+# Populate SIGN_ARGS for xcodebuild. auto = automatic signing + provisioning updates
+# (needs the Apple ID present in Xcode). manual = the installed dev profile + the
+# Apple Development identity, fully offline (no Apple-account contact).
+SIGN_ARGS=()
+build_sign_args() {
+  local mode="$1" team="$2"
+  if [[ "$mode" == manual ]]; then
+    local prof; prof="$(find_dev_profile_name "$team")"
+    [[ -n "$prof" ]] || die "manual signing: no installed development profile for $team.$BUNDLE_ID (generate one once via Xcode, or unset QVOICE_IOS_MANUAL_SIGN to use automatic signing)"
+    note "manual signing → profile: $prof"
+    SIGN_ARGS=(
+      DEVELOPMENT_TEAM="$team"
+      CODE_SIGN_STYLE=Manual
+      PROVISIONING_PROFILE_SPECIFIER="$prof"
+      CODE_SIGN_IDENTITY="Apple Development"
+    )
+  else
+    SIGN_ARGS=(
+      -allowProvisioningUpdates
+      DEVELOPMENT_TEAM="$team"
+      CODE_SIGN_STYLE=Automatic
+    )
+  fi
 }
 
 # Resolve the target device id. Prefer $QVOICE_IOS_DEVICE_ID; otherwise auto-pick the
@@ -190,10 +261,12 @@ cmd_doctor() {
   note "Vocello iOS device doctor"
   command -v xcrun >/dev/null || die "xcrun not found (install Xcode)"
   printf '  xcode: %s\n' "$(xcodebuild -version 2>/dev/null | head -1)" >&2
-  if [[ -n "${QWENVOICE_DEVELOPMENT_TEAM:-}" ]]; then
-    printf '  team:  set (QWENVOICE_DEVELOPMENT_TEAM)\n' >&2
+  local team_d
+  if team_d="$(derive_team 2>/dev/null)" && [[ -n "$team_d" ]]; then
+    local src="keychain"; [[ -n "${QWENVOICE_DEVELOPMENT_TEAM:-}" ]] && src="env"
+    printf '  team:  %s (%s)\n' "$team_d" "$src" >&2
   else
-    warn "QWENVOICE_DEVELOPMENT_TEAM is NOT set (required for build/install)"
+    warn "no signing team — set QWENVOICE_DEVELOPMENT_TEAM, or add an Apple Development cert (Xcode → Settings → Accounts)"
   fi
   local dev; dev="$(resolve_device)"
   printf '  device: %s\n' "$dev" >&2
@@ -211,15 +284,37 @@ cmd_doctor() {
 
 cmd_build() {
   require_team
+  local team; team="$(derive_team)"
   local dev; dev="$(resolve_device)"
-  note "building $SCHEME ($CONFIG, -Onone) for $dev"
-  xcodebuild \
-    -project "$PROJECT" -scheme "$SCHEME" -configuration "$CONFIG" \
-    -destination "id=$dev" -derivedDataPath "$DERIVED" \
-    -allowProvisioningUpdates \
-    DEVELOPMENT_TEAM="$QWENVOICE_DEVELOPMENT_TEAM" CODE_SIGN_STYLE=Automatic \
-    SWIFT_OPTIMIZATION_LEVEL=-Onone \
-    build
+  note "building $SCHEME ($CONFIG, -Onone) for $dev (team $team)"
+  mkdir -p "$DERIVED"
+  local log="$DERIVED/device-build.log"
+
+  local mode="auto"
+  [[ "${QVOICE_IOS_MANUAL_SIGN:-}" == "1" ]] && mode="manual"
+
+  _run_device_build() {
+    build_sign_args "$1" "$team"
+    set +e
+    xcodebuild \
+      -project "$PROJECT" -scheme "$SCHEME" -configuration "$CONFIG" \
+      -destination "id=$dev" -derivedDataPath "$DERIVED" \
+      "${SIGN_ARGS[@]}" \
+      SWIFT_OPTIMIZATION_LEVEL=-Onone \
+      build 2>&1 | tee "$log"
+    local st=${PIPESTATUS[0]}; set -e; return $st
+  }
+
+  if _run_device_build "$mode"; then
+    :
+  elif [[ "$mode" == auto ]] \
+       && grep -qiE "No Account for Team|requires a development team|No profiles for|No signing certificate|Provisioning profile" "$log"; then
+    warn "automatic signing failed (Apple ID likely not signed into Xcode) — retrying offline with the installed development profile"
+    _run_device_build manual || die "manual-signing build also failed (see $log)"
+  else
+    die "device build failed (see $log)"
+  fi
+
   [[ -d "$APP_PATH" ]] || die "build finished but $APP_PATH is missing"
   note "built $APP_PATH"
   warn_if_storage_bloated
