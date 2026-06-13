@@ -36,6 +36,10 @@
 	<array>
 		<string>arm64</string>
 	</array>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Vocello records reference clips you use to clone voices on-device. Recordings stay on this iPhone.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

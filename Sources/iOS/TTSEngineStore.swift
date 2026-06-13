@@ -112,6 +112,7 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
 
     deinit {
         chunkForwardTask?.cancel()
+        activeGenerationMemoryGuardTask?.cancel()
     }
 
     /// For in-process engines (iOS), drain the FULL ordered event stream and forward each
