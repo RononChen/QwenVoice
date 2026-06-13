@@ -14,6 +14,24 @@ final class ClipReviewPlayer: NSObject, ObservableObject {
     private var player: AVAudioPlayer?
     private var url: URL?
     private var timer: Timer?
+    #if os(iOS)
+    private var interruptionObserver: NSObjectProtocol?
+    #endif
+
+    deinit {
+        // AVAudioPlayer holds its delegate unsafe-unowned; clear it and stop the
+        // timer so a late callback / repeating tick can't touch a freed object.
+        MainActor.assumeIsolated {
+            #if os(iOS)
+            if let interruptionObserver {
+                NotificationCenter.default.removeObserver(interruptionObserver)
+            }
+            #endif
+            player?.delegate = nil
+            player?.stop()
+            timer?.invalidate()
+        }
+    }
 
     /// Prepare the player + read the duration without starting playback.
     func load(url: URL) {
@@ -44,6 +62,9 @@ final class ClipReviewPlayer: NSObject, ObservableObject {
         player.play()
         isPlaying = true
         startTimer()
+        #if os(iOS)
+        registerInterruptionObserver()
+        #endif
     }
 
     func pause() {
@@ -63,7 +84,35 @@ final class ClipReviewPlayer: NSObject, ObservableObject {
         progress = 0
         duration = 0
         stopTimer()
+        #if os(iOS)
+        removeInterruptionObserver()
+        #endif
     }
+
+    #if os(iOS)
+    private func registerInterruptionObserver() {
+        guard interruptionObserver == nil else { return }
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            let typeRaw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            MainActor.assumeIsolated {
+                guard let self, let typeRaw,
+                      AVAudioSession.InterruptionType(rawValue: typeRaw) == .began else { return }
+                self.pause()
+            }
+        }
+    }
+
+    private func removeInterruptionObserver() {
+        if let interruptionObserver {
+            NotificationCenter.default.removeObserver(interruptionObserver)
+            self.interruptionObserver = nil
+        }
+    }
+    #endif
 
     private func startTimer() {
         stopTimer()

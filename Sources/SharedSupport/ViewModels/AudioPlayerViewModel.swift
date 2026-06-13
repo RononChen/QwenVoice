@@ -264,6 +264,11 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     private var chunkObserver: NSObjectProtocol?
     private var chunkCancellable: AnyCancellable?
     private var timer: Timer?
+    #if os(iOS)
+    private var interruptionObserver: NSObjectProtocol?
+    private var routeChangeObserver: NSObjectProtocol?
+    private var shouldResumeAfterInterruption = false
+    #endif
 
     private func setLivePreviewQueueDepth(_ value: Int) {
         guard livePreviewQueueDepth != value else { return }
@@ -313,10 +318,21 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         livePreviewConfiguration = .current()
         super.init()
         bindGenerationEventSource()
+        #if os(iOS)
+        registerAudioSessionObservers()
+        #endif
     }
 
     deinit {
         MainActor.assumeIsolated {
+            #if os(iOS)
+            if let interruptionObserver {
+                NotificationCenter.default.removeObserver(interruptionObserver)
+            }
+            if let routeChangeObserver {
+                NotificationCenter.default.removeObserver(routeChangeObserver)
+            }
+            #endif
             timer?.invalidate()
             if let chunkObserver {
                 NotificationCenter.default.removeObserver(chunkObserver)
@@ -326,6 +342,60 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             stopFilePlayback(clearPlayer: true)
         }
     }
+
+    #if os(iOS)
+    /// Pause for audio-session interruptions (calls/Siri) and route changes
+    /// (headphones/Bluetooth unplugged). Without these, an interrupted player
+    /// sits in a stale `isPlaying` state and an unplug keeps audio blasting
+    /// from the speaker — both are App Store quality + HIG concerns.
+    private func registerAudioSessionObservers() {
+        let center = NotificationCenter.default
+        interruptionObserver = center.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            // Extract Sendable raw values before the actor hop (Notification is not Sendable).
+            let typeRaw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            let optionsRaw = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
+            MainActor.assumeIsolated { self?.handleAudioSessionInterruption(typeRaw: typeRaw, optionsRaw: optionsRaw) }
+        }
+        routeChangeObserver = center.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            let reasonRaw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            MainActor.assumeIsolated { self?.handleAudioRouteChange(reasonRaw: reasonRaw) }
+        }
+    }
+
+    private func handleAudioSessionInterruption(typeRaw: UInt?, optionsRaw: UInt?) {
+        guard let typeRaw, let type = AVAudioSession.InterruptionType(rawValue: typeRaw) else { return }
+        switch type {
+        case .began:
+            // Only file playback is safely resumable; a live streaming preview
+            // is transient and should not auto-resume mid-generation.
+            shouldResumeAfterInterruption = isPlaying && playbackMode == .file
+            if isPlaying { pause() }
+        case .ended:
+            guard shouldResumeAfterInterruption, playbackMode == .file else { return }
+            shouldResumeAfterInterruption = false
+            if let optionsRaw,
+               AVAudioSession.InterruptionOptions(rawValue: optionsRaw).contains(.shouldResume) {
+                play()
+            }
+        @unknown default:
+            break
+        }
+    }
+
+    private func handleAudioRouteChange(reasonRaw: UInt?) {
+        guard let reasonRaw,
+              AVAudioSession.RouteChangeReason(rawValue: reasonRaw) == .oldDeviceUnavailable else { return }
+        if isPlaying { pause() }
+    }
+    #endif
 
     // MARK: - Playback
 

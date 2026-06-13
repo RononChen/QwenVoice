@@ -113,7 +113,9 @@ struct QVoiceiOSApp: App {
             do {
                 try await engine.initialize(appSupportDirectory: AppPaths.appSupportDir)
                 await engine.refreshMemoryContext(reason: "engine_initialized", source: "app")
+                #if DEBUG
                 print("[QVoiceiOSApp] Engine initialized.")
+                #endif
                 // Headless on-device bench/smoke driver. No-op unless QVOICE_IOS_AUTORUN
                 // is set in the launch environment (scripts/ios_device.sh bench).
                 IOSAutorunHarness.runIfRequested(engine: engine)
@@ -130,6 +132,7 @@ struct QVoiceiOSApp: App {
     private func handleScenePhaseChange(_ scenePhase: ScenePhase) {
         switch scenePhase {
         case .active:
+            setPlaybackSessionActive(true)
             if let engine = deps.engine {
                 Task {
                     await engine.refreshMemoryContext(reason: "scene_active", source: "app")
@@ -138,11 +141,31 @@ struct QVoiceiOSApp: App {
             executeDeferredMemoryPressureReliefIfNeeded()
             executeDeferredRuntimeReleaseIfNeeded()
         case .background:
+            // Hand the audio session back to the system so other apps can resume
+            // (we declare no background-audio mode, so playback can't continue
+            // backgrounded anyway). Foregrounding re-activates it.
+            setPlaybackSessionActive(false)
             releaseRuntime(reason: "background")
         case .inactive:
             break
         @unknown default:
             break
+        }
+    }
+
+    private func setPlaybackSessionActive(_ active: Bool) {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            if active {
+                try session.setCategory(.playback, mode: .default)
+                try session.setActive(true)
+            } else {
+                try session.setActive(false, options: .notifyOthersOnDeactivation)
+            }
+        } catch {
+            #if DEBUG
+            print("[QVoiceiOSApp] Audio session \(active ? "activate" : "deactivate") failed: \(error.localizedDescription)")
+            #endif
         }
     }
 
@@ -342,6 +365,12 @@ struct QVoiceiOSApp: App {
         try? IOSModelDeliverySupport.excludeFromBackup(AppPaths.modelsDir)
         try? IOSModelDeliverySupport.excludeFromBackup(AppPaths.modelDownloadRootDir)
         try? IOSModelDeliverySupport.excludeFromBackup(AppPaths.modelDownloadStagingDir)
+        // Regenerable intermediates (prepared/normalized audio, stream sessions, MLX
+        // cache, imported-reference staging) must not bloat the user's iCloud backup.
+        // User content — outputs/, voices/, history.sqlite — stays backed up.
+        try? IOSModelDeliverySupport.excludeFromBackup(
+            AppPaths.appSupportDir.appendingPathComponent("cache", isDirectory: true)
+        )
     }
 
     private func configureAudioSession() {

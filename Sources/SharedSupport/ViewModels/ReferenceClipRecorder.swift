@@ -19,6 +19,12 @@ final class ReferenceClipRecorder: NSObject, ObservableObject {
     @Published var showsPermissionAlert: Bool = false
     @Published private(set) var permissionDenied: Bool = false
     @Published private(set) var lastSavedURL: URL?
+    /// True when the in-progress recording was ended by an audio-session
+    /// interruption (incoming call, Siri, another app taking the mic) rather
+    /// than the user stopping it. The capture up to that point is finalized +
+    /// saved (so the take isn't silently lost); the UI surfaces a notice.
+    /// Cleared on the next `start()` / `reset()`.
+    @Published private(set) var wasInterrupted: Bool = false
     /// True when the last `start()` attempt couldn't begin capturing —
     /// typically no input device (Macs without a microphone) or a hardware
     /// failure. Cleared on the next successful start or `reset()`.
@@ -54,6 +60,20 @@ final class ReferenceClipRecorder: NSObject, ObservableObject {
     private var startedAt: Date?
     /// Active virtual-microphone session (see `virtualMicrophoneURL`).
     private var virtualSource: (url: URL, duration: Double, envelope: [Double])?
+    #if os(iOS)
+    private var interruptionObserver: NSObjectProtocol?
+    #endif
+
+    deinit {
+        MainActor.assumeIsolated {
+            #if os(iOS)
+            if let interruptionObserver {
+                NotificationCenter.default.removeObserver(interruptionObserver)
+            }
+            #endif
+            meteringTimer?.invalidate()
+        }
+    }
 
     /// Re-read the system permission state without prompting — call when the
     /// app becomes active again so a grant made in System Settings clears the
@@ -144,16 +164,58 @@ final class ReferenceClipRecorder: NSObject, ObservableObject {
             self.recorder = recorder
             self.isRecording = true
             self.recordingFailed = false
+            self.wasInterrupted = false
             self.startedAt = Date()
             self.elapsed = 0
             self.amplitude = 0
             self.levels = []
             startMetering()
+            #if os(iOS)
+            registerInterruptionObserver()
+            #endif
         } catch {
             isRecording = false
             recordingFailed = true
         }
     }
+
+    #if os(iOS)
+    /// Observe audio-session interruptions while recording. An incoming call,
+    /// Siri, or another app grabbing the input stops hardware capture; without
+    /// this the recorder would sit in a stale `isRecording` state and the take
+    /// would be silently dropped. On `.began` we finalize + save whatever was
+    /// captured and flag `wasInterrupted` so the UI can explain.
+    private func registerInterruptionObserver() {
+        guard interruptionObserver == nil else { return }
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            // Extract the Sendable raw value before the actor hop — the
+            // Notification itself is not Sendable (Swift 6 strict concurrency).
+            let typeRaw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            MainActor.assumeIsolated {
+                self?.handleAudioSessionInterruption(typeRaw: typeRaw)
+            }
+        }
+    }
+
+    private func removeInterruptionObserver() {
+        if let interruptionObserver {
+            NotificationCenter.default.removeObserver(interruptionObserver)
+            self.interruptionObserver = nil
+        }
+    }
+
+    private func handleAudioSessionInterruption(typeRaw: UInt?) {
+        guard isRecording,
+              let typeRaw,
+              AVAudioSession.InterruptionType(rawValue: typeRaw) == .began else { return }
+        wasInterrupted = true
+        _ = stopAndSave()
+    }
+    #endif
 
     @discardableResult
     func stopAndSave() -> URL? {
@@ -178,7 +240,8 @@ final class ReferenceClipRecorder: NSObject, ObservableObject {
         meteringTimer = nil
         isRecording = false
         #if os(iOS)
-        try? AVAudioSession.sharedInstance().setActive(false)
+        removeInterruptionObserver()
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         #endif
         lastSavedURL = recorder.url
         return recorder.url
@@ -206,7 +269,8 @@ final class ReferenceClipRecorder: NSObject, ObservableObject {
         amplitude = 0
         levels = []
         #if os(iOS)
-        try? AVAudioSession.sharedInstance().setActive(false)
+        removeInterruptionObserver()
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         #endif
     }
 
@@ -214,6 +278,7 @@ final class ReferenceClipRecorder: NSObject, ObservableObject {
         stopWithoutSaving()
         lastSavedURL = nil
         recordingFailed = false
+        wasInterrupted = false
     }
 
     /// Begin a simulated capture session driven by the virtual-microphone

@@ -17,6 +17,7 @@ struct IOSRecordingOverlay: View {
     @StateObject private var recorder = ReferenceClipRecorder()
 
     @Environment(\.iosReduceMotionEnabled) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -39,6 +40,13 @@ struct IOSRecordingOverlay: View {
         .interactiveDismissDisabled(true)
         .task {
             await recorder.requestPermissionIfNeeded()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Clear the denied state without a relaunch if the user granted
+            // mic access in iOS Settings and returned (mirrors macOS).
+            if newPhase == .active {
+                recorder.refreshPermissionState()
+            }
         }
         .onDisappear {
             recorder.stopWithoutSaving()
@@ -145,6 +153,9 @@ struct IOSRecordingOverlay: View {
     }
 
     private var statusLabel: String {
+        if recorder.wasInterrupted && !recorder.isRecording && recorder.elapsed > 0 {
+            return "Recording was interrupted. The clip up to that point was kept."
+        }
         if !recorder.isRecording && recorder.elapsed == 0 {
             return "Tap Record to begin."
         }
