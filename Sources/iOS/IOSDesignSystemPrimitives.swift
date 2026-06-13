@@ -992,13 +992,13 @@ struct IOSFilterChipRow<Option: Hashable & Identifiable>: View {
                     leading(option)
                 }
                 Text(label(option))
-                    .font(.system(size: 13, weight: .semibold))
+                    .iosScaledFont(size: 13, weight: .semibold, relativeTo: .caption)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
             .foregroundStyle(isSelected ? IOSAppTheme.textPrimary : IOSAppTheme.textSecondary)
             .frame(maxWidth: .infinity)
-            .frame(height: 32)
+            .frame(minHeight: 32)
             .padding(.horizontal, 12)
             .background {
                 Capsule(style: .continuous)
@@ -1036,7 +1036,7 @@ struct IOSSearchField: View {
                 .textInputAutocapitalization(.never)
                 .submitLabel(.search)
                 .foregroundStyle(IOSAppTheme.textPrimary)
-                .font(.system(size: 15))
+                .iosScaledFont(size: 15, relativeTo: .subheadline)
 
             if !text.isEmpty {
                 Button {
@@ -1051,7 +1051,7 @@ struct IOSSearchField: View {
             }
         }
         .padding(.horizontal, 14)
-        .frame(height: 40)
+        .frame(minHeight: 40)
         .background {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color.white.opacity(0.06))

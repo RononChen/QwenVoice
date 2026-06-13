@@ -254,7 +254,7 @@ private struct IOSSettingsReferenceSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title.uppercased())
-                .font(.system(size: 11, weight: .semibold))
+                .iosScaledFont(size: 11, weight: .semibold, relativeTo: .caption2)
                 .tracking(0.88)
                 .foregroundStyle(IOSAppTheme.textSecondary)
                 .padding(.horizontal, 20)
@@ -830,7 +830,7 @@ private struct IOSModelRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(model.mode.displayName)
-                    .font(.system(size: 15, weight: .semibold))
+                    .iosScaledFont(size: 15, weight: .semibold, relativeTo: .subheadline)
                     .tracking(-0.075)
                     .foregroundStyle(IOSAppTheme.textPrimary)
 
@@ -859,7 +859,7 @@ private struct IOSModelRow: View {
                                      : IOSAppTheme.textSecondary)
             }
         }
-        .font(.system(size: 12))
+        .iosScaledFont(size: 12, relativeTo: .caption)
         .foregroundStyle(IOSAppTheme.textSecondary)
         .lineLimit(1)
     }

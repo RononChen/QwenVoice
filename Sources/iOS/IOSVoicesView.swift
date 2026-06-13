@@ -117,7 +117,7 @@ struct IOSVoicesView: View {
 
     private func voicesSectionHeading(_ title: String) -> some View {
         Text(title.uppercased())
-            .font(.system(size: 11, weight: .semibold))
+            .iosScaledFont(size: 11, weight: .semibold, relativeTo: .caption2)
             .tracking(0.88)
             .foregroundStyle(IOSAppTheme.textSecondary)
             .padding(.horizontal, 20)
