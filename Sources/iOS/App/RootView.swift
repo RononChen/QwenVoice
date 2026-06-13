@@ -16,6 +16,7 @@ import QwenVoiceCore
 /// screens (StudioScreen, VoicesScreen, HistoryScreen, SettingsScreen).
 struct RootView: View {
     @Environment(AppModel.self) private var appModel
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
     @AppStorage(IOSAppDefaults.reduceMotionEnabledKey) private var appReduceMotion = false
@@ -88,6 +89,16 @@ struct RootView: View {
             bottomPanelOverlay
             deleteModelSheetOverlay
         }
+        // App-switcher privacy: when the app is not active, cover the content so the
+        // script/transcript being composed isn't captured in the multitasking snapshot.
+        .overlay {
+            if scenePhase != .active {
+                IOSAppSwitcherPrivacyCover()
+                    .transition(.opacity)
+                    .zIndex(100)
+            }
+        }
+        .iosAppAnimation(Theme.Motion.easeOut, value: scenePhase)
         .iosAppAnimation(Theme.Motion.sheetSlideUp, value: isFocusBackdropActive)
         .environment(\.presentIOSPlayerSheet) { item in
             appModel.playerSheetItem = item
@@ -219,6 +230,25 @@ struct RootView: View {
 
     private var effectiveReduceTransparency: Bool {
         systemReduceTransparency || appReduceTransparency
+    }
+}
+
+/// Opaque branded cover shown when the app is backgrounded/inactive so the
+/// multitasking snapshot doesn't reveal the user's in-progress script or
+/// transcript. Mirrors the launch screen so the transition reads as intentional.
+private struct IOSAppSwitcherPrivacyCover: View {
+    var body: some View {
+        ZStack {
+            Color(red: 13 / 255, green: 14 / 255, blue: 18 / 255)
+                .ignoresSafeArea()
+            Image("VocelloLaunchLogo")
+                .renderingMode(.original)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 200)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
