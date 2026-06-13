@@ -535,8 +535,13 @@ private struct IOSHistoryItemCard: View {
                     .overlay {
                         Circle().stroke(Color.white.opacity(0.10), lineWidth: 0.5)
                     }
+                    // 32pt visual, 44pt hit target (HIG minimum) — this menu is the
+                    // only Play/Save/Delete path on the row.
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("More actions")
             .accessibilityIdentifier("historyRowMenu_\(item.historyAccessibilityID)")
         }
         .padding(.horizontal, 20)

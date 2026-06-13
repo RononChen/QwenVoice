@@ -248,6 +248,19 @@ struct IOSPlayerSheet: View {
                             controller.scrub(to: ratio)
                         }
                 )
+                // VoiceOver: a draggable thumb is unreachable; expose it as an
+                // adjustable element so swipe-up/down scrubs in 5% steps.
+                .accessibilityElement()
+                .accessibilityLabel("Playback position")
+                .accessibilityValue(controller.formatted(time: controller.currentTime))
+                .accessibilityAdjustableAction { direction in
+                    let step = 0.05
+                    switch direction {
+                    case .increment: controller.scrub(to: min(1, controller.progress + step))
+                    case .decrement: controller.scrub(to: max(0, controller.progress - step))
+                    @unknown default: break
+                    }
+                }
             }
             .frame(height: 24)
 
@@ -306,6 +319,7 @@ struct IOSPlayerSheet: View {
                 controller.togglePlayback()
             } label: {
                 Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
+                    .accessibilityLabel(controller.isPlaying ? "Pause" : "Play")
                     .font(.system(size: 28, weight: .bold))
                     .foregroundStyle(IOSAppTheme.accentForeground)
                     .frame(width: 72, height: 72)

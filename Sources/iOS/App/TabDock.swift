@@ -102,8 +102,10 @@ private struct TabDockButton: View {
         .buttonStyle(.plain)
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.42 : 1)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(tab.title)
         .accessibilityIdentifier("rootTab_\(tab.rawValue)")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : [.isButton])
     }
 }
 

@@ -383,6 +383,7 @@ struct IOSStudioCanvas<SetupChips: View>: View {
                     }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Stop generating")
             .accessibilityIdentifier("textInput_cancelButton")
         }
         .padding(.horizontal, 16)
