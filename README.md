@@ -1,7 +1,7 @@
 <h1 align="center">Vocello</h1>
 
 <p align="center">
-  A local, private voice studio for Apple Silicon — on Mac and iPhone. Write a script, shape how the voice should sound, and generate speech right on your device.<br>
+  A local, private voice studio for Apple Silicon. Write a script, shape how the voice should sound, and generate speech right on your device — no cloud, no account, no per-line meter.<br>
   <strong>On your Mac today · iPhone arriving soon.</strong>
 </p>
 
@@ -23,10 +23,10 @@
 
 ---
 
-- 🎙️ **Three ways to make a voice** — pick a built-in speaker, describe one in plain language, or clone from a reference clip you have rights to (record it right in the app, or import a file).
-- 🔒 **Private by default** — after a one-time model download, every line renders on your device. No scripts uploaded, no audio sent to a cloud TTS service.
-- ⚡ **Native Swift + MLX** — no Python runtime, no bundled weights, no per-line meter and no cloud queue.
-- 📱 **iPhone arriving soon** — the same on-device engine on Apple Silicon iPhone; on-device generation already works, with the App Store / TestFlight distribution lane still in progress.
+- 🎙️ **Three ways to make a voice** — pick a built-in speaker, describe one in plain language, or clone a reference clip you have rights to (record it in the app, or import a file).
+- 🔒 **Private by default** — after a one-time model download, every line renders on your device. No scripts uploaded, no audio sent to a cloud service.
+- ⚡ **Fast, native Swift + MLX** — faster than realtime on Apple Silicon, down to 8 GB Macs. No Python runtime, no bundled weights, no cloud queue.
+- 🌍 **Speaks ten languages** — with automatic language detection, twelve delivery styles, and reproducible takes.
 
 ## Get Vocello
 
@@ -36,28 +36,15 @@
 | **macOS 15** | QwenVoice 1.2.3 — [Download legacy](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3) | Legacy build. No 2.x backport planned. |
 | **iPhone** (iOS 26+, Apple Silicon) | **Arriving soon** | The same on-device engine; ships via App Store / TestFlight (not GitHub Releases). |
 
-## 📱 Vocello for iPhone — arriving soon
-
-<table>
-  <tr>
-    <td width="300" valign="top">
-      <img src="docs/screenshots/vocello-ios-studio.png" alt="Vocello running on iPhone — the Studio screen with Custom / Design / Clone modes" width="300">
-    </td>
-    <td valign="top">
-      <p>Vocello is coming to iPhone — the <strong>same local, private engine</strong>, running <strong>fully on-device</strong> on Apple Silicon. Write a script, pick or describe a voice, and generate speech without a cloud round-trip, exactly like the Mac app.</p>
-      <p><strong>On-device generation already works.</strong> The remaining piece is the <strong>App Store / TestFlight</strong> distribution lane (not GitHub Releases), which is still in progress. No public release date yet.</p>
-      <p>This is what the native Swift + MLX rebuild was for: replacing the old bundled Python runtime with an engine that runs entirely on-device — the only way to bring Vocello to iPhone.</p>
-      <p><strong>Want to follow along?</strong> Star ⭐ and watch 👀 the repo for updates.</p>
-    </td>
-  </tr>
-</table>
-
 ## Why Vocello
 
-- **Private by default.** After models are installed, generation runs locally and your scripts, history, and generated audio stay in local app storage unless you export them.
+- **Private by default.** After models are installed, generation runs locally. Your scripts, history, recorded clips, and generated audio stay in local app storage unless you choose to export them.
+- **Faster than realtime, even on 8 GB Macs.** A native Swift + MLX engine (no Python runtime, no bundled weights) generates speech faster than it plays back on Apple Silicon. The 2.1 backend work pushed the entry-level 8 GB Mac past realtime, with smoother memory behavior while you generate.
+- **Ten languages, auto-detected.** Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, and Italian. The language selector shows the language detected from your script (`Language · Auto`) and lets you pin a specific one.
+- **Twelve delivery styles with intensity.** Neutral, Happy, Sad, Angry, Fearful, Surprised, Whisper, Dramatic, Calm, Excited, Narrator, and News — each at subtle, normal, or strong intensity, plus a free-text custom tone when you want to describe the delivery in your own words.
+- **A real voice library.** Record a reference clip with your Mac's microphone (or import one), let it transcribe on-device, save the result, and reuse it. Voice Design results can be saved and re-used for cloning, and the speaker and language pickers surface recommendations that follow the language you're writing in.
+- **Reproducible takes.** A variation control (Expressive, Balanced, Consistent) trades take-to-take variety against stability, every generation records its sampling seed, and multi-line batches share one seed so a batch reads as a single consistent performance.
 - **No subscription meter.** Download the models you want, then generate on your own hardware without paying per line or waiting on a cloud queue.
-- **Three voice workflows.** Use a built-in speaker, describe a new voice, or clone from a reference clip you own or have permission to use — recorded in the app or imported.
-- **Built for Apple Silicon.** A native Swift + MLX engine (replacing the old bundled Python runtime) keeps generation local, private, and fully on-device — and it's what makes the iPhone app possible (Python can't ship on iPhone; on-device MLX can).
 
 ## Three voice workflows
 
@@ -67,13 +54,13 @@
       <img src="docs/screenshots/vocello-custom-voice.png" alt="Custom Voice screen">
       <br>
       <strong>Custom Voice</strong><br>
-      Pick one of nine built-in Qwen3 speaker presets, set delivery, and generate a clean spoken line. The fastest path when you want a consistent voice right away.
+      Pick one of nine built-in Qwen3 speaker presets, choose a delivery style and intensity, and generate a clean spoken line. The fastest path when you want a consistent voice right away.
     </td>
     <td width="50%">
       <img src="docs/screenshots/vocello-voice-design.png" alt="Voice Design screen">
       <br>
       <strong>Voice Design</strong><br>
-      Describe the voice you want in plain language, then write the script. Vocello shapes the take from that brief.
+      Describe the voice you want in plain language — character, age, accent, texture — then write the script. Vocello shapes the take from that brief, and you can save the result to reuse later.
     </td>
   </tr>
   <tr>
@@ -81,13 +68,32 @@
       <img src="docs/screenshots/vocello-voice-cloning.png" alt="Voice Cloning screen">
       <br>
       <strong>Voice Cloning</strong><br>
-      Record a short reference clip with your Mac's microphone, or import one (WAV, MP3, AIFF, M4A, FLAC, or OGG). The optional transcript can auto-fill with on-device transcription. Only clone voices you own or have permission to use.
+      Record a short reference clip with your Mac's microphone, or import one (WAV, MP3, AIFF, M4A, FLAC, or OGG). The transcript can auto-fill with on-device transcription. Only clone voices you own or have permission to use.
     </td>
     <td width="50%">
       <img src="docs/screenshots/vocello-model-downloads.png" alt="Model downloads settings screen">
       <br>
       <strong>Model downloads</strong><br>
-      Install and manage Speed and Quality packages for each voice mode from Settings. Generation screens own the Speed/Quality choice while you write.
+      Install and manage the Speed and Quality package for each voice mode from Settings. Generation screens own the Speed/Quality choice while you write.
+    </td>
+  </tr>
+</table>
+
+## More in the app
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/vocello-delivery-presets.png" alt="The delivery presets menu open, showing twelve styles">
+      <br>
+      <strong>Delivery presets</strong><br>
+      Twelve expressive styles — from Whisper and Calm to Dramatic, Narrator, and News — each with a subtle / normal / strong intensity, or describe a custom tone in your own words.
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/vocello-history.png" alt="The History screen listing past generations">
+      <br>
+      <strong>History &amp; library</strong><br>
+      Every generation is saved locally with its mode, voice, and length. Replay it, save it to your voice library, export the audio, or search back through past takes. Clear-all lets you keep the audio files or delete them too.
     </td>
   </tr>
 </table>
@@ -97,7 +103,7 @@
 1. Download [`Vocello-macos26.dmg`](https://github.com/PowerBeef/QwenVoice/releases/tag/v2.1.0).
 2. Open the DMG and drag `Vocello.app` to `/Applications`.
 3. Open Vocello.
-4. Go to **Settings → Model downloads** and install the voice models you want.
+4. Go to **Settings → Model downloads** and install the voice models you want (the recommended Speed packages are ~7 GB total).
 5. Generate from Custom Voice, Voice Design, or Voice Cloning.
 
 No Python setup or local server is required — install the app, download models from Settings, and generate locally.
@@ -111,13 +117,15 @@ spctl --assess --type install -vv Vocello-macos26.dmg   # accepted, source=Notar
 
 A `release-metadata.txt` (commit SHA, Xcode version, SDK, marketing version, build number) is attached to the same release for build provenance.
 
+> **Upgrading from 2.0?** Replace `Vocello.app` with the new build. Your installed models, history, and saved voices live in `~/Library/Application Support/QwenVoice/` and carry over — no re-download needed.
+
 ## System requirements
 
 - **macOS 26.0+** on an Apple Silicon Mac — available now.
 - **iPhone (iOS 26.0+)** on Apple Silicon — arriving soon via App Store / TestFlight.
 - Voice models installed from **Settings → Model downloads**.
 
-**Speed** models are smaller 4-bit packages for faster startup and lower memory use. **Quality** models are larger 8-bit packages for devices with more headroom.
+**Speed** models are smaller 4-bit packages for faster startup and lower memory use — the recommended default, and what runs faster than realtime on an 8 GB Mac. **Quality** models are larger 8-bit packages for devices with more headroom.
 
 Vocello 2.1.0 is the current stable macOS release. For macOS 15, use [QwenVoice v1.2.3](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3); no 2.x backport is planned. Every macOS GitHub Release ships a notarized, stapled, Developer ID–signed DMG — a normal double-click install with no Gatekeeper workarounds.
 
@@ -189,6 +197,22 @@ build/vocello batch --file lines.txt --mode custom --variant speed --out-dir /tm
 ```
 
 stdout is machine-readable (an output path, or JSON with `--json`); progress notes go to stderr. Full reference: [`docs/reference/cli.md`](docs/reference/cli.md).
+
+## 📱 Vocello for iPhone — arriving soon
+
+<table>
+  <tr>
+    <td width="300" valign="top">
+      <img src="docs/screenshots/vocello-ios-studio.png" alt="Vocello running on iPhone — the Studio screen with Custom / Design / Clone modes" width="300">
+    </td>
+    <td valign="top">
+      <p>Vocello is coming to iPhone — the <strong>same local, private engine</strong>, running <strong>fully on-device</strong> on Apple Silicon. Write a script, pick or describe a voice, and generate speech without a cloud round-trip, exactly like the Mac app.</p>
+      <p><strong>On-device generation already works.</strong> The remaining piece is the <strong>App Store / TestFlight</strong> distribution lane (not GitHub Releases), which is still in progress. No public release date yet.</p>
+      <p>This is what the native Swift + MLX rebuild was for: replacing the old bundled Python runtime with an engine that runs entirely on-device — the only way to bring Vocello to iPhone.</p>
+      <p><strong>Want to follow along?</strong> Star ⭐ and watch 👀 the repo for updates.</p>
+    </td>
+  </tr>
+</table>
 
 ## License
 
