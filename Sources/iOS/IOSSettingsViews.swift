@@ -371,7 +371,7 @@ private struct IOSSettingsReferenceToggleRow: View {
                 IOSSettingsUtilityIcon(symbol: symbol)
 
                 Text(title)
-                    .font(.system(size: 16))
+                    .iosScaledFont(size: 16)
                     .foregroundStyle(IOSAppTheme.textPrimary)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -410,12 +410,12 @@ private struct IOSSettingsReferenceValueRow: View {
             IOSSettingsUtilityIcon(symbol: symbol)
 
             Text(title)
-                .font(.system(size: 16))
+                .iosScaledFont(size: 16)
                 .foregroundStyle(IOSAppTheme.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(value)
-                .font(.system(size: 14))
+                .iosScaledFont(size: 14)
                 .foregroundStyle(IOSAppTheme.textSecondary)
                 .lineLimit(1)
 
@@ -462,12 +462,12 @@ private struct IOSSettingsVariationRow: View {
                 IOSSettingsUtilityIcon(symbol: "dial.medium")
 
                 Text("Variation")
-                    .font(.system(size: 16))
+                    .iosScaledFont(size: 16)
                     .foregroundStyle(IOSAppTheme.textPrimary)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Text(currentDisplayName)
-                    .font(.system(size: 14))
+                    .iosScaledFont(size: 14)
                     .foregroundStyle(IOSAppTheme.textSecondary)
                     .lineLimit(1)
 

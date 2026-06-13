@@ -164,7 +164,7 @@ private struct IOSBatchRow: View {
             statusIcon
                 .frame(width: 24, height: 24)
             Text(item.text)
-                .font(.system(size: 15))
+                .iosScaledFont(size: 15)
                 .foregroundStyle(IOSAppTheme.textPrimary)
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)

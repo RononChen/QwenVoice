@@ -477,7 +477,7 @@ private struct IOSHistoryItemCard: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(item.textPreview)
-                            .font(.system(size: 15, weight: .medium))
+                            .iosScaledFont(size: 15, weight: .medium)
                             .tracking(-0.15)
                             .foregroundStyle(IOSAppTheme.textPrimary)
                             .lineLimit(2)
@@ -499,7 +499,7 @@ private struct IOSHistoryItemCard: View {
                                     .monospacedDigit()
                             }
                         }
-                        .font(.system(size: 12))
+                        .iosScaledFont(size: 12, relativeTo: .caption)
                         .foregroundStyle(IOSAppTheme.textSecondary)
                         .lineLimit(1)
                     }

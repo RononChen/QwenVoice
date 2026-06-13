@@ -69,6 +69,42 @@ extension View {
     }
 }
 
+// MARK: - Dynamic Type for fixed point sizes
+
+/// Scales a fixed `.system(size:)` font with Dynamic Type, relative to a text
+/// style (default `.body`). SwiftUI's `.font(.system(size:))` does not scale —
+/// this restores accessibility scaling for content text while keeping the
+/// design's exact base sizes. Use for Text content; leave fixed glyph/chrome
+/// sizes (icons in fixed frames, decorative waveforms) as-is.
+private struct IOSScaledSystemFont: ViewModifier {
+    @ScaledMetric private var scaledSize: CGFloat
+    private let weight: Font.Weight
+    private let design: Font.Design
+
+    init(size: CGFloat, weight: Font.Weight, design: Font.Design, relativeTo style: Font.TextStyle) {
+        _scaledSize = ScaledMetric(wrappedValue: size, relativeTo: style)
+        self.weight = weight
+        self.design = design
+    }
+
+    func body(content: Content) -> some View {
+        content.font(.system(size: scaledSize, weight: weight, design: design))
+    }
+}
+
+extension View {
+    /// Dynamic-Type-scaling replacement for `.font(.system(size:weight:))` on
+    /// content text.
+    func iosScaledFont(
+        size: CGFloat,
+        weight: Font.Weight = .regular,
+        design: Font.Design = .default,
+        relativeTo style: Font.TextStyle = .body
+    ) -> some View {
+        modifier(IOSScaledSystemFont(size: size, weight: weight, design: design, relativeTo: style))
+    }
+}
+
 // MARK: - Common shape factories
 
 enum ThemeShape {
