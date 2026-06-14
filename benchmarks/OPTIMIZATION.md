@@ -507,6 +507,45 @@ noise here, as §I already warned):
   it off (3/3 clean both). Kept (it's orthogonal to language detection — clarity, not selection).
 - Residual ~30% high-arousal miss is model variance. Wording-only change → no RTF/QC impact.
 
+### I.3 — agy retired for delivery decisions; objective DSP instrument + excited.strong fix (2026-06-14)
+
+**The agy-as-ear judge is too unreliable to decide delivery on, and §I.2's agy-based rates are now
+suspect.** Proven this pass: (a) agy flips its verdict on **byte-identical** audio (same WAV, same
+seed → "energetic/yes" on one call, "calm/no" on another; generation is byte-deterministic, so this is
+pure judge noise); (b) under a multi-vote batch (K=5 × 56 clips = 280 calls) agy mostly **stops
+listening** — it returns "unclear / text-only / uncertain" on the majority of calls, flooring even a
+**happy.strong positive control** at 0/8. So an agy "0%" can mean "the judge failed," not "the audio is
+flat." Treat §I.2's "happy.strong 0→70%" and "excited ~50%" as soft — same instrument.
+
+**Replacement instrument (committed): `scripts/analyze_delivery.py`** — reference-free, deterministic,
+numpy-only. Measures the acoustics a delivery instruction targets directly from the WAV: median **F0**
+(pitch) + p10/p90 range (intonation), **syllable rate** (energy-envelope peaks) + **duration**, and RMS.
+RMS is **excluded from decisions** — the engine `PCM16StreamLimiter` normalizes level, so "louder"
+barely moves RMS (a whisper take is not quieter in RMS); F0 + rate + duration are gain-independent.
+Protocol: **paired neutral-vs-instructed deltas at the same seed** (generate a NEUTRAL take and an
+INSTRUCTED take per seed; a real high-arousal effect = F0 up + rate up + duration down + wider F0 range
+vs the same-seed neutral), compared across candidate wordings by **per-seed paired win-rate**. The
+generation stayed serial (engine single-mutator); the agy fan-out is gone.
+
+**Findings (objective, aiden, medium text; Speed 4-bit N=10 + Quality 8-bit N=8, paired):**
+- **`excited.strong` rewritten** to a tight happy.strong-shaped concrete wording ("Noticeably higher
+  pitch and louder…, fast driving animated pace, bright ringing energetic tone; strong rising emphasis;
+  clearly thrilled and eager, never flat or quiet, without laughing or shouting"). It beats the old
+  wording **8/10 seeds (Speed)** and **6/8 (Quality)** on arousal, with positive mean margins. The old
+  `excited.strong` was actively poor — on Speed it rendered *calmer* than neutral (dF0 −4.4, slower,
+  longer). Shipped.
+- **`surprised.strong` kept as-is** — both rewrites regressed it on both variants (Quality: rewrites win
+  1–2/8). The old wording carries the strongest pitch-jump (dF0 +20 Speed / +9 Quality), which is the
+  surprise signature; rewrites flatten it.
+- **Elaborate "concrete" rewrites regress** — a verbose judge-panel rewrite of both presets scored
+  *negative* arousal on Quality (excited −1.44, surprised −2.16). Tight, happy.strong-shaped wording
+  wins; verbose poetic wording loses. This is the real shape of §I.2's "a concrete rewrite regressed
+  excited" — it is length/density, not concreteness, that hurts.
+- Quality 8-bit follows high-arousal noticeably better than Speed 4-bit, but both respond; the agy run
+  that suggested "Speed can't do it at all" was the judge failing, not the model.
+
+Wording-only change → no RTF/QC impact. (8-bit CustomVoice model installed in the dev cache this pass.)
+
 ## Next step (if resumed)
 
 §H is the active program (branch `engine-risk`): P2 hot-path build/allocator work is first-order per

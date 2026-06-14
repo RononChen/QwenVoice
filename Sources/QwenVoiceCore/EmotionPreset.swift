@@ -236,7 +236,7 @@ public struct EmotionPreset: Identifiable, Sendable {
             instructions: [
                 .subtle: "Speaks with a touch of enthusiasm, slightly energized and engaged.",
                 .normal: "Speaks energetically and enthusiastically, bright and animated, picking up the pace just slightly.",
-                .strong: "Speaks with bursting, lively excitement, animated and bright, barely containing the eager energy, but without laughing or shouting.",
+                .strong: "Noticeably higher pitch and louder than a normal voice, with a fast, driving, animated pace and a bright, ringing, energetic tone; strong rising emphasis on key words; clearly thrilled and eager, never flat or quiet, and without laughing or shouting.",
             ]
         ),
         EmotionPreset(
