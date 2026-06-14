@@ -23,10 +23,17 @@ enum VoiceDesignBriefCatalog {
     /// persona-plus-delivery-mechanics teenager from the design-then-clone
     /// example). Accent wording is a flavor hint, not a guarantee — instruct
     ///-driven accent/dialect control is unreliable on the open checkpoints.
+    ///
+    /// Always name a **gender** and, when pitch matters, a **concrete register**
+    /// ("low, bass-resonant" — not just "deep"). Voice Design samples a fresh
+    /// voice per call (no fixed speaker, talker temp 0.9), so an under-specified
+    /// brief lets it sample a higher or different-gender voice — a gender-less
+    /// "deep narrator" can come out high-pitched. Concrete, gendered defaults
+    /// keep that tail tight.
     static let startingPoints = [
-        "A warm, deep male narrator with a subtle British accent.",
+        "A deep, low-pitched male narrator, warm and bass-resonant, with a subtle British accent.",
         "A bright young woman, energetic and conversational.",
-        "A gravelly older man, slow and intimate, late-night radio.",
+        "A gravelly, low-pitched older man, slow and intimate, late-night radio.",
         "A soft, breathy young woman, gentle and reassuring.",
         "A calm middle-aged male voice with slow pace and a deep, magnetic tone, ideal for documentary narration.",
         "A lively young female voice with fast pace and upward intonation, suited to upbeat product videos.",
@@ -34,5 +41,5 @@ enum VoiceDesignBriefCatalog {
         "A teenage male voice, tenor range, gaining confidence, though the vowels still tighten when he is nervous.",
     ]
 
-    static let placeholder = "A warm, deep narrator with a subtle British accent."
+    static let placeholder = "A warm, deep male narrator with a low, resonant tone and a subtle British accent."
 }
