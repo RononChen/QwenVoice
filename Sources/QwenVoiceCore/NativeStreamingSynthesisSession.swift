@@ -1495,6 +1495,24 @@ private struct StreamingExecutionContext: Sendable {
             let delivery = String(cString: rawDelivery)
             if !delivery.isEmpty { tierNotes["delivery"] = delivery }
         }
+        // Adherence ground-truth for the agy review pipeline (dev-gated diagnostics
+        // only — this whole writer is behind TelemetryGate; never ships). The reviewer
+        // needs the EXPECTED voice description + delivery instruction to judge whether
+        // the audio actually matches them — acoustic audioQC can't see adherence.
+        switch request.payload {
+        case .design(let voiceDescription, let deliveryStyle):
+            let desc = voiceDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !desc.isEmpty { tierNotes["voiceDescription"] = desc }
+            if let d = deliveryStyle?.trimmingCharacters(in: .whitespacesAndNewlines), !d.isEmpty {
+                tierNotes["deliveryInstruction"] = d
+            }
+        case .custom(_, let deliveryStyle):
+            if let d = deliveryStyle?.trimmingCharacters(in: .whitespacesAndNewlines), !d.isEmpty {
+                tierNotes["deliveryInstruction"] = d
+            }
+        case .clone:
+            break
+        }
         let notesWithTier = tierNotes.merging(notes) { _, caller in caller }
         let record = GenerationTelemetryRecord(
             generationID: generationID.uuidString,
