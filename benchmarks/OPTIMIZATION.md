@@ -568,6 +568,33 @@ default ("A deep, low-pitched male narrator, warm and bass-resonant, with a subt
 Caveat: the autocorrelation F0 can octave-double on very high/bright voices (the 350 Hz reading), but
 the deep-vs-not-deep classification is robust (the threshold is 2× away). No code change this pass.
 
+### I.5 — CLI on-device ASR/WER spike: TCC blocks it (2026-06-14; deferred, reverted)
+
+Spiked whether the `vocello` CLI could host an objective **text-adherence (WER)** instrument via
+on-device `SFSpeechRecognizer` — the one adherence axis the DSP analyzers don't cover. Result:
+**the API mechanism works, but macOS TCC blocks it for a headless tool**, so it stays deferred (P1.2),
+now with the exact wall documented.
+
+- ✅ A `type: tool` (no app bundle) **can carry the usage string**: `GENERATE_INFOPLIST_FILE` +
+  `CREATE_INFOPLIST_SECTION_IN_BINARY` + `INFOPLIST_KEY_NSSpeechRecognitionUsageDescription` embed an
+  Info.plist into the Mach-O `__TEXT,__info_plist` section (verified via `launchctl plist <binary>`).
+- ❌ **`SFSpeechRecognizer.requestAuthorization` hangs in a headless/non-interactive run** — the CLI is
+  `notDetermined` and waits on a TCC consent prompt that has no GUI session to display, so it never
+  returns (killed at 45 s; no grant created before or after). The app (`com.qwenvoice.app`) holds a
+  Speech grant; the CLI (`com.qwenvoice.cli`) is a separate TCC client and gets none.
+- ⚠️ Even granted interactively (from a real Terminal), the CLI's **ad-hoc signature** churns the
+  binary identity every `build.sh cli`, invalidating the grant each rebuild (the same TCC-identity pain
+  the app's stable dev-signing fixed).
+
+So WER-as-a-**headless gate** is not viable — which defeats the CLI's deterministic-driver purpose; a
+`transcribe` command that hangs in a bench run is a footgun. The spike code (a `transcribe` subcommand +
+the Info.plist build settings) was **reverted**. If revisited, the unblock options are: (a) a stably
+**Developer-ID-signed** CLI + a one-time interactive grant, (b) a **TCC-free local ASR** (e.g. a
+vendored whisper.cpp — but that fights the no-extra-deps/no-Python ethos), or (c) running transcription
+in the app's already-granted process. Until then, **text adherence has no objective CLI instrument**;
+delivery + voice/pitch are covered objectively by `scripts/analyze_delivery.py`, and text-match is
+agy-only (unreliable) or a manual listening pass.
+
 ## Next step (if resumed)
 
 §H is the active program (branch `engine-risk`): P2 hot-path build/allocator work is first-order per
