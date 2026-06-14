@@ -480,6 +480,33 @@ CFG (absent from the architecture), batched talker/CP decode for `vocello batch`
 Watch item: the promised `Qwen3-TTS-25Hz-1.7B-VoiceEditing` checkpoint (clone+instruct) — would unlock
 delivery presets in Voice Cloning mode.
 
+### I.2 — Delivery-adherence rate-based pass (2026-06-14, macOS)
+
+Triggered by a "delivery + Voice Design adherence is seriously wrong" report. The agy review
+pipeline was overhauled to be the measurement instrument: it now judges **adherence** (TEXT_MATCH /
+DELIVERY_MATCH / VOICE_MATCH via multimodal hearing), reviews **every delivery + design cell**
+regardless of audioQC (adherence failures produce acoustically-clean audio the old gate never
+flagged), logs the expected description/delivery as ground truth, and is hardened against agy
+flakiness (insists on hearing, retries once, hard-kills a hung agy after 6 min). Commits `3c92100`
+(overhaul), `48a545a` (timeout).
+
+Findings (rate-based **paired** A/Bs — same seeds ON/OFF, vocello + agy, N=6–10; single-take is
+noise here, as §I already warned):
+- **Voice Design *description* adherence is fine** — 4/4 distinct briefs (deep old male / bright
+  young female / breathy whisper / persona-wizard) matched, clearly different voices. Not the bug.
+- **Delivery adherence fails on high-arousal *positive* emotion.** `happy.strong` rendered
+  flat/whispered **0/9** with the old evocative wording ("lighting up every word with bouncy,
+  beaming enthusiasm"). A **concrete-acoustic rewrite** (explicit higher pitch + louder + faster
+  lively pace + bright tone + "never flat or quiet") lifted it to **~70% (7/10)**, paired-beating
+  the old wording on every seed (won 4 / lost 0 on the first set). Shipped (`41511aa`).
+- **`excited.strong` left unchanged** — a parallel concrete rewrite *regressed* it (current wording
+  already ~50%). High-arousal presets are wording- and model-sensitive: tune + rate-test **per
+  preset**, never blanket-rewrite. (excited/surprised concrete-tuning = open follow-up.)
+- **The English diction-reinforcement clause was ruled OUT** as the cause: paired A/B showed no
+  consistent ON-vs-OFF effect on delivery adherence, and plain-English clarity was unchanged with
+  it off (3/3 clean both). Kept (it's orthogonal to language detection — clarity, not selection).
+- Residual ~30% high-arousal miss is model variance. Wording-only change → no RTF/QC impact.
+
 ## Next step (if resumed)
 
 §H is the active program (branch `engine-risk`): P2 hot-path build/allocator work is first-order per
