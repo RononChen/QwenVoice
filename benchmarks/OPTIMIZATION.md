@@ -546,6 +546,28 @@ generation stayed serial (engine single-mutator); the agy fan-out is gone.
 
 Wording-only change → no RTF/QC impact. (8-bit CustomVoice model installed in the dev cache this pass.)
 
+### I.4 — Voice Design "deep narrator → high pitch" tail quantified (2026-06-14; no lever)
+
+Followed up the rare report that a "deep narrator" brief sometimes renders high-pitched, now measured
+objectively by median F0 (`scripts/analyze_delivery.py`) — N=24 per brief × 3 briefs × both variants,
+design mode. Briefs: gender-less "deep voiced narrator", "deep male narrator", and the shipped concrete
+default ("A deep, low-pitched male narrator, warm and bass-resonant, with a subtle British accent").
+
+- **Speed 4-bit: 0/72** high-pitch outliers. All briefs reliably deep (F0 medians 94–107 Hz; the
+  gender-less brief 24/24 deep, max 137 Hz). The shipped concrete default is the deepest (94 Hz).
+- **Quality 8-bit: 1/72** clear outlier — the shipped (maximally-specified) brief at seed 16 rendered a
+  high female-ish voice (F0 ~350 Hz vs the ~95–110 Hz target; the absolute is octave-inflated by the
+  analyzer on a bright high voice, but it is unambiguously 2–3× the deep target). Plus 2 borderline
+  tenor males (153, 160 Hz). So the clear "deep→high" tail is **~1.4%**, real but rare, Quality-side.
+- **No talker-temp lever.** The lever was gated on a >10% tail; the measured rate is ~1.4%. A 1.4% tail
+  can't be A/B-tuned without N≈200+ per arm, and lowering the Voice Design talker temperature (0.9)
+  directly costs the per-call voice *diversity* that design mode exists for. The outlier hit the
+  most-specified brief, so it is a rare model sampling lapse, not a wording gap — the strengthened
+  defaults (`d043ae3`) are validated as deepest/most-robust but cannot eliminate the ~1% tail.
+
+Caveat: the autocorrelation F0 can octave-double on very high/bright voices (the 350 Hz reading), but
+the deep-vs-not-deep classification is robust (the threshold is 2× away). No code change this pass.
+
 ## Next step (if resumed)
 
 §H is the active program (branch `engine-risk`): P2 hot-path build/allocator work is first-order per
