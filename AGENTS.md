@@ -76,7 +76,7 @@ This project is developed with **Kimi Code CLI**. Use the following tools and sk
 - **Marketing site (`website/`):** `mcp__chrome-devtools__*` for browser verification; `npm --prefix website` via `Bash` for builds.
 - **Process guidance:** Use the Superpowers skills (`writing-plans`, `executing-plans`, `finishing-a-development-branch`, `systematic-debugging`, `verification-before-completion`) for multi-step work.
 
-Note: a `mac-control` MCP server is now available for interactive macOS desktop control (screenshots, mouse, keyboard). Use it for UI-driven testing and operations that are not covered by the simulator or browser tooling. The marketing site is still reviewed via Chrome DevTools.
+Note: scripted on-device generation validation is driven by `IOSAutorunHarness` and run via `scripts/ios_device.sh bench`; thin XCUITest smoke (`Tests/VocelloiOSUITests/`) is run via `scripts/ios_device.sh ui-test` for UI-flow reachability only. The deprecated screen-mirror/mouse-simulation path has been removed. Interactive UI review on the marketing site is still done via Chrome DevTools.
 
 ## Technology stack
 
