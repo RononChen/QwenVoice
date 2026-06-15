@@ -92,6 +92,36 @@ def len_bucket(prompt_chars):
     return "medium"
 
 
+def load_prosody(diag_dir):
+    """Load bench-prosody.json sidecar, if present. Returns list of rows."""
+    path = os.path.join(diag_dir, "bench-prosody.json")
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except Exception:
+        return []
+
+
+def prosody_for_delivery(prosody_rows, mode, model_id, delivery):
+    """Median prosody effect and supporting deltas for a delivery cell."""
+    rows = [
+        r for r in prosody_rows
+        if r["mode"] == mode and r["model"] == model_id and r["delivery"] == delivery
+    ]
+    if not rows:
+        return None
+    return {
+        "effect": med(r["prosodyEffect"] for r in rows),
+        "dF0Std": med(r["dF0Std"] for r in rows),
+        "dRateCV": med(r["dRateCV"] for r in rows),
+        "dPauseRatio": med(r["dPauseRatio"] for r in rows),
+        "dRoughness": med(r["dRoughness"] for r in rows),
+        "n": len(rows),
+    }
+
+
 def load_runs(diag_dir):
     """Join engine + app rows by generationID. Returns list of per-run dicts."""
     engine = {r.get("generationID"): r for r in read_jsonl(os.path.join(diag_dir, "engine", "generations.jsonl"))}
@@ -394,6 +424,7 @@ def main():
         print(f"No telemetry rows under {diag_dir}/engine/generations.jsonl")
         print("Run the benchmark first (see docs/reference/telemetry-and-benchmarking.md).")
         return 1
+    prosody_rows = load_prosody(diag_dir)
 
     # Group by (mode, modelID, warmState, lenBucket). Delivery rows (instruct-
     # bearing `bench --delivery` takes) go into their own table keyed by the
@@ -452,9 +483,11 @@ def main():
     # text). Kept out of the tables above so the headline matrix stays comparable;
     # QC + the listening pass are the point of these rows.
     if delivery_cells:
+        has_prosody = bool(prosody_rows)
         d_header = (
             f"{'mode':<8} {'model':<26} {'state':<5} {'delivery':<16} {'n':>2} "
             f"{'RTF':>6} {'tok/s':>7} {'decode ms':>9} {'physFoot':>8} {'QC':<12}"
+            + (f" {'prosN':>5} {'prosEff':>8} {'dF0Std':>7} {'dRateCV':>8} {'dPauseR':>8} {'dRough':>7}" if has_prosody else "")
         )
         print("\nDelivery cells (--delivery; medium text, instruct-bearing) — notes.delivery\n")
         print(d_header)
@@ -463,7 +496,7 @@ def main():
         for key in sorted(delivery_cells.keys(), key=d_sort):
             mode, model_id, state, delivery = key
             group = delivery_cells[key]
-            print(
+            base = (
                 f"{mode:<8} {short_model(model_id):<26} {state:<5} {delivery:<16} {len(group):>2} "
                 f"{fmt(med(r['rtf'] for r in group)):>6} "
                 f"{fmt(med(r['tokps'] for r in group)):>7} "
@@ -471,6 +504,16 @@ def main():
                 f"{fmt(med(r['physFootMB'] for r in group), 0):>8} "
                 f"{cell_qc(group):<12}"
             )
+            if has_prosody:
+                p = prosody_for_delivery(prosody_rows, mode, model_id, delivery)
+                if p:
+                    base += (
+                        f" {p['n']:>5} {p['effect']:>+8.2f} {p['dF0Std']:>+7.2f} "
+                        f"{p['dRateCV']:>+8.3f} {p['dPauseRatio']:>+8.3f} {p['dRoughness']:>+7.3f}"
+                    )
+                else:
+                    base += "     -        -       -        -        -       -"
+            print(base)
 
     # GPU memory by pipeline stage (peak MB) — shows WHERE GPU memory grows and how
     # much the post-generation trim reclaims. Median over each cell's runs.
@@ -546,6 +589,11 @@ def main():
         "nonfinite/clipping/clicks/dropout/near_silent). It does not judge subtle "
         "perceptual quality — that needs the listening pass (see telemetry doc)."
     )
+    if prosody_rows:
+        print(
+            "Delivery prosody: prosEff = signed prosody-effect score vs paired neutral "
+            "(+F0 dynamics +rate variability -pauses +roughness). Requires `vocello bench --delivery`."
+        )
     return 0
 
 

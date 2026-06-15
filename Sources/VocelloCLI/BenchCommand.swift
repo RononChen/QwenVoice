@@ -6,6 +6,8 @@ import QwenVoiceCore
 /// controlling cold/warm exactly via explicit load/unload (no UI waits, no
 /// engine-busy races). Then runs the aggregator. Engine telemetry rows (RTF /
 /// decode / memory / audioQC / promptChars) are written exactly as in the app.
+/// With `--delivery`, it also runs a reference-free prosody analysis on the
+/// paired neutral-vs-instructed WAVs and surfaces the deltas in the summary.
 enum BenchCommand {
     /// Fixed corpus — keep identical to benchmarks/baseline-*-length-sweep.md.
     static let corpus: [(len: String, text: String)] = [
@@ -206,6 +208,11 @@ enum BenchCommand {
         let label = args.string("label") ?? ""
         if !args.flag("no-summary") {
             runSummarizer(diagnostics: diagDir, label: label)
+            // Prosody analysis for --delivery takes: deterministic, reference-free,
+            // complements audioQC with tone/cadence deltas vs the paired neutral take.
+            if !deliveryItems.isEmpty {
+                runDeliveryProsodyAnalysis(diagnostics: diagDir)
+            }
         }
         if args.flag("ledger") {
             appendLedgerRow(diagnostics: diagDir, label: label)
@@ -314,6 +321,27 @@ enum BenchCommand {
         let cwd = FileManager.default.currentDirectoryPath
         if FileManager.default.fileExists(atPath: cwd + "/" + rel) { return URL(fileURLWithPath: cwd + "/" + rel) }
         return CLIRuntime.findUpwards(relativePath: rel, from: cwd)
+    }
+
+    private static func runDeliveryProsodyAnalysis(diagnostics: URL) {
+        let rel = "scripts/bench_delivery_prosody.py"
+        let cwd = FileManager.default.currentDirectoryPath
+        var scriptURL: URL?
+        if FileManager.default.fileExists(atPath: cwd + "/" + rel) {
+            scriptURL = URL(fileURLWithPath: cwd + "/" + rel)
+        } else {
+            scriptURL = CLIRuntime.findUpwards(relativePath: rel, from: cwd)
+        }
+        guard let scriptURL else {
+            note("(delivery prosody script not found from \(FileManager.default.currentDirectoryPath); skip)")
+            return
+        }
+        note("prosody analysis for delivery cells →")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        p.arguments = ["python3", scriptURL.path, diagnostics.path]
+        try? p.run()
+        p.waitUntilExit()
     }
 
     /// --ledger: capture the summarizer's one-line Markdown ledger row and append
@@ -469,7 +497,10 @@ enum BenchCommand {
                          default set (\(defaultDeliverySet.joined(separator: ","))).
                          Rows are stamped notes.delivery and summarized in their
                          own block so the headline matrix stays comparable; the
-                         plain warm takes double as the neutral reference.
+                         plain warm takes double as the neutral reference. Also
+                         triggers a numpy-only prosody analysis (pitch dynamics,
+                         rate variability, pauses, energy roughness) vs the paired
+                         neutral take; results appear in the delivery table.
           --label "<n>"  stamp a note on the summary / ledger row
           --ledger       append a one-line row to benchmarks/HISTORY.md (perf ledger)
           --force-class  run a constrained tier on any Mac: 8gb|16gb|high|iphone
