@@ -325,12 +325,28 @@ Use `scripts/summarize_generation_telemetry.py` to aggregate results.
 
 ## Useful reference documents
 
-- `PRODUCT.md` — product purpose, users, brand personality, design principles.
-- `docs/reference/cli.md` — full `vocello` CLI reference.
+Check the relevant reference doc before making changes in a subsystem. If the change invalidates a doc, update the doc in the same PR/commit.
+
+### Core technology references
+
+- `docs/reference/mlx-guide.md` — MLX runtime behavior: lazy evaluation, `eval()`/`asyncEval()`, streams, quantization, memory controls, model loading. Read before changing anything in `QwenVoiceBackendCore/` that touches `MLXArray`, `Memory`, `GPU`, or model loading.
+- `docs/reference/qwen3-tts-guide.md` — Talker/code-predictor architecture, model variants, tokenizer profile, generation modes, speakers, languages, special token IDs. Read before changing prompt construction, speaker logic, generation defaults, or the contract.
+- `docs/reference/metal-guide.md` — Metal API and performance, MLX's Metal backend, GPU memory/telemetry, profiling tools, iOS Metal constraints. Read before tuning memory policy, adding GPU profiling, or considering custom Metal kernels/DSP.
+- `docs/reference/mimi-codec-guide.md` — Mimi/Qwen3-TTS speech tokenizer, RVQ, streaming invariants, decoder drift, codec performance. Read before touching the vendored codec, streaming decode, or audio boundary quality.
+- `docs/reference/swift-performance-guide.md` — Swift 6 concurrency, actors, `@MainActor`, allocation/ARC, build settings. Read before broad concurrency or performance refactor in `Sources/`.
+
+### Operational references
+
+- `docs/reference/ios-engine-optimization.md` — iOS memory model, streaming wins, Jetsam/entitlement behavior, thermal constraints.
 - `docs/reference/telemetry-and-benchmarking.md` — telemetry schema and benchmark recipes.
+- `docs/reference/cli.md` — full `vocello` CLI reference.
 - `docs/reference/macos-release-qa.md` — pre-release QA gate sequence.
 - `docs/reference/ios-device-testing.md` — on-device iOS build/test driver.
 - `docs/reference/privacy-storage.md` — local storage paths and privacy details.
 - `docs/reference/macos-permissions.md` — TCC/permission model.
 - `docs/reference/mlx-audio-swift-patching.md` — vendored backend patch procedure.
+
+### Product and website
+
+- `PRODUCT.md` — product purpose, users, brand personality, design principles.
 - `website/AGENTS.md` — marketing site guidance.
