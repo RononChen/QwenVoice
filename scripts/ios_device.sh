@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Headless iPhone build/test driver for Vocello — the on-device analog of
 # `vocello bench`. Drives a real device over Apple's `devicectl` (CoreDevice): no
-# screen mirroring, no UI scripting. This is the durable replacement for the
-# deprecated iPhone-Mirroring UI-driving method (see docs/reference/ui-driving.md).
+# screen mirroring, no UI scripting. This replaced the earlier iPhone-Mirroring
+# UI-driving method.
 #
 # Pairs with IOSAutorunHarness (Sources/iOS/IOSAutorunHarness.swift): `bench`
 # launches the app with QVOICE_IOS_AUTORUN set, the in-app harness runs one

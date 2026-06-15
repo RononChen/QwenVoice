@@ -1,9 +1,8 @@
 # iOS on-device testing — the hybrid method
 
-The **automated/headless** on-device methods. They complement (not replace) interactive
-computer-use driving over iPhone Mirroring, which is **reinstated** for UI-driven operations
-+ UI design/review (see [`ui-driving.md`](ui-driving.md) → "iOS via iPhone Mirroring
-(reinstated 2026-06-06)"). Two automated tools, neither of which drives the UI by pixels:
+The **automated/headless** on-device methods. They complement interactive UI review over
+iPhone Mirroring for UI-driven operations + UI design/review. Two automated tools, neither of
+which drives the UI by pixels:
 
 1. **Headless generation harness** — the on-device analog of `vocello bench`. Launch
    the app over `devicectl` with an autorun spec; the in-app `IOSAutorunHarness` runs
@@ -15,11 +14,9 @@ computer-use driving over iPhone Mirroring, which is **reinstated** for UI-drive
    `accessibilityIdentifier`s. Runs on a simulator (fast, no signing) or the device.
 
 Why this exists: on-device generation is the never-CI-tested path (real Jetsam, real
-model download, the in-process engine + increased-memory entitlement). computer-use over
-iPhone Mirroring is **not** the right tool for *scripted generation* (focus races,
-disconnects, engine-busy rejections, no headless trigger) — these automated tools are. (For
-*interactive* UI-driven operations + design/review, computer-use over Mirroring is the
-sanctioned method; see [`ui-driving.md`](ui-driving.md).) See also: generation runs **in-process in the app** (since commit
+model download, the in-process engine + increased-memory entitlement). iPhone Mirroring is
+**not** the right tool for *scripted generation* (focus races, disconnects, engine-busy
+rejections, no headless trigger) — these automated tools are. See also: generation runs **in-process in the app** (since commit
 `7822a8a`) — a non-UI ExtensionKit extension is Jetsam-capped at a tiny per-process budget
 the entitlement does **not** raise, so it could never load the model; the app process *does*
 get the raised limit. The dead extension target was removed entirely (it never ran on
@@ -155,10 +152,8 @@ the sentinel is the authoritative single-run record.
 **This is the standing automated UI-test method (maintainer decision, 2026-06-04 — the
 Simulator is retired; see §3).** Run the `VocelloiOSUITests` suite **on the device** with
 **`scripts/ios_device.sh ui-test`** (`xcodebuild test -destination
-'platform=iOS,id=<device>'` — Apple's official on-device UI framework). It complements
-interactive computer-use-over-Mirroring driving + design/review (reinstated 2026-06-06; see
-[`ui-driving.md`](ui-driving.md)). Pass `[only]` to scope a run, e.g.
-`scripts/ios_device.sh ui-test VocelloiOSUITests/VocelloiOSSheetUITests`.
+'platform=iOS,id=<device>'` — Apple's official on-device UI framework). Pass `[only]` to scope
+a run, e.g. `scripts/ios_device.sh ui-test VocelloiOSUITests/VocelloiOSSheetUITests`.
 
 `Tests/VocelloiOSUITests/` (target `VocelloiOSUITests`, host `VocelloiOS`):
 - `VocelloiOSSmokeUITests` — launch + 4-tab reachability + Custom/Design/Clone segments.
@@ -263,9 +258,8 @@ To verify a UI change myself I can drive the sim three ways, all reusing `build/
 
 Use real taps — the SwiftUI a11y tree is virtualized (e.g. `textInput_textEditor` only materializes
 after a focus tap). **Note (2026-06-06): this Simulator path is retired** — don't use it for UI review.
-Interactive UI-driven operations + design/review now run via **computer-use over iPhone Mirroring on the
-real device** (reinstated; see [`ui-driving.md`](ui-driving.md)); automated UI-flow tests run via the
-on-device XCUITest suite (§2).
+Automated UI-flow tests run via the on-device XCUITest suite (§2); interactive UI review uses iPhone
+Mirroring directly.
 
 ---
 

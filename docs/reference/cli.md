@@ -216,4 +216,3 @@ vocello bench --modes custom --variants speed --lengths short,medium,long --warm
 
 - [`telemetry-and-benchmarking.md`](telemetry-and-benchmarking.md) — the telemetry schema, the bench
   matrix in depth, the `audioQC` gate, and the listening pass.
-- [`ui-driving.md`](ui-driving.md) — computer-use for visual/UX review (what the CLI doesn't cover).

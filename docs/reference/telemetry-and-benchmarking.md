@@ -14,8 +14,7 @@ If anything here disagrees with the code, the code wins — fix this file.
 > `summarize_generation_telemetry.py`. Benchmarking + output‑quality checks are **first‑class**:
 > committed benchmark/QC scripts, baselines, and summaries are permitted (bounded by the
 > `benchmarks/` cap). Only the **XCUITest test bundle** stays retired
-> (`scripts/check_project_inputs.sh`). UI driving uses the `computer-use` MCP — see
-> [`ui-driving.md`](ui-driving.md).
+> (`scripts/check_project_inputs.sh`).
 
 ---
 
@@ -293,8 +292,8 @@ sampler + a sidecar write; for the tightest latency numbers use `lightweight` an
 
 1. Launch with telemetry on: `QWENVOICE_DEBUG=1 ./scripts/build.sh run` (add
    `QWENVOICE_NATIVE_TELEMETRY_MODE=verbose` for the raw series).
-2. Drive a generation via the `computer-use` MCP (see [`ui-driving.md`](ui-driving.md)) —
-   **cold** (first run after launch / model switch) and **warm** (back‑to‑back) both matter.
+2. Drive a generation from the UI or via the `vocello` CLI — **cold** (first run after launch /
+   model switch) and **warm** (back‑to‑back) both matter.
 3. Read the merged row:
 
 ```sh
@@ -375,11 +374,13 @@ package does — and records — its own cold load**. Leave it unset for normal 
 - Custom Voice: the default speaker. Voice Design: one fixed voice description. Voice Cloning: a
   pre‑enrolled saved voice — enroll one once from a Custom Voice output clip (no external audio).
 
-**Driving each cell (computer‑use, see [`ui-driving.md`](ui-driving.md)):**
+**Driving each cell (UI or XCUITest):**
 1. Select the mode (`sidebar_*`) and the variant — `{mode}_speedVariantButton` /
    `{mode}_qualityVariantButton`. Switching variant or mode forces the next load to be cold.
 2. Type the fixed script; `cmd+Return`; wait for "Ready" / the inline Player.
 3. That first run is the **cold** sample (`warmState=cold`). Repeat ×3 for the **warm** samples.
+   The XCUITest bundles (`VocelloMacUITests` / `VocelloiOSUITests`) exercise the same identifiers
+   programmatically.
 
 **Storage‑safe order (disk‑tight machines):** process one cell at a time — download that package
 → run cold + 3 warm → delete the package (`QwenVoice-Debug/models/<pkg>`) → next cell. Peak disk ≈
@@ -552,7 +553,6 @@ default; committed quality-check scripts/baselines under `benchmarks/` are also 
 
 ## 13. See also
 
-- [`ui-driving.md`](ui-driving.md) — driving generations + reading timing out‑of‑band; signpost list for Instruments.
 - [`mlx-audio-swift-patching.md`](mlx-audio-swift-patching.md) — vendored backend patch procedure + validation gates.
 - [`privacy-storage.md`](privacy-storage.md) — where diagnostics live; deletion paths.
 - Root `CLAUDE.md` — telemetry summary + engine invariants (unbounded macOS `events`, prewarm reentrancy, per‑tier memory).
