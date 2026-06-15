@@ -76,7 +76,7 @@ This project is developed with **Kimi Code CLI**. Use the following tools and sk
 - **Marketing site (`website/`):** `mcp__chrome-devtools__*` for browser verification; `npm --prefix website` via `Bash` for builds.
 - **Process guidance:** Use the Superpowers skills (`writing-plans`, `executing-plans`, `finishing-a-development-branch`, `systematic-debugging`, `verification-before-completion`) for multi-step work.
 
-Note: a generic `computer-use` MCP is not available. Interactive UI review on macOS/iOS is done via `mcp__xcodebuildmcp__snapshot_ui` / `screenshot` and simulator launch tools; the marketing site is reviewed via Chrome DevTools.
+Note: a `mac-control` MCP server is now available for interactive macOS desktop control (screenshots, mouse, keyboard). Use it for UI-driven testing and operations that are not covered by the simulator or browser tooling. The marketing site is still reviewed via Chrome DevTools.
 
 ## Technology stack
 
