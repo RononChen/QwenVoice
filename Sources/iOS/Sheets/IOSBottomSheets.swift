@@ -47,7 +47,38 @@ struct IOSDeliveryPickerSheet: View {
     var onDismiss: (() -> Void)?
     var presentation: IOSBottomSheetPresentationStyle = .system
 
+    // Local source of truth for the sheet's own UI. This sheet is presented as a
+    // stored `AnyView` via `appModel.presentBottomPanel`, and the host
+    // (`RootView.bottomPanelOverlay`) only rebuilds that AnyView when RootView
+    // itself re-renders — which it does NOT on a draft change (it observes
+    // `bottomPanelItem`, not `customVoiceDraft`). So writing only through the
+    // `@Binding`s left the open sheet frozen: the checkmark didn't move and the
+    // Intensity row never appeared even though the model updated. Driving the UI
+    // off local `@State` (and writing through to the bindings) keeps the sheet
+    // reactive regardless of the host's observation path. Only the sheet's own
+    // taps mutate the selection while it's open, so local state can't drift.
+    @State private var localPresetID: String
+    @State private var localIntensity: EmotionIntensity
+
     @Environment(\.dismiss) private var dismiss
+
+    init(
+        selectedPresetID: Binding<String>,
+        intensity: Binding<EmotionIntensity>,
+        tint: Color,
+        onUseCustomTone: (() -> Void)? = nil,
+        onDismiss: (() -> Void)? = nil,
+        presentation: IOSBottomSheetPresentationStyle = .system
+    ) {
+        self._selectedPresetID = selectedPresetID
+        self._intensity = intensity
+        self.tint = tint
+        self.onUseCustomTone = onUseCustomTone
+        self.onDismiss = onDismiss
+        self.presentation = presentation
+        self._localPresetID = State(initialValue: selectedPresetID.wrappedValue)
+        self._localIntensity = State(initialValue: intensity.wrappedValue)
+    }
 
     private var columns: [GridItem] {
         // 2-column grid per design_references/Vocello iOS/sheets.jsx
@@ -57,7 +88,7 @@ struct IOSDeliveryPickerSheet: View {
     }
 
     private var canChooseIntensity: Bool {
-        selectedPresetID != "neutral"
+        localPresetID != "neutral"
     }
 
     var body: some View {
@@ -152,10 +183,11 @@ struct IOSDeliveryPickerSheet: View {
     /// `app.css`: borderless rounded square, colored dot + name on the
     /// first line, small description text below.
     private func cell(for preset: EmotionPreset) -> some View {
-        let isSelected = preset.id == selectedPresetID
+        let isSelected = preset.id == localPresetID
         let dot = dotColor(for: preset)
         return Button {
-            selectedPresetID = preset.id
+            localPresetID = preset.id      // drive the sheet UI instantly
+            selectedPresetID = preset.id   // write through to the draft (chip + generation)
             IOSHaptics.selection()
         } label: {
             VStack(alignment: .leading, spacing: 4) {
@@ -205,9 +237,10 @@ struct IOSDeliveryPickerSheet: View {
     }
 
     private func intensityButton(_ level: EmotionIntensity) -> some View {
-        let isSelected = level == intensity
+        let isSelected = level == localIntensity
         return Button {
-            intensity = level
+            localIntensity = level   // drive the sheet UI instantly
+            intensity = level        // write through to the draft
             IOSHaptics.selection()
         } label: {
             Text(level.label)
