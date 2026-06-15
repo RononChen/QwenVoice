@@ -63,7 +63,20 @@ When facts disagree, trust in this order: `Sources/` → `project.yml` → `scri
 
 ### Agent routing
 
-For build failures, crashes, concurrency issues, memory/MLX problems, GRDB migrations, security/privacy, SwiftUI work, or full-project health checks, use the Axiom subagents and skills available in this environment. For backend/MLX questions, rely on the `mlx-swift` and `mlx-swift-lm` skills; MLX is the only Qwen3-TTS backend.
+This project is developed with **Kimi Code CLI**. Use the following tools and skills instead of the Axiom subagents referenced in older versions of this guide:
+
+- **Build / Xcode issues:** `mcp__xcodebuildmcp__*` (build, test, launch, simulator screenshots/snapshots) and the `swift-mlx` / `swift-mlx-lm` skills. For environmental setup problems, run the relevant `scripts/*.sh` command and inspect output with `Bash`.
+- **Code exploration / architecture:** `Agent` with `subagent_type: "explore"` for read-only audits; `Agent` with `subagent_type: "coder"` for implementation or review tasks.
+- **Crash logs / symbolication:** `mcp__axiom__xcsym_*` tools (`xcsym_crash`, `xcsym_resolve`, `xcsym_find_dsym`).
+- **Performance / profiling:** `mcp__axiom__xcprof_*` tools (`xcprof_record`, `xcprof_analyze`).
+- **Apple framework / iOS 26 / post-cutoff APIs:** `mcp__sosumi__fetchAppleDocumentation` / `searchAppleDocumentation` and the `swift-mlx`/`swift-mlx-lm` skills.
+- **Backend / MLX:** `swift-mlx` (array/runtime/memory, custom ops) and `swift-mlx-lm` (generation, streaming, KV-cache, model porting, the vendored `mlx-audio-swift` stack). MLX is the only Qwen3-TTS backend — don't pivot to Core ML.
+- **GitHub:** `mcp__github__*` MCPs for issues, PRs, reviews, releases, and remote file search. Fall back to `gh` / `git` via `Bash` only for local-repo operations the MCP cannot do.
+- **Hugging Face:** `hf` CLI via `Bash`.
+- **Marketing site (`website/`):** `mcp__chrome-devtools__*` for browser verification; `npm --prefix website` via `Bash` for builds.
+- **Process guidance:** Use the Superpowers skills (`writing-plans`, `executing-plans`, `finishing-a-development-branch`, `systematic-debugging`, `verification-before-completion`) for multi-step work.
+
+Note: a generic `computer-use` MCP is not available. Interactive UI review on macOS/iOS is done via `mcp__xcodebuildmcp__snapshot_ui` / `screenshot` and simulator launch tools; the marketing site is reviewed via Chrome DevTools.
 
 ## Technology stack
 
