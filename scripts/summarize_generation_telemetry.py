@@ -187,11 +187,28 @@ def load_runs(diag_dir):
                 # Per-stage decode ms (timingsMS) — shows WHERE the decode loop spends
                 # wall time (Talker / Code Predictor / Code2Wav / eval). Sums ≈ decode ms.
                 "decodeStages": decode_stage_breakdown(timings),
+                # Streaming chunk timeline — per-cell medians of first-chunk arrival,
+                # inter-chunk interval, and the per-chunk substage latencies.
+                "chunkCount": None,
+                "firstChunkArrivalMS": None,
+                "medianInterChunkMS": None,
+                **{f"chunk_{key}": None for key in _CHUNK_SUBSTAGE_KEYS},
                 # Reference-free audio-quality verdict (engine).
                 "qcVerdict": qc.get("verdict"),
                 "qcFlags": qc.get("flags") or [],
             }
         )
+        chunks = e.get("chunkTimeline") or []
+        if chunks:
+            run = runs[-1]
+            run["chunkCount"] = len(chunks)
+            run["firstChunkArrivalMS"] = chunks[0]["arrivalMS"]
+            run["medianInterChunkMS"] = med(
+                chunks[i]["arrivalMS"] - chunks[i - 1]["arrivalMS"]
+                for i in range(1, len(chunks))
+            )
+            for key in _CHUNK_SUBSTAGE_KEYS:
+                run[f"chunk_{key}"] = med(c[key] for c in chunks if key in c)
     return runs
 
 
@@ -255,6 +272,16 @@ _DECODE_STAGE_KEYS = [
     ("codePred", "qwen_code_predictor_total"),      # 15× Code Predictor loop
     ("code2wav", "qwen_stream_decoder_total"),      # Code2Wav audio decoder
     ("stepEval", "qwen_stream_step_eval_total"),    # per-frame eval flush
+]
+
+
+# Per-chunk substage keys written by the engine into chunkTimeline. Used for both
+# placeholder initialization and aggregate extraction in load_runs().
+_CHUNK_SUBSTAGE_KEYS = [
+    "talkerForwardMS",
+    "codePredictorMS",
+    "streamStepEvalMS",
+    "audioDecoderMS",
 ]
 
 
@@ -613,6 +640,36 @@ def main():
             f"{fmt(med(r['decodeStages'].get('stepEval') for r in group), 0):>8} "
             f"{fmt(med(r['decodeStages'].get('other') for r in group), 0):>7}"
         )
+
+    # Streaming chunk timeline (cells that actually have chunkTimeline data).
+    # Medians over cell: chunk count, first-chunk arrival, inter-chunk gap, and the
+    # per-chunk substage latencies (Talker / Code Predictor / step eval / decoder).
+    chunk_cells = {
+        k: g for k, g in cells.items()
+        if any(r.get("chunkCount") is not None for r in g)
+    }
+    if chunk_cells:
+        chunk_header = (
+            f"{'mode':<8} {'model':<26} {'state':<5} {'len':<6} "
+            f"{'nChunks':>7} {'firstChunkMS':>12} {'medianInterChunkMS':>18} "
+            f"{'talker':>7} {'codePred':>8} {'stepEval':>8} {'audioDecoder':>12}"
+        )
+        print("\nChunk timeline summary (streaming cells; median over cell)\n")
+        print(chunk_header)
+        print("-" * len(chunk_header))
+        for key in sorted(chunk_cells.keys(), key=cell_sort):
+            mode, model_id, state, lb = key
+            group = chunk_cells[key]
+            print(
+                f"{mode:<8} {short_model(model_id):<26} {state:<5} {lb:<6} "
+                f"{fmt(med(r['chunkCount'] for r in group), 0):>7} "
+                f"{fmt(med(r['firstChunkArrivalMS'] for r in group), 0):>12} "
+                f"{fmt(med(r['medianInterChunkMS'] for r in group), 0):>18} "
+                f"{fmt(med(r['chunk_talkerForwardMS'] for r in group), 0):>7} "
+                f"{fmt(med(r['chunk_codePredictorMS'] for r in group), 0):>8} "
+                f"{fmt(med(r['chunk_streamStepEvalMS'] for r in group), 0):>8} "
+                f"{fmt(med(r['chunk_audioDecoderMS'] for r in group), 0):>12}"
+            )
 
     print(
         "\nRTF = audioSeconds / wallSeconds (>1 faster than realtime). "

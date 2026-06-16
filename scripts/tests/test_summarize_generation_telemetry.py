@@ -110,3 +110,132 @@ def test_default_table_without_variance(monkeypatch):
         text = out.getvalue()
         assert "RTF_IQR" not in text
         assert "physFoot_IQR" not in text
+
+
+def test_chunk_timeline_first_chunk_arrival():
+    """chunkTimeline aggregates are extracted and firstChunkArrivalMS is correct."""
+    fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "chunk_timeline.jsonl")
+    with tempfile.TemporaryDirectory() as tmp:
+        engine_dir = os.path.join(tmp, "engine")
+        os.makedirs(engine_dir)
+        shutil.copy(fixture_path, os.path.join(engine_dir, "generations.jsonl"))
+
+        runs = sgt.load_runs(tmp)
+        run = next(r for r in runs if r["generationID"] == "gen-chunk-001")
+        assert run["firstChunkArrivalMS"] == 12
+        assert run["chunkCount"] == 4
+        assert run["medianInterChunkMS"] == 33
+
+
+def test_chunk_timeline_table(monkeypatch):
+    """The chunk-timeline summary table appears only when chunkTimeline data exists."""
+    fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "chunk_timeline.jsonl")
+    with tempfile.TemporaryDirectory() as tmp:
+        engine_dir = os.path.join(tmp, "engine")
+        os.makedirs(engine_dir)
+        shutil.copy(fixture_path, os.path.join(engine_dir, "generations.jsonl"))
+
+        monkeypatch.setattr(sys, "argv", ["summarize_generation_telemetry.py", tmp])
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = sgt.main()
+        assert rc == 0
+        text = out.getvalue()
+        assert "Chunk timeline summary" in text
+        assert "firstChunkMS" in text
+        assert "medianInterChunkMS" in text
+        assert "codePred" in text
+        assert "audioDecoder" in text
+
+
+def test_chunk_timeline_substage_medians():
+    """Per-chunk substage medians are extracted correctly."""
+    fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "chunk_timeline.jsonl")
+    with tempfile.TemporaryDirectory() as tmp:
+        engine_dir = os.path.join(tmp, "engine")
+        os.makedirs(engine_dir)
+        shutil.copy(fixture_path, os.path.join(engine_dir, "generations.jsonl"))
+
+        runs = sgt.load_runs(tmp)
+        run = next(r for r in runs if r["generationID"] == "gen-chunk-001")
+        assert run["chunk_talkerForwardMS"] == 10.5
+        assert run["chunk_codePredictorMS"] == 20.5
+        assert run["chunk_streamStepEvalMS"] == 5.5
+        assert run["chunk_audioDecoderMS"] == 2
+
+
+def test_chunk_timeline_single_chunk():
+    """A single-chunk timeline has no inter-chunk interval."""
+    fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "chunk_timeline.jsonl")
+    with tempfile.TemporaryDirectory() as tmp:
+        engine_dir = os.path.join(tmp, "engine")
+        os.makedirs(engine_dir)
+        shutil.copy(fixture_path, os.path.join(engine_dir, "generations.jsonl"))
+
+        runs = sgt.load_runs(tmp)
+        run = next(r for r in runs if r["generationID"] == "gen-chunk-004")
+        assert run["chunkCount"] == 1
+        assert run["firstChunkArrivalMS"] == 18
+        assert run["medianInterChunkMS"] is None
+
+
+def test_chunk_timeline_empty_list():
+    """An empty chunkTimeline list leaves all chunk aggregates as None."""
+    fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "chunk_timeline.jsonl")
+    with tempfile.TemporaryDirectory() as tmp:
+        engine_dir = os.path.join(tmp, "engine")
+        os.makedirs(engine_dir)
+        shutil.copy(fixture_path, os.path.join(engine_dir, "generations.jsonl"))
+
+        runs = sgt.load_runs(tmp)
+        run = next(r for r in runs if r["generationID"] == "gen-chunk-005")
+        assert run["chunkCount"] is None
+        assert run["firstChunkArrivalMS"] is None
+        assert run["medianInterChunkMS"] is None
+        assert run["chunk_talkerForwardMS"] is None
+        assert run["chunk_codePredictorMS"] is None
+        assert run["chunk_streamStepEvalMS"] is None
+        assert run["chunk_audioDecoderMS"] is None
+
+
+def test_chunk_timeline_missing_substage_keys():
+    """Missing substage keys in some chunks do not silently default to 0."""
+    fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "chunk_timeline.jsonl")
+    with tempfile.TemporaryDirectory() as tmp:
+        engine_dir = os.path.join(tmp, "engine")
+        os.makedirs(engine_dir)
+        shutil.copy(fixture_path, os.path.join(engine_dir, "generations.jsonl"))
+
+        runs = sgt.load_runs(tmp)
+        run = next(r for r in runs if r["generationID"] == "gen-chunk-006")
+        # talkerForwardMS is present in only one chunk; if it defaulted to 0 for the
+        # missing chunk the median would be 10, so 20 proves the omission is honored.
+        assert run["chunk_talkerForwardMS"] == 20
+        assert run["chunk_codePredictorMS"] == 41
+        assert run["chunk_streamStepEvalMS"] == 10.5
+        assert run["chunk_audioDecoderMS"] == 5.5
+
+
+def test_chunk_timeline_cell_level_aggregation(monkeypatch):
+    """Multiple runs in the same cell are aggregated by median in the printed table."""
+    fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "chunk_timeline.jsonl")
+    with tempfile.TemporaryDirectory() as tmp:
+        engine_dir = os.path.join(tmp, "engine")
+        os.makedirs(engine_dir)
+        shutil.copy(fixture_path, os.path.join(engine_dir, "generations.jsonl"))
+
+        monkeypatch.setattr(sys, "argv", ["summarize_generation_telemetry.py", tmp])
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = sgt.main()
+        assert rc == 0
+        text = out.getvalue()
+        chunk_section = text.split("Chunk timeline summary", 1)[1].split("\n\nRTF =")[0]
+        warm_short_line = [
+            line for line in chunk_section.splitlines()
+            if "custom" in line and "warm" in line and "short" in line
+        ]
+        assert len(warm_short_line) == 1
+        # gen-chunk-001 (12 ms) and gen-chunk-004 (18 ms) share custom/4bit/warm/short.
+        assert "15" in warm_short_line[0]
+        assert "33" in warm_short_line[0]
