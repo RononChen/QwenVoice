@@ -257,6 +257,10 @@ final class Qwen3TTSTalkerModel: Module {
     let layers: [TalkerDecoderLayer]
     @ModuleInfo var norm: RMSNorm
     let rotaryEmb: TalkerRotaryEmbedding
+    /// Telemetry hook: identifies which KV-cache implementation was
+    /// last created by this model instance (`quantized`, `simple`, or
+    /// `rotating`). Updated by `makeCache()` and `makeRotatingCache()`.
+    var latestCreatedCacheType: String = "unknown"
 
     init(config: Qwen3TTSTalkerConfig) {
         self.config = config
@@ -307,8 +311,10 @@ final class Qwen3TTSTalkerModel: Module {
 
     func makeCache() -> [any KVCache] {
         if let bits = Qwen3StreamingMemoryTuning.talkerKVQuantBits {
+            latestCreatedCacheType = "quantized"
             return layers.map { _ in QuantizedKVCache(groupSize: 64, bits: bits) }
         }
+        latestCreatedCacheType = "simple"
         return layers.map { _ in KVCacheSimple() }
     }
 
@@ -319,7 +325,8 @@ final class Qwen3TTSTalkerModel: Module {
     /// audio length. Gated by the host via `Qwen3StreamingMemoryTuning.talkerKVGeneratedWindow`.
     /// NEVER quantized (RotatingKVCache.toQuantized is unimplemented upstream).
     func makeRotatingCache(keep: Int, window: Int) -> [any KVCache] {
-        layers.map { _ in RotatingKVCache(maxSize: keep + window, keep: keep, step: 256) }
+        latestCreatedCacheType = "rotating"
+        return layers.map { _ in RotatingKVCache(maxSize: keep + window, keep: keep, step: 256) }
     }
 }
 

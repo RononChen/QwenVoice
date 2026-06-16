@@ -1688,8 +1688,11 @@ private struct StreamingExecutionContext: Sendable {
             codePredictorMS: timings.codePredictorMS,
             audioDecoderMS: timings.audioDecoderMS,
             streamStepEvalMS: timings.streamStepEvalMS,
+            streamStepEvalEnqueueMS: timings.streamStepEvalEnqueueMS,
+            streamStepEvalWaitMS: timings.streamStepEvalWaitMS,
             streamStepEOSReadMS: timings.streamStepEOSReadMS,
-            audioChunkEvalMS: timings.audioChunkEvalMS
+            audioChunkEvalMS: timings.audioChunkEvalMS,
+            kvCacheDiagnostics: timings.kvCacheDiagnostics
         )
     }
 

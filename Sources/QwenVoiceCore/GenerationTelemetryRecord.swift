@@ -1,4 +1,5 @@
 import Foundation
+@preconcurrency import MLXAudioCore
 
 /// One durable telemetry row for a single generation, written by one layer.
 ///
@@ -183,8 +184,14 @@ public struct GenerationChunkTelemetry: Hashable, Codable, Sendable {
     public let codePredictorMS: Double
     public let audioDecoderMS: Double
     public let streamStepEvalMS: Double
+    /// Phase 2a split of `streamStepEvalMS`: enqueued eval work wall time.
+    public let streamStepEvalEnqueueMS: Double
+    /// Phase 2a split of `streamStepEvalMS`: GPU drain wait time.
+    public let streamStepEvalWaitMS: Double
     public let streamStepEOSReadMS: Double
     public let audioChunkEvalMS: Double
+    /// Phase 2a KV-cache diagnostic snapshot at this chunk boundary.
+    public let kvCacheDiagnostics: KVCacheDiagnostics?
 
     public init(
         chunkIndex: Int,
@@ -193,8 +200,11 @@ public struct GenerationChunkTelemetry: Hashable, Codable, Sendable {
         codePredictorMS: Double,
         audioDecoderMS: Double,
         streamStepEvalMS: Double,
+        streamStepEvalEnqueueMS: Double,
+        streamStepEvalWaitMS: Double,
         streamStepEOSReadMS: Double,
-        audioChunkEvalMS: Double
+        audioChunkEvalMS: Double,
+        kvCacheDiagnostics: KVCacheDiagnostics? = nil
     ) {
         self.chunkIndex = chunkIndex
         self.arrivalMS = arrivalMS
@@ -202,8 +212,29 @@ public struct GenerationChunkTelemetry: Hashable, Codable, Sendable {
         self.codePredictorMS = codePredictorMS
         self.audioDecoderMS = audioDecoderMS
         self.streamStepEvalMS = streamStepEvalMS
+        self.streamStepEvalEnqueueMS = streamStepEvalEnqueueMS
+        self.streamStepEvalWaitMS = streamStepEvalWaitMS
         self.streamStepEOSReadMS = streamStepEOSReadMS
         self.audioChunkEvalMS = audioChunkEvalMS
+        self.kvCacheDiagnostics = kvCacheDiagnostics
+    }
+
+    /// Backward-compatible decoding: older JSONL rows written before Phase 2a
+    /// lack `streamStepEvalEnqueueMS`, `streamStepEvalWaitMS`, and
+    /// `kvCacheDiagnostics`. Defaults keep them decodeable.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.chunkIndex = try container.decode(Int.self, forKey: .chunkIndex)
+        self.arrivalMS = try container.decode(Int.self, forKey: .arrivalMS)
+        self.talkerForwardMS = try container.decode(Double.self, forKey: .talkerForwardMS)
+        self.codePredictorMS = try container.decode(Double.self, forKey: .codePredictorMS)
+        self.audioDecoderMS = try container.decode(Double.self, forKey: .audioDecoderMS)
+        self.streamStepEvalMS = try container.decode(Double.self, forKey: .streamStepEvalMS)
+        self.streamStepEvalEnqueueMS = try container.decodeIfPresent(Double.self, forKey: .streamStepEvalEnqueueMS) ?? 0
+        self.streamStepEvalWaitMS = try container.decodeIfPresent(Double.self, forKey: .streamStepEvalWaitMS) ?? 0
+        self.streamStepEOSReadMS = try container.decode(Double.self, forKey: .streamStepEOSReadMS)
+        self.audioChunkEvalMS = try container.decode(Double.self, forKey: .audioChunkEvalMS)
+        self.kvCacheDiagnostics = try container.decodeIfPresent(KVCacheDiagnostics.self, forKey: .kvCacheDiagnostics)
     }
 }
 

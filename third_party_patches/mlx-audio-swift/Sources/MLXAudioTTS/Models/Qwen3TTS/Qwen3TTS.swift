@@ -35,6 +35,14 @@ private func qwen3TTSLog(_ message: String) {
     FileHandle.standardError.write(Data((message + "\n").utf8))
 }
 
+/// Phase 2a helper: estimate talker KV-cache footprint for a given
+/// effective sequence length. Assumes one K + one V tensor per layer
+/// (hence the factor of 2). `dtypeBytes` is 2 for bfloat16/float16.
+private func estimatedKVCacheFootprintMB(layers: Int, heads: Int, seq: Int, headDim: Int, dtypeBytes: Int) -> Double {
+    let bytes = 2 * layers * heads * seq * headDim * dtypeBytes
+    return Double(bytes) / Double(1_024 * 1_024)
+}
+
 private final class CachedTokenizerBox: @unchecked Sendable {
     let tokenizer: Tokenizer
 
@@ -2529,11 +2537,19 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         // these aggregate the same work mode-agnostically so the per-chunk
         // delta logic can read a single counter without branching on mode.
         var streamStepEvalTotalMS = 0
+        var streamStepEvalEnqueueTotalMS = 0
+        var streamStepEvalWaitTotalMS = 0
         var streamStepEOSReadTotalMS = 0
         var audioChunkEvalTotalMS = 0
         var lastChunkStreamStepEvalMS = 0
+        var lastChunkStreamStepEvalEnqueueMS = 0
+        var lastChunkStreamStepEvalWaitMS = 0
         var lastChunkStreamStepEOSReadMS = 0
         var lastChunkAudioChunkEvalMS = 0
+        // Phase 2a: track peak KV-cache footprint across the generation.
+        var peakKVCacheSeqLength = 0
+        var peakKVCacheFootprintMB = 0.0
+        var kvCacheTypeAtPeak = talker.model.latestCreatedCacheType
         var designStreamStepEvalTotalMS = 0
         var designStreamStepEOSReadTotalMS = 0
         var designAudioChunkEvalTotalMS = 0
@@ -2565,7 +2581,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         }
 
         func qwenHotLoopTimingsMS() -> [String: Int] {
-            [
+            var timings: [String: Int] = [
                 "qwen_token_loop_total": tokenLoopTotalMS,
                 "qwen_talker_forward_total": talkerForwardTotalMS,
                 "qwen_sample_first_codebook_total": sampleFirstCodebookTotalMS,
@@ -2574,6 +2590,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 "qwen_sample_predicted_codebook_total": samplePredictedCodebookTotalMS,
                 "qwen_codec_embedding_assembly_total": codecEmbeddingAssemblyTotalMS,
                 "qwen_stream_step_eval_total": streamStepEvalTotalMS,
+                "qwen_stream_step_eval_enqueue_total": streamStepEvalEnqueueTotalMS,
+                "qwen_stream_step_eval_wait_total": streamStepEvalWaitTotalMS,
                 "qwen_stream_step_eos_read_total": streamStepEOSReadTotalMS,
                 "qwen_token_loop_unattributed": qwenTokenLoopUnattributedMS(),
                 "qwen_stream_decoder_total": streamingDecoderTotalMS,
@@ -2583,6 +2601,51 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 "cache_clear_count": cacheClearCount,
                 "memory_clear_cadence": memoryClearCadence,
             ]
+            // Only emit peak KV-cache keys when the peak tracker was actually
+            // updated (i.e., telemetry was active). Prevents false-zero readings.
+            if peakKVCacheSeqLength > 0 {
+                timings["qwen_talker_kv_cache_peak_seq"] = peakKVCacheSeqLength
+                timings["qwen_talker_kv_cache_peak_mb"] = Int(peakKVCacheFootprintMB)
+            }
+            return timings
+        }
+
+        // Phase 2a: build a per-chunk KV-cache diagnostic snapshot and keep
+        // running peak totals for the final hot-loop summary.
+        //
+        // NOTE: the footprint is a dense bfloat16 estimate. Quantized KV caches
+        // (e.g. 4-bit) and rotating-window caches are NOT reflected in the byte
+        // count, so treat this as a coarse trend/regression signal, not exact
+        // allocated bytes.
+        func makeChunkKVCacheDiagnostics() -> KVCacheDiagnostics? {
+            let effectiveSeqLength = cache.first?.offset ?? 0
+            let layerCount = talkerConfig.numHiddenLayers
+            let headCount = talkerConfig.numAttentionHeads
+            let kvHeadCount = talkerConfig.numKeyValueHeads
+            let headDim = talkerConfig.headDim
+            let dtypeBytes = 2
+            let footprintMB = estimatedKVCacheFootprintMB(
+                layers: layerCount,
+                heads: kvHeadCount,
+                seq: effectiveSeqLength,
+                headDim: headDim,
+                dtypeBytes: dtypeBytes
+            )
+            if footprintMB > peakKVCacheFootprintMB {
+                peakKVCacheFootprintMB = footprintMB
+                peakKVCacheSeqLength = effectiveSeqLength
+                kvCacheTypeAtPeak = talker.model.latestCreatedCacheType
+            }
+            return KVCacheDiagnostics(
+                cacheType: talker.model.latestCreatedCacheType,
+                effectiveSeqLength: effectiveSeqLength,
+                layerCount: layerCount,
+                headCount: headCount,
+                kvHeadCount: kvHeadCount,
+                headDim: headDim,
+                dtypeBytes: dtypeBytes,
+                estimatedFootprintMB: footprintMB
+            )
         }
 
         func clearGenerationCache() {
@@ -2773,6 +2836,11 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             Qwen3Signposts.signposter.endInterval("Step Eval Flush", stepEvalSignpost)
             let streamStepEvalElapsed = streamStepEvalStartedAt.elapsedMilliseconds
             streamStepEvalTotalMS += streamStepEvalElapsed
+            // Phase 2a baseline: synchronous eval path. Enqueue captures the
+            // total eval wall time; wait is 0. Future async instrumentation
+            // will split the GPU drain wait out separately.
+            streamStepEvalEnqueueTotalMS += streamStepEvalElapsed
+            streamStepEvalWaitTotalMS += 0
             if isPureVoiceDesign {
                 designStreamStepEvalTotalMS += streamStepEvalElapsed
             } else if isDedicatedCustomVoice {
@@ -2868,18 +2936,24 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
 
                     pendingStreamCodes.removeAll(keepingCapacity: true)
                     if let onAudioChunkTimings {
+                        let kvDiagnostics = makeChunkKVCacheDiagnostics()
                         let timings = ChunkSubstageTimings(
                             talkerForwardMS: Double(talkerForwardTotalMS - lastChunkTalkerForwardMS),
                             codePredictorMS: Double(codePredictorTotalMS - lastChunkCodePredictorMS),
                             audioDecoderMS: Double(streamingDecoderTotalMS - lastChunkStreamingDecoderMS),
                             streamStepEvalMS: Double(streamStepEvalTotalMS - lastChunkStreamStepEvalMS),
+                            streamStepEvalEnqueueMS: Double(streamStepEvalEnqueueTotalMS - lastChunkStreamStepEvalEnqueueMS),
+                            streamStepEvalWaitMS: Double(streamStepEvalWaitTotalMS - lastChunkStreamStepEvalWaitMS),
                             streamStepEOSReadMS: Double(streamStepEOSReadTotalMS - lastChunkStreamStepEOSReadMS),
-                            audioChunkEvalMS: Double(audioChunkEvalTotalMS - lastChunkAudioChunkEvalMS)
+                            audioChunkEvalMS: Double(audioChunkEvalTotalMS - lastChunkAudioChunkEvalMS),
+                            kvCacheDiagnostics: kvDiagnostics
                         )
                         lastChunkTalkerForwardMS = talkerForwardTotalMS
                         lastChunkCodePredictorMS = codePredictorTotalMS
                         lastChunkStreamingDecoderMS = streamingDecoderTotalMS
                         lastChunkStreamStepEvalMS = streamStepEvalTotalMS
+                        lastChunkStreamStepEvalEnqueueMS = streamStepEvalEnqueueTotalMS
+                        lastChunkStreamStepEvalWaitMS = streamStepEvalWaitTotalMS
                         lastChunkStreamStepEOSReadMS = streamStepEOSReadTotalMS
                         lastChunkAudioChunkEvalMS = audioChunkEvalTotalMS
                         onAudioChunkTimings(timings)
@@ -3008,18 +3082,24 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     cloneAudioChunkEvalTotalMS += audioChunkEvalElapsed
                 }
                 if let onAudioChunkTimings {
+                    let kvDiagnostics = makeChunkKVCacheDiagnostics()
                     let timings = ChunkSubstageTimings(
                         talkerForwardMS: Double(talkerForwardTotalMS - lastChunkTalkerForwardMS),
                         codePredictorMS: Double(codePredictorTotalMS - lastChunkCodePredictorMS),
                         audioDecoderMS: Double(streamingDecoderTotalMS - lastChunkStreamingDecoderMS),
                         streamStepEvalMS: Double(streamStepEvalTotalMS - lastChunkStreamStepEvalMS),
+                        streamStepEvalEnqueueMS: Double(streamStepEvalEnqueueTotalMS - lastChunkStreamStepEvalEnqueueMS),
+                        streamStepEvalWaitMS: Double(streamStepEvalWaitTotalMS - lastChunkStreamStepEvalWaitMS),
                         streamStepEOSReadMS: Double(streamStepEOSReadTotalMS - lastChunkStreamStepEOSReadMS),
-                        audioChunkEvalMS: Double(audioChunkEvalTotalMS - lastChunkAudioChunkEvalMS)
+                        audioChunkEvalMS: Double(audioChunkEvalTotalMS - lastChunkAudioChunkEvalMS),
+                        kvCacheDiagnostics: kvDiagnostics
                     )
                     lastChunkTalkerForwardMS = talkerForwardTotalMS
                     lastChunkCodePredictorMS = codePredictorTotalMS
                     lastChunkStreamingDecoderMS = streamingDecoderTotalMS
                     lastChunkStreamStepEvalMS = streamStepEvalTotalMS
+                    lastChunkStreamStepEvalEnqueueMS = streamStepEvalEnqueueTotalMS
+                    lastChunkStreamStepEvalWaitMS = streamStepEvalWaitTotalMS
                     lastChunkStreamStepEOSReadMS = streamStepEOSReadTotalMS
                     lastChunkAudioChunkEvalMS = audioChunkEvalTotalMS
                     onAudioChunkTimings(timings)
@@ -3027,8 +3107,15 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 try Task.checkCancellation()
                 onAudioChunk(audioChunk)
                 emittedStreamChunk = true
+                // Capture final KV-cache footprint before clearing; when the
+                // chunk-timing callback is not registered this is the only
+                // update the peak trackers get.
+                _ = makeChunkKVCacheDiagnostics()
                 clearGenerationCache()
             }
+            mergePreparationStringFlags([
+                "qwen_talker_kv_cache_type": kvCacheTypeAtPeak,
+            ])
             var mergedTimingsMS = qwenHotLoopTimingsMS()
                 .merging(preparationTimingsMS) { _, rhs in rhs }
             if isPureVoiceDesign {
@@ -3098,6 +3185,13 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
 
         let finalDecodeEvalStartedAt = ContinuousClock.now
         eval(audio)
+        // Capture final KV-cache footprint for non-streaming runs (no chunk
+        // boundaries fired, so the peak trackers haven't been updated) BEFORE
+        // clearing the generation cache, which resets the KV-cache offset.
+        _ = makeChunkKVCacheDiagnostics()
+        mergePreparationStringFlags([
+            "qwen_talker_kv_cache_type": kvCacheTypeAtPeak,
+        ])
         clearGenerationCache()
         var mergedTimingsMS = qwenHotLoopTimingsMS()
             .merging(preparationTimingsMS) { _, rhs in rhs }

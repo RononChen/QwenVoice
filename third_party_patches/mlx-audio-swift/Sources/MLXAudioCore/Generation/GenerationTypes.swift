@@ -46,6 +46,63 @@ public struct AudioGenerationInfo: Sendable {
 
 // MARK: - Per-chunk sub-stage timings (engine probe Phase 1)
 
+/// Diagnostic snapshot of the talker KV cache at a chunk boundary.
+/// Lives in MLXAudioCore so `ChunkSubstageTimings` (which crosses the
+/// `AudioGeneration` public enum) can carry it without adding a
+/// Qwen3-specific dependency to unrelated consumers.
+public struct KVCacheDiagnostics: Hashable, Codable, Sendable {
+    public let cacheType: String
+    public let effectiveSeqLength: Int
+    public let layerCount: Int
+    /// Attention head count (for architecture identification).
+    public let headCount: Int
+    /// Key/value head count — the actual tensor count used for the K/V cache.
+    public let kvHeadCount: Int
+    public let headDim: Int
+    /// Assumed element size in bytes. This is a coarse estimate: quantized caches
+    /// use fewer bits and rotating-window caches cap `effectiveSeqLength`, so the
+    /// real footprint can differ. The value is intended for trend/regression
+    /// analysis, not as ground-truth bytes allocated.
+    public let dtypeBytes: Int
+    public let estimatedFootprintMB: Double
+
+    public init(
+        cacheType: String,
+        effectiveSeqLength: Int,
+        layerCount: Int,
+        headCount: Int,
+        kvHeadCount: Int,
+        headDim: Int,
+        dtypeBytes: Int,
+        estimatedFootprintMB: Double
+    ) {
+        self.cacheType = cacheType
+        self.effectiveSeqLength = effectiveSeqLength
+        self.layerCount = layerCount
+        self.headCount = headCount
+        self.kvHeadCount = kvHeadCount
+        self.headDim = headDim
+        self.dtypeBytes = dtypeBytes
+        self.estimatedFootprintMB = estimatedFootprintMB
+    }
+
+    /// Backward-compatible decoding: rows written by the first Phase-2a commit
+    /// only carried `headCount`. Fall back to `headCount` for the KV-head count
+    /// so older JSONL still decodes (the footprint estimate was already using
+    /// the attention-head count in that version, so the fallback is exact).
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.cacheType = try container.decode(String.self, forKey: .cacheType)
+        self.effectiveSeqLength = try container.decode(Int.self, forKey: .effectiveSeqLength)
+        self.layerCount = try container.decode(Int.self, forKey: .layerCount)
+        self.headCount = try container.decode(Int.self, forKey: .headCount)
+        self.kvHeadCount = try container.decodeIfPresent(Int.self, forKey: .kvHeadCount) ?? self.headCount
+        self.headDim = try container.decode(Int.self, forKey: .headDim)
+        self.dtypeBytes = try container.decode(Int.self, forKey: .dtypeBytes)
+        self.estimatedFootprintMB = try container.decode(Double.self, forKey: .estimatedFootprintMB)
+    }
+}
+
 /// Wall-clock breakdown of the inference work that produced ONE audio
 /// chunk during streaming. Emitted by `Qwen3TTS` immediately before
 /// each `.audio(...)` chunk event so consumers can correlate each
@@ -69,6 +126,16 @@ public struct ChunkSubstageTimings: Sendable, Hashable {
     /// summed to only 18-26 % of `inferMS`; this and the next two
     /// fields chase the missing 74-82 %.
     public let streamStepEvalMS: Double
+    /// Phase 2a split of `streamStepEvalMS`: wall time from when the
+    /// eval work was enqueued until it was issued to the GPU. In the
+    /// current synchronous eval path this equals `streamStepEvalMS`;
+    /// future async instrumentation will populate `streamStepEvalWaitMS`
+    /// separately.
+    public let streamStepEvalEnqueueMS: Double
+    /// Phase 2a split of `streamStepEvalMS`: wall time spent waiting for
+    /// the GPU command buffer to drain. Currently 0 because the eval
+    /// path is synchronous; reserved for future async instrumentation.
+    public let streamStepEvalWaitMS: Double
     /// Time spent reading the EOS (end-of-speech) flag each forward
     /// step. Lives inside the per-token loop alongside the talker
     /// forward + code predictor; broken out separately because EOS
@@ -79,21 +146,31 @@ public struct ChunkSubstageTimings: Sendable, Hashable {
     /// CPU side so the chunk can be yielded. Distinct from the
     /// `audioDecoderMS` measurement which times the decoder kernel.
     public let audioChunkEvalMS: Double
+    /// Snapshot of the talker KV cache at this chunk boundary (shape,
+    /// effective sequence length, estimated footprint). nil when not
+    /// available or when telemetry is gated off.
+    public let kvCacheDiagnostics: KVCacheDiagnostics?
 
     public init(
         talkerForwardMS: Double,
         codePredictorMS: Double,
         audioDecoderMS: Double,
         streamStepEvalMS: Double = 0,
+        streamStepEvalEnqueueMS: Double = 0,
+        streamStepEvalWaitMS: Double = 0,
         streamStepEOSReadMS: Double = 0,
-        audioChunkEvalMS: Double = 0
+        audioChunkEvalMS: Double = 0,
+        kvCacheDiagnostics: KVCacheDiagnostics? = nil
     ) {
         self.talkerForwardMS = talkerForwardMS
         self.codePredictorMS = codePredictorMS
         self.audioDecoderMS = audioDecoderMS
         self.streamStepEvalMS = streamStepEvalMS
+        self.streamStepEvalEnqueueMS = streamStepEvalEnqueueMS
+        self.streamStepEvalWaitMS = streamStepEvalWaitMS
         self.streamStepEOSReadMS = streamStepEOSReadMS
         self.audioChunkEvalMS = audioChunkEvalMS
+        self.kvCacheDiagnostics = kvCacheDiagnostics
     }
 }
 

@@ -18,10 +18,11 @@ xcuserdata/
 # Claude Code local config (per-machine permissions allowlist)
 .claude/
 
-# Python cache leftovers
+# Python cache leftovers / local virtual environments
 __pycache__/
 *.pyc
 *.pyo
+.venv/
 
 # Dependencies
 Packages/
