@@ -22,9 +22,13 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
     /// `mlxMemoryByStage` (per-stage MLX GPU memory), and `chunkTimeline` (per-chunk
     /// decode substage breakdown). v3 added `modelID` + `warmState` so each row
     /// self-identifies its benchmark cell (model variant × cold/warm). v4 added
-    /// `audioQC` (reference-free output-quality verdict + defect flags). All optional,
-    /// so older rows still decode.
-    public static let currentSchemaVersion = 4
+    /// `audioQC` (reference-free output-quality verdict + defect flags). v5 added
+    /// high-resolution `mach_absolute_time` nanoseconds (`clockSource`, stage-mark
+    /// `tNS`/`sequence`, sample `tNS`/`actualElapsedNS`, chunk `arrivalNS`). All
+    /// optional, so older rows still decode.
+    public static let currentSchemaVersion = 5
+
+    public let clockSource: String? = "mach_absolute_time"
 
     public let schemaVersion: Int
     public let generationID: String
@@ -180,6 +184,9 @@ public struct AudioQCReport: Hashable, Codable, Sendable {
 public struct GenerationChunkTelemetry: Hashable, Codable, Sendable {
     public let chunkIndex: Int
     public let arrivalMS: Int
+    /// High-resolution arrival timestamp in nanoseconds since the generation's
+    /// shared telemetry clock start (v5). nil for older rows.
+    public let arrivalNS: UInt64?
     public let talkerForwardMS: Double
     public let codePredictorMS: Double
     public let audioDecoderMS: Double
@@ -196,6 +203,7 @@ public struct GenerationChunkTelemetry: Hashable, Codable, Sendable {
     public init(
         chunkIndex: Int,
         arrivalMS: Int,
+        arrivalNS: UInt64? = nil,
         talkerForwardMS: Double,
         codePredictorMS: Double,
         audioDecoderMS: Double,
@@ -208,6 +216,7 @@ public struct GenerationChunkTelemetry: Hashable, Codable, Sendable {
     ) {
         self.chunkIndex = chunkIndex
         self.arrivalMS = arrivalMS
+        self.arrivalNS = arrivalNS
         self.talkerForwardMS = talkerForwardMS
         self.codePredictorMS = codePredictorMS
         self.audioDecoderMS = audioDecoderMS
@@ -221,11 +230,12 @@ public struct GenerationChunkTelemetry: Hashable, Codable, Sendable {
 
     /// Backward-compatible decoding: older JSONL rows written before Phase 2a
     /// lack `streamStepEvalEnqueueMS`, `streamStepEvalWaitMS`, and
-    /// `kvCacheDiagnostics`. Defaults keep them decodeable.
+    /// `kvCacheDiagnostics`; v5 rows add `arrivalNS`. Defaults keep them decodeable.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.chunkIndex = try container.decode(Int.self, forKey: .chunkIndex)
         self.arrivalMS = try container.decode(Int.self, forKey: .arrivalMS)
+        self.arrivalNS = try container.decodeIfPresent(UInt64.self, forKey: .arrivalNS)
         self.talkerForwardMS = try container.decode(Double.self, forKey: .talkerForwardMS)
         self.codePredictorMS = try container.decode(Double.self, forKey: .codePredictorMS)
         self.audioDecoderMS = try container.decode(Double.self, forKey: .audioDecoderMS)

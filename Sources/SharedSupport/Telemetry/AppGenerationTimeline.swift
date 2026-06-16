@@ -99,11 +99,19 @@ final class AppGenerationTimeline {
         var timingsMS: [String: Int] = [:]
         if let marks {
             timingsMS["submitToCompletedMS"] = Self.milliseconds(from: marks.submittedAt, to: now)
+            timingsMS["submitToCompletedNS"] = Self.nanoseconds(from: marks.submittedAt, to: now)
             if let firstChunkAt = marks.firstChunkAt {
                 timingsMS["submitToFirstChunkMS"] = Self.milliseconds(from: marks.submittedAt, to: firstChunkAt)
+                timingsMS["submitToFirstChunkNS"] = Self.nanoseconds(from: marks.submittedAt, to: firstChunkAt)
             }
             if let firstAudibleAt = marks.firstAudibleAt {
                 timingsMS["submitToFirstAudibleMS"] = Self.milliseconds(from: marks.submittedAt, to: firstAudibleAt)
+                timingsMS["submitToFirstAudibleNS"] = Self.nanoseconds(from: marks.submittedAt, to: firstAudibleAt)
+            }
+            if let firstChunkAt = marks.firstChunkAt,
+               let firstAudibleAt = marks.firstAudibleAt {
+                timingsMS["chunkForwardingSpanMS"] = Self.milliseconds(from: firstChunkAt, to: firstAudibleAt)
+                timingsMS["chunkForwardingSpanNS"] = Self.nanoseconds(from: firstChunkAt, to: firstAudibleAt)
             }
         }
 
@@ -139,5 +147,16 @@ final class AppGenerationTimeline {
         let millis = Double(components.seconds) * 1_000
             + Double(components.attoseconds) / 1_000_000_000_000_000
         return Int(millis.rounded())
+    }
+
+    private static func nanoseconds(
+        from start: ContinuousClock.Instant,
+        to end: ContinuousClock.Instant
+    ) -> Int {
+        let duration = start.duration(to: end)
+        let components = duration.components
+        let secondsNS = UInt64(components.seconds) * 1_000_000_000
+        let attosecondsNS = UInt64(components.attoseconds / 1_000_000_000)
+        return Int(min(UInt64(Int.max), secondsNS + attosecondsNS))
     }
 }

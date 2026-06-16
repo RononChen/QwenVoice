@@ -28,6 +28,8 @@ public struct ThermalStateSnapshot: Hashable, Codable, Sendable {
 
 public struct TelemetrySample: Hashable, Codable, Sendable {
     public let tMS: Int
+    public let tNS: UInt64?
+    public let actualElapsedNS: UInt64?
     public let residentMB: Double?
     public let physFootprintMB: Double?
     public let compressedMB: Double?
@@ -41,6 +43,8 @@ public struct TelemetrySample: Hashable, Codable, Sendable {
 
     public init(
         tMS: Int,
+        tNS: UInt64? = nil,
+        actualElapsedNS: UInt64? = nil,
         residentMB: Double?,
         physFootprintMB: Double?,
         compressedMB: Double?,
@@ -53,6 +57,8 @@ public struct TelemetrySample: Hashable, Codable, Sendable {
         chunkIndex: Int? = nil
     ) {
         self.tMS = tMS
+        self.tNS = tNS
+        self.actualElapsedNS = actualElapsedNS
         self.residentMB = residentMB
         self.physFootprintMB = physFootprintMB
         self.compressedMB = compressedMB
@@ -63,6 +69,39 @@ public struct TelemetrySample: Hashable, Codable, Sendable {
         self.thermalState = thermalState
         self.stage = stage
         self.chunkIndex = chunkIndex
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case tMS
+        case tNS
+        case actualElapsedNS
+        case residentMB
+        case physFootprintMB
+        case compressedMB
+        case headroomMB
+        case gpuAllocatedMB
+        case gpuRecommendedWorkingSetMB
+        case threads
+        case thermalState
+        case stage
+        case chunkIndex
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.tMS = try container.decode(Int.self, forKey: .tMS)
+        self.tNS = try container.decodeIfPresent(UInt64.self, forKey: .tNS)
+        self.actualElapsedNS = try container.decodeIfPresent(UInt64.self, forKey: .actualElapsedNS)
+        self.residentMB = try container.decodeIfPresent(Double.self, forKey: .residentMB)
+        self.physFootprintMB = try container.decodeIfPresent(Double.self, forKey: .physFootprintMB)
+        self.compressedMB = try container.decodeIfPresent(Double.self, forKey: .compressedMB)
+        self.headroomMB = try container.decodeIfPresent(Double.self, forKey: .headroomMB)
+        self.gpuAllocatedMB = try container.decodeIfPresent(Double.self, forKey: .gpuAllocatedMB)
+        self.gpuRecommendedWorkingSetMB = try container.decodeIfPresent(Double.self, forKey: .gpuRecommendedWorkingSetMB)
+        self.threads = try container.decode(Int.self, forKey: .threads)
+        self.thermalState = try container.decodeIfPresent(String.self, forKey: .thermalState)
+        self.stage = try container.decodeIfPresent(String.self, forKey: .stage)
+        self.chunkIndex = try container.decodeIfPresent(Int.self, forKey: .chunkIndex)
     }
 }
 
@@ -119,7 +158,7 @@ public struct TelemetrySummary: Hashable, Codable, Sendable {
 }
 
 public actor NativeTelemetrySampler {
-    private let startUptimeSeconds: TimeInterval
+    private let clock: NativeTelemetryClock
     private let sampleIntervalMS: Int
     private let buffer = TelemetrySampleBuffer()
     private var samplingTask: Task<Void, Never>?
@@ -130,25 +169,25 @@ public actor NativeTelemetrySampler {
     private let metalDevice: MTLDevice? = MTLCreateSystemDefaultDevice()
 
     public init(
-        startUptimeSeconds: TimeInterval,
+        clock: NativeTelemetryClock,
         sampleIntervalMS: Int
     ) {
-        self.startUptimeSeconds = startUptimeSeconds
+        self.clock = clock
         self.sampleIntervalMS = sampleIntervalMS
     }
 
     public func start() async {
-        await buffer.append(sample: Self.captureSample(startUptimeSeconds: startUptimeSeconds, device: metalDevice))
+        await buffer.append(sample: Self.captureSample(clock: clock, device: metalDevice))
         let intervalNanos = UInt64(max(sampleIntervalMS, 1)) * 1_000_000
         let buffer = self.buffer
-        let startUptimeSeconds = self.startUptimeSeconds
+        let clock = self.clock
         let device = self.metalDevice
         samplingTask = Task.detached(priority: .utility) {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: intervalNanos)
                 guard !Task.isCancelled else { break }
                 await buffer.append(
-                    sample: Self.captureSample(startUptimeSeconds: startUptimeSeconds, device: device)
+                    sample: Self.captureSample(clock: clock, device: device)
                 )
             }
         }
@@ -157,7 +196,7 @@ public actor NativeTelemetrySampler {
     public func stop(stageMarks: [NativeTelemetryStageMark]) async -> (summary: TelemetrySummary, samples: [TelemetrySample]) {
         samplingTask?.cancel()
         _ = await samplingTask?.value
-        await buffer.append(sample: Self.captureSample(startUptimeSeconds: startUptimeSeconds, device: metalDevice))
+        await buffer.append(sample: Self.captureSample(clock: clock, device: metalDevice))
         let rawSamples = await buffer.snapshot()
         let samples = Self.decorate(samples: rawSamples, stageMarks: stageMarks)
         let summary = Self.summarize(samples: samples, stageMarks: stageMarks)
@@ -262,11 +301,13 @@ public actor NativeTelemetrySampler {
         }
     }
 
-    private static func captureSample(startUptimeSeconds: TimeInterval, device: MTLDevice?) -> TelemetrySample {
-        let tMS = Int((ProcessInfo.processInfo.systemUptime - startUptimeSeconds) * 1_000)
+    private static func captureSample(clock: NativeTelemetryClock, device: MTLDevice?) -> TelemetrySample {
+        let (ms, ns) = clock.now()
         let snapshot = IOSMemorySnapshot.capture(device: device)
         return TelemetrySample(
-            tMS: tMS,
+            tMS: ms,
+            tNS: ns,
+            actualElapsedNS: ns,
             residentMB: snapshot.residentMB,
             physFootprintMB: snapshot.physFootprintMB,
             compressedMB: snapshot.compressedMB,

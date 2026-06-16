@@ -770,8 +770,11 @@ private struct EngineServiceTransportAccumulator {
         guard let generationID, chunksForwarded > 0 else { return }
         var timingsMS: [String: Int] = [:]
         if let firstChunkUptime {
-            let spanMS = Int((ProcessInfo.processInfo.systemUptime - firstChunkUptime) * 1_000)
+            let spanSeconds = ProcessInfo.processInfo.systemUptime - firstChunkUptime
+            let spanMS = Int(spanSeconds * 1_000)
             timingsMS["chunkForwardingSpanMS"] = max(0, spanMS)
+            let spanNS = UInt64(spanSeconds * 1_000_000_000)
+            timingsMS["chunkForwardingSpanNS"] = Int(min(UInt64(Int.max), spanNS))
         }
         let record = GenerationTelemetryRecord(
             generationID: generationID.uuidString,

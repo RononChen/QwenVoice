@@ -376,8 +376,9 @@ actor NativeEngineRuntime {
         // Propagate to the load coordinator so its cache/tokenizer/model-load marks
         // share this recorder, and carry it to the session (same start clock as its
         // memory sampler). Nil — and therefore zero overhead — when telemetry is off.
+        let telemetryClock = NativeTelemetryClock()
         let telemetryRecorder: NativeTelemetryRecorder? = TelemetryGate.resolvedEnabled
-            ? NativeTelemetryRecorder()
+            ? NativeTelemetryRecorder(clock: telemetryClock)
             : nil
         self.telemetryRecorder = telemetryRecorder
         await loadCoordinator.setTelemetryRecorder(telemetryRecorder)

@@ -852,9 +852,9 @@ private struct StreamingExecutionContext: Sendable {
         let telemetryActive = telemetryRecorder != nil
         let telemetrySampler = telemetryMode.sampleIntervalMS(for: memoryPolicy.deviceClass).map {
             NativeTelemetrySampler(
-                // Share the stage recorder's start clock so samples and marks join.
-                startUptimeSeconds: telemetryRecorder?.startUptimeSeconds
-                    ?? ProcessInfo.processInfo.systemUptime,
+                // Share the stage recorder's clock so samples and marks join on both
+                // the millisecond and nanosecond timelines.
+                clock: telemetryRecorder?.clock ?? NativeTelemetryClock(),
                 sampleIntervalMS: $0
             )
         }
@@ -1140,12 +1140,12 @@ private struct StreamingExecutionContext: Sendable {
         let outputURL = URL(fileURLWithPath: request.outputPath)
         let sampleRate = model.sampleRate
         let telemetryMode = NativeTelemetryMode.current()
-        let telemetryStartUptime = telemetryRecorder?.startUptimeSeconds
-            ?? ProcessInfo.processInfo.systemUptime
+        let telemetryClock = telemetryRecorder?.clock ?? NativeTelemetryClock()
         let telemetrySampler = telemetryMode.sampleIntervalMS(for: memoryPolicy.deviceClass).map {
             NativeTelemetrySampler(
-                // Share the stage recorder's start clock so samples and marks join.
-                startUptimeSeconds: telemetryStartUptime,
+                // Share the stage recorder's clock so samples and marks join on both
+                // the millisecond and nanosecond timelines.
+                clock: telemetryClock,
                 sampleIntervalMS: $0
             )
         }
@@ -1284,7 +1284,7 @@ private struct StreamingExecutionContext: Sendable {
                             makeChunkTelemetry(
                                 chunkIndex: chunkIndex - 1,
                                 timings: timings,
-                                startUptimeSeconds: telemetryStartUptime
+                                clock: telemetryClock
                             )
                         )
                         pendingChunkTimings = nil
@@ -1683,16 +1683,17 @@ private struct StreamingExecutionContext: Sendable {
 
     /// Maps the vendored per-chunk `ChunkSubstageTimings` into the Codable
     /// `GenerationChunkTelemetry`, stamping the chunk index and the wall-clock
-    /// arrival (ms since the shared telemetry start clock).
+    /// arrival (ms and ns since the shared telemetry start clock).
     private func makeChunkTelemetry(
         chunkIndex: Int,
         timings: ChunkSubstageTimings,
-        startUptimeSeconds: TimeInterval
+        clock: NativeTelemetryClock
     ) -> GenerationChunkTelemetry {
-        let arrivalMS = Int((ProcessInfo.processInfo.systemUptime - startUptimeSeconds) * 1_000)
+        let (arrivalMS, arrivalNS) = clock.now()
         return GenerationChunkTelemetry(
             chunkIndex: chunkIndex,
             arrivalMS: max(0, arrivalMS),
+            arrivalNS: arrivalNS,
             talkerForwardMS: timings.talkerForwardMS,
             codePredictorMS: timings.codePredictorMS,
             audioDecoderMS: timings.audioDecoderMS,

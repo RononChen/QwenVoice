@@ -3,17 +3,40 @@ import OSLog
 
 public struct NativeTelemetryStageMark: Hashable, Codable, Sendable {
     public let tMS: Int
+    public let tNS: UInt64?
+    public let sequence: Int?
     public let stage: String
     public let metadata: [String: String]
 
     public init(
         tMS: Int,
+        tNS: UInt64? = nil,
+        sequence: Int? = nil,
         stage: String,
         metadata: [String: String] = [:]
     ) {
         self.tMS = tMS
+        self.tNS = tNS
+        self.sequence = sequence
         self.stage = stage
         self.metadata = metadata
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case tMS
+        case tNS
+        case sequence
+        case stage
+        case metadata
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.tMS = try container.decode(Int.self, forKey: .tMS)
+        self.tNS = try container.decodeIfPresent(UInt64.self, forKey: .tNS)
+        self.sequence = try container.decodeIfPresent(Int.self, forKey: .sequence)
+        self.stage = try container.decode(String.self, forKey: .stage)
+        self.metadata = try container.decodeIfPresent([String: String].self, forKey: .metadata) ?? [:]
     }
 }
 
@@ -21,21 +44,27 @@ public actor NativeTelemetryRecorder {
     /// Exposed (immutable, `Sendable`) so the per-generation `NativeTelemetrySampler`
     /// can be created with the SAME start instant — `NativeTelemetrySampler.decorate`
     /// joins memory samples to stage marks by `tMS`, so a mismatched start clock
-    /// would break that join.
-    public nonisolated let startUptimeSeconds: TimeInterval
+    /// would break that join. The clock also supplies high-resolution nanoseconds.
+    public nonisolated let clock: NativeTelemetryClock
     private var stageMarks: [NativeTelemetryStageMark] = []
+    private var nextSequence: Int = 0
 
-    public init(startUptimeSeconds: TimeInterval = ProcessInfo.processInfo.systemUptime) {
-        self.startUptimeSeconds = startUptimeSeconds
+    public init(clock: NativeTelemetryClock = NativeTelemetryClock()) {
+        self.clock = clock
     }
 
     public func mark(
         stage: String,
         metadata: [String: String] = [:]
     ) {
+        let (ms, ns) = clock.now()
+        let sequence = nextSequence
+        nextSequence += 1
         stageMarks.append(
             NativeTelemetryStageMark(
-                tMS: elapsedMilliseconds,
+                tMS: ms,
+                tNS: ns,
+                sequence: sequence,
                 stage: stage,
                 metadata: metadata
             )
@@ -53,15 +82,7 @@ public actor NativeTelemetryRecorder {
 
     public func reset() {
         stageMarks.removeAll(keepingCapacity: false)
-    }
-
-    private var elapsedMilliseconds: Int {
-        Int(
-            (
-                ProcessInfo.processInfo.systemUptime
-                - startUptimeSeconds
-            ) * 1_000
-        )
+        nextSequence = 0
     }
 }
 
