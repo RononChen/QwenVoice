@@ -122,6 +122,34 @@ def prosody_for_delivery(prosody_rows, mode, model_id, delivery):
     }
 
 
+def first_stage_mark_ms(record, stage):
+    for mark in record.get("stageMarks", []):
+        if mark.get("stage") == stage:
+            return mark.get("tMS")
+    return None
+
+
+def load_merged_runs(diag_dir):
+    """Load generations-merged.jsonl and join per-layer first-chunk marks."""
+    path = os.path.join(diag_dir, "generations-merged.jsonl")
+    rows = read_jsonl(path)
+    runs = []
+    for row in rows:
+        app = row.get("app") or {}
+        engine = row.get("engine") or {}
+        engine_service = row.get("engineService") or {}
+        run = {
+            "generationID": row.get("generationID"),
+            "appTTFCMS": (app.get("timingsMS") or {}).get("submitToFirstChunkMS"),
+            "engineFirstChunkMS": first_stage_mark_ms(engine, "firstChunk"),
+            "engineServiceFirstChunkMS": first_stage_mark_ms(engine_service, "firstChunk"),
+        }
+        if run["appTTFCMS"] is not None and run["engineFirstChunkMS"] is not None:
+            run["frontendOverheadMS"] = run["appTTFCMS"] - run["engineFirstChunkMS"]
+        runs.append(run)
+    return runs
+
+
 def load_runs(diag_dir):
     """Join engine + app rows by generationID. Returns list of per-run dicts."""
     engine = {r.get("generationID"): r for r in read_jsonl(os.path.join(diag_dir, "engine", "generations.jsonl"))}
@@ -476,6 +504,140 @@ def emit_ledger_row(cells, label):
     return 0
 
 
+def build_summary(cells):
+    """Build a JSON-serializable summary of per-cell medians for baseline save/compare."""
+    summary = []
+    for key, group in cells.items():
+        mode, model_id, state, lb = key
+        summary.append(
+            {
+                "cellKey": [mode, model_id, state, lb],
+                "mode": mode,
+                "modelID": model_id,
+                "warmState": state,
+                "lenBucket": lb,
+                "n": len(group),
+                "rtf": med(r["rtf"] for r in group),
+                "tokps": med(r["tokps"] for r in group),
+                "ttfcMS": med(r["ttfcMS"] for r in group),
+                "physFootMB": med(r["physFootMB"] for r in group),
+                "qcVerdict": cell_qc(group),
+            }
+        )
+    return summary
+
+
+def compare_summaries(baseline, current, threshold=0.05):
+    """Return regression entries where current is worse than baseline by > threshold.
+
+    A regression is:
+      - rtf increased by > threshold
+      - tokps decreased by > threshold
+      - ttfcMS increased by > threshold
+      - physFootMB increased by > threshold
+      - qcVerdict worsened (pass -> warn/fail, warn -> fail)
+    """
+    baseline_by_key = {tuple(b["cellKey"]): b for b in baseline}
+    current_by_key = {tuple(c["cellKey"]): c for c in current}
+    regressions = []
+    for key, cur in current_by_key.items():
+        base = baseline_by_key.get(key)
+        if base is None:
+            continue
+        for metric, direction in [
+            ("rtf", "up"),
+            ("ttfcMS", "up"),
+            ("physFootMB", "up"),
+            ("tokps", "down"),
+        ]:
+            b = base.get(metric)
+            c = cur.get(metric)
+            if b is None or c is None or b == 0:
+                continue
+            delta = (c - b) / b
+            is_regression = (
+                (direction == "up" and delta > threshold)
+                or (direction == "down" and -delta > threshold)
+            )
+            if is_regression:
+                regressions.append(
+                    {
+                        "cellKey": key,
+                        "metric": metric,
+                        "baseline": b,
+                        "current": c,
+                        "delta": delta,
+                    }
+                )
+        b_qc = base.get("qcVerdict")
+        c_qc = cur.get("qcVerdict")
+        if b_qc and c_qc and b_qc != "-":
+            b_sev = _QC_SEVERITY.get(b_qc.split(":")[0], 0)
+            c_sev = _QC_SEVERITY.get(c_qc.split(":")[0], 0)
+            if c_sev > b_sev:
+                regressions.append(
+                    {
+                        "cellKey": key,
+                        "metric": "qcVerdict",
+                        "baseline": b_qc,
+                        "current": c_qc,
+                    }
+                )
+    return regressions
+
+
+def print_regressions(regressions):
+    """Print a Markdown-aligned table of detected regressions."""
+    if not regressions:
+        print("\nNo regressions detected against baseline.")
+        return
+    print(f"\n⚠ Regressions detected ({len(regressions)} cell-metrics exceeded threshold):")
+    header = (
+        f"{'mode':<8} {'model':<26} {'state':<5} {'len':<6} "
+        f"{'metric':<12} {'baseline':>10} {'current':>10} {'delta':>10}"
+    )
+    print(header)
+    print("-" * len(header))
+    for r in regressions:
+        mode, model_id, state, lb = r["cellKey"]
+        baseline = r.get("baseline")
+        current = r.get("current")
+        if isinstance(baseline, float):
+            baseline_str = f"{baseline:.3f}"
+        else:
+            baseline_str = str(baseline) if baseline is not None else "-"
+        if isinstance(current, float):
+            current_str = f"{current:.3f}"
+        else:
+            current_str = str(current) if current is not None else "-"
+        delta_str = f"{r['delta']:+.2%}" if "delta" in r else "-"
+        print(
+            f"{mode:<8} {short_model(model_id):<26} {state:<5} {lb:<6} "
+            f"{r['metric']:<12} {baseline_str:>10} {current_str:>10} {delta_str:>10}"
+        )
+
+
+def print_merged_table(merged_runs):
+    """Print cross-layer first-chunk latency table from generations-merged.jsonl."""
+    if not merged_runs:
+        return
+    header = (
+        f"{'generationID':<16} {'appTTFCMS':>11} "
+        f"{'engineServiceFirstChunkMS':>26} {'engineFirstChunkMS':>20} "
+        f"{'frontendOverheadMS':>18}"
+    )
+    print("\nCross-layer first-chunk latency (ms)\n")
+    print(header)
+    print("-" * len(header))
+    for run in merged_runs:
+        print(
+            f"{run['generationID']:<16} {fmt(run['appTTFCMS'], 0):>11} "
+            f"{fmt(run['engineServiceFirstChunkMS'], 0):>26} "
+            f"{fmt(run['engineFirstChunkMS'], 0):>20} "
+            f"{fmt(run.get('frontendOverheadMS'), 0):>18}"
+        )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Summarize per-generation telemetry.")
     parser.add_argument("diag_dir", nargs="?", default=DEFAULT_DIR,
@@ -488,6 +650,14 @@ def main():
                         help="ledger cell selector 'mode/model/state' (model = substring)")
     parser.add_argument("--show-variance", action="store_true",
                         help="include IQR columns for RTF and physFoot in the summary table")
+    parser.add_argument("--merged", action="store_true",
+                        help="show cross-layer first-chunk latency from generations-merged.jsonl")
+    parser.add_argument("--save-baseline", metavar="PATH",
+                        help="write current summary as JSON baseline")
+    parser.add_argument("--compare-baseline", metavar="PATH",
+                        help="compare to saved baseline and highlight regressions")
+    parser.add_argument("--regress-threshold", type=float, default=0.05,
+                        help="relative delta threshold for regression (default 0.05)")
     args = parser.parse_args()
     diag_dir = args.diag_dir
 
@@ -511,6 +681,11 @@ def main():
 
     if args.ledger_row:
         return emit_ledger_row(cells, {"note": args.label, "cell": args.cell})
+
+    if args.save_baseline:
+        summary = build_summary(cells)
+        with open(args.save_baseline, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2)
 
     stamp = f"{today_str()} · {git_short_sha()}"
     if args.label:
@@ -706,6 +881,23 @@ def main():
             "Delivery prosody: prosEff = signed prosody-effect score vs paired neutral "
             "(+F0 dynamics +rate variability -pauses +roughness). Requires `vocello bench --delivery`."
         )
+
+    if args.merged:
+        merged_runs = load_merged_runs(diag_dir)
+        if merged_runs:
+            print_merged_table(merged_runs)
+        else:
+            print("\nNo generations-merged.jsonl found; cross-layer table skipped.")
+
+    if args.compare_baseline:
+        with open(args.compare_baseline, "r", encoding="utf-8") as f:
+            baseline = json.load(f)
+        current = build_summary(cells)
+        regressions = compare_summaries(baseline, current, threshold=args.regress_threshold)
+        print_regressions(regressions)
+        if regressions:
+            return 2
+
     return 0
 
 

@@ -9,6 +9,48 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import summarize_generation_telemetry as sgt
 
 
+def test_load_merged_runs_frontend_overhead():
+    """Merged rows join app TTFC with engine first-chunk mark and compute overhead."""
+    fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "generations-merged.jsonl")
+    with tempfile.TemporaryDirectory() as tmp:
+        shutil.copy(fixture_path, os.path.join(tmp, "generations-merged.jsonl"))
+        runs = sgt.load_merged_runs(tmp)
+        assert len(runs) == 3
+        run1 = next(r for r in runs if r["generationID"] == "gen-merged-001")
+        assert run1["appTTFCMS"] == 450
+        assert run1["engineFirstChunkMS"] == 380
+        assert run1["engineServiceFirstChunkMS"] == 390
+        assert run1["frontendOverheadMS"] == 70
+        run2 = next(r for r in runs if r["generationID"] == "gen-merged-002")
+        assert run2["frontendOverheadMS"] == 100
+        run3 = next(r for r in runs if r["generationID"] == "gen-merged-003")
+        assert "frontendOverheadMS" not in run3
+
+
+def test_merged_table_cli(monkeypatch):
+    """The --merged flag prints the cross-layer first-chunk latency table."""
+    fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "telemetry_variants.jsonl")
+    merged_fixture = os.path.join(os.path.dirname(__file__), "fixtures", "generations-merged.jsonl")
+    with tempfile.TemporaryDirectory() as tmp:
+        engine_dir = os.path.join(tmp, "engine")
+        os.makedirs(engine_dir)
+        shutil.copy(fixture_path, os.path.join(engine_dir, "generations.jsonl"))
+        shutil.copy(merged_fixture, os.path.join(tmp, "generations-merged.jsonl"))
+
+        monkeypatch.setattr(sys, "argv", ["summarize_generation_telemetry.py", tmp, "--merged"])
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = sgt.main()
+        assert rc == 0
+        text = out.getvalue()
+        assert "Cross-layer first-chunk latency" in text
+        assert "gen-merged-001" in text
+        assert "gen-merged-002" in text
+        assert "frontendOverheadMS" in text
+        # gen-merged-001: 450 - 380 = 70
+        assert "70" in text
+
+
 def test_iqr_basic():
     assert sgt.iqr([1, 2, 3, 4, 5, 6, 7]) == 4.0
 
