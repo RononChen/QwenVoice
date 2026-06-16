@@ -782,7 +782,7 @@ private struct EngineServiceTransportAccumulator {
             finishReason: finishReason,
             timingsMS: timingsMS,
             counters: ["chunksForwarded": chunksForwarded, "chunkGaps": gapCount],
-            notes: notes
+            notes: notes.merging(currentTaskQOSNotes()) { current, _ in current }
         )
         Task.detached(priority: .background) {
             await GenerationTelemetryJSONLSink.shared.write(

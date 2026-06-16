@@ -116,7 +116,8 @@ final class AppGenerationTimeline {
             finishReason: finishReason,
             summary: summary,
             timingsMS: timingsMS,
-            counters: counters
+            counters: counters,
+            notes: currentTaskQOSNotes()
         )
         let appSupportDirectory = AppPaths.appSupportDir
         Task.detached(priority: .background) {

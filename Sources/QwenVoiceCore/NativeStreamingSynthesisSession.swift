@@ -1518,7 +1518,9 @@ private struct StreamingExecutionContext: Sendable {
         case .clone:
             break
         }
-        let notesWithTier = tierNotes.merging(notes) { _, caller in caller }
+        let notesWithTier = tierNotes
+            .merging(notes) { _, caller in caller }
+            .merging(currentTaskQOSNotes()) { current, _ in current }
         let record = GenerationTelemetryRecord(
             generationID: generationID.uuidString,
             layer: .engine,

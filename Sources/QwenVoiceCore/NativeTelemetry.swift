@@ -72,3 +72,21 @@ extension NativeTelemetryRecorder {
         mark(stage: stage.rawValue, metadata: metadata)
     }
 }
+
+/// Maps the current Swift `Task` priority to a human-readable QoS label for
+/// telemetry notes. Swift priorities are an approximation of Dispatch QoS:
+/// `.userInitiated` ≈ user-initiated, `.background` ≈ background, etc.
+public func currentTaskQOSNotes() -> [String: String] {
+    let priority = Task.currentPriority
+    let name: String
+    switch priority {
+    case .high: name = "high"
+    case .userInitiated: name = "userInitiated"
+    case .medium: name = "medium"
+    case .utility: name = "utility"
+    case .background: name = "background"
+    case .low: name = "low"
+    default: name = "priority-\(priority.rawValue)"
+    }
+    return ["qosClass": name]
+}

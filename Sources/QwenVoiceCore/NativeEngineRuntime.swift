@@ -247,7 +247,7 @@ actor NativeEngineRuntime {
         // reintroduces the concurrent KV-cache assertion crash this gate
         // exists to prevent.
         do {
-            try await acquirePrewarmSlot()
+            _ = try await acquirePrewarmSlot()
         } catch {
             return
         }
@@ -342,6 +342,7 @@ actor NativeEngineRuntime {
             booleanFlags["design_conditioning_prewarmed"] = warmState.prewarmed
             booleanFlags["design_stream_step_prewarmed"] = warmState.streamStepPrewarmed
             booleanFlags["design_stream_step_prefetch_hit"] = warmState.streamStepPrefetchHit
+            timingsMS["prewarm_slot_wait_ms"] = warmState.prewarmSlotWaitMS
             if let streamStepWarmMS = loadResult.model.latestPreparationTimingsMS["design_stream_step_warm_ms"] {
                 timingsMS["design_stream_step_warm_ms"] = streamStepWarmMS
             }
@@ -537,6 +538,7 @@ actor NativeEngineRuntime {
                 source: .generation
             )
             timingOverridesMS.merge(model.latestPreparationTimingsMS) { _, rhs in rhs }
+            timingOverridesMS["prewarm_slot_wait_ms"] = warmState.prewarmSlotWaitMS
             booleanFlags.merge(model.latestPreparationBooleanFlags) { _, rhs in rhs }
             let warmBucket = warmState.bucket
             booleanFlags["design_conditioning_reused"] = warmState.reused
@@ -816,7 +818,7 @@ actor NativeEngineRuntime {
         // entire body including the `try await model.prewarm*(...)`
         // suspension — that's what makes it safe against actor
         // reentrancy.
-        try await acquirePrewarmSlot()
+        let prewarmSlotWaitMS = try await acquirePrewarmSlot()
         defer { releasePrewarmSlot() }
         try Task.checkCancellation()
 
@@ -829,7 +831,7 @@ actor NativeEngineRuntime {
         switch request.payload {
         case .custom, .design:
             guard let requestIdentityKey = prewarmIdentityKey(for: request) else {
-                return [:]
+                return ["prewarm_slot_wait_ms": prewarmSlotWaitMS]
             }
             identityKey = requestIdentityKey
         case .clone:
@@ -848,7 +850,7 @@ actor NativeEngineRuntime {
             // cell paid a fast prewarm." Pairs with the analogous event
             // in `ensureDesignConditioningWarmStateIfNeeded`.
             Self.signposter.emitEvent("Native Prewarm Cache Hit")
-            return [:]
+            return ["prewarm_slot_wait_ms": prewarmSlotWaitMS]
         }
 
         let prewarmStartedAt = ContinuousClock.now
@@ -901,6 +903,7 @@ actor NativeEngineRuntime {
             await loadCoordinator.markPrewarmed(identityKey: identityKey)
             var timings = model.latestPreparationTimingsMS
             timings["prewarm_model"] = prewarmStartedAt.elapsedMilliseconds
+            timings["prewarm_slot_wait_ms"] = prewarmSlotWaitMS
             return timings
         } catch {
             await loadCoordinator.unloadModel()
@@ -926,12 +929,18 @@ actor NativeEngineRuntime {
     /// callers can both end up inside MLX's KV cache slice updates and
     /// trip the C++-side assertion that crashed the bench cycle at
     /// sample #38 (Voice Design / Quality cold 3).
-    private func acquirePrewarmSlot() async throws {
+    /// Wait until no other prewarm body is running, then mark the slot
+    /// taken. Returns the time (ms) spent queued behind an in-flight
+    /// prewarm, or `0` when the slot was free immediately. Pair with
+    /// `releasePrewarmSlot()` — typically via `defer` at the top of the
+    /// prewarm body.
+    private func acquirePrewarmSlot() async throws -> Int {
         try Task.checkCancellation()
+        let waitStartedAt = ContinuousClock.now
 
         guard prewarmInFlight else {
             prewarmInFlight = true
-            return
+            return 0
         }
 
         let waiterID = UUID()
@@ -953,6 +962,7 @@ actor NativeEngineRuntime {
             releasePrewarmSlot()
             throw error
         }
+        return waitStartedAt.elapsedMilliseconds
     }
 
     private func cancelPrewarmWaiter(id: UUID) {
@@ -1149,6 +1159,10 @@ actor NativeEngineRuntime {
         let prewarmed: Bool
         let streamStepPrewarmed: Bool
         let streamStepPrefetchHit: Bool
+        /// Time (ms) spent waiting for the serialized prewarm slot before
+        /// any design-conditioning work ran. Captured here because this path
+        /// is contended between prefetch and generation.
+        let prewarmSlotWaitMS: Int
     }
 
     private func ensureDesignConditioningWarmStateIfNeeded(
@@ -1165,7 +1179,7 @@ actor NativeEngineRuntime {
         // `activeDesignConditioningWarmKey` — which we'll have set
         // if we did real prewarm work — so the second caller takes
         // the cache-hit `reused` path instead of re-running prewarm.
-        try await acquirePrewarmSlot()
+        let prewarmSlotWaitMS = try await acquirePrewarmSlot()
         defer { releasePrewarmSlot() }
         try Task.checkCancellation()
 
@@ -1177,7 +1191,8 @@ actor NativeEngineRuntime {
                 prefetchHit: false,
                 prewarmed: false,
                 streamStepPrewarmed: false,
-                streamStepPrefetchHit: false
+                streamStepPrefetchHit: false,
+                prewarmSlotWaitMS: prewarmSlotWaitMS
             )
         }
 
@@ -1191,7 +1206,8 @@ actor NativeEngineRuntime {
                 prefetchHit: false,
                 prewarmed: false,
                 streamStepPrewarmed: false,
-                streamStepPrefetchHit: false
+                streamStepPrefetchHit: false,
+                prewarmSlotWaitMS: prewarmSlotWaitMS
             )
         }
 
@@ -1209,7 +1225,8 @@ actor NativeEngineRuntime {
                 prefetchHit: false,
                 prewarmed: false,
                 streamStepPrewarmed: false,
-                streamStepPrefetchHit: false
+                streamStepPrefetchHit: false,
+                prewarmSlotWaitMS: prewarmSlotWaitMS
             )
         }
         let reused = activeDesignConditioningWarmKey == conditioningWarmKey
@@ -1230,7 +1247,8 @@ actor NativeEngineRuntime {
                 prewarmed: false,
                 streamStepPrewarmed: false,
                 streamStepPrefetchHit: activeDesignStreamStepWarmKey == conditioningWarmKey
-                    && activeDesignStreamStepWarmSource == .prefetch
+                    && activeDesignStreamStepWarmSource == .prefetch,
+                prewarmSlotWaitMS: prewarmSlotWaitMS
             )
         }
 
@@ -1284,7 +1302,8 @@ actor NativeEngineRuntime {
                 prefetchHit: false,
                 prewarmed: true,
                 streamStepPrewarmed: streamStepPrewarmed,
-                streamStepPrefetchHit: false
+                streamStepPrefetchHit: false,
+                prewarmSlotWaitMS: prewarmSlotWaitMS
             )
         } catch {
             await loadCoordinator.unloadModel()
