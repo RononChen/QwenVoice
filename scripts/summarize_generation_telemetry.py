@@ -36,6 +36,7 @@ import os
 import statistics
 import subprocess
 from collections import defaultdict
+from dataclasses import dataclass, field
 
 DEFAULT_DIR = os.path.expanduser(
     "~/Library/Application Support/QwenVoice-Debug/diagnostics"
@@ -59,20 +60,24 @@ def today_str():
     return datetime.date.today().isoformat()
 
 
-def read_jsonl(path):
-    rows = []
+def iter_jsonl(path):
+    """Lazy stream of decoded JSON objects from a JSONL file."""
     if not os.path.exists(path):
-        return rows
+        return
     with open(path, "r", encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
             if not line:
                 continue
             try:
-                rows.append(json.loads(line))
+                yield json.loads(line)
             except json.JSONDecodeError:
                 continue
-    return rows
+
+
+def read_jsonl(path):
+    """Eager load of a JSONL file; kept for callers that need a list."""
+    return list(iter_jsonl(path))
 
 
 # Prompt-length buckets for the benchmark length sweep. Thresholds tied to the
@@ -150,94 +155,268 @@ def load_merged_runs(diag_dir):
     return runs
 
 
+def _app_index(diag_dir):
+    """Stream app/generations.jsonl and keep only the fields needed for joining."""
+    index = {}
+    for a in iter_jsonl(os.path.join(diag_dir, "app", "generations.jsonl")):
+        gid = a.get("generationID")
+        if gid is None:
+            continue
+        index[gid] = {
+            "timingsMS": a.get("timingsMS") or {},
+            "counters": a.get("counters") or {},
+        }
+    return index
+
+
+def _engine_run(e, app_lookup):
+    """Build one per-run dict from an engine row + joined app row."""
+    derived = e.get("derivedMetrics") or {}
+    timings = e.get("timingsMS") or {}
+    summary = e.get("summary") or {}
+    a = app_lookup.get(e.get("generationID")) or {}
+    app_timings = a.get("timingsMS") or {}
+    app_counters = a.get("counters") or {}
+    qc = e.get("audioQC") or {}
+    trim_count, pressure_count, worst = count_memory_events(e, summary)
+    run = {
+        "generationID": e.get("generationID"),
+        "mode": e.get("mode") or "?",
+        "modelID": e.get("modelID") or "?",
+        "warmState": e.get("warmState") or "?",
+        "finishReason": e.get("finishReason"),
+        "rtf": derived.get("audioSecondsPerWallSecond"),
+        "tokps": derived.get("tokensPerSecond"),
+        "audioSec": derived.get("audioSeconds"),
+        "ttfcMS": app_timings.get("submitToFirstChunkMS"),
+        # UI-responsiveness KPI (app row, MainThreadStallWatchdog):
+        # main-thread heartbeat stalls during the generation window.
+        "uiStall50": app_counters.get("uiStallCount50"),
+        "uiStall250": app_counters.get("uiStallCount250"),
+        "uiMaxStallMS": app_counters.get("uiMaxStallMS"),
+        "decodeLoopMS": timings.get("qwen_token_loop_total"),
+        "peakGpuMB": summary.get("gpuAllocatedPeakMB"),
+        "peakRssMB": summary.get("residentPeakMB"),
+        # phys_footprint is the figure Jetsam judges on Apple Silicon — the
+        # most OOM-relevant peak. headroomMin = closest the process came to
+        # exhausting its available memory budget during the run.
+        "physFootMB": summary.get("physFootprintPeakMB"),
+        "headMinMB": summary.get("headroomMinMB"),
+        "compressedMB": summary.get("compressedPeakMB"),
+        # Kernel memory-pressure activity during the run (stage marks).
+        "trims": trim_count,
+        "pressure": pressure_count,
+        "worstTrim": worst,
+        # Resolved device tier this row ran under (notes.deviceClass) —
+        # reveals a forced-tier benchmark and the floor Quality→Speed fallback.
+        "deviceClass": (e.get("notes") or {}).get("deviceClass") or "?",
+        # Whether the tier was forced via QWENVOICE_FORCE_MEMORY_CLASS (vs the
+        # native tier) — so a real 8 GB Mac isn't mislabeled "forced".
+        "deviceClassForced": (e.get("notes") or {}).get("deviceClassForced") == "true",
+        # Input script length (notes.promptChars) → bucket for the
+        # short/medium/long sweep. RTF/decode/KV-cache all scale with it.
+        "promptChars": int((e.get("notes") or {}).get("promptChars") or 0),
+        "lenBucket": len_bucket(int((e.get("notes") or {}).get("promptChars") or 0)),
+        # Bench delivery-cell id (notes.delivery, "<preset>.<intensity>")
+        # for instruct-bearing takes from `vocello bench --delivery`.
+        # Empty for plain matrix takes; delivery rows are segregated into
+        # their own block so the headline cells stay comparable.
+        "delivery": (e.get("notes") or {}).get("delivery") or "",
+        # GPU peak MB at pipeline boundaries (mlxMemoryByStage) — shows WHERE
+        # GPU memory grows and how much a trim reclaims.
+        "gpuByStage": gpu_peak_by_stage(e.get("mlxMemoryByStage") or {}),
+        # Per-stage decode ms (timingsMS) — shows WHERE the decode loop spends
+        # wall time (Talker / Code Predictor / Code2Wav / eval). Sums ≈ decode ms.
+        "decodeStages": decode_stage_breakdown(timings),
+        # Streaming chunk timeline — per-cell medians of first-chunk arrival,
+        # inter-chunk interval, and the per-chunk substage latencies.
+        "chunkCount": None,
+        "firstChunkArrivalMS": None,
+        "medianInterChunkMS": None,
+        **{f"chunk_{key}": None for key in _CHUNK_SUBSTAGE_KEYS},
+        # Reference-free audio-quality verdict (engine).
+        "qcVerdict": qc.get("verdict"),
+        "qcFlags": qc.get("flags") or [],
+    }
+    chunks = e.get("chunkTimeline") or []
+    if chunks:
+        run["chunkCount"] = len(chunks)
+        run["firstChunkArrivalMS"] = chunks[0]["arrivalMS"]
+        run["medianInterChunkMS"] = med(
+            chunks[i]["arrivalMS"] - chunks[i - 1]["arrivalMS"]
+            for i in range(1, len(chunks))
+        )
+        for key in _CHUNK_SUBSTAGE_KEYS:
+            run[f"chunk_{key}"] = med(c[key] for c in chunks if key in c)
+    return run
+
+
 def load_runs(diag_dir):
     """Join engine + app rows by generationID. Returns list of per-run dicts."""
-    engine = {r.get("generationID"): r for r in read_jsonl(os.path.join(diag_dir, "engine", "generations.jsonl"))}
-    app = {r.get("generationID"): r for r in read_jsonl(os.path.join(diag_dir, "app", "generations.jsonl"))}
+    app_lookup = _app_index(diag_dir)
+    return [
+        _engine_run(e, app_lookup)
+        for e in iter_jsonl(os.path.join(diag_dir, "engine", "generations.jsonl"))
+    ]
 
+
+@dataclass
+class CellAccumulator:
+    """Streaming accumulator for one benchmark cell's aggregate metrics."""
+
+    key: tuple
+    rtfs: list = field(default_factory=list)
+    tokpss: list = field(default_factory=list)
+    ttfcs: list = field(default_factory=list)
+    decode_loop_ms: list = field(default_factory=list)
+    peak_gpu_mb: list = field(default_factory=list)
+    phys_foot_mb: list = field(default_factory=list)
+    trims: list = field(default_factory=list)
+    worst_trims: list = field(default_factory=list)
+    ui_stalls: list = field(default_factory=list)
+    ui_max_stalls: list = field(default_factory=list)
+    qc_verdicts: list = field(default_factory=list)
+    qc_flags: set = field(default_factory=set)
+    chunk_counts: list = field(default_factory=list)
+    first_chunk_arrivals: list = field(default_factory=list)
+    median_inter_chunks: list = field(default_factory=list)
+    chunk_substage_values: dict = field(default_factory=lambda: defaultdict(list))
+    gpu_by_stage: dict = field(default_factory=lambda: defaultdict(list))
+    decode_stages: dict = field(default_factory=lambda: defaultdict(list))
+
+    def add_run(self, run: dict) -> None:
+        """Ingest one run into the accumulator's lists."""
+        if run.get("rtf") is not None:
+            self.rtfs.append(run["rtf"])
+        if run.get("tokps") is not None:
+            self.tokpss.append(run["tokps"])
+        if run.get("ttfcMS") is not None:
+            self.ttfcs.append(run["ttfcMS"])
+        if run.get("decodeLoopMS") is not None:
+            self.decode_loop_ms.append(run["decodeLoopMS"])
+        if run.get("peakGpuMB") is not None:
+            self.peak_gpu_mb.append(run["peakGpuMB"])
+        if run.get("physFootMB") is not None:
+            self.phys_foot_mb.append(run["physFootMB"])
+        if run.get("trims") is not None:
+            self.trims.append(run["trims"])
+        if run.get("worstTrim") is not None:
+            self.worst_trims.append(run["worstTrim"])
+        if run.get("uiStall50") is not None:
+            self.ui_stalls.append(run["uiStall50"])
+        if run.get("uiMaxStallMS") is not None:
+            self.ui_max_stalls.append(run["uiMaxStallMS"])
+        if run.get("qcVerdict") is not None:
+            self.qc_verdicts.append(run["qcVerdict"])
+        for f in run.get("qcFlags") or []:
+            self.qc_flags.add(f.split(":")[0])
+        if run.get("chunkCount") is not None:
+            self.chunk_counts.append(run["chunkCount"])
+        if run.get("firstChunkArrivalMS") is not None:
+            self.first_chunk_arrivals.append(run["firstChunkArrivalMS"])
+        if run.get("medianInterChunkMS") is not None:
+            self.median_inter_chunks.append(run["medianInterChunkMS"])
+        for key in _CHUNK_SUBSTAGE_KEYS:
+            v = run.get(f"chunk_{key}")
+            if v is not None:
+                self.chunk_substage_values[key].append(v)
+        for label, values in (run.get("gpuByStage") or {}).items():
+            if values is not None:
+                self.gpu_by_stage[label].append(values)
+        for label, value in (run.get("decodeStages") or {}).items():
+            if value is not None:
+                self.decode_stages[label].append(value)
+
+    def finalize(self) -> dict:
+        """Return a JSON-serializable summary dict for this cell."""
+        mode, model_id, state, bucket = self.key
+        # Worst QC verdict across the cell.
+        worst_qc, qc_rank = None, -1
+        for v in self.qc_verdicts:
+            rank = _QC_SEVERITY.get(v, 0)
+            if rank > qc_rank:
+                qc_rank, worst_qc = rank, v
+        if worst_qc is None:
+            qc = "-"
+        elif worst_qc == "pass":
+            qc = "pass"
+        else:
+            flags = sorted(self.qc_flags)
+            qc = f"{worst_qc}:{','.join(flags[:2])}" if flags else worst_qc
+
+        # Worst trim level across the cell.
+        worst_trim, worst_rank = None, 0
+        for level in self.worst_trims:
+            rank = _TRIM_SEVERITY.get(level, 0)
+            if rank > worst_rank:
+                worst_rank, worst_trim = rank, level
+
+        return {
+            "key": self.key,
+            "mode": mode,
+            "modelID": model_id,
+            "warmState": state,
+            "lenBucket": bucket,
+            "delivery": None,
+            "n": len(self.rtfs) or len(self.tokpss) or len(self.ttfcs),
+            "rtf": med(self.rtfs),
+            "tokps": med(self.tokpss),
+            "ttfcMS": med(self.ttfcs),
+            "decodeLoopMS": med(self.decode_loop_ms),
+            "peakGpuMB": med(self.peak_gpu_mb),
+            "physFootMB": med(self.phys_foot_mb),
+            "rtfIQR": iqr(self.rtfs),
+            "physFootIQR": iqr(self.phys_foot_mb),
+            "trims": med(self.trims),
+            "worstTrim": worst_trim,
+            "uiStall50": med(self.ui_stalls),
+            "uiMaxStallMS": med(self.ui_max_stalls),
+            "qcVerdict": qc,
+            "qcFlags": sorted(self.qc_flags),
+            "chunkCount": med(self.chunk_counts),
+            "firstChunkArrivalMS": med(self.first_chunk_arrivals),
+            "medianInterChunkMS": med(self.median_inter_chunks),
+            "chunkSubstageMS": {
+                key: med(values) for key, values in self.chunk_substage_values.items()
+            },
+            "gpuByStage": {
+                label: med(values) for label, values in self.gpu_by_stage.items()
+            },
+            "decodeStages": {
+                label: med(values) for label, values in self.decode_stages.items()
+            },
+        }
+
+
+def aggregate_runs(diag_dir):
+    """Stream engine + app rows and aggregate them into finalized cell summaries.
+
+    Returns (runs, cells, delivery_cells) where `runs` is the materialized list of
+    per-run dicts, and the cell dicts are keyed by (mode, modelID, warmState, bucket)
+    with delivery cells keyed by (mode, modelID, warmState, delivery).
+    """
+    app_lookup = _app_index(diag_dir)
+    accumulators = {}
+    delivery_accumulators = {}
     runs = []
-    for gid, e in engine.items():
-        derived = e.get("derivedMetrics") or {}
-        timings = e.get("timingsMS") or {}
-        summary = e.get("summary") or {}
-        a = app.get(gid) or {}
-        app_timings = a.get("timingsMS") or {}
-        app_counters = a.get("counters") or {}
-        qc = e.get("audioQC") or {}
-        trim_count, pressure_count, worst = count_memory_events(e, summary)
-        runs.append(
-            {
-                "generationID": gid,
-                "mode": e.get("mode") or "?",
-                "modelID": e.get("modelID") or "?",
-                "warmState": e.get("warmState") or "?",
-                "finishReason": e.get("finishReason"),
-                "rtf": derived.get("audioSecondsPerWallSecond"),
-                "tokps": derived.get("tokensPerSecond"),
-                "audioSec": derived.get("audioSeconds"),
-                "ttfcMS": app_timings.get("submitToFirstChunkMS"),
-                # UI-responsiveness KPI (app row, MainThreadStallWatchdog):
-                # main-thread heartbeat stalls during the generation window.
-                "uiStall50": app_counters.get("uiStallCount50"),
-                "uiStall250": app_counters.get("uiStallCount250"),
-                "uiMaxStallMS": app_counters.get("uiMaxStallMS"),
-                "decodeLoopMS": timings.get("qwen_token_loop_total"),
-                "peakGpuMB": summary.get("gpuAllocatedPeakMB"),
-                "peakRssMB": summary.get("residentPeakMB"),
-                # phys_footprint is the figure Jetsam judges on Apple Silicon — the
-                # most OOM-relevant peak. headroomMin = closest the process came to
-                # exhausting its available memory budget during the run.
-                "physFootMB": summary.get("physFootprintPeakMB"),
-                "headMinMB": summary.get("headroomMinMB"),
-                "compressedMB": summary.get("compressedPeakMB"),
-                # Kernel memory-pressure activity during the run (stage marks).
-                "trims": trim_count,
-                "pressure": pressure_count,
-                "worstTrim": worst,
-                # Resolved device tier this row ran under (notes.deviceClass) —
-                # reveals a forced-tier benchmark and the floor Quality→Speed fallback.
-                "deviceClass": (e.get("notes") or {}).get("deviceClass") or "?",
-                # Whether the tier was forced via QWENVOICE_FORCE_MEMORY_CLASS (vs the
-                # native tier) — so a real 8 GB Mac isn't mislabeled "forced".
-                "deviceClassForced": (e.get("notes") or {}).get("deviceClassForced") == "true",
-                # Input script length (notes.promptChars) → bucket for the
-                # short/medium/long sweep. RTF/decode/KV-cache all scale with it.
-                "promptChars": int((e.get("notes") or {}).get("promptChars") or 0),
-                "lenBucket": len_bucket(int((e.get("notes") or {}).get("promptChars") or 0)),
-                # Bench delivery-cell id (notes.delivery, "<preset>.<intensity>")
-                # for instruct-bearing takes from `vocello bench --delivery`.
-                # Empty for plain matrix takes; delivery rows are segregated into
-                # their own block so the headline cells stay comparable.
-                "delivery": (e.get("notes") or {}).get("delivery") or "",
-                # GPU peak MB at pipeline boundaries (mlxMemoryByStage) — shows WHERE
-                # GPU memory grows and how much a trim reclaims.
-                "gpuByStage": gpu_peak_by_stage(e.get("mlxMemoryByStage") or {}),
-                # Per-stage decode ms (timingsMS) — shows WHERE the decode loop spends
-                # wall time (Talker / Code Predictor / Code2Wav / eval). Sums ≈ decode ms.
-                "decodeStages": decode_stage_breakdown(timings),
-                # Streaming chunk timeline — per-cell medians of first-chunk arrival,
-                # inter-chunk interval, and the per-chunk substage latencies.
-                "chunkCount": None,
-                "firstChunkArrivalMS": None,
-                "medianInterChunkMS": None,
-                **{f"chunk_{key}": None for key in _CHUNK_SUBSTAGE_KEYS},
-                # Reference-free audio-quality verdict (engine).
-                "qcVerdict": qc.get("verdict"),
-                "qcFlags": qc.get("flags") or [],
-            }
-        )
-        chunks = e.get("chunkTimeline") or []
-        if chunks:
-            run = runs[-1]
-            run["chunkCount"] = len(chunks)
-            run["firstChunkArrivalMS"] = chunks[0]["arrivalMS"]
-            run["medianInterChunkMS"] = med(
-                chunks[i]["arrivalMS"] - chunks[i - 1]["arrivalMS"]
-                for i in range(1, len(chunks))
-            )
-            for key in _CHUNK_SUBSTAGE_KEYS:
-                run[f"chunk_{key}"] = med(c[key] for c in chunks if key in c)
-    return runs
+    for e in iter_jsonl(os.path.join(diag_dir, "engine", "generations.jsonl")):
+        run = _engine_run(e, app_lookup)
+        runs.append(run)
+        if run.get("delivery"):
+            key = (run["mode"], run["modelID"], run["warmState"], run["delivery"])
+            acc = delivery_accumulators.setdefault(key, CellAccumulator(key=key))
+        else:
+            key = (run["mode"], run["modelID"], run["warmState"], run["lenBucket"])
+            acc = accumulators.setdefault(key, CellAccumulator(key=key))
+        acc.add_run(run)
+    cells = {k: v.finalize() for k, v in accumulators.items()}
+    delivery_cells = {}
+    for key, acc in delivery_accumulators.items():
+        summary = acc.finalize()
+        summary["lenBucket"] = None
+        summary["delivery"] = key[3]
+        delivery_cells[key] = summary
+    return runs, cells, delivery_cells
 
 
 # Worst-first ranking of QC verdicts for cell aggregation.
@@ -245,7 +424,11 @@ _QC_SEVERITY = {"pass": 0, "warn": 1, "fail": 2}
 
 
 def cell_qc(group):
-    """Worst verdict across a cell + the distinct flags that tripped (compact)."""
+    """Worst verdict across a cell + the distinct flags that tripped (compact).
+
+    Accepts either a list of run dicts (legacy) or a finalized cell summary dict."""
+    if isinstance(group, dict):
+        return group.get("qcVerdict") or "-"
     worst, rank = None, -1
     flags = []
     for r in group:
@@ -466,9 +649,15 @@ def select_headline_cell(cells, requested):
 def fmt_ui_stall(group):
     """UI-responsiveness cell: '<stalls>50ms/<max>ms' from the app row's
     MainThreadStallWatchdog counters ('—' when the app row carried none —
-    CLI bench runs have no UI, and overlapping generations omit the report)."""
-    stalls = med(r["uiStall50"] for r in group)
-    max_ms = med(r["uiMaxStallMS"] for r in group)
+    CLI bench runs have no UI, and overlapping generations omit the report).
+
+    Accepts either a list of run dicts (legacy) or a finalized cell summary dict."""
+    if isinstance(group, dict):
+        stalls = group.get("uiStall50")
+        max_ms = group.get("uiMaxStallMS")
+    else:
+        stalls = med(r["uiStall50"] for r in group)
+        max_ms = med(r["uiMaxStallMS"] for r in group)
     if stalls is None and max_ms is None:
         return "—"
     return f"{fmt(stalls, 0)}/{fmt(max_ms, 0)}ms"
@@ -476,38 +665,40 @@ def fmt_ui_stall(group):
 
 def emit_ledger_row(cells, label):
     """Print one Markdown table row for benchmarks/HISTORY.md. Columns match the
-    table header seeded in that file."""
+    table header seeded in that file. `cells` is a dict of finalized cell summaries."""
     key = select_headline_cell(cells, label.get("cell"))
     if key is None:
         print("| (no rows) |")
         return 1
     mode, model_id, state, lb = key
-    group = cells[key]
+    summary = cells[key]
     cell = f"{mode}/{short_model(model_id)}/{state}/{lb}"
     note = (label.get("note") or "").replace("|", "/")
     cols = [
         today_str(),
         git_short_sha(),
         cell,
-        fmt(med(r["rtf"] for r in group)),
-        fmt(med(r["tokps"] for r in group)),
-        fmt(med(r["ttfcMS"] for r in group), 0),
-        fmt(med(r["physFootMB"] for r in group), 0),
-        fmt_trims(group),
-        cell_qc(group),
+        fmt(summary["rtf"]),
+        fmt(summary["tokps"]),
+        fmt(summary["ttfcMS"], 0),
+        fmt(summary["physFootMB"], 0),
+        fmt_trims(summary),
+        cell_qc(summary),
         note or "—",
         # UI-responsiveness KPI (added 2026-06; trailing so older rows stay
         # aligned). "—" for CLI bench rows (no UI process).
-        fmt(med(r["uiMaxStallMS"] for r in group), 0),
+        fmt(summary["uiMaxStallMS"], 0),
     ]
     print("| " + " | ".join(cols) + " |")
     return 0
 
 
 def build_summary(cells):
-    """Build a JSON-serializable summary of per-cell medians for baseline save/compare."""
+    """Build a JSON-serializable summary of per-cell medians for baseline save/compare.
+
+    `cells` is a dict of finalized cell summaries (as returned by aggregate_runs)."""
     summary = []
-    for key, group in cells.items():
+    for key, s in cells.items():
         mode, model_id, state, lb = key
         summary.append(
             {
@@ -516,12 +707,12 @@ def build_summary(cells):
                 "modelID": model_id,
                 "warmState": state,
                 "lenBucket": lb,
-                "n": len(group),
-                "rtf": med(r["rtf"] for r in group),
-                "tokps": med(r["tokps"] for r in group),
-                "ttfcMS": med(r["ttfcMS"] for r in group),
-                "physFootMB": med(r["physFootMB"] for r in group),
-                "qcVerdict": cell_qc(group),
+                "n": s["n"],
+                "rtf": s["rtf"],
+                "tokps": s["tokps"],
+                "ttfcMS": s["ttfcMS"],
+                "physFootMB": s["physFootMB"],
+                "qcVerdict": cell_qc(s),
             }
         )
     return summary
@@ -661,23 +852,12 @@ def main():
     args = parser.parse_args()
     diag_dir = args.diag_dir
 
-    runs = load_runs(diag_dir)
+    runs, cells, delivery_cells = aggregate_runs(diag_dir)
     if not runs:
         print(f"No telemetry rows under {diag_dir}/engine/generations.jsonl")
         print("Run the benchmark first (see docs/reference/telemetry-and-benchmarking.md).")
         return 1
     prosody_rows = load_prosody(diag_dir)
-
-    # Group by (mode, modelID, warmState, lenBucket). Delivery rows (instruct-
-    # bearing `bench --delivery` takes) go into their own table keyed by the
-    # delivery id, so they never perturb the headline cells or the ledger row.
-    cells = defaultdict(list)
-    delivery_cells = defaultdict(list)
-    for run in runs:
-        if run["delivery"]:
-            delivery_cells[(run["mode"], run["modelID"], run["warmState"], run["delivery"])].append(run)
-        else:
-            cells[(run["mode"], run["modelID"], run["warmState"], run["lenBucket"])].append(run)
 
     if args.ledger_row:
         return emit_ledger_row(cells, {"note": args.label, "cell": args.cell})
@@ -714,24 +894,24 @@ def main():
     cell_sort = lambda k: (k[0], short_model(k[1]), k[2] != "cold", LEN_ORDER.get(k[3], 9))
     for key in sorted(cells.keys(), key=cell_sort):
         mode, model_id, state, lb = key
-        group = cells[key]
-        n = len(group)
+        summary = cells[key]
+        n = summary["n"]
         row = (
             f"{mode:<8} {short_model(model_id):<26} {state:<5} {lb:<6} {n:>2} "
-            f"{fmt(med(r['rtf'] for r in group)):>6} "
-            f"{fmt(med(r['tokps'] for r in group)):>7} "
-            f"{fmt(med(r['ttfcMS'] for r in group), 0):>8} "
-            f"{fmt(med(r['decodeLoopMS'] for r in group), 0):>9} "
-            f"{fmt(med(r['peakGpuMB'] for r in group), 0):>8} "
-            f"{fmt(med(r['physFootMB'] for r in group), 0):>8} "
-            f"{fmt_trims(group):>9} "
-            f"{fmt_ui_stall(group):>9} "
-            f"{cell_qc(group):<12}"
+            f"{fmt(summary['rtf']):>6} "
+            f"{fmt(summary['tokps']):>7} "
+            f"{fmt(summary['ttfcMS'], 0):>8} "
+            f"{fmt(summary['decodeLoopMS'], 0):>9} "
+            f"{fmt(summary['peakGpuMB'], 0):>8} "
+            f"{fmt(summary['physFootMB'], 0):>8} "
+            f"{fmt_trims(summary):>9} "
+            f"{fmt_ui_stall(summary):>9} "
+            f"{cell_qc(summary):<12}"
         )
         if args.show_variance:
             row += (
-                f" {fmt(iqr(r['rtf'] for r in group)):>7} "
-                f"{fmt(iqr(r['physFootMB'] for r in group), 0):>12}"
+                f" {fmt(summary.get('rtfIQR')):>7} "
+                f"{fmt(summary.get('physFootIQR'), 0):>12}"
             )
         print(row)
 
@@ -752,14 +932,14 @@ def main():
         d_sort = lambda k: (k[0], short_model(k[1]), k[2] != "cold", k[3])
         for key in sorted(delivery_cells.keys(), key=d_sort):
             mode, model_id, state, delivery = key
-            group = delivery_cells[key]
+            summary = delivery_cells[key]
             base = (
-                f"{mode:<8} {short_model(model_id):<26} {state:<5} {delivery:<16} {len(group):>2} "
-                f"{fmt(med(r['rtf'] for r in group)):>6} "
-                f"{fmt(med(r['tokps'] for r in group)):>7} "
-                f"{fmt(med(r['decodeLoopMS'] for r in group), 0):>9} "
-                f"{fmt(med(r['physFootMB'] for r in group), 0):>8} "
-                f"{cell_qc(group):<12}"
+                f"{mode:<8} {short_model(model_id):<26} {state:<5} {delivery:<16} {summary['n']:>2} "
+                f"{fmt(summary['rtf']):>6} "
+                f"{fmt(summary['tokps']):>7} "
+                f"{fmt(summary['decodeLoopMS'], 0):>9} "
+                f"{fmt(summary['physFootMB'], 0):>8} "
+                f"{cell_qc(summary):<12}"
             )
             if has_prosody:
                 p = prosody_for_delivery(prosody_rows, mode, model_id, delivery)
@@ -783,13 +963,14 @@ def main():
     print("-" * len(gpu_header))
     for key in sorted(cells.keys(), key=cell_sort):
         mode, model_id, state, lb = key
-        group = cells[key]
+        summary = cells[key]
+        gpu = summary.get("gpuByStage") or {}
         print(
             f"{mode:<8} {short_model(model_id):<26} {state:<5} {lb:<6} "
-            f"{fmt(med(r['gpuByStage'].get('load') for r in group), 0):>8} "
-            f"{fmt(med(r['gpuByStage'].get('stream') for r in group), 0):>8} "
-            f"{fmt(med(r['gpuByStage'].get('peak') for r in group), 0):>8} "
-            f"{fmt(med(r['gpuByStage'].get('trim') for r in group), 0):>8}"
+            f"{fmt(gpu.get('load'), 0):>8} "
+            f"{fmt(gpu.get('stream'), 0):>8} "
+            f"{fmt(gpu.get('peak'), 0):>8} "
+            f"{fmt(gpu.get('trim'), 0):>8}"
         )
 
     # Decode-loop breakdown (ms per stage; median over cell) — from timingsMS. Answers
@@ -805,23 +986,24 @@ def main():
     print("-" * len(dec_header))
     for key in sorted(cells.keys(), key=cell_sort):
         mode, model_id, state, lb = key
-        group = cells[key]
+        summary = cells[key]
+        dec = summary.get("decodeStages") or {}
         print(
             f"{mode:<8} {short_model(model_id):<26} {state:<5} {lb:<6} "
-            f"{fmt(med(r['decodeStages'].get('talker') for r in group), 0):>7} "
-            f"{fmt(med(r['decodeStages'].get('sampCB0') for r in group), 0):>7} "
-            f"{fmt(med(r['decodeStages'].get('codePred') for r in group), 0):>8} "
-            f"{fmt(med(r['decodeStages'].get('code2wav') for r in group), 0):>8} "
-            f"{fmt(med(r['decodeStages'].get('stepEval') for r in group), 0):>8} "
-            f"{fmt(med(r['decodeStages'].get('other') for r in group), 0):>7}"
+            f"{fmt(dec.get('talker'), 0):>7} "
+            f"{fmt(dec.get('sampCB0'), 0):>7} "
+            f"{fmt(dec.get('codePred'), 0):>8} "
+            f"{fmt(dec.get('code2wav'), 0):>8} "
+            f"{fmt(dec.get('stepEval'), 0):>8} "
+            f"{fmt(dec.get('other'), 0):>7}"
         )
 
     # Streaming chunk timeline (cells that actually have chunkTimeline data).
     # Medians over cell: chunk count, first-chunk arrival, inter-chunk gap, and the
     # per-chunk substage latencies (Talker / Code Predictor / step eval / decoder).
     chunk_cells = {
-        k: g for k, g in cells.items()
-        if any(r.get("chunkCount") is not None for r in g)
+        k: s for k, s in cells.items()
+        if s.get("chunkCount") is not None
     }
     if chunk_cells:
         chunk_header = (
@@ -834,16 +1016,17 @@ def main():
         print("-" * len(chunk_header))
         for key in sorted(chunk_cells.keys(), key=cell_sort):
             mode, model_id, state, lb = key
-            group = chunk_cells[key]
+            summary = chunk_cells[key]
+            cs = summary.get("chunkSubstageMS") or {}
             print(
                 f"{mode:<8} {short_model(model_id):<26} {state:<5} {lb:<6} "
-                f"{fmt(med(r['chunkCount'] for r in group), 0):>7} "
-                f"{fmt(med(r['firstChunkArrivalMS'] for r in group), 0):>12} "
-                f"{fmt(med(r['medianInterChunkMS'] for r in group), 0):>18} "
-                f"{fmt(med(r['chunk_talkerForwardMS'] for r in group), 0):>7} "
-                f"{fmt(med(r['chunk_codePredictorMS'] for r in group), 0):>8} "
-                f"{fmt(med(r['chunk_streamStepEvalMS'] for r in group), 0):>8} "
-                f"{fmt(med(r['chunk_audioDecoderMS'] for r in group), 0):>12}"
+                f"{fmt(summary['chunkCount'], 0):>7} "
+                f"{fmt(summary['firstChunkArrivalMS'], 0):>12} "
+                f"{fmt(summary['medianInterChunkMS'], 0):>18} "
+                f"{fmt(cs.get('talkerForwardMS'), 0):>7} "
+                f"{fmt(cs.get('codePredictorMS'), 0):>8} "
+                f"{fmt(cs.get('streamStepEvalMS'), 0):>8} "
+                f"{fmt(cs.get('audioDecoderMS'), 0):>12}"
             )
 
     print(
@@ -902,14 +1085,20 @@ def main():
 
 
 def fmt_trims(group):
-    """Median memory_trim count for the cell, annotated with the worst level seen."""
-    count = med(r["trims"] for r in group)
-    worst = None
-    worst_rank = 0
-    for r in group:
-        rank = _TRIM_SEVERITY.get(r.get("worstTrim"), 0)
-        if rank > worst_rank:
-            worst_rank, worst = rank, r["worstTrim"]
+    """Median memory_trim count for the cell, annotated with the worst level seen.
+
+    Accepts either a list of run dicts (legacy) or a finalized cell summary dict."""
+    if isinstance(group, dict):
+        count = group.get("trims")
+        worst = group.get("worstTrim")
+    else:
+        count = med(r["trims"] for r in group)
+        worst = None
+        worst_rank = 0
+        for r in group:
+            rank = _TRIM_SEVERITY.get(r.get("worstTrim"), 0)
+            if rank > worst_rank:
+                worst_rank, worst = rank, r["worstTrim"]
     if count is None:
         return "-"
     label = f"{int(count)}"

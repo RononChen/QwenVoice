@@ -3,6 +3,7 @@ import os
 import tempfile
 import shutil
 import io
+import json
 from contextlib import redirect_stdout
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -281,3 +282,122 @@ def test_chunk_timeline_cell_level_aggregation(monkeypatch):
         # gen-chunk-001 (12 ms) and gen-chunk-004 (18 ms) share custom/4bit/warm/short.
         assert "15" in warm_short_line[0]
         assert "33" in warm_short_line[0]
+
+
+def test_aggregate_runs_streams_and_summarizes():
+    """aggregate_runs streams JSONL and returns per-run rows + finalized cell summaries."""
+    fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "telemetry_variants.jsonl")
+    with tempfile.TemporaryDirectory() as tmp:
+        engine_dir = os.path.join(tmp, "engine")
+        os.makedirs(engine_dir)
+        shutil.copy(fixture_path, os.path.join(engine_dir, "generations.jsonl"))
+
+        runs, cells, delivery_cells = sgt.aggregate_runs(tmp)
+        assert len(runs) == 4
+        assert not delivery_cells
+
+        key_4bit_warm_short = ("custom", "Qwen3-TTS-12Hz-1.7B-4bit", "warm", "short")
+        assert key_4bit_warm_short in cells
+        summary = cells[key_4bit_warm_short]
+        assert summary["n"] == 1
+        assert summary["rtf"] == 1.05
+        assert summary["tokps"] == 1550.0
+        assert summary["decodeLoopMS"] == 210
+        assert summary["peakGpuMB"] == 3000
+        assert summary["physFootMB"] == 4050
+        assert summary["qcVerdict"] == "pass"
+
+        key_8bit_warm_medium = ("custom", "Qwen3-TTS-12Hz-1.7B-8bit", "warm", "medium")
+        assert key_8bit_warm_medium in cells
+        summary = cells[key_8bit_warm_medium]
+        assert summary["n"] == 2
+        assert summary["rtf"] == 0.935  # median of 0.92 and 0.95
+        assert summary["trims"] == 0.5  # median of 0 and 1
+        assert summary["worstTrim"] == "softTrim"
+        assert summary["qcVerdict"] == "warn:clipping"
+
+
+def test_aggregate_runs_chunk_cells():
+    """Chunk-timeline substages are aggregated into chunkSubstageMS medians."""
+    fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "chunk_timeline.jsonl")
+    with tempfile.TemporaryDirectory() as tmp:
+        engine_dir = os.path.join(tmp, "engine")
+        os.makedirs(engine_dir)
+        shutil.copy(fixture_path, os.path.join(engine_dir, "generations.jsonl"))
+
+        runs, cells, _ = sgt.aggregate_runs(tmp)
+        key = ("custom", "Qwen3-TTS-12Hz-1.7B-4bit", "warm", "short")
+        summary = cells[key]
+        assert summary["n"] == 2
+        assert summary["chunkCount"] == 2.5  # counts 4 and 1
+        assert summary["firstChunkArrivalMS"] == 15.0  # median of 12 and 18
+        assert summary["medianInterChunkMS"] == 33  # both have 33
+        cs = summary["chunkSubstageMS"]
+        assert cs["talkerForwardMS"] == 11.75
+        assert cs["codePredictorMS"] == 22.25
+        assert cs["streamStepEvalMS"] == 6.25
+        assert cs["audioDecoderMS"] == 2.5
+
+
+def test_cell_accumulator_worst_qc():
+    """finalize reports the worst QC verdict and the flags that tripped it."""
+    acc = sgt.CellAccumulator(key=("custom", "model", "warm", "short"))
+    acc.add_run({"qcVerdict": "pass", "qcFlags": []})
+    acc.add_run({"qcVerdict": "warn", "qcFlags": ["clipping:0.02"]})
+    acc.add_run({"qcVerdict": "pass", "qcFlags": []})
+    summary = acc.finalize()
+    assert summary["qcVerdict"] == "warn:clipping"
+
+
+def test_cell_accumulator_trim_severity():
+    """finalize reports the worst trim level seen in the cell."""
+    acc = sgt.CellAccumulator(key=("custom", "model", "warm", "short"))
+    acc.add_run({"trims": 1, "worstTrim": "softTrim"})
+    acc.add_run({"trims": 2, "worstTrim": "hardTrim"})
+    summary = acc.finalize()
+    assert summary["worstTrim"] == "hardTrim"
+    assert summary["trims"] == 1.5
+
+
+def test_aggregate_runs_delivery_cells():
+    """Rows with a non-empty delivery id are aggregated into delivery_cells."""
+    with tempfile.TemporaryDirectory() as tmp:
+        engine_dir = os.path.join(tmp, "engine")
+        os.makedirs(engine_dir)
+        with open(os.path.join(engine_dir, "generations.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "generationID": "gen-d1",
+                "mode": "custom",
+                "modelID": "Qwen3-TTS-12Hz-1.7B-4bit",
+                "warmState": "warm",
+                "notes": {"delivery": "instruct-demo", "deviceClass": "mid16GBMac"},
+                "derivedMetrics": {"audioSecondsPerWallSecond": 1.0, "tokensPerSecond": 1000.0},
+                "timingsMS": {"qwen_token_loop_total": 200},
+                "summary": {"physFootprintPeakMB": 3000, "stageMarks": []},
+                "mlxMemoryByStage": {},
+                "audioQC": {"verdict": "pass", "flags": []},
+            }) + "\n")
+            f.write(json.dumps({
+                "generationID": "gen-d2",
+                "mode": "custom",
+                "modelID": "Qwen3-TTS-12Hz-1.7B-4bit",
+                "warmState": "warm",
+                "notes": {"delivery": "instruct-demo", "deviceClass": "mid16GBMac"},
+                "derivedMetrics": {"audioSecondsPerWallSecond": 1.2, "tokensPerSecond": 1200.0},
+                "timingsMS": {"qwen_token_loop_total": 180},
+                "summary": {"physFootprintPeakMB": 3200, "stageMarks": []},
+                "mlxMemoryByStage": {},
+                "audioQC": {"verdict": "pass", "flags": []},
+            }) + "\n")
+
+        runs, cells, delivery_cells = sgt.aggregate_runs(tmp)
+        assert len(runs) == 2
+        assert not cells
+        key = ("custom", "Qwen3-TTS-12Hz-1.7B-4bit", "warm", "instruct-demo")
+        assert key in delivery_cells
+        summary = delivery_cells[key]
+        assert summary["delivery"] == "instruct-demo"
+        assert summary["lenBucket"] is None
+        assert summary["n"] == 2
+        assert summary["rtf"] == 1.1
+        assert summary["physFootMB"] == 3100
