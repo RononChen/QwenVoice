@@ -10,7 +10,7 @@ struct NativeModelLoadResult: Sendable {
     let didLoad: Bool
     let capabilityProfile: NativeLoadCapabilityProfile
     let qwen3Capabilities: Qwen3TTSModelCapabilities
-    let timingsMS: [String: Int]
+    var timingsMS: [String: Int]
     let booleanFlags: [String: Bool]
     let stringFlags: [String: String]
 }

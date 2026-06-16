@@ -28,7 +28,7 @@ struct ResolvedCloneConditioning: @unchecked Sendable {
     let reusedNormalizedReference: Bool
     let reusedDecodedReference: Bool
     let referenceQualityWarnings: [String]
-    let timingsMS: [String: Int]
+    var timingsMS: [String: Int]
 
     func withVoiceClonePrompt(
         _ voiceClonePrompt: Qwen3TTSVoiceClonePrompt,

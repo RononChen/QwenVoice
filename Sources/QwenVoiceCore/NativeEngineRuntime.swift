@@ -382,6 +382,7 @@ actor NativeEngineRuntime {
         self.telemetryRecorder = telemetryRecorder
         await loadCoordinator.setTelemetryRecorder(telemetryRecorder)
         let prepareSignpost = Self.signposter.beginInterval("Native Prepare Generation")
+        let prepareStartedAt = ContinuousClock.now
         defer {
             Self.signposter.endInterval("Native Prepare Generation", prepareSignpost)
         }
@@ -574,6 +575,7 @@ actor NativeEngineRuntime {
             ]
         )
 
+        timingOverridesMS["native_prepare_generation_ms"] = prepareStartedAt.elapsedMilliseconds
         return NativePreparedGeneration(
             // Reuse the app-minted ID so app/middle/engine telemetry rows correlate;
             // fall back to a fresh UUID for callers (e.g. internal batch) passing nil.
@@ -723,6 +725,7 @@ actor NativeEngineRuntime {
         preserveActiveClonePrimeToken: Bool
     ) async throws -> NativeModelLoadResult {
         let loadSignpost = Self.signposter.beginInterval("Native Model Load")
+        let loadStartedAt = ContinuousClock.now
         defer {
             Self.signposter.endInterval("Native Model Load", loadSignpost)
         }
@@ -763,7 +766,9 @@ actor NativeEngineRuntime {
                 activeModelID = id
                 await clearCloneState(preserveActiveClonePrimeToken: preserveActiveClonePrimeToken)
             }
-            return loadResult
+            var mutableLoadResult = loadResult
+            mutableLoadResult.timingsMS["native_model_load_ms"] = loadStartedAt.elapsedMilliseconds
+            return mutableLoadResult
         } catch {
             await loadCoordinator.unloadModel()
             activeModelID = nil
@@ -783,18 +788,21 @@ actor NativeEngineRuntime {
         sampleRate: Int
     ) async throws -> ResolvedCloneConditioning {
         let conditioningSignpost = Self.signposter.beginInterval("Native Clone Conditioning")
+        let conditioningStartedAt = ContinuousClock.now
         defer {
             Self.signposter.endInterval("Native Clone Conditioning", conditioningSignpost)
         }
         do {
             await telemetryRecorder?.mark(stage: .clonePreparation)
-            return try await preparedCloneConditioningCache.resolve(
+            var conditioning = try await preparedCloneConditioningCache.resolve(
                 modelID: modelID,
                 reference: reference,
                 sampleRate: sampleRate,
                 audioPreparationService: audioPreparationService,
                 normalizedCloneReferenceDirectory: try requireNormalizedCloneReferenceDirectory()
             )
+            conditioning.timingsMS["native_clone_conditioning_ms"] = conditioningStartedAt.elapsedMilliseconds
+            return conditioning
         } catch {
             throw NativeRuntimeError.wrapping(
                 error,
@@ -823,6 +831,7 @@ actor NativeEngineRuntime {
         try Task.checkCancellation()
 
         let prewarmSignpost = Self.signposter.beginInterval("Native Explicit Prewarm")
+        let explicitPrewarmStartedAt = ContinuousClock.now
         defer {
             Self.signposter.endInterval("Native Explicit Prewarm", prewarmSignpost)
         }
@@ -831,7 +840,10 @@ actor NativeEngineRuntime {
         switch request.payload {
         case .custom, .design:
             guard let requestIdentityKey = prewarmIdentityKey(for: request) else {
-                return ["prewarm_slot_wait_ms": prewarmSlotWaitMS]
+                return [
+                    "prewarm_slot_wait_ms": prewarmSlotWaitMS,
+                    "native_explicit_prewarm_ms": explicitPrewarmStartedAt.elapsedMilliseconds,
+                ]
             }
             identityKey = requestIdentityKey
         case .clone:
@@ -850,7 +862,10 @@ actor NativeEngineRuntime {
             // cell paid a fast prewarm." Pairs with the analogous event
             // in `ensureDesignConditioningWarmStateIfNeeded`.
             Self.signposter.emitEvent("Native Prewarm Cache Hit")
-            return ["prewarm_slot_wait_ms": prewarmSlotWaitMS]
+            return [
+                "prewarm_slot_wait_ms": prewarmSlotWaitMS,
+                "native_explicit_prewarm_ms": explicitPrewarmStartedAt.elapsedMilliseconds,
+            ]
         }
 
         let prewarmStartedAt = ContinuousClock.now
@@ -904,6 +919,7 @@ actor NativeEngineRuntime {
             var timings = model.latestPreparationTimingsMS
             timings["prewarm_model"] = prewarmStartedAt.elapsedMilliseconds
             timings["prewarm_slot_wait_ms"] = prewarmSlotWaitMS
+            timings["native_explicit_prewarm_ms"] = explicitPrewarmStartedAt.elapsedMilliseconds
             return timings
         } catch {
             await loadCoordinator.unloadModel()

@@ -840,11 +840,12 @@ private struct StreamingExecutionContext: Sendable {
 
     func runQualityFirstFinalAudio() async throws -> GenerationResult {
         let generationSignpost = NativeStreamingSignposts.signposter.beginInterval("Native Quality-First Generation")
+        let qualityFirstGenerationStartedAt = ContinuousClock.now
         defer {
             NativeStreamingSignposts.signposter.endInterval("Native Quality-First Generation", generationSignpost)
         }
+        var signpostTimingsMS: [String: Int] = [:]
 
-        let startedAt = ContinuousClock.now
         let outputURL = URL(fileURLWithPath: request.outputPath)
         let sampleRate = model.sampleRate
         let telemetryMode = NativeTelemetryMode.current()
@@ -985,9 +986,10 @@ private struct StreamingExecutionContext: Sendable {
         // Re-read the model's diagnostics post-generation so the finalized MLX
         // decode-stage totals and counters are surfaced (same rationale as the
         // streaming path). Quality-first is non-streaming → no per-chunk timeline.
+        signpostTimingsMS["native_quality_first_generation_ms"] = qualityFirstGenerationStartedAt.elapsedMilliseconds
         let finalTimingsMS = telemetryActive
-            ? timingOverridesMS.merging(model.latestPreparationTimingsMS) { _, new in new }
-            : timingOverridesMS
+            ? timingOverridesMS.merging(model.latestPreparationTimingsMS) { _, new in new }.merging(signpostTimingsMS) { _, new in new }
+            : timingOverridesMS.merging(signpostTimingsMS) { _, new in new }
         let finalBooleanFlags = booleanFlags.merging(model.latestPreparationBooleanFlags) { _, new in new }
         let finalStringFlags = stringFlags.merging(model.latestPreparationStringFlags) { _, new in new }
         let derivedMetrics: [String: Double]? = telemetryActive
@@ -1130,9 +1132,11 @@ private struct StreamingExecutionContext: Sendable {
 
     func run(chunkSink: @escaping @Sendable (GenerationEvent) -> Void) async throws -> GenerationResult {
         let generationSignpost = NativeStreamingSignposts.signposter.beginInterval("Native Generation Stream")
+        let generationStreamStartedAt = ContinuousClock.now
         defer {
             NativeStreamingSignposts.signposter.endInterval("Native Generation Stream", generationSignpost)
         }
+        var signpostTimingsMS: [String: Int] = [:]
         let outputURL = URL(fileURLWithPath: request.outputPath)
         let sampleRate = model.sampleRate
         let telemetryMode = NativeTelemetryMode.current()
@@ -1348,8 +1352,10 @@ private struct StreamingExecutionContext: Sendable {
         }
 
         let finalWriteSignpost = NativeStreamingSignposts.signposter.beginInterval("Native Final WAV Finish")
+        let finalWAVFinishStartedAt = ContinuousClock.now
         finalWriter.finish()
         NativeStreamingSignposts.signposter.endInterval("Native Final WAV Finish", finalWriteSignpost)
+        signpostTimingsMS["native_final_wav_finish_ms"] = finalWAVFinishStartedAt.elapsedMilliseconds
         mlxMemorySnapshots["after_final_write"] = NativeMemoryPolicyResolver.snapshot()
 
         let durationSeconds = Double(totalFramesWritten) / Double(sampleRate)
@@ -1375,9 +1381,10 @@ private struct StreamingExecutionContext: Sendable {
         // totals (talker forward, code predictor, decoder, stream-step eval/EOS,
         // token-loop total, generated-code count) are only finalized post-loop, so
         // the pre-loop `timingOverridesMS` snapshot misses them entirely.
+        signpostTimingsMS["native_generation_stream_ms"] = generationStreamStartedAt.elapsedMilliseconds
         let finalTimingsMS = telemetryActive
-            ? timingOverridesMS.merging(model.latestPreparationTimingsMS) { _, new in new }
-            : timingOverridesMS
+            ? timingOverridesMS.merging(model.latestPreparationTimingsMS) { _, new in new }.merging(signpostTimingsMS) { _, new in new }
+            : timingOverridesMS.merging(signpostTimingsMS) { _, new in new }
         let finalBooleanFlags = booleanFlags.merging(model.latestPreparationBooleanFlags) { _, new in new }
         let finalStringFlags = stringFlags.merging(model.latestPreparationStringFlags) { _, new in new }
 
