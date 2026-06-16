@@ -174,7 +174,7 @@ This table maps the insights in each technology reference doc to a concrete prob
 
 ## 4. Prioritized improvement backlog
 
-### P0 — Do next
+### P0 — Done
 
 | # | Item | Rationale | Primary files | Estimated effort |
 |---|---|---|---|---|
@@ -182,6 +182,8 @@ This table maps the insights in each technology reference doc to a concrete prob
 | P0.2 | Add `ProcessInfo.thermalState` to the telemetry summary | Thermal throttling is a top driver of RTF/memory variance and is already observed in the iOS app (`Sources/iOS/QVoiceiOSApp.swift:68-72`). | `NativeTelemetrySampler.swift`, `TelemetrySummary`, `GenerationTelemetryRecord.swift` | Small |
 | P0.3 | Add `gpuWorkingSetUsageRatioPeak` and MLX cache/memory-limit notes | Directly supports the Metal/MLX optimization programs; ratio is already computed for admission. | `IOSMemorySnapshot.swift`, `NativeTelemetrySampler.swift`, `GenerationTelemetryRecord.notes` | Small |
 | P0.4 | Label `QVOICE_IOS_MLX_MEMORY_LIMIT_MB` as dev-only in `telemetry-and-benchmarking.md` | Aligns with `mlx-guide.md` §5.2 and `metal-guide.md` §5.3 anti-pattern language; the current env table lists it without the dev-only warning. | `docs/reference/telemetry-and-benchmarking.md` | Tiny |
+
+> **P0 status:** Completed in commit `8b04179` on branch `feat/telemetry-harness-improvements`. macOS and iOS foundation builds passed; `check_project_inputs.sh` passed.
 
 ### P1 — High value, moderate effort
 
