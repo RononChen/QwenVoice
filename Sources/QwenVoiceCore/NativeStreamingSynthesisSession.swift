@@ -880,8 +880,7 @@ private struct StreamingExecutionContext: Sendable {
             completion = try await generateQualityFirstAudio()
         } catch {
             await telemetryRecorder?.mark(
-                stage: .streamFailed,
-                metadata: ["message": error.localizedDescription]
+                metadata: StreamFailureMessageMetadata(message: error.localizedDescription)
             )
             let stageMarks = await telemetryRecorder?.snapshot() ?? []
             let (summary, _) = await Self.stopTelemetrySampler(
@@ -903,8 +902,7 @@ private struct StreamingExecutionContext: Sendable {
         let finishReason = Self.mapFinishReason(completion.finishReason)
         if finishReason != .eos {
             await telemetryRecorder?.mark(
-                stage: .streamFailed,
-                metadata: ["finish_reason": finishReason.rawValue]
+                metadata: StreamFailureFinishReasonMetadata(finishReason: finishReason)
             )
             let stageMarks = await telemetryRecorder?.snapshot() ?? []
             let (summary, _) = await Self.stopTelemetrySampler(
@@ -1233,8 +1231,7 @@ private struct StreamingExecutionContext: Sendable {
                     if chunkIndex == 0 {
                         NativeStreamingSignposts.signposter.emitEvent("Native First Audio Chunk")
                         await telemetryRecorder?.mark(
-                            stage: .firstChunk,
-                            metadata: ["chunk_index": String(chunkIndex)]
+                            metadata: FirstChunkMetadata(chunkIndex: chunkIndex)
                         )
                         mlxMemorySnapshots["first_chunk"] = NativeMemoryPolicyResolver.snapshot()
                     }
@@ -1314,8 +1311,7 @@ private struct StreamingExecutionContext: Sendable {
             }
         } catch {
             await telemetryRecorder?.mark(
-                stage: .streamFailed,
-                metadata: ["message": error.localizedDescription]
+                metadata: StreamFailureMessageMetadata(message: error.localizedDescription)
             )
             let stageMarks = await telemetryRecorder?.snapshot() ?? []
             let (summary, _) = await Self.stopTelemetrySampler(

@@ -230,9 +230,9 @@ actor NativeEngineRuntime {
     /// mutation), so a pressure moment is captured even when the resulting trim
     /// defers. No-op when no per-generation recorder is active.
     func recordMemoryPressureObserved(level: NativeMemoryTrimLevel) async {
-        await telemetryRecorder?.mark(stage: "memory_pressure", metadata: [
-            "level": level.rawValue,
-        ])
+        await telemetryRecorder?.mark(
+            metadata: MemoryPressureMetadata(level: level)
+        )
     }
 
     func trimMemory(level: NativeMemoryTrimLevel, reason: String) async {
@@ -253,10 +253,9 @@ actor NativeEngineRuntime {
         }
         defer { releasePrewarmSlot() }
 
-        await telemetryRecorder?.mark(stage: "memory_trim", metadata: [
-            "level": level.rawValue,
-            "reason": reason,
-        ])
+        await telemetryRecorder?.mark(
+            metadata: MemoryTrimMetadata(level: level, reason: reason)
+        )
 
         switch level {
         case .softTrim:
@@ -737,12 +736,11 @@ actor NativeEngineRuntime {
                     "Clearing iOS model-switch caches before load; from=\(previousModelID, privacy: .public), to=\(id, privacy: .public), profile=\(capabilityProfile.rawValue, privacy: .public)"
                 )
                 await telemetryRecorder?.mark(
-                    stage: "model_switch_cache_clear",
-                    metadata: [
-                        "fromModelID": previousModelID,
-                        "toModelID": id,
-                        "nativeLoadCapabilityProfile": capabilityProfile.rawValue,
-                    ]
+                    metadata: ModelSwitchCacheClearMetadata(
+                        fromModelID: previousModelID,
+                        toModelID: id,
+                        capabilityProfile: capabilityProfile
+                    )
                 )
                 await loadCoordinator.unloadModel()
                 activeModelID = nil
