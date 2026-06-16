@@ -319,6 +319,49 @@ def med(values):
     return statistics.median(nums) if nums else None
 
 
+def _quartiles(nums):
+    """Return (Q1, Q3) for a sorted numeric list using the median-of-halves method."""
+    if len(nums) < 2:
+        return None, None
+    q1 = statistics.median(nums[:len(nums) // 2])
+    q3 = statistics.median(nums[(len(nums) + 1) // 2:])
+    return q1, q3
+
+
+def iqr(values):
+    nums = sorted(v for v in values if isinstance(v, (int, float)))
+    q1, q3 = _quartiles(nums)
+    if q1 is None or q3 is None:
+        return None
+    return q3 - q1
+
+
+def mad(values):
+    nums = [v for v in values if isinstance(v, (int, float))]
+    if not nums:
+        return None
+    median_value = statistics.median(nums)
+    return statistics.median(abs(x - median_value) for x in nums)
+
+
+def reject_outliers(values, factor=1.5):
+    """Return sorted values inside the Tukey fence (factor * IQR beyond Q1/Q3).
+
+    factor=1.5 is the conventional Tukey fence for outlier detection.
+    A minimum of 4 numeric samples is required before filtering; below that the
+    sorted input is returned unchanged because quartiles are unstable.
+    """
+    nums = sorted(v for v in values if isinstance(v, (int, float)))
+    if len(nums) < 4:
+        # Too few samples for a stable IQR-based filter.
+        return nums
+    q1, q3 = _quartiles(nums)
+    spread = q3 - q1
+    lo = q1 - factor * spread
+    hi = q3 + factor * spread
+    return [x for x in nums if lo <= x <= hi]
+
+
 def fmt(value, places=2):
     if value is None:
         return "-"
@@ -416,6 +459,8 @@ def main():
                         help="print ONE Markdown row for benchmarks/HISTORY.md instead of the table")
     parser.add_argument("--cell", default="",
                         help="ledger cell selector 'mode/model/state' (model = substring)")
+    parser.add_argument("--show-variance", action="store_true",
+                        help="include IQR columns for RTF and physFoot in the summary table")
     args = parser.parse_args()
     diag_dir = args.diag_dir
 
@@ -445,10 +490,14 @@ def main():
         stamp += f" · {args.label}"
     print(f"\n[{stamp}]")
 
+    variance_cols = ""
+    if args.show_variance:
+        variance_cols = f" {'RTF_IQR':>7} {'physFoot_IQR':>12}"
     header = (
         f"{'mode':<8} {'model':<26} {'state':<5} {'len':<6} {'n':>2} "
         f"{'RTF':>6} {'tok/s':>7} {'TTFC ms':>8} {'decode ms':>9} "
         f"{'peakGPU':>8} {'physFoot':>8} {'trims':>9} {'UIstall':>9} {'QC':<12}"
+        + variance_cols
     )
     tiers = sorted({r["deviceClass"] for r in runs})
     forced = any(r["deviceClassForced"] for r in runs)
@@ -465,7 +514,7 @@ def main():
         mode, model_id, state, lb = key
         group = cells[key]
         n = len(group)
-        print(
+        row = (
             f"{mode:<8} {short_model(model_id):<26} {state:<5} {lb:<6} {n:>2} "
             f"{fmt(med(r['rtf'] for r in group)):>6} "
             f"{fmt(med(r['tokps'] for r in group)):>7} "
@@ -477,6 +526,12 @@ def main():
             f"{fmt_ui_stall(group):>9} "
             f"{cell_qc(group):<12}"
         )
+        if args.show_variance:
+            row += (
+                f" {fmt(iqr(r['rtf'] for r in group)):>7} "
+                f"{fmt(iqr(r['physFootMB'] for r in group), 0):>12}"
+            )
+        print(row)
 
     # Delivery cells (vocello bench --delivery): instruct-bearing takes, keyed by
     # the delivery preset id instead of the length bucket (they all run the medium
