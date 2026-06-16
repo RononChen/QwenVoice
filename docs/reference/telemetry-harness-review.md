@@ -196,6 +196,8 @@ This table maps the insights in each technology reference doc to a concrete prob
 | P1.5 | Harden JSONL sink: propagate write failures and optional in-memory row rescue | Improves observability reliability; crashes are the most important events to capture. | `GenerationTelemetryJSONLSink.swift` | Medium |
 | P1.6 | Add a `--compare-baseline` mode to the summarizer | Enables automated regression detection against committed baselines. | `scripts/summarize_generation_telemetry.py` | Medium |
 
+> **P1 Python status:** Completed in commits on branch `feat/telemetry-harness-improvements`. `scripts/tests/` now has 34 passing tests covering IQR/MAD/outliers, chunk-timeline aggregation, merged-telemetry cross-layer latency, and baseline regression gating.
+
 ### P2 — Valuable but deeper / optional
 
 | # | Item | Rationale | Primary files | Estimated effort |
