@@ -2,7 +2,7 @@
 
 How Vocello measures itself. This is the single reference for the per‑generation
 telemetry that spans the **frontend (app UI)**, the **middle communication layer
-(macOS XPC / iOS ExtensionKit)**, and the **backend core (MLX / Qwen3‑TTS)** — what
+(macOS XPC service / iOS in‑process engine)**, and the **backend core (MLX / Qwen3‑TTS)** — what
 is measured, where it lands, how to read it, and how it stays cheap enough to run on
 restricted hardware (8 GB Macs, iPhone) without distorting the numbers you optimize
 against.
@@ -46,9 +46,11 @@ resolved once per process:
 | 7‑tap the version label in Settings (persisted `UserDefaults` flag) | On in the app process; relayed to the engine process over the `initialize` IPC handshake (`telemetryEnabled`). |
 | `QWENVOICE_NATIVE_TELEMETRY_MODE=lightweight\|verbose` | Forces sampling/persistence on regardless of the gate. |
 
-The engine runs **out of process** (XPC service on macOS, ExtensionKit on iOS) with a
-different bundle id, so the app's `UserDefaults` flag can't reach it via environment —
-it is carried on the handshake, where the host calls `TelemetryGate.enableFromHandshake()`.
+The engine runs **out of process on macOS** (XPC service) and **in process on iOS**
+(the ExtensionKit extension was removed; see `AGENTS.md` / commit `aed617c`). The
+different bundle id means the app's `UserDefaults` flag still can't reach the macOS
+engine via environment — it is carried on the handshake, where the host calls
+`TelemetryGate.applyHandshakeMode(_:)`.
 
 ### Sampling modes (`NativeTelemetryMode`, in `SemanticTypes.swift`)
 
@@ -74,14 +76,16 @@ QWENVOICE_DEBUG=1 QWENVOICE_NATIVE_TELEMETRY_MODE=verbose ./scripts/build.sh run
 | `QWENVOICE_ENGINE_RETIRE_DWELL_SECONDS=<n>` | Dev override for the XPC service retirement idle dwell (default 300 s) so retirement‑to‑reclaim can be exercised without the full wait. App‑process only. |
 | `QWENVOICE_FAKE_MIC_WAV=<clip.wav>` | Virtual microphone for mic‑less machines — the record flow simulates capture from this clip (see [`macos-permissions.md`](macos-permissions.md)). |
 | `QVOICE_TALKER_KV_QUANT=8\|4` | **Dev-only** opt‑in talker KV‑cache quantization (QuantizedKVCache, group 64). Measured (P4, §H): clone/long −271 MB physFoot but **−8.6% RTF** — not shipped on any tier; insurance knob only. Never combined with `QVOICE_TALKER_KV_WINDOW`. |
-| `QVOICE_IOS_SIM_DEVICE=iphone15pro` / `QVOICE_IOS_SIMULATED_PROCESS_LIMIT_MB=<n>` | **iPhone restriction simulation (memory dimension only)**: clamps the effective per‑process limit inside `IOSMemorySnapshot.capture()` so bands/admission/clone‑gate behave like the smaller device (`iphone15pro` → 5,000 MB, the conservative bottom of the 8 GB‑iPhone entitled band). Rows self‑stamp `notes.simulatedDevice`/`notes.simulatedProcessLimitMB`. GPU compute + thermals are NOT simulated — the real‑8GB‑device proof stays open (see ios‑engine‑optimization.md §9). Convenience: `scripts/ios_device.sh bench --sim-device iphone15pro …`. |
+| `QVOICE_IOS_MLX_CACHE_LIMIT_MB=<n>` | **Dev-only** override of the MLX `Memory.cacheLimit` for the iPhone tier. Useful for sweeps; production uses the tier default. |
+| `QVOICE_IOS_MLX_MEMORY_LIMIT_MB=<n>` | **Dev-only / do not ship** override of MLX `Memory.memoryLimit`. Production avoids a hard `memoryLimit`; see `mlx-guide.md` §5.2. |
+| `QVOICE_IOS_SIM_DEVICE=iphone15pro` / `QVOICE_IOS_SIMULATED_PROCESS_LIMIT_MB=<n>` | **iPhone restriction simulation (memory dimension only)**: clamps the effective per‑process limit inside `IOSMemorySnapshot.capture()` so bands/admission/clone‑gate behave like the smaller device (`iphone15pro` → 5,000 MB, the conservative bottom of the 8 GB‑iPhone entitled band). Rows self‑stamp `notes.simulatedDevice`/`notes.simulatedProcessLimitMB`. GPU compute + thermals are NOT simulated — the real‑8GB‑device proof stays open (see ios‑engine-optimization.md §9). Convenience: `scripts/ios_device.sh bench --sim-device iphone15pro …`. |
 
 ---
 
 ## 3. Architecture
 
 ```
- App process (Vocello)                    Engine process (XPC service / iOS extension)
+ App process (Vocello)                    Engine process (macOS XPC service / iOS in‑process engine)
  ┌───────────────────────────┐  IPC      ┌──────────────────────────────────────────┐
  │ Coordinators              │  ───────► │ NativeEngineRuntime.prepareGeneration      │
  │   mint generationID       │ generate  │   creates per‑generation recorder          │

@@ -1495,6 +1495,11 @@ private struct StreamingExecutionContext: Sendable {
             let delivery = String(cString: rawDelivery)
             if !delivery.isEmpty { tierNotes["delivery"] = delivery }
         }
+        // MLX/Metal memory policy notes so each row self-identifies the substrate
+        // it ran under (cache limit, memory limit, clear cadence, KV window).
+        let policyNotes = NativeMemoryPolicyResolver.currentPolicyNotes(for: memoryPolicy)
+        tierNotes.merge(policyNotes) { _, policy in policy }
+
         // Adherence ground-truth for bench analysis (dev-gated diagnostics only —
         // this whole writer is behind TelemetryGate; never ships). These notes let
         // post-processing scripts pair instruct/design takes with their expected
@@ -1525,6 +1530,7 @@ private struct StreamingExecutionContext: Sendable {
             finishReason: finishReason,
             stageMarks: stageMarks,
             summary: summary,
+            thermalState: summary.thermalState,
             timingsMS: timingsMS ?? timingOverridesMS,
             counters: counters,
             notes: notesWithTier,
@@ -1747,9 +1753,11 @@ private struct StreamingExecutionContext: Sendable {
                     headroomMinMB: nil,
                     gpuAllocatedPeakMB: nil,
                     gpuRecommendedWorkingSetMB: nil,
+                    gpuWorkingSetUsageRatioPeak: nil,
                     timeToPeakMS: nil,
                     sampleCount: 0,
-                    stageMarks: stageMarks
+                    stageMarks: stageMarks,
+                    thermalState: nil
                 ),
                 []
             )

@@ -49,6 +49,7 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
     public let counters: [String: Int]
     public let notes: [String: String]
     public let summary: TelemetrySummary?
+    public let thermalState: ThermalStateSnapshot?
     /// Headline derived throughput KPIs (engine layer): `audioSeconds`,
     /// `decodeWallSeconds`, `audioSecondsPerWallSecond` (>1 = faster than realtime),
     /// `tokensPerSecond`, `generatedTokenCount`. nil when not computed.
@@ -76,7 +77,8 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
         finishReason: String? = nil,
         stageMarks: [NativeTelemetryStageMark] = [],
         summary: TelemetrySummary? = nil,
-        timingsMS: [String: Int] = [:],
+        thermalState: ThermalStateSnapshot? = nil,
+        timingsMS: [String: Int] = [ :],
         counters: [String: Int] = [:],
         notes: [String: String] = [:],
         derivedMetrics: [String: Double]? = nil,
@@ -100,6 +102,7 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
         self.finishReason = finishReason
         self.stageMarks = stageMarks
         self.summary = summary
+        self.thermalState = thermalState
         self.timingsMS = timingsMS
         self.counters = counters
         self.notes = notes

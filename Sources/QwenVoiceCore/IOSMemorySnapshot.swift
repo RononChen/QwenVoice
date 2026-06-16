@@ -105,6 +105,12 @@ public struct IOSMemorySnapshot: Hashable, Codable, Sendable {
         Self.bytesToMB(gpuRecommendedWorkingSetBytes)
     }
 
+    public var gpuWorkingSetUsageRatio: Double? {
+        guard let gpuAllocatedBytes, let gpuRecommendedWorkingSetBytes,
+              gpuRecommendedWorkingSetBytes > 0 else { return nil }
+        return Double(gpuAllocatedBytes) / Double(gpuRecommendedWorkingSetBytes)
+    }
+
     /// Dev-only restriction simulation: clamp the *effective* per-process
     /// memory limit so a bigger iPhone behaves like a smaller one (e.g. run
     /// the iPhone 15 Pro's ~5.0 GB entitled budget on a 17 Pro). Resolved

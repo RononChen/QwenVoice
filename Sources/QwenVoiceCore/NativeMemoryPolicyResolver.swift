@@ -104,6 +104,22 @@ public enum NativeMemoryPolicyResolver {
         Qwen3StreamingMemoryTuning.applyTalkerKVWindow(talkerKVGeneratedWindowOverride())
     }
 
+    /// Free-form notes describing the active MLX/Metal memory policy so each
+    /// telemetry row self-identifies the substrate it ran under.
+    public static func currentPolicyNotes(for policy: NativeMemoryPolicy) -> [String: String] {
+        var notes: [String: String] = [
+            "mlxCacheLimitMB": String(policy.cacheLimitBytes / (1_024 * 1_024)),
+            "mlxTokenMemoryClearCadence": String(policy.mlxTokenMemoryClearCadence),
+            "mlxClearCacheAfterGeneration": String(policy.clearCacheAfterGeneration),
+            "mlxClearCacheOnStreamChunkEmit": String(policy.clearMLXCacheOnStreamChunkEmit),
+            "talkerKVWindow": ProcessInfo.processInfo.environment["QVOICE_TALKER_KV_WINDOW"] ?? "default"
+        ]
+        if let memoryLimitBytes = policy.memoryLimitBytes {
+            notes["mlxMemoryLimitMB"] = String(memoryLimitBytes / (1_024 * 1_024))
+        }
+        return notes
+    }
+
     /// Generated-audio-token window for the sliding-window talker KV cache, from
     /// `QVOICE_TALKER_KV_WINDOW` (a positive integer enables it; absent/invalid =
     /// disabled → unbounded KVCacheSimple). Used for Mac-CLI testing + the window

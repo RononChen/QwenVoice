@@ -2,6 +2,30 @@ import Darwin
 import Foundation
 import Metal
 
+/// Thermal-state snapshot captured at the start and end of a generation, plus the
+/// worst state observed while the sampler was running.
+public struct ThermalStateSnapshot: Hashable, Codable, Sendable {
+    public let start: String
+    public let end: String
+    public let worst: String
+
+    public init(start: ProcessInfo.ThermalState, end: ProcessInfo.ThermalState, worst: ProcessInfo.ThermalState) {
+        self.start = Self.string(for: start)
+        self.end = Self.string(for: end)
+        self.worst = Self.string(for: worst)
+    }
+
+    internal static func string(for state: ProcessInfo.ThermalState) -> String {
+        switch state {
+        case .nominal: return "nominal"
+        case .fair: return "fair"
+        case .serious: return "serious"
+        case .critical: return "critical"
+        @unknown default: return "unknown(\(state.rawValue))"
+        }
+    }
+}
+
 public struct TelemetrySample: Hashable, Codable, Sendable {
     public let tMS: Int
     public let residentMB: Double?
@@ -11,6 +35,7 @@ public struct TelemetrySample: Hashable, Codable, Sendable {
     public let gpuAllocatedMB: Double?
     public let gpuRecommendedWorkingSetMB: Double?
     public let threads: Int
+    public let thermalState: String?
     public var stage: String?
     public var chunkIndex: Int?
 
@@ -23,6 +48,7 @@ public struct TelemetrySample: Hashable, Codable, Sendable {
         gpuAllocatedMB: Double?,
         gpuRecommendedWorkingSetMB: Double?,
         threads: Int,
+        thermalState: String? = nil,
         stage: String? = nil,
         chunkIndex: Int? = nil
     ) {
@@ -34,6 +60,7 @@ public struct TelemetrySample: Hashable, Codable, Sendable {
         self.gpuAllocatedMB = gpuAllocatedMB
         self.gpuRecommendedWorkingSetMB = gpuRecommendedWorkingSetMB
         self.threads = threads
+        self.thermalState = thermalState
         self.stage = stage
         self.chunkIndex = chunkIndex
     }
@@ -50,9 +77,11 @@ public struct TelemetrySummary: Hashable, Codable, Sendable {
     public let headroomMinMB: Double?
     public let gpuAllocatedPeakMB: Double?
     public let gpuRecommendedWorkingSetMB: Double?
+    public let gpuWorkingSetUsageRatioPeak: Double?
     public let timeToPeakMS: Int?
     public let sampleCount: Int
     public let stageMarks: [NativeTelemetryStageMark]
+    public let thermalState: ThermalStateSnapshot?
 
     public init(
         residentStartMB: Double?,
@@ -65,9 +94,11 @@ public struct TelemetrySummary: Hashable, Codable, Sendable {
         headroomMinMB: Double?,
         gpuAllocatedPeakMB: Double?,
         gpuRecommendedWorkingSetMB: Double?,
+        gpuWorkingSetUsageRatioPeak: Double?,
         timeToPeakMS: Int?,
         sampleCount: Int,
-        stageMarks: [NativeTelemetryStageMark]
+        stageMarks: [NativeTelemetryStageMark],
+        thermalState: ThermalStateSnapshot?
     ) {
         self.residentStartMB = residentStartMB
         self.residentEndMB = residentEndMB
@@ -79,9 +110,11 @@ public struct TelemetrySummary: Hashable, Codable, Sendable {
         self.headroomMinMB = headroomMinMB
         self.gpuAllocatedPeakMB = gpuAllocatedPeakMB
         self.gpuRecommendedWorkingSetMB = gpuRecommendedWorkingSetMB
+        self.gpuWorkingSetUsageRatioPeak = gpuWorkingSetUsageRatioPeak
         self.timeToPeakMS = timeToPeakMS
         self.sampleCount = sampleCount
         self.stageMarks = stageMarks
+        self.thermalState = thermalState
     }
 }
 
@@ -175,6 +208,21 @@ public actor NativeTelemetrySampler {
         let headroomMinMB = samples.compactMap(\.headroomMB).min()
         let gpuAllocatedPeakMB = samples.compactMap(\.gpuAllocatedMB).max()
         let gpuRecommendedWorkingSetMB = samples.compactMap(\.gpuRecommendedWorkingSetMB).max()
+        let gpuWorkingSetUsageRatioPeak = samples.compactMap { sample -> Double? in
+            guard let allocated = sample.gpuAllocatedMB,
+                  let recommended = sample.gpuRecommendedWorkingSetMB,
+                  recommended > 0 else { return nil }
+            return allocated / recommended
+        }.max()
+
+        let thermalSnapshot: ThermalStateSnapshot? = {
+            guard let first = samples.first?.thermalState,
+                  let last = samples.last?.thermalState else { return nil }
+            let worst = samples.compactMap(\.thermalState).max { lhs, rhs in
+                thermalRank(lhs) < thermalRank(rhs)
+            } ?? first
+            return ThermalStateSnapshot(start: state(from: first), end: state(from: last), worst: state(from: worst))
+        }()
 
         return TelemetrySummary(
             residentStartMB: residentStartMB,
@@ -187,10 +235,31 @@ public actor NativeTelemetrySampler {
             headroomMinMB: headroomMinMB,
             gpuAllocatedPeakMB: gpuAllocatedPeakMB,
             gpuRecommendedWorkingSetMB: gpuRecommendedWorkingSetMB,
+            gpuWorkingSetUsageRatioPeak: gpuWorkingSetUsageRatioPeak,
             timeToPeakMS: residentPeakSample?.tMS,
             sampleCount: samples.count,
-            stageMarks: stageMarks
+            stageMarks: stageMarks,
+            thermalState: thermalSnapshot
         )
+    }
+
+    private static func thermalRank(_ state: String) -> Int {
+        switch state {
+        case "nominal": return 0
+        case "fair": return 1
+        case "serious": return 2
+        case "critical": return 3
+        default: return -1
+        }
+    }
+
+    private static func state(from string: String) -> ProcessInfo.ThermalState {
+        switch string {
+        case "fair": return .fair
+        case "serious": return .serious
+        case "critical": return .critical
+        default: return .nominal
+        }
     }
 
     private static func captureSample(startUptimeSeconds: TimeInterval, device: MTLDevice?) -> TelemetrySample {
@@ -204,7 +273,8 @@ public actor NativeTelemetrySampler {
             headroomMB: snapshot.availableHeadroomMB,
             gpuAllocatedMB: snapshot.gpuAllocatedMB,
             gpuRecommendedWorkingSetMB: snapshot.gpuRecommendedWorkingSetMB,
-            threads: threadCount()
+            threads: threadCount(),
+            thermalState: ThermalStateSnapshot.string(for: ProcessInfo.processInfo.thermalState)
         )
     }
 
