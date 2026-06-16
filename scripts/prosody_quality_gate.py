@@ -10,34 +10,18 @@ Flags perceptual tone/tempo/cadence issues that signal-level QC cannot catch:
 Deterministic, numpy-only, low-RAM. Designed to run on every vocello bench take.
 
 Usage:
-  scripts/prosody_quality_gate.py <wav> [<wav> ...] [--json]
+  scripts/prosody_quality_gate.py <wav> [<wav> ...] [--json] [--profile path.json]
   python3 -c "from prosody_quality_gate import evaluate; print(evaluate('clip.wav'))"
 """
-import sys, json
+import sys, json, argparse, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from analyze_prosody import analyze
-
-# Conservative default thresholds. These are intended to flag *obvious* issues,
-# not subtle artistic choices. Calibrate against a labeled good/bad corpus for
-# your target speakers and delivery styles.
-DEFAULT_THRESHOLDS = {
-    # monotone: F0 std below this (Hz) AND turning points below this (/sec voiced)
-    "monotone_f0_std_hz": 8.0,
-    "monotone_turning_points_per_sec": 4.0,
-    # rushed: syllable rate above this (Hz) AND pause ratio below this
-    "rushed_syllable_rate_hz": 6.5,
-    "rushed_max_pause_ratio": 0.03,
-    # slurred/flat: energy envelope roughness below this AND rate CV below this
-    "flat_envelope_roughness": 0.08,
-    "flat_rate_cv": 0.08,
-    # pause_issue: max interior pause above this (sec) OR pause ratio above this
-    "pause_max_seconds": 1.2,
-    "pause_ratio_max": 0.35,
-}
+from prosody_profile import builtin_profile, load_profile, threshold
 
 
-def evaluate(path, thresholds=None):
-    """Return a gate report for a single WAV."""
-    thr = thresholds or DEFAULT_THRESHOLDS
+def evaluate(path, profile=None):
+    """Return a gate report for a single WAV using the supplied profile."""
+    prof = profile if profile is not None else builtin_profile()
     pros = analyze(path)
 
     if "error" in pros:
@@ -52,21 +36,24 @@ def evaluate(path, thresholds=None):
     flags = []
 
     # Monotone: very little pitch movement
-    if pros["f0_std_hz"] < thr["monotone_f0_std_hz"] and pros["f0_turning_points_per_sec"] < thr["monotone_turning_points_per_sec"]:
+    if (pros["f0_std_hz"] < threshold(prof, "monotone_f0_std_hz") and
+            pros["f0_turning_points_per_sec"] < threshold(prof, "monotone_turning_points_per_sec")):
         flags.append("monotone")
 
     # Rushed: fast with almost no pausing
-    if pros["rate_syllable_rate_hz"] > thr["rushed_syllable_rate_hz"] and pros["pauses_pause_speech_ratio"] < thr["rushed_max_pause_ratio"]:
+    if (pros["rate_syllable_rate_hz"] > threshold(prof, "rushed_syllable_rate_hz") and
+            pros["pauses_pause_speech_ratio"] < threshold(prof, "rushed_max_pause_ratio")):
         flags.append("rushed")
 
     # Flat/slurred: little energy variation and little rate variation
-    if pros["energy_envelope_roughness"] < thr["flat_envelope_roughness"] and pros["rate_local_rate_cv"] < thr["flat_rate_cv"]:
+    if (pros["energy_envelope_roughness"] < threshold(prof, "flat_envelope_roughness") and
+            pros["rate_local_rate_cv"] < threshold(prof, "flat_rate_cv")):
         flags.append("flat")
 
     # Pause issue: unnaturally long silence or too much silence
-    if pros["pauses_max_pause_seconds"] > thr["pause_max_seconds"]:
+    if pros["pauses_max_pause_seconds"] > threshold(prof, "pause_max_seconds"):
         flags.append("long_pause")
-    if pros["pauses_pause_speech_ratio"] > thr["pause_ratio_max"]:
+    if pros["pauses_pause_speech_ratio"] > threshold(prof, "pause_ratio_max"):
         flags.append("high_pause_ratio")
 
     summary_metrics = {
@@ -89,16 +76,22 @@ def evaluate(path, thresholds=None):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    as_json = "--json" in sys.argv[1:]
-    out = [evaluate(p) for p in args]
-    if as_json:
-        print(json.dumps(out, indent=2))
-    else:
-        if not out:
-            print("usage: prosody_quality_gate.py <wav> [...] [--json]")
-            return
-        print(json.dumps(out, indent=2))
+    ap = argparse.ArgumentParser(description="Reference-free prosody quality gate.")
+    ap.add_argument("clips", nargs="*", help="WAV file(s) to evaluate")
+    ap.add_argument("--json", action="store_true", help="emit JSON")
+    ap.add_argument("--profile", help="path to a prosody profile JSON (default: built-in)")
+    args = ap.parse_args()
+
+    profile = None
+    if args.profile:
+        profile = load_profile(args.profile)
+
+    if not args.clips:
+        ap.print_help()
+        return
+
+    out = [evaluate(p, profile) for p in args.clips]
+    print(json.dumps(out, indent=2))
 
 
 if __name__ == "__main__":

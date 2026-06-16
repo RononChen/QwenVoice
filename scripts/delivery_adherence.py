@@ -29,11 +29,16 @@ import sys, os, json, argparse, subprocess, tempfile, shutil, statistics
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from analyze_delivery import analyze
 from analyze_prosody import analyze as analyze_prosody
+from prosody_profile import builtin_profile, load_profile, delivery_weight
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_TEXT = ("The morning train slipped quietly out of the station, carrying a handful "
                 "of sleepy travelers toward the coast.")
 DEFAULT_PRESETS = ["happy.strong", "excited.strong", "surprised.strong"]
+
+
+def _weight(profile, section, key):
+    return delivery_weight(profile, section, key)
 
 
 def deliveries_map(vocello):
@@ -56,28 +61,30 @@ def generate(vocello, variant, speaker, text, seed, out_path, instruction=None, 
     return r.returncode == 0 and os.path.exists(out_path)
 
 
-def arousal(inst, neu):
+def arousal(inst, neu, profile=None):
     """Signed arousal delta: +pitch, +rate, +range, -duration. Gain-independent."""
-    return ((inst["f0_median_hz"] - neu["f0_median_hz"]) / 10.0
-            + (inst["syllable_rate_hz"] - neu["syllable_rate_hz"]) / 0.5
-            + (inst["f0_range_hz"] - neu["f0_range_hz"]) / 20.0
-            - (inst["durationSec"] - neu["durationSec"]) / 0.5)
+    prof = profile if profile is not None else builtin_profile()
+    return ((inst["f0_median_hz"] - neu["f0_median_hz"]) / _weight(prof, "arousal", "f0_median_divisor")
+            + (inst["syllable_rate_hz"] - neu["syllable_rate_hz"]) / _weight(prof, "arousal", "syllable_rate_divisor")
+            + (inst["f0_range_hz"] - neu["f0_range_hz"]) / _weight(prof, "arousal", "f0_range_divisor")
+            - (inst["durationSec"] - neu["durationSec"]) / _weight(prof, "arousal", "duration_divisor"))
 
 
-def prosody_effect(p_inst, p_neu):
+def prosody_effect(p_inst, p_neu, profile=None):
     """Signed prosodic expressiveness delta beyond static pitch/rate.
 
     High-arousal deliveries should increase F0 dynamics and rate variability
     while trimming pauses. Gain-independent (energy roughness is normalized).
     """
+    prof = profile if profile is not None else builtin_profile()
     d_f0_std = p_inst["f0_std_hz"] - p_neu["f0_std_hz"]
     d_rate_cv = p_inst["rate_cv"] - p_neu["rate_cv"]
     d_pause_ratio = p_inst["pause_ratio"] - p_neu["pause_ratio"]
     d_roughness = p_inst["energy_roughness"] - p_neu["energy_roughness"]
-    return (d_f0_std / 10.0
-            + d_rate_cv / 0.1
-            - d_pause_ratio / 0.05
-            + d_roughness / 0.05)
+    return (d_f0_std / _weight(prof, "prosody_effect", "f0_std_divisor")
+            + d_rate_cv / _weight(prof, "prosody_effect", "rate_cv_divisor")
+            - d_pause_ratio / _weight(prof, "prosody_effect", "pause_ratio_divisor")
+            + d_roughness / _weight(prof, "prosody_effect", "energy_roughness_divisor"))
 
 
 def med(xs):
@@ -98,7 +105,10 @@ def main():
     ap.add_argument("--workdir", default="", help="WAV scratch dir (default: temp, removed unless --keep)")
     ap.add_argument("--keep", action="store_true", help="keep generated WAVs")
     ap.add_argument("--json", action="store_true", help="emit the summary table as JSON")
+    ap.add_argument("--prosody-profile", default="", help="path to a prosody profile JSON (default: built-in)")
     args = ap.parse_args()
+
+    profile = load_profile(args.prosody_profile) if args.prosody_profile else None
 
     if not os.path.exists(args.vocello):
         sys.exit(f"vocello binary not found at {args.vocello} (build it: ./scripts/build.sh cli)")
@@ -143,12 +153,12 @@ def main():
                         "dRange": round(inst["f0_range_hz"] - neu["f0_range_hz"], 1),
                         "dRate": round(inst["syllable_rate_hz"] - neu["syllable_rate_hz"], 2),
                         "dDur": round(inst["durationSec"] - neu["durationSec"], 2),
-                        "arousal": round(arousal(inst, neu), 2),
+                        "arousal": round(arousal(inst, neu, profile), 2),
                         "dF0Std": round(p_inst["f0_std_hz"] - p_neu["f0_std_hz"], 2),
                         "dRateCV": round(p_inst["rate_cv"] - p_neu["rate_cv"], 3),
                         "dPauseRatio": round(p_inst["pause_ratio"] - p_neu["pause_ratio"], 3),
                         "dRoughness": round(p_inst["energy_roughness"] - p_neu["energy_roughness"], 3),
-                        "prosodyEffect": round(prosody_effect(p_inst, p_neu), 2),
+                        "prosodyEffect": round(prosody_effect(p_inst, p_neu, profile), 2),
                     })
     finally:
         if not args.keep and not args.workdir:

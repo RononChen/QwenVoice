@@ -103,6 +103,76 @@ public struct KVCacheDiagnostics: Hashable, Codable, Sendable {
     }
 }
 
+/// Per-frame Mimi audio-decoder step timings. Each `streamingStep` call
+/// produces one set; the engine aggregates them across a chunk boundary and
+/// forwards them with `ChunkSubstageTimings` so the telemetry ledger can
+/// localize decoder spikes to quantizer / transformer / upsampler / conv.
+public struct MimiDecoderStepTimings: Sendable, Hashable, Codable {
+    public let quantizerMS: Double
+    public let preConvMS: Double
+    public let preTransformerMS: Double
+    public let upsampleMS: Double
+    public let initConvMS: Double
+    public let decoderBlocksMS: Double
+    public let outputSnakeMS: Double
+    public let outputConvMS: Double
+    public let totalMS: Double
+
+    public init(
+        quantizerMS: Double = 0,
+        preConvMS: Double = 0,
+        preTransformerMS: Double = 0,
+        upsampleMS: Double = 0,
+        initConvMS: Double = 0,
+        decoderBlocksMS: Double = 0,
+        outputSnakeMS: Double = 0,
+        outputConvMS: Double = 0,
+        totalMS: Double = 0
+    ) {
+        self.quantizerMS = quantizerMS
+        self.preConvMS = preConvMS
+        self.preTransformerMS = preTransformerMS
+        self.upsampleMS = upsampleMS
+        self.initConvMS = initConvMS
+        self.decoderBlocksMS = decoderBlocksMS
+        self.outputSnakeMS = outputSnakeMS
+        self.outputConvMS = outputConvMS
+        self.totalMS = totalMS
+    }
+
+    /// Add two timing snapshots (useful for aggregating multiple decoder
+    /// steps inside one emitted chunk).
+    public func adding(_ other: MimiDecoderStepTimings) -> MimiDecoderStepTimings {
+        MimiDecoderStepTimings(
+            quantizerMS: quantizerMS + other.quantizerMS,
+            preConvMS: preConvMS + other.preConvMS,
+            preTransformerMS: preTransformerMS + other.preTransformerMS,
+            upsampleMS: upsampleMS + other.upsampleMS,
+            initConvMS: initConvMS + other.initConvMS,
+            decoderBlocksMS: decoderBlocksMS + other.decoderBlocksMS,
+            outputSnakeMS: outputSnakeMS + other.outputSnakeMS,
+            outputConvMS: outputConvMS + other.outputConvMS,
+            totalMS: totalMS + other.totalMS
+        )
+    }
+
+    /// Subtract `other` from this snapshot (useful for computing per-chunk
+    /// deltas from cumulative accumulators).
+    public func subtracting(_ other: MimiDecoderStepTimings) -> MimiDecoderStepTimings {
+        MimiDecoderStepTimings(
+            quantizerMS: quantizerMS - other.quantizerMS,
+            preConvMS: preConvMS - other.preConvMS,
+            preTransformerMS: preTransformerMS - other.preTransformerMS,
+            upsampleMS: upsampleMS - other.upsampleMS,
+            initConvMS: initConvMS - other.initConvMS,
+            decoderBlocksMS: decoderBlocksMS - other.decoderBlocksMS,
+            outputSnakeMS: outputSnakeMS - other.outputSnakeMS,
+            outputConvMS: outputConvMS - other.outputConvMS,
+            totalMS: totalMS - other.totalMS
+        )
+    }
+}
+
 /// Wall-clock breakdown of the inference work that produced ONE audio
 /// chunk during streaming. Emitted by `Qwen3TTS` immediately before
 /// each `.audio(...)` chunk event so consumers can correlate each
@@ -150,6 +220,11 @@ public struct ChunkSubstageTimings: Sendable, Hashable {
     /// effective sequence length, estimated footprint). nil when not
     /// available or when telemetry is gated off.
     public let kvCacheDiagnostics: KVCacheDiagnostics?
+    /// Phase 4 addition: per-frame Mimi decoder step breakdown for this
+    /// chunk (aggregated if the chunk spanned multiple decoder steps).
+    /// nil when the decoder does not support step-level timings or when
+    /// telemetry is gated off.
+    public let mimiDecoderBreakdownMS: MimiDecoderStepTimings?
 
     public init(
         talkerForwardMS: Double,
@@ -160,7 +235,8 @@ public struct ChunkSubstageTimings: Sendable, Hashable {
         streamStepEvalWaitMS: Double = 0,
         streamStepEOSReadMS: Double = 0,
         audioChunkEvalMS: Double = 0,
-        kvCacheDiagnostics: KVCacheDiagnostics? = nil
+        kvCacheDiagnostics: KVCacheDiagnostics? = nil,
+        mimiDecoderBreakdownMS: MimiDecoderStepTimings? = nil
     ) {
         self.talkerForwardMS = talkerForwardMS
         self.codePredictorMS = codePredictorMS
@@ -171,6 +247,7 @@ public struct ChunkSubstageTimings: Sendable, Hashable {
         self.streamStepEOSReadMS = streamStepEOSReadMS
         self.audioChunkEvalMS = audioChunkEvalMS
         self.kvCacheDiagnostics = kvCacheDiagnostics
+        self.mimiDecoderBreakdownMS = mimiDecoderBreakdownMS
     }
 }
 

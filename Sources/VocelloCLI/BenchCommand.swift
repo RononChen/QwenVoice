@@ -117,6 +117,7 @@ enum BenchCommand {
         } else {
             deliveryItems = []
         }
+        let prosodyProfilePath = args.string("prosody-profile")
 
         let dataDir = CLIPaths.dataDirectory(override: args.string("data-dir"))
         if !args.flag("keep") {
@@ -216,7 +217,7 @@ enum BenchCommand {
             // Prosody analysis for --delivery takes: deterministic, reference-free,
             // complements audioQC with tone/cadence deltas vs the paired neutral take.
             if !deliveryItems.isEmpty {
-                runDeliveryProsodyAnalysis(diagnostics: diagDir)
+                runDeliveryProsodyAnalysis(diagnostics: diagDir, profilePath: prosodyProfilePath)
             }
         }
         if args.flag("ledger") {
@@ -320,7 +321,7 @@ enum BenchCommand {
         return CLIRuntime.findUpwards(relativePath: rel, from: cwd)
     }
 
-    private static func runDeliveryProsodyAnalysis(diagnostics: URL) {
+    private static func runDeliveryProsodyAnalysis(diagnostics: URL, profilePath: String?) {
         let rel = "scripts/bench_delivery_prosody.py"
         let cwd = FileManager.default.currentDirectoryPath
         var scriptURL: URL?
@@ -336,7 +337,11 @@ enum BenchCommand {
         note("prosody analysis for delivery cells →")
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        p.arguments = ["python3", scriptURL.path, diagnostics.path]
+        var pargs = ["python3", scriptURL.path, diagnostics.path]
+        if let profilePath, !profilePath.isEmpty {
+            pargs += ["--prosody-profile", profilePath]
+        }
+        p.arguments = pargs
         try? p.run()
         p.waitUntilExit()
     }
@@ -498,6 +503,9 @@ enum BenchCommand {
                          triggers a numpy-only prosody analysis (pitch dynamics,
                          rate variability, pauses, energy roughness) vs the paired
                          neutral take; results appear in the delivery table.
+          --prosody-profile <path>
+                         use a calibrated prosody profile for the delivery analysis
+                         (default: built-in profile)
           --label "<n>"  stamp a note on the summary / ledger row
           --ledger       append a one-line row to benchmarks/HISTORY.md (perf ledger)
           --force-class  run a constrained tier on any Mac: 8gb|16gb|high|iphone

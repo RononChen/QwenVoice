@@ -12,9 +12,10 @@ Usage:
 Output:
     <diagnostics_dir>/bench-prosody.json
 """
-import sys, os, json, re
+import sys, os, json, re, argparse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from analyze_prosody import analyze
+from prosody_profile import builtin_profile, load_profile, delivery_weight
 
 
 def parse_filename(name):
@@ -90,20 +91,26 @@ def find_neutral(parsed, target):
     return candidates[0]
 
 
-def prosody_effect(d):
+def prosody_effect(d, profile=None):
     """Replicate the signed effect score from delivery_adherence.py."""
+    prof = profile if profile is not None else builtin_profile()
     return (
-        d["f0_std_hz"] / 10.0
-        + d["rate_cv"] / 0.1
-        - d["pause_ratio"] / 0.05
-        + d["energy_roughness"] / 0.05
+        d["f0_std_hz"] / delivery_weight(prof, "prosody_effect", "f0_std_divisor")
+        + d["rate_cv"] / delivery_weight(prof, "prosody_effect", "rate_cv_divisor")
+        - d["pause_ratio"] / delivery_weight(prof, "prosody_effect", "pause_ratio_divisor")
+        + d["energy_roughness"] / delivery_weight(prof, "prosody_effect", "energy_roughness_divisor")
     )
 
 
 def main():
-    if len(sys.argv) < 2:
-        sys.exit("usage: bench_delivery_prosody.py <diagnostics_dir>")
-    diag_dir = sys.argv[1]
+    ap = argparse.ArgumentParser(description="Post-process bench delivery WAVs with prosody analysis.")
+    ap.add_argument("diagnostics_dir", help="diagnostics directory (contains outputs/bench)")
+    ap.add_argument("--prosody-profile", default="", help="path to a prosody profile JSON (default: built-in)")
+    args = ap.parse_args()
+
+    profile = load_profile(args.prosody_profile) if args.prosody_profile else None
+
+    diag_dir = args.diagnostics_dir
     bench_dir = os.path.join(os.path.dirname(diag_dir), "outputs", "bench")
     if not os.path.isdir(bench_dir):
         sys.exit(f"bench outputs dir not found: {bench_dir}")
@@ -138,7 +145,7 @@ def main():
             "dPauseRatio": round(p_inst["pause_ratio"] - p_neu["pause_ratio"], 3),
             "dRoughness": round(p_inst["energy_roughness"] - p_neu["energy_roughness"], 3),
             "prosodyEffect": round(prosody_effect({k: p_inst[k] for k in [
-                "f0_std_hz", "rate_cv", "pause_ratio", "energy_roughness"]}), 2),
+                "f0_std_hz", "rate_cv", "pause_ratio", "energy_roughness"]}, profile), 2),
             "deliveryMetrics": p_inst,
             "neutralMetrics": p_neu,
         })

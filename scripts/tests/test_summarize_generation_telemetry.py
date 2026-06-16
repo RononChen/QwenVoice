@@ -401,3 +401,56 @@ def test_aggregate_runs_delivery_cells():
         assert summary["n"] == 2
         assert summary["rtf"] == 1.1
         assert summary["physFootMB"] == 3100
+
+
+def test_mimi_decoder_breakdown_aggregation():
+    """mimiDecoderBreakdownMS per-chunk fields are aggregated into cell medians."""
+    with tempfile.TemporaryDirectory() as tmp:
+        engine_dir = os.path.join(tmp, "engine")
+        os.makedirs(engine_dir)
+        chunk = {
+            "chunkIndex": 0,
+            "arrivalMS": 10,
+            "talkerForwardMS": 5,
+            "codePredictorMS": 10,
+            "streamStepEvalMS": 2,
+            "audioDecoderMS": 8,
+            "streamStepEvalEnqueueMS": 0,
+            "streamStepEvalWaitMS": 0,
+            "streamStepEOSReadMS": 0,
+            "audioChunkEvalMS": 0,
+            "mimiDecoderBreakdownMS": {
+                "quantizerMS": 1,
+                "preConvMS": 1,
+                "preTransformerMS": 2,
+                "upsampleMS": 1,
+                "initConvMS": 0,
+                "decoderBlocksMS": 2,
+                "outputSnakeMS": 0,
+                "outputConvMS": 1,
+                "totalMS": 8,
+            },
+        }
+        with open(os.path.join(engine_dir, "generations.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "generationID": "gen-mimi-001",
+                "mode": "custom",
+                "modelID": "Qwen3-TTS-12Hz-1.7B-4bit",
+                "warmState": "warm",
+                "notes": {"delivery": "", "deviceClass": "mid16GBMac"},
+                "derivedMetrics": {"audioSecondsPerWallSecond": 1.0, "tokensPerSecond": 1000.0},
+                "timingsMS": {"qwen_token_loop_total": 200},
+                "summary": {"physFootprintPeakMB": 3000, "stageMarks": []},
+                "mlxMemoryByStage": {},
+                "chunkTimeline": [chunk],
+                "audioQC": {"verdict": "pass", "flags": []},
+            }) + "\n")
+
+        runs, cells, _ = sgt.aggregate_runs(tmp)
+        run = runs[0]
+        assert run["mimi_quantizerMS"] == 1
+        assert run["mimi_decoderBlocksMS"] == 2
+        key = ("custom", "Qwen3-TTS-12Hz-1.7B-4bit", "warm", "n/a")
+        md = cells[key]["mimiDecoderBreakdownMS"]
+        assert md["quantizerMS"] == 1
+        assert md["totalMS"] == 8

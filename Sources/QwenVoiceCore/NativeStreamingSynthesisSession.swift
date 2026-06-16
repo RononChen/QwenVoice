@@ -545,6 +545,9 @@ struct PCM16StreamLimiter: Sendable {
         // output plus non-finite derived metadata that breaks JSON-encoded
         // IPC payloads downstream.
         var nonFiniteSamples = 0
+        // Absolute sample index (0-based) of the first non-finite input sample.
+        // nil when no non-finite sample was observed. Used for defect localization.
+        var firstNonFiniteSample: Int? = nil
         var minimumAppliedGain: Float = 1
         // Audio-QC accumulators (observational — do not affect limiting).
         // Sum of squared input magnitudes → whole-clip RMS (dead/near-silent
@@ -554,6 +557,9 @@ struct PCM16StreamLimiter: Sendable {
         // report build.
         var sumOfSquares: Double = 0
         var longestInteriorSilentRunSamples = 0
+        // Absolute sample index where the longest interior silent run started.
+        // nil when no interior silent run has closed. Used for dropout localization.
+        var longestInteriorSilentRunStartSample: Int? = nil
         // Lengths (samples) of interior near-silent runs at/above the record
         // floor, in close order. Converted to ms and counted against the text's
         // pause budget at report build (punctuation-aware dropout calibration —
@@ -562,6 +568,9 @@ struct PCM16StreamLimiter: Sendable {
         // is the real tripwire). Bounded; far more entries than the cap means
         // pathological output, already caught by near_silent.
         var interiorSilentRunSamples: [Int] = []
+        // Absolute sample index of the first input sample whose magnitude exceeds
+        // the digital unit range (|x| > 1). nil when no clip was observed.
+        var firstClipSample: Int? = nil
 
         private static func partsPerMillion(_ value: Float) -> Int {
             Int((Double(value) * 1_000_000).rounded())
@@ -598,17 +607,22 @@ struct PCM16StreamLimiter: Sendable {
         var localMetrics = metrics
         var localSawAudio = sawAudio
         var localSilentRun = currentSilentRun
+        var localSilentRunStart: Int? = nil
 
         samples.withUnsafeBufferPointer { buffer in
             guard let base = buffer.baseAddress else { return }
             let count = buffer.count
             for index in 0 ..< count {
+                let absoluteIndex = localMetrics.processedSamples
                 let rawSample = base[index]
                 let sample: Float
                 if rawSample.isFinite {
                     sample = rawSample
                 } else {
                     localMetrics.nonFiniteSamples += 1
+                    if localMetrics.firstNonFiniteSample == nil {
+                        localMetrics.firstNonFiniteSample = absoluteIndex
+                    }
                     sample = 0
                 }
                 let rawMagnitude = abs(sample)
@@ -619,18 +633,25 @@ struct PCM16StreamLimiter: Sendable {
                 // the first audible sample; close a run (recording its length)
                 // when audio resumes, so leading/trailing silence is excluded.
                 if rawMagnitude < Self.silenceFloor {
-                    if localSawAudio { localSilentRun += 1 }
+                    if localSawAudio {
+                        if localSilentRun == 0 {
+                            localSilentRunStart = absoluteIndex
+                        }
+                        localSilentRun += 1
+                    }
                 } else {
                     if localSilentRun > 0 {
-                        localMetrics.longestInteriorSilentRunSamples = max(
-                            localMetrics.longestInteriorSilentRunSamples,
-                            localSilentRun
-                        )
+                        if localSilentRun > localMetrics.longestInteriorSilentRunSamples,
+                           let start = localSilentRunStart {
+                            localMetrics.longestInteriorSilentRunSamples = localSilentRun
+                            localMetrics.longestInteriorSilentRunStartSample = start
+                        }
                         if localSilentRun >= Self.interiorRunRecordFloorSamples,
                            localMetrics.interiorSilentRunSamples.count < Self.interiorRunRecordCap {
                             localMetrics.interiorSilentRunSamples.append(localSilentRun)
                         }
                         localSilentRun = 0
+                        localSilentRunStart = nil
                     }
                     localSawAudio = true
                 }
@@ -639,6 +660,9 @@ struct PCM16StreamLimiter: Sendable {
                 }
                 if rawMagnitude > 1 {
                     localMetrics.samplesOutsideUnitRange += 1
+                    if localMetrics.firstClipSample == nil {
+                        localMetrics.firstClipSample = absoluteIndex
+                    }
                 }
 
                 let targetGain = rawMagnitude > Self.ceiling
@@ -1150,7 +1174,9 @@ private struct StreamingExecutionContext: Sendable {
         // Per-chunk decode timeline + final stats. Only populated when telemetry is
         // on (recorder non-nil), so there is zero per-chunk cost when gated off.
         let telemetryActive = telemetryRecorder != nil
+        let chunkQCActive = telemetryMode == .verbose
         var chunkTimeline: [GenerationChunkTelemetry] = []
+        var chunkQCReports: [AudioQCChunkReport] = []
         var pendingChunkTimings: ChunkSubstageTimings?
         var latestInfo: AudioGenerationInfo?
         await telemetrySampler?.start()
@@ -1227,6 +1253,17 @@ private struct StreamingExecutionContext: Sendable {
                 case .audio(let samples):
                     let chunkSamples = samples.asArray(Float.self)
                     guard !chunkSamples.isEmpty else { continue }
+
+                    if chunkQCActive {
+                        chunkQCReports.append(
+                            Self.makeAudioQCChunkReport(
+                                chunkIndex: chunkIndex,
+                                frameOffset: Int(totalFramesWritten),
+                                samples: chunkSamples,
+                                sampleRate: sampleRate
+                            )
+                        )
+                    }
 
                     if chunkIndex == 0 {
                         NativeStreamingSignposts.signposter.emitEvent("Native First Audio Chunk")
@@ -1408,7 +1445,8 @@ private struct StreamingExecutionContext: Sendable {
                 metrics: scratchBuffer.limiterMetrics,
                 sampleRate: sampleRate,
                 durationSeconds: durationSeconds,
-                expectedPauseCount: Self.expectedPauseCount(in: request.text)
+                expectedPauseCount: Self.expectedPauseCount(in: request.text),
+                chunkQC: chunkQCActive && !chunkQCReports.isEmpty ? chunkQCReports : nil
             ),
             rawSamples: telemetryMode.persistsRawSamples ? rawSamples : nil
         )
@@ -1569,7 +1607,8 @@ private struct StreamingExecutionContext: Sendable {
         metrics: PCM16StreamLimiter.Metrics,
         sampleRate: Int,
         durationSeconds: Double,
-        expectedPauseCount: Int
+        expectedPauseCount: Int,
+        chunkQC: [AudioQCChunkReport]? = nil
     ) -> AudioQCReport {
         let n = metrics.processedSamples
         let rms = n > 0 ? (metrics.sumOfSquares / Double(n)).squareRoot() : 0
@@ -1577,6 +1616,10 @@ private struct StreamingExecutionContext: Sendable {
         let longestSilenceMS = sampleRate > 0
             ? Int(Double(metrics.longestInteriorSilentRunSamples) * 1000 / Double(sampleRate))
             : 0
+        let longestSilenceStartMS: Int? = {
+            guard let startSample = metrics.longestInteriorSilentRunStartSample, sampleRate > 0 else { return nil }
+            return Int(Double(startSample) * 1000 / Double(sampleRate))
+        }()
         // Every interior silence run (≥ record floor), in ms — for the
         // punctuation-aware dropout check below.
         let interiorSilencesMS: [Int] = sampleRate > 0
@@ -1647,7 +1690,54 @@ private struct StreamingExecutionContext: Sendable {
             nonFiniteSamples: metrics.nonFiniteSamples,
             clickEvents: clicks,
             longestSilenceMS: longestSilenceMS,
-            durationSeconds: durationSeconds
+            durationSeconds: durationSeconds,
+            firstNonFiniteSample: metrics.firstNonFiniteSample,
+            firstClipSample: metrics.firstClipSample,
+            longestSilenceStartMS: longestSilenceStartMS,
+            chunkQC: chunkQC
+        )
+    }
+
+    /// Build a per-chunk audio-QC snapshot from raw float samples. Uses a private
+    /// limiter instance so the global session limiter's state is untouched. Sample
+    /// indices in the report are absolute from the start of the generation.
+    private static func makeAudioQCChunkReport(
+        chunkIndex: Int,
+        frameOffset: Int,
+        samples: [Float],
+        sampleRate: Int
+    ) -> AudioQCChunkReport {
+        var limiter = PCM16StreamLimiter()
+        var destination: [Int16] = []
+        limiter.append(samples, into: &destination)
+        let metrics = limiter.metrics
+        let durationSeconds = sampleRate > 0 ? Double(samples.count) / Double(sampleRate) : 0
+        let report = Self.makeAudioQCReport(
+            metrics: metrics,
+            sampleRate: sampleRate,
+            durationSeconds: durationSeconds,
+            expectedPauseCount: 0
+        )
+        let frameOffsetMS = sampleRate > 0
+            ? Int(Double(frameOffset) * 1000 / Double(sampleRate))
+            : 0
+        return AudioQCChunkReport(
+            chunkIndex: chunkIndex,
+            frameOffset: frameOffset,
+            frameCount: samples.count,
+            verdict: report.verdict,
+            flags: report.flags,
+            rmsDBFS: report.rmsDBFS,
+            peak: report.peak,
+            clippedSamples: report.clippedSamples,
+            hotSamples: report.hotSamples,
+            nonFiniteSamples: report.nonFiniteSamples,
+            clickEvents: report.clickEvents,
+            longestSilenceMS: report.longestSilenceMS,
+            durationSeconds: durationSeconds,
+            firstNonFiniteSample: report.firstNonFiniteSample.map { $0 + frameOffset },
+            firstClipSample: report.firstClipSample.map { $0 + frameOffset },
+            longestSilenceStartMS: report.longestSilenceStartMS.map { $0 + frameOffsetMS }
         )
     }
 
@@ -1698,7 +1788,8 @@ private struct StreamingExecutionContext: Sendable {
             streamStepEvalWaitMS: timings.streamStepEvalWaitMS,
             streamStepEOSReadMS: timings.streamStepEOSReadMS,
             audioChunkEvalMS: timings.audioChunkEvalMS,
-            kvCacheDiagnostics: timings.kvCacheDiagnostics
+            kvCacheDiagnostics: timings.kvCacheDiagnostics,
+            mimiDecoderBreakdownMS: timings.mimiDecoderBreakdownMS
         )
     }
 

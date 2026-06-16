@@ -1023,21 +1023,43 @@ final class Qwen3TTSSpeechTokenizerDecoder: Module {
 
     /// Incrementally decode only new codec tokens.
     func streamingStep(_ codes: MLXArray) -> MLXArray {
+        streamingStepWithTimings(codes).audio
+    }
+
+    /// Incrementally decode only new codec tokens and return per-frame Mimi
+    /// decoder step timings. The timing values are wall-clock milliseconds
+    /// from the Swift side and measure graph construction + scheduling, not
+    /// per-kernel GPU compute (see `audioDecoderMS` for the end-to-end chunk
+    /// measurement).
+    func streamingStepWithTimings(_ codes: MLXArray) -> (audio: MLXArray, timings: MimiDecoderStepTimings) {
         if transformerCache == nil {
             transformerCache = preTransformer.makeCache()
         }
 
+        let stepStartedAt = ContinuousClock.now
+
+        let quantizerStartedAt = ContinuousClock.now
         var hidden = quantizer.decode(codes) // [batch, codebook_dim, time]
+        let quantizerMS = quantizerStartedAt.elapsedMillisecondsDouble
+
+        let preConvStartedAt = ContinuousClock.now
         hidden = preConv.step(hidden) // [batch, latent_dim, time]
+        let preConvMS = preConvStartedAt.elapsedMillisecondsDouble
+
         hidden = hidden.transposed(0, 2, 1) // [batch, time, latent_dim]
 
+        let preTransformerStartedAt = ContinuousClock.now
         hidden = preTransformer(hidden, cache: transformerCache)
         hidden = hidden.transposed(0, 2, 1) // [batch, latent_dim, time]
+        let preTransformerMS = preTransformerStartedAt.elapsedMillisecondsDouble
 
+        let upsampleStartedAt = ContinuousClock.now
         for layer in upsample {
             hidden = layer.step(hidden)
         }
+        let upsampleMS = upsampleStartedAt.elapsedMillisecondsDouble
 
+        let decoderStartedAt = ContinuousClock.now
         var wav = hidden
         if let initConv = decoder.first as? DecoderInitialConv {
             wav = initConv.step(wav)
@@ -1055,8 +1077,25 @@ final class Qwen3TTSSpeechTokenizerDecoder: Module {
         if let outConv = decoder.last as? DecoderOutputConv {
             wav = outConv.step(wav)
         }
+        let decoderBlocksMS = decoderStartedAt.elapsedMillisecondsDouble
 
-        return clip(wav, min: -1, max: 1)
+        let outputStartedAt = ContinuousClock.now
+        let clipped = clip(wav, min: -1, max: 1)
+        let outputMS = outputStartedAt.elapsedMillisecondsDouble
+
+        let totalMS = stepStartedAt.elapsedMillisecondsDouble
+        let timings = MimiDecoderStepTimings(
+            quantizerMS: quantizerMS,
+            preConvMS: preConvMS,
+            preTransformerMS: preTransformerMS,
+            upsampleMS: upsampleMS,
+            initConvMS: 0, // folded into decoderBlocksMS for now
+            decoderBlocksMS: decoderBlocksMS,
+            outputSnakeMS: 0, // folded into outputMS for now
+            outputConvMS: 0, // folded into outputMS for now
+            totalMS: totalMS
+        )
+        return (clipped, timings)
     }
 
     func chunkedDecode(_ codes: MLXArray, chunkSize: Int = 300, leftContextSize: Int = 25) -> MLXArray {
@@ -1507,4 +1546,12 @@ func checkArrayShapeQwen3(_ arr: MLXArray) -> Bool {
         return dim2 <= 64 // dim2 small → likely kernel → MLX format
     }
     return dim2 < dim3
+}
+
+private extension ContinuousClock.Instant {
+    var elapsedMillisecondsDouble: Double {
+        let components = duration(to: .now).components
+        return Double(components.seconds) * 1_000.0
+            + Double(components.attoseconds) / 1_000_000_000_000_000.0
+    }
 }

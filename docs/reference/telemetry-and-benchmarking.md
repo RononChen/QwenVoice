@@ -141,12 +141,13 @@ file) is front‑trimmed past ~8 MB (`QWENVOICE_DIAGNOSTICS_MAX_MB` scales it), 
 
 ## 5. The per‑generation record schema
 
-`GenerationTelemetryRecord` (schema v4). Optional fields are omitted from JSON when nil,
+`GenerationTelemetryRecord` (schema v5). Optional fields are omitted from JSON when nil,
 so older rows still decode.
 
 | Field | Type | Notes |
 |---|---|---|
-| `schemaVersion` | Int | 4 (v2 added derived/memory/chunk metrics; v3 `modelID`/`warmState`; v4 `audioQC`). |
+| `schemaVersion` | Int | 5 (v2 derived/memory/chunk; v3 `modelID`/`warmState`; v4 `audioQC`; v5 high‑resolution `mach_absolute_time` clock + defect localization + typed stage‑mark metadata). |
+| `clockSource` | String? | `mach_absolute_time` when nanosecond timestamps are present. |
 | `generationID` | String | Correlation key (UUID). |
 | `layer` | String | `engine` / `engine-service` / `app` / `merged`. (The retired iOS `engine-extension` layer no longer emits — iOS runs in-process.) |
 | `mode` | String? | `custom` / `design` / `clone`. |
@@ -154,13 +155,13 @@ so older rows still decode.
 | `warmState` | String? | `cold` / `warm` — the benchmark cell. |
 | `usedStreaming` | Bool? | Streaming vs quality‑first. |
 | `finishReason` | String? | `eos` / `maxTokens` / `failed` / `superseded`. |
-| `stageMarks` | `[{tMS, stage, metadata}]` | Lifecycle timeline (see §6). |
+| `stageMarks` | `[{tMS, tNS?, sequence?, stage, metadata}]` | Lifecycle timeline with optional nanosecond timestamps and monotonic sequence numbers (see §6). |
 | `timingsMS` | `[String: Int]` | **Engine layer: the full MLX decode breakdown + counters** (see §6). |
 | `counters` | `[String: Int]` | e.g. `chunkCount`; middle layer: `chunksForwarded`, `chunkGaps`; **app layer: `uiStallCount50`/`uiStallCount250`/`uiMaxStallMS`/`uiHeartbeats`** — the UI‑responsiveness KPI from `MainThreadStallWatchdog` (100 ms main‑thread heartbeat during generations; the summarizer surfaces it as the `UIstall` column, `—` for CLI runs which have no UI process). |
 | `derivedMetrics` | `[String: Double]?` | Headline KPIs (see §7). |
 | `mlxMemoryByStage` | `[String: {activeMB, cacheMB, peakMB}]?` | MLX GPU memory at each stage (see §8). |
-| `chunkTimeline` | `[GenerationChunkTelemetry]?` | Per‑chunk decode substages (see §6.3). |
-| `audioQC` | `AudioQCReport?` | Reference‑free quality verdict + flags (see "Guarding output quality"). |
+| `chunkTimeline` | `[GenerationChunkTelemetry]?` | Per‑chunk decode substages, with `arrivalNS` (v5) and optional `mimiDecoderBreakdownMS` (v5) (see §6.3). |
+| `audioQC` | `AudioQCReport?` | Reference‑free quality verdict + flags, plus defect sample offsets and optional per‑chunk QC (`chunkQC`) in verbose mode (see "Guarding output quality"). |
 | `summary` | `TelemetrySummary?` | Process memory curve summary (see §8). |
 | `notes` | `[String: String]` | Freeform (e.g. error messages, `deviceClass`, `promptChars`). |
 | `recordedAt` / `processName` / `processIdentifier` | | Provenance. |
@@ -169,11 +170,30 @@ so older rows still decode.
 
 ## 6. Backend (MLX) timing — the optimization data
 
+### 6.0 os_signpost interval mirrors (`timingsMS`)
+
+In addition to the MLX decode counters, v5 records the client/server boundary
+intervals captured by `NativeTelemetrySignpostInterval` so a JSONL row can be read
+back into Instruments‑style spans without the trace file:
+
+| Key | Meaning |
+|---|---|
+| `clientWaitMS` | Time from user submit to the engine accepting the request. |
+| `requestMS` | Engine total request wall time. |
+| `serverGenerationMS` | Core model generation (token loop + decode). |
+| `outputStreamingMS` | From first output byte to stream complete. |
+| `totalMS` | End‑to‑end request span. |
+
+These are optional and only emitted when the corresponding signpost interval was logged.
+
 ### 6.1 Stage timeline (`stageMarks`)
 
 Coarse milestones for one generation, in ms from generation start (the recorder and the
-memory sampler **share one start clock**, so marks and samples align). Stages
-(`NativeRuntimeStage`): `preparedCacheValidation`, `tokenizerPreparation`,
+memory sampler **share one high‑resolution `NativeTelemetryClock`**, so marks and samples
+align on both ms and ns timelines). Each mark carries `tMS`, optional `tNS`
+(nanoseconds since start), and a monotonic `sequence` number. `metadata` values are
+typed (`string`/`int`/`double`/`bool`) in v5, while remaining JSON‑serializable.
+Stages (`NativeRuntimeStage`): `preparedCacheValidation`, `tokenizerPreparation`,
 `upstreamModelLoad`, `prewarm`, `clonePreparation`, `streamStartup`, `firstChunk`,
 `streamCompleted` / `streamFailed`, `unload`. Load/prewarm marks appear only on a **cold**
 run (warm runs skip that work — that's correct, not missing data). Two additional
@@ -207,11 +227,14 @@ and how much loop time is `unattributed` (candidate for new sub‑probes).
 ### 6.3 Per‑chunk timeline (`chunkTimeline`, streaming only)
 
 One entry per emitted audio chunk — the decode substage deltas that produced it, plus its
-wall‑clock arrival (ms since start). Mirrors the vendored `ChunkSubstageTimings`:
+wall‑clock arrival. Mirrors the vendored `ChunkSubstageTimings`:
 `talkerForwardMS`, `codePredictorMS`, `audioDecoderMS`, `streamStepEvalMS`,
-`streamStepEOSReadMS`, `audioChunkEvalMS`, plus `chunkIndex`, `arrivalMS`. This exposes
-**cold‑start vs steady‑state** behavior and localizes stalls to a substage and a chunk.
-Captured cheaply (a small struct appended per chunk, only when telemetry is on) and
+`streamStepEOSReadMS`, `audioChunkEvalMS`, plus `chunkIndex`, `arrivalMS`, and in v5
+`arrivalNS` (nanosecond resolution from `NativeTelemetryClock`). In v5 verbose mode,
+`mimiDecoderBreakdownMS` further splits the chunk decode into `quantizer`, `transformer`,
+`upsample`, `seanet`, and `output` (coarse stage clocks around the Mimi decoder). This
+exposes **cold‑start vs steady‑state** behavior and localizes stalls to a substage and a
+chunk. Captured cheaply (a small struct appended per chunk, only when telemetry is on) and
 written once at generation end.
 
 ---
@@ -401,7 +424,9 @@ benchmark *without* the debug‑folder isolation, run the real app with telemetr
 python3 scripts/summarize_generation_telemetry.py
 ```
 
-Prints a `mode × model × cold/warm` table (median over warm): RTF, tokens/s, TTFC, decode‑loop ms,
+The summarizer is streaming (it walks JSONL once with `iter_jsonl`, maintains a lightweight
+app index, and aggregates with `CellAccumulator`) so it handles large verbose logs without
+loading them into memory. Prints a `mode × model × cold/warm` table (median over warm): RTF, tokens/s, TTFC, decode‑loop ms,
 peak GPU / RSS MB, **`physFoot`** (phys_footprint peak — the Jetsam‑relevant OOM figure),
 **`headMin`** (min available headroom; iOS‑only, `-` on macOS), and **`trims`** (median
 `memory_trim` count for the cell, annotated with the worst level — `soft`/`hard`/`full`; derived
@@ -519,11 +544,18 @@ dropouts, garbled words, "sounds worse"). Two layers, increasing in what they ca
    reaches (≥1200 ms = fail `dropout:Nms`; ≥900 ms = warn). A genuine mid-phrase gap that merely *replaces*
    a punctuation pause (same count, ~same length) is positionally indistinguishable from a comma pause by
    amplitude alone — that residual is **ear-only**, so the listening pass below stays its gate.
+   In v5 `audioQC` also reports **defect sample offsets** for debugging: `firstNonFiniteSample`,
+   `firstClipSample`, and `longestSilenceStartMS`. In verbose mode the streaming path captures
+   `chunkQC: [AudioQCChunkReport]` so defects can be tied to an individual output chunk.
 2. **Automated prosody gate — every run, no external model.** `scripts/prosody_quality_gate.py`
    analyzes each take for monotone, rushed, flat, and pause-issue signatures; `scripts/delivery_adherence.py`
    measures paired neutral-vs-instructed deltas for delivery cells. These are deterministic, reference-free,
    and run on the bench WAVs directly. With `vocello bench --delivery`, the summarizer also surfaces
    `prosEff` / `dF0Std` / `dRateCV` / `dPauseR` / `dRough` in the delivery table.
+   A JSON **prosody profile** (`scripts/prosody_profile.py`) supplies thresholds and delivery-effect
+   weights; calibrate one from a labeled corpus with `scripts/prosody_calibration.py`, then pass it to
+   `vocello bench --delivery --prosody-profile path/to/profile.json`. The built-in profile is used when
+   none is supplied.
 3. **Listening pass — mandatory before merging a backend change.** No automated check judges subtle
    perceptual quality (timbre, prosody, naturalness). Play each take and listen for hiccups/artifacts;
    record the verdict in the snapshot / `HISTORY.md` note. The objective `audioQC` + prosody gates are
@@ -546,7 +578,11 @@ default; committed quality-check scripts/baselines under `benchmarks/` are also 
 - **New stage mark:** add a `NativeRuntimeStage` case and `recorder.mark(stage:)` at the site
   (or a string‑keyed `recorder.mark(stage: "…")` for one‑off events like `memory_pressure` /
   `memory_trim` — no enum/schema change, the mark flows through `stageMarks` automatically).
+  In v5 prefer typed metadata (`recorder.mark(stage:, metadata:)`) over string formatting for
+  numeric metadata.
 - **New derived KPI:** extend `computeDerivedMetrics` in `NativeStreamingSynthesisSession`.
+- **New signpost interval:** wrap the span with `NativeTelemetrySignpostInterval.begin/end`
+  and merge the resulting key into `timingsMS`.
 - **New field on the record:** add an optional field to `GenerationTelemetryRecord` (so old
   rows still decode) and bump `currentSchemaVersion`.
 - **Naming:** do **not** introduce symbols containing `Probe`/`Benchmark` or the other tokens

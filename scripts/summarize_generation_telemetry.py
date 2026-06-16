@@ -234,6 +234,7 @@ def _engine_run(e, app_lookup):
         "firstChunkArrivalMS": None,
         "medianInterChunkMS": None,
         **{f"chunk_{key}": None for key in _CHUNK_SUBSTAGE_KEYS},
+        **{f"mimi_{key}": None for key in _MIMI_DECODER_KEYS},
         # Reference-free audio-quality verdict (engine).
         "qcVerdict": qc.get("verdict"),
         "qcFlags": qc.get("flags") or [],
@@ -248,6 +249,13 @@ def _engine_run(e, app_lookup):
         )
         for key in _CHUNK_SUBSTAGE_KEYS:
             run[f"chunk_{key}"] = med(c[key] for c in chunks if key in c)
+        for key in _MIMI_DECODER_KEYS:
+            values = [
+                c.get("mimiDecoderBreakdownMS", {}).get(key)
+                for c in chunks
+                if c.get("mimiDecoderBreakdownMS")
+            ]
+            run[f"mimi_{key}"] = med(values) if values else None
     return run
 
 
@@ -281,6 +289,7 @@ class CellAccumulator:
     first_chunk_arrivals: list = field(default_factory=list)
     median_inter_chunks: list = field(default_factory=list)
     chunk_substage_values: dict = field(default_factory=lambda: defaultdict(list))
+    mimi_decoder_values: dict = field(default_factory=lambda: defaultdict(list))
     gpu_by_stage: dict = field(default_factory=lambda: defaultdict(list))
     decode_stages: dict = field(default_factory=lambda: defaultdict(list))
 
@@ -320,6 +329,10 @@ class CellAccumulator:
             v = run.get(f"chunk_{key}")
             if v is not None:
                 self.chunk_substage_values[key].append(v)
+        for key in _MIMI_DECODER_KEYS:
+            v = run.get(f"mimi_{key}")
+            if v is not None:
+                self.mimi_decoder_values[key].append(v)
         for label, values in (run.get("gpuByStage") or {}).items():
             if values is not None:
                 self.gpu_by_stage[label].append(values)
@@ -378,6 +391,9 @@ class CellAccumulator:
             "medianInterChunkMS": med(self.median_inter_chunks),
             "chunkSubstageMS": {
                 key: med(values) for key, values in self.chunk_substage_values.items()
+            },
+            "mimiDecoderBreakdownMS": {
+                key: med(values) for key, values in self.mimi_decoder_values.items()
             },
             "gpuByStage": {
                 label: med(values) for label, values in self.gpu_by_stage.items()
@@ -493,6 +509,20 @@ _CHUNK_SUBSTAGE_KEYS = [
     "codePredictorMS",
     "streamStepEvalMS",
     "audioDecoderMS",
+]
+
+# Phase 4 per-frame Mimi decoder step-breakdown keys written into
+# chunkTimeline[].mimiDecoderBreakdownMS.
+_MIMI_DECODER_KEYS = [
+    "quantizerMS",
+    "preConvMS",
+    "preTransformerMS",
+    "upsampleMS",
+    "initConvMS",
+    "decoderBlocksMS",
+    "outputSnakeMS",
+    "outputConvMS",
+    "totalMS",
 ]
 
 
@@ -1027,6 +1057,37 @@ def main():
                 f"{fmt(cs.get('codePredictorMS'), 0):>8} "
                 f"{fmt(cs.get('streamStepEvalMS'), 0):>8} "
                 f"{fmt(cs.get('audioDecoderMS'), 0):>12}"
+            )
+
+    # Per-frame Mimi decoder step breakdown (cells that emitted step timings).
+    mimi_cells = {
+        k: s for k, s in cells.items()
+        if (s.get("mimiDecoderBreakdownMS") or {})
+    }
+    if mimi_cells:
+        mimi_header = (
+            f"{'mode':<8} {'model':<26} {'state':<5} {'len':<6} "
+            f"{'quant':>6} {'preC':>5} {'preT':>5} {'upsm':>5} "
+            f"{'initC':>5} {'blocks':>6} {'snake':>6} {'outC':>5} {'total':>6}"
+        )
+        print("\nMimi decoder breakdown per frame (ms; median over cell)\n")
+        print(mimi_header)
+        print("-" * len(mimi_header))
+        for key in sorted(mimi_cells.keys(), key=cell_sort):
+            mode, model_id, state, lb = key
+            summary = mimi_cells[key]
+            md = summary.get("mimiDecoderBreakdownMS") or {}
+            print(
+                f"{mode:<8} {short_model(model_id):<26} {state:<5} {lb:<6} "
+                f"{fmt(md.get('quantizerMS'), 0):>6} "
+                f"{fmt(md.get('preConvMS'), 0):>5} "
+                f"{fmt(md.get('preTransformerMS'), 0):>5} "
+                f"{fmt(md.get('upsampleMS'), 0):>5} "
+                f"{fmt(md.get('initConvMS'), 0):>5} "
+                f"{fmt(md.get('decoderBlocksMS'), 0):>6} "
+                f"{fmt(md.get('outputSnakeMS'), 0):>6} "
+                f"{fmt(md.get('outputConvMS'), 0):>5} "
+                f"{fmt(md.get('totalMS'), 0):>6}"
             )
 
     print(

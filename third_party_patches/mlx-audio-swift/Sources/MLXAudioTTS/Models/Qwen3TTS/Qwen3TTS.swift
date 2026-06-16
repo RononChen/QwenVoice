@@ -2523,6 +2523,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         var codecEmbeddingAssemblyTotalMS = 0
         var streamingDecoderTotalMS = 0
         var streamingDecoderCallCount = 0
+        var mimiDecoderBreakdownTotal = MimiDecoderStepTimings()
         // Snapshot of the cumulative `*TotalMS` accumulators at the
         // moment of the previous chunk's emit, so the per-chunk
         // sub-stage delta passed to `onAudioChunkTimings` reflects ONLY
@@ -2531,6 +2532,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         var lastChunkTalkerForwardMS = 0
         var lastChunkCodePredictorMS = 0
         var lastChunkStreamingDecoderMS = 0
+        var lastChunkMimiDecoderBreakdown = MimiDecoderStepTimings()
         // Mode-agnostic accumulators for the three Phase 2a sub-stages
         // — eval cadence, EOS read, and audio-chunk eval. Existing
         // mode-specific `design*` / `custom*` / `clone*` totals (above);
@@ -2898,10 +2900,12 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     }
                     let streamDecoderStartedAt = ContinuousClock.now
                     let decoderSignpost = Qwen3Signposts.signposter.beginInterval("Audio Decoder")
-                    let decoded = speechTokenizer.decoder.streamingStep(codesForDecoder).squeezed(axis: 1)
+                    let decodedWithTimings = speechTokenizer.decoder.streamingStepWithTimings(codesForDecoder)
+                    let decoded = decodedWithTimings.audio.squeezed(axis: 1)
                     Qwen3Signposts.signposter.endInterval("Audio Decoder", decoderSignpost)
                     streamingDecoderTotalMS += streamDecoderStartedAt.elapsedMilliseconds
                     streamingDecoderCallCount += 1
+                    mimiDecoderBreakdownTotal = mimiDecoderBreakdownTotal.adding(decodedWithTimings.timings)
                     let audioChunk = decoded[0]
                     let audioChunkEvalStartedAt = ContinuousClock.now
                     let audioChunkEvalSignpost = Qwen3Signposts.signposter.beginInterval("Audio Chunk Eval")
@@ -2937,6 +2941,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     pendingStreamCodes.removeAll(keepingCapacity: true)
                     if let onAudioChunkTimings {
                         let kvDiagnostics = makeChunkKVCacheDiagnostics()
+                        let chunkMimiBreakdown = mimiDecoderBreakdownTotal.subtracting(lastChunkMimiDecoderBreakdown)
                         let timings = ChunkSubstageTimings(
                             talkerForwardMS: Double(talkerForwardTotalMS - lastChunkTalkerForwardMS),
                             codePredictorMS: Double(codePredictorTotalMS - lastChunkCodePredictorMS),
@@ -2946,7 +2951,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                             streamStepEvalWaitMS: Double(streamStepEvalWaitTotalMS - lastChunkStreamStepEvalWaitMS),
                             streamStepEOSReadMS: Double(streamStepEOSReadTotalMS - lastChunkStreamStepEOSReadMS),
                             audioChunkEvalMS: Double(audioChunkEvalTotalMS - lastChunkAudioChunkEvalMS),
-                            kvCacheDiagnostics: kvDiagnostics
+                            kvCacheDiagnostics: kvDiagnostics,
+                            mimiDecoderBreakdownMS: chunkMimiBreakdown
                         )
                         lastChunkTalkerForwardMS = talkerForwardTotalMS
                         lastChunkCodePredictorMS = codePredictorTotalMS
@@ -2956,6 +2962,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                         lastChunkStreamStepEvalWaitMS = streamStepEvalWaitTotalMS
                         lastChunkStreamStepEOSReadMS = streamStepEOSReadTotalMS
                         lastChunkAudioChunkEvalMS = audioChunkEvalTotalMS
+                        lastChunkMimiDecoderBreakdown = mimiDecoderBreakdownTotal
                         onAudioChunkTimings(timings)
                     }
                     try Task.checkCancellation()
@@ -3032,9 +3039,11 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 let codesChunk = stacked(pendingStreamCodes, axis: 1)
                 let codesForDecoder = codesChunk.transposed(0, 2, 1)
                 let streamDecoderStartedAt = ContinuousClock.now
-                let decoded = speechTokenizer.decoder.streamingStep(codesForDecoder).squeezed(axis: 1)
+                let decodedWithTimings = speechTokenizer.decoder.streamingStepWithTimings(codesForDecoder)
+                let decoded = decodedWithTimings.audio.squeezed(axis: 1)
                 streamingDecoderTotalMS += streamDecoderStartedAt.elapsedMilliseconds
                 streamingDecoderCallCount += 1
+                mimiDecoderBreakdownTotal = mimiDecoderBreakdownTotal.adding(decodedWithTimings.timings)
                 let audioChunk = decoded[0]
                 if isPureVoiceDesign, designGenerationStepsBeforeFirstChunk == nil {
                     designGenerationStepsBeforeFirstChunk = generatedCodeCount
@@ -3083,6 +3092,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 }
                 if let onAudioChunkTimings {
                     let kvDiagnostics = makeChunkKVCacheDiagnostics()
+                    let chunkMimiBreakdown = mimiDecoderBreakdownTotal.subtracting(lastChunkMimiDecoderBreakdown)
                     let timings = ChunkSubstageTimings(
                         talkerForwardMS: Double(talkerForwardTotalMS - lastChunkTalkerForwardMS),
                         codePredictorMS: Double(codePredictorTotalMS - lastChunkCodePredictorMS),
@@ -3092,7 +3102,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                         streamStepEvalWaitMS: Double(streamStepEvalWaitTotalMS - lastChunkStreamStepEvalWaitMS),
                         streamStepEOSReadMS: Double(streamStepEOSReadTotalMS - lastChunkStreamStepEOSReadMS),
                         audioChunkEvalMS: Double(audioChunkEvalTotalMS - lastChunkAudioChunkEvalMS),
-                        kvCacheDiagnostics: kvDiagnostics
+                        kvCacheDiagnostics: kvDiagnostics,
+                        mimiDecoderBreakdownMS: chunkMimiBreakdown
                     )
                     lastChunkTalkerForwardMS = talkerForwardTotalMS
                     lastChunkCodePredictorMS = codePredictorTotalMS
@@ -3102,6 +3113,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     lastChunkStreamStepEvalWaitMS = streamStepEvalWaitTotalMS
                     lastChunkStreamStepEOSReadMS = streamStepEOSReadTotalMS
                     lastChunkAudioChunkEvalMS = audioChunkEvalTotalMS
+                    lastChunkMimiDecoderBreakdown = mimiDecoderBreakdownTotal
                     onAudioChunkTimings(timings)
                 }
                 try Task.checkCancellation()

@@ -150,7 +150,17 @@ public struct AudioQCReport: Hashable, Codable, Sendable {
     public let clickEvents: Int
     /// Longest interior near-silent run (mid-utterance dropout), in milliseconds.
     public let longestSilenceMS: Int
+    /// Absolute sample index of the first non-finite sample, or nil if none.
+    public let firstNonFiniteSample: Int?
+    /// Absolute sample index of the first sample outside the digital unit range,
+    /// or nil if none.
+    public let firstClipSample: Int?
+    /// Start time of the longest interior near-silent run, in milliseconds since
+    /// the start of the clip, or nil if none.
+    public let longestSilenceStartMS: Int?
     public let durationSeconds: Double
+    /// Optional per-chunk QC snapshots (verbose mode only). nil when not computed.
+    public let chunkQC: [AudioQCChunkReport]?
 
     public init(
         verdict: Verdict,
@@ -162,7 +172,11 @@ public struct AudioQCReport: Hashable, Codable, Sendable {
         nonFiniteSamples: Int,
         clickEvents: Int,
         longestSilenceMS: Int,
-        durationSeconds: Double
+        durationSeconds: Double,
+        firstNonFiniteSample: Int? = nil,
+        firstClipSample: Int? = nil,
+        longestSilenceStartMS: Int? = nil,
+        chunkQC: [AudioQCChunkReport]? = nil
     ) {
         self.verdict = verdict
         self.flags = flags
@@ -174,6 +188,89 @@ public struct AudioQCReport: Hashable, Codable, Sendable {
         self.clickEvents = clickEvents
         self.longestSilenceMS = longestSilenceMS
         self.durationSeconds = durationSeconds
+        self.firstNonFiniteSample = firstNonFiniteSample
+        self.firstClipSample = firstClipSample
+        self.longestSilenceStartMS = longestSilenceStartMS
+        self.chunkQC = chunkQC
+    }
+
+    /// Backward-compatible decoding: older JSONL rows written before Phase 4
+    /// lack the localization fields and per-chunk QC. Defaults keep them decodeable.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.verdict = try container.decode(Verdict.self, forKey: .verdict)
+        self.flags = try container.decode([String].self, forKey: .flags)
+        self.rmsDBFS = try container.decodeIfPresent(Double.self, forKey: .rmsDBFS)
+        self.peak = try container.decode(Double.self, forKey: .peak)
+        self.clippedSamples = try container.decode(Int.self, forKey: .clippedSamples)
+        self.hotSamples = try container.decode(Int.self, forKey: .hotSamples)
+        self.nonFiniteSamples = try container.decode(Int.self, forKey: .nonFiniteSamples)
+        self.clickEvents = try container.decode(Int.self, forKey: .clickEvents)
+        self.longestSilenceMS = try container.decode(Int.self, forKey: .longestSilenceMS)
+        self.durationSeconds = try container.decode(Double.self, forKey: .durationSeconds)
+        self.firstNonFiniteSample = try container.decodeIfPresent(Int.self, forKey: .firstNonFiniteSample)
+        self.firstClipSample = try container.decodeIfPresent(Int.self, forKey: .firstClipSample)
+        self.longestSilenceStartMS = try container.decodeIfPresent(Int.self, forKey: .longestSilenceStartMS)
+        self.chunkQC = try container.decodeIfPresent([AudioQCChunkReport].self, forKey: .chunkQC)
+    }
+}
+
+/// Reference-free audio-quality snapshot for one streaming chunk. Computed in
+/// verbose mode so engineers can localize early corruption, chunk-boundary
+/// clicks, or drift before the final clip is assembled. All sample indices are
+/// absolute from the start of the generation.
+public struct AudioQCChunkReport: Hashable, Codable, Sendable {
+    public let chunkIndex: Int
+    public let frameOffset: Int
+    public let frameCount: Int
+    public let verdict: AudioQCReport.Verdict
+    public let flags: [String]
+    public let rmsDBFS: Double?
+    public let peak: Double
+    public let clippedSamples: Int
+    public let hotSamples: Int
+    public let nonFiniteSamples: Int
+    public let clickEvents: Int
+    public let longestSilenceMS: Int
+    public let firstNonFiniteSample: Int?
+    public let firstClipSample: Int?
+    public let longestSilenceStartMS: Int?
+    public let durationSeconds: Double
+
+    public init(
+        chunkIndex: Int,
+        frameOffset: Int,
+        frameCount: Int,
+        verdict: AudioQCReport.Verdict,
+        flags: [String],
+        rmsDBFS: Double?,
+        peak: Double,
+        clippedSamples: Int,
+        hotSamples: Int,
+        nonFiniteSamples: Int,
+        clickEvents: Int,
+        longestSilenceMS: Int,
+        durationSeconds: Double,
+        firstNonFiniteSample: Int? = nil,
+        firstClipSample: Int? = nil,
+        longestSilenceStartMS: Int? = nil
+    ) {
+        self.chunkIndex = chunkIndex
+        self.frameOffset = frameOffset
+        self.frameCount = frameCount
+        self.verdict = verdict
+        self.flags = flags
+        self.rmsDBFS = rmsDBFS
+        self.peak = peak
+        self.clippedSamples = clippedSamples
+        self.hotSamples = hotSamples
+        self.nonFiniteSamples = nonFiniteSamples
+        self.clickEvents = clickEvents
+        self.longestSilenceMS = longestSilenceMS
+        self.durationSeconds = durationSeconds
+        self.firstNonFiniteSample = firstNonFiniteSample
+        self.firstClipSample = firstClipSample
+        self.longestSilenceStartMS = longestSilenceStartMS
     }
 }
 
@@ -199,6 +296,8 @@ public struct GenerationChunkTelemetry: Hashable, Codable, Sendable {
     public let audioChunkEvalMS: Double
     /// Phase 2a KV-cache diagnostic snapshot at this chunk boundary.
     public let kvCacheDiagnostics: KVCacheDiagnostics?
+    /// Phase 4 per-frame Mimi decoder step breakdown for this chunk.
+    public let mimiDecoderBreakdownMS: MimiDecoderStepTimings?
 
     public init(
         chunkIndex: Int,
@@ -212,7 +311,8 @@ public struct GenerationChunkTelemetry: Hashable, Codable, Sendable {
         streamStepEvalWaitMS: Double,
         streamStepEOSReadMS: Double,
         audioChunkEvalMS: Double,
-        kvCacheDiagnostics: KVCacheDiagnostics? = nil
+        kvCacheDiagnostics: KVCacheDiagnostics? = nil,
+        mimiDecoderBreakdownMS: MimiDecoderStepTimings? = nil
     ) {
         self.chunkIndex = chunkIndex
         self.arrivalMS = arrivalMS
@@ -226,11 +326,13 @@ public struct GenerationChunkTelemetry: Hashable, Codable, Sendable {
         self.streamStepEOSReadMS = streamStepEOSReadMS
         self.audioChunkEvalMS = audioChunkEvalMS
         self.kvCacheDiagnostics = kvCacheDiagnostics
+        self.mimiDecoderBreakdownMS = mimiDecoderBreakdownMS
     }
 
     /// Backward-compatible decoding: older JSONL rows written before Phase 2a
     /// lack `streamStepEvalEnqueueMS`, `streamStepEvalWaitMS`, and
-    /// `kvCacheDiagnostics`; v5 rows add `arrivalNS`. Defaults keep them decodeable.
+    /// `kvCacheDiagnostics`; v5 rows add `arrivalNS`; v5+ adds
+    /// `mimiDecoderBreakdownMS`. Defaults keep them decodeable.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.chunkIndex = try container.decode(Int.self, forKey: .chunkIndex)
@@ -245,6 +347,7 @@ public struct GenerationChunkTelemetry: Hashable, Codable, Sendable {
         self.streamStepEOSReadMS = try container.decode(Double.self, forKey: .streamStepEOSReadMS)
         self.audioChunkEvalMS = try container.decode(Double.self, forKey: .audioChunkEvalMS)
         self.kvCacheDiagnostics = try container.decodeIfPresent(KVCacheDiagnostics.self, forKey: .kvCacheDiagnostics)
+        self.mimiDecoderBreakdownMS = try container.decodeIfPresent(MimiDecoderStepTimings.self, forKey: .mimiDecoderBreakdownMS)
     }
 }
 
