@@ -524,6 +524,7 @@ struct IOSBottomSheetSurface<Content: View>: View {
     let tint: Color
     let presentation: IOSBottomSheetPresentationStyle
     let onDismiss: (() -> Void)?
+    let headerLeading: AnyView?
     let headerTrailing: AnyView?
     let content: Content
 
@@ -538,6 +539,7 @@ struct IOSBottomSheetSurface<Content: View>: View {
         self.tint = tint
         self.presentation = presentation
         self.onDismiss = onDismiss
+        self.headerLeading = nil
         self.headerTrailing = nil
         self.content = content()
     }
@@ -554,6 +556,25 @@ struct IOSBottomSheetSurface<Content: View>: View {
         self.tint = tint
         self.presentation = presentation
         self.onDismiss = onDismiss
+        self.headerLeading = nil
+        self.headerTrailing = AnyView(headerTrailing())
+        self.content = content()
+    }
+
+    init<Leading: View, Trailing: View>(
+        title: String,
+        tint: Color = IOSBrandTheme.accent,
+        presentation: IOSBottomSheetPresentationStyle = .system,
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder headerLeading: () -> Leading,
+        @ViewBuilder headerTrailing: () -> Trailing,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.tint = tint
+        self.presentation = presentation
+        self.onDismiss = onDismiss
+        self.headerLeading = AnyView(headerLeading())
         self.headerTrailing = AnyView(headerTrailing())
         self.content = content()
     }
@@ -561,7 +582,17 @@ struct IOSBottomSheetSurface<Content: View>: View {
     var body: some View {
         switch presentation {
         case .system:
-            if let headerTrailing {
+            if headerLeading != nil || headerTrailing != nil {
+                IOSBottomSheet(
+                    title: title,
+                    tint: tint,
+                    onDismiss: onDismiss,
+                    headerLeading: { headerLeading },
+                    headerTrailing: { headerTrailing }
+                ) {
+                    content
+                }
+            } else if let headerTrailing {
                 IOSBottomSheet(title: title, tint: tint, onDismiss: onDismiss, headerTrailing: { headerTrailing }) {
                     content
                 }
@@ -571,7 +602,19 @@ struct IOSBottomSheetSurface<Content: View>: View {
                 }
             }
         case .edgeToEdge(let bottomSafeAreaInset, let height):
-            if let headerTrailing {
+            if headerLeading != nil || headerTrailing != nil {
+                IOSBottomEdgeSheet(
+                    title: title,
+                    tint: tint,
+                    bottomSafeAreaInset: bottomSafeAreaInset,
+                    height: height,
+                    onDismiss: { onDismiss?() },
+                    headerLeading: { headerLeading },
+                    headerTrailing: { headerTrailing }
+                ) {
+                    content
+                }
+            } else if let headerTrailing {
                 IOSBottomEdgeSheet(
                     title: title,
                     tint: tint,
@@ -635,6 +678,7 @@ struct IOSBottomEdgeSheet<Content: View>: View {
     let bottomSafeAreaInset: CGFloat
     let height: CGFloat?
     let onDismiss: () -> Void
+    let headerLeading: AnyView?
     let headerTrailing: AnyView?
     let content: Content
 
@@ -653,6 +697,7 @@ struct IOSBottomEdgeSheet<Content: View>: View {
         self.bottomSafeAreaInset = bottomSafeAreaInset
         self.height = height
         self.onDismiss = onDismiss
+        self.headerLeading = nil
         self.headerTrailing = nil
         self.content = content()
     }
@@ -671,6 +716,27 @@ struct IOSBottomEdgeSheet<Content: View>: View {
         self.bottomSafeAreaInset = bottomSafeAreaInset
         self.height = height
         self.onDismiss = onDismiss
+        self.headerLeading = nil
+        self.headerTrailing = AnyView(headerTrailing())
+        self.content = content()
+    }
+
+    init<Leading: View, Trailing: View>(
+        title: String,
+        tint: Color = IOSBrandTheme.accent,
+        bottomSafeAreaInset: CGFloat,
+        height: CGFloat? = nil,
+        onDismiss: @escaping () -> Void,
+        @ViewBuilder headerLeading: () -> Leading,
+        @ViewBuilder headerTrailing: () -> Trailing,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.tint = tint
+        self.bottomSafeAreaInset = bottomSafeAreaInset
+        self.height = height
+        self.onDismiss = onDismiss
+        self.headerLeading = AnyView(headerLeading())
         self.headerTrailing = AnyView(headerTrailing())
         self.content = content()
     }
@@ -737,6 +803,10 @@ struct IOSBottomEdgeSheet<Content: View>: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
+            if let headerLeading {
+                headerLeading
+            }
+
             Text(title)
                 .font(.system(size: 22, weight: .bold))
                 .tracking(-0.44)
@@ -781,6 +851,7 @@ struct IOSBottomSheet<Content: View>: View {
     let title: String
     let tint: Color
     let onDismiss: (() -> Void)?
+    let headerLeading: AnyView?
     let headerTrailing: AnyView?
     let content: Content
 
@@ -795,6 +866,7 @@ struct IOSBottomSheet<Content: View>: View {
         self.title = title
         self.tint = tint
         self.onDismiss = onDismiss
+        self.headerLeading = nil
         self.headerTrailing = nil
         self.content = content()
     }
@@ -809,6 +881,23 @@ struct IOSBottomSheet<Content: View>: View {
         self.title = title
         self.tint = tint
         self.onDismiss = onDismiss
+        self.headerLeading = nil
+        self.headerTrailing = AnyView(headerTrailing())
+        self.content = content()
+    }
+
+    init<Leading: View, Trailing: View>(
+        title: String,
+        tint: Color = IOSBrandTheme.accent,
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder headerLeading: () -> Leading,
+        @ViewBuilder headerTrailing: () -> Trailing,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.tint = tint
+        self.onDismiss = onDismiss
+        self.headerLeading = AnyView(headerLeading())
         self.headerTrailing = AnyView(headerTrailing())
         self.content = content()
     }
@@ -848,6 +937,10 @@ struct IOSBottomSheet<Content: View>: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
+            if let headerLeading {
+                headerLeading
+            }
+
             Text(title)
                 .font(.system(size: 22, weight: .bold))
                 .tracking(-0.44)

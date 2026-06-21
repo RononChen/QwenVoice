@@ -365,6 +365,7 @@ struct IOSCustomVoiceView: View {
                         }
                     ),
                     intensity: $draft.delivery.selectedIntensity,
+                    customText: $draft.delivery.customText,
                     tint: IOSBrandTheme.custom,
                     onUseCustomTone: { draft.delivery.mode = .custom },
                     onDismiss: dismiss,
@@ -996,6 +997,7 @@ struct IOSVoiceDesignView: View {
                         }
                     ),
                     intensity: $draft.delivery.selectedIntensity,
+                    customText: $draft.delivery.customText,
                     tint: IOSBrandTheme.design,
                     onUseCustomTone: { draft.delivery.mode = .custom },
                     onDismiss: dismiss,

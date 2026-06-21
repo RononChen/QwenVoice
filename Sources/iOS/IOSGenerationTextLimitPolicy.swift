@@ -9,6 +9,11 @@ struct IOSGenerationTextLimitPolicy {
     /// macOS inline editor stay in lockstep. (The spoken-script limit stays 150.)
     static let descriptionLimit = VoiceDesignBriefCatalog.descriptionLimit
 
+    /// Delivery instruction / custom tone limit. The instruction is passed to the model as an
+    /// emotion/delivery style string; keep it short enough to fit comfortably in the prompt
+    /// while leaving room for the script. Matches the macOS inline editor cap.
+    static let deliveryInstructionLimit = 140
+
     struct State: Equatable {
         let count: Int
         let limit: Int

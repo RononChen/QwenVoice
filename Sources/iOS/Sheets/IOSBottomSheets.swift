@@ -33,16 +33,17 @@ enum IOSEmotionPresetPalette {
 
 // MARK: - Delivery picker
 
-/// Preset grid (2 columns over `EmotionPreset.all`) + intensity row. Drives a
-/// `DeliveryInputState`-shaped binding (selected preset id + intensity).
+/// Preset grid (2 columns over `EmotionPreset.all`) + intensity row, plus an
+/// in-sheet custom-tone editor surfaced by "Use a custom tone instead". Drives a
+/// `DeliveryInputState`-shaped binding (selected preset id + intensity + custom text).
 struct IOSDeliveryPickerSheet: View {
     @Binding var selectedPresetID: String
     @Binding var intensity: EmotionIntensity
+    @Binding var customText: String
     let tint: Color
     /// Optional escape hatch: when set, a small "Use custom tone…" link sits
-    /// below the intensity row. Tapping it dismisses the sheet and calls the
-    /// closure (callers typically switch their `delivery.mode` to `.custom`
-    /// so the inline custom-text editor activates).
+    /// below the intensity row. Tapping it switches the sheet to the custom-tone
+    /// editor without closing the panel.
     var onUseCustomTone: (() -> Void)?
     var onDismiss: (() -> Void)?
     var presentation: IOSBottomSheetPresentationStyle = .system
@@ -60,11 +61,16 @@ struct IOSDeliveryPickerSheet: View {
     @State private var localPresetID: String
     @State private var localIntensity: EmotionIntensity
 
+    /// Tracks whether the sheet is currently showing the custom-tone editor.
+    /// Toggling back to the preset grid is allowed via the editor's back button.
+    @State private var isCustomToneEditorVisible = false
+
     @Environment(\.dismiss) private var dismiss
 
     init(
         selectedPresetID: Binding<String>,
         intensity: Binding<EmotionIntensity>,
+        customText: Binding<String>,
         tint: Color,
         onUseCustomTone: (() -> Void)? = nil,
         onDismiss: (() -> Void)? = nil,
@@ -72,6 +78,7 @@ struct IOSDeliveryPickerSheet: View {
     ) {
         self._selectedPresetID = selectedPresetID
         self._intensity = intensity
+        self._customText = customText
         self.tint = tint
         self.onUseCustomTone = onUseCustomTone
         self.onDismiss = onDismiss
@@ -93,10 +100,34 @@ struct IOSDeliveryPickerSheet: View {
 
     var body: some View {
         IOSBottomSheetSurface(
-            title: "Delivery",
+            title: isCustomToneEditorVisible ? "Custom tone" : "Delivery",
             tint: tint,
             presentation: presentation,
             onDismiss: onDismiss,
+            headerLeading: {
+                if isCustomToneEditorVisible {
+                    Button {
+                        withAnimation(IOSDesignMotion.stateChange) {
+                            isCustomToneEditorVisible = false
+                        }
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(IOSAppTheme.textPrimary)
+                            .frame(width: 40, height: 40)
+                            .background {
+                                Circle()
+                                    .fill(Color.white.opacity(0.06))
+                            }
+                            .overlay {
+                                Circle()
+                                    .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("deliveryPickerSheet_customTone_back")
+                }
+            },
             headerTrailing: {
                 Button {
                     closeSheet()
@@ -119,56 +150,122 @@ struct IOSDeliveryPickerSheet: View {
                 .accessibilityIdentifier("deliveryPicker_confirm")
             }
         ) {
-            IOSScrollView(bottomFadeHeight: 0) {
-                VStack(alignment: .leading, spacing: 18) {
-                    LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(EmotionPreset.all) { preset in
-                            cell(for: preset)
-                        }
-                    }
+            if isCustomToneEditorVisible {
+                customToneEditorBody
+            } else {
+                presetPickerBody
+            }
+        }
+    }
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Intensity")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(IOSAppTheme.textPrimary)
-                        HStack(spacing: 8) {
-                            ForEach(EmotionIntensity.allCases) { level in
-                                intensityButton(level)
-                            }
-                        }
-                    }
-                    .disabled(intensityDisabled)
-                    .opacity(intensityDisabled ? 0.45 : 1.0)
-
-                    if let onUseCustomTone {
-                        Button {
-                            onUseCustomTone()
-                            closeSheet()
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "slider.horizontal.3")
-                                    .font(.system(size: 13, weight: .semibold))
-                                Text("Use a custom tone instead")
-                                    .font(.subheadline.weight(.medium))
-                            }
-                            .foregroundStyle(tint)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background {
-                                Capsule(style: .continuous)
-                                    .fill(IOSAppTheme.accentWash(tint).opacity(0.6))
-                            }
-                            .overlay {
-                                Capsule(style: .continuous)
-                                    .stroke(tint.opacity(0.30), lineWidth: 0.9)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("deliveryPickerSheet_customTone")
+    private var presetPickerBody: some View {
+        IOSScrollView(bottomFadeHeight: 0) {
+            VStack(alignment: .leading, spacing: 18) {
+                LazyVGrid(columns: columns, spacing: 12) {
+                    ForEach(EmotionPreset.all) { preset in
+                        cell(for: preset)
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 24)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Intensity")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(IOSAppTheme.textPrimary)
+                    HStack(spacing: 8) {
+                        ForEach(EmotionIntensity.allCases) { level in
+                            intensityButton(level)
+                        }
+                    }
+                }
+                .disabled(intensityDisabled)
+                .opacity(intensityDisabled ? 0.45 : 1.0)
+
+                if let onUseCustomTone {
+                    Button {
+                        onUseCustomTone()
+                        withAnimation(IOSDesignMotion.stateChange) {
+                            isCustomToneEditorVisible = true
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("Use a custom tone instead")
+                                .font(.subheadline.weight(.medium))
+                        }
+                        .foregroundStyle(tint)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background {
+                            Capsule(style: .continuous)
+                                .fill(IOSAppTheme.accentWash(tint).opacity(0.6))
+                        }
+                        .overlay {
+                            Capsule(style: .continuous)
+                                .stroke(tint.opacity(0.30), lineWidth: 0.9)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("deliveryPickerSheet_customTone")
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+        }
+    }
+
+    private var customToneEditorBody: some View {
+        IOSScrollView(bottomFadeHeight: 0) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Describe the delivery or emotion you want.")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(IOSAppTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                ZStack(alignment: .topLeading) {
+                    IOSDeliveryCustomTextEditor(
+                        text: $customText,
+                        tintColor: UIColor(tint)
+                    )
+
+                    if customText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("e.g. whispered, like a movie trailer, gently excited")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(IOSAppTheme.textTertiary)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 18)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .frame(height: 160)
+                .background {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color.white.opacity(0.04))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(tint.opacity(0.22), lineWidth: 0.5)
+                }
+
+                HStack {
+                    Spacer(minLength: 0)
+                    Text("\(customText.count)/\(IOSGenerationTextLimitPolicy.deliveryInstructionLimit)")
+                        .font(.system(size: 12, weight: .medium).monospacedDigit())
+                        .foregroundStyle(
+                            customText.count >= IOSGenerationTextLimitPolicy.deliveryInstructionLimit
+                                ? tint
+                                : IOSAppTheme.textTertiary
+                        )
+                        .accessibilityIdentifier("deliveryPickerSheet_customTone_charCount")
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+        }
+        .onChange(of: customText) { _, newValue in
+            let limit = IOSGenerationTextLimitPolicy.deliveryInstructionLimit
+            if newValue.count > limit {
+                customText = String(newValue.prefix(limit))
             }
         }
     }
@@ -176,6 +273,51 @@ struct IOSDeliveryPickerSheet: View {
     private func closeSheet() {
         onDismiss?()
         dismiss()
+    }
+
+    /// Multi-line custom-tone editor backed by a `UITextView` with
+    /// scroll-bounce disabled and focus-driven tint chrome. Mirrors
+    /// `IOSBriefTextEditor` used by the Voice Design brief sheet.
+    private struct IOSDeliveryCustomTextEditor: UIViewRepresentable {
+        @Binding var text: String
+        var tintColor: UIColor
+
+        func makeUIView(context: Context) -> UITextView {
+            let view = UITextView()
+            view.delegate = context.coordinator
+            view.accessibilityIdentifier = "deliveryPickerSheet_customTone_editor"
+            view.backgroundColor = .clear
+            view.font = .systemFont(ofSize: 16, weight: .medium)
+            view.textColor = IOSAppTheme.textPrimaryUIColor
+            view.tintColor = tintColor
+            view.isScrollEnabled = true
+            view.bounces = false
+            view.alwaysBounceVertical = false
+            view.showsVerticalScrollIndicator = true
+            view.textContainerInset = UIEdgeInsets(top: 18, left: 16, bottom: 12, right: 16)
+            view.textContainer.lineFragmentPadding = 0
+            view.autocapitalizationType = .sentences
+            view.autocorrectionType = .default
+            view.smartQuotesType = .yes
+            view.smartDashesType = .yes
+            return view
+        }
+
+        func updateUIView(_ view: UITextView, context: Context) {
+            if view.text != text { view.text = text }
+            if view.tintColor != tintColor { view.tintColor = tintColor }
+        }
+
+        func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+        final class Coordinator: NSObject, UITextViewDelegate {
+            var parent: IOSDeliveryCustomTextEditor
+            init(_ parent: IOSDeliveryCustomTextEditor) { self.parent = parent }
+
+            func textViewDidChange(_ textView: UITextView) {
+                if parent.text != textView.text { parent.text = textView.text }
+            }
+        }
     }
 
     /// Two-line description per delivery preset, lifted from

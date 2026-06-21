@@ -136,6 +136,7 @@ struct IOSDeliveryPicker: View {
                         }
                     ),
                     intensity: $delivery.selectedIntensity,
+                    customText: $delivery.customText,
                     tint: tint,
                     onUseCustomTone: {
                         delivery.mode = .custom
