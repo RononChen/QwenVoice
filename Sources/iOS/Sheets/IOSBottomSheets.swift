@@ -237,7 +237,7 @@ struct IOSDeliveryPickerSheet: View {
                             .allowsHitTesting(false)
                     }
                 }
-                .frame(height: 160)
+                .frame(height: 260)
                 .background {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(Color.white.opacity(0.04))
@@ -394,7 +394,7 @@ struct IOSDeliveryPickerSheet: View {
             view.bounces = false
             view.alwaysBounceVertical = false
             view.showsVerticalScrollIndicator = true
-            view.textContainerInset = UIEdgeInsets(top: 18, left: 16, bottom: 12, right: 16)
+            view.textContainerInset = UIEdgeInsets(top: 18, left: 16, bottom: 8, right: 16)
             view.textContainer.lineFragmentPadding = 0
             view.autocapitalizationType = .sentences
             view.autocorrectionType = .default
