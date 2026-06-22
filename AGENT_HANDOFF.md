@@ -1,0 +1,96 @@
+# Agent Handoff Log — Vocello (QwenVoice)
+
+The shared, append-at-top communication channel between the coding agents on this
+repo. Each agent logs a short entry when it finishes a session; the other reads
+it when picking up. The human triggers the read on handoff.
+
+```
+OWNERSHIP
+  - Claude Code owns CLAUDE.md        (do not edit it unless you are Claude Code)
+  - Kimi        owns AGENTS.md        (do not edit it unless you are Kimi)
+  - AGENT_HANDOFF.md is the ONLY shared mutable doc.
+
+RULES
+  - Append your new entry at the TOP (just below the "NEWEST ENTRIES" ruler).
+  - Never delete or rewrite another agent's entries. Only add your own.
+  - This is a narrative + decisions layer on top of git — don't duplicate
+    `git log`. Capture intent, decisions, and cross-agent asks that git can't.
+```
+
+## Protocol
+
+- **ON PICKUP** (when you're told you're taking over from the other agent):
+  read this file from the top down until you reach **your own most recent
+  entry**. Everything above it is new to you (your topmost entry is your read
+  watermark — no external state needed). Action any `Requests for <you>` items
+  before starting work.
+- **ON HANDOFF** (before you end a session): prepend a new entry just below the
+  ruler using the template. Reference the commit SHA(s) + branch. Commit this
+  file alongside your work.
+- **CROSS-OWNER REQUESTS:** never edit the other agent's owned file. If a change
+  belongs in `CLAUDE.md` or `AGENTS.md` and you are not its owner, put the
+  requested change + the **exact snippet to paste** under `Requests for <other>`
+  in your entry. The owner applies it and logs their own entry.
+- **PRUNING:** keep the latest ~12 entries. Older entries may be removed
+  (they're recoverable via `git log`).
+
+## Entry template
+
+````
+## YYYY-MM-DD — <claude-code|kimi> — <one-line scope>
+
+- **Commits:** <SHA(s)> on <branch>  (or "uncommitted — working tree")
+- **Touched:** <files / areas>
+- **Summary:** <what + why, a few bullets>
+- **Decisions:** <conventions / invariants changed, with rationale>
+- **Requests for <other>:** <cross-owner edits / review asks, with ready-to-paste snippets>
+- **Open questions / blockers:** <…>
+````
+
+---
+
+<!-- NEWEST ENTRIES BELOW THIS LINE — prepend your entry here (newest at top) -->
+
+## 2026-06-22 — claude-code — seeded the handoff system + CLAUDE.md + docs/ARCHITECTURE.md
+
+- **Commits:** uncommitted — working tree (files listed below).
+- **Touched:**
+  - `CLAUDE.md` — created (Claude-Code-tailored operating guide), then added the `## Agent handoff protocol` section.
+  - `docs/ARCHITECTURE.md` — created (unified, code-verified architecture map; merges the former inventory).
+  - `docs/reference/technology-inventory.md` — **deleted** (absorbed into `docs/ARCHITECTURE.md`; it had zero inbound references).
+  - `AGENT_HANDOFF.md` — created (this file).
+  - `AGENTS.md`, `README.md` — cross-reference edits only (pointed them at `docs/ARCHITECTURE.md`).
+- **Summary:**
+  - Initialized this two-agent coordination system (shared handoff log + protocol in `CLAUDE.md`).
+  - Created `CLAUDE.md` as the Claude Code operating lens; it defers to `AGENTS.md` as the canonical repo guide.
+  - Created `docs/ARCHITECTURE.md` — modules, dependency graph, runtime (XPC vs in-process), the generation lifecycle, persistence, model management, telemetry; verified against source (`NativeMemoryPolicyResolver.swift`, `EngineServiceIPC.swift`, `GenerationMigrations.swift`, `Package.resolved`).
+  - Removed the now-redundant technology inventory; fixed cross-references.
+- **Decisions:**
+  - `CLAUDE.md` = Claude-Code lens; `AGENTS.md` remains canonical. Source-of-truth hierarchy unchanged (`Sources/` → `project.yml` → `scripts/` → `release.yml` → `AGENTS.md` → prose).
+  - `docs/ARCHITECTURE.md` is the single architecture reference (inventory merged in).
+  - Going forward I will **not** edit `AGENTS.md` — any needed change routes through this file under `Requests for kimi`.
+- **Requests for kimi:**
+  - Review `docs/ARCHITECTURE.md` and the `CLAUDE.md` additions when you pick up.
+  - Apply the snippet below to `AGENTS.md` (adds the mirrored handoff protocol so you read this file on pickup), then log your own entry here once done.
+  - Confirm the author tag `kimi` and the ~12-entry prune threshold work for you.
+
+  Paste this under a new heading in `AGENTS.md` (e.g. after the intro, before "Repository layout"):
+
+  ```markdown
+  ## Agent handoff protocol (with Claude Code / CLAUDE.md)
+
+  Two coding agents work this repo. Kimi owns `AGENTS.md`; Claude Code owns
+  `CLAUDE.md`. Neither edits the other's owned file. The shared coordination
+  channel is `AGENT_HANDOFF.md` (repo root), an append-at-top log.
+
+  - **On pickup** (taking over from Claude Code): read `AGENT_HANDOFF.md` from the
+    top down to your most recent `kimi` entry — everything above it is new. Action
+    any `Requests for kimi` items before starting.
+  - **On handoff** (before ending a session): prepend a new entry (template at the
+    top of `AGENT_HANDOFF.md`) — commits, files touched, summary, decisions,
+    `Requests for claude-code`, open questions. Commit it with your work.
+  - Never edit `CLAUDE.md` — route cross-owner changes through
+    `Requests for claude-code` in `AGENT_HANDOFF.md`.
+  ```
+
+- **Open questions:** none from claude-code.
