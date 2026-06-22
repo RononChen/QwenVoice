@@ -1,9 +1,9 @@
 import Foundation
 import QwenVoiceCore
 
-/// `vocello deliveries` — list the built-in delivery presets (emotion x intensity)
-/// and the natural-language instruction each one sends to the model. Static +
-/// instant (no engine boot), reading `EmotionPreset` (the single source of truth).
+/// `vocello deliveries` — list the built-in delivery presets and the natural-language
+/// instruction each one sends to the model. Static + instant (no engine boot), reading
+/// `EmotionPreset` (the single source of truth).
 ///
 /// This is the DRY feed for the objective delivery-adherence measurement
 /// (`scripts/delivery_adherence.py`, which generates a neutral + instructed take
@@ -13,9 +13,7 @@ import QwenVoiceCore
 /// section I.3).
 enum DeliveriesCommand {
     struct DeliveryJSON: Encodable {
-        let id: String          // "<preset>.<intensity>"
-        let preset: String
-        let intensity: String
+        let id: String          // preset id
         let label: String
         let instruction: String
     }
@@ -30,17 +28,13 @@ enum DeliveriesCommand {
 
         var rows: [DeliveryJSON] = []
         for preset in EmotionPreset.all where preset.id != "neutral" {
-            for intensity in EmotionIntensity.allCases {
-                let instr = preset.instruction(for: intensity)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if instr.isEmpty { continue }
-                rows.append(DeliveryJSON(
-                    id: "\(preset.id).\(intensity.rpcValue)",
-                    preset: preset.id,
-                    intensity: intensity.rpcValue,
-                    label: preset.label,
-                    instruction: instr))
-            }
+            let instr = preset.instruction
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if instr.isEmpty { continue }
+            rows.append(DeliveryJSON(
+                id: preset.id,
+                label: preset.label,
+                instruction: instr))
         }
 
         if args.flag("json") { emitJSON(rows); return }
@@ -50,13 +44,13 @@ enum DeliveriesCommand {
 
     static func printHelp() {
         print("""
-        vocello deliveries — list built-in delivery presets (emotion x intensity) + instruction text
+        vocello deliveries — list built-in delivery presets and instruction text
 
         Usage:
           vocello deliveries [--json]
 
-        Each row is `<preset>.<intensity>` and the natural-language instruction the
-        model receives. These ids are the `bench --delivery <id>` cells. Reference-free
+        Each row is a preset id and the natural-language instruction the model
+        receives. These ids are the `bench --delivery <id>` cells. Reference-free
         delivery adherence is measured objectively from the audio (F0 / rate / duration)
         — see scripts/delivery_adherence.py + scripts/analyze_delivery.py.
 

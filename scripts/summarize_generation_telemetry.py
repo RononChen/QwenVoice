@@ -217,7 +217,7 @@ def _engine_run(e, app_lookup):
         # short/medium/long sweep. RTF/decode/KV-cache all scale with it.
         "promptChars": int((e.get("notes") or {}).get("promptChars") or 0),
         "lenBucket": len_bucket(int((e.get("notes") or {}).get("promptChars") or 0)),
-        # Bench delivery-cell id (notes.delivery, "<preset>.<intensity>")
+        # Bench delivery-cell id (notes.delivery, preset id)
         # for instruct-bearing takes from `vocello bench --delivery`.
         # Empty for plain matrix takes; delivery rows are segregated into
         # their own block so the headline cells stay comparable.

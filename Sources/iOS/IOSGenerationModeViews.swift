@@ -87,7 +87,6 @@ struct IOSCustomVoiceView: View {
     }
 
     private var deliveryChipLabel: String {
-        let preset = draft.delivery.selectedPresetLabel
         if draft.delivery.mode == .custom {
             let trimmed = draft.delivery.customText.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return "Custom delivery" }
@@ -97,10 +96,7 @@ struct IOSCustomVoiceView: View {
             }
             return trimmed
         }
-        if draft.delivery.supportsIntensity {
-            return "\(preset) · \(draft.delivery.selectedIntensity.label)"
-        }
-        return preset
+        return draft.delivery.selectedPresetLabel
     }
 
     private var activeModel: TTSModel? {
@@ -369,7 +365,6 @@ struct IOSCustomVoiceView: View {
                             draft.delivery.selectedPresetID = newID
                         }
                     ),
-                    intensity: $draft.delivery.selectedIntensity,
                     customText: $draft.delivery.customText,
                     tint: IOSBrandTheme.custom,
                     onUseCustomTone: { draft.delivery.mode = .custom },
@@ -574,15 +569,11 @@ struct IOSVoiceDesignView: View {
     }
 
     private var deliveryChipLabel: String {
-        let preset = draft.delivery.selectedPresetLabel
         if draft.delivery.mode == .custom {
             let trimmed = draft.delivery.customText.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? "Custom delivery" : trimmed
         }
-        if draft.delivery.supportsIntensity {
-            return "\(preset) · \(draft.delivery.selectedIntensity.label)"
-        }
-        return preset
+        return draft.delivery.selectedPresetLabel
     }
 
     private var briefChipLabel: String {
@@ -1001,7 +992,6 @@ struct IOSVoiceDesignView: View {
                             draft.delivery.selectedPresetID = newID
                         }
                     ),
-                    intensity: $draft.delivery.selectedIntensity,
                     customText: $draft.delivery.customText,
                     tint: IOSBrandTheme.design,
                     onUseCustomTone: { draft.delivery.mode = .custom },

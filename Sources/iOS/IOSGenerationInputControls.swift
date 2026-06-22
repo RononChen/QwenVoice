@@ -67,17 +67,6 @@ struct IOSDeliveryPicker: View {
             .iosSelectionFieldChrome(tint: tint, isFocused: isCustomDeliveryEnabled)
             .accessibilityIdentifier(customAccessibilityIdentifier ?? "")
 
-            if delivery.supportsIntensity {
-                Picker("Intensity", selection: $delivery.selectedIntensity) {
-                    ForEach(EmotionIntensity.allCases) { intensity in
-                        Text(intensity.label).tag(intensity)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .tint(tint)
-                .accessibilityIdentifier(intensityAccessibilityIdentifier ?? "")
-            }
-
             ZStack(alignment: .topTrailing) {
                 IOSMultilineTextView(
                     text: $delivery.customText,
@@ -135,7 +124,6 @@ struct IOSDeliveryPicker: View {
                             delivery.selectedPresetID = newID
                         }
                     ),
-                    intensity: $delivery.selectedIntensity,
                     customText: $delivery.customText,
                     tint: tint,
                     onUseCustomTone: {
@@ -149,11 +137,6 @@ struct IOSDeliveryPicker: View {
                 )
             )
         }
-    }
-
-    private var intensityAccessibilityIdentifier: String? {
-        guard let customAccessibilityIdentifier else { return nil }
-        return "\(customAccessibilityIdentifier)_intensity"
     }
 }
 

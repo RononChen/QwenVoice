@@ -8,29 +8,15 @@ struct EmotionPickerView: View {
     var accentColor: Color = AppTheme.accent
     var accessibilityPrefix: String = "delivery"
     var showsLabel: Bool = true
-    /// Column layout for the merged configuration line: the tone and
-    /// intensity pickers each get a caption label above them
-    /// (`ConfigurationColumn`), and `leadingColumns` (e.g. the Language
-    /// column) joins the same row.
+    /// Column layout for the merged configuration line: the tone picker gets a
+    /// caption label above it (`ConfigurationColumn`), and `leadingColumns`
+    /// (e.g. the Language column) joins the same row.
     var usesColumnLabels: Bool = false
     var leadingColumns: AnyView? = nil
 
     @State private var selectedPreset: EmotionPreset?
-    @State private var intensity: EmotionIntensity = .normal
     @State private var isCustomMode = false
     @State private var customText = ""
-
-    private var showsIntensityPicker: Bool {
-        !isCustomMode && selectedPreset != nil && !isNeutralSelected
-    }
-
-    private var reservesIntensitySlot: Bool {
-        true
-    }
-
-    private var isNeutralSelected: Bool {
-        selectedPreset?.id == "neutral"
-    }
 
     private var currentToneLabel: String {
         if isCustomMode {
@@ -116,27 +102,18 @@ struct EmotionPickerView: View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .center, spacing: 12) {
                 tonePicker
-
-                if reservesIntensitySlot {
-                    intensityInlineSlot
-                }
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 tonePicker
-
-                if reservesIntensitySlot {
-                    intensityInlineSlot
-                }
             }
         }
     }
 
     /// Merged configuration line: leading columns (e.g. Language) + Delivery
-    /// + Intensity share one row, each with a caption label above its
-    /// control. The stacked variant is a safety net for extreme cases
-    /// (large accessibility type) — the single line fits at every legal
-    /// window/sidebar combination.
+    /// share one row, each with a caption label above its control. The stacked
+    /// variant is a safety net for extreme cases (large accessibility type) —
+    /// the single line fits at every legal window/sidebar combination.
     private var columnToneRow: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .top, spacing: 12) {
@@ -150,12 +127,6 @@ struct EmotionPickerView: View {
 
                 HStack(alignment: .top, spacing: 12) {
                     ConfigurationColumn(label: "Delivery") { tonePicker }
-
-                    if reservesIntensitySlot {
-                        ConfigurationColumn(label: "Intensity", isEnabled: showsIntensityPicker) {
-                            intensityPicker
-                        }
-                    }
                 }
             }
         }
@@ -168,44 +139,6 @@ struct EmotionPickerView: View {
         }
 
         ConfigurationColumn(label: "Delivery") { tonePicker }
-
-        if reservesIntensitySlot {
-            ConfigurationColumn(label: "Intensity", isEnabled: showsIntensityPicker) {
-                intensityPicker
-            }
-        }
-    }
-
-    private var intensityInlineSlot: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Text("Intensity")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(showsIntensityPicker ? .secondary : .tertiary)
-
-            intensityPicker
-        }
-    }
-
-    private var intensityPicker: some View {
-        Picker("Intensity", selection: $intensity) {
-            ForEach(EmotionIntensity.allCases) { level in
-                Text(level.label).tag(level)
-            }
-        }
-        .labelsHidden()
-        .pickerStyle(.menu)
-        .focusEffectDisabled()
-        .frame(minWidth: 112, maxWidth: 152, alignment: .leading)
-        .tint(showsIntensityPicker ? AppTheme.emotionColor(for: selectedPreset?.id ?? "neutral") : .secondary)
-        .opacity(showsIntensityPicker ? 1 : 0.6)
-        .disabled(!showsIntensityPicker)
-        .appAnimation(.easeInOut(duration: 0.2), value: showsIntensityPicker)
-        .accessibilityIdentifier("\(accessibilityPrefix)_intensityPicker")
-        .onChange(of: intensity) { _, _ in
-            if selectedPreset != nil {
-                applyCurrentSelection()
-            }
-        }
     }
 
     private let customToneCharacterLimit = 500
@@ -254,15 +187,12 @@ struct EmotionPickerView: View {
         let trimmedEmotion = emotion.trimmingCharacters(in: .whitespacesAndNewlines)
 
         for preset in EmotionPreset.all {
-            for level in EmotionIntensity.allCases {
-                if preset.instruction(for: level).caseInsensitiveCompare(trimmedEmotion) == .orderedSame {
-                    selectedPreset = preset
-                    intensity = level
-                    isCustomMode = false
-                    customText = ""
-                    applyCurrentSelection()
-                    return
-                }
+            if preset.instruction.caseInsensitiveCompare(trimmedEmotion) == .orderedSame {
+                selectedPreset = preset
+                isCustomMode = false
+                customText = ""
+                applyCurrentSelection()
+                return
             }
         }
 
@@ -275,7 +205,6 @@ struct EmotionPickerView: View {
             selectedPreset = EmotionPreset.all.first
             isCustomMode = false
             customText = ""
-            intensity = .normal
             applyCurrentSelection()
         }
     }
@@ -286,7 +215,7 @@ struct EmotionPickerView: View {
         if isCustomMode {
             profile = .custom(customText)
         } else if let selectedPreset {
-            profile = .preset(selectedPreset, intensity: intensity)
+            profile = .preset(selectedPreset)
         } else {
             profile = .neutral
         }

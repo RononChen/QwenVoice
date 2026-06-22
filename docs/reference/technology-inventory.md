@@ -47,7 +47,7 @@
 
 ### Delivery (Tone/Emotion) Presets
 
-`neutral`, `happy`, `sad`, `angry`, `fearful`, `surprised`, `whisper`, `dramatic`, `calm`, `excited`, `narrator`, `news` — each at `subtle`/`normal`/`strong` intensity (`Sources/QwenVoiceCore/EmotionPreset.swift`).
+`neutral`, `happy`, `sad`, `angry`, `fearful`, `surprised`, `whisper`, `dramatic`, `calm`, `excited`, `narrator`, `news` — each with a single best-practice delivery instruction (`Sources/QwenVoiceCore/EmotionPreset.swift`).
 
 ---
 

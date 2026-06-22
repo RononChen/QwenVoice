@@ -94,10 +94,10 @@ Final choice: **numpy + stdlib `wave`** (zero new dependencies, tiny memory). Ha
 scripts/prosody_quality_gate.py outputs/some_take.wav
 
 # Delivery A/B with richer prosody deltas
-scripts/delivery_adherence.py --presets happy.strong,excited.strong --seeds 4 --data-dir ~/Library/Application\ Support/QwenVoice
+scripts/delivery_adherence.py --presets happy,excited --seeds 4 --data-dir ~/Library/Application\ Support/QwenVoice
 
 # Bench with delivery cells + automatic prosody analysis
-build/vocello bench --delivery happy.strong,calm.normal --modes custom,design
+build/vocello bench --delivery happy,calm --modes custom,design
 ```
 
 Manual listening remains the optional final review layer; it is not used for automated gates.

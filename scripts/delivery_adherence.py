@@ -21,7 +21,7 @@ Preset instructions come from `vocello deliveries --json` (the DRY source is
 EmotionPreset). Dev tool only; no Python ships in the app.
 
 Usage:
-  scripts/delivery_adherence.py [--presets happy.strong,excited.strong,surprised.strong]
+  scripts/delivery_adherence.py [--presets happy,excited,surprised]
       [--variants speed[,quality]] [--seeds 8] [--speaker aiden] [--text "..."]
       [--vocello build/vocello] [--out <jsonl>] [--workdir <dir>] [--keep] [--json]
 """
@@ -34,7 +34,7 @@ from prosody_profile import builtin_profile, load_profile, delivery_weight
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_TEXT = ("The morning train slipped quietly out of the station, carrying a handful "
                 "of sleepy travelers toward the coast.")
-DEFAULT_PRESETS = ["happy.strong", "excited.strong", "surprised.strong"]
+DEFAULT_PRESETS = ["happy", "excited", "surprised"]
 
 
 def _weight(profile, section, key):
@@ -94,7 +94,7 @@ def med(xs):
 def main():
     ap = argparse.ArgumentParser(description="Objective delivery-adherence bench.")
     ap.add_argument("--presets", default=",".join(DEFAULT_PRESETS),
-                    help="comma list of <preset>.<intensity> ids (default high-arousal set)")
+                    help="comma list of preset ids (default high-arousal set)")
     ap.add_argument("--variants", default="speed", help="comma list: speed[,quality]")
     ap.add_argument("--seeds", type=int, default=8, help="paired seeds 1..N (default 8)")
     ap.add_argument("--speaker", default="aiden")

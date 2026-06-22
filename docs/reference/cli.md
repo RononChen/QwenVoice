@@ -130,7 +130,7 @@ Lists the three generation modes (`custom` / `design` / `clone`) and what each n
 vocello deliveries [--json]
 ```
 
-Lists every built-in delivery preset as `<preset>.<intensity>` and the natural-language instruction
+Lists every built-in delivery preset as a preset id and the natural-language instruction
 the model receives (the source of truth is `EmotionPreset`). Static and instant. These ids are the
 `bench --delivery <id>` cells, and `--json` is the DRY feed for `scripts/delivery_adherence.py` — the
 objective, reference-free delivery-adherence measurement (F0 / speaking-rate / duration deltas vs a
@@ -164,7 +164,7 @@ is forced on; results land in `<data>/diagnostics` and are summarized by
 | `--modes` / `--variants` / `--lengths` | matrix axes (comma lists) |
 | `--warm` | warm reps per (cell × length); default 3 |
 | `--voice` / `--voice-brief` | clone voice name / design brief |
-| `--delivery [list]` | add **instruct-bearing delivery cells** (Custom/Design, warm, medium text, 1 take each): comma list of `<preset>[.<intensity>]` (e.g. `happy.strong,calm.normal`); the bare flag runs the default set (`happy.strong,calm.normal,whisper.normal`). Rows are stamped `notes.delivery` and summarized in their own block, so the headline matrix and `--ledger` row stay comparable; the plain warm takes double as the neutral reference for prosody/delivery A/Bs |
+| `--delivery [list]` | add **instruct-bearing delivery cells** (Custom/Design, warm, medium text, 1 take each): comma list of preset ids (e.g. `happy,calm,whisper`); the bare flag runs the default set (`happy,calm,whisper`). Rows are stamped `notes.delivery` and summarized in their own block, so the headline matrix and `--ledger` row stay comparable; the plain warm takes double as the neutral reference for prosody/delivery A/Bs |
 | `--label "<note>"` | stamp a note on the summary / ledger row |
 | `--ledger` | append a one-line row to `benchmarks/HISTORY.md` (the perf-over-time ledger) |
 | `--force-class` | **dev/diagnostic only** — force a constrained memory tier on any Mac: `8gb` · `16gb` · `high` · `iphone` (sets the `QWENVOICE_FORCE_MEMORY_CLASS` knob, relayed to the engine over the `initialize` handshake; stamps `notes.deviceClass`) |
