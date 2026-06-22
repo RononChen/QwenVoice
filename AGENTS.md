@@ -355,6 +355,8 @@ Use `scripts/summarize_generation_telemetry.py` to aggregate results.
 
 Check the relevant reference doc before making changes in a subsystem. If the change invalidates a doc, update the doc in the same PR/commit.
 
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — **start here**: the unified, code-verified map of modules, dependencies, runtime architecture (XPC vs in-process), the generation lifecycle, persistence, model management, and telemetry. It merges the former `technology-inventory.md` with an architecture map.
+
 ### Core technology references
 
 - `docs/reference/mlx-guide.md` — MLX runtime behavior: lazy evaluation, `eval()`/`asyncEval()`, streams, quantization, memory controls, model loading. Read before changing anything in `QwenVoiceBackendCore/` that touches `MLXArray`, `Memory`, `GPU`, or model loading.

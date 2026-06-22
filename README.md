@@ -163,6 +163,7 @@ Useful checks:
 
 More technical detail:
 
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — unified architecture map: modules, dependencies, runtime (XPC vs in-process), and the generation lifecycle
 - [`AGENTS.md`](AGENTS.md) — repo guide: build, architecture, engine invariants, dependency pinning, release policy, conventions
 - [`docs/reference/cli.md`](docs/reference/cli.md) — the headless `vocello` command-line tool
 - [`docs/reference/privacy-storage.md`](docs/reference/privacy-storage.md) — local storage and deletion details
