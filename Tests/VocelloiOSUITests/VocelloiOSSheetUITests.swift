@@ -126,7 +126,6 @@ final class VocelloiOSSheetUITests: XCTestCase {
     }
 
     /// A long custom tone is accepted up to the 500-char cap and is truncated in the Studio chip.
-    /// The manual editor is now secondary/collapsed, so the test expands it before typing.
     func testCustomToneLongInstructionAndChipTruncation() {
         selectMode("generateSection_custom")
         openSheet(viaChipLabelPrefix: "Delivery: ")
@@ -135,12 +134,8 @@ final class VocelloiOSSheetUITests: XCTestCase {
         XCTAssertTrue(customToneButton.waitForExistence(timeout: 10), "custom tone button should exist")
         customToneButton.tap()
 
-        let manualToggle = element("deliveryPickerSheet_customTone_manualToggle")
-        XCTAssertTrue(manualToggle.waitForExistence(timeout: 10), "manual editor toggle should exist")
-        manualToggle.tap()
-
         let editor = element("deliveryPickerSheet_customTone_editor")
-        XCTAssertTrue(editor.waitForExistence(timeout: 10), "custom tone editor should exist after expanding")
+        XCTAssertTrue(editor.waitForExistence(timeout: 10), "custom tone editor should exist")
 
         let longInstruction = String(
             repeating: "A calm, deep narrator with a slow pace and warm timbre. ",
@@ -167,8 +162,8 @@ final class VocelloiOSSheetUITests: XCTestCase {
         VocelloUITestApp.shared.captureScreenshot(named: "sheet-custom-tone-long")
     }
 
-    /// Quick-start token chips are the primary input. They toggle tokens on/off,
-    /// compose a comma-separated instruction, and update the compact preview.
+    /// Quick-start token chips are the primary input. They toggle tokens on/off
+    /// and compose a comma-separated instruction in the editor.
     /// Tokens chosen here are unlikely to collide with text left over from other tests.
     func testCustomToneQuickStartChipsComposeTokens() {
         selectMode("generateSection_custom")
@@ -178,8 +173,8 @@ final class VocelloiOSSheetUITests: XCTestCase {
         XCTAssertTrue(customToneButton.waitForExistence(timeout: 10), "custom tone button should exist")
         customToneButton.tap()
 
-        let preview = element("deliveryPickerSheet_customTone_preview")
-        XCTAssertTrue(preview.waitForExistence(timeout: 10), "composed instruction preview should exist")
+        let editor = element("deliveryPickerSheet_customTone_editor")
+        XCTAssertTrue(editor.waitForExistence(timeout: 10), "custom tone editor should exist")
 
         let playfulChip = element("deliveryPickerSheet_customTone_chip_playful")
         XCTAssertTrue(playfulChip.waitForExistence(timeout: 5), "playful quick-start chip should exist")
@@ -189,19 +184,27 @@ final class VocelloiOSSheetUITests: XCTestCase {
         XCTAssertTrue(urgentChip.waitForExistence(timeout: 5), "urgent quick-start chip should exist")
         urgentChip.tap()
 
-        let previewText = preview.label.lowercased()
-        XCTAssertTrue(previewText.contains("playful"), "tapping playful chip should add 'playful' to the preview")
-        XCTAssertTrue(previewText.contains("urgent"), "tapping urgent chip should add 'urgent' to the preview")
-        XCTAssertTrue(previewText.contains(","), "composed tokens should be comma-separated")
+        guard let editorText = editor.value as? String else {
+            XCTFail("custom tone editor should expose its text as value")
+            return
+        }
+        let lowered = editorText.lowercased()
+        XCTAssertTrue(lowered.contains("playful"), "tapping playful chip should add 'playful' to the editor")
+        XCTAssertTrue(lowered.contains("urgent"), "tapping urgent chip should add 'urgent' to the editor")
+        XCTAssertTrue(lowered.contains(","), "composed tokens should be comma-separated")
 
         // Toggle off: tapping the same chip again should remove the token.
         playfulChip.tap()
-        let previewTextAfter = preview.label.lowercased()
+        guard let editorTextAfter = editor.value as? String else {
+            XCTFail("custom tone editor value should remain readable")
+            return
+        }
+        let loweredAfter = editorTextAfter.lowercased()
         XCTAssertFalse(
-            previewTextAfter.contains("playful"),
-            "tapping a selected chip should remove its token from the preview"
+            loweredAfter.contains("playful"),
+            "tapping a selected chip should remove its token from the editor"
         )
-        XCTAssertTrue(previewTextAfter.contains("urgent"), "other tokens should remain after toggling one off")
+        XCTAssertTrue(loweredAfter.contains("urgent"), "other tokens should remain after toggling one off")
 
         VocelloUITestApp.shared.captureScreenshot(named: "sheet-custom-tone-chips")
     }

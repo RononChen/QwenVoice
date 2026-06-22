@@ -65,10 +65,6 @@ struct IOSDeliveryPickerSheet: View {
     /// Toggling back to the preset grid is allowed via the editor's back button.
     @State private var isCustomToneEditorVisible = false
 
-    /// Whether the free-form text editor is expanded. The default experience is
-    /// chip-first; manual typing is available as a secondary/advanced option.
-    @State private var isManualEditorExpanded = false
-
     @Environment(\.dismiss) private var dismiss
 
     init(
@@ -221,14 +217,7 @@ struct IOSDeliveryPickerSheet: View {
     private var customToneEditorBody: some View {
         IOSScrollView(bottomFadeHeight: 0) {
             VStack(alignment: .leading, spacing: 16) {
-                composedInstructionPreview
-
-                manualEditorDisclosure
-
-                if isManualEditorExpanded {
-                    manualTextEditor
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
+                composedInstructionEditor
 
                 customToneGuidance
 
@@ -286,30 +275,29 @@ struct IOSDeliveryPickerSheet: View {
         }
     }
 
-    // MARK: - Composed instruction preview
+    // MARK: - Composed instruction editor
 
-    /// Compact read-only preview of the instruction being built. Chips are the
-    /// primary input, so this bar replaces the large text editor as the focal
-    /// point and gives immediate feedback.
-    private var composedInstructionPreview: some View {
-        HStack(spacing: 10) {
-            let trimmed = customText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty {
+    /// Compact editable field for the delivery instruction. Tapping it focuses
+    /// the text view directly, so there is no separate disclosure or secondary
+    /// editor. The field sits at the top of the sheet so the keyboard never
+    /// covers it.
+    private var composedInstructionEditor: some View {
+        ZStack(alignment: .topLeading) {
+            IOSDeliveryCustomTextEditor(
+                text: $customText,
+                tintColor: UIColor(tint)
+            )
+
+            if customText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(placeholderExamples[placeholderExampleIndex])
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(IOSAppTheme.textTertiary)
-            } else {
-                Text(trimmed)
-                    .foregroundStyle(IOSAppTheme.textPrimary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .allowsHitTesting(false)
             }
-
-            Spacer(minLength: 8)
         }
-        .font(.system(size: 15, weight: .medium))
-        .lineLimit(2)
-        .fixedSize(horizontal: false, vertical: true)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 120)
         .background {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(IOSAppTheme.accentWash(tint).opacity(0.22))
@@ -318,7 +306,9 @@ struct IOSDeliveryPickerSheet: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(tint.opacity(0.32), lineWidth: 0.8)
         }
-        .accessibilityIdentifier("deliveryPickerSheet_customTone_preview")
+        // The inner UITextView already carries the accessibility identifier;
+        // don't apply it to the wrapper to avoid a duplicate StaticText element
+        // that shadows the real text view in UI tests.
     }
 
     private struct QuickStartCategory {
@@ -434,66 +424,6 @@ struct IOSDeliveryPickerSheet: View {
         } else {
             let proposed = (originalTokens + [cleanedToken]).joined(separator: ", ")
             customText = String(proposed.prefix(limit))
-        }
-    }
-
-    private var manualEditorDisclosure: some View {
-        Button {
-            withAnimation(IOSDesignMotion.stateChange) {
-                isManualEditorExpanded.toggle()
-            }
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "keyboard")
-                    .font(.system(size: 13, weight: .semibold))
-                Text(isManualEditorExpanded ? "Hide manual editor" : "Edit manually")
-                    .font(.system(size: 13, weight: .medium))
-                Spacer(minLength: 0)
-                Image(systemName: isManualEditorExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .foregroundStyle(tint)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background {
-                Capsule(style: .continuous)
-                    .fill(IOSAppTheme.accentWash(tint).opacity(0.5))
-            }
-            .overlay {
-                Capsule(style: .continuous)
-                    .stroke(tint.opacity(0.35), lineWidth: 0.8)
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("deliveryPickerSheet_customTone_manualToggle")
-    }
-
-    private var manualTextEditor: some View {
-        VStack(alignment: .trailing, spacing: 6) {
-            ZStack(alignment: .topLeading) {
-                IOSDeliveryCustomTextEditor(
-                    text: $customText,
-                    tintColor: UIColor(tint)
-                )
-
-                if customText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("Type a custom delivery instruction…")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(IOSAppTheme.textTertiary)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                        .allowsHitTesting(false)
-                }
-            }
-            .frame(height: 140)
-            .background {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.white.opacity(0.04))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(tint.opacity(0.22), lineWidth: 0.5)
-            }
         }
     }
 
