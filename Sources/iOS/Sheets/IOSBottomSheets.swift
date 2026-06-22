@@ -63,6 +63,11 @@ struct IOSDeliveryPickerSheet: View {
     /// Toggling back to the preset grid is allowed via the editor's back button.
     @State private var isCustomToneEditorVisible = false
 
+    /// Active category tab in the preset grid. Default is `.emotion` because it
+    /// is the largest and most commonly used group; it is re-synced from the
+    /// current selection when the sheet appears.
+    @State private var selectedCategory: DeliveryPresetCategory
+
     @Environment(\.dismiss) private var dismiss
 
     init(
@@ -80,6 +85,23 @@ struct IOSDeliveryPickerSheet: View {
         self.onDismiss = onDismiss
         self.presentation = presentation
         self._localPresetID = State(initialValue: selectedPresetID.wrappedValue)
+        self._selectedCategory = State(
+            initialValue: IOSDeliveryPickerSheet.category(for: selectedPresetID.wrappedValue)
+        )
+    }
+
+    private static func category(for presetID: String) -> DeliveryPresetCategory {
+        if presetID == "neutral" { return .neutral }
+        return EmotionPreset.preset(id: presetID)?.category ?? .emotion
+    }
+
+    private func tabLabel(for category: DeliveryPresetCategory) -> String {
+        switch category {
+        case .neutral:        return "Default"
+        case .emotion:        return "Emotion"
+        case .deliveryStyle:  return "Style"
+        case .vocalTechnique: return "Technique"
+        }
     }
 
     private var columns: [GridItem] {
@@ -151,20 +173,13 @@ struct IOSDeliveryPickerSheet: View {
 
     private var presetPickerBody: some View {
         IOSScrollView(bottomFadeHeight: 0) {
-            VStack(alignment: .leading, spacing: 18) {
-                if let neutralPreset = EmotionPreset.preset(id: "neutral") {
-                    cell(for: neutralPreset)
-                }
+            VStack(alignment: .leading, spacing: 14) {
+                categoryTabBar
 
-                LazyVGrid(columns: columns, spacing: 12) {
-                    let categories = DeliveryPresetCategory.allCases.filter { $0 != .neutral }
-                    ForEach(categories, id: \.self) { category in
-                        Section(header: sectionHeader(category.displayName ?? "")) {
-                            let presets = EmotionPreset.all.filter { $0.category == category }
-                            ForEach(presets) { preset in
-                                cell(for: preset)
-                            }
-                        }
+                LazyVGrid(columns: columns, spacing: 10) {
+                    let presets = EmotionPreset.all.filter { $0.category == selectedCategory }
+                    ForEach(presets) { preset in
+                        cell(for: preset)
                     }
                 }
 
@@ -183,7 +198,7 @@ struct IOSDeliveryPickerSheet: View {
                         }
                         .foregroundStyle(tint)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
+                        .padding(.vertical, 10)
                         .background {
                             Capsule(style: .continuous)
                                 .fill(IOSAppTheme.accentWash(tint).opacity(0.6))
@@ -200,6 +215,48 @@ struct IOSDeliveryPickerSheet: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 24)
         }
+        .onAppear {
+            selectedCategory = IOSDeliveryPickerSheet.category(for: localPresetID)
+        }
+    }
+
+    private var categoryTabBar: some View {
+        HStack(spacing: 8) {
+            ForEach(DeliveryPresetCategory.allCases, id: \.self) { category in
+                categoryTab(for: category)
+            }
+        }
+    }
+
+    private func categoryTab(for category: DeliveryPresetCategory) -> some View {
+        let isActive = category == selectedCategory
+        return Button {
+            withAnimation(IOSDesignMotion.stateChange) {
+                selectedCategory = category
+            }
+            IOSHaptics.selection()
+        } label: {
+            Text(tabLabel(for: category))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(isActive ? IOSAppTheme.textPrimary : IOSAppTheme.textSecondary)
+                .lineLimit(1)
+                .padding(.horizontal, 10)
+                .frame(height: 32)
+                .frame(maxWidth: .infinity)
+                .background {
+                    Capsule(style: .continuous)
+                        .fill(isActive ? tint.opacity(0.18) : Color.white.opacity(0.03))
+                }
+                .overlay {
+                    Capsule(style: .continuous)
+                        .stroke(
+                            isActive ? tint.opacity(0.35) : Color.white.opacity(0.10),
+                            lineWidth: 0.5
+                        )
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("deliveryPickerSheet_categoryTab_\(category.rawValue)")
     }
 
     private var customToneEditorBody: some View {
@@ -356,16 +413,6 @@ struct IOSDeliveryPickerSheet: View {
         dismiss()
     }
 
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(.system(size: 10, weight: .semibold))
-            .tracking(0.7)
-            .foregroundStyle(IOSAppTheme.textTertiary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 8)
-            .padding(.bottom, 2)
-    }
-
     /// Multi-line custom-tone editor backed by a `UITextView` with
     /// scroll-bounce disabled and focus-driven tint chrome. Mirrors
     /// `IOSBriefTextEditor` used by the Voice Design brief sheet.
@@ -474,9 +521,9 @@ struct IOSDeliveryPickerSheet: View {
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, minHeight: 64, alignment: .topLeading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, minHeight: 54, alignment: .topLeading)
             .background {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(
