@@ -261,6 +261,51 @@ final class VocelloiOSSheetUITests: XCTestCase {
         VocelloUITestApp.shared.captureScreenshot(named: "sheet-custom-tone-antonyms")
     }
 
+    /// Tapping chips in a shuffled category order produces a canonically ordered
+    /// instruction (Style → Emotion → Timbre → Pace).
+    func testCustomToneChipsReorderByCategory() {
+        selectMode("generateSection_custom")
+        openSheet(viaChipLabelPrefix: "Delivery: ")
+
+        let customToneButton = element("deliveryPickerSheet_customTone")
+        XCTAssertTrue(customToneButton.waitForExistence(timeout: 10), "custom tone button should exist")
+        customToneButton.tap()
+
+        let editor = element("deliveryPickerSheet_customTone_editor")
+        XCTAssertTrue(editor.waitForExistence(timeout: 10), "custom tone editor should exist")
+
+        // Clear any leftover text from shared app state.
+        let app = VocelloUITestApp.shared.app
+        editor.tap()
+        editor.press(forDuration: 1.0)
+        let menu = app.menuItems
+        if menu["Select All"].waitForExistence(timeout: 3) {
+            menu["Select All"].tap()
+            if menu["Cut"].waitForExistence(timeout: 3) {
+                menu["Cut"].tap()
+            }
+        }
+
+        // Tap chips in shuffled order: Pace, Emotion, Style, Timbre.
+        element("deliveryPickerSheet_customTone_chip_measured").tap()
+        element("deliveryPickerSheet_customTone_chip_playful").tap()
+        element("deliveryPickerSheet_customTone_chip_conversational").tap()
+        element("deliveryPickerSheet_customTone_chip_bright").tap()
+
+        guard let editorText = editor.value as? String else {
+            XCTFail("custom tone editor should expose its text as value")
+            return
+        }
+
+        XCTAssertEqual(
+            editorText.lowercased(),
+            "conversational, playful, bright, measured",
+            "selected tags should be sorted Style → Emotion → Timbre → Pace"
+        )
+
+        VocelloUITestApp.shared.captureScreenshot(named: "sheet-custom-tone-ordered")
+    }
+
     // MARK: - Helpers
 
     private func element(_ identifier: String) -> XCUIElement {

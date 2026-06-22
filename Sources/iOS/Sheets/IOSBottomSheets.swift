@@ -337,6 +337,22 @@ struct IOSDeliveryPickerSheet: View {
         QuickStartCategory(title: "Style", tokens: ["narrator", "conversational", "news anchor", "dramatic"]),
     ]
 
+    /// Canonical category order for composed delivery instructions.
+    /// Mirrors the dimension order recommended by Qwen3-TTS voice-design
+    /// guidance (role/style first, then emotion, vocal quality, pace).
+    private let quickStartCategoryOrder: [String] = ["Style", "Emotion", "Timbre", "Pace"]
+
+    /// Maps a lowercased chip token to its category title.
+    private var tokenCategoryMap: [String: String] {
+        var map: [String: String] = [:]
+        for category in quickStartCategories {
+            for token in category.tokens {
+                map[token.lowercased()] = category.title
+            }
+        }
+        return map
+    }
+
     /// Tokens that are direct antonyms. When one is selected, its antonyms are
     /// disabled in the chip grid to prevent obviously conflicting instructions.
     private let tokenAntonyms: [String: [String]] = [
@@ -484,6 +500,46 @@ struct IOSDeliveryPickerSheet: View {
             let proposed = (originalTokens + [cleanedToken]).joined(separator: ", ")
             customText = String(proposed.prefix(limit))
         }
+
+        reorderComposedInstruction()
+    }
+
+    /// Sorts recognized quick-start chip tokens by the canonical Qwen3-TTS
+    /// category order (Style → Emotion → Timbre → Pace). Unrecognized/freeform
+    /// segments are preserved in their original relative order and appended
+    /// after the sorted chip tokens.
+    private func reorderComposedInstruction() {
+        let limit = IOSGenerationTextLimitPolicy.deliveryInstructionLimit
+
+        let rawSegments = customText
+            .components(separatedBy: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+        var recognized: [(text: String, category: String, originalIndex: Int)] = []
+        var unrecognized: [(text: String, originalIndex: Int)] = []
+
+        for (index, segment) in rawSegments.enumerated() {
+            guard !segment.isEmpty else { continue }
+            let key = segment.lowercased()
+            if let category = tokenCategoryMap[key] {
+                recognized.append((text: segment, category: category, originalIndex: index))
+            } else {
+                unrecognized.append((text: segment, originalIndex: index))
+            }
+        }
+
+        let sortedRecognized = recognized.sorted {
+            let lhsRank = quickStartCategoryOrder.firstIndex(of: $0.category) ?? Int.max
+            let rhsRank = quickStartCategoryOrder.firstIndex(of: $1.category) ?? Int.max
+            if lhsRank != rhsRank { return lhsRank < rhsRank }
+            return $0.originalIndex < $1.originalIndex
+        }
+
+        let orderedTokens = sortedRecognized.map { $0.text }
+            + unrecognized.sorted { $0.originalIndex < $1.originalIndex }.map { $0.text }
+
+        let reordered = orderedTokens.joined(separator: ", ")
+        customText = String(reordered.prefix(limit))
     }
 
     private func closeSheet() {
