@@ -138,7 +138,7 @@ final class VocelloiOSSheetUITests: XCTestCase {
         XCTAssertTrue(editor.waitForExistence(timeout: 10), "custom tone editor should exist")
 
         let longInstruction = String(
-            repeating: "A calm, deep narrator with a slow pace and warm timbre. ",
+            repeating: "A warm narrator with a measured pace and bright timbre. ",
             count: 6
         )
         editor.tap()
@@ -164,7 +164,8 @@ final class VocelloiOSSheetUITests: XCTestCase {
 
     /// Quick-start token chips are the primary input. They toggle tokens on/off
     /// and compose a comma-separated instruction in the editor.
-    /// Tokens chosen here are unlikely to collide with text left over from other tests.
+    /// Quick-start token chips are the primary input. They toggle tokens on/off
+    /// and compose a comma-separated instruction in the editor.
     func testCustomToneQuickStartChipsComposeTokens() {
         selectMode("generateSection_custom")
         openSheet(viaChipLabelPrefix: "Delivery: ")
@@ -180,9 +181,9 @@ final class VocelloiOSSheetUITests: XCTestCase {
         XCTAssertTrue(playfulChip.waitForExistence(timeout: 5), "playful quick-start chip should exist")
         playfulChip.tap()
 
-        let urgentChip = element("deliveryPickerSheet_customTone_chip_urgent")
-        XCTAssertTrue(urgentChip.waitForExistence(timeout: 5), "urgent quick-start chip should exist")
-        urgentChip.tap()
+        let whisperedChip = element("deliveryPickerSheet_customTone_chip_whispered")
+        XCTAssertTrue(whisperedChip.waitForExistence(timeout: 5), "whispered quick-start chip should exist")
+        whisperedChip.tap()
 
         guard let editorText = editor.value as? String else {
             XCTFail("custom tone editor should expose its text as value")
@@ -190,7 +191,7 @@ final class VocelloiOSSheetUITests: XCTestCase {
         }
         let lowered = editorText.lowercased()
         XCTAssertTrue(lowered.contains("playful"), "tapping playful chip should add 'playful' to the editor")
-        XCTAssertTrue(lowered.contains("urgent"), "tapping urgent chip should add 'urgent' to the editor")
+        XCTAssertTrue(lowered.contains("whispered"), "tapping whispered chip should add 'whispered' to the editor")
         XCTAssertTrue(lowered.contains(","), "composed tokens should be comma-separated")
 
         // Toggle off: tapping the same chip again should remove the token.
@@ -204,9 +205,60 @@ final class VocelloiOSSheetUITests: XCTestCase {
             loweredAfter.contains("playful"),
             "tapping a selected chip should remove its token from the editor"
         )
-        XCTAssertTrue(loweredAfter.contains("urgent"), "other tokens should remain after toggling one off")
+        XCTAssertTrue(loweredAfter.contains("whispered"), "other tokens should remain after toggling one off")
 
         VocelloUITestApp.shared.captureScreenshot(named: "sheet-custom-tone-chips")
+    }
+
+    /// Direct antonyms are disabled once one of them is selected, but unrelated tokens
+    /// remain available. A soft conflict warning is shown when antonyms are combined.
+    func testCustomToneAntonymLockoutAndConflictWarning() {
+        selectMode("generateSection_custom")
+        openSheet(viaChipLabelPrefix: "Delivery: ")
+
+        let customToneButton = element("deliveryPickerSheet_customTone")
+        XCTAssertTrue(customToneButton.waitForExistence(timeout: 10), "custom tone button should exist")
+        customToneButton.tap()
+
+        let editor = element("deliveryPickerSheet_customTone_editor")
+        XCTAssertTrue(editor.waitForExistence(timeout: 10), "custom tone editor should exist")
+
+        // Ensure 'slow' is selected by typing it; this works regardless of leftover state.
+        editor.tap()
+        editor.typeText("slow")
+
+        let slowChip = element("deliveryPickerSheet_customTone_chip_slow")
+        XCTAssertTrue(slowChip.waitForExistence(timeout: 5), "slow chip should exist")
+        XCTAssertTrue(slowChip.isEnabled, "slow chip should be enabled")
+
+        let fastChip = element("deliveryPickerSheet_customTone_chip_fast")
+        XCTAssertTrue(fastChip.waitForExistence(timeout: 5), "fast chip should exist")
+        XCTAssertFalse(fastChip.isEnabled, "fast should be disabled when slow is selected")
+
+        let measuredChip = element("deliveryPickerSheet_customTone_chip_measured")
+        XCTAssertTrue(measuredChip.waitForExistence(timeout: 5), "measured chip should exist")
+        XCTAssertTrue(measuredChip.isEnabled, "measured should stay enabled when slow is selected")
+
+        let warmChip = element("deliveryPickerSheet_customTone_chip_warm")
+        XCTAssertTrue(warmChip.waitForExistence(timeout: 5), "warm chip should exist")
+        XCTAssertTrue(warmChip.isEnabled, "warm should stay enabled when slow is selected")
+
+        // Cross-category conflict: slow + urgent triggers the soft warning.
+        let urgentChip = element("deliveryPickerSheet_customTone_chip_urgent")
+        XCTAssertFalse(urgentChip.isEnabled, "urgent should be disabled when slow is selected")
+
+        // Manually type the conflicting pair to surface the soft warning
+        // (chips block antonyms, but typed text can still contain conflicts).
+        editor.tap()
+        editor.typeText(", urgent")
+
+        let conflictWarning = element("deliveryPickerSheet_customTone_conflictWarning")
+        XCTAssertTrue(
+            conflictWarning.waitForExistence(timeout: 5),
+            "a soft conflict warning should appear for conflicting tokens"
+        )
+
+        VocelloUITestApp.shared.captureScreenshot(named: "sheet-custom-tone-antonyms")
     }
 
     // MARK: - Helpers

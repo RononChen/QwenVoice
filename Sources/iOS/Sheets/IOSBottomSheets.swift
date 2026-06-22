@@ -253,6 +253,7 @@ struct IOSDeliveryPickerSheet: View {
 
     @State private var placeholderExampleIndex = 0
 
+
     private var customToneGuidance: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Be specific and concise. Combine emotion, pace, pitch, and timbre. Avoid vague words like 'nice'.")
@@ -271,6 +272,19 @@ struct IOSDeliveryPickerSheet: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .accessibilityIdentifier("deliveryPickerSheet_customTone_guidance")
+            }
+
+            if !selectedTokenConflicts.isEmpty {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.orange)
+                    Text("These qualities may conflict: \(selectedTokenConflicts.joined(separator: "; ")). Consider removing one for clearer results.")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityIdentifier("deliveryPickerSheet_customTone_conflictWarning")
             }
         }
     }
@@ -323,6 +337,21 @@ struct IOSDeliveryPickerSheet: View {
         QuickStartCategory(title: "Style", tokens: ["narrator", "conversational", "news anchor", "dramatic"]),
     ]
 
+    /// Tokens that are direct antonyms. When one is selected, its antonyms are
+    /// disabled in the chip grid to prevent obviously conflicting instructions.
+    private let tokenAntonyms: [String: [String]] = [
+        "calm": ["excited", "urgent"],
+        "excited": ["calm", "serious"],
+        "serious": ["playful", "excited"],
+        "playful": ["serious"],
+        "slow": ["fast", "urgent"],
+        "fast": ["slow", "measured"],
+        "urgent": ["slow", "calm"],
+        "measured": ["fast"],
+        "deep": ["bright"],
+        "bright": ["deep"],
+    ]
+
     private var quickStartChipsView: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Quick starts")
@@ -347,13 +376,19 @@ struct IOSDeliveryPickerSheet: View {
             FlowLayout(spacing: 8) {
                 ForEach(category.tokens, id: \.self) { token in
                     let isSelected = isTokenSelected(token)
+                    let isDisabled = isTokenDisabled(token)
                     Button {
+                        guard !isDisabled else { return }
                         toggleQuickStartToken(token)
                         IOSHaptics.selection()
                     } label: {
                         Text(token)
                             .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
-                            .foregroundStyle(isSelected ? IOSAppTheme.textPrimary : tint)
+                            .foregroundStyle(
+                                isDisabled
+                                    ? IOSAppTheme.textTertiary
+                                    : (isSelected ? IOSAppTheme.textPrimary : tint)
+                            )
                             .padding(.horizontal, 12)
                             .padding(.vertical, 7)
                             .background {
@@ -367,12 +402,15 @@ struct IOSDeliveryPickerSheet: View {
                             .overlay {
                                 Capsule(style: .continuous)
                                     .stroke(
-                                        isSelected ? tint.opacity(0.65) : tint.opacity(0.35),
+                                        isDisabled
+                                            ? Color.gray.opacity(0.25)
+                                            : (isSelected ? tint.opacity(0.65) : tint.opacity(0.35)),
                                         lineWidth: 0.8
                                     )
                             }
                     }
                     .buttonStyle(.plain)
+                    .disabled(isDisabled)
                     .accessibilityIdentifier("deliveryPickerSheet_customTone_chip_\(token)")
                 }
             }
@@ -396,6 +434,27 @@ struct IOSDeliveryPickerSheet: View {
 
     private func isTokenSelected(_ token: String) -> Bool {
         tokenize(customText).contains(token.lowercased())
+    }
+
+    private func isTokenDisabled(_ token: String) -> Bool {
+        let selected = tokenize(customText)
+        guard let antonyms = tokenAntonyms[token.lowercased()] else { return false }
+        return antonyms.contains { selected.contains($0.lowercased()) }
+    }
+
+    private var selectedTokenConflicts: [String] {
+        let selected = tokenize(customText)
+        var conflicts: [String] = []
+        for token in selected {
+            guard let antonyms = tokenAntonyms[token] else { continue }
+            for antonym in antonyms where selected.contains(antonym) {
+                let pair = [token, antonym].sorted().joined(separator: " + ")
+                if !conflicts.contains(pair) {
+                    conflicts.append(pair)
+                }
+            }
+        }
+        return conflicts
     }
 
     private func tokenize(_ text: String) -> [String] {
