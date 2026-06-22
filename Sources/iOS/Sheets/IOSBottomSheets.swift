@@ -223,16 +223,16 @@ struct IOSDeliveryPickerSheet: View {
             VStack(alignment: .leading, spacing: 16) {
                 composedInstructionPreview
 
-                customToneGuidance
-
-                quickStartChipsView
-
                 manualEditorDisclosure
 
                 if isManualEditorExpanded {
                     manualTextEditor
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
+
+                customToneGuidance
+
+                quickStartChipsView
 
                 HStack {
                     Spacer(minLength: 0)
