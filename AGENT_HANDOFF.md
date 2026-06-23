@@ -53,7 +53,7 @@ RULES
 
 ## 2026-06-23 — kimi — fixed Cancel Download from pause/cancel prompt
 
-- **Commits:** uncommitted — working tree (pending push).
+- **Commits:** 98c2272 on main.
 - **Touched:**
   - `Sources/iOS/IOSSettingsViews.swift` — moved the pause/cancel confirmation dialog from `IOSModelRow` (per-row `@State`) to `IOSSettingsView` (parent-level `modelPendingCancel`); the destructive **Cancel Download** action now calls `modelInstaller.cancel(model)` directly.
   - `AGENT_HANDOFF.md` — this entry.
