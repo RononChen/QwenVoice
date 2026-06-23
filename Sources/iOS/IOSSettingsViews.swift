@@ -206,7 +206,7 @@ private struct IOSSettingsView: View {
             Text("Generated clips are always kept on this iPhone for History. Optionally also copy each new clip to a folder you choose — Files or iCloud Drive.")
         }
         .confirmationDialog(
-            "Downloading…",
+            "Cancel download?",
             isPresented: Binding(
                 get: { modelPendingCancel != nil },
                 set: { isPresented in
@@ -216,10 +216,6 @@ private struct IOSSettingsView: View {
             titleVisibility: .visible
         ) {
             if let model = modelPendingCancel {
-                Button("Pause") {
-                    modelInstaller.pause(model)
-                    modelPendingCancel = nil
-                }
                 Button("Cancel Download", role: .destructive) {
                     modelInstaller.cancel(model)
                     modelPendingCancel = nil
@@ -229,7 +225,7 @@ private struct IOSSettingsView: View {
                 }
             }
         } message: {
-            Text("Pausing keeps the downloaded data so you can resume later. Canceling removes it.")
+            Text("This will stop the download and remove any downloaded data.")
         }
         .fileImporter(
             isPresented: $isFolderPickerPresented,
@@ -827,8 +823,6 @@ private struct IOSModelRow: View {
             installButton(title: "Install", accessibilityIdentifier: "iosModelDownload_\(model.id)")
         case .downloading, .interrupted, .resuming, .restarting:
             installButton(title: "Cancel", action: requestCancelOptions, accessibilityIdentifier: "iosModelCancel_\(model.id)")
-        case .paused:
-            installButton(title: "Resume", action: requestInstall, accessibilityIdentifier: "iosModelResume_\(model.id)")
         case .verifying, .installing, .deleting:
             ProgressView()
         case .unavailable:
@@ -904,14 +898,6 @@ private struct IOSModelRow: View {
                     .font(.system(size: 12))
                     .foregroundStyle(IOSAppTheme.textSecondary)
             }
-        case .paused(let progress, let downloadedBytes, let totalBytes):
-            VStack(alignment: .leading, spacing: 6) {
-                ProgressView(value: progress ?? 0)
-                    .tint(IOSBrandTheme.modeColor(for: model.mode))
-                Text(progressText(downloadedBytes: downloadedBytes, totalBytes: totalBytes))
-                    .font(.system(size: 12))
-                    .foregroundStyle(IOSAppTheme.textSecondary)
-            }
         case .failed(let message):
             Text(message)
                 .font(.system(size: 12))
@@ -953,7 +939,7 @@ private struct IOSModelRow: View {
 
     private var showsStatusDetail: Bool {
         switch operationState {
-        case .downloading, .interrupted, .resuming, .restarting, .paused:
+        case .downloading, .interrupted, .resuming, .restarting:
             return true
         case .failed:
             return true
@@ -989,8 +975,6 @@ private struct IOSModelRow: View {
             return "Resuming…"
         case .restarting:
             return "Restarting…"
-        case .paused:
-            return "Paused"
         case .verifying:
             return "Verifying…"
         case .installing:

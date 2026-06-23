@@ -51,6 +51,24 @@ RULES
 
 <!-- NEWEST ENTRIES BELOW THIS LINE — prepend your entry here (newest at top) -->
 
+## 2026-06-23 — kimi — reverted to simple download + cancel confirmation
+
+- **Commits:** (to be filled after push) on main.
+- **Touched:**
+  - `Sources/iOS/IOSModelDeliveryActor.swift` — removed `pause(modelID:)`, partial-byte tracking, and pause-specific state-machine helpers; kept `.paused` as a legacy decoder value and clean up any stale paused persisted state on launch.
+  - `Sources/iOS/IOSModelInstallerViewModel.swift` — removed `.paused` operation state, `pause(_:)`, `simulatorFakePause(_:)`, and paused resume logic in the fake installer.
+  - `Sources/iOS/IOSSettingsViews.swift` — replaced the Pause/Cancel dialog with a single "Cancel download?" confirmation (destructive "Cancel Download" + dismiss); removed Resume UI for paused downloads.
+  - `AGENT_HANDOFF.md` — this entry.
+- **Summary:**
+  - The user decided the pause/resume model-management flow was too broken and asked for a simple download/cancel experience.
+  - Tapping Cancel while downloading now asks for confirmation and then discards partial data; there is no Pause or Resume.
+  - `scripts/build.sh build` (macOS) passed.
+  - `scripts/ios_device.sh ui-test VocelloiOSUITests/VocelloiOSSheetUITests` passed — **7 tests, 0 failures** (after unlocking the device).
+- **Decisions:**
+  - Preserve `.paused` in the `IOSModelDeliverySnapshot.Phase` enum only for decoder compatibility with old persisted state; the actor now treats a persisted paused state as stale and cleans it up.
+- **Requests for other:** none.
+- **Open questions / blockers:** none.
+
 ## 2026-06-23 — kimi — fixed paused download byte count
 
 - **Commits:** 1359d81 on main.

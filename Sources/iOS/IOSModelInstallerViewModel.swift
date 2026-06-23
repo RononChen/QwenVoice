@@ -10,7 +10,6 @@ final class IOSModelInstallerViewModel: ObservableObject {
         case interrupted(message: String?, downloadedBytes: Int64, totalBytes: Int64?)
         case resuming(progress: Double?, downloadedBytes: Int64, totalBytes: Int64?)
         case restarting(progress: Double?, downloadedBytes: Int64, totalBytes: Int64?)
-        case paused(progress: Double?, downloadedBytes: Int64, totalBytes: Int64?)
         case verifying
         case installing
         case installed
@@ -153,18 +152,6 @@ final class IOSModelInstallerViewModel: ObservableObject {
         }
     }
 
-    func pause(_ model: TTSModel) {
-        if IOSSimulatorRuntimeSupport.isSimulator {
-            simulatorFakePause(model)
-            return
-        }
-
-        guard let deliveryActor else { return }
-        Task {
-            await deliveryActor.pause(modelID: model.id)
-        }
-    }
-
     func delete(_ model: TTSModel) {
         if IOSSimulatorRuntimeSupport.isSimulator {
             simulatorFakeDelete(model)
@@ -217,18 +204,10 @@ final class IOSModelInstallerViewModel: ObservableObject {
         let totalBytes = model.estimatedDownloadBytes ?? 2_300_000_000
         let modelID = model.id
 
-        // Resume from a paused install if one exists.
-        let startProgress: Double
-        if case let .paused(progress, _, _) = states[modelID], let progress {
-            startProgress = progress
-        } else {
-            startProgress = 0
-        }
-
         fakeInstallTasks[modelID] = Task { @MainActor in
             // Slow enough that a human tester can see each phase render.
             let stepNanos: UInt64 = 600_000_000 // 0.6s per phase
-            let progressSteps: [Double] = [0.05, 0.22, 0.46, 0.71, 0.92].filter { $0 > startProgress }
+            let progressSteps: [Double] = [0.05, 0.22, 0.46, 0.71, 0.92]
             for progress in progressSteps {
                 if Task.isCancelled { return }
                 states[modelID] = .downloading(
@@ -263,23 +242,6 @@ final class IOSModelInstallerViewModel: ObservableObject {
         IOSSimulatorFakeInstallRegistry.shared.clear(model.id)
         states[model.id] = .available(estimatedBytes: model.estimatedDownloadBytes)
         modelManager.statuses[model.id] = .notInstalled
-    }
-
-    func simulatorFakePause(_ model: TTSModel) {
-        guard IOSSimulatorRuntimeSupport.isSimulator else { return }
-        fakeInstallTasks[model.id]?.cancel()
-        fakeInstallTasks[model.id] = nil
-
-        let pausedState: OperationState
-        switch states[model.id] {
-        case .downloading(let progress, let downloadedBytes, let totalBytes),
-             .resuming(let progress, let downloadedBytes, let totalBytes),
-             .restarting(let progress, let downloadedBytes, let totalBytes):
-            pausedState = .paused(progress: progress, downloadedBytes: downloadedBytes, totalBytes: totalBytes)
-        default:
-            pausedState = .paused(progress: nil, downloadedBytes: 0, totalBytes: model.estimatedDownloadBytes)
-        }
-        states[model.id] = pausedState
     }
 
     func simulatorFakeDelete(_ model: TTSModel) {
@@ -349,18 +311,6 @@ final class IOSModelInstallerViewModel: ObservableObject {
                 downloadedBytes: snapshot.downloadedBytes,
                 totalBytes: snapshot.totalBytes
             )
-        case .paused:
-            let progress: Double?
-            if let totalBytes = snapshot.totalBytes, totalBytes > 0 {
-                progress = Double(snapshot.downloadedBytes) / Double(totalBytes)
-            } else {
-                progress = nil
-            }
-            states[snapshot.modelID] = .paused(
-                progress: progress,
-                downloadedBytes: snapshot.downloadedBytes,
-                totalBytes: snapshot.totalBytes
-            )
         case .verifying:
             states[snapshot.modelID] = .verifying
         case .installing:
@@ -384,6 +334,9 @@ final class IOSModelInstallerViewModel: ObservableObject {
             Task {
                 await modelManager.refresh()
             }
+        case .paused:
+            // Legacy phase no longer produced by IOSModelDeliveryActor.
+            break
         }
     }
 }
