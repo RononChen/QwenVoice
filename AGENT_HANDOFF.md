@@ -51,6 +51,23 @@ RULES
 
 <!-- NEWEST ENTRIES BELOW THIS LINE — prepend your entry here (newest at top) -->
 
+## 2026-06-23 — kimi — fixed Cancel Download from pause/cancel prompt
+
+- **Commits:** uncommitted — working tree (pending push).
+- **Touched:**
+  - `Sources/iOS/IOSSettingsViews.swift` — moved the pause/cancel confirmation dialog from `IOSModelRow` (per-row `@State`) to `IOSSettingsView` (parent-level `modelPendingCancel`); the destructive **Cancel Download** action now calls `modelInstaller.cancel(model)` directly.
+  - `AGENT_HANDOFF.md` — this entry.
+- **Summary:**
+  - The user reported that choosing **Cancel Download** from the prompt did not cancel the download.
+  - Hosting the dialog in the parent view removes per-row state/closure-capture issues and wires the destructive action directly to the view model, matching the working delete-confirmation pattern.
+  - `scripts/build.sh build` (macOS) passed.
+  - `scripts/ios_device.sh install && scripts/ios_device.sh launch` succeeded on the real iPhone.
+  - `scripts/ios_device.sh ui-test VocelloiOSUITests/VocelloiOSSheetUITests` passed — **7 tests, 0 failures**.
+- **Decisions:**
+  - Keep the `.downloading`/`.resuming`/`.restarting`/`.interrupted` states all routed through the same Cancel prompt; Pause on an interrupted download simply pauses the retry loop.
+- **Requests for other:** none.
+- **Open questions / blockers:** none.
+
 ## 2026-06-23 — kimi — added pause/resume for model downloads
 
 - **Commits:** 6a49a8b on main.
