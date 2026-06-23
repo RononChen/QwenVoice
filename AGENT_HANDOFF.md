@@ -51,6 +51,23 @@ RULES
 
 <!-- NEWEST ENTRIES BELOW THIS LINE — prepend your entry here (newest at top) -->
 
+## 2026-06-23 — kimi — fixed paused download byte count
+
+- **Commits:** (to be filled after push) on main.
+- **Touched:**
+  - `Sources/iOS/IOSModelDeliveryActor.swift` — added `currentFilePartialBytes` and `currentFileLiveBytes` to `IOSPersistedModelInstallState`; updated state-machine helpers and actor progress/pause/resume/restore paths so the paused snapshot includes bytes already downloaded for the current file.
+  - `AGENT_HANDOFF.md` — this entry.
+- **Summary:**
+  - The user reported that pausing a download showed an incorrect downloaded amount (it dropped back to the last fully completed file).
+  - Root cause: the paused snapshot used only `completedBytes`, ignoring the in-progress file's partial bytes.
+  - Fix: track current-file partial bytes separately from fully completed file bytes; on pause, roll `currentFileLiveBytes` into `currentFilePartialBytes` and publish `completedBytes + currentFilePartialBytes`; on resume, progress adds the resumed portion to the preserved partial bytes so the count never jumps backward.
+  - `scripts/build.sh build` (macOS) passed.
+  - `scripts/ios_device.sh ui-test VocelloiOSUITests/VocelloiOSSheetUITests` passed — **7 tests, 0 failures**.
+- **Decisions:**
+  - Keep progress persistence in memory only (not writing state to disk on every progress callback); the partial-byte fix is accurate for pause/resume and app-relaunch-after-pause scenarios.
+- **Requests for other:** none.
+- **Open questions / blockers:** none.
+
 ## 2026-06-23 — kimi — fixed Cancel Download from pause/cancel prompt
 
 - **Commits:** 98c2272 on main.

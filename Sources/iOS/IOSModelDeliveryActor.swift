@@ -33,6 +33,8 @@ private struct IOSPersistedModelInstallState: Codable, Sendable {
     let currentRelativePath: String?
     let completedBytes: Int64
     let totalBytes: Int64
+    let currentFilePartialBytes: Int64
+    let currentFileLiveBytes: Int64
     let currentFileRetryCount: Int
     let currentResumeDataPath: String?
     let currentPhase: IOSModelDeliverySnapshot.Phase
@@ -46,6 +48,8 @@ private struct IOSPersistedModelInstallState: Codable, Sendable {
         case currentRelativePath
         case completedBytes
         case totalBytes
+        case currentFilePartialBytes
+        case currentFileLiveBytes
         case currentFileRetryCount
         case currentResumeDataPath
         case currentPhase
@@ -60,6 +64,8 @@ private struct IOSPersistedModelInstallState: Codable, Sendable {
         currentRelativePath: String?,
         completedBytes: Int64,
         totalBytes: Int64,
+        currentFilePartialBytes: Int64 = 0,
+        currentFileLiveBytes: Int64 = 0,
         currentFileRetryCount: Int,
         currentResumeDataPath: String?,
         currentPhase: IOSModelDeliverySnapshot.Phase
@@ -72,6 +78,8 @@ private struct IOSPersistedModelInstallState: Codable, Sendable {
         self.currentRelativePath = currentRelativePath
         self.completedBytes = completedBytes
         self.totalBytes = totalBytes
+        self.currentFilePartialBytes = currentFilePartialBytes
+        self.currentFileLiveBytes = currentFileLiveBytes
         self.currentFileRetryCount = currentFileRetryCount
         self.currentResumeDataPath = currentResumeDataPath
         self.currentPhase = currentPhase
@@ -87,6 +95,8 @@ private struct IOSPersistedModelInstallState: Codable, Sendable {
         self.currentRelativePath = try container.decodeIfPresent(String.self, forKey: .currentRelativePath)
         self.completedBytes = try container.decode(Int64.self, forKey: .completedBytes)
         self.totalBytes = try container.decode(Int64.self, forKey: .totalBytes)
+        self.currentFilePartialBytes = try container.decodeIfPresent(Int64.self, forKey: .currentFilePartialBytes) ?? 0
+        self.currentFileLiveBytes = try container.decodeIfPresent(Int64.self, forKey: .currentFileLiveBytes) ?? 0
         self.currentFileRetryCount = try container.decodeIfPresent(Int.self, forKey: .currentFileRetryCount) ?? 0
         self.currentResumeDataPath = try container.decodeIfPresent(String.self, forKey: .currentResumeDataPath)
         self.currentPhase = try container.decodeIfPresent(IOSModelDeliverySnapshot.Phase.self, forKey: .currentPhase) ?? .downloading
@@ -114,6 +124,8 @@ private struct IOSModelDeliveryStateMachine {
             currentRelativePath: nil,
             completedBytes: 0,
             totalBytes: totalBytes,
+            currentFilePartialBytes: 0,
+            currentFileLiveBytes: 0,
             currentFileRetryCount: 0,
             currentResumeDataPath: nil,
             currentPhase: .downloading
@@ -136,6 +148,12 @@ private struct IOSModelDeliveryStateMachine {
         phase: IOSModelDeliverySnapshot.Phase
     ) -> IOSPersistedModelInstallState {
         let retryCount = install.currentRelativePath == nil ? 0 : install.currentFileRetryCount
+        // Preserve any bytes already accumulated for this file (e.g. after a
+        // pause) but reset the live counter because a new URLSession task will
+        // begin reporting progress from zero for the remaining portion.
+        let partialBytes = install.currentRelativePath == currentRelativePath
+            ? install.currentFilePartialBytes
+            : 0
         return IOSPersistedModelInstallState(
             modelID: install.modelID,
             artifactVersion: install.artifactVersion,
@@ -145,6 +163,8 @@ private struct IOSModelDeliveryStateMachine {
             currentRelativePath: currentRelativePath,
             completedBytes: install.completedBytes,
             totalBytes: install.totalBytes,
+            currentFilePartialBytes: partialBytes,
+            currentFileLiveBytes: 0,
             currentFileRetryCount: retryCount,
             currentResumeDataPath: nil,
             currentPhase: phase
@@ -165,9 +185,53 @@ private struct IOSModelDeliveryStateMachine {
             currentRelativePath: nil,
             completedBytes: install.completedBytes + currentFile.sizeBytes,
             totalBytes: install.totalBytes,
+            currentFilePartialBytes: 0,
+            currentFileLiveBytes: 0,
             currentFileRetryCount: 0,
             currentResumeDataPath: nil,
             currentPhase: .downloading
+        )
+    }
+
+    static func updatingCurrentFileProgress(
+        from install: IOSPersistedModelInstallState,
+        liveBytes: Int64
+    ) -> IOSPersistedModelInstallState {
+        IOSPersistedModelInstallState(
+            modelID: install.modelID,
+            artifactVersion: install.artifactVersion,
+            stagingDirectoryPath: install.stagingDirectoryPath,
+            catalogEntry: install.catalogEntry,
+            pendingRelativePaths: install.pendingRelativePaths,
+            currentRelativePath: install.currentRelativePath,
+            completedBytes: install.completedBytes,
+            totalBytes: install.totalBytes,
+            currentFilePartialBytes: install.currentFilePartialBytes,
+            currentFileLiveBytes: liveBytes,
+            currentFileRetryCount: install.currentFileRetryCount,
+            currentResumeDataPath: install.currentResumeDataPath,
+            currentPhase: install.currentPhase
+        )
+    }
+
+    static func pausedCurrentDownload(
+        from install: IOSPersistedModelInstallState,
+        resumeDataPath: String?
+    ) -> IOSPersistedModelInstallState {
+        IOSPersistedModelInstallState(
+            modelID: install.modelID,
+            artifactVersion: install.artifactVersion,
+            stagingDirectoryPath: install.stagingDirectoryPath,
+            catalogEntry: install.catalogEntry,
+            pendingRelativePaths: install.pendingRelativePaths,
+            currentRelativePath: install.currentRelativePath,
+            completedBytes: install.completedBytes,
+            totalBytes: install.totalBytes,
+            currentFilePartialBytes: install.currentFilePartialBytes + install.currentFileLiveBytes,
+            currentFileLiveBytes: 0,
+            currentFileRetryCount: install.currentFileRetryCount,
+            currentResumeDataPath: resumeDataPath,
+            currentPhase: .paused
         )
     }
 
@@ -185,6 +249,8 @@ private struct IOSModelDeliveryStateMachine {
             currentRelativePath: install.currentRelativePath,
             completedBytes: install.completedBytes,
             totalBytes: install.totalBytes,
+            currentFilePartialBytes: install.currentFilePartialBytes,
+            currentFileLiveBytes: 0,
             currentFileRetryCount: retryCount,
             currentResumeDataPath: resumeDataPath,
             currentPhase: activeDownloadPhase(
@@ -350,7 +416,7 @@ actor IOSModelDeliveryActor {
             IOSModelDeliverySnapshot(
                 modelID: persisted.modelID,
                 phase: persisted.currentPhase,
-                downloadedBytes: persisted.completedBytes,
+                downloadedBytes: persisted.completedBytes + persisted.currentFilePartialBytes,
                 totalBytes: persisted.totalBytes,
                 estimatedBytes: descriptor.estimatedDownloadBytes,
                 message: statusMessage(for: persisted.currentPhase)
@@ -460,18 +526,9 @@ actor IOSModelDeliveryActor {
         }
 
         let resumeDataPath = producedResumeData.flatMap { saveResumeData($0, for: activeInstall) }
-        let pausedInstall = IOSPersistedModelInstallState(
-            modelID: activeInstall.modelID,
-            artifactVersion: activeInstall.artifactVersion,
-            stagingDirectoryPath: activeInstall.stagingDirectoryPath,
-            catalogEntry: activeInstall.catalogEntry,
-            pendingRelativePaths: activeInstall.pendingRelativePaths,
-            currentRelativePath: activeInstall.currentRelativePath,
-            completedBytes: activeInstall.completedBytes,
-            totalBytes: activeInstall.totalBytes,
-            currentFileRetryCount: activeInstall.currentFileRetryCount,
-            currentResumeDataPath: resumeDataPath,
-            currentPhase: .paused
+        let pausedInstall = IOSModelDeliveryStateMachine.pausedCurrentDownload(
+            from: activeInstall,
+            resumeDataPath: resumeDataPath
         )
         self.activeInstall = pausedInstall
         savePersistedState(pausedInstall)
@@ -479,10 +536,10 @@ actor IOSModelDeliveryActor {
         let descriptor = modelAssetStore.descriptor(id: activeInstall.modelID)?.model
         await publishSnapshot(
             IOSModelDeliverySnapshot(
-                modelID: activeInstall.modelID,
+                modelID: pausedInstall.modelID,
                 phase: .paused,
-                downloadedBytes: activeInstall.completedBytes,
-                totalBytes: activeInstall.totalBytes,
+                downloadedBytes: pausedInstall.completedBytes + pausedInstall.currentFilePartialBytes,
+                totalBytes: pausedInstall.totalBytes,
                 estimatedBytes: descriptor?.estimatedDownloadBytes,
                 message: nil
             )
@@ -607,7 +664,7 @@ actor IOSModelDeliveryActor {
             IOSModelDeliverySnapshot(
                 modelID: activeInstall.modelID,
                 phase: phase,
-                downloadedBytes: activeInstall.completedBytes,
+                downloadedBytes: activeInstall.completedBytes + activeInstall.currentFilePartialBytes,
                 totalBytes: activeInstall.totalBytes,
                 estimatedBytes: descriptor.estimatedDownloadBytes,
                 message: statusMessage(for: phase)
@@ -710,15 +767,20 @@ actor IOSModelDeliveryActor {
         }
 
         let expectedBytes = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : 0
-        let downloadedBytes = activeInstall.completedBytes + totalBytesWritten
+        let trackedInstall = IOSModelDeliveryStateMachine.updatingCurrentFileProgress(
+            from: activeInstall,
+            liveBytes: totalBytesWritten
+        )
+        self.activeInstall = trackedInstall
+        let downloadedBytes = trackedInstall.completedBytes + trackedInstall.currentFilePartialBytes + totalBytesWritten
         await publishSnapshot(
             IOSModelDeliverySnapshot(
-                modelID: activeInstall.modelID,
-                phase: activeInstall.currentPhase,
+                modelID: trackedInstall.modelID,
+                phase: trackedInstall.currentPhase,
                 downloadedBytes: downloadedBytes,
-                totalBytes: activeInstall.totalBytes > 0 ? activeInstall.totalBytes : expectedBytes,
+                totalBytes: trackedInstall.totalBytes > 0 ? trackedInstall.totalBytes : expectedBytes,
                 estimatedBytes: descriptor.estimatedDownloadBytes,
-                message: statusMessage(for: activeInstall.currentPhase)
+                message: statusMessage(for: trackedInstall.currentPhase)
             )
         )
     }
@@ -815,7 +877,7 @@ actor IOSModelDeliveryActor {
                 IOSModelDeliverySnapshot(
                     modelID: activeInstall.modelID,
                     phase: .interrupted,
-                    downloadedBytes: activeInstall.completedBytes,
+                    downloadedBytes: activeInstall.completedBytes + activeInstall.currentFilePartialBytes,
                     totalBytes: activeInstall.totalBytes,
                     estimatedBytes: descriptor?.estimatedDownloadBytes,
                     message: resumeDataPath == nil
