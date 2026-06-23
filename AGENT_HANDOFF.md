@@ -53,7 +53,7 @@ RULES
 
 ## 2026-06-23 — kimi — added missing Surprised description in delivery picker
 
-- **Commits:** uncommitted — working tree (files listed below).
+- **Commits:** da64da3 on main.
 - **Touched:**
   - `Sources/iOS/Sheets/IOSBottomSheets.swift` — added `case "surprised"` to `description(for:)`.
   - `AGENT_HANDOFF.md` — this entry.
