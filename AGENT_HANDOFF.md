@@ -53,7 +53,7 @@ RULES
 
 ## 2026-06-23 — kimi — removed dynamic Custom tone hints and fixed UI test
 
-- **Commits:** <to-fill-after-push> on main.
+- **Commits:** 9b6c506 on main.
 - **Touched:**
   - `Sources/iOS/Sheets/IOSBottomSheets.swift` — replaced dynamic guidance with a single static line, removed empty-state nudge.
   - `Sources/iOS/IOSDeliveryInstructionGuidance.swift` — deleted; no longer referenced.
