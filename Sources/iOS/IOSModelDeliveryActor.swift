@@ -7,6 +7,7 @@ struct IOSModelDeliverySnapshot: Equatable, Sendable {
         case interrupted
         case resuming
         case restarting
+        case paused
         case verifying
         case installing
         case installed
@@ -381,6 +382,9 @@ actor IOSModelDeliveryActor {
         }
 
         if let activeInstall, activeInstall.modelID == model.id {
+            if activeInstall.currentPhase == .paused {
+                try await startNextDownloadIfNeeded()
+            }
             return
         }
 
@@ -434,6 +438,55 @@ actor IOSModelDeliveryActor {
         Task { @MainActor in
             IOSModelDeliveryBackgroundEventRelay.completeIfPending()
         }
+    }
+
+    func pause(modelID: String) async {
+        guard let activeInstall, activeInstall.modelID == modelID else { return }
+
+        let tasks = await allDownloadTasks()
+        var producedResumeData: Data?
+        for task in tasks {
+            guard let taskDescription = decodeTaskDescription(task.taskDescription),
+                  taskDescription.modelID == modelID,
+                  let downloadTask = task as? URLSessionDownloadTask else {
+                continue
+            }
+            producedResumeData = await withCheckedContinuation { continuation in
+                downloadTask.cancel(byProducingResumeData: { data in
+                    continuation.resume(returning: data)
+                })
+            }
+            break
+        }
+
+        let resumeDataPath = producedResumeData.flatMap { saveResumeData($0, for: activeInstall) }
+        let pausedInstall = IOSPersistedModelInstallState(
+            modelID: activeInstall.modelID,
+            artifactVersion: activeInstall.artifactVersion,
+            stagingDirectoryPath: activeInstall.stagingDirectoryPath,
+            catalogEntry: activeInstall.catalogEntry,
+            pendingRelativePaths: activeInstall.pendingRelativePaths,
+            currentRelativePath: activeInstall.currentRelativePath,
+            completedBytes: activeInstall.completedBytes,
+            totalBytes: activeInstall.totalBytes,
+            currentFileRetryCount: activeInstall.currentFileRetryCount,
+            currentResumeDataPath: resumeDataPath,
+            currentPhase: .paused
+        )
+        self.activeInstall = pausedInstall
+        savePersistedState(pausedInstall)
+
+        let descriptor = modelAssetStore.descriptor(id: activeInstall.modelID)?.model
+        await publishSnapshot(
+            IOSModelDeliverySnapshot(
+                modelID: activeInstall.modelID,
+                phase: .paused,
+                downloadedBytes: activeInstall.completedBytes,
+                totalBytes: activeInstall.totalBytes,
+                estimatedBytes: descriptor?.estimatedDownloadBytes,
+                message: nil
+            )
+        )
     }
 
     func delete(model: ModelDescriptor) async throws {
@@ -915,7 +968,7 @@ actor IOSModelDeliveryActor {
             return "Resuming interrupted file…"
         case .restarting:
             return "Restarting current file…"
-        case .downloading, .verifying, .installing, .installed, .deleting, .deleted, .failed:
+        case .downloading, .paused, .verifying, .installing, .installed, .deleting, .deleted, .failed:
             return nil
         }
     }

@@ -51,6 +51,25 @@ RULES
 
 <!-- NEWEST ENTRIES BELOW THIS LINE — prepend your entry here (newest at top) -->
 
+## 2026-06-23 — kimi — added pause/resume for model downloads
+
+- **Commits:** uncommitted — working tree (pending push).
+- **Touched:**
+  - `Sources/iOS/IOSModelDeliveryActor.swift` — added `.paused` phase; added `pause(modelID:)` using `cancel(byProducingResumeData:)` and persisted resume data; updated `install(model:)` to resume a paused install.
+  - `Sources/iOS/IOSModelInstallerViewModel.swift` — added `.paused` operation state, `pause(_:)` method, and simulator fake-pause/resume support.
+  - `Sources/iOS/IOSSettingsViews.swift` — `IOSModelRow` now shows a confirmation dialog when Cancel is tapped during an active download, offering **Pause** or **Cancel Download**; paused downloads show a **Resume** button.
+  - `AGENT_HANDOFF.md` — this entry.
+- **Summary:**
+  - Tapping Cancel while a model is downloading now asks whether to pause or cancel. Pause keeps partial data and resumes on demand; Cancel discards partial data as before.
+  - `scripts/build.sh build` (macOS) passed.
+  - `scripts/ios_device.sh install && scripts/ios_device.sh launch` succeeded on the real iPhone.
+  - `scripts/ios_device.sh ui-test VocelloiOSUITests/VocelloiOSSheetUITests` could not run because the iPhone locked during the test bootstrap. The app launches cleanly on device.
+- **Decisions:**
+  - Reused the existing resume-data path (`currentResumeDataPath`) for pause instead of adding a separate pause file.
+  - Interrupted/error states keep the old direct Cancel behavior; only active `.downloading`/`.resuming`/`.restarting` show the new Pause/Cancel dialog.
+- **Requests for other:** none.
+- **Open questions / blockers:** none.
+
 ## 2026-06-23 — kimi — removed IOSModelInstallSheet entirely
 
 - **Commits:** bd9ac21 on main.
