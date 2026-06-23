@@ -53,7 +53,7 @@ RULES
 
 ## 2026-06-23 — kimi — made on-device iOS verification mandatory in AGENTS.md
 
-- **Commits:** uncommitted — working tree (files listed below).
+- **Commits:** bd4c8ae on main.
 - **Touched:**
   - `AGENTS.md` — added a firm rule that on-device verification is mandatory after any iOS UI change; compile-only builds are not enough.
   - `AGENT_HANDOFF.md` — this entry.
