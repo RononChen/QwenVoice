@@ -53,7 +53,7 @@ RULES
 
 ## 2026-06-23 — kimi — removed IOSModelInstallSheet entirely
 
-- **Commits:** uncommitted — working tree (pending push).
+- **Commits:** bd9ac21 on main.
 - **Touched:**
   - `Sources/iOS/Sheets/IOSBottomSheets.swift` — deleted `IOSModelInstallSheet` and `IOSModelInstallSheetItem`.
   - `Sources/iOS/IOSSettingsViews.swift` — removed all install-sheet presentation plumbing from `IOSModelRow`; the Install button now calls `onInstall()` directly.
