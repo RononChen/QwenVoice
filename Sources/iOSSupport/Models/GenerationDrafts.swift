@@ -13,15 +13,18 @@ struct DeliveryInputState: Equatable {
 
     var mode: DeliveryInputMode = .preset
     var selectedPresetID = DeliveryInputState.neutralPresetID
+    var selectedIntensity: EmotionIntensity = .normal
     var customText = ""
 
     init(
         mode: DeliveryInputMode = .preset,
         selectedPresetID: String = DeliveryInputState.neutralPresetID,
+        selectedIntensity: EmotionIntensity = .normal,
         customText: String = ""
     ) {
         self.mode = mode
         self.selectedPresetID = selectedPresetID
+        self.selectedIntensity = selectedIntensity
         self.customText = customText
     }
 
@@ -33,35 +36,21 @@ struct DeliveryInputState: Equatable {
             return
         }
 
-        // Current preset instructions.
-        if let preset = EmotionPreset.all.first(where: {
-            $0.instruction.caseInsensitiveCompare(trimmedEmotion) == .orderedSame
-        }) {
-            self.init(mode: .preset, selectedPresetID: preset.id)
-            return
-        }
-
-        // Backward compatibility: the .normal intensity-tier instructions from
-        // the previous build, when presets still had three intensity levels.
-        let oldInstructions: [String: String] = [
-            "happy": "Speaks happily and upbeat, smiling through the words with bright energy and a slightly lifted pitch.",
-            "sad": "Speaks sadly and somberly, with a heavy, restrained tone, lowered pitch, and small gentle pauses.",
-            "angry": "Speaks angrily and frustrated, firm and pushed, with sharp consonants and tight stress.",
-            "fearful": "Speaks fearfully and anxiously, breath caught, pacing uncertain, words pushed out shakily.",
-            "surprised": "Speaks with unmistakable surprise, pitch jumping higher, pace quick and animated, stressing the unexpected words as if astonished by the news.",
-            "whisper": "Whispers throughout, hushed and breathy, every word voiced just above breath, close and confidential.",
-            "dramatic": "Speaks dramatically and expressively, lifting key phrases with heightened inflection and deliberate pacing.",
-            "calm": "Speaks calmly and soothingly, smooth unhurried pacing, low settled pitch, with reassuring warmth.",
-            "excited": "Speaks energetically and enthusiastically, bright and animated, picking up the pace just slightly.",
-            "narrator": "Narrates like a composed documentary voice, low warm timbre, deliberate pacing, crisp diction, gentle emphasis on key phrases.",
-            "news": "Speaks in a clear news broadcast style, steady professional delivery, even pacing, precise articulation, no dramatics.",
-        ]
-        if let match = oldInstructions.first(where: { $0.value.caseInsensitiveCompare(trimmedEmotion) == .orderedSame }) {
-            self.init(mode: .preset, selectedPresetID: match.key)
-            return
+        // Look across all intensities so a saved "strong" instruction round-trips correctly.
+        for preset in EmotionPreset.all {
+            for intensity in EmotionIntensity.allCases {
+                if preset.instruction(for: intensity).caseInsensitiveCompare(trimmedEmotion) == .orderedSame {
+                    self.init(mode: .preset, selectedPresetID: preset.id, selectedIntensity: intensity)
+                    return
+                }
+            }
         }
 
         self.init(mode: .custom, customText: trimmedEmotion)
+    }
+
+    var supportsIntensity: Bool {
+        mode == .preset && selectedPresetID != DeliveryInputState.neutralPresetID
     }
 
     var resolvedDeliveryProfile: DeliveryProfile {
@@ -70,7 +59,7 @@ struct DeliveryInputState: Equatable {
             guard let preset = EmotionPreset.preset(id: selectedPresetID) else {
                 return .neutral
             }
-            return DeliveryProfile.preset(preset)
+            return DeliveryProfile.preset(preset, intensity: selectedIntensity)
         case .custom:
             guard let trimmedCustomText = customText.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else {
                 return .neutral

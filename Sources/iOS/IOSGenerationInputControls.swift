@@ -124,6 +124,7 @@ struct IOSDeliveryPicker: View {
                             delivery.selectedPresetID = newID
                         }
                     ),
+                    intensity: $delivery.selectedIntensity,
                     customText: $delivery.customText,
                     tint: tint,
                     onUseCustomTone: {

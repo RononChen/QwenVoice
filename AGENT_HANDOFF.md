@@ -51,6 +51,28 @@ RULES
 
 <!-- NEWEST ENTRIES BELOW THIS LINE — prepend your entry here (newest at top) -->
 
+## 2026-06-22 — kimi — reverted delivery picker to emotion grid + intensity with rewritten Qwen3-TTS prompts
+
+- **Commits:** uncommitted — working tree (files listed below).
+- **Touched:**
+  - `Sources/QwenVoiceCore/EmotionPreset.swift` — restored `EmotionIntensity` and `[EmotionIntensity: String]` instructions; curated preset list to Neutral + 7 emotions + Whisper + Dramatic; rewrote all prompts.
+  - `Sources/iOSSupport/Models/GenerationDrafts.swift` — restored `selectedIntensity`, `supportsIntensity`, and intensity-aware resolution/legacy mapping.
+  - `Sources/iOS/Sheets/IOSBottomSheets.swift` — restored flat 2-column preset grid + intensity row; removed category tabs.
+  - `Sources/iOS/IOSGenerationInputControls.swift`, `Sources/iOS/IOSGenerationModeViews.swift` — pass `intensity` binding into `IOSDeliveryPickerSheet`.
+  - `Sources/Views/Components/EmotionPickerView.swift` — restored inline intensity picker.
+  - `Sources/VocelloCLI/BenchCommand.swift`, `Sources/VocelloCLI/DeliveriesCommand.swift` — restored `<preset>.<intensity>` cell ids.
+  - `scripts/delivery_adherence.py` — restored `.intensity` examples and defaults.
+- **Summary:**
+  - Reverted the delivery UI from category tabs back to the previous emotion grid with a Subtle/Normal/Strong intensity selector.
+  - Dropped Documentary and Newscaster presets; kept Whisper and Dramatic.
+  - Rewrote every preset prompt to use imperative verbs, concrete acoustic wording, negative constraints for high-arousal emotions, and intelligibility clauses.
+  - Verified `./scripts/check_project_inputs.sh`, `./scripts/build.sh build`, `./scripts/build.sh cli`, `build/vocello deliveries`, and `./scripts/ios_device.sh build` all pass.
+- **Decisions:**
+  - Intensity tier copy now uses Qwen3-TTS best practices instead of the old adjective-stacking style.
+  - Preset palette in `IOSEmotionPresetPalette` no longer references removed Narrator/News ids.
+- **Requests for claude-code:** none.
+- **Open questions:** none.
+
 ## 2026-06-22 — kimi — wired AGENTS.md to the handoff log + picked up from claude-code
 
 - **Commits:** d1b3c7f on main.

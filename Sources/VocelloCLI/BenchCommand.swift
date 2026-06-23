@@ -21,7 +21,7 @@ enum BenchCommand {
     /// Default delivery cells for `--delivery` (bare flag): one expressive, one
     /// calm, one whisper — the three preset families with distinct acoustic
     /// signatures, so QC + the prosody gate cover the delivery spectrum.
-    static let defaultDeliverySet = ["happy", "calm", "whisper"]
+    static let defaultDeliverySet = ["happy.strong", "calm.normal", "whisper.normal"]
 
     /// Bucket a prompt char count into the short/medium/long labels used for
     /// filenames and the telemetry `lenBucket`. Mirrors the logic in
@@ -30,30 +30,42 @@ enum BenchCommand {
         chars == 0 ? "n/a" : chars < 70 ? "short" : chars > 220 ? "long" : "medium"
     }
 
-    /// A resolved delivery cell: `id` is the stable preset id (stamped into the
-    /// telemetry note + filename), `instruction` the preset's instruction string
-    /// sent as `deliveryStyle`.
+    /// A resolved delivery cell: `id` is the stable `<preset>.<intensity>` token
+    /// (stamped into the telemetry note + filename), `instruction` the preset's
+    /// instruction string sent as `deliveryStyle`.
     struct DeliveryItem {
         let id: String
         let instruction: String
     }
 
-    /// Parse `--delivery` items as preset ids against the shared EmotionPreset
-    /// table. Fails loudly on unknown presets and on neutral (which sends no
-    /// instruction — a plain warm take already covers it).
+    /// Parse `--delivery` items (`<preset>[.<intensity>]`, intensity defaults to
+    /// normal) against the shared EmotionPreset table. Fails loudly on unknown
+    /// presets/intensities and on neutral (which sends no instruction — a plain
+    /// warm take already covers it).
     static func resolveDeliveryItems(_ spec: String?) throws -> [DeliveryItem] {
         let tokens = parseList(spec) ?? defaultDeliverySet
         return try tokens.map { token in
-            guard let preset = EmotionPreset.preset(id: token) else {
+            let parts = token.split(separator: ".").map(String.init)
+            guard (1...2).contains(parts.count),
+                  let preset = EmotionPreset.preset(id: parts[0]) else {
                 let known = EmotionPreset.all.map(\.id).joined(separator: ", ")
-                throw CLIError("unknown delivery preset '\(token)' (presets: \(known))")
+                throw CLIError("unknown delivery preset '\(token)' (use <preset>[.<intensity>]; presets: \(known))")
             }
             guard preset.id != "neutral" else {
                 throw CLIError("delivery cell 'neutral' is redundant — the plain warm take already runs without an instruction")
             }
+            let intensity: EmotionIntensity
+            if parts.count == 2 {
+                guard let resolved = EmotionIntensity.allCases.first(where: { $0.rpcValue == parts[1] }) else {
+                    throw CLIError("unknown delivery intensity '\(parts[1])' (use subtle | normal | strong)")
+                }
+                intensity = resolved
+            } else {
+                intensity = .normal
+            }
             return DeliveryItem(
-                id: preset.id,
-                instruction: preset.instruction
+                id: "\(preset.id).\(intensity.rpcValue)",
+                instruction: preset.instruction(for: intensity)
             )
         }
     }
@@ -179,11 +191,11 @@ enum BenchCommand {
                 }
 
                 // Delivery cells (--delivery): instruct-bearing warm takes on the
-                // medium text, one per requested preset. Custom/Design only — the
-                // clone checkpoints have no instruction control. The plain warm
-                // takes above double as the neutral reference for the listening
-                // comparison; the summarizer segregates these rows via the
-                // notes.delivery stamp so the headline matrix stays clean.
+                // medium text, one per requested preset.intensity. Custom/Design
+                // only — the clone checkpoints have no instruction control. The
+                // plain warm takes above double as the neutral reference for the
+                // listening comparison; the summarizer segregates these rows via
+                // the notes.delivery stamp so the headline matrix stays clean.
                 if !deliveryItems.isEmpty, mode != .clone, let deliveryText = text(for: "medium") {
                     for item in deliveryItems {
                         let deliveryPayload = try Self.payload(
@@ -257,7 +269,7 @@ enum BenchCommand {
         // the filename and the telemetry row agree by construction regardless of
         // the bucket thresholds.
         let lenToken = lenBucket(text.count)
-        // Delivery takes extend the state token (`warm_d-<preset>`)
+        // Delivery takes extend the state token (`warm_d-<preset>.<intensity>`)
         // so the filename and the engine row's notes.delivery stamp agree.
         let stateToken = delivery.map { "\(state)_d-\($0)" } ?? state
         let out = outDir.appendingPathComponent("\(mode.rawValue)_\(modelID)_\(lenToken)_\(stateToken)_\(n).wav").path
@@ -485,10 +497,16 @@ enum BenchCommand {
           --warm         warm reps per (cell × length); default 3
           --voice        (clone) saved voice name; default \(defaultCloneVoice)
           --voice-brief  (design) brief; default the standard narrator brief
-          --delivery [list]     add instruct-bearing delivery cells (Custom/Design, warm,
-                        medium text, 1 take each): comma list of preset ids
-                        (e.g. happy,calm); the bare flag runs the default set
-                        (\(defaultDeliverySet.joined(separator: ","))). Rows are stamped notes.delivery.
+          --delivery [list]  add instruct-bearing cells (Custom/Design, warm, medium
+                         text, 1 take each): comma list of <preset>[.<intensity>]
+                         (e.g. happy.strong,calm.normal); bare flag runs the
+                         default set (\(defaultDeliverySet.joined(separator: ","))).
+                         Rows are stamped notes.delivery and summarized in their
+                         own block so the headline matrix stays comparable; the
+                         plain warm takes double as the neutral reference. Also
+                         triggers a numpy-only prosody analysis (pitch dynamics,
+                         rate variability, pauses, energy roughness) vs the paired
+                         neutral take; results appear in the delivery table.
           --prosody-profile <path>
                          use a calibrated prosody profile for the delivery analysis
                          (default: built-in profile)

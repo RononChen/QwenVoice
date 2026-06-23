@@ -365,6 +365,7 @@ struct IOSCustomVoiceView: View {
                             draft.delivery.selectedPresetID = newID
                         }
                     ),
+                    intensity: $draft.delivery.selectedIntensity,
                     customText: $draft.delivery.customText,
                     tint: IOSBrandTheme.custom,
                     onUseCustomTone: { draft.delivery.mode = .custom },
@@ -992,6 +993,7 @@ struct IOSVoiceDesignView: View {
                             draft.delivery.selectedPresetID = newID
                         }
                     ),
+                    intensity: $draft.delivery.selectedIntensity,
                     customText: $draft.delivery.customText,
                     tint: IOSBrandTheme.design,
                     onUseCustomTone: { draft.delivery.mode = .custom },

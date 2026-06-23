@@ -24,8 +24,6 @@ enum IOSEmotionPresetPalette {
         case "dramatic":  return Color(red: 0.78, green: 0.52, blue: 0.66)  // #C785A8
         case "calm":      return Color(red: 0.62, green: 0.74, blue: 0.62)  // #9EBD9E
         case "excited":   return Color(red: 0.92, green: 0.58, blue: 0.32)  // #EB9452
-        case "narrator":  return Color(red: 0.72, green: 0.58, blue: 0.42)  // #B8946B
-        case "news":      return Color(red: 0.40, green: 0.56, blue: 0.74)  // #668FBD
         default:          return .white.opacity(0.55)                       // neutral / unknown
         }
     }
@@ -38,10 +36,11 @@ enum IOSEmotionPresetPalette {
 /// `DeliveryInputState`-shaped binding (selected preset id + custom text).
 struct IOSDeliveryPickerSheet: View {
     @Binding var selectedPresetID: String
+    @Binding var intensity: EmotionIntensity
     @Binding var customText: String
     let tint: Color
     /// Optional escape hatch: when set, a small "Use custom tone…" link sits
-    /// below the preset grid. Tapping it switches the sheet to the custom-tone
+    /// below the intensity row. Tapping it switches the sheet to the custom-tone
     /// editor without closing the panel.
     var onUseCustomTone: (() -> Void)?
     var onDismiss: (() -> Void)?
@@ -52,26 +51,23 @@ struct IOSDeliveryPickerSheet: View {
     // (`RootView.bottomPanelOverlay`) only rebuilds that AnyView when RootView
     // itself re-renders — which it does NOT on a draft change (it observes
     // `bottomPanelItem`, not `customVoiceDraft`). So writing only through the
-    // `@Binding`s left the open sheet frozen: the checkmark didn't move even
-    // though the model updated. Driving the UI off local `@State` (and writing
-    // through to the bindings) keeps the sheet reactive regardless of the host's
-    // observation path. Only the sheet's own taps mutate the selection while it's
-    // open, so local state can't drift.
+    // `@Binding`s left the open sheet frozen: the checkmark didn't move and the
+    // Intensity row never appeared even though the model updated. Driving the UI
+    // off local `@State` (and writing through to the bindings) keeps the sheet
+    // reactive regardless of the host's observation path. Only the sheet's own
+    // taps mutate the selection while it's open, so local state can't drift.
     @State private var localPresetID: String
+    @State private var localIntensity: EmotionIntensity
 
     /// Tracks whether the sheet is currently showing the custom-tone editor.
     /// Toggling back to the preset grid is allowed via the editor's back button.
     @State private var isCustomToneEditorVisible = false
 
-    /// Active category tab in the preset grid. Default is `.emotion` because it
-    /// is the largest and most commonly used group; it is re-synced from the
-    /// current selection when the sheet appears.
-    @State private var selectedCategory: DeliveryPresetCategory
-
     @Environment(\.dismiss) private var dismiss
 
     init(
         selectedPresetID: Binding<String>,
+        intensity: Binding<EmotionIntensity>,
         customText: Binding<String>,
         tint: Color,
         onUseCustomTone: (() -> Void)? = nil,
@@ -79,29 +75,14 @@ struct IOSDeliveryPickerSheet: View {
         presentation: IOSBottomSheetPresentationStyle = .system
     ) {
         self._selectedPresetID = selectedPresetID
+        self._intensity = intensity
         self._customText = customText
         self.tint = tint
         self.onUseCustomTone = onUseCustomTone
         self.onDismiss = onDismiss
         self.presentation = presentation
         self._localPresetID = State(initialValue: selectedPresetID.wrappedValue)
-        self._selectedCategory = State(
-            initialValue: IOSDeliveryPickerSheet.category(for: selectedPresetID.wrappedValue)
-        )
-    }
-
-    private static func category(for presetID: String) -> DeliveryPresetCategory {
-        if presetID == "neutral" { return .neutral }
-        return EmotionPreset.preset(id: presetID)?.category ?? .emotion
-    }
-
-    private func tabLabel(for category: DeliveryPresetCategory) -> String {
-        switch category {
-        case .neutral:        return "Default"
-        case .emotion:        return "Emotion"
-        case .deliveryStyle:  return "Style"
-        case .vocalTechnique: return "Technique"
-        }
+        self._localIntensity = State(initialValue: intensity.wrappedValue)
     }
 
     private var columns: [GridItem] {
@@ -109,6 +90,10 @@ struct IOSDeliveryPickerSheet: View {
         // DeliverySheet ("gridTemplateColumns: 'repeat(2, 1fr)'"). Each
         // cell is wide enough to carry name + description text.
         Array(repeating: GridItem(.flexible(), spacing: 10), count: 2)
+    }
+
+    private var intensityDisabled: Bool {
+        localPresetID == "neutral"
     }
 
     var body: some View {
@@ -173,15 +158,25 @@ struct IOSDeliveryPickerSheet: View {
 
     private var presetPickerBody: some View {
         IOSScrollView(bottomFadeHeight: 0) {
-            VStack(alignment: .leading, spacing: 14) {
-                categoryTabBar
-
-                LazyVGrid(columns: columns, spacing: 10) {
-                    let presets = EmotionPreset.all.filter { $0.category == selectedCategory }
-                    ForEach(presets) { preset in
+            VStack(alignment: .leading, spacing: 18) {
+                LazyVGrid(columns: columns, spacing: 12) {
+                    ForEach(EmotionPreset.all) { preset in
                         cell(for: preset)
                     }
                 }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Intensity")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(IOSAppTheme.textPrimary)
+                    HStack(spacing: 8) {
+                        ForEach(EmotionIntensity.allCases) { level in
+                            intensityButton(level)
+                        }
+                    }
+                }
+                .disabled(intensityDisabled)
+                .opacity(intensityDisabled ? 0.45 : 1.0)
 
                 if let onUseCustomTone {
                     Button {
@@ -198,7 +193,7 @@ struct IOSDeliveryPickerSheet: View {
                         }
                         .foregroundStyle(tint)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
+                        .padding(.vertical, 12)
                         .background {
                             Capsule(style: .continuous)
                                 .fill(IOSAppTheme.accentWash(tint).opacity(0.6))
@@ -215,48 +210,6 @@ struct IOSDeliveryPickerSheet: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 24)
         }
-        .onAppear {
-            selectedCategory = IOSDeliveryPickerSheet.category(for: localPresetID)
-        }
-    }
-
-    private var categoryTabBar: some View {
-        HStack(spacing: 8) {
-            ForEach(DeliveryPresetCategory.allCases, id: \.self) { category in
-                categoryTab(for: category)
-            }
-        }
-    }
-
-    private func categoryTab(for category: DeliveryPresetCategory) -> some View {
-        let isActive = category == selectedCategory
-        return Button {
-            withAnimation(IOSDesignMotion.stateChange) {
-                selectedCategory = category
-            }
-            IOSHaptics.selection()
-        } label: {
-            Text(tabLabel(for: category))
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(isActive ? IOSAppTheme.textPrimary : IOSAppTheme.textSecondary)
-                .lineLimit(1)
-                .padding(.horizontal, 10)
-                .frame(height: 32)
-                .frame(maxWidth: .infinity)
-                .background {
-                    Capsule(style: .continuous)
-                        .fill(isActive ? tint.opacity(0.18) : Color.white.opacity(0.03))
-                }
-                .overlay {
-                    Capsule(style: .continuous)
-                        .stroke(
-                            isActive ? tint.opacity(0.35) : Color.white.opacity(0.10),
-                            lineWidth: 0.5
-                        )
-                }
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("deliveryPickerSheet_categoryTab_\(category.rawValue)")
     }
 
     private var customToneEditorBody: some View {
@@ -473,8 +426,6 @@ struct IOSDeliveryPickerSheet: View {
         case "dramatic": return "Theatrical, projected"
         case "calm":     return "Slower, reassuring"
         case "excited":  return "Energetic, faster"
-        case "narrator": return "Low, warm, deliberate narration"
-        case "news":     return "Clear, professional broadcast"
         default:         return ""
         }
     }
@@ -521,9 +472,9 @@ struct IOSDeliveryPickerSheet: View {
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, minHeight: 54, alignment: .topLeading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, minHeight: 64, alignment: .topLeading)
             .background {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(
@@ -544,6 +495,29 @@ struct IOSDeliveryPickerSheet: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
+    private func intensityButton(_ level: EmotionIntensity) -> some View {
+        let isSelected = level == localIntensity
+        return Button {
+            localIntensity = level   // drive the sheet UI instantly
+            intensity = level        // write through to the draft
+            IOSHaptics.selection()
+        } label: {
+            Text(level.label)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(isSelected ? IOSAppTheme.textPrimary : IOSAppTheme.textSecondary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 36)
+                .background {
+                    Capsule(style: .continuous)
+                        .fill(isSelected ? IOSAppTheme.accentWash(tint) : IOSAppTheme.glassSurfaceFillMuted.opacity(0.55))
+                }
+                .overlay {
+                    Capsule(style: .continuous)
+                        .stroke(isSelected ? tint.opacity(0.32) : Color.white.opacity(0.10), lineWidth: 0.8)
+                }
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 // MARK: - Qwen language picker
