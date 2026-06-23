@@ -64,7 +64,7 @@ RULES
   - Removed the redundant model-install bottom sheet. The Settings model row already exposes size, status, progress, and Install/Cancel/Retry/Delete controls, so a separate confirmation panel was unnecessary.
   - `scripts/build.sh build` (macOS) passed.
   - `scripts/ios_device.sh install && scripts/ios_device.sh launch` succeeded on the real iPhone; the app installed and launched cleanly.
-  - `scripts/ios_device.sh ui-test VocelloiOSUITests/VocelloiOSSheetUITests` could not run because the device UI-testing auth handshake repeatedly failed (`com.apple.sharing.authentication error 12 / 31`; `SFAuthenticationErrorCodeApproveFailedToPost`). The device is reachable via `devicectl` and the non-UI install/launch path works.
+  - `scripts/ios_device.sh ui-test VocelloiOSUITests/VocelloiOSSheetUITests` initially failed because the device UI-testing auth handshake failed while the phone was locked (`com.apple.sharing.authentication error 12 / 31`; `SFAuthenticationErrorCodeApproveFailedToPost`). After the user unlocked the device, the same test command passed: **7 tests, 0 failures**.
 - **Decisions:**
   - Keep `presentFocusBackdrop()` / `clearFocusBackdrop()` because the delete confirmation flow still uses them.
 - **Requests for other:** none.
