@@ -51,9 +51,23 @@ RULES
 
 <!-- NEWEST ENTRIES BELOW THIS LINE — prepend your entry here (newest at top) -->
 
+## 2026-06-23 — kimi — made on-device iOS verification mandatory in AGENTS.md
+
+- **Commits:** uncommitted — working tree (files listed below).
+- **Touched:**
+  - `AGENTS.md` — added a firm rule that on-device verification is mandatory after any iOS UI change; compile-only builds are not enough.
+  - `AGENT_HANDOFF.md` — this entry.
+- **Summary:**
+  - Human clarified that on-device testing after changes is mandatory.
+  - Encoded the requirement in `AGENTS.md` under the iOS testing section, requiring `scripts/ios_device.sh ui-test` (or manual exercise + screenshot) before commit/push.
+- **Decisions:**
+  - The rule is explicitly stated so future agent sessions cannot treat `ios_device.sh build` as sufficient for UI work.
+- **Requests for claude-code:** none.
+- **Open questions:** none.
+
 ## 2026-06-23 — kimi — on-device verification of delivery picker revert
 
-- **Commits:** uncommitted — working tree (log entry only).
+- **Commits:** b83cde2 on main.
 - **Touched:**
   - `AGENT_HANDOFF.md` — this entry.
 - **Summary:**

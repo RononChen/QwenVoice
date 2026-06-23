@@ -282,6 +282,8 @@ The `VocelloMacUITests` target contains a single `VocelloMacSmokeUITests` class 
 
 iOS testing is **on-device only**. The iOS Simulator is retired for this project and must not be used for UI testing, verification, screenshots, or snapshots.
 
+After any iOS UI change, on-device verification is **mandatory** before committing or pushing. A compile-only build (`scripts/ios_device.sh build`) is not enough. Run `scripts/ios_device.sh ui-test` if the change touches UI flows; if UI tests are unavailable or flaky for the changed surface, manually exercise the flow after `scripts/ios_device.sh launch` and capture a screenshot with `scripts/ios_device.sh shot`.
+
 **Do not use:**
 - `scripts/ios_sim.sh`
 - `xcodebuild -destination 'platform=iOS Simulator...'` for iOS UI work
