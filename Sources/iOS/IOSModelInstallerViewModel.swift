@@ -10,6 +10,7 @@ final class IOSModelInstallerViewModel: ObservableObject {
         case interrupted(message: String?, downloadedBytes: Int64, totalBytes: Int64?)
         case resuming(progress: Double?, downloadedBytes: Int64, totalBytes: Int64?)
         case restarting(progress: Double?, downloadedBytes: Int64, totalBytes: Int64?)
+        case paused(progress: Double?, downloadedBytes: Int64, totalBytes: Int64?)
         case verifying
         case installing
         case installed
@@ -23,7 +24,6 @@ final class IOSModelInstallerViewModel: ObservableObject {
     private let modelAssetStore: LocalModelAssetStore?
     private let modelManager: ModelManagerViewModel
     private var deliveryActor: IOSModelDeliveryActor?
-    private var fakeInstallTasks: [String: Task<Void, Never>] = [:]
 
     /// Called after a model install completes so the engine can preload it in the background.
     var onModelInstalled: ((_ modelID: String) -> Void)?
@@ -55,11 +55,6 @@ final class IOSModelInstallerViewModel: ObservableObject {
 
 
     func state(for model: TTSModel) -> OperationState {
-        // Honor explicit operation-state writes first so the Simulator
-        // fake installer can render its downloading/verifying/installing
-        // phases. On real hardware `unavailableMessage` returns nil for
-        // all supported modes, so this swap is behaviorally neutral
-        // outside Simulator.
         if let state = states[model.id] {
             return state
         }
@@ -83,7 +78,7 @@ final class IOSModelInstallerViewModel: ObservableObject {
             return .available(estimatedBytes: descriptor.estimatedDownloadBytes)
         case .incomplete(let message, _):
             guard let descriptor = modelAssetStore?.descriptor(id: model.id)?.model else {
-                return .failed("Missing model descriptor.")
+                return .failed(message)
             }
             if IOSNativeDeviceFeatureGate.allowsModelDownloads(for: descriptor) {
                 return .failed(message)
@@ -101,11 +96,6 @@ final class IOSModelInstallerViewModel: ObservableObject {
     }
 
     func install(_ model: TTSModel) {
-        if IOSSimulatorRuntimeSupport.isSimulator {
-            simulatorFakeInstall(model)
-            return
-        }
-
         if let unavailableMessage = IOSNativeDeviceFeatureGate.unavailableMessage(for: model) {
             states[model.id] = .unavailable(unavailableMessage)
             return
@@ -133,12 +123,14 @@ final class IOSModelInstallerViewModel: ObservableObject {
         }
     }
 
-    func cancel(_ model: TTSModel) {
-        if IOSSimulatorRuntimeSupport.isSimulator {
-            simulatorFakeCancel(model)
-            return
+    func pause(_ model: TTSModel) {
+        guard let deliveryActor else { return }
+        Task {
+            await deliveryActor.pause(modelID: model.id)
         }
+    }
 
+    func cancel(_ model: TTSModel) {
         // Immediately show available state before background refresh
         if let descriptor = modelAssetStore?.descriptor(id: model.id)?.model {
             states[model.id] = .available(estimatedBytes: descriptor.estimatedDownloadBytes)
@@ -153,11 +145,6 @@ final class IOSModelInstallerViewModel: ObservableObject {
     }
 
     func delete(_ model: TTSModel) {
-        if IOSSimulatorRuntimeSupport.isSimulator {
-            simulatorFakeDelete(model)
-            return
-        }
-
         if IOSNativeDeviceFeatureGate.unavailableMessage(for: model) != nil {
             return
         }
@@ -183,76 +170,6 @@ final class IOSModelInstallerViewModel: ObservableObject {
                     )
                 )
             }
-        }
-    }
-
-    // MARK: - Simulator-only fake install / delete
-    //
-    // These methods exist so testers can exercise the install / delete UI
-    // flow inside the iOS Simulator, where real model downloads can't run
-    // (no MLX, no real bytes on disk). They run a fake state-machine that
-    // pushes through `.downloading → .verifying → .installing → .installed`
-    // (or `.deleting → notInstalled`) with brief sleeps, and patch
-    // `modelManager.statuses` directly so the rest of the app (Generate
-    // tab's `hasAnyInstalledModel`, primary-action enablement, etc.)
-    // reflects the install. The hops are gated on
-    // `IOSSimulatorRuntimeSupport.isSimulator` and no-op on real hardware.
-
-    func simulatorFakeInstall(_ model: TTSModel) {
-        guard IOSSimulatorRuntimeSupport.isSimulator else { return }
-        fakeInstallTasks[model.id]?.cancel()
-        let totalBytes = model.estimatedDownloadBytes ?? 2_300_000_000
-        let modelID = model.id
-
-        fakeInstallTasks[modelID] = Task { @MainActor in
-            // Slow enough that a human tester can see each phase render.
-            let stepNanos: UInt64 = 600_000_000 // 0.6s per phase
-            let progressSteps: [Double] = [0.05, 0.22, 0.46, 0.71, 0.92]
-            for progress in progressSteps {
-                if Task.isCancelled { return }
-                states[modelID] = .downloading(
-                    progress: progress,
-                    downloadedBytes: Int64(Double(totalBytes) * progress),
-                    totalBytes: totalBytes
-                )
-                try? await Task.sleep(nanoseconds: stepNanos)
-            }
-            if Task.isCancelled { return }
-            states[modelID] = .verifying
-            try? await Task.sleep(nanoseconds: stepNanos)
-            if Task.isCancelled { return }
-            states[modelID] = .installing
-            try? await Task.sleep(nanoseconds: stepNanos)
-            if Task.isCancelled { return }
-            states[modelID] = .installed
-            // Register with the Simulator fake-install registry so any
-            // subsequent modelManager.refresh() returns .installed for
-            // this ID via IOSSimulatorFakeStatusProvider.
-            IOSSimulatorFakeInstallRegistry.shared.markInstalled(modelID, sizeBytes: Int(totalBytes))
-            modelManager.statuses[modelID] = .installed(sizeBytes: Int(totalBytes))
-            fakeInstallTasks[modelID] = nil
-            onModelInstalled?(modelID)
-        }
-    }
-
-    func simulatorFakeCancel(_ model: TTSModel) {
-        guard IOSSimulatorRuntimeSupport.isSimulator else { return }
-        fakeInstallTasks[model.id]?.cancel()
-        fakeInstallTasks[model.id] = nil
-        IOSSimulatorFakeInstallRegistry.shared.clear(model.id)
-        states[model.id] = .available(estimatedBytes: model.estimatedDownloadBytes)
-        modelManager.statuses[model.id] = .notInstalled
-    }
-
-    func simulatorFakeDelete(_ model: TTSModel) {
-        guard IOSSimulatorRuntimeSupport.isSimulator else { return }
-        let modelID = model.id
-        Task { @MainActor in
-            states[modelID] = .deleting
-            try? await Task.sleep(nanoseconds: 700_000_000)
-            states.removeValue(forKey: modelID)
-            IOSSimulatorFakeInstallRegistry.shared.clear(modelID)
-            modelManager.statuses[modelID] = .notInstalled
         }
     }
 
@@ -311,6 +228,18 @@ final class IOSModelInstallerViewModel: ObservableObject {
                 downloadedBytes: snapshot.downloadedBytes,
                 totalBytes: snapshot.totalBytes
             )
+        case .paused:
+            let progress: Double?
+            if let totalBytes = snapshot.totalBytes, totalBytes > 0 {
+                progress = Double(snapshot.downloadedBytes) / Double(totalBytes)
+            } else {
+                progress = nil
+            }
+            states[snapshot.modelID] = .paused(
+                progress: progress,
+                downloadedBytes: snapshot.downloadedBytes,
+                totalBytes: snapshot.totalBytes
+            )
         case .verifying:
             states[snapshot.modelID] = .verifying
         case .installing:
@@ -334,9 +263,6 @@ final class IOSModelInstallerViewModel: ObservableObject {
             Task {
                 await modelManager.refresh()
             }
-        case .paused:
-            // Legacy phase no longer produced by IOSModelDeliveryActor.
-            break
         }
     }
 }

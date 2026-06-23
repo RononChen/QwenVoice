@@ -49,7 +49,6 @@ private struct IOSSettingsView: View {
     @AppStorage(IOSSavedOutputsDestination.displayNameKey) private var savedOutputsName = ""
     @State private var isSavedOutputsDialogPresented = false
     @State private var isFolderPickerPresented = false
-    @State private var modelPendingCancel: TTSModel? = nil
 
     private var previewSettingsState: IOSPreviewSettingsState? {
         IOSPreviewRuntime.current?.definition.settingsState
@@ -85,7 +84,8 @@ private struct IOSSettingsView: View {
                                 status: effectiveStatus(for: model),
                                 operationState: effectiveOperationState(for: model),
                                 onInstall: { install(model) },
-                                onRequestCancelOptions: { requestCancelOptions(for: model) },
+                                onPause: { pause(model) },
+                                onCancel: { cancel(model) },
                                 onDelete: { delete(model) }
                             )
 
@@ -205,28 +205,6 @@ private struct IOSSettingsView: View {
         } message: {
             Text("Generated clips are always kept on this iPhone for History. Optionally also copy each new clip to a folder you choose — Files or iCloud Drive.")
         }
-        .confirmationDialog(
-            "Cancel download?",
-            isPresented: Binding(
-                get: { modelPendingCancel != nil },
-                set: { isPresented in
-                    if !isPresented { modelPendingCancel = nil }
-                }
-            ),
-            titleVisibility: .visible
-        ) {
-            if let model = modelPendingCancel {
-                Button("Cancel Download", role: .destructive) {
-                    modelInstaller.cancel(model)
-                    modelPendingCancel = nil
-                }
-                Button("Cancel", role: .cancel) {
-                    modelPendingCancel = nil
-                }
-            }
-        } message: {
-            Text("This will stop the download and remove any downloaded data.")
-        }
         .fileImporter(
             isPresented: $isFolderPickerPresented,
             allowedContentTypes: [.folder],
@@ -260,9 +238,12 @@ private struct IOSSettingsView: View {
         modelInstaller.install(model)
     }
 
-    private func requestCancelOptions(for model: TTSModel) {
-        IOSHaptics.selection()
-        modelPendingCancel = model
+    private func pause(_ model: TTSModel) {
+        modelInstaller.pause(model)
+    }
+
+    private func cancel(_ model: TTSModel) {
+        modelInstaller.cancel(model)
     }
 
     private func delete(_ model: TTSModel) {
@@ -672,8 +653,11 @@ private struct IOSModelRow: View {
     let status: ModelManagerViewModel.ModelStatus
     let operationState: IOSModelInstallerViewModel.OperationState
     let onInstall: () -> Void
-    let onRequestCancelOptions: () -> Void
+    let onPause: () -> Void
+    let onCancel: () -> Void
     let onDelete: () -> Void
+
+    @State private var isPauseOrCancelDialogPresented = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -693,6 +677,23 @@ private struct IOSModelRow: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("iosModelRow_\(model.id)")
+        .confirmationDialog(
+            "Downloading…",
+            isPresented: $isPauseOrCancelDialogPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Pause") {
+                onPause()
+            }
+            .accessibilityIdentifier("iosModelPauseConfirmButton")
+            Button("Cancel Download", role: .destructive) {
+                onCancel()
+            }
+            .accessibilityIdentifier("iosModelCancelDownloadConfirmButton")
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Pausing keeps the downloaded data so you can resume later. Canceling removes it.")
+        }
     }
 
     private func requestInstall() {
@@ -700,9 +701,14 @@ private struct IOSModelRow: View {
         onInstall()
     }
 
-    private func requestCancelOptions() {
+    private func requestPauseOrCancel() {
         IOSHaptics.selection()
-        onRequestCancelOptions()
+        isPauseOrCancelDialogPresented = true
+    }
+
+    private func requestCancel() {
+        IOSHaptics.selection()
+        onCancel()
     }
 
     private func requestDelete() {
@@ -821,8 +827,12 @@ private struct IOSModelRow: View {
             installedControls
         case .available:
             installButton(title: "Install", accessibilityIdentifier: "iosModelDownload_\(model.id)")
-        case .downloading, .interrupted, .resuming, .restarting:
-            installButton(title: "Cancel", action: requestCancelOptions, accessibilityIdentifier: "iosModelCancel_\(model.id)")
+        case .downloading, .resuming, .restarting:
+            installButton(title: "Cancel", action: requestPauseOrCancel, accessibilityIdentifier: "iosModelCancel_\(model.id)")
+        case .interrupted:
+            installButton(title: "Cancel", action: requestCancel, accessibilityIdentifier: "iosModelCancel_\(model.id)")
+        case .paused:
+            installButton(title: "Resume", action: requestInstall, accessibilityIdentifier: "iosModelResume_\(model.id)")
         case .verifying, .installing, .deleting:
             ProgressView()
         case .unavailable:
@@ -898,6 +908,14 @@ private struct IOSModelRow: View {
                     .font(.system(size: 12))
                     .foregroundStyle(IOSAppTheme.textSecondary)
             }
+        case .paused(let progress, let downloadedBytes, let totalBytes):
+            VStack(alignment: .leading, spacing: 6) {
+                ProgressView(value: progress ?? 0)
+                    .tint(IOSBrandTheme.modeColor(for: model.mode))
+                Text(progressText(downloadedBytes: downloadedBytes, totalBytes: totalBytes))
+                    .font(.system(size: 12))
+                    .foregroundStyle(IOSAppTheme.textSecondary)
+            }
         case .failed(let message):
             Text(message)
                 .font(.system(size: 12))
@@ -939,7 +957,7 @@ private struct IOSModelRow: View {
 
     private var showsStatusDetail: Bool {
         switch operationState {
-        case .downloading, .interrupted, .resuming, .restarting:
+        case .downloading, .interrupted, .resuming, .restarting, .paused:
             return true
         case .failed:
             return true
@@ -975,6 +993,8 @@ private struct IOSModelRow: View {
             return "Resuming…"
         case .restarting:
             return "Restarting…"
+        case .paused:
+            return "Paused"
         case .verifying:
             return "Verifying…"
         case .installing:

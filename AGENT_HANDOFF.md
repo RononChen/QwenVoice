@@ -51,6 +51,33 @@ RULES
 
 <!-- NEWEST ENTRIES BELOW THIS LINE — prepend your entry here (newest at top) -->
 
+## 2026-06-23 — kimi — reimplemented iOS model download manager with pause/resume + simulator backend
+
+- **Commits:** uncommitted — working tree on main.
+- **Touched:**
+  - `Sources/iOS/Services/IOSModelDeliveryBackend.swift` — new shared `IOSModelDownloadBackend` protocol + `IOSModelDeliveryDownloadDelegate`.
+  - `Sources/iOS/Services/IOSURLSessionModelDownloadBackend.swift` — extracted production URLSession background-download backend.
+  - `Sources/iOS/Services/IOSSimulatedModelDownloadBackend.swift` — new simulator-only backend that mimics multi-file downloads with synthetic progress and tiny placeholder files.
+  - `Sources/iOS/IOSModelDeliveryActor.swift` — injects the backend; tracks current-file partial/live bytes; persists `.paused` state; resumes paused installs; publishes a terminal `.deleted` snapshot on cancel to fix the race that left the row stuck downloading.
+  - `Sources/iOS/IOSModelInstallerViewModel.swift` — added `.paused` operation state and `pause(_:)`; removed simulator fake-install shims.
+  - `Sources/iOS/IOSSettingsViews.swift` — per-row Pause/Cancel confirmation dialog + Resume button for paused downloads.
+  - `Tests/VocelloiOSUITests/VocelloiOSDownloadManagerUITests.swift` — new UI tests covering install → pause → resume → complete and install → cancel.
+  - `AGENT_HANDOFF.md` — this entry.
+- **Summary:**
+  - The user asked for a clean pause/resume model-download manager and directed use of the iOS simulator because the physical iPhone was unavailable.
+  - Added a simulator download backend so the same actor/state machine runs without a network or device, reporting progress against real catalog sizes and writing tiny placeholder files (SHA verification skipped for simulated files).
+  - Fixed the cancel-download race: the view model optimistically sets `.available`, but in-flight progress snapshots could overwrite it back to `.downloading`. The actor now publishes a final `.deleted` snapshot after cancel, guaranteeing the UI ends in the available/Install state.
+- **Decisions:**
+  - `IOSModelDownloadBackend` abstracts both the URLSession and simulated transports; the actor selects the simulated backend on `targetEnvironment(simulator)`.
+  - Pause persists per-file resume data; resumed installs continue from the preserved byte offset.
+  - Cancel discards staged files and persisted state; the terminal `.deleted` snapshot prevents stale progress callbacks from leaving the row in a downloading state.
+- **Verification:**
+  - `scripts/build_foundation_targets.sh ios` passed.
+  - `scripts/build.sh build` (macOS) passed.
+  - `scripts/ios_sim.sh ui-test` — full simulator UI suite: **12 tests, 1 failure**. The failure is the pre-existing `testColdGenerationCompletes` (no active model installed in the simulator seed), unrelated to downloads. The new `VocelloiOSDownloadManagerUITests` passed, and `testDownloadCancel` passed 5 targeted runs in a row after the fix.
+- **Requests for other:** none.
+- **Open questions / blockers:** none.
+
 ## 2026-06-23 — kimi — reverted to simple download + cancel confirmation
 
 - **Commits:** 4792562 on main.
