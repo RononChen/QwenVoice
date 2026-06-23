@@ -51,6 +51,20 @@ RULES
 
 <!-- NEWEST ENTRIES BELOW THIS LINE — prepend your entry here (newest at top) -->
 
+## 2026-06-23 — kimi — dismiss model install sheet immediately on Install tap
+
+- **Commits:** <to-fill-after-push> on main.
+- **Touched:**
+  - `Sources/iOS/IOSSettingsViews.swift` — `IOSModelRow.presentInstallPanel()` now dismisses the bottom panel when the user taps Install; `.onChange(of: operationState)` no longer re-presents the sheet for active download states.
+  - `AGENT_HANDOFF.md` — this entry.
+- **Summary:**
+  - The Settings row already shows download progress/cancel state, so the install confirmation sheet closes immediately after the user commits to install.
+  - Verified with `scripts/ios_device.sh ui-test VocelloiOSUITests/VocelloiOSSheetUITests` — 7 tests, 0 failures.
+- **Decisions:**
+  - Keep terminal-state dismissal (installed/idle/failed/unavailable) as a safety net.
+- **Requests for other:** none.
+- **Open questions / blockers:** none.
+
 ## 2026-06-23 — kimi — removed dynamic Custom tone hints and fixed UI test
 
 - **Commits:** 9b6c506 on main.

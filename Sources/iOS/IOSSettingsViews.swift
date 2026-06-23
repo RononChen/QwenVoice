@@ -674,8 +674,9 @@ private struct IOSModelRow: View {
         // Model rows route Download through IOSModelInstallSheet and Delete
         // through RootView's edge-to-edge IOSDeleteModelSheet overlay rather
         // than the old bare utility button + system confirmationDialog.
-        // Auto-dismiss the install sheet once the operation lands
-        // either at `.installed` or back at `.idle` after a cancel.
+        // The sheet is dismissed as soon as the user taps Install (the Settings
+        // row already shows progress), and also when the operation settles at
+        // `.installed` or back at `.idle` after a cancel/failure.
         .onChange(of: operationState) { _, newValue in
             guard isPresentingInstallSheet else { return }
             switch newValue {
@@ -684,7 +685,7 @@ private struct IOSModelRow: View {
                 appModel.dismissBottomPanel()
                 clearFocusBackdrop()
             default:
-                presentInstallPanel()
+                break
             }
         }
         .onDisappear {
@@ -730,6 +731,9 @@ private struct IOSModelRow: View {
                     onInstall: {
                         IOSHaptics.selection()
                         onInstall()
+                        isPresentingInstallSheet = false
+                        clearFocusBackdrop()
+                        dismiss()
                     },
                     onCancel: {
                         onCancel()
