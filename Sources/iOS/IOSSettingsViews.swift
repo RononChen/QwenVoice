@@ -651,8 +651,6 @@ private struct IOSModelRow: View {
     let onCancel: () -> Void
     let onDelete: () -> Void
 
-    @State private var isPresentingInstallSheet = false
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
@@ -671,35 +669,11 @@ private struct IOSModelRow: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("iosModelRow_\(model.id)")
-        // Model rows route Download through IOSModelInstallSheet and Delete
-        // through RootView's edge-to-edge IOSDeleteModelSheet overlay rather
-        // than the old bare utility button + system confirmationDialog.
-        // The sheet is dismissed as soon as the user taps Install (the Settings
-        // row already shows progress), and also when the operation settles at
-        // `.installed` or back at `.idle` after a cancel/failure.
-        .onChange(of: operationState) { _, newValue in
-            guard isPresentingInstallSheet else { return }
-            switch newValue {
-            case .installed, .idle, .failed, .unavailable:
-                isPresentingInstallSheet = false
-                appModel.dismissBottomPanel()
-                clearFocusBackdrop()
-            default:
-                break
-            }
-        }
-        .onDisappear {
-            if isPresentingInstallSheet {
-                appModel.dismissBottomPanel()
-                clearFocusBackdrop()
-            }
-        }
     }
 
     private func requestInstall() {
-        presentFocusBackdrop()
-        isPresentingInstallSheet = true
-        presentInstallPanel()
+        IOSHaptics.selection()
+        onInstall()
     }
 
     private func requestDelete() {
@@ -721,62 +695,6 @@ private struct IOSModelRow: View {
         appModel.isFocusBackdropPresented = false
     }
 
-    private func presentInstallPanel() {
-        appModel.presentBottomPanel(id: "install-\(model.id)") { bottomSafeAreaInset, _, dismiss in
-            AnyView(
-                IOSModelInstallSheet(
-                    item: installSheetItem,
-                    isInstalling: installSheetIsInstalling,
-                    progress: installSheetProgress,
-                    onInstall: {
-                        IOSHaptics.selection()
-                        onInstall()
-                        isPresentingInstallSheet = false
-                        clearFocusBackdrop()
-                        dismiss()
-                    },
-                    onCancel: {
-                        onCancel()
-                        isPresentingInstallSheet = false
-                        dismiss()
-                    },
-                    onDismiss: dismiss,
-                    presentation: .edgeToEdge(
-                        bottomSafeAreaInset: bottomSafeAreaInset,
-                        height: IOSBottomSheetChrome.modelInstallHeight
-                    )
-                )
-            )
-        }
-    }
-
-    // MARK: - Install sheet plumbing
-
-    private var installSheetItem: IOSModelInstallSheetItem {
-        IOSModelInstallSheetItem(
-            id: model.id,
-            name: model.name,
-            symbol: "bolt.fill",
-            sizeLabel: estimatedDownloadSizeLabel,
-            description: installSheetDescription(for: model.mode),
-            tint: IOSBrandTheme.modeColor(for: model.mode)
-        )
-    }
-
-    /// Per-mode description that mirrors `design_references/Vocello iOS/
-    /// data.js` `models[].desc`. Hand-wired here to avoid a model-layer
-    /// change.
-    private func installSheetDescription(for mode: GenerationMode) -> String {
-        switch mode {
-        case .custom:
-            return model.supportsInstructionControl
-                ? "Built-in speaker presets with controllable emotion and delivery."
-                : "Smaller built-in speaker package optimized for iPhone memory."
-        case .design: return "Describe a voice in natural language and Vocello renders it."
-        case .clone:  return "Speak your text in a saved voice or any 10-20 s reference clip."
-        }
-    }
-
     private var estimatedDownloadSizeLabel: String {
         if let estimated = model.estimatedDownloadBytes {
             return IOSSettingsFormatters.fileSize(estimated)
@@ -795,38 +713,6 @@ private struct IOSModelRow: View {
             return IOSSettingsFormatters.fileSize(estimated)
         }
         return "several GB"
-    }
-
-    private var installSheetIsInstalling: Binding<Bool> {
-        Binding(
-            get: {
-                switch operationState {
-                case .downloading, .resuming, .restarting, .verifying, .installing:
-                    return true
-                default:
-                    return false
-                }
-            },
-            set: { _ in }   // host-driven; the sheet doesn't toggle this
-        )
-    }
-
-    private var installSheetProgress: Binding<Double> {
-        Binding(
-            get: {
-                switch operationState {
-                case .downloading(let progress, _, _),
-                     .resuming(let progress, _, _),
-                     .restarting(let progress, _, _):
-                    return progress ?? 0
-                case .verifying, .installing:
-                    return 1.0
-                default:
-                    return 0
-                }
-            },
-            set: { _ in }
-        )
     }
 
     private var header: some View {

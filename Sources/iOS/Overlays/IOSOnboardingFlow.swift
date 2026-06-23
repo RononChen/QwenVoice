@@ -3,8 +3,8 @@ import SwiftUI
 /// Full-screen first-run onboarding from the iOS design reference
 /// (design_references/Vocello iOS/screens.jsx Onboarding). Three pages:
 /// Welcome → Install pointer → Open Studio. Informational only; the actual
-/// model install happens later in Settings via the existing
-/// IOSModelInstallSheet flow so onboarding stays focused on framing.
+/// model install happens later in Settings via the model row
+/// controls so onboarding stays focused on framing.
 ///
 /// Wired in QVoiceiOSRootView as a `.fullScreenCover` gated on
 /// `IOSAppDefaults.hasCompletedOnboarding`.

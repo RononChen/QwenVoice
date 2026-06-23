@@ -11,8 +11,8 @@ import QwenVoiceCore
 ///
 /// The actual rendering still lives in the legacy
 /// `IOSSettingsContainerView`; Phase 6 lifts the body into a
-/// dedicated `SettingsView` and wires the `IOSModelInstallSheet` +
-/// `IOSDeleteModelSheet` flows that were deferred from Track M.
+/// dedicated `SettingsView` and wires the `IOSDeleteModelSheet`
+/// flow that was deferred from Track M.
 struct SettingsScreen: View {
     @Environment(AppModel.self) private var appModel
 

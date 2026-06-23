@@ -51,7 +51,24 @@ RULES
 
 <!-- NEWEST ENTRIES BELOW THIS LINE — prepend your entry here (newest at top) -->
 
-## 2026-06-23 — kimi — dismiss model install sheet immediately on Install tap
+## 2026-06-23 — kimi — removed IOSModelInstallSheet entirely
+
+- **Commits:** uncommitted — working tree (pending push).
+- **Touched:**
+  - `Sources/iOS/Sheets/IOSBottomSheets.swift` — deleted `IOSModelInstallSheet` and `IOSModelInstallSheetItem`.
+  - `Sources/iOS/IOSSettingsViews.swift` — removed all install-sheet presentation plumbing from `IOSModelRow`; the Install button now calls `onInstall()` directly.
+  - `Sources/iOS/Settings/SettingsScreen.swift` — updated doc comment to match the new row-based install flow.
+  - `Sources/iOS/Overlays/IOSOnboardingFlow.swift` — updated onboarding doc comment.
+  - `AGENT_HANDOFF.md` — this entry.
+- **Summary:**
+  - Removed the redundant model-install bottom sheet. The Settings model row already exposes size, status, progress, and Install/Cancel/Retry/Delete controls, so a separate confirmation panel was unnecessary.
+  - `scripts/build.sh build` (macOS) passed.
+  - `scripts/ios_device.sh install && scripts/ios_device.sh launch` succeeded on the real iPhone; the app installed and launched cleanly.
+  - `scripts/ios_device.sh ui-test VocelloiOSUITests/VocelloiOSSheetUITests` could not run because the device UI-testing auth handshake repeatedly failed (`com.apple.sharing.authentication error 12 / 31`; `SFAuthenticationErrorCodeApproveFailedToPost`). The device is reachable via `devicectl` and the non-UI install/launch path works.
+- **Decisions:**
+  - Keep `presentFocusBackdrop()` / `clearFocusBackdrop()` because the delete confirmation flow still uses them.
+- **Requests for other:** none.
+- **Open questions / blockers:** none.
 
 - **Commits:** bc80c26 on main.
 - **Touched:**
