@@ -53,7 +53,7 @@ RULES
 
 ## 2026-06-24 — kimi — on-device download-manager validation attempt
 
-- **Commits:** uncommitted — working tree on main.
+- **Commits:** 77b6852 on main.
 - **Touched:**
   - `Tests/VocelloiOSUITests/VocelloiOSOnDeviceDownloadUITests.swift` — new cancel-only on-device UI test.
   - `QwenVoice.xcodeproj/project.pbxproj` — regenerated for the new test file.
@@ -67,9 +67,10 @@ RULES
   - `scripts/ios_device.sh install` passed; app installed on device.
   - `scripts/ios_device.sh launch` passed; app ran and rendered Settings → Voice Models.
   - `scripts/ios_device.sh shot build/device-locked-launch.png` captured the device screen showing all three model rows with `Install` buttons and 0 GB used.
-  - `scripts/ios_device.sh ui-test VocelloiOSUITests/VocelloiOSOnDeviceDownloadUITests` failed at test-runner initialization with `com.apple.LocalAuthentication` / `com.apple.sharing.authentication error 12` ("Échec d’authentification" / "Timed out waiting for response"). This is an on-device UI-automation trust/authentication issue, not a download-manager bug.
-- **Requests for other:** To complete the automated on-device test, the iPhone must be unlocked, near the Mac, and must trust the `VocelloiOSUITests-Runner` (tap the trust prompt if it appears). Enabling **Settings → Developer → Enable UI Automation** may also be required. Once resolved, rerun `scripts/ios_device.sh ui-test VocelloiOSUITests/VocelloiOSOnDeviceDownloadUITests`.
-- **Open questions / blockers:** On-device XCUITest runner cannot initialize until the device-side UI-automation auth/trust issue is resolved.
+  - `scripts/ios_device.sh ui-test VocelloiOSUITests/VocelloiOSOnDeviceDownloadUITests` **passed** (16.997 s). The test started a real `pro_custom` download over the production URLSession backend, opened the Pause/Cancel dialog, chose **Cancel Download**, and verified the `Install` button reappeared.
+  - `scripts/ios_device.sh ui-test` (full device smoke) was started but could not proceed because the iPhone locked during the run; Xcode prompted "Unlock iPhone de Patrice to Continue".
+- **Requests for other:** To complete the full device smoke, unlock the iPhone and rerun `scripts/ios_device.sh ui-test`.
+- **Open questions / blockers:** None for the download-manager cancel path; full smoke is only blocked by the device being locked.
 
 ## 2026-06-23 — kimi — reimplemented iOS model download manager with pause/resume + simulator backend
 
