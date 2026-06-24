@@ -51,9 +51,29 @@ RULES
 
 <!-- NEWEST ENTRIES BELOW THIS LINE — prepend your entry here (newest at top) -->
 
-## 2026-06-23 — kimi — reimplemented iOS model download manager with pause/resume + simulator backend
+## 2026-06-24 — kimi — on-device download-manager validation attempt
 
 - **Commits:** uncommitted — working tree on main.
+- **Touched:**
+  - `Tests/VocelloiOSUITests/VocelloiOSOnDeviceDownloadUITests.swift` — new cancel-only on-device UI test.
+  - `QwenVoice.xcodeproj/project.pbxproj` — regenerated for the new test file.
+  - `AGENT_HANDOFF.md` — this entry.
+- **Summary:**
+  - Attempted to validate the pause/resume/cancel rewrite on the paired iPhone 17 Pro (`6AE2516C-57B7-502F-B967-6CE283F07A55`).
+  - Added a focused on-device test that starts a real model download and immediately cancels it, avoiding the full ~2.3 GB download.
+- **Verification:**
+  - `scripts/ios_device.sh doctor` passed (signing team auto-derived, device reachable).
+  - `scripts/ios_device.sh build` passed; signed Release app produced.
+  - `scripts/ios_device.sh install` passed; app installed on device.
+  - `scripts/ios_device.sh launch` passed; app ran and rendered Settings → Voice Models.
+  - `scripts/ios_device.sh shot build/device-locked-launch.png` captured the device screen showing all three model rows with `Install` buttons and 0 GB used.
+  - `scripts/ios_device.sh ui-test VocelloiOSUITests/VocelloiOSOnDeviceDownloadUITests` failed at test-runner initialization with `com.apple.LocalAuthentication` / `com.apple.sharing.authentication error 12` ("Échec d’authentification" / "Timed out waiting for response"). This is an on-device UI-automation trust/authentication issue, not a download-manager bug.
+- **Requests for other:** To complete the automated on-device test, the iPhone must be unlocked, near the Mac, and must trust the `VocelloiOSUITests-Runner` (tap the trust prompt if it appears). Enabling **Settings → Developer → Enable UI Automation** may also be required. Once resolved, rerun `scripts/ios_device.sh ui-test VocelloiOSUITests/VocelloiOSOnDeviceDownloadUITests`.
+- **Open questions / blockers:** On-device XCUITest runner cannot initialize until the device-side UI-automation auth/trust issue is resolved.
+
+## 2026-06-23 — kimi — reimplemented iOS model download manager with pause/resume + simulator backend
+
+- **Commits:** dcc6990 on main.
 - **Touched:**
   - `Sources/iOS/Services/IOSModelDeliveryBackend.swift` — new shared `IOSModelDownloadBackend` protocol + `IOSModelDeliveryDownloadDelegate`.
   - `Sources/iOS/Services/IOSURLSessionModelDownloadBackend.swift` — extracted production URLSession background-download backend.
