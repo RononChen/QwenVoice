@@ -153,7 +153,6 @@ final class AppModel {
             self.studioMode = restored
         }
 
-#if DEBUG
         let environment = ProcessInfo.processInfo.environment
         if let seededCustomText = environment["QVOICE_IOS_TEST_CUSTOM_TEXT"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -166,7 +165,6 @@ final class AppModel {
         if environment["QVOICE_IOS_SKIP_ONBOARDING"] == "1" {
             self.isOnboardingPresented = false
         }
-#endif
 
         // Honor preview-runtime overrides for design-time previews.
         if let preview = IOSPreviewRuntime.current?.definition.initialState {
