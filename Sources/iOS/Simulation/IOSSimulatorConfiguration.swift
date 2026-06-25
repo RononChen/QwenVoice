@@ -129,3 +129,14 @@ struct IOSSimulatorConfiguration: Sendable {
         }
     }
 }
+
+extension IOSSimulatorConfiguration.DownloadScenario {
+    var delayMultiplier: Int {
+        switch self {
+        case .success: return 1
+        case .slow: return 4
+        case .failMid: return 1
+        case .failVerify: return 1
+        }
+    }
+}

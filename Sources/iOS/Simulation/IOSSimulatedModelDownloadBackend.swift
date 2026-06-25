@@ -18,19 +18,24 @@ actor IOSSimulatedModelDownloadBackend: IOSModelDownloadBackend {
     private var activeTasks: [IOSModelDownloadTaskDescription: Task<Void, Never>] = [:]
     private var currentOffsets: [IOSModelDownloadTaskDescription: Int64] = [:]
     private var nextTaskIdentifier: Int = 1
-    private let perFileDelayNanoseconds: UInt64
+    private let configuration: IOSSimulatorConfiguration
 
-    init(delegate: IOSModelDeliveryDownloadDelegate) {
+    init(
+        delegate: IOSModelDeliveryDownloadDelegate,
+        configuration: IOSSimulatorConfiguration = .default
+    ) {
         self.delegate = delegate
-        let rawMs = ProcessInfo.processInfo.environment["QVOICE_SIM_BACKEND_DELAY_MS"].flatMap(Int.init) ?? 2_000
-        let clampedMs = max(0, min(rawMs, 30_000))
-        let scenario = IOSSimulatedDownloadScenario.current
-        let scaledMs = clampedMs * scenario.delayMultiplier
-        self.perFileDelayNanoseconds = UInt64(scaledMs) * 1_000_000
-        self.scenario = scenario
+        self.configuration = configuration
     }
 
-    private let scenario: IOSSimulatedDownloadScenario
+    private var perFileDelayNanoseconds: UInt64 {
+        let scaledMs = configuration.downloadDelayMilliseconds * configuration.downloadScenario.delayMultiplier
+        return UInt64(max(0, scaledMs)) * 1_000_000
+    }
+
+    private var scenario: IOSSimulatorConfiguration.DownloadScenario {
+        configuration.downloadScenario
+    }
 
     func startDownload(
         taskDescription: IOSModelDownloadTaskDescription,
