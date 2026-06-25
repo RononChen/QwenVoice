@@ -1,8 +1,8 @@
 import XCTest
 
 /// Regression UI tests for the Studio bottom-sheet pickers — the durable, autonomous
-/// counterpart to live on-device review. Runs on the device (`scripts/ios_device.sh ui-test`)
-/// or a simulator.
+/// counterpart to live on-device review. Runs on-device via `scripts/ios_device.sh ui-test`
+/// (the iOS Simulator is unsupported).
 ///
 /// Reaching the sheets: the Studio **selector pills** are tapped by their stable label
 /// prefix ("Voice: ", "Language:", "Voice brief:") — their own `studioChip_*` identifiers are

@@ -1,6 +1,6 @@
 # Patching `third_party_patches/mlx-audio-swift/`
 
-This repo vendors a patched copy of [mlx-audio-swift](https://github.com/Blaizzy/mlx-audio-swift) under `third_party_patches/mlx-audio-swift/`. The vendored tree is the source boundary for the native MLX TTS backend used by both Vocello on macOS and the in-development iPhone engine extension.
+This repo vendors a patched copy of [mlx-audio-swift](https://github.com/Blaizzy/mlx-audio-swift) under `third_party_patches/mlx-audio-swift/`. The vendored tree is the source boundary for the native MLX TTS backend used by both Vocello on macOS and the in-process iPhone engine.
 
 This doc exists so contributors can update, rebase, or audit the vendor delta without guessing.
 

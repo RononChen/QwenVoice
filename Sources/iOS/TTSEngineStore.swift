@@ -497,7 +497,7 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         // former blanket "disabled on Release hardware" default was a pre-entitlement
         // caution that silently blocked clone priming (and prewarm); with the
         // increased-memory entitlement + the band guard, warm when the band is healthy on
-        // all of simulator/DEBUG/Release. `QVOICE_IOS_DISABLE_PROACTIVE_PREFETCH=1` is an
+        // all build configs. `QVOICE_IOS_DISABLE_PROACTIVE_PREFETCH=1` is an
         // optional escape hatch to force it off (A/B / battery testing).
         if ProcessInfo.processInfo.environment["QVOICE_IOS_DISABLE_PROACTIVE_PREFETCH"] == "1" {
             diagnosticsRecorder?.recordAction(
@@ -911,7 +911,7 @@ final class AnyTTSEngineBackend {
         await captureMemorySnapshotBlock(role)
     }
 
-    // The iOS engine runs in-process (MLXTTSEngine / the simulator fake); there is no
+    // The iOS engine runs in-process (MLXTTSEngine); there is no
     // separate extension process with a real lifecycle, so synthesize a health state.
     private static func frontendLifecycleState<Engine: TTSEngine>(
         for engine: Engine
