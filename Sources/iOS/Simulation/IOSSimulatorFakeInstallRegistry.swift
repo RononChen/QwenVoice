@@ -46,48 +46,53 @@ final class IOSSimulatorFakeInstallRegistry {
         entries
     }
 
-    func applyEnvironmentSeed(models: [ModelDescriptor]) {
+    func applyConfiguration(
+        _ configuration: IOSSimulatorConfiguration,
+        models: [ModelDescriptor]
+    ) {
         guard IOSSimulatorRuntimeSupport.isSimulator else { return }
-        let raw = ProcessInfo.processInfo.environment["QVOICE_SIM_FAKE_MODELS"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let raw, !raw.isEmpty else { return }
+        guard let tokens = configuration.fakeModels else { return }
 
-        let normalizedTokens = raw
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            .filter { !$0.isEmpty }
-
-        if normalizedTokens.contains("none") {
+        if tokens.isEmpty {
             entries = [:]
             persist()
             return
         }
 
         var seeded: [String: Int] = [:]
-        let knownModes = Set(GenerationMode.allCases.map(\.rawValue))
-        for token in normalizedTokens {
-            if token == "all" {
+        let knownModes = Set(GenerationMode.allCases.map { $0.rawValue.lowercased() })
+        for token in tokens {
+            let lowercased = token.lowercased()
+            if lowercased == "all" {
                 for model in models {
                     seeded[model.id] = Self.reportedSize(for: model)
                 }
                 continue
             }
-
-            if knownModes.contains(token),
-               let mode = GenerationMode(rawValue: token) {
+            if knownModes.contains(lowercased),
+               let mode = GenerationMode(rawValue: lowercased) {
                 for model in models where model.mode == mode {
                     seeded[model.id] = Self.reportedSize(for: model)
                 }
                 continue
             }
-
-            if let model = models.first(where: { $0.id.lowercased() == token }) {
+            if let model = models.first(where: { $0.id.lowercased() == lowercased }) {
                 seeded[model.id] = Self.reportedSize(for: model)
             }
         }
-
         entries = seeded
         persist()
+    }
+
+    func resetAll() {
+        do {
+            try fileManager.removeItem(at: persistenceURL)
+        } catch {
+            #if DEBUG
+            print("[IOSSimulatorFakeInstallRegistry] resetAll failed to remove persistence: \(error.localizedDescription)")
+            #endif
+        }
+        entries = [:]
     }
 
     private static func reportedSize(for model: ModelDescriptor) -> Int {
