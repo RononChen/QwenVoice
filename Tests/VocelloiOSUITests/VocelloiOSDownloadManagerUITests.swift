@@ -20,6 +20,7 @@ final class VocelloiOSDownloadManagerUITests: XCTestCase {
 
         app = XCUIApplication()
         app.launchEnvironment["QVOICE_IOS_DISABLE_ENGINE"] = "1"
+        app.launchEnvironment["QVOICE_IOS_SKIP_ONBOARDING"] = "1"
         app.launchEnvironment["QVOICE_SIM_FAKE_MODELS"] = "none"
         app.launchEnvironment["QVOICE_SIM_SEED_DATA"] = "voices,history"
         app.launchEnvironment["QVOICE_SIM_BACKEND_DELAY_MS"] = "500"
@@ -95,7 +96,7 @@ final class VocelloiOSDownloadManagerUITests: XCTestCase {
         captureScreenshot(named: "download-cancelled-pro-custom")
     }
 
-    /// Mid-download transport failure should surface an error and return the row to Install.
+    /// Mid-download transport failure should surface an error and offer Retry.
     func testDownloadFailMid() {
         relaunchWithDownloadScenario("fail_mid")
 
@@ -103,15 +104,15 @@ final class VocelloiOSDownloadManagerUITests: XCTestCase {
         XCTAssertTrue(installButton.waitForExistence(timeout: 10), "Install button should be visible")
         installButton.tap()
 
-        let installAgain = element("iosModelDownload_pro_custom")
+        let retryButton = element("iosModelRetry_pro_custom")
         XCTAssertTrue(
-            installAgain.waitForExistence(timeout: 60),
-            "Install button should return after simulated mid-download failure"
+            retryButton.waitForExistence(timeout: 60),
+            "Retry button should appear after simulated mid-download failure"
         )
         captureScreenshot(named: "download-fail-mid-pro-custom")
     }
 
-    /// Simulated verify failure after download completes should not leave the model installed.
+    /// Simulated verify failure after download completes should offer Retry, not leave the model installed.
     func testDownloadFailVerify() {
         relaunchWithDownloadScenario("fail_verify")
 
@@ -119,10 +120,10 @@ final class VocelloiOSDownloadManagerUITests: XCTestCase {
         XCTAssertTrue(installButton.waitForExistence(timeout: 10), "Install button should be visible")
         installButton.tap()
 
-        let installAgain = element("iosModelDownload_pro_custom")
+        let retryButton = element("iosModelRetry_pro_custom")
         XCTAssertTrue(
-            installAgain.waitForExistence(timeout: 90),
-            "Install button should return after simulated verification failure"
+            retryButton.waitForExistence(timeout: 90),
+            "Retry button should appear after simulated verification failure"
         )
         captureScreenshot(named: "download-fail-verify-pro-custom")
     }
@@ -139,6 +140,7 @@ final class VocelloiOSDownloadManagerUITests: XCTestCase {
         }
         app = XCUIApplication()
         app.launchEnvironment["QVOICE_IOS_DISABLE_ENGINE"] = "1"
+        app.launchEnvironment["QVOICE_IOS_SKIP_ONBOARDING"] = "1"
         app.launchEnvironment["QVOICE_SIM_FAKE_MODELS"] = "none"
         app.launchEnvironment["QVOICE_SIM_SEED_DATA"] = "voices,history"
         app.launchEnvironment["QVOICE_SIM_BACKEND_DELAY_MS"] = "500"

@@ -148,6 +148,7 @@ struct IOSGenerateContainerView: View {
                 voiceDesignDraft: voiceDesignDraft
             )
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("screen_generateStudio")
     }
 }

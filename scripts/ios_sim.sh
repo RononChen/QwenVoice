@@ -25,6 +25,7 @@
 #   QVOICE_SIM_BACKEND_SCENARIO  success|slow|fail|cancel_mid|clone_missing_ref
 #   QVOICE_SIM_DOWNLOAD_SCENARIO success|slow|fail_mid|fail_verify   (default: success)
 #   QVOICE_SIM_BACKEND_DELAY_MS  <ms>                                (override generation/download delay)
+#   QVOICE_SIM_CLONE_CAPABLE     0|1                                 (force clone mode off/on)
 #   --preset studio-seeded|settings-fresh|download-slow|generation-fail
 #   --no-seed                    launch clean (empty / onboarding state)
 #
@@ -243,11 +244,12 @@ cmd_run() {
   # env stripped of the SIMCTL_CHILD_ prefix. Caller-exported QVOICE_SIM_* override.
   local -a child=()
   if [[ "$seed" == "1" ]]; then
-    child+=( "SIMCTL_CHILD_QVOICE_SIM_FAKE_MODELS=${QVOICE_SIM_FAKE_MODELS:-all}" )
-    child+=( "SIMCTL_CHILD_QVOICE_SIM_SEED_DATA=${QVOICE_SIM_SEED_DATA:-voices,history}" )
-    [[ -n "${QVOICE_SIM_BACKEND_SCENARIO:-}" ]] && child+=( "SIMCTL_CHILD_QVOICE_SIM_BACKEND_SCENARIO=$QVOICE_SIM_BACKEND_SCENARIO" )
-    [[ -n "${QVOICE_SIM_DOWNLOAD_SCENARIO:-}" ]] && child+=( "SIMCTL_CHILD_QVOICE_SIM_DOWNLOAD_SCENARIO=$QVOICE_SIM_DOWNLOAD_SCENARIO" )
-    [[ -n "${QVOICE_SIM_BACKEND_DELAY_MS:-}" ]] && child+=( "SIMCTL_CHILD_QVOICE_SIM_BACKEND_DELAY_MS=$QVOICE_SIM_BACKEND_DELAY_MS" )
+    export QVOICE_SIM_FAKE_MODELS="${QVOICE_SIM_FAKE_MODELS:-all}"
+    export QVOICE_SIM_SEED_DATA="${QVOICE_SIM_SEED_DATA:-voices,history}"
+    local var
+    for var in $(compgen -v QVOICE_SIM_); do
+      [[ -n "${!var:-}" ]] && child+=( "SIMCTL_CHILD_$var=${!var}" )
+    done
     note "launching seeded (models installed, sample voices + history) — override via QVOICE_SIM_* env, or --no-seed"
   else
     note "launching clean (no seed — empty / onboarding state)"
@@ -390,7 +392,9 @@ cmd_ui_test() {
     done
   fi
 
-  if (( all_ok == 1 )) && grep -q '\*\* TEST SUCCEEDED \*\*' "$log"; then
+  # Xcode 26 emits '** TEST EXECUTE SUCCEEDED **' for test-without-building;
+  # older versions emitted '** TEST SUCCEEDED **'. Accept either.
+  if (( all_ok == 1 )) && grep -qE '\*\* TEST (EXECUTE )?SUCCEEDED \*\*' "$log"; then
     note "simulator UI tests PASSED"
     return 0
   fi

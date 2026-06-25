@@ -51,6 +51,25 @@ RULES
 
 <!-- NEWEST ENTRIES BELOW THIS LINE — prepend your entry here (newest at top) -->
 
+## 2026-06-25 — kimi — simulator-refactor Tasks 9–11 (Sheet suite fix + sim UI batch green)
+
+- **Commits:** uncommitted — working tree
+- **Touched:**
+  - `Tests/VocelloiOSUITests/VocelloUITestApp.swift` — removed the timing-sensitive `generateSection_custom` assertion from `launch()`; the tab bar is the earliest stable launch signal, and `resetToStudio()` already asserts the full Studio surface per test.
+  - `Tests/VocelloiOSUITests/VocelloiOSDownloadManagerUITests.swift` — set `QVOICE_IOS_SKIP_ONBOARDING=1` on every launch; failure scenarios now expect `iosModelRetry_pro_custom` (Retry button) instead of the original Install button.
+  - `Tests/VocelloiOSUITests/VocelloiOSSimulatorGenerationUITests.swift` — tightened success/failure/cancel flows, uses `textInput_*` IDs after the `.accessibilityElement(children: .contain)` fix.
+  - `scripts/ios_sim.sh` — success grep now accepts `** TEST EXECUTE SUCCEEDED **` (Xcode 26) and `** TEST SUCCEEDED **`; `cmd_run` forwards every caller-exported `QVOICE_SIM_*` variable via `SIMCTL_CHILD_*`; added `QVOICE_SIM_CLONE_CAPABLE` to the header env list.
+  - `Sources/iOS/App/TabDock.swift`, `Sources/iOS/IOSGenerateFlowViews.swift`, `Sources/iOS/IOSGenerationModeViews.swift` — accessibility-identifier reachability fixes from earlier in the branch (`rootTab_*` and `screen_*` containers).
+- **Summary:**
+  - Fixed the suite-setup failure in `VocelloiOSSheetUITests` where `generateSection_custom` wasn't present within 30 s on a cold first-launch; the root cause was asserting an asynchronously-populated card too early.
+  - Verified all four default simulator UI-test classes pass individually and the full `scripts/ios_sim.sh ui-test` batch now reports `simulator UI tests PASSED`.
+  - Static gates (`scripts/check_project_inputs.sh`) pass; macOS and iOS foundation compile-safety builds pass (iOS needed a retry after a transient `build.db` disk I/O error when run concurrently with macOS).
+- **Decisions:**
+  - Warm-app coordinator does not assert late-appearing Studio content at launch; per-test `resetToStudio()` is the single source of truth for Studio readiness.
+  - `scripts/ios_sim.sh run` now forwards all `QVOICE_SIM_*` env vars rather than a hardcoded subset, matching the docs' "override any var" promise.
+- **Requests for claude-code:** none.
+- **Open questions / blockers:** none.
+
 ## 2026-06-24 — claude-code — iOS on-device UI test harness remediation
 
 - **Commits:** uncommitted — working tree

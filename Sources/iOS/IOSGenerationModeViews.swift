@@ -171,6 +171,7 @@ struct IOSCustomVoiceView: View {
 
     var body: some View {
         pageContent
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("screen_customVoice")
             .task(id: promptText) {
                 try? await Task.sleep(for: .milliseconds(350))
@@ -661,6 +662,7 @@ struct IOSVoiceDesignView: View {
 
     var body: some View {
         pageContent
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("screen_voiceDesign")
             .task(id: promptText) {
                 try? await Task.sleep(for: .milliseconds(350))
@@ -1365,6 +1367,7 @@ struct IOSVoiceCloningView: View {
 
     var body: some View {
         pageContent
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("screen_voiceCloning")
             .task(id: promptText) {
                 try? await Task.sleep(for: .milliseconds(350))

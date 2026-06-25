@@ -11,7 +11,7 @@ final class VocelloUITestApp: @unchecked Sendable {
     static let shared = VocelloUITestApp()
     private init() {}
 
-    private let lock = NSLock()
+    private let lock = NSRecursiveLock()
     private var retainCount = 0
     private(set) var app: XCUIApplication!
 
@@ -54,7 +54,7 @@ final class VocelloUITestApp: @unchecked Sendable {
         retainIfNeeded()
         ensureForeground()
 
-        let studioTab = element("rootTab_studio")
+        let studioTab = button("rootTab_studio")
         if studioTab.exists && !studioTab.isSelected {
             studioTab.tap()
         }
@@ -82,11 +82,51 @@ final class VocelloUITestApp: @unchecked Sendable {
         )
     }
 
+    /// Terminate the warm app and relaunch it with a new simulator scenario.
+    /// Always resets simulator-only state so the test is hermetic.
+    func relaunchWith(
+        backendScenario: String? = nil,
+        downloadScenario: String? = nil,
+        delayMilliseconds: Int? = nil
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        terminate()
+        app = XCUIApplication()
+        app.launchEnvironment["QVOICE_IOS_SKIP_ONBOARDING"] = "1"
+        app.launchEnvironment["QVOICE_SIM_RESET_STATE"] = "1"
+        app.launchEnvironment["QVOICE_SIM_FAKE_MODELS"] = "all"
+        app.launchEnvironment["QVOICE_SIM_SEED_DATA"] = "voices,history"
+        if let backendScenario {
+            app.launchEnvironment["QVOICE_SIM_BACKEND_SCENARIO"] = backendScenario
+        }
+        if let downloadScenario {
+            app.launchEnvironment["QVOICE_SIM_DOWNLOAD_SCENARIO"] = downloadScenario
+        }
+        if let delayMilliseconds {
+            app.launchEnvironment["QVOICE_SIM_BACKEND_DELAY_MS"] = String(delayMilliseconds)
+        }
+        app.launch()
+        dismissOnboardingIfPresent()
+        XCTAssertTrue(
+            button("rootTab_studio").waitForExistence(timeout: 30),
+            "Studio tab should appear after relaunch"
+        )
+    }
+
     // MARK: - Element helpers
 
     func element(_ identifier: String) -> XCUIElement {
         retainIfNeeded()
         return app.descendants(matching: .any)[identifier].firstMatch
+    }
+
+    /// Tab-bar buttons and other plain buttons are much cheaper to query than
+    /// `descendants(matching: .any)` on the full hierarchy, and avoid a hang we
+    /// see on iOS 26 simulators when the broad query races with the fake engine.
+    func button(_ identifier: String) -> XCUIElement {
+        retainIfNeeded()
+        return app.buttons[identifier].firstMatch
     }
 
     func firstElement(prefix: String) -> XCUIElement {
@@ -137,9 +177,9 @@ final class VocelloUITestApp: @unchecked Sendable {
     }
 
     static func dismissOnboardingIfPresent(in app: XCUIApplication, timeout: TimeInterval = 25) {
-        let studio = app.descendants(matching: .any)["rootTab_studio"].firstMatch
-        let skip = app.descendants(matching: .any)["onboarding_skip"].firstMatch
-        let cta = app.descendants(matching: .any)["onboarding_cta"].firstMatch
+        let studio = app.buttons["rootTab_studio"].firstMatch
+        let skip = app.buttons["onboarding_skip"].firstMatch
+        let cta = app.buttons["onboarding_cta"].firstMatch
         let deadline = Date().addingTimeInterval(timeout)
         var ctaTaps = 0
         while Date() < deadline {
@@ -193,7 +233,9 @@ final class VocelloUITestApp: @unchecked Sendable {
     private func launch() {
         app = XCUIApplication()
         // UI-only smoke/sheet tests do not need the heavy model load.
-        app.launchEnvironment["QVOICE_IOS_DISABLE_ENGINE"] = "1"
+        // Keep tests hermetic: skip the first-run onboarding cover so every test
+        // starts on the Studio surface deterministically.
+        app.launchEnvironment["QVOICE_IOS_SKIP_ONBOARDING"] = "1"
         // On the simulator these seed the fake engine so the Studio is populated.
         // On a real device they are ignored.
         app.launchEnvironment["QVOICE_SIM_FAKE_MODELS"] = "all"
@@ -202,10 +244,12 @@ final class VocelloUITestApp: @unchecked Sendable {
         app.launch()
         dismissOnboardingIfPresent()
 
-        XCTAssertTrue(
-            waitFor("rootTab_studio", timeout: 30),
-            "Studio tab should appear after launch"
-        )
+        // Do not assert the Studio surface here. The tab bar (rootTab_studio) is
+        // the earliest stable signal that the app has finished launching; the
+        // generateSection_custom card is populated asynchronously by the fake
+        // engine and can take longer than 30 s on a cold first-launch in the
+        // simulator. Each warm test calls resetToStudio(), which asserts the
+        // full Studio surface before proceeding.
     }
 
     private func terminate() {
