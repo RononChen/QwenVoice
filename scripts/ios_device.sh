@@ -32,6 +32,7 @@
 #   scripts/ios_device.sh crashes [--test]         # pull + symbolicate on-device crash/hang diagnostics (MetricKit)
 #   scripts/ios_device.sh debug [spec]             # attached launch + LLDB attach guidance (get-task-allow build)
 #   scripts/ios_device.sh logs [spec]              # attached launch teeing stdout → build/ios-logs/<run>.log
+#   scripts/ios_device.sh profile [spec]           # Instruments/xctrace trace of an autorun generation (burn-in-safe)
 #
 # Observation: every device command auto-starts macOS iPhone Mirroring (watch on the Mac;
 # the phone stays locked + screen-dark, OLED-safe; mirroring also keeps a LOCKED device
@@ -791,12 +792,61 @@ print(json.dumps({
   note "saved $out"
 }
 
+# profile [spec]: record an Instruments/xctrace trace while the autorun harness runs one
+# generation on-device (burns-in safe — headless, screen dark). Default template
+# 'Time Profiler'; override with QVOICE_IOS_PROFILE_TEMPLATE ('Allocations', …) and the
+# capture window with QVOICE_IOS_PROFILE_DURATION (seconds, default 90). The engine emits
+# OSSignpost intervals under com.qwenvoice.engine / com.patricedery.vocello — use a
+# signpost-bearing template (or the os_signpost instrument) to capture them. Produces
+# build/ios/profile-<ts>.trace + the in-app telemetry summary for the same run.
+cmd_profile() {
+  local spec="${1:-custom:speed:Profile autorun.}"
+  [[ "$spec" == *:* ]] || spec="custom:speed:$spec"
+  require_team
+  local template="${QVOICE_IOS_PROFILE_TEMPLATE:-Time Profiler}"
+  local duration="${QVOICE_IOS_PROFILE_DURATION:-90}"
+  local dev; dev="$(resolve_device)"
+  ensure_mirror
+  command -v xctrace >/dev/null 2>&1 \
+    || die "xctrace not found (install Xcode); or dispatch the axiom:performance-profiler agent"
+
+  [[ -d "$APP_PATH" ]] || cmd_build
+  cmd_install >/dev/null
+  local trace="$ROOT_DIR/build/ios/profile-$(date +%Y%m%d-%H%M%S).trace"
+  mkdir -p "$(dirname "$trace")"
+
+  note "profile: template='$template', ${duration}s, device=$dev (start tracer, then autorun)"
+  # Start the tracer FIRST (attach mode waits for 'Vocello') so it captures from launch.
+  xctrace record --device "$dev" --template "$template" \
+    --attach "Vocello" --time-limit "${duration}s" --output "$trace" &
+  local xcpid=$!
+  sleep 2   # let xctrace begin polling for the attach target
+  local run_id; run_id="$(cmd_launch "$spec" | tail -1)"
+  note "autorun launched (runID=$run_id); capturing for up to ${duration}s…"
+  wait "$xcpid" || true
+  [[ -d "$trace" ]] || die "no trace produced at $trace"
+
+  note "trace → $trace"
+  note "analyze: open in Instruments, or dispatch axiom:performance-profiler / run: xcprof analyze \"$trace\""
+
+  local dest="$ROOT_DIR/build/ios-diagnostics"
+  rm -rf "$dest"
+  cmd_pull "$dest" >/dev/null 2>&1 || true
+  local diag="$dest"
+  local engine_jsonl; engine_jsonl="$(find "$dest" -path '*/engine/generations.jsonl' 2>/dev/null | head -1)"
+  [[ -n "$engine_jsonl" ]] && diag="$(dirname "$(dirname "$engine_jsonl")")"
+  note "── telemetry for the profiled run ──"
+  python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$diag" >&2 \
+    || warn "no engine telemetry (was QWENVOICE_DEBUG=1 honored?)"
+  printf '%s\n' "$trace"
+}
+
 main() {
   local sub="${1:-help}"; shift || true
   # Auto-start iPhone Mirroring before any device-touching command (observation + keeps a
   # locked device reachable). `mirror` calls ensure_mirror itself; help/none skip it.
   case "$sub" in
-    doctor|build|install|launch|console|pull|bench|shot|crashes|debug|logs) ensure_mirror ;;
+    doctor|build|install|launch|console|pull|bench|shot|crashes|debug|logs|profile) ensure_mirror ;;
   esac
   case "$sub" in
     doctor)  cmd_doctor "$@" ;;
@@ -812,9 +862,10 @@ main() {
     crashes) cmd_crashes "$@" ;;
     debug)   cmd_debug "$@" ;;
     logs)    cmd_logs "$@" ;;
+    profile) cmd_profile "$@" ;;
     help|-h|--help)
       sed -n '2,47p' "$0" | sed 's/^# \{0,1\}//' >&2 ;;
-    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|mirror|shot|pull|bench|ui-test|crashes|debug|logs|help)" ;;
+    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|mirror|shot|pull|bench|ui-test|crashes|debug|logs|profile|help)" ;;
   esac
 }
 
