@@ -194,6 +194,9 @@ The smoke/sheet suites do **not** generate audio (that's the harness above) — 
 sheet behaviour are what's under test. The cold-generation suite is the exception: it proves a real
 on-device generation still works from a cold start.
 
+> The full per-element app map + the canonical driving flows live in
+> [`ios-app-guide.md`](ios-app-guide.md); the Studio-specific essentials + gotchas are below.
+
 **Driving identifiers (important):** the screen-level `screen_generateStudio` identifier
 propagates onto its descendants, **shadowing** the Studio selector pills' `studioChip_*` ids
 and the composer's `textInput_*` ids — so tap the pills by their stable **label prefix**

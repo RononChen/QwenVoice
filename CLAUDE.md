@@ -228,6 +228,8 @@ single-config, deterministic local loop. Then:
 - `docs/ARCHITECTURE.md` — **start here**: unified, code-verified map of modules,
   dependencies, runtime architecture (XPC vs in-process), the generation
   lifecycle, persistence, model management, and telemetry.
+- `docs/reference/ios-app-guide.md` — **iOS UI**: the app map + how to drive it in tests
+  (per-element identifier/action map, model-download state, canonical flows, gotchas).
 - `docs/reference/` — per-subsystem reading list: `mlx-guide.md`,
   `qwen3-tts-guide.md`, `mimi-codec-guide.md`, `metal-guide.md`,
   `swift-performance-guide.md`, `ios-engine-optimization.md`,
