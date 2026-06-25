@@ -31,7 +31,7 @@ enum IOSSimulatorRuntimeSupport {
 }
 
 @MainActor
-final class IOSSimulatorTTSEngine: TTSEngine, TTSEngineRuntimeControlling, ActiveGenerationCancellable, NativeMemoryReporting {
+final class IOSSimulatorTTSEngine: TTSEngine, TTSEngineRuntimeControlling, ActiveGenerationCancellable, NativeMemoryReporting, TTSEngineEventStreaming {
     @Published private(set) var loadState: EngineLoadState = .idle
     @Published private(set) var clonePreparationState: ClonePreparationState = .idle
     @Published private(set) var latestEvent: GenerationEvent?
@@ -50,16 +50,28 @@ final class IOSSimulatorTTSEngine: TTSEngine, TTSEngineRuntimeControlling, Activ
     private var cancelRequested = false
     private var allowsProactiveWarmOperations = true
 
+    private let configuration: IOSSimulatorConfiguration
+    nonisolated let events: AsyncStream<GenerationEvent>
+    nonisolated private let eventStreamContinuation: AsyncStream<GenerationEvent>.Continuation
+
     init(
         modelRegistry: any ModelRegistry,
         documentIO: any DocumentIO,
         audioPreparationService: any AudioPreparationService = NativeAudioPreparationService(
             preparedAudioDirectory: AppPaths.preparedAudioDir
-        )
+        ),
+        configuration: IOSSimulatorConfiguration = .default
     ) {
         self.modelRegistry = modelRegistry
         self.documentIO = documentIO
         self.audioPreparationService = audioPreparationService
+        self.configuration = configuration
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: GenerationEvent.self,
+            bufferingPolicy: .bufferingNewest(64)
+        )
+        self.events = stream
+        self.eventStreamContinuation = continuation
     }
 
     func supportDecision(for request: GenerationRequest) -> GenerationSupportDecision {
@@ -177,8 +189,8 @@ final class IOSSimulatorTTSEngine: TTSEngine, TTSEngineRuntimeControlling, Activ
         loadedModelID = request.modelID
         visibleErrorMessage = nil
 
-        let scenario = IOSSimulatorBackendScenario.current
-        let delay = scenario.delay
+        let scenario = configuration.backendScenario
+        let delay = configuration.backendDelayNanoseconds
         let steps: [(Double, String)] = [
             (0.12, "Preparing request"),
             (0.38, "Rendering audio"),
@@ -192,12 +204,12 @@ final class IOSSimulatorTTSEngine: TTSEngine, TTSEngineRuntimeControlling, Activ
             for (fraction, message) in steps {
                 try checkCancelled()
                 loadState = .running(modelID: request.modelID, label: request.engineActivityLabel, fraction: fraction)
-                latestEvent = .progress(GenerationProgress(percent: Int(fraction * 100), message: message))
+                emit(.progress(GenerationProgress(percent: Int(fraction * 100), message: message)))
 
                 if fraction >= 0.38 {
                     chunkSequence += 1
                     let chunkDuration = max(0.15, resultDurationEstimate(for: request.text) * Double(fraction))
-                    latestEvent = .chunk(
+                    emit(.chunk(
                         GenerationChunk(
                             mode: request.mode.rawValue,
                             title: request.text.prefix(48).description,
@@ -208,7 +220,7 @@ final class IOSSimulatorTTSEngine: TTSEngine, TTSEngineRuntimeControlling, Activ
                             streamSessionDirectory: nil,
                             chunkSequence: chunkSequence
                         )
-                    )
+                    ))
                 }
 
                 try await Task.sleep(nanoseconds: stepDelay)
@@ -216,10 +228,10 @@ final class IOSSimulatorTTSEngine: TTSEngine, TTSEngineRuntimeControlling, Activ
 
             try checkCancelled()
 
-            if scenario.kind == .fail {
+            if scenario == .fail {
                 let message = "Simulator fake backend failure for \(request.mode.displayName)."
                 visibleErrorMessage = message
-                latestEvent = .failed(message)
+                emit(.failed(message))
                 loadState = .failed(message: message)
                 throw MLXTTSEngineError.generationFailed(message)
             }
@@ -230,7 +242,7 @@ final class IOSSimulatorTTSEngine: TTSEngine, TTSEngineRuntimeControlling, Activ
                 outputPath: request.outputPath
             )
             chunkSequence += 1
-            latestEvent = .chunk(
+            emit(.chunk(
                 GenerationChunk(
                     mode: request.mode.rawValue,
                     title: request.text.prefix(48).description,
@@ -241,8 +253,8 @@ final class IOSSimulatorTTSEngine: TTSEngine, TTSEngineRuntimeControlling, Activ
                     streamSessionDirectory: nil,
                     chunkSequence: chunkSequence
                 )
-            )
-            latestEvent = .completed(result)
+            ))
+            emit(.completed(result))
             loadState = .loaded(modelID: model.id)
             visibleErrorMessage = nil
             return result
@@ -413,7 +425,7 @@ final class IOSSimulatorTTSEngine: TTSEngine, TTSEngineRuntimeControlling, Activ
                 throw MLXTTSEngineError.generationFailed("Describe the voice before generating.")
             }
         case .clone(let reference):
-            if IOSSimulatorBackendScenario.current.kind == .cloneMissingRef {
+            if configuration.backendScenario == .cloneMissingRef {
                 throw MLXTTSEngineError.generationFailed("Choose a reference voice before generating.")
             }
             guard !reference.audioPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -424,6 +436,11 @@ final class IOSSimulatorTTSEngine: TTSEngine, TTSEngineRuntimeControlling, Activ
 
     private func resultDurationEstimate(for text: String) -> Double {
         max(0.8, Double(text.count) * 0.04)
+    }
+
+    private func emit(_ event: GenerationEvent) {
+        latestEvent = event
+        eventStreamContinuation.yield(event)
     }
 
     private func checkCancelled() throws {
@@ -460,15 +477,11 @@ final class IOSSimulatorTTSEngine: TTSEngine, TTSEngineRuntimeControlling, Activ
     }
 
     private func seedDataIfRequested() async throws {
-        let tokens = ProcessInfo.processInfo.environment["QVOICE_SIM_SEED_DATA"]?
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() } ?? []
-        guard !tokens.isEmpty else { return }
-
-        if tokens.contains("voices") {
+        guard !configuration.seedData.isEmpty else { return }
+        if configuration.seedData.contains(.voices) {
             try seedSavedVoicesIfNeeded()
         }
-        if tokens.contains("history") {
+        if configuration.seedData.contains(.history) {
             try await seedHistoryIfNeeded()
         }
     }
@@ -511,60 +524,6 @@ final class IOSSimulatorTTSEngine: TTSEngine, TTSEngineRuntimeControlling, Activ
             createdAt: Date()
         )
         _ = try await DatabaseService.shared.saveGenerationAsync(generation)
-    }
-}
-
-private struct IOSSimulatorBackendScenario {
-    enum Kind {
-        case success
-        case slow
-        case fail
-        case cancelMid
-        case cloneMissingRef
-    }
-
-    let kind: Kind
-    let delay: UInt64
-
-    static var current: IOSSimulatorBackendScenario {
-        let environment = ProcessInfo.processInfo.environment
-        let kind: Kind
-        switch environment["QVOICE_SIM_BACKEND_SCENARIO"]?.lowercased() {
-        case "slow":
-            kind = .slow
-        case "fail", "failure", "error":
-            kind = .fail
-        case "cancel_mid", "cancel-mid":
-            kind = .cancelMid
-        case "clone_missing_ref", "clone-missing-ref":
-            kind = .cloneMissingRef
-        default:
-            kind = .success
-        }
-
-        let defaultMilliseconds: Int
-        switch kind {
-        case .success:
-            defaultMilliseconds = 900
-        case .slow:
-            defaultMilliseconds = 6_000
-        case .fail:
-            defaultMilliseconds = 900
-        case .cancelMid:
-            defaultMilliseconds = 12_000
-        case .cloneMissingRef:
-            defaultMilliseconds = 900
-        }
-
-        let requestedMilliseconds = environment["QVOICE_SIM_BACKEND_DELAY_MS"]
-            .flatMap(Int.init)
-            .map { min(max($0, 0), 30_000) }
-            ?? defaultMilliseconds
-
-        return IOSSimulatorBackendScenario(
-            kind: kind,
-            delay: UInt64(requestedMilliseconds) * 1_000_000
-        )
     }
 }
 

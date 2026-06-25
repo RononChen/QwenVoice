@@ -8,6 +8,7 @@ struct IOSSimulatorConfiguration: Sendable {
         case success
         case slow
         case fail
+        /// Long delay that gives UI tests time to tap Cancel manually.
         case cancelMid = "cancel_mid"
         case cloneMissingRef = "clone_missing_ref"
     }
