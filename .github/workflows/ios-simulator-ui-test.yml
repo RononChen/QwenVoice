@@ -1,0 +1,39 @@
+name: iOS Simulator UI smoke
+
+# Non-gating supplementary lane: keeps the fake-backend XCUITest scope from rotting.
+# Does NOT replace on-device verification (scripts/ios_device.sh ui-test).
+on:
+  pull_request:
+    paths:
+      - 'Sources/iOS/**'
+      - 'Sources/iOSSupport/**'
+      - 'SharedSupport/**'
+      - 'Tests/VocelloiOSUITests/**'
+      - 'scripts/ios_sim.sh'
+      - 'project.yml'
+      - '.github/workflows/ios-simulator-ui-test.yml'
+  workflow_dispatch:
+
+jobs:
+  sim-ui-test:
+    name: Simulator UI smoke (non-gating)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 26.0
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.0.app
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Regenerate Xcode project
+        run: ./scripts/regenerate_project.sh
+
+      - name: Run simulator UI smoke
+        run: ./scripts/ios_sim.sh ui-test

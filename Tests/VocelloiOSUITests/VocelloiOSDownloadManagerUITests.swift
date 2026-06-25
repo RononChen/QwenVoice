@@ -95,10 +95,58 @@ final class VocelloiOSDownloadManagerUITests: XCTestCase {
         captureScreenshot(named: "download-cancelled-pro-custom")
     }
 
+    /// Mid-download transport failure should surface an error and return the row to Install.
+    func testDownloadFailMid() {
+        relaunchWithDownloadScenario("fail_mid")
+
+        let installButton = element("iosModelDownload_pro_custom")
+        XCTAssertTrue(installButton.waitForExistence(timeout: 10), "Install button should be visible")
+        installButton.tap()
+
+        let installAgain = element("iosModelDownload_pro_custom")
+        XCTAssertTrue(
+            installAgain.waitForExistence(timeout: 60),
+            "Install button should return after simulated mid-download failure"
+        )
+        captureScreenshot(named: "download-fail-mid-pro-custom")
+    }
+
+    /// Simulated verify failure after download completes should not leave the model installed.
+    func testDownloadFailVerify() {
+        relaunchWithDownloadScenario("fail_verify")
+
+        let installButton = element("iosModelDownload_pro_custom")
+        XCTAssertTrue(installButton.waitForExistence(timeout: 10), "Install button should be visible")
+        installButton.tap()
+
+        let installAgain = element("iosModelDownload_pro_custom")
+        XCTAssertTrue(
+            installAgain.waitForExistence(timeout: 90),
+            "Install button should return after simulated verification failure"
+        )
+        captureScreenshot(named: "download-fail-verify-pro-custom")
+    }
+
     // MARK: - Helpers
 
     private func element(_ identifier: String) -> XCUIElement {
         app.descendants(matching: .any)[identifier].firstMatch
+    }
+
+    private func relaunchWithDownloadScenario(_ scenario: String) {
+        if app != nil, app.state == .runningForeground || app.state == .runningBackground {
+            app.terminate()
+        }
+        app = XCUIApplication()
+        app.launchEnvironment["QVOICE_IOS_DISABLE_ENGINE"] = "1"
+        app.launchEnvironment["QVOICE_SIM_FAKE_MODELS"] = "none"
+        app.launchEnvironment["QVOICE_SIM_SEED_DATA"] = "voices,history"
+        app.launchEnvironment["QVOICE_SIM_BACKEND_DELAY_MS"] = "500"
+        app.launchEnvironment["QVOICE_SIM_DOWNLOAD_SCENARIO"] = scenario
+        app.launch()
+        VocelloUITestApp.dismissOnboardingIfPresent(in: app)
+        navigateToSettings()
+        uninstallProCustomIfNeeded()
     }
 
     private func navigateToSettings() {

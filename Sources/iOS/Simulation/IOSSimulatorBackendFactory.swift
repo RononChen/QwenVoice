@@ -22,8 +22,7 @@ enum IOSSimulatorBackendFactory {
         // Reset simulator test state before any UI sees it.
         if configuration.resetStateOnLaunch {
             IOSSimulatorStateReset.perform(
-                registry: IOSSimulatorFakeInstallRegistry.shared,
-                modelAssetStore: modelAssetStore
+                registry: IOSSimulatorFakeInstallRegistry.shared
             )
         }
 

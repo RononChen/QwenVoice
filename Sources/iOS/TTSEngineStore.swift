@@ -10,6 +10,9 @@ extension Notification.Name {
 enum IOSNativeDeviceFeatureGate {
     static func unsupportedReason(for mode: GenerationMode) -> String? {
 #if targetEnvironment(simulator)
+        if IOSSimulatorRuntimeSupport.simCloneCapableOverride == false, mode == .clone {
+            return "Voice Cloning is unavailable on this simulated device profile."
+        }
         return nil
 #else
         switch mode {

@@ -2,11 +2,11 @@ import XCTest
 
 /// Shared app coordinator for the whole `VocelloiOSUITests` target.
 ///
-/// XCUITest's default pattern launches the app inside every test's `setUp()` and
-/// terminates it in `tearDown()`. For Vocello that meant the app closed and reopened
-/// between every single UI assertion, which is nothing like a real user session. This
-/// singleton keeps the app alive across test cases; only a fresh `xcodebuild test` run
-/// (new build / new process) or an explicit cold-generation test triggers a new launch.
+/// On the **simulator**, warm tests seed `QVOICE_SIM_FAKE_MODELS` / `QVOICE_SIM_SEED_DATA`
+/// and disable the real engine (`QVOICE_IOS_DISABLE_ENGINE=1`) so IA + sheets run against
+/// `IOSSimulatorTTSEngine` without MLX. On **device**, those env vars are ignored and the
+/// warm path still disables the engine for fast smoke/sheet runs; real download/generation
+/// tests use their own `XCUIApplication` launches.
 final class VocelloUITestApp: @unchecked Sendable {
     static let shared = VocelloUITestApp()
     private init() {}

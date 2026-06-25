@@ -11,8 +11,8 @@ which drives the UI by pixels:
    summarizes. This is the real on-device entitlement/memory/RTF proof.
 2. **Thin XCUITest UI-flow smoke** (`VocelloiOSUITests`) — asserts the app launches and
    the 4-tab IA + Studio composer/mode-control are reachable, off the stable
-   `accessibilityIdentifier`s. Runs on a paired physical device only (the Simulator is retired
-   for UI work; see §3).
+   `accessibilityIdentifier`s. Runs on a paired physical device for the release gate; the
+   Simulator is a **supplementary** fast lane for layout and fake-backend UI smoke (see §3).
 
 Why this exists: on-device generation is the never-CI-tested path (real Jetsam, real
 model download, the in-process engine + increased-memory entitlement). iPhone Mirroring is
@@ -225,23 +225,27 @@ through refactors; the smoke + any agent UI checks depend on them.
 
 ---
 
-## 3. Simulator UI review (the fake engine) — RETIRED (kept in-tree, not used)
+## 3. Simulator UI review (supplementary lane)
 
-> **Retired (maintainer decision, 2026-06-04).** The Simulator path below — `scripts/ios_sim.sh`,
-> the fake `IOSSimulatorTTSEngine`, the `QVOICE_SIM_*` seeding, and AXe (`scripts/install_axe.sh`)
-> — is **kept in the repo (inert, reversible) but is no longer part of the workflow**. Do UI
-> testing/control/review **on the device** via §2 (`scripts/ios_device.sh ui-test`). The text
-> below is retained for reference only.
+The Simulator is **un-retired as a supplementary workflow** for fast layout/flow review and
+automated UI smoke with the in-tree **fake backend** (`IOSSimulatorTTSEngine`,
+`IOSSimulatedModelDownloadBackend`, `QVOICE_SIM_*` seeding). It does **not** replace the
+on-device release gate in §2 for real URLSession downloads, MLX generation, signing, or TCC.
 
-> **Do not follow the instructions below.** They document how the simulator path used to work
-> and are left in place only so the retirement decision and historical setup are discoverable.
+| Task | Use |
+| --- | --- |
+| Layout, sheets, tabs, keyboard | `scripts/ios_sim.sh run` + `shot` |
+| Download manager UI (pause/cancel/complete) | `scripts/ios_sim.sh ui-test` (DownloadManager class) |
+| Simulated Studio generate/complete/error | `scripts/ios_sim.sh ui-test` (SimGeneration class) |
+| Real download / cancel on hardware | `scripts/ios_device.sh ui-test` (OnDeviceDownload) |
+| Generation quality / cold launch MLX | `scripts/ios_device.sh bench` / `ui-test --cold` |
 
-For **visual UI work** (layout, chrome, flows, keyboard behavior) the Simulator is the right
-tool — no device, no signing, no models, no Metal/MLX. On the simulator the app swaps to
-`IOSSimulatorTTSEngine` at compile time (`#if targetEnvironment(simulator)` in
-`IOSAppBootstrap`), a fake that fabricates real per-mode WAV audio and drives the full
-generation lifecycle. (Generation *quality* still needs the device harness above — the fake
-is for exercising the UI, not the model.)
+On the simulator the app swaps to `IOSSimulatorTTSEngine` at compile time
+(`#if targetEnvironment(simulator)` in `IOSAppBootstrap`). Generation *quality* and network
+fidelity still require the device harness above — the fake stack exercises UI state only.
+
+See also: [`ios-simulator-ui-review.md`](ios-simulator-ui-review.md) for seed recipes, scenario
+env vars, and common review flows.
 
 ### `scripts/ios_sim.sh` — the simulator counterpart to `ios_device.sh`
 
@@ -249,49 +253,32 @@ No `QWENVOICE_DEVELOPMENT_TEAM` needed (unsigned). Shares the one `build/ios` tr
 
 | Verb | What it does |
 |------|--------------|
-| `doctor` | Xcode + simulator preflight; resolves the target sim; turns the **software keyboard on** (disconnects the hardware keyboard so the on-screen keyboard + the Studio "Done" accessory bar render). |
-| `build` | Build for the `iphonesimulator` SDK (`-Onone`, `CODE_SIGNING_ALLOWED=NO`); greps the log for `** BUILD SUCCEEDED **`. |
+| `doctor` | Xcode + simulator preflight; resolves the target sim; turns the **software keyboard on**. |
+| `build` | Build for the `iphonesimulator` SDK (`-Onone`, `CODE_SIGNING_ALLOWED=NO`). |
 | `install` | Boot the sim + `open -a Simulator` + `simctl install` the built app. |
-| `run [--no-seed] [--rebuild]` | `build-if-stale → boot → install → launch SEEDED`, then open the Simulator window. **Seeded** = fake models installed (Studio shows "Generate", not "Install") + sample voices + history, so every surface is populated. `--no-seed` launches the empty / onboarding state. |
-| `shot [path]` | `simctl io … screenshot` the booted sim (default `build/ios-sim-shot.png`). |
-| `ui-test` | Run the `VocelloiOSUITests` smoke (§2) on the sim. |
+| `run [--preset NAME] [--no-seed] [--rebuild]` | Build-if-stale → boot → install → launch with fake seed env; opens Simulator. Presets: `studio-seeded`, `settings-fresh`, `download-slow`, `generation-fail`. |
+| `shot [path]` | `simctl io … screenshot` (default `build/ios-sim-shot.png`). |
+| `ui-test [--all] [only]` | Default scope: Smoke + Sheet + DownloadManager + SimGeneration. Excludes OnDeviceDownload and ColdGeneration (device-only). Uses build-for-testing → test-without-building. |
 
 ```sh
-scripts/ios_sim.sh run            # build + launch the seeded app; Simulator opens for clicking
-scripts/ios_sim.sh shot out.png   # capture what's on screen
-scripts/ios_sim.sh ui-test        # the launch/navigation smoke
+scripts/ios_sim.sh run --preset studio-seeded   # seeded Studio (Generate enabled)
+scripts/ios_sim.sh run --preset settings-fresh  # no fake models (Install rows)
+scripts/ios_sim.sh shot out.png                 # capture what's on screen
+scripts/ios_sim.sh ui-test                      # scoped fake-backend UI smoke
 ```
 
-Target a specific sim with `QVOICE_IOS_SIM=<name|udid>` (else it auto-picks a booted iPhone,
-then the newest-iOS iPhone, preferring Pro). Tune the seed with the env the fake engine reads:
+Target a specific sim with `QVOICE_IOS_SIM=<name|udid>`. Tune behavior with `QVOICE_SIM_*`
+(see `ios-simulator-ui-review.md`).
 
-| Env var | Effect |
-|---------|--------|
-| `QVOICE_SIM_FAKE_MODELS` | `all` (default) / `custom` / `design` / `clone` / `<ids>` / `none` — which models report installed. |
-| `QVOICE_SIM_SEED_DATA` | `voices,history` (default) — seed a saved voice + a History entry. |
-| `QVOICE_SIM_BACKEND_SCENARIO` | `success` (default) / `slow` (watch progress UI) / `fail` (error-state UI). |
-| `QVOICE_SIM_BACKEND_DELAY_MS` | Override the fake generation delay. |
+**Software keyboard:** `ConnectHardwareKeyboard=false` takes effect on the next Simulator
+launch — quit + relaunch if the on-screen keyboard is missing.
 
-**Software keyboard:** the `ConnectHardwareKeyboard=false` default takes effect on the next
-Simulator launch — if Simulator is already open, quit + relaunch it (or toggle I/O ▸ Keyboard ▸
-Connect Hardware Keyboard off) so the on-screen keyboard appears.
+### Agent-driven UI checks
 
-### Agent-driven UI checks (Claude)
-
-To verify a UI change myself I can drive the sim three ways, all reusing `build/ios`:
-- **CLI**: `scripts/ios_sim.sh run` then `scripts/ios_sim.sh shot <path>` and read the screenshot.
-- **axiom `xcui` / `axe`**: `axe describe-ui --udid <sim>` (read the accessibility tree),
-  `axe tap --label "…" --udid <sim>` / `axe tap -x … -y …`, `axe type`, `axe screenshot`. `axe`
-  (the `xcui` dependency) installs **without Homebrew** via **`scripts/install_axe.sh`** (pinned +
-  sha-verified; puts `axe` in `~/.local/bin`); confirm with `xcui doctor` (`"ok": true`).
-- **`xcodebuildmcp` MCP**: `build_run_sim` → `screenshot` / `snapshot_ui` (the accessibility tree
-  with `elementRef`s) → `tap` / `type_text` to drive a flow (note: the MCP's UI-automation tools
-  may need enabling in XcodeBuildMCP's config).
-
-Use real taps — the SwiftUI a11y tree is virtualized (e.g. `textInput_textEditor` only materializes
-after a focus tap). **Note (2026-06-06): this Simulator path is retired** — don't use it for UI review.
-Automated UI-flow tests run via the on-device XCUITest suite (§2); interactive UI review uses iPhone
-Mirroring directly.
+- **CLI**: `scripts/ios_sim.sh run --preset …` then `scripts/ios_sim.sh shot <path>`.
+- **XCUITest**: `scripts/ios_sim.sh ui-test` for automated smoke on the fake backend.
+- **Device gate unchanged:** before merge/push for UI that touches downloads or real generation,
+  still run `scripts/ios_device.sh ui-test` (and `--cold` / `bench` when applicable).
 
 ---
 
@@ -301,7 +288,8 @@ Mirroring directly.
 |-------|---------|--------|
 | Compile (app) | `scripts/build_foundation_targets.sh ios` | the in-process engine + harness compile |
 | Compile (UI test) | `xcodebuild build-for-testing -scheme VocelloiOS -destination 'platform=iOS,id=<udid>' -derivedDataPath build/ios` | the test target compiles + is wired for the device |
-| UI smoke | `scripts/ios_device.sh ui-test` | launch + IA reachable on a real device |
+| UI smoke (device gate) | `scripts/ios_device.sh ui-test` | launch + IA + real download cancel on hardware |
+| Sim UI smoke (supplementary) | `scripts/ios_sim.sh ui-test` | fake-backend smoke: sheets, download manager, sim generation |
 | Interactive UI review | `scripts/ios_device.sh launch` + `scripts/ios_device.sh shot <path>` | the full UI renders over iPhone Mirroring for visual review |
 | On-device proof | `scripts/ios_device.sh bench "custom:speed:…"` | real generation, entitlement/memory headroom, RTF/`audioQC` |
 

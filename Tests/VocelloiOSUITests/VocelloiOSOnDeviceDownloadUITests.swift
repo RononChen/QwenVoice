@@ -14,8 +14,11 @@ final class VocelloiOSOnDeviceDownloadUITests: XCTestCase {
         VocelloUITestApp.shared.retainIfNeeded()
     }
 
-    override func setUp() {
-        super.setUp()
+    override func setUpWithError() throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("URLSession download tests require a real device — use ios_sim.sh ui-test for simulated downloads")
+        #endif
+        try super.setUpWithError()
         continueAfterFailure = false
         VocelloUITestApp.shared.resetToStudio()
         navigateToSettings()

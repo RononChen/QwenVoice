@@ -13,16 +13,19 @@
 #   scripts/ios_sim.sh doctor              # Xcode + simulator preflight; software keyboard on
 #   scripts/ios_sim.sh build               # build for the simulator (-Onone, unsigned)
 #   scripts/ios_sim.sh install             # boot the sim + install the built app
-#   scripts/ios_sim.sh run [--no-seed] [--rebuild]
-#                                          # build→boot→install→launch SEEDED; opens Simulator
+#   scripts/ios_sim.sh run [--preset NAME] [--no-seed] [--rebuild]
+#                                          # build→boot→install→launch; opens Simulator
 #   scripts/ios_sim.sh shot [path]         # screenshot the booted sim (default build/ios-sim-shot.png)
-#   scripts/ios_sim.sh ui-test             # run the VocelloiOSUITests smoke on the sim
+#   scripts/ios_sim.sh ui-test [--all] [only]
+#                                          # default: Smoke+Sheet+DownloadManager+SimGeneration
 #
 # Seed (read by the fake engine; `run` sets defaults, override via env):
 #   QVOICE_SIM_FAKE_MODELS       all|custom|design|clone|<ids>|none  (default: all → "Generate")
 #   QVOICE_SIM_SEED_DATA         voices,history                      (default: voices,history)
-#   QVOICE_SIM_BACKEND_SCENARIO  success|slow|fail                   (default: success)
-#   QVOICE_SIM_BACKEND_DELAY_MS  <ms>                                (override generation delay)
+#   QVOICE_SIM_BACKEND_SCENARIO  success|slow|fail|cancel_mid|clone_missing_ref
+#   QVOICE_SIM_DOWNLOAD_SCENARIO success|slow|fail_mid|fail_verify   (default: success)
+#   QVOICE_SIM_BACKEND_DELAY_MS  <ms>                                (override generation/download delay)
+#   --preset studio-seeded|settings-fresh|download-slow|generation-fail
 #   --no-seed                    launch clean (empty / onboarding state)
 #
 # Env:
@@ -31,7 +34,7 @@
 #
 # No signing / no QWENVOICE_DEVELOPMENT_TEAM needed (simulator). Real-device testing +
 # on-device generation live in scripts/ios_device.sh. See
-# docs/reference/ios-device-testing.md "Simulator UI review".
+# docs/reference/ios-simulator-ui-review.md (supplementary UI lane; device stays release gate).
 
 set -euo pipefail
 
@@ -169,17 +172,61 @@ cmd_install() {
   xcrun simctl install "$udid" "$APP_PATH"
 }
 
-# run [--no-seed] [--rebuild]: build-if-stale → boot → install → launch the app with
-# the fake-engine seed env so every surface is populated, then open the Simulator window.
+# Apply a named launch preset (sets QVOICE_SIM_* for the caller).
+_apply_run_preset() {
+  local preset="$1"
+  case "$preset" in
+    studio-seeded)
+      export QVOICE_SIM_FAKE_MODELS="${QVOICE_SIM_FAKE_MODELS:-all}"
+      export QVOICE_SIM_SEED_DATA="${QVOICE_SIM_SEED_DATA:-voices,history}"
+      unset QVOICE_SIM_DOWNLOAD_SCENARIO QVOICE_SIM_BACKEND_SCENARIO
+      ;;
+    settings-fresh)
+      export QVOICE_SIM_FAKE_MODELS=none
+      export QVOICE_SIM_SEED_DATA="${QVOICE_SIM_SEED_DATA:-voices,history}"
+      unset QVOICE_SIM_DOWNLOAD_SCENARIO QVOICE_SIM_BACKEND_SCENARIO
+      ;;
+    download-slow)
+      export QVOICE_SIM_FAKE_MODELS=none
+      export QVOICE_SIM_SEED_DATA="${QVOICE_SIM_SEED_DATA:-voices,history}"
+      export QVOICE_SIM_DOWNLOAD_SCENARIO=slow
+      export QVOICE_SIM_BACKEND_DELAY_MS="${QVOICE_SIM_BACKEND_DELAY_MS:-8000}"
+      unset QVOICE_SIM_BACKEND_SCENARIO
+      ;;
+    generation-fail)
+      export QVOICE_SIM_FAKE_MODELS="${QVOICE_SIM_FAKE_MODELS:-all}"
+      export QVOICE_SIM_SEED_DATA="${QVOICE_SIM_SEED_DATA:-voices,history}"
+      export QVOICE_SIM_BACKEND_SCENARIO=fail
+      unset QVOICE_SIM_DOWNLOAD_SCENARIO
+      ;;
+    *)
+      die "unknown run preset '$preset' (try: studio-seeded|settings-fresh|download-slow|generation-fail)"
+      ;;
+  esac
+}
+
+# run [--preset NAME] [--no-seed] [--rebuild]: build-if-stale → boot → install → launch the app
+# with the fake-engine seed env, then open the Simulator window.
 cmd_run() {
-  local seed=1 rebuild=0
+  local seed=1 rebuild=0 preset=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --no-seed) seed=0; shift ;;
       --rebuild) rebuild=1; shift ;;
+      --preset)
+        preset="${2:-}"
+        [[ -n "$preset" ]] || die "--preset requires a name"
+        shift 2
+        ;;
+      --preset=*) preset="${1#--preset=}"; shift ;;
       *) warn "ignoring unknown arg '$1'"; shift ;;
     esac
   done
+
+  if [[ -n "$preset" ]]; then
+    _apply_run_preset "$preset"
+    note "run preset: $preset"
+  fi
 
   if [[ "$rebuild" == "1" || ! -d "$APP_PATH" ]]; then
     cmd_build
@@ -199,6 +246,7 @@ cmd_run() {
     child+=( "SIMCTL_CHILD_QVOICE_SIM_FAKE_MODELS=${QVOICE_SIM_FAKE_MODELS:-all}" )
     child+=( "SIMCTL_CHILD_QVOICE_SIM_SEED_DATA=${QVOICE_SIM_SEED_DATA:-voices,history}" )
     [[ -n "${QVOICE_SIM_BACKEND_SCENARIO:-}" ]] && child+=( "SIMCTL_CHILD_QVOICE_SIM_BACKEND_SCENARIO=$QVOICE_SIM_BACKEND_SCENARIO" )
+    [[ -n "${QVOICE_SIM_DOWNLOAD_SCENARIO:-}" ]] && child+=( "SIMCTL_CHILD_QVOICE_SIM_DOWNLOAD_SCENARIO=$QVOICE_SIM_DOWNLOAD_SCENARIO" )
     [[ -n "${QVOICE_SIM_BACKEND_DELAY_MS:-}" ]] && child+=( "SIMCTL_CHILD_QVOICE_SIM_BACKEND_DELAY_MS=$QVOICE_SIM_BACKEND_DELAY_MS" )
     note "launching seeded (models installed, sample voices + history) — override via QVOICE_SIM_* env, or --no-seed"
   else
@@ -223,27 +271,135 @@ cmd_shot() {
   printf '%s\n' "$out"
 }
 
-# ui-test: run the VocelloiOSUITests launch/navigation smoke on the simulator.
-cmd_ui_test() {
-  ensure_project_regenerated
+SIM_UI_TEST_DEFAULT_CLASSES=(
+  "VocelloiOSUITests/VocelloiOSSmokeUITests"
+  "VocelloiOSUITests/VocelloiOSSheetUITests"
+  "VocelloiOSUITests/VocelloiOSDownloadManagerUITests"
+  "VocelloiOSUITests/VocelloiOSSimulatorGenerationUITests"
+)
+
+ensure_sim_ready() {
+  cmd_doctor >/dev/null
   local udid; udid="$(resolve_sim)"
-  note "running VocelloiOSUITests on the simulator [$udid]"
+  boot_and_show "$udid"
+  note "simulator preflight OK on [$udid] — software keyboard enabled for Studio typing tests"
+}
+
+_sim_test_build_for_testing() {
+  local udid="$1"
+  ensure_project_regenerated
+  note "building $SCHEME + VocelloiOSUITests for simulator testing"
+  mkdir -p "$DERIVED"
+  local log="$DERIVED/sim-uitest-build.log"
+  set +e
+  xcodebuild build-for-testing \
+    -project "$PROJECT" -scheme "$SCHEME" -configuration "$CONFIG" \
+    -destination "platform=iOS Simulator,id=$udid" \
+    -derivedDataPath "$DERIVED" -sdk iphonesimulator \
+    CODE_SIGNING_ALLOWED=NO SWIFT_OPTIMIZATION_LEVEL=-Onone \
+    2>&1 | tee "$log"
+  local st=${PIPESTATUS[0]}; set -e
+  [[ $st -eq 0 ]] || die "build-for-testing failed (see $log)"
+  [[ -d "$APP_PATH" ]] || die "build-for-testing finished but $APP_PATH is missing"
+}
+
+_sim_test_latest_xcresult() {
+  find "$DERIVED/Logs/Test" -name '*.xcresult' -type d 2>/dev/null | sort | tail -1
+}
+
+_run_sim_ui_test_once() {
+  local udid="$1"
+  local log="$2"
+  shift 2
+  local -a only_args=( "$@" )
+  set +e
+  if [[ -s "$log" ]]; then
+    xcodebuild test-without-building \
+      -project "$PROJECT" -scheme "$SCHEME" -configuration "$CONFIG" \
+      -destination "platform=iOS Simulator,id=$udid" \
+      -derivedDataPath "$DERIVED" \
+      ${only_args[@]+"${only_args[@]}"} \
+      2>&1 | tee -a "$log"
+  else
+    xcodebuild test-without-building \
+      -project "$PROJECT" -scheme "$SCHEME" -configuration "$CONFIG" \
+      -destination "platform=iOS Simulator,id=$udid" \
+      -derivedDataPath "$DERIVED" \
+      ${only_args[@]+"${only_args[@]}"} \
+      2>&1 | tee "$log"
+  fi
+  local status=${PIPESTATUS[0]}
+  set -e
+  return "$status"
+}
+
+# ui-test [--all] [only]: run VocelloiOSUITests on the simulator (unsigned fake backend).
+cmd_ui_test() {
+  local scope="default"
+  local only=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --all) scope="all"; shift ;;
+      -*) die "unknown ui-test flag: $1 (try --all or a VocelloiOSUITests/… target)" ;;
+      *) only="$1"; shift ;;
+    esac
+  done
+
+  ensure_sim_ready
+  local udid; udid="$(resolve_sim)"
+  note "running VocelloiOSUITests on simulator [$udid] (scope: ${only:-$scope})"
   mkdir -p "$DERIVED"
   export UI_TEST_SCREENSHOT_DIR="$DERIVED/uitest-screenshots"
   local log="$DERIVED/sim-uitest.log"
-  set +e
-  xcodebuild test \
-    -project "$PROJECT" -scheme "$SCHEME" -configuration "$CONFIG" \
-    -destination "platform=iOS Simulator,id=$udid" \
-    -derivedDataPath "$DERIVED" \
-    2>&1 | tee "$log"
-  local status=${PIPESTATUS[0]}
-  set -e
-  if grep -q '\*\* TEST SUCCEEDED \*\*' "$log"; then
-    note "UI smoke PASSED"
+
+  _sim_test_build_for_testing "$udid"
+  note "installing host app before XCUITest attach"
+  xcrun simctl install "$udid" "$APP_PATH"
+
+  local all_ok=1
+  local status=0
+  local -a run_targets=()
+  if [[ -n "$only" ]]; then
+    run_targets=( "$only" )
+  elif [[ "$scope" == "default" ]]; then
+    run_targets=( "${SIM_UI_TEST_DEFAULT_CLASSES[@]}" )
   else
-    die "UI smoke did not report TEST SUCCEEDED (exit $status; see $log)"
+    run_targets=( "" )
   fi
+
+  : >"$log"
+  if ((${#run_targets[@]} == 0)); then
+    set +e
+    _run_sim_ui_test_once "$udid" "$log"
+    status=$?
+    set -e
+    (( status != 0 )) && all_ok=0
+  else
+    local target
+    for target in "${run_targets[@]}"; do
+      note "ui-test class: $target"
+      set +e
+      _run_sim_ui_test_once "$udid" "$log" -only-testing:"$target"
+      local one=$?
+      set -e
+      if (( one != 0 )); then
+        all_ok=0
+        status=$one
+        break
+      fi
+    done
+  fi
+
+  if (( all_ok == 1 )) && grep -q '\*\* TEST SUCCEEDED \*\*' "$log"; then
+    note "simulator UI tests PASSED"
+    return 0
+  fi
+
+  local xcresult; xcresult="$(_sim_test_latest_xcresult || true)"
+  [[ -n "$xcresult" ]] && warn "xcresult bundle: $xcresult"
+  warn "ui-test log: $log"
+  [[ -d "$UI_TEST_SCREENSHOT_DIR" ]] && warn "screenshots: $UI_TEST_SCREENSHOT_DIR"
+  die "simulator UI tests did not report TEST SUCCEEDED (exit ${status:-1}; see $log)"
 }
 
 main() {

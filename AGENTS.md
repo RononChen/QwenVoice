@@ -280,16 +280,31 @@ The `VocelloMacUITests` target contains a single `VocelloMacSmokeUITests` class 
 
 ### iOS testing
 
-iOS testing is **on-device only**. The iOS Simulator is retired for this project and must not be used for UI testing, verification, screenshots, or snapshots.
+iOS verification uses a **two-lane** policy:
 
-After any iOS UI change, on-device verification is **mandatory** before committing or pushing. A compile-only build (`scripts/ios_device.sh build`) is not enough. Run `scripts/ios_device.sh ui-test` if the change touches UI flows (unlock the iPhone once at test start; `bench`/`launch` work with a locked phone). If UI tests are unavailable or flaky for the changed surface, manually exercise the flow after `scripts/ios_device.sh launch` and capture a screenshot with `scripts/ios_device.sh shot`.
+1. **Device (release gate)** — mandatory before merge/push when UI touches downloads, real
+   generation, signing, or TCC. Real URLSession + in-process MLX.
+2. **Simulator (supplementary)** — fast layout/flow review and scoped fake-backend UI smoke
+   via `scripts/ios_sim.sh`. Does not replace the device gate.
 
-**Do not use:**
-- `scripts/ios_sim.sh`
-- `xcodebuild -destination 'platform=iOS Simulator...'` for iOS UI work
-- simulator-only MCP tools such as `mcp__xcodebuildmcp__build_run_sim` / `snapshot_ui` for iOS
+After any iOS UI change, on-device verification is **mandatory** before committing or pushing
+when the change affects downloads or generation. For layout-only work, run
+`scripts/ios_sim.sh ui-test` locally, then still run `scripts/ios_device.sh ui-test` before push
+if the surface is shared with device flows.
 
-The sanctioned paths are:
+**Simulator (supplementary):**
+
+```sh
+scripts/ios_sim.sh doctor
+scripts/ios_sim.sh run [--preset studio-seeded|settings-fresh|download-slow|generation-fail]
+scripts/ios_sim.sh shot
+scripts/ios_sim.sh ui-test              # Smoke+Sheet+DownloadManager+SimGeneration
+scripts/ios_sim.sh ui-test --all        # full target (device-only tests still skip)
+```
+
+See `docs/reference/ios-simulator-ui-review.md` for `QVOICE_SIM_*` recipes.
+
+**Device (release gate):**
 
 ```sh
 scripts/ios_device.sh doctor       # environment + device preflight
@@ -303,6 +318,13 @@ scripts/ios_device.sh pull         # pull files from the app container
 scripts/ios_device.sh shot         # screenshot the iPhone Mirroring window
 ```
 
+Do not use the iOS Simulator or simulator-only MCP tools **instead of** the device gate for
+download/generation validation. Simulator MCP/build tools are fine for supplementary UI review.
+
+**Do not use for release-gate validation:**
+- `xcodebuild -destination 'platform=iOS Simulator...'` in place of `ios_device.sh ui-test`
+  when validating real downloads or MLX generation
+
 The headless autorun harness is triggered by `QVOICE_IOS_AUTORUN` and writes telemetry into the App Group container.
 
 iOS UI-test architecture:
@@ -312,9 +334,12 @@ iOS UI-test architecture:
   device-safe trio (Smoke, Sheet, OnDeviceDownload) for an entire `ui-test` run.
 - `Tests/VocelloiOSUITests/VocelloiOSDownloadManagerUITests.swift` is **simulator-only**
   (`QVOICE_SIM_*` backend); it skips on device even with `--all`.
+- `Tests/VocelloiOSUITests/VocelloiOSSimulatorGenerationUITests.swift` is **simulator-only**
+  (fake `IOSSimulatorTTSEngine` generate/complete/error/cancel UI).
+- `Tests/VocelloiOSUITests/VocelloiOSOnDeviceDownloadUITests.swift` skips on simulator.
 - `Tests/VocelloiOSUITests/VocelloiOSColdGenerationUITests.swift` is the exception: it deliberately
   kills the warm session, cold-launches the app with the engine enabled, and asserts that a real
-  on-device generation completes (or skips when the Speed model is not installed).
+  on-device generation completes (or skips when the Speed model is not installed). Skips on simulator.
 
 iOS UI conventions:
 - Use `IOSScrollView` instead of raw `ScrollView` for vertical iOS scroll surfaces. It bundles the
