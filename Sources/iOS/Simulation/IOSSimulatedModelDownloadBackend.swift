@@ -18,6 +18,7 @@ actor IOSSimulatedModelDownloadBackend: IOSModelDownloadBackend {
     private var activeTasks: [IOSModelDownloadTaskDescription: Task<Void, Never>] = [:]
     private var currentOffsets: [IOSModelDownloadTaskDescription: Int64] = [:]
     private var nextTaskIdentifier: Int = 1
+    private static let simulatedChunkCount = 20
     private let configuration: IOSSimulatorConfiguration
 
     init(
@@ -114,7 +115,7 @@ actor IOSSimulatedModelDownloadBackend: IOSModelDownloadBackend {
     ) async {
         let encodedDescription = encodeTaskDescription(taskDescription)
         let remainingBytes = max(0, totalBytes - startOffset)
-        let chunkCount = max(5, 20)
+        let chunkCount = Self.simulatedChunkCount
         let chunkSize = max(remainingBytes / Int64(chunkCount), 1)
         let delayPerChunk = perFileDelayNanoseconds / UInt64(chunkCount)
 

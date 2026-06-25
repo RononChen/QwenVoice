@@ -13,17 +13,7 @@ enum IOSSimulatorRuntimeSupport {
     /// When set on the simulator, overrides clone-capable UI gating for review (`0`/`false` = off).
     static var simCloneCapableOverride: Bool? {
         guard isSimulator else { return nil }
-        let raw = ProcessInfo.processInfo.environment["QVOICE_SIM_CLONE_CAPABLE"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        switch raw {
-        case "0", "false", "no", "off":
-            return false
-        case "1", "true", "yes", "on":
-            return true
-        default:
-            return nil
-        }
+        return IOSSimulatorConfiguration().cloneCapableOverride
     }
 
     static let unsupportedMessage =
