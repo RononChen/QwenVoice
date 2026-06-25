@@ -87,7 +87,6 @@ extension QVoiceiOSApp {
     /// the threshold, else the memory-conscious `.iOSProductionDefault`. Read once at
     /// launch — footprint is tiny then, so `impliedProcessLimitBytes`
     /// (= `phys_footprint` + `os_proc_available_memory()`) ≈ the full granted ceiling.
-    /// Simulator never reaches this path (it uses the fake engine).
     static func cloneCapableLoadProfile() -> NativeQwenPreparedLoadProfile {
         let limitBytes = IOSMemorySnapshot.capture(role: .app).impliedProcessLimitBytes ?? 0
         let enabled = limitBytes >= cloneCapableMinimumProcessLimitBytes
@@ -101,22 +100,14 @@ extension QVoiceiOSApp {
         documentIO: LocalDocumentIO
     ) throws -> SelectedBackend {
         // MARK: Engine selection
-        // Simulator → `IOSSimulatorTTSEngine`, a fake that fabricates audio so UI
-        // review works without MLX/Metal. Real hardware → an IN-PROCESS
-        // `MLXTTSEngine` (via `NativeRuntimeFactory`, the same path the macOS
-        // `vocello` CLI uses). It used to drive the out-of-process
+        // An IN-PROCESS `MLXTTSEngine` (via `NativeRuntimeFactory`, the same path
+        // the macOS `vocello` CLI uses). It used to drive the out-of-process
         // `VocelloEngineExtension`, but that ExtensionKit non-UI extension is capped
         // at a tiny per-process memory limit the increased-memory entitlement does
         // NOT raise — iOS jetsam-killed it (per-process-limit) while loading the
         // model. The app process *does* get the entitlement's raised limit, so
-        // generation runs in-process here. Both are wrapped in the same
-        // `TTSEngineStore`, so the UI is agnostic to which is active.
-#if targetEnvironment(simulator)
-        return try IOSSimulatorBackendFactory.makeSelectedBackend(
-            registry: registry,
-            documentIO: documentIO
-        )
-#else
+        // generation runs in-process here, wrapped in `TTSEngineStore`. The iOS
+        // Simulator is intentionally unsupported (the project is on-device only).
 
         guard AppPaths.isUsingSharedContainer else {
             throw IOSBackendBootstrapError.missingSharedContainer(
@@ -166,26 +157,17 @@ extension QVoiceiOSApp {
             modelManager: modelManager,
             modelInstaller: modelInstaller
         )
-#endif
     }
 }
 
 enum IOSDeviceSupport {
     static var isSupportedHardware: Bool {
-#if targetEnvironment(simulator)
-        true
-#else
         isSupportedIdentifier(machineIdentifier())
-#endif
     }
 
     static var unsupportedReason: String {
-#if targetEnvironment(simulator)
-        return "Vocello is running in the iOS Simulator. UI review works here, but generation still requires a real iPhone 15 Pro or newer."
-#else
         let identifier = machineIdentifier()
         return "Vocello for iPhone currently requires iPhone 15 Pro or newer.\nCurrent device: \(identifier)"
-#endif
     }
 
     private static func isSupportedIdentifier(_ identifier: String) -> Bool {

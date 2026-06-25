@@ -8,5 +8,9 @@
     </array>
     <key>com.apple.developer.kernel.increased-memory-limit</key>
     <true/>
+    <!-- Allows LLDB to attach to the on-device app for the `ios_device.sh debug` lane.
+         Fine for undistributed dev builds; must be dropped before any App Store submit. -->
+    <key>com.apple.security.get-task-allow</key>
+    <true/>
 </dict>
 </plist>

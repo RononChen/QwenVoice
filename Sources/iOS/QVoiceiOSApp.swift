@@ -26,6 +26,7 @@ struct QVoiceiOSApp: App {
     init() {
         configureAudioSession()
         configureNativeRuntimeMemoryCacheIfNeeded()
+        IOSCrashObserver.shared.start()
     }
 
     var body: some Scene {
@@ -301,7 +302,6 @@ struct QVoiceiOSApp: App {
     }
 
     private func configureNativeRuntimeMemoryCacheIfNeeded() {
-        guard !IOSSimulatorRuntimeSupport.isSimulator else { return }
         NativeMemoryPolicyResolver.apply(
             NativeMemoryPolicyResolver.policy(
                 deviceClass: .iPhonePro,
@@ -312,7 +312,6 @@ struct QVoiceiOSApp: App {
     }
 
     private func clearNativeRuntimeCacheIfAvailable() {
-        guard !IOSSimulatorRuntimeSupport.isSimulator else { return }
         Memory.clearCache()
     }
 

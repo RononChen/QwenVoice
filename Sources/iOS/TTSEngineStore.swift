@@ -9,17 +9,10 @@ extension Notification.Name {
 
 enum IOSNativeDeviceFeatureGate {
     static func unsupportedReason(for mode: GenerationMode) -> String? {
-#if targetEnvironment(simulator)
-        if IOSSimulatorRuntimeSupport.simCloneCapableOverride == false, mode == .clone {
-            return "Voice Cloning is unavailable on this simulated device profile."
-        }
-        return nil
-#else
         switch mode {
         case .custom, .design, .clone:
             return nil
         }
-#endif
     }
 
     static func isModeSupported(
@@ -506,7 +499,6 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         // increased-memory entitlement + the band guard, warm when the band is healthy on
         // all of simulator/DEBUG/Release. `QVOICE_IOS_DISABLE_PROACTIVE_PREFETCH=1` is an
         // optional escape hatch to force it off (A/B / battery testing).
-#if !targetEnvironment(simulator)
         if ProcessInfo.processInfo.environment["QVOICE_IOS_DISABLE_PROACTIVE_PREFETCH"] == "1" {
             diagnosticsRecorder?.recordAction(
                 event: "proactive_warm_blocked",
@@ -516,7 +508,6 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
             )
             return false
         }
-#endif
         let context = await refreshMemoryContext(reason: reason, source: "warm_gate")
         let allowed = memoryBudgetPolicy.allowsProactiveWarmOperations(for: context.pressureBand)
         if !allowed {

@@ -11,9 +11,6 @@ final class VocelloiOSColdGenerationUITests: XCTestCase {
     private var app: XCUIApplication!
 
     override func setUpWithError() throws {
-        #if targetEnvironment(simulator)
-        throw XCTSkip("Real MLX cold generation requires a device — run scripts/ios_device.sh ui-test --cold")
-        #endif
         try super.setUpWithError()
         continueAfterFailure = false
 

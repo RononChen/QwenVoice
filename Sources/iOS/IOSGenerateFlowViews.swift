@@ -61,9 +61,7 @@ enum IOSPrefetchRequestFactory {
 
 private enum IOSProactivePrefetchPolicy {
     static var isEnabled: Bool {
-#if targetEnvironment(simulator)
-        true
-#elseif DEBUG
+#if DEBUG
         ProcessInfo.processInfo.environment["QVOICE_IOS_ENABLE_PROACTIVE_PREFETCH"] == "1"
 #else
         false

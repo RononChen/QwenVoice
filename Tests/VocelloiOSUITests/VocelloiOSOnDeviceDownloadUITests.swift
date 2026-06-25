@@ -2,10 +2,10 @@ import XCTest
 
 /// On-device regression for the iOS model download manager.
 ///
-/// Unlike `VocelloiOSDownloadManagerUITests`, this runs on a real iPhone and uses the
-/// production URLSession download backend. To avoid downloading the full ~2.3 GB model,
-/// the test only verifies the **cancel** path: start a download, immediately open the
-/// Pause/Cancel dialog, choose Cancel Download, and confirm the Install button returns.
+/// Runs on a real iPhone and uses the production URLSession download backend. To avoid
+/// downloading the full ~2.3 GB model, the test only verifies the **cancel** path: start
+/// a download, immediately open the Pause/Cancel dialog, choose Cancel Download, and
+/// confirm the Install button returns.
 final class VocelloiOSOnDeviceDownloadUITests: XCTestCase {
 
     override class func setUp() {
@@ -15,9 +15,6 @@ final class VocelloiOSOnDeviceDownloadUITests: XCTestCase {
     }
 
     override func setUpWithError() throws {
-        #if targetEnvironment(simulator)
-        throw XCTSkip("URLSession download tests require a real device — use ios_sim.sh ui-test for simulated downloads")
-        #endif
         try super.setUpWithError()
         continueAfterFailure = false
         VocelloUITestApp.shared.resetToStudio()

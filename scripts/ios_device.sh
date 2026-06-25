@@ -29,6 +29,9 @@
 #                                                 # build→install→autorun→pull→summarize
 #   scripts/ios_device.sh ui-test [--all|--cold] [only]
 #                                                 # device-safe UI tests (default: Smoke+Sheet+OnDeviceDownload)
+#   scripts/ios_device.sh crashes [--test]         # pull + symbolicate on-device crash/hang diagnostics (MetricKit)
+#   scripts/ios_device.sh debug [spec]             # attached launch + LLDB attach guidance (get-task-allow build)
+#   scripts/ios_device.sh logs [spec]              # attached launch teeing stdout → build/ios-logs/<run>.log
 #
 # Observation: every device command auto-starts macOS iPhone Mirroring (watch on the Mac;
 # the phone stays locked + screen-dark, OLED-safe; mirroring also keeps a LOCKED device
@@ -140,9 +143,9 @@ PY
 # mirror: start/foreground iPhone Mirroring + confirm the device is reachable (manual use).
 cmd_mirror() { ensure_mirror; }
 
-# shot [out.png]: capture the iPhone Mirroring window (the live device screen) to a PNG — the
-# device analog of `ios_sim.sh shot`, for visual UI review on REAL hardware. devicectl has no
-# screenshot and this Mac has no libimobiledevice, so we screencapture the Mirroring window region.
+# shot [out.png]: capture the iPhone Mirroring window (the live device screen) to a PNG, for
+# visual UI review on REAL hardware. devicectl has no screenshot and this Mac has no
+# libimobiledevice, so we screencapture the Mirroring window region.
 # NOT pixel-exact (includes the Mirroring chrome / device bezel at window scale) — it's for judging
 # layout / color / spacing. We CAPTURE only; navigating across screens is done by tapping the phone
 # (coordinate-based mirror-DRIVING stays deprecated). First run may prompt for Screen Recording +
@@ -355,6 +358,21 @@ cmd_build() {
   fi
 
   [[ -d "$APP_PATH" ]] || die "build finished but $APP_PATH is missing"
+
+  # Preserve this build's dSYM so `crashes` can symbolicate MetricKit/.ips payloads.
+  local dsym_src="$DERIVED/Build/Products/Release-iphoneos/Vocello.app.dSYM"
+  if [[ -d "$dsym_src" ]]; then
+    local dsym_dst="$ROOT_DIR/build/ios/dsyms/Vocello.app.dSYM"
+    rm -rf "$dsym_dst"
+    mkdir -p "$(dirname "$dsym_dst")"
+    cp -R "$dsym_src" "$dsym_dst"
+    /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP_PATH/Info.plist" \
+      > "$(dirname "$dsym_dst")/build-version.txt" 2>/dev/null || true
+    note "preserved dSYM → $dsym_dst (for crash symbolication)"
+  else
+    warn "no dSYM produced — crash symbolication won't be available for this build"
+  fi
+
   note "built $APP_PATH"
   warn_if_storage_bloated
 }
@@ -672,12 +690,113 @@ cmd_ui_test() {
   die "device UI tests did not report TEST SUCCEEDED (exit ${status:-1}; see $log)"
 }
 
+# crashes [--test]: pull + symbolicate on-device crash/hang diagnostics (MetricKit
+# `MXDiagnosticPayload` + the NSException fast path from IOSCrashObserver) against the
+# build's preserved dSYM. `--test` deliberately crashes the app (QVOICE_IOS_CRASH_TEST=1)
+# then relaunches so the observer flushes the payload — to verify the whole
+# capture→pull→symbolicate lane end-to-end. Burns-in safe (headless; phone can stay locked).
+cmd_crashes() {
+  local test_mode=0
+  [[ "${1:-}" == "--test" ]] && test_mode=1
+  ensure_mirror
+  local dev; dev="$(resolve_device)"
+
+  if [[ $test_mode -eq 1 ]]; then
+    note "crash-lane self-test: deliberately crashing the app (QVOICE_IOS_CRASH_TEST=1)…"
+    [[ -d "$APP_PATH" ]] || cmd_build
+    cmd_install >/dev/null
+    xcrun devicectl device process launch --device "$dev" --terminate-existing \
+      -e '{"QVOICE_IOS_CRASH_TEST":"1"}' "$BUNDLE_ID" >&2 || true
+    sleep 4
+    note "relaunching so IOSCrashObserver receives + writes the prior crash payload…"
+    xcrun devicectl device process launch --device "$dev" --terminate-existing "$BUNDLE_ID" >&2 || true
+    sleep 6
+  fi
+
+  local dest="$ROOT_DIR/build/ios-diagnostics"
+  rm -rf "$dest"
+  cmd_pull "$dest" >/dev/null || die "could not pull diagnostics (run an autorun first, or use --test)"
+  local crash_dir; crash_dir="$(find "$dest" -type d -name crashes 2>/dev/null | head -1)"
+  if [[ -z "$crash_dir" ]] || [[ -z "$(find "$crash_dir" -maxdepth 1 -type f 2>/dev/null | head -1)" ]]; then
+    note "no crash payloads in the pulled diagnostics — nothing to symbolicate."
+    return 0
+  fi
+
+  note "── crash payloads ($crash_dir) ──"
+  find "$crash_dir" -maxdepth 1 -type f | sort
+
+  local dsym="$ROOT_DIR/build/ios/dsyms/Vocello.app.dSYM"
+  if [[ ! -d "$dsym" ]]; then
+    warn "no preserved dSYM at $dsym — run '$0 build' to enable symbolication."
+    return 0
+  fi
+
+  note "── symbolication (via xcsym; install axiom-tools if missing) ──"
+  local f
+  for f in "$crash_dir"/*; do
+    [[ -f "$f" ]] || continue
+    if command -v xcsym >/dev/null 2>&1; then
+      xcsym crash "$f" --dsym "$dsym" 2>&1 || warn "xcsym failed on $(basename "$f")"
+    else
+      warn "xcsym not on PATH — symbolicating $(basename "$f") needs axiom-tools:"
+      warn "  xcsym crash \"$f\" --dsym \"$dsym\"   (or dispatch the axiom:crash-analyzer agent)"
+    fi
+  done
+}
+
+# debug [spec]: build+install the get-task-allow build, then an attached console launch
+# and the exact LLDB attach command. The LLDB session itself is interactive (paste it, or
+# use the XcodeBuildMCP device/debugging workflow, or Xcode → Debug → Attach to Process).
+# Burns-in safe (headless/locked works).
+cmd_debug() {
+  local spec="${1:-}"
+  [[ -d "$APP_PATH" ]] || cmd_build
+  cmd_install >/dev/null
+  local dev; dev="$(resolve_device)"
+  note "debug: get-task-allow build installed on $dev — LLDB-attachable."
+  note "  lldb"
+  note "  (lldb) process attach --name Vocello --device $dev"
+  note "  (or XcodeBuildMCP device/debugging workflow, or Xcode → Debug → Attach to Process)"
+  if [[ -n "$spec" ]]; then
+    note "attached launch ($spec) — Ctrl-C to detach"
+    cmd_console "$spec"
+  else
+    note "attached launch (console) — Ctrl-C to detach"
+    cmd_console
+  fi
+}
+
+# logs [spec]: attached launch teeing the app's stdout/stderr to a retained, greppable
+# file under build/ios-logs/ (incl. [autorun]/[QVoiceiOSApp] prints + engine signposts).
+# Replaces the ephemeral `console` stream with a saved log. Burns-in safe (headless).
+cmd_logs() {
+  local spec="${1:-custom:speed:Log capture autorun.}"
+  [[ "$spec" == *:* ]] || spec="custom:speed:$spec"
+  ensure_mirror
+  local dev; dev="$(resolve_device)"
+  local run_id="ios-logs-$(date +%Y%m%d-%H%M%S)"
+  local out="$ROOT_DIR/build/ios-logs/${run_id}.log"
+  mkdir -p "$(dirname "$out")"
+  note "capturing attached launch logs → $out (Ctrl-C to stop)"
+  local env_json
+  env_json="$(QV_SPEC="$spec" QV_RUNID="$run_id" python3 -c '
+import json, os
+print(json.dumps({
+    "QWENVOICE_DEBUG": "1",
+    "QVOICE_IOS_DEVICE_RUN_ID": os.environ["QV_RUNID"],
+    "QVOICE_IOS_AUTORUN": os.environ["QV_SPEC"],
+}))')"
+  xcrun devicectl device process launch --device "$dev" --console --terminate-existing \
+    -e "$env_json" "$BUNDLE_ID" 2>&1 | tee "$out"
+  note "saved $out"
+}
+
 main() {
   local sub="${1:-help}"; shift || true
   # Auto-start iPhone Mirroring before any device-touching command (observation + keeps a
   # locked device reachable). `mirror` calls ensure_mirror itself; help/none skip it.
   case "$sub" in
-    doctor|build|install|launch|console|pull|bench|shot) ensure_mirror ;;
+    doctor|build|install|launch|console|pull|bench|shot|crashes|debug|logs) ensure_mirror ;;
   esac
   case "$sub" in
     doctor)  cmd_doctor "$@" ;;
@@ -690,9 +809,12 @@ main() {
     pull)    cmd_pull "$@" ;;
     bench)   cmd_bench "$@" ;;
     ui-test) cmd_ui_test "$@" ;;
+    crashes) cmd_crashes "$@" ;;
+    debug)   cmd_debug "$@" ;;
+    logs)    cmd_logs "$@" ;;
     help|-h|--help)
       sed -n '2,47p' "$0" | sed 's/^# \{0,1\}//' >&2 ;;
-    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|mirror|shot|pull|bench|ui-test|help)" ;;
+    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|mirror|shot|pull|bench|ui-test|crashes|debug|logs|help)" ;;
   esac
 }
 

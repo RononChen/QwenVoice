@@ -290,17 +290,10 @@ actor IOSModelDeliveryActor {
         let delegate = IOSModelDeliveryDownloadDelegate()
         self.delegate = delegate
 
-        if IOSSimulatorRuntimeSupport.isSimulator {
-            self.backend = IOSSimulatedModelDownloadBackend(
-                delegate: delegate,
-                configuration: IOSSimulatorConfiguration()
-            )
-        } else {
-            self.backend = IOSURLSessionModelDownloadBackend(
-                configuration: configuration,
-                delegate: delegate
-            )
-        }
+        self.backend = IOSURLSessionModelDownloadBackend(
+            configuration: configuration,
+            delegate: delegate
+        )
 
         let catalogConfig = URLSessionConfiguration.ephemeral
         catalogConfig.waitsForConnectivity = true
@@ -505,11 +498,6 @@ actor IOSModelDeliveryActor {
         Task { @MainActor in
             IOSModelDeliveryBackgroundEventRelay.completeIfPending()
         }
-        if IOSSimulatorRuntimeSupport.isSimulator {
-            await MainActor.run {
-                IOSSimulatorFakeInstallRegistry.shared.clear(modelID)
-            }
-        }
     }
 
     func delete(model: ModelDescriptor) async throws {
@@ -550,11 +538,6 @@ actor IOSModelDeliveryActor {
                 operationGeneration: terminalGeneration
             )
         )
-        if IOSSimulatorRuntimeSupport.isSimulator {
-            await MainActor.run {
-                IOSSimulatorFakeInstallRegistry.shared.clear(model.id)
-            }
-        }
     }
 
     private func beginActiveOperation() -> UInt64 {
@@ -679,9 +662,6 @@ actor IOSModelDeliveryActor {
                 stagedRoot: stagingRoot,
                 fileManager: fileManager
             )
-        } else if IOSSimulatorRuntimeSupport.isSimulator,
-                  IOSSimulatorConfiguration().downloadScenario == .failVerify {
-            throw IOSModelDeliveryError.invalidCatalog("Simulated model verification failure.")
         }
 
         await publishSnapshot(
@@ -737,14 +717,6 @@ actor IOSModelDeliveryActor {
                 operationGeneration: terminalGeneration
             )
         )
-        if IOSSimulatorRuntimeSupport.isSimulator {
-            await MainActor.run {
-                IOSSimulatorFakeInstallRegistry.shared.markInstalled(
-                    descriptor.id,
-                    sizeBytes: Int(activeInstall.totalBytes)
-                )
-            }
-        }
     }
 
     private func handleProgress(

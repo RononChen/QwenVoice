@@ -203,11 +203,6 @@ public struct IOSMemorySnapshot: Hashable, Codable, Sendable {
         guard QVoiceGetOSProcAvailableMemory(&headroom) else {
             return nil
         }
-#if targetEnvironment(simulator)
-        guard headroom > 0 else {
-            return nil
-        }
-#endif
         return headroom
     }
 

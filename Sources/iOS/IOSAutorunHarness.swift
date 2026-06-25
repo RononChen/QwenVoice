@@ -54,6 +54,13 @@ enum IOSAutorunHarness {
     /// doesn't block app startup.
     static func runIfRequested(engine: TTSEngineStore) {
         guard isRequested else { return }
+        // Crash-capture lane verification: deliberately fault so MetricKit captures the
+        // crash and the `scripts/ios_device.sh crashes --test` flow can symbolicate it
+        // against the preserved build dSYM. Ships inert (only set by the test verb).
+        if ProcessInfo.processInfo.environment["QVOICE_IOS_CRASH_TEST"] == "1" {
+            print("[autorun] QVOICE_IOS_CRASH_TEST=1 → deliberate crash for the capture/symbolication lane")
+            fatalError("QVOICE_IOS_CRASH_TEST: deliberate crash for the on-device crash-capture lane")
+        }
         let spec = parseSpec(ProcessInfo.processInfo.environment[environmentKey] ?? "")
         Task { @MainActor in
             await run(spec: spec, engine: engine)

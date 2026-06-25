@@ -80,7 +80,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
     @Published public private(set) var clonePreparationState: ClonePreparationState = .idle
     /// Most-recent event seen by the engine. Retained for snapshot
     /// consumers (UI bindings via the `TTSEngine` protocol —
-    /// `IOSSimulatorTTSEngine`, `TTSEngineStore` macOS+iOS, the
+    /// `TTSEngineStore` (macOS + iOS), the
     /// `TTSEngineFrontendState.latestEvent` field) that read the
     /// "what state is the engine in right now" view of generation
     /// activity. **NOT** the chunk-delivery transport — that role
