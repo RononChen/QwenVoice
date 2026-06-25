@@ -901,6 +901,7 @@ private struct IOSModelRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 ProgressView(value: progress ?? 0)
                     .tint(IOSBrandTheme.modeColor(for: model.mode))
+                    .accessibilityIdentifier("iosModelProgress_\(model.id)")
                 Text(progressText(downloadedBytes: downloadedBytes, totalBytes: totalBytes))
                     .font(.system(size: 12))
                     .foregroundStyle(IOSAppTheme.textSecondary)
@@ -919,6 +920,7 @@ private struct IOSModelRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 ProgressView(value: progress ?? 0)
                     .tint(IOSBrandTheme.modeColor(for: model.mode))
+                    .accessibilityIdentifier("iosModelProgress_\(model.id)")
                 Text(progressText(downloadedBytes: downloadedBytes, totalBytes: totalBytes))
                     .font(.system(size: 12))
                     .foregroundStyle(IOSAppTheme.textSecondary)
@@ -927,6 +929,7 @@ private struct IOSModelRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 ProgressView(value: progress ?? 0)
                     .tint(IOSBrandTheme.modeColor(for: model.mode))
+                    .accessibilityIdentifier("iosModelProgress_\(model.id)")
                 Text(progressText(downloadedBytes: downloadedBytes, totalBytes: totalBytes))
                     .font(.system(size: 12))
                     .foregroundStyle(IOSAppTheme.textSecondary)

@@ -478,6 +478,7 @@ struct IOSDeliveryPickerSheet: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("deliveryPickerPreset_\(preset.id)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
@@ -503,6 +504,7 @@ struct IOSDeliveryPickerSheet: View {
                 }
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("deliveryPickerIntensity_\(level)")
     }
 }
 

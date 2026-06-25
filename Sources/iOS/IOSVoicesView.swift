@@ -59,6 +59,7 @@ struct IOSVoicesView: View {
             IOSScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     IOSSearchField(text: $search, placeholder: "Search voices")
+                        .accessibilityIdentifier("voicesSearchField")
                         .padding(.horizontal, 20)
                         .padding(.bottom, 10)
 

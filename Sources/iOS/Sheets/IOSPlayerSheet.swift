@@ -313,6 +313,7 @@ struct IOSPlayerSheet: View {
                     }
                 }
             )
+            .accessibilityIdentifier("iosPlayer_save")
 
             Button {
                 guard controller.duration > 0 else { return }
@@ -342,6 +343,7 @@ struct IOSPlayerSheet: View {
                     .shadow(color: item.modeTint.opacity(0.40), radius: 14, x: 0, y: 12)
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("iosPlayer_playPause")
             .disabled(controller.duration <= 0)
 
             playerSideButton(
@@ -349,6 +351,7 @@ struct IOSPlayerSheet: View {
                 symbol: "arrow.down.to.line",
                 action: { controller.shareCurrent() }
             )
+            .accessibilityIdentifier("iosPlayer_download")
         }
         .padding(.horizontal, 4)
     }

@@ -83,8 +83,8 @@ tap Confirm to commit + dismiss. Preview plays audio without selecting/closing.
 `languagePicker_en`), confirm `languagePicker_confirm`.
 
 **Delivery picker** — confirm `deliveryPicker_confirm`; a 2-column preset grid over
-`EmotionPreset.all` (cells have **no per-cell id — gap**); an intensity row
-(Subtle/Normal/Strong — **no per-button id — gap**, disabled for Neutral); and a custom
+`EmotionPreset.all` (cells `deliveryPickerPreset_<presetID>`); an intensity row
+(Subtle/Normal/Strong → `deliveryPickerIntensity_<level>`, disabled for Neutral); and a custom
 tone editor: `deliveryPickerSheet_customTone` (toggle in), `deliveryPickerSheet_customTone_editor`
 (text, `/500` counter `deliveryPickerSheet_customTone_charCount`),
 `deliveryPickerSheet_customTone_examples`, `deliveryPickerSheet_customTone_back`.
@@ -95,8 +95,8 @@ tone editor: `deliveryPickerSheet_customTone` (toggle in), `deliveryPickerSheet_
 
 Container `screen_voices`. Filter chips `voicesFilter_all|builtIn|saved`. Built-in rows
 `voicesRow_<speakerId>` (e.g. `voicesRow_aiden`); saved-voice rows `voicesRow_saved_<id>`.
-"Save a new voice" card `voices_saveNewVoice` (opens the record flow). Search field has
-**no identifier — gap**. Record/import flow (overlay) has **no identifiers — gap**.
+"Save a new voice" card `voices_saveNewVoice` (opens the record flow). Search field
+`voicesSearchField`. Record/import flow uses the `iosRecord_*` controls (see below).
 
 ### History tab — `Sources/iOS/IOSLibraryViews.swift`
 
@@ -118,10 +118,12 @@ Voice Models rows `iosModelRow_<modelID>` (full lifecycle — see §3). Prefs:
 
 ### Player + overlays
 
-Full-screen player (`Sources/iOS/Sheets/IOSPlayerSheet.swift`) and recording overlay
-(`Sources/iOS/Overlays/IOSRecordingOverlay.swift`) have **no accessibility identifiers —
-gap**. Lifecycle toasts (`IOSEngineLifecycleToast.swift`) are transient ("Preparing
-runtime", "Model loading") and unlabeled.
+Full-screen player (`Sources/iOS/Sheets/IOSPlayerSheet.swift`): `iosPlayer_save`,
+`iosPlayer_playPause`, `iosPlayer_download` (the scrubber + transcript stay unlabeled —
+minor gap). Recording overlay (`Sources/iOS/Overlays/IOSRecordingOverlay.swift`):
+`iosRecord_close`, `iosRecord_start` / `iosRecord_stop`, `iosRecord_retake`, `iosRecord_use`.
+Lifecycle toasts (`IOSEngineLifecycleToast.swift`) are transient ("Preparing runtime",
+"Model loading") and unlabeled.
 
 ---
 
@@ -143,8 +145,8 @@ comes from `qwenvoice_ios_model_catalog.json`.
 | Installed | `iosModelDelete_<id>` (trash) | Ready to generate |
 
 Cancel/pause open a confirmation dialog: `iosModelPauseConfirmButton` (pause, keeps data)
-/ `iosModelCancelDownloadConfirmButton` (cancel, deletes data). Download progress bars
-have **no identifier — gap**.
+/ `iosModelCancelDownloadConfirmButton` (cancel, deletes data). Download progress
+`iosModelProgress_<id>` (downloading / resuming / paused states).
 
 ### The Studio gates generation on the installed model
 
@@ -293,19 +295,15 @@ from the Voices tab) → (model check) → compose → Generate.
 
 ---
 
-## 6. Test-coverage gaps (driveability backlog)
+## 6. Remaining test-coverage gaps (driveability backlog)
 
-Controls that **lack** `accessibilityIdentifier` (driving them needs label/coordinate hacks
-or new ids). Filling these is the lever to make the whole UI driveable — a separate Swift
-change, listed here as the backlog:
+Most interactive controls now carry an `accessibilityIdentifier`. Still missing (driving
+them needs label/coordinate hacks or new ids):
 
-- **Player sheet** — scrubber, play/pause, save/share, transcript.
-- **Recording overlay** — the record/import/retake/use-controls.
-- **Voices + History search fields** — no ids.
-- **Delivery preset grid cells + intensity buttons** — no per-control ids.
-- **Download progress bars** (Settings) — no ids.
-- **Mode meta labels** ("Built-in voice" / "Designed voice"), section headings, empty-state cards, sheet titles.
+- **Player sheet scrubber + transcript** — `iosPlayer_save`/`_playPause`/`_download` exist, but the scrubber (a custom adjustable element) and the karaoke transcript are unlabeled.
+- **Mode meta labels** ("Built-in voice" / "Designed voice"), section headings, empty-state cards, sheet titles — low-value to drive; label by text if needed.
+- **Lifecycle toasts** — transient, unlabeled (read via os_log, not the UI).
 
-Adding ids here (and consolidating all into `Sources/iOS/IOSAccessibilityIdentifiers.swift`,
-which most ids bypass today) would let the review tour + flows cover the player, recording,
-and search — the remaining ~10% of the surface.
+A separate, optional follow-up is consolidating **all** ids (most are inline string
+literals today) into `Sources/iOS/IOSAccessibilityIdentifiers.swift` so they're grep-able
+constants — a refactor, not a behavior change.

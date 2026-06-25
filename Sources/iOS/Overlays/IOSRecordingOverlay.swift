@@ -89,6 +89,7 @@ struct IOSRecordingOverlay: View {
                     }
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("iosRecord_close")
             .accessibilityLabel("Close")
         }
     }
@@ -189,6 +190,7 @@ struct IOSRecordingOverlay: View {
                         }
                     }
                 )
+                .accessibilityIdentifier("iosRecord_stop")
             } else if recorder.elapsed > 0 {
                 Button("Retake") {
                     recorder.reset()
@@ -202,6 +204,7 @@ struct IOSRecordingOverlay: View {
                         .fill(IOSAppTheme.glassSurfaceFillMuted)
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("iosRecord_retake")
 
                 let canUse = recorder.elapsed >= ReferenceClipRecorder.minDuration
                 IOSPrimaryCTAButton(
@@ -215,6 +218,7 @@ struct IOSRecordingOverlay: View {
                         }
                     }
                 )
+                .accessibilityIdentifier("iosRecord_use")
             } else {
                 IOSPrimaryCTAButton(
                     title: "Record",
@@ -225,6 +229,7 @@ struct IOSRecordingOverlay: View {
                         Task { await recorder.start() }
                     }
                 )
+                .accessibilityIdentifier("iosRecord_start")
             }
         }
     }
