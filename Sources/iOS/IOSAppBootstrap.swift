@@ -43,7 +43,7 @@ final class IOSAppDependenciesContainer: ObservableObject {
 }
 
 extension QVoiceiOSApp {
-    private static func modelAssetStoreSeed(bundle: Bundle = .main) -> String {
+    static func modelAssetStoreSeed(bundle: Bundle = .main) -> String {
         let bundleIdentifier = bundle.bundleIdentifier ?? "com.patricedery.vocello"
         let marketingVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
         let buildVersion = bundle.object(forInfoDictionaryKey: kCFBundleVersionKey as String) as? String ?? "0"

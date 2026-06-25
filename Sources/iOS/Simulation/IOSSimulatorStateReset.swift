@@ -21,7 +21,7 @@ enum IOSSimulatorStateReset {
     }
 
     private static func clearHistory() {
-        DatabaseService.shared.deleteAllGenerations()
+        try? DatabaseService.shared.deleteAllGenerations()
         clearDirectory(AppPaths.outputsDir)
     }
 

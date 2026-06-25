@@ -66,7 +66,7 @@ enum IOSSimulatorBackendFactory {
             modelAssetStore: modelAssetStore,
             modelManager: modelManager
         )
-        modelInstaller.onModelInstalled = { [weak engineStore] modelID in
+        modelInstaller.onModelInstalled = { [weak engineStore] (modelID: String) in
             guard let engineStore else { return }
             Task {
                 try? await engineStore.loadModel(id: modelID)
