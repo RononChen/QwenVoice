@@ -193,6 +193,7 @@
 		A4AA621E631C33EB15E5A597 /* ryan.wav in Resources */ = {isa = PBXBuildFile; fileRef = 7DE42BFBCAD789F940DC13D4 /* ryan.wav */; };
 		A4FC37C1C7711C39409E6824 /* EngineDomainModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7EF4B9CD82A748843A9C362 /* EngineDomainModels.swift */; };
 		A523FA27DCB8DA8F86F04E56 /* IOSModelInstallerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE984BD0115C76214CBAB2F3 /* IOSModelInstallerViewModel.swift */; };
+		A5892891BDA0489B999D388F /* VocelloMacTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 943665BEE334BA4886BFD4D4 /* VocelloMacTestSupport.swift */; };
 		A6261E20DB52E5353E23DC59 /* AudioQualityGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EBD9B5E55CB6BD2079E55EE /* AudioQualityGate.swift */; };
 		A7A5CF57C0DBC510AE6680BB /* ono_anna.wav in Resources */ = {isa = PBXBuildFile; fileRef = BC2B47BB4F36569E72D128B1 /* ono_anna.wav */; };
 		A82805015D03E2010AE80DDE /* IOSFlexibleTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 695C458B83CCDCDDE7BA0A7F /* IOSFlexibleTextEditor.swift */; };
@@ -567,6 +568,7 @@
 		8EA3CF699353B8B928488B93 /* uncle_fu.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = uncle_fu.wav; sourceTree = "<group>"; };
 		92BB1E93A79756A33FF71DBB /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		940DC33B01DA7425CEB5E2FF /* EngineServiceTrustPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineServiceTrustPolicy.swift; sourceTree = "<group>"; };
+		943665BEE334BA4886BFD4D4 /* VocelloMacTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VocelloMacTestSupport.swift; sourceTree = "<group>"; };
 		944BB98E564576BA42D80E3E /* GenerateCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerateCommand.swift; sourceTree = "<group>"; };
 		94A9B9883FADDCC6CEB61F10 /* NativeDeviceClassGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDeviceClassGate.swift; sourceTree = "<group>"; };
 		94EA9E34083906B2A7FF4DE4 /* AppPerformanceSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPerformanceSignposts.swift; sourceTree = "<group>"; };
@@ -780,6 +782,7 @@
 			isa = PBXGroup;
 			children = (
 				2E74540DA8C426D633D6114C /* VocelloMacSmokeUITests.swift */,
+				943665BEE334BA4886BFD4D4 /* VocelloMacTestSupport.swift */,
 			);
 			name = VocelloMacUITests;
 			path = Tests/VocelloMacUITests;
@@ -1990,6 +1993,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1FE636CA103785636B5D4985 /* VocelloMacSmokeUITests.swift in Sources */,
+				A5892891BDA0489B999D388F /* VocelloMacTestSupport.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

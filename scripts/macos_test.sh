@@ -152,6 +152,50 @@ cmd_profile() {
   note "XPC service profile (production path): launch app, 'xctrace record --attach QwenVoiceEngineService', generate via UI."
 }
 
+# preflight: one-shot readiness — Xcode, the app bundle, the embedded XPC service, and
+# the preserved dSYMs. Fails fast with what's missing.
+cmd_preflight() {
+  local rc=0
+  note "macOS preflight"
+  command -v xcodebuild >/dev/null 2>&1 && note "  xcodebuild: OK" || { warn "  xcodebuild: ✗ not found"; rc=1; }
+  if [[ -d "$APP_BUNDLE" ]]; then note "  app: OK $APP_BUNDLE"; else warn "  app: ✗ not built (run: scripts/build.sh build)"; rc=1; fi
+  [[ -d "$XPC_BUNDLE" ]] && note "  xpc service: OK" || warn "  xpc service: ✗ not in bundle (rebuild)"
+  [[ -d "$DSYM_DIR" ]] && note "  dsyms: OK $DSYM_DIR" || warn "  dsyms: ✗ none (run: scripts/build.sh build)"
+  (( rc == 0 )) && note "preflight OK" || die "preflight not ready (see above)"
+}
+
+# test: run VocelloMacSmokeUITests (macOS, arm64) → a single verdict + artifacts under
+# build/macos/uitest-artifacts/<run>/ (xcresult path + best-effort xcresulttool summary +
+# any MAC_TEST_SCREENSHOT_DIR shots). Deep .xcresult analysis routes to axiom:test-runner.
+cmd_test() {
+  local run_id="mac-test-$(date +%Y%m%d-%H%M%S)"
+  local artifacts="$ROOT_DIR/build/macos/uitest-artifacts/$run_id"
+  mkdir -p "$artifacts"
+  export MAC_TEST_SCREENSHOT_DIR="$ROOT_DIR/build/macos/uitest-screenshots"
+  mkdir -p "$MAC_TEST_SCREENSHOT_DIR"
+  note "test: VocelloMacSmokeUITests (macOS, arm64) → $artifacts"
+  set +e
+  xcodebuild test -project "$ROOT_DIR/QwenVoice.xcodeproj" -scheme QwenVoice \
+    -configuration Release -destination 'platform=macOS,arch=arm64' \
+    -derivedDataPath "$ROOT_DIR/build/DerivedData" \
+    > "$artifacts/test.log" 2>&1
+  local st=$?
+  set -e
+  local xcresult; xcresult="$(find "$ROOT_DIR/build/DerivedData/Logs/Test" -name '*.xcresult' -type d 2>/dev/null | sort | tail -1 || true)"
+  {
+    echo "xcresult: ${xcresult:-<none>}"
+    echo "exit: $st"
+    if [[ -n "$xcresult" && -d "$xcresult" ]]; then
+      xcrun xcresulttool get test-results summary --format json --path "$xcresult" 2>/dev/null \
+        || echo "(xcresulttool summary unavailable — open the .xcresult in Xcode)"
+    fi
+  } >"$artifacts/verdict.json"
+  cat "$artifacts/verdict.json" >&2
+  [[ -d "$MAC_TEST_SCREENSHOT_DIR" ]] && cp -R "$MAC_TEST_SCREENSHOT_DIR/." "$artifacts/screenshots" 2>/dev/null || true
+  if (( st == 0 )); then note "test verdict: PASS · artifacts → $artifacts";
+  else warn "test verdict: FAIL (exit $st) · artifacts → $artifacts"; exit "$st"; fi
+}
+
 main() {
   local sub="${1:-help}"; shift || true
   case "$sub" in
@@ -159,6 +203,8 @@ main() {
     debug)   cmd_debug "$@" ;;
     logs)    cmd_logs "$@" ;;
     profile) cmd_profile "$@" ;;
+    preflight) cmd_preflight "$@" ;;
+    test)      cmd_test "$@" ;;
     help|-h|--help)
       sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' >&2
       ;;
