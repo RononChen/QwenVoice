@@ -189,6 +189,10 @@ public struct LocalModelAssetStore: ModelAssetStore, Hashable, Sendable {
     public let descriptors: [ModelAssetDescriptor]
     public let storeVersionSeed: String
 
+    /// Process-lifetime cache of verified SHA-256 digests so `deepIntegrity` doesn't
+    /// re-hash multi-GB model files on every status refresh.
+    private static let integrityHashCache = IntegrityHashCache()
+
     public init(
         modelRegistry: any ModelRegistry,
         rootDirectory: URL,
@@ -304,7 +308,7 @@ public struct LocalModelAssetStore: ModelAssetStore, Hashable, Sendable {
                 continue
             }
             if let expectedHash = Self.normalizedSHA256(entry.sha256) {
-                guard let actualHash = try? Self.sha256Hex(for: url),
+                guard let actualHash = Self.integrityHashCache.cachedSHA256(for: url),
                       actualHash == expectedHash else {
                     failures.append(entry.path)
                     continue
@@ -413,6 +417,52 @@ public struct LocalModelAssetStore: ModelAssetStore, Hashable, Sendable {
                 continue
             }
             try? fileManager.removeItem(at: folderURL)
+        }
+    }
+
+    /// Thread-safe, process-lifetime cache of verified file SHA-256 digests, keyed by
+    /// path + size + modification date. Keeps `deepIntegrity` from re-hashing multi-GB
+    /// model files on every status refresh once a file has been verified.
+    private final class IntegrityHashCache: @unchecked Sendable {
+        private struct Entry {
+            let size: Int64
+            let modificationDate: Date
+            let sha256: String
+        }
+
+        private var entries: [String: Entry] = [:]
+        private let lock = NSLock()
+
+        /// Returns the cached SHA-256 for `url` when its size + modification date match a
+        /// prior computation; otherwise hashes the file (once) and caches the result.
+        /// Returns nil if the file can't be stat'd or hashed. A size/mtime change (a
+        /// reinstall) invalidates the entry automatically.
+        func cachedSHA256(for url: URL) -> String? {
+            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+                  let fileSize = values.fileSize else {
+                return nil
+            }
+            let size = Int64(fileSize)
+            let modificationDate = values.contentModificationDate ?? .distantPast
+            let key = url.path
+
+            lock.lock()
+            if let entry = entries[key], entry.size == size, entry.modificationDate == modificationDate {
+                let cached = entry.sha256
+                lock.unlock()
+                return cached
+            }
+            lock.unlock()
+
+            // Hash outside the lock — this is the expensive multi-GB read.
+            guard let computed = try? LocalModelAssetStore.sha256Hex(for: url) else {
+                return nil
+            }
+
+            lock.lock()
+            entries[key] = Entry(size: size, modificationDate: modificationDate, sha256: computed)
+            lock.unlock()
+            return computed
         }
     }
 }

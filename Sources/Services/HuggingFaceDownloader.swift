@@ -754,6 +754,11 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
         }
     }
 
+    /// Maximum number of times a single file download is retried after a transient
+    /// failure (network error, HTTP 5xx/429, integrity mismatch). Cancellation and HTTP
+    /// 4xx client errors are never retried.
+    private static let maxDownloadRetries = 3
+
     private func downloadFile(
         from url: URL,
         to destination: URL,
@@ -768,6 +773,64 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
             return
         }
 
+        // Retry transient failures (network drops, HTTP 5xx/429, integrity mismatches)
+        // so a single hiccup no longer fails the whole repo download. The partial
+        // already on disk lets each attempt resume via a Range request.
+        var attempt = 0
+        while true {
+            do {
+                try await attemptFileDownload(
+                    from: url,
+                    to: destination,
+                    partialURL: partialURL,
+                    resumeDataURL: resumeDataURL,
+                    expectedSize: expectedSize,
+                    sha256: sha256,
+                    fileIndex: fileIndex
+                )
+                return
+            } catch {
+                // Cancellation and non-retryable HTTP 4xx client errors fail fast.
+                if let dlError = error as? DownloadError {
+                    if case .cancelled = dlError { throw error }
+                    if case .httpError(let code, _) = dlError,
+                       (400..<500).contains(code), code != 429 {
+                        throw error
+                    }
+                }
+
+                attempt += 1
+                guard attempt <= Self.maxDownloadRetries else { throw error }
+
+                // A partial that failed integrity can't be resumed into a correct file;
+                // clear it (and any resume blob) so the next attempt downloads fresh.
+                if let dlError = error as? DownloadError, case .integrityCheckFailed = dlError {
+                    try? fileManager.removeItem(at: partialURL)
+                    try? fileManager.removeItem(at: resumeDataURL)
+                }
+
+                let backoff = Self.retryBackoffSeconds(for: attempt)
+                try? await Task.sleep(for: .seconds(backoff))
+                if Task.isCancelled {
+                    throw DownloadError.cancelled
+                }
+                if await state.cancellationRequested() {
+                    throw DownloadError.cancelled
+                }
+            }
+        }
+    }
+
+    /// A single (un-retried) attempt to stage one file.
+    private func attemptFileDownload(
+        from url: URL,
+        to destination: URL,
+        partialURL: URL,
+        resumeDataURL: URL,
+        expectedSize: Int64,
+        sha256: String?,
+        fileIndex: Int
+    ) async throws {
         let completedBytes = Self.fileSizeIfPresent(at: partialURL)
         let downloaded = try await downloadTemporaryFile(
             from: url,
@@ -793,6 +856,13 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
         )
         try? fileManager.removeItem(at: resumeDataURL)
         try publishDownloadedFile(partialURL, to: destination)
+    }
+
+    /// Exponential backoff (with jitter) between retry attempts: ~1s, ~2s, ~4s, capped.
+    private static func retryBackoffSeconds(for attempt: Int) -> Double {
+        let base = pow(2.0, Double(attempt - 1))
+        let jitter = Double.random(in: 0...0.5)
+        return min(base + jitter, 10)
     }
 
     private func downloadTemporaryFile(
@@ -988,6 +1058,13 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
             .deletingLastPathComponent()
             .appendingPathComponent(".qwenvoice-downloads", isDirectory: true)
             .appendingPathComponent(targetDir.lastPathComponent, isDirectory: true)
+    }
+
+    /// Remove the staging tree (partials, resume data, staged files) for a target
+    /// directory. Call when a model is permanently deleted so failed/partial downloads
+    /// don't orphan multi-GB under `.qwenvoice-downloads/`. Best-effort.
+    static func discardStaging(forTargetDirectory targetDir: URL) {
+        try? FileManager.default.removeItem(at: stagingRoot(forTargetDirectory: targetDir))
     }
 
     private static func partialURL(for relativePath: String, in root: URL) throws -> URL {

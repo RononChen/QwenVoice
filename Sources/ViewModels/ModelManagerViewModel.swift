@@ -669,6 +669,9 @@ final class ModelManagerViewModel {
 
         let modelDir = model.installDirectory(in: modelsDirectory)
         try? fileManager.removeItem(at: modelDir)
+        // Also drop any orphaned staging tree (partials/resume data/staged files) so a
+        // deleted model doesn't leave multi-GB under `.qwenvoice-downloads/`.
+        HuggingFaceDownloader.discardStaging(forTargetDirectory: modelDir)
         lastFailureMessages.removeValue(forKey: model.id)
         removeInstallMetadata(for: model)
 
