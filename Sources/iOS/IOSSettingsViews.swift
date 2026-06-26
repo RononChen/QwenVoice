@@ -207,7 +207,7 @@ private struct IOSSettingsView: View {
             Text("Generated clips are always kept on this iPhone for History. Optionally also copy each new clip to a folder you choose — Files or iCloud Drive.")
         }
         .confirmationDialog(
-            "Downloading…",
+            "Cancel download?",
             isPresented: Binding(
                 get: { modelPendingCancel != nil },
                 set: { isPresented in
@@ -217,22 +217,17 @@ private struct IOSSettingsView: View {
             titleVisibility: .visible
         ) {
             if let model = modelPendingCancel {
-                Button("Pause") {
-                    pause(model)
-                    modelPendingCancel = nil
-                }
-                .accessibilityIdentifier("iosModelPauseConfirmButton")
                 Button("Cancel Download", role: .destructive) {
                     cancel(model)
                     modelPendingCancel = nil
                 }
                 .accessibilityIdentifier("iosModelCancelDownloadConfirmButton")
-                Button("Cancel", role: .cancel) {
+                Button("Keep Download", role: .cancel) {
                     modelPendingCancel = nil
                 }
             }
         } message: {
-            Text("Pausing keeps the downloaded data so you can resume later. Canceling removes it.")
+            Text("Canceling removes the downloaded data. You can download it again from scratch.")
         }
         .fileImporter(
             isPresented: $isFolderPickerPresented,
@@ -270,10 +265,6 @@ private struct IOSSettingsView: View {
     private func requestCancelOptions(for model: TTSModel) {
         IOSHaptics.selection()
         modelPendingCancel = model
-    }
-
-    private func pause(_ model: TTSModel) {
-        modelInstaller.pause(model)
     }
 
     private func cancel(_ model: TTSModel) {
