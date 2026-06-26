@@ -127,13 +127,14 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
         // Maps a URLSession taskID -> the index of the file it is downloading, so the
         // delegate's per-task progress callbacks aggregate into per-file byte counters.
         private var taskFileIndex: [Int: Int] = [:]
-        // Per-file bytes written so far. Monotonic per file: a resume->fresh fallback
-        // never moves a file's counter backward; the final value is reconciled to the
-        // file's exact size when it completes.
-        private var fileProgress: [Int: Int64] = [:]
+        // Per-task bytes written (monotonic per URLSession task). A single-stream file has
+        // one entry; a byte-range chunked file has one entry per in-flight chunk. The
+        // repository total is the sum across all live tasks plus completed-file sizes, so
+        // N chunks of one file aggregate correctly (a per-file monotonic max would not).
+        private var taskBytes: [Int: Int64] = [:]
+        private var completedFilesBytes: Int64 = 0
         private let repositoryProgressHandler: RepositoryProgressHandlerBox?
         private var repositoryTotalBytes: Int64 = 0
-        private var repositoryDownloadedBytes: Int64 = 0
         private var repositoryTotalFiles = 0
         private var repositoryCompletedFiles = 0
         private var lastProgressAdvanceTime: TimeInterval?
@@ -142,6 +143,13 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
         private var lastMeasuredBytesPerSecond: Int64?
         private var phase: DownloadPhase = .downloading
         private var heartbeatTask: Task<Void, Never>?
+
+        /// Bytes counted so far: completed files (at their exact size) plus the live sum of
+        /// in-flight task bytes (single-stream or chunk). Recomputed so retries and chunks
+        /// both stay exact without a separate accumulated counter.
+        private var repositoryDownloadedBytes: Int64 {
+            completedFilesBytes + taskBytes.values.reduce(0, +)
+        }
 
         init(repositoryProgressHandler: RepositoryProgressHandlerBox?) {
             self.repositoryProgressHandler = repositoryProgressHandler
@@ -153,9 +161,9 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
             continuations.removeAll()
             destinations.removeAll()
             taskFileIndex.removeAll()
-            fileProgress.removeAll()
+            taskBytes.removeAll()
+            completedFilesBytes = 0
             repositoryTotalBytes = 0
-            repositoryDownloadedBytes = 0
             repositoryTotalFiles = 0
             repositoryCompletedFiles = 0
             lastProgressAdvanceTime = nil
@@ -169,11 +177,11 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
 
         func beginRepositoryDownload(totalBytes: Int64, totalFiles: Int, phase: DownloadPhase = .downloading) {
             repositoryTotalBytes = max(0, totalBytes)
-            repositoryDownloadedBytes = 0
             repositoryTotalFiles = max(0, totalFiles)
             repositoryCompletedFiles = 0
+            completedFilesBytes = 0
             taskFileIndex.removeAll()
-            fileProgress.removeAll()
+            taskBytes.removeAll()
             self.phase = phase
             let now = ProcessInfo.processInfo.systemUptime
             lastProgressAdvanceTime = now
@@ -214,34 +222,48 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
             emitRepositoryProgress(isStalled: false)
         }
 
-        /// Per-file progress from the URLSession delegate. Computes a delta against the
-        /// file's last-reported bytes so several files downloading concurrently aggregate
-        /// correctly into the shared repository counter. Each file's contribution is
-        /// monotonic, so a resume->fresh fallback never moves the counter backward.
+        /// Per-task progress from the URLSession delegate. Monotonic per task, so a
+        /// resume->fresh fallback never moves a task's counter backward. Works for both a
+        /// single-stream file (1 task) and a chunked file (N tasks) because the repository
+        /// total is the sum of all task bytes.
         func reportProgress(taskID: Int, totalBytesWritten: Int64) {
-            guard let fileIndex = taskFileIndex[taskID] else { return }
-            let previous = fileProgress[fileIndex] ?? 0
+            guard taskFileIndex[taskID] != nil else { return }
+            let previous = taskBytes[taskID] ?? 0
             let updated = max(previous, totalBytesWritten)
             let delta = updated - previous
             guard delta != 0 else { return }
-            fileProgress[fileIndex] = updated
+            taskBytes[taskID] = updated
             let now = ProcessInfo.processInfo.systemUptime
-            let newTotal = repositoryDownloadedBytes + delta
-            applySpeedMeasurement(now: now, totalDownloaded: newTotal, advancedDelta: delta)
-            repositoryDownloadedBytes = newTotal
+            applySpeedMeasurement(now: now, totalDownloaded: repositoryDownloadedBytes, advancedDelta: delta)
             emitRepositoryProgress(isStalled: false)
         }
 
-        /// A file finished (downloaded, or already-valid and skipped). Reconcile its byte
-        /// contribution to the exact expected size so the final counter is precise even if
-        /// the last delegate callback undershot (resume data, partial bytes, etc.).
-        func reportFileCompleted(fileIndex: Int, expectedSize: Int64) {
-            let counted = fileProgress.removeValue(forKey: fileIndex) ?? 0
-            let reconciliation = expectedSize - counted
-            if reconciliation != 0 {
-                repositoryDownloadedBytes += reconciliation
+        /// Drop any live task state for `fileIndex` (called at the start of each download
+        /// attempt). Clears stale bytes from a prior failed attempt so they don't inflate
+        /// the counter during a retry; the fresh attempt re-accumulates from zero.
+        func resetFileProgress(fileIndex: Int) {
+            let staleTaskIDs = taskFileIndex.keys.filter { taskFileIndex[$0] == fileIndex }
+            for taskID in staleTaskIDs {
+                taskBytes.removeValue(forKey: taskID)
+                taskFileIndex.removeValue(forKey: taskID)
             }
+        }
+
+        /// A file finished (downloaded, or already-valid and skipped). Fold its live task
+        /// bytes into the completed-files total at the exact expected size, then drop the
+        /// file's task entries. Reconciliation is implicit: the live sum loses the file's
+        /// task bytes and `completedFilesBytes` gains `expectedSize`.
+        func reportFileCompleted(fileIndex: Int, expectedSize: Int64) {
+            let fileTaskIDs = taskFileIndex.keys.filter { taskFileIndex[$0] == fileIndex }
+            var liveForFile: Int64 = 0
+            for taskID in fileTaskIDs {
+                liveForFile += taskBytes.removeValue(forKey: taskID) ?? 0
+                taskFileIndex.removeValue(forKey: taskID)
+            }
+            completedFilesBytes += expectedSize
             repositoryCompletedFiles += 1
+            let now = ProcessInfo.processInfo.systemUptime
+            applySpeedMeasurement(now: now, totalDownloaded: repositoryDownloadedBytes, advancedDelta: expectedSize - liveForFile)
             emitRepositoryProgress(isStalled: false)
         }
 
@@ -253,15 +275,16 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
         func resumeSuccess(taskID: Int, temporaryFile: DownloadedTemporaryFile) {
             let continuation = continuations.removeValue(forKey: taskID)
             destinations.removeValue(forKey: taskID)
-            taskFileIndex.removeValue(forKey: taskID)
             activeCancellations.removeValue(forKey: taskID)
+            // NOTE: taskFileIndex/taskBytes are intentionally left in place — the file's
+            // live bytes stay counted until reportFileCompleted folds them in (success) or
+            // resetFileProgress clears them (retry).
             continuation?.resume(returning: temporaryFile)
         }
 
         func resumeFailure(taskID: Int, error: Error) {
             let continuation = continuations.removeValue(forKey: taskID)
             destinations.removeValue(forKey: taskID)
-            taskFileIndex.removeValue(forKey: taskID)
             activeCancellations.removeValue(forKey: taskID)
             continuation?.resume(throwing: error)
         }
@@ -771,6 +794,9 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
         var attempt = 0
         while true {
             do {
+                // Clear any stale task state for this file from a prior failed attempt so
+                // its bytes don't inflate the progress counter during the retry.
+                await state.resetFileProgress(fileIndex: fileIndex)
                 try await attemptFileDownload(
                     from: url,
                     to: destination,
