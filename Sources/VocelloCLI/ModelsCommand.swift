@@ -21,6 +21,11 @@ enum ModelsCommand {
         var argv = argv
         let action = argv.first?.lowercased() ?? "list"
         if action == "help" || action == "--help" { printHelp(); return }
+        if action == "install" {
+            argv.removeFirst()
+            try await runInstall(argv)
+            return
+        }
         let detailed = (action == "status")
         if !argv.isEmpty, action == "list" || action == "ls" || action == "status" { argv.removeFirst() }
         guard action == "list" || action == "ls" || action == "status" || action.hasPrefix("--") else {
@@ -68,18 +73,65 @@ enum ModelsCommand {
         }
     }
 
+    /// `vocello models install <id>` — download a model via the shared `HuggingFaceDownloader`
+    /// engine (the same one the macOS app uses) into the shared models directory. A
+    /// CLI-installed model is immediately usable by the app, and vice-versa.
+    @MainActor
+    static func runInstall(_ argv: [String]) async throws {
+        let args = Args(argv)
+        CLIOutput.configure(args)
+
+        guard let modelID = args.positionals.first?.lowercased() else {
+            throw CLIError("install requires a model id (e.g. pro_custom_speed). Run `vocello models list` for ids.")
+        }
+
+        let ctx = try CLIRuntime.bootstrapRegistryOnly(
+            dataDirectory: CLIPaths.dataDirectory(override: args.string("data-dir")),
+            manifestOverride: args.string("manifest").map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) })
+
+        guard let descriptor = ctx.registry.model(id: modelID) else {
+            throw CLIError("unknown model id '\(modelID)' (run `vocello models list` for valid ids)")
+        }
+
+        if case .available = ctx.registry.availability(forModelID: modelID, in: ctx.modelsDirectory) {
+            note("Already installed: \(modelID)")
+            return
+        }
+
+        let targetDir = descriptor.installDirectory(in: ctx.modelsDirectory)
+        let repo = descriptor.huggingFaceRepo
+        let revision = descriptor.huggingFaceRevision ?? "main"
+        note("Installing \(modelID) from \(repo) (revision \(revision.prefix(7))\u{2026})")
+
+        let downloader = HuggingFaceDownloader(progressHandler: { progress in
+            let pct = progress.totalBytes > 0
+                ? Int(Double(progress.downloadedBytes) / Double(progress.totalBytes) * 100)
+                : 0
+            let speed = progress.bytesPerSecond.map { "\(humanBytes($0))/s" } ?? "—"
+            noteVerbose("  \(progress.phase.rawValue) · \(pct)% · \(humanBytes(progress.downloadedBytes))/\(humanBytes(progress.totalBytes)) · \(speed)")
+        })
+
+        try await downloader.downloadRepo(repo: repo, revision: revision, to: targetDir)
+
+        print("✓ Installed \(modelID) (\(humanBytes(directorySize(targetDir))))")
+    }
+
     static func printHelp() {
         print("""
-        vocello models — inventory installed/available models (read-only)
+        vocello models — inventory and install models
 
         Usage:
           vocello models list [--json]
-          vocello models status [<id>] [--json]     # adds missing-file detail
+          vocello models status [<id>] [--json]               # adds missing-file detail
+          vocello models install <id> [--verbose]             # download into the shared models dir
 
-        Variant-scoped ids (…_speed / …_quality) are what `generate --variant` selects.
+        <id> may be a variant-scoped id (pro_custom_speed / pro_custom_quality / …) or a
+        base alias (pro_custom → preferred variant). Same engine + dir as the macOS app,
+        so a CLI-installed model is immediately usable in the app.
 
         Options:
-          --json       emit JSON instead of a table
+          --json       emit JSON instead of a table (list/status)
+          --verbose    show per-update download progress (install)
           --data-dir   runtime dir (default ~/Library/Application Support/QwenVoice[-Debug])
           --manifest   override path to qwenvoice_contract.json
         """)
