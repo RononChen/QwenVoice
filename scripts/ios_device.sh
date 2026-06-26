@@ -677,7 +677,7 @@ cmd_ui_test() {
         fi
       done
     fi
-    if (( all_ok == 1 )) && grep -q '\*\* TEST SUCCEEDED \*\*' "$log"; then
+    if (( all_ok == 1 )) && grep -qE '\*\* TEST (EXECUTE )?SUCCEEDED \*\*' "$log"; then
       note "device UI tests PASSED"
       return 0
     fi
