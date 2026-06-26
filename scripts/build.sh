@@ -110,8 +110,31 @@ build_app() {
     assert_signing_identity "$APP_BUNDLE" "$signing_identity"
     assert_signing_identity "$APP_BUNDLE/Contents/XPCServices/QwenVoiceEngineService.xpc" "$signing_identity"
     record_dev_signing_identity "$signing_identity"
+    preserve_dsyms
     echo "==> Build ready: $APP_BUNDLE"
     prune_stale_builds
+}
+
+# Preserve this build's dSYMs (app + XPC service + any others) so
+# scripts/macos_test.sh crashes can symbolicate .ips reports. Keyed by build version.
+preserve_dsyms() {
+    local dsym_dst="$BUILD_DIR/macos/dsyms"
+    local products="$DERIVED_DATA/Build/Products/Release"
+    rm -rf "$dsym_dst"
+    mkdir -p "$dsym_dst"
+    local any=0 dsym
+    for dsym in "$products"/*.dSYM; do
+        [[ -d "$dsym" ]] || continue
+        cp -R "$dsym" "$dsym_dst/"
+        any=1
+    done
+    /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP_BUNDLE/Contents/Info.plist" \
+        > "$dsym_dst/build-version.txt" 2>/dev/null || true
+    if (( any )); then
+        echo "==> Preserved dSYMs → $dsym_dst (for crash symbolication)"
+    else
+        echo "==> warning: no dSYMs produced (crash symbolication unavailable)" >&2
+    fi
 }
 
 kill_running_app() {
