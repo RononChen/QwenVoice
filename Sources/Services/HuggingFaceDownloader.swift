@@ -87,14 +87,6 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
         let statusCode: Int?
     }
 
-    final class ProgressHandlerBox: @unchecked Sendable {
-        let handler: (Int64) -> Void
-
-        init(_ handler: @escaping (Int64) -> Void) {
-            self.handler = handler
-        }
-    }
-
     final class RepositoryProgressHandlerBox: @unchecked Sendable {
         let handler: (RepositoryProgress) -> Void
 
@@ -130,11 +122,17 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
 
     actor DownloadStateRegistry {
         private var isCancelled = false
-        private var activeTaskID: Int?
-        private var activeCancellation: TaskCancellationBox?
+        // Per-task handle so concurrent files can each be cancelled independently.
+        private var activeCancellations: [Int: TaskCancellationBox] = [:]
         private var continuations: [Int: CheckedContinuation<DownloadedTemporaryFile, Error>] = [:]
         private var destinations: [Int: URL] = [:]
-        private var progressHandlers: [Int: ProgressHandlerBox] = [:]
+        // Maps a URLSession taskID -> the index of the file it is downloading, so the
+        // delegate's per-task progress callbacks aggregate into per-file byte counters.
+        private var taskFileIndex: [Int: Int] = [:]
+        // Per-file bytes written so far. Monotonic per file: a resume->fresh fallback
+        // never moves a file's counter backward; the final value is reconciled to the
+        // file's exact size when it completes.
+        private var fileProgress: [Int: Int64] = [:]
         private let repositoryProgressHandler: RepositoryProgressHandlerBox?
         private var repositoryTotalBytes: Int64 = 0
         private var repositoryDownloadedBytes: Int64 = 0
@@ -153,8 +151,11 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
 
         func resetForNewRepositoryDownload() {
             isCancelled = false
-            activeTaskID = nil
-            activeCancellation = nil
+            activeCancellations.removeAll()
+            continuations.removeAll()
+            destinations.removeAll()
+            taskFileIndex.removeAll()
+            fileProgress.removeAll()
             repositoryTotalBytes = 0
             repositoryDownloadedBytes = 0
             repositoryTotalFiles = 0
@@ -173,6 +174,8 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
             repositoryDownloadedBytes = 0
             repositoryTotalFiles = max(0, totalFiles)
             repositoryCompletedFiles = 0
+            taskFileIndex.removeAll()
+            fileProgress.removeAll()
             self.phase = phase
             let now = ProcessInfo.processInfo.systemUptime
             lastProgressAdvanceTime = now
@@ -187,20 +190,21 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
             task: URLSessionDownloadTask,
             destination: URL,
             continuation: CheckedContinuation<DownloadedTemporaryFile, Error>,
-            progressHandler: ProgressHandlerBox,
-            resumeDataURL: URL?
+            resumeDataURL: URL?,
+            fileIndex: Int
         ) {
             let taskID = task.taskIdentifier
-            activeTaskID = taskID
-            activeCancellation = TaskCancellationBox(task: task, resumeDataURL: resumeDataURL)
+            activeCancellations[taskID] = TaskCancellationBox(task: task, resumeDataURL: resumeDataURL)
             continuations[taskID] = continuation
             destinations[taskID] = destination
-            progressHandlers[taskID] = progressHandler
+            taskFileIndex[taskID] = fileIndex
         }
 
         func requestCancellation() {
             isCancelled = true
-            activeCancellation?.cancel()
+            for cancellation in activeCancellations.values {
+                cancellation.cancel()
+            }
         }
 
         func cancellationRequested() -> Bool {
@@ -212,33 +216,34 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
             emitRepositoryProgress(isStalled: false)
         }
 
+        /// Per-file progress from the URLSession delegate. Computes a delta against the
+        /// file's last-reported bytes so several files downloading concurrently aggregate
+        /// correctly into the shared repository counter. Each file's contribution is
+        /// monotonic, so a resume->fresh fallback never moves the counter backward.
         func reportProgress(taskID: Int, totalBytesWritten: Int64) {
-            progressHandlers[taskID]?.handler(totalBytesWritten)
+            guard let fileIndex = taskFileIndex[taskID] else { return }
+            let previous = fileProgress[fileIndex] ?? 0
+            let updated = max(previous, totalBytesWritten)
+            let delta = updated - previous
+            guard delta != 0 else { return }
+            fileProgress[fileIndex] = updated
+            let now = ProcessInfo.processInfo.systemUptime
+            let newTotal = repositoryDownloadedBytes + delta
+            applySpeedMeasurement(now: now, totalDownloaded: newTotal, advancedDelta: delta)
+            repositoryDownloadedBytes = newTotal
+            emitRepositoryProgress(isStalled: false)
         }
 
-        func reportRepositoryProgress(downloadedBytes: Int64, completedFiles: Int) {
-            let now = ProcessInfo.processInfo.systemUptime
-            let clampedBytes = min(max(0, downloadedBytes), repositoryTotalBytes)
-            let clampedCompletedFiles = min(max(0, completedFiles), repositoryTotalFiles)
-
-            if clampedBytes > repositoryDownloadedBytes {
-                if let previousSpeedSampleTime = lastSpeedSampleTime {
-                    let elapsed = max(now - previousSpeedSampleTime, 0.001)
-                    let deltaBytes = clampedBytes - lastSpeedSampleBytes
-                    if deltaBytes > 0 {
-                        lastMeasuredBytesPerSecond = Int64(Double(deltaBytes) / elapsed)
-                        lastSpeedSampleTime = now
-                        lastSpeedSampleBytes = clampedBytes
-                    }
-                } else {
-                    lastSpeedSampleTime = now
-                    lastSpeedSampleBytes = clampedBytes
-                }
-                lastProgressAdvanceTime = now
+        /// A file finished (downloaded, or already-valid and skipped). Reconcile its byte
+        /// contribution to the exact expected size so the final counter is precise even if
+        /// the last delegate callback undershot (resume data, partial bytes, etc.).
+        func reportFileCompleted(fileIndex: Int, expectedSize: Int64) {
+            let counted = fileProgress.removeValue(forKey: fileIndex) ?? 0
+            let reconciliation = expectedSize - counted
+            if reconciliation != 0 {
+                repositoryDownloadedBytes += reconciliation
             }
-
-            repositoryDownloadedBytes = clampedBytes
-            repositoryCompletedFiles = clampedCompletedFiles
+            repositoryCompletedFiles += 1
             emitRepositoryProgress(isStalled: false)
         }
 
@@ -250,16 +255,16 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
         func resumeSuccess(taskID: Int, temporaryFile: DownloadedTemporaryFile) {
             let continuation = continuations.removeValue(forKey: taskID)
             destinations.removeValue(forKey: taskID)
-            progressHandlers.removeValue(forKey: taskID)
-            clearActiveTaskIfNeeded(taskID: taskID)
+            taskFileIndex.removeValue(forKey: taskID)
+            activeCancellations.removeValue(forKey: taskID)
             continuation?.resume(returning: temporaryFile)
         }
 
         func resumeFailure(taskID: Int, error: Error) {
             let continuation = continuations.removeValue(forKey: taskID)
             destinations.removeValue(forKey: taskID)
-            progressHandlers.removeValue(forKey: taskID)
-            clearActiveTaskIfNeeded(taskID: taskID)
+            taskFileIndex.removeValue(forKey: taskID)
+            activeCancellations.removeValue(forKey: taskID)
             continuation?.resume(throwing: error)
         }
 
@@ -267,10 +272,21 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
             destinations[taskID]?.lastPathComponent ?? "unknown"
         }
 
-        private func clearActiveTaskIfNeeded(taskID: Int) {
-            guard activeTaskID == taskID else { return }
-            activeTaskID = nil
-            activeCancellation = nil
+        private func applySpeedMeasurement(now: TimeInterval, totalDownloaded: Int64, advancedDelta: Int64) {
+            guard advancedDelta > 0 else { return }
+            if let previousSpeedSampleTime = lastSpeedSampleTime {
+                let elapsed = max(now - previousSpeedSampleTime, 0.001)
+                let deltaBytes = totalDownloaded - lastSpeedSampleBytes
+                if deltaBytes > 0 {
+                    lastMeasuredBytesPerSecond = Int64(Double(deltaBytes) / elapsed)
+                    lastSpeedSampleTime = now
+                    lastSpeedSampleBytes = totalDownloaded
+                }
+            } else {
+                lastSpeedSampleTime = now
+                lastSpeedSampleBytes = totalDownloaded
+            }
+            lastProgressAdvanceTime = now
         }
 
         private func startHeartbeatIfNeeded() {
@@ -286,8 +302,7 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
 
         private func emitHeartbeatIfNeeded() {
             guard repositoryProgressHandler != nil else { return }
-            guard let activeTaskID else { return }
-            guard activeTaskID >= 0 else { return }
+            guard !activeCancellations.isEmpty else { return }
 
             let now = ProcessInfo.processInfo.systemUptime
             guard let lastProgressAdvanceTime, now - lastProgressAdvanceTime >= 1.5 else {
@@ -299,9 +314,9 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
         private func emitRepositoryProgress(isStalled: Bool) {
             repositoryProgressHandler?.handler(
                 RepositoryProgress(
-                    downloadedBytes: repositoryDownloadedBytes,
+                    downloadedBytes: min(repositoryDownloadedBytes, repositoryTotalBytes),
                     totalBytes: repositoryTotalBytes,
-                    completedFiles: repositoryCompletedFiles,
+                    completedFiles: min(repositoryCompletedFiles, repositoryTotalFiles),
                     totalFiles: repositoryTotalFiles,
                     bytesPerSecond: lastMeasuredBytesPerSecond,
                     isStalled: isStalled,
@@ -316,6 +331,11 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
     private let apiBaseURL: URL
     private let resolveBaseURL: URL
     private let fileManager: FileManager
+
+    /// Maximum number of files downloaded concurrently within a single repo. The shared
+    /// URLSession's `httpMaximumConnectionsPerHost` is set to the same value, so this
+    /// bounds both the in-flight file count and the open HTTP connections to the Hub.
+    static let maxConcurrentFileDownloads = 6
 
     static func validatedRelativeRepoPath(_ path: String) throws -> String {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -480,6 +500,7 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
         super.init()
         let config = sessionConfiguration.copy() as? URLSessionConfiguration ?? .default
         config.timeoutIntervalForResource = 3600
+        config.httpMaximumConnectionsPerHost = Self.maxConcurrentFileDownloads
         session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
 
@@ -512,77 +533,15 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
                 stagingRoot: stagingRoot
         )
 
-        var completedBytes: Int64 = 0
-        var completedFiles = 0
-
         do {
-            for file in files {
-                guard !(await state.cancellationRequested()) else {
-                    await state.finishRepositoryDownload()
-                    throw DownloadError.cancelled
-                }
-
-                let relativePath = try Self.validatedRelativeRepoPath(file.path)
-                let destURL = try Self.validatedDestinationURL(for: relativePath, in: filesRoot)
-                let partialURL = try Self.partialURL(for: relativePath, in: partialRoot)
-                let resumeDataURL = Self.resumeDataURL(for: relativePath, in: resumeRoot)
-                try fileManager.createDirectory(at: destURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try fileManager.createDirectory(at: partialURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-
-                if fileIsValid(at: destURL, expectedSize: file.size, sha256: file.sha256) {
-                    completedBytes += file.size
-                    completedFiles += 1
-                    await state.reportRepositoryProgress(
-                        downloadedBytes: completedBytes,
-                        completedFiles: completedFiles
-                    )
-                    continue
-                }
-
-                if fileManager.fileExists(atPath: destURL.path) {
-                    try? fileManager.removeItem(at: destURL)
-                }
-
-                let partialBytes = Self.fileSizeIfPresent(at: partialURL)
-                if partialBytes > 0 || fileManager.fileExists(atPath: resumeDataURL.path) {
-                    await state.setPhase(.resuming)
-                } else {
-                    await state.setPhase(.downloading)
-                }
-
-                let downloadURL = try Self.fileResolveURL(
-                    resolveBaseURL: resolveBaseURL,
-                    repo: repo,
-                    revision: revision,
-                    relativePath: relativePath
-                )
-                let baseCompletedBytes = completedBytes
-                let baseCompletedFiles = completedFiles
-
-                try await downloadFile(
-                    from: downloadURL,
-                    to: destURL,
-                    partialURL: partialURL,
-                    resumeDataURL: resumeDataURL,
-                    expectedSize: file.size,
-                    sha256: file.sha256,
-                    progressHandler: ProgressHandlerBox { [state] bytesWritten in
-                        Task {
-                            await state.reportRepositoryProgress(
-                                downloadedBytes: baseCompletedBytes + bytesWritten,
-                                completedFiles: baseCompletedFiles
-                            )
-                        }
-                    }
-                )
-
-                completedBytes += file.size
-                completedFiles += 1
-                await state.reportRepositoryProgress(
-                    downloadedBytes: completedBytes,
-                    completedFiles: completedFiles
-                )
-            }
+            try await downloadAllFiles(
+                files,
+                repo: repo,
+                revision: revision,
+                filesRoot: filesRoot,
+                partialRoot: partialRoot,
+                resumeRoot: resumeRoot
+            )
             await state.setPhase(.verifying)
             try verifyDownloadedFiles(files, in: filesRoot)
             try persistInstalledIntegrityManifest(
@@ -598,6 +557,9 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
             try? fileManager.removeItem(at: stagingRoot)
             await state.finishRepositoryDownload()
         } catch {
+            // A failure (or cancellation) mid-download: tear down any remaining
+            // in-flight URLSession tasks so the caller doesn't wait for them.
+            await state.requestCancellation()
             await state.finishRepositoryDownload()
             throw error
         }
@@ -646,7 +608,151 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
             .appendingPathComponent(validatedRelativePath)
     }
 
-    // MARK: - Private: Download Single File
+    // MARK: - Private: Download Files
+
+    /// Download every file concurrently (up to `maxConcurrentFileDownloads` at a time),
+    /// staging each into `filesRoot`. Repository progress aggregates across all files
+    /// that are in flight. A single file failure cancels the rest and throws.
+    private func downloadAllFiles(
+        _ files: [RepoFile],
+        repo: String,
+        revision: String,
+        filesRoot: URL,
+        partialRoot: URL,
+        resumeRoot: URL
+    ) async throws {
+        guard !files.isEmpty else { return }
+
+        let hasResumeData = files.contains { file in
+            guard let relativePath = try? Self.validatedRelativeRepoPath(file.path) else { return false }
+            let partialURL = (try? Self.partialURL(for: relativePath, in: partialRoot))
+                ?? partialRoot.appendingPathComponent(relativePath)
+            let resumeDataURL = Self.resumeDataURL(for: relativePath, in: resumeRoot)
+            return Self.fileSizeIfPresent(at: partialURL) > 0
+                || fileManager.fileExists(atPath: resumeDataURL.path)
+        }
+        await state.setPhase(hasResumeData ? .resuming : .downloading)
+
+        let maxConcurrent = min(max(1, Self.maxConcurrentFileDownloads), files.count)
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            var fileIterator = files.enumerated().makeIterator()
+
+            // Prime the group with up to `maxConcurrent` file downloads.
+            for _ in 0..<maxConcurrent {
+                guard let (index, file) = fileIterator.next() else { break }
+                group.addTask { [self] in
+                    try await self.downloadOneFileCancelingPeers(
+                        file,
+                        fileIndex: index,
+                        repo: repo,
+                        revision: revision,
+                        filesRoot: filesRoot,
+                        partialRoot: partialRoot,
+                        resumeRoot: resumeRoot
+                    )
+                }
+            }
+
+            // Drain: each time a file finishes, start the next (bounded concurrency).
+            while try await group.next() != nil {
+                if await state.cancellationRequested() {
+                    throw DownloadError.cancelled
+                }
+                guard let (index, file) = fileIterator.next() else { continue }
+                group.addTask { [self] in
+                    try await self.downloadOneFileCancelingPeers(
+                        file,
+                        fileIndex: index,
+                        repo: repo,
+                        revision: revision,
+                        filesRoot: filesRoot,
+                        partialRoot: partialRoot,
+                        resumeRoot: resumeRoot
+                    )
+                }
+            }
+        }
+    }
+
+    /// Stage a single file (skip if already valid, else download + validate into the
+    /// staging tree), then report completion so the shared progress counter reconciles.
+    private func downloadOneFile(
+        _ file: RepoFile,
+        fileIndex: Int,
+        repo: String,
+        revision: String,
+        filesRoot: URL,
+        partialRoot: URL,
+        resumeRoot: URL
+    ) async throws {
+        if await state.cancellationRequested() {
+            throw DownloadError.cancelled
+        }
+
+        let relativePath = try Self.validatedRelativeRepoPath(file.path)
+        let destURL = try Self.validatedDestinationURL(for: relativePath, in: filesRoot)
+        let partialURL = try Self.partialURL(for: relativePath, in: partialRoot)
+        let resumeDataURL = Self.resumeDataURL(for: relativePath, in: resumeRoot)
+        try fileManager.createDirectory(at: destURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: partialURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        if fileIsValid(at: destURL, expectedSize: file.size, sha256: file.sha256) {
+            await state.reportFileCompleted(fileIndex: fileIndex, expectedSize: file.size)
+            return
+        }
+
+        if fileManager.fileExists(atPath: destURL.path) {
+            try? fileManager.removeItem(at: destURL)
+        }
+
+        let downloadURL = try Self.fileResolveURL(
+            resolveBaseURL: resolveBaseURL,
+            repo: repo,
+            revision: revision,
+            relativePath: relativePath
+        )
+
+        try await downloadFile(
+            from: downloadURL,
+            to: destURL,
+            partialURL: partialURL,
+            resumeDataURL: resumeDataURL,
+            expectedSize: file.size,
+            sha256: file.sha256,
+            fileIndex: fileIndex
+        )
+
+        await state.reportFileCompleted(fileIndex: fileIndex, expectedSize: file.size)
+    }
+
+    /// Wraps `downloadOneFile` so that when any file fails it immediately cancels every
+    /// other in-flight download. Without this, a `ThrowingTaskGroup` failure would leave
+    /// sibling URLSession tasks running until they complete naturally, stalling teardown.
+    private func downloadOneFileCancelingPeers(
+        _ file: RepoFile,
+        fileIndex: Int,
+        repo: String,
+        revision: String,
+        filesRoot: URL,
+        partialRoot: URL,
+        resumeRoot: URL
+    ) async throws {
+        do {
+            try await downloadOneFile(
+                file,
+                fileIndex: fileIndex,
+                repo: repo,
+                revision: revision,
+                filesRoot: filesRoot,
+                partialRoot: partialRoot,
+                resumeRoot: resumeRoot
+            )
+        } catch {
+            await state.requestCancellation()
+            throw error
+        }
+    }
 
     private func downloadFile(
         from url: URL,
@@ -655,7 +761,7 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
         resumeDataURL: URL,
         expectedSize: Int64,
         sha256: String?,
-        progressHandler: ProgressHandlerBox
+        fileIndex: Int
     ) async throws {
         if fileIsValid(at: partialURL, expectedSize: expectedSize, sha256: sha256) {
             try publishDownloadedFile(partialURL, to: destination)
@@ -667,7 +773,7 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
             from: url,
             existingBytes: completedBytes,
             resumeDataURL: resumeDataURL,
-            progressHandler: progressHandler
+            fileIndex: fileIndex
         )
 
         if await state.cancellationRequested() {
@@ -693,7 +799,7 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
         from url: URL,
         existingBytes: Int64,
         resumeDataURL: URL,
-        progressHandler: ProgressHandlerBox
+        fileIndex: Int
     ) async throws -> DownloadedTemporaryFile {
         if fileManager.fileExists(atPath: resumeDataURL.path),
            let resumeData = try? Data(contentsOf: resumeDataURL) {
@@ -705,8 +811,8 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
                             task: task,
                             destination: url,
                             continuation: continuation,
-                            progressHandler: progressHandler,
-                            resumeDataURL: resumeDataURL
+                            resumeDataURL: resumeDataURL,
+                            fileIndex: fileIndex
                         )
                         task.resume()
                     }
@@ -724,8 +830,8 @@ final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, @unchec
                     task: task,
                     destination: url,
                     continuation: continuation,
-                    progressHandler: progressHandler,
-                    resumeDataURL: resumeDataURL
+                    resumeDataURL: resumeDataURL,
+                    fileIndex: fileIndex
                 )
                 task.resume()
             }
