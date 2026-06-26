@@ -116,12 +116,49 @@ cmd_logs() {
   note "saved $out"
 }
 
+# profile [spec]: Instruments/xctrace trace of an autorun generation via the `vocello` CLI
+# (engine IN-PROCESS — the deterministic engine profile; the same engine code runs in the
+# XPC service). The engine emits OSSignpost intervals under subsystem com.qwenvoice.app,
+# category 'performance'. Default template 'Time Profiler'; override with
+# QVOICE_MAC_PROFILE_TEMPLATE ('Allocations', …) and QVOICE_MAC_PROFILE_DURATION (seconds,
+# default 90). Produces build/macos/profile-<ts>.trace. (To profile the XPC service
+# specifically — the production path — launch the app, 'xctrace record --attach
+# QwenVoiceEngineService', and generate via the UI; see macos-testing.md.)
+cmd_profile() {
+  local spec="${1:-custom:speed:Profile autorun.}"
+  [[ "$spec" == *:* ]] || spec="custom:speed:$spec"
+  local mode="${spec%%:*}"
+  local rest="${spec#*:}"
+  local variant="${rest%%:*}"
+  local template="${QVOICE_MAC_PROFILE_TEMPLATE:-Time Profiler}"
+  local duration="${QVOICE_MAC_PROFILE_DURATION:-90}"
+  command -v xctrace >/dev/null 2>&1 || die "xctrace not found (install Xcode); or dispatch axiom:performance-profiler"
+  [[ -x "$ROOT_DIR/build/vocello" ]] || "$SCRIPT_DIR/build.sh" cli
+  local trace="$ROOT_DIR/build/macos/profile-$(date +%Y%m%d-%H%M%S).trace"
+  mkdir -p "$(dirname "$trace")"
+  note "profile: template='$template', ${duration}s, vocello bench (mode=$mode variant=$variant) — engine in-process"
+  note "(engine OSSignpost intervals: subsystem $BUNDLE_ID, category 'performance')"
+  # Start the tracer FIRST (attach mode waits for 'vocello') so it captures from launch.
+  xcrun xctrace record --template "$template" --attach "vocello" \
+    --time-limit "${duration}s" --output "$trace" &
+  local xcpid=$!
+  sleep 2
+  QWENVOICE_DEBUG=1 "$ROOT_DIR/build/vocello" bench --modes "$mode" --variants "$variant" \
+    --lengths medium --warm 1 --label "profile" >&2 || warn "vocello bench returned non-zero (trace may still be useful)"
+  wait "$xcpid" || true
+  [[ -d "$trace" ]] || die "no trace produced at $trace"
+  note "trace → $trace"
+  note "analyze: open in Instruments, or: xcprof analyze \"$trace\" / axiom:performance-profiler"
+  note "XPC service profile (production path): launch app, 'xctrace record --attach QwenVoiceEngineService', generate via UI."
+}
+
 main() {
   local sub="${1:-help}"; shift || true
   case "$sub" in
     crashes) cmd_crashes "$@" ;;
     debug)   cmd_debug "$@" ;;
     logs)    cmd_logs "$@" ;;
+    profile) cmd_profile "$@" ;;
     help|-h|--help)
       sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' >&2
       ;;
