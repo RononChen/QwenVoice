@@ -103,6 +103,7 @@ scripts/macos_test.sh profile [spec]     # xctrace/Instruments on the engine (CL
 scripts/macos_test.sh review [--baseline]# UI capture tour + baseline diff (vision MCP)
 scripts/macos_test.sh xpc [--crash-isolation] # XPC lifecycle: retirement/relaunch + crash isolation
 scripts/macos_test.sh gate               # pre-merge gate: inputs → build → test → crashes → verdict
+scripts/macos_test.sh models             # check/install the Speed model (one-time ~2.3 GB)
 
 # Foundation compile-safety (throwaway DerivedData, removed on exit)
 ./scripts/build_foundation_targets.sh macos

@@ -19,6 +19,10 @@ app **and** the service.
 - The app built: `scripts/build.sh build` → `build/Vocello.app` (also preserves dSYMs to
   `build/macos/dsyms/`).
 - The XPC service is embedded at `Vocello.app/Contents/XPCServices/QwenVoiceEngineService.xpc`.
+- **The Speed model installed** (one-time ~2.3 GB): `scripts/macos_test.sh models` checks
+  presence + launches the app to install. Generation tests, `vocello bench`, and `profile`
+  require it; the model persists across rebuilds (cleared only by `build.sh clean` /
+  `clean_build_caches.sh --models`).
 
 ## Lane → tool map
 

@@ -16,6 +16,7 @@
 #   scripts/macos_test.sh review [--baseline]       # UI capture tour + baseline diff (vision MCP)
 #   scripts/macos_test.sh xpc                       # XPC lifecycle: retirement/relaunch + crash isolation
 #   scripts/macos_test.sh gate                      # pre-merge gate: inputs → build → test → crashes → verdict
+#   scripts/macos_test.sh models                    # check/install the Speed model for testing
 #   scripts/macos_test.sh help
 
 set -euo pipefail
@@ -152,8 +153,8 @@ cmd_profile() {
   note "XPC service profile (production path): launch app, 'xctrace record --attach QwenVoiceEngineService', generate via UI."
 }
 
-# preflight: one-shot readiness — Xcode, the app bundle, the embedded XPC service, and
-# the preserved dSYMs. Fails fast with what's missing.
+# preflight: one-shot readiness — Xcode, the app bundle, the embedded XPC service,
+# the preserved dSYMs, and the Speed model. Fails fast with what's missing.
 cmd_preflight() {
   local rc=0
   note "macOS preflight"
@@ -161,7 +162,32 @@ cmd_preflight() {
   if [[ -d "$APP_BUNDLE" ]]; then note "  app: OK $APP_BUNDLE"; else warn "  app: ✗ not built (run: scripts/build.sh build)"; rc=1; fi
   [[ -d "$XPC_BUNDLE" ]] && note "  xpc service: OK" || warn "  xpc service: ✗ not in bundle (rebuild)"
   [[ -d "$DSYM_DIR" ]] && note "  dsyms: OK $DSYM_DIR" || warn "  dsyms: ✗ none (run: scripts/build.sh build)"
+  # Speed model (for generation tests + bench + profile)
+  if [[ -x "$ROOT_DIR/build/vocello" ]]; then
+    if "$ROOT_DIR/build/vocello" models 2>/dev/null | grep "pro_custom_speed" | grep -q "^✓"; then
+      note "  model pro_custom_speed: OK"
+    else
+      warn "  model pro_custom_speed: ✗ not installed (gen tests/bench skip — run: $0 models)"
+    fi
+  fi
   (( rc == 0 )) && note "preflight OK" || die "preflight not ready (see above)"
+}
+
+# models: check if the Speed model (pro_custom_speed) is installed. If not, launches the
+# app + instructs installing via Settings → Model Downloads. The model (~2.3 GB) is a
+# one-time install that persists across rebuilds.
+cmd_models() {
+  note "model availability check"
+  if [[ -x "$ROOT_DIR/build/vocello" ]] && "$ROOT_DIR/build/vocello" models 2>/dev/null | grep "pro_custom_speed" | grep -q "^✓"; then
+    note "  pro_custom_speed: ✓ available for testing"
+    "$ROOT_DIR/build/vocello" models 2>/dev/null | head -5
+    return 0
+  fi
+  warn "  pro_custom_speed: ✗ NOT installed (generation tests + bench will skip/fail)"
+  ensure_app
+  /usr/bin/open -na "$APP_BUNDLE"
+  note "  ⇒ Vocello.app launched — Settings → Model Downloads → Install 'Custom Voice (Speed)'."
+  note "    (one-time ~2.3 GB download; persists across rebuilds; then re-run: $0 models)"
 }
 
 # test: run VocelloMacSmokeUITests (macOS, arm64) → a single verdict + artifacts under
@@ -347,6 +373,7 @@ main() {
     review)    cmd_review "$@" ;;
     xpc)       cmd_xpc "$@" ;;
     gate)      cmd_gate "$@" ;;
+    models)    cmd_models "$@" ;;
     help|-h|--help)
       sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' >&2
       ;;
