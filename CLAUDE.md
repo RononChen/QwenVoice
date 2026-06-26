@@ -124,7 +124,7 @@ scripts/ios_device.sh crashes [--test]   # pull + xcsym-symbolicate MetricKit cr
 scripts/ios_device.sh debug [spec]       # get-task-allow build + attached launch + LLDB attach guidance
 scripts/ios_device.sh logs [spec]        # attached launch → retained build/ios-logs/<run>.log
 scripts/ios_device.sh gate               # pre-merge gate: preflight → test → crashes → verdict
-scripts/ios_device.sh launch|console|pull|shot|mirror
+scripts/ios_device.sh doctor|launch|console|pull|shot|mirror
 
 # Perf/quality (deterministic driver; listening pass is the mandatory pre-merge gate)
 QWENVOICE_DEBUG=1 ./build/vocello bench --modes clone --variants speed \
