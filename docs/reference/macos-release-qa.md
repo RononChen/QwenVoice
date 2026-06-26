@@ -4,6 +4,10 @@ The standing pre-release procedure for a macOS (Vocello.app / DMG) release. Firs
 for v2.1.0 (2026-06-09); rerun the automated gates for every release and the interactive matrix for
 releases that touched UI/engine surfaces. If this doc disagrees with the code, the code wins.
 
+> For the macOS testing/debugging/profile/review lanes + the one-command `gate`, see
+> [`macos-testing.md`](macos-testing.md). For the macOS app map + test-driving, see
+> [`macos-app-guide.md`](macos-app-guide.md).
+
 ## Gate sequence
 
 1. **Static gates** (always):

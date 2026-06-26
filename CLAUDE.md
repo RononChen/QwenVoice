@@ -92,6 +92,18 @@ drift** (vendored `Qwen3TTSSpeechTokenizer` uses input-side overlap-and-add);
 ./scripts/build.sh clean                 # rm -rf build/ (~7 GB; next build is full)
 QWENVOICE_DEBUG=1 ./scripts/build.sh run # debug data folder + telemetry
 
+# macOS test/debug lanes (scripts/macos_test.sh — one verb per lane; see
+# docs/reference/macos-testing.md for the lane→tool map + the XPC dimension):
+scripts/macos_test.sh preflight          # readiness: app + dSYMs + XPC bundle
+scripts/macos_test.sh test               # VocelloMacSmokeUITests → verdict + artifacts
+scripts/macos_test.sh crashes [--test]   # collect + xcsym-symbolicate .ips (app + XPC service)
+scripts/macos_test.sh debug              # LLDB attach (app + XPC service PID)
+scripts/macos_test.sh logs               # retained os_log → build/macos-logs/<run>.log
+scripts/macos_test.sh profile [spec]     # xctrace/Instruments on the engine (CLI)
+scripts/macos_test.sh review [--baseline]# UI capture tour + baseline diff (vision MCP)
+scripts/macos_test.sh xpc [--crash-isolation] # XPC lifecycle: retirement/relaunch + crash isolation
+scripts/macos_test.sh gate               # pre-merge gate: inputs → build → test → crashes → verdict
+
 # Foundation compile-safety (throwaway DerivedData, removed on exit)
 ./scripts/build_foundation_targets.sh macos
 ./scripts/build_foundation_targets.sh ios   # compile-safety only
@@ -183,6 +195,11 @@ single-config, deterministic local loop. Then:
   device/debugging; `review`→vision MCP `mcp__zai-mcp-server__ui_diff_check` vs
   `docs/ios-review-baselines/`. Burn-in-safe by construction; the full map + policy is in
   `docs/reference/ios-device-testing.md` §3. `gate` = preflight → test → crashes → verdict.
+- **macOS lanes** (`scripts/macos_test.sh`, one verb per lane) →
+  `test`→`axiom:test-runner`; `crashes`→`axiom:crash-analyzer` / `xcsym` vs the dSYMs;
+  `profile`→`axiom:performance-profiler` / `xcprof`; `debug`→LLDB (app + XPC service PID);
+  `review`→vision MCP vs `docs/macos-review-baselines/`; `xpc`→retirement/crash-isolation.
+  Lane map + the XPC dimension: `docs/reference/macos-testing.md`.
 - **Process / planning** → Superpowers: `brainstorming` before creative/feature
   work, `systematic-debugging` for any bug/test failure, `writing-plans` /
   `executing-plans`, `verification-before-completion` before claiming done,
@@ -230,6 +247,10 @@ single-config, deterministic local loop. Then:
   lifecycle, persistence, model management, and telemetry.
 - `docs/reference/ios-app-guide.md` — **iOS UI**: the app map + how to drive it in tests
   (per-element identifier/action map, model-download state, canonical flows, gotchas).
+- `docs/reference/macos-testing.md` — **macOS lanes**: test/debug/profile/review/xpc/gate
+  + the XPC-service lifecycle dimension.
+- `docs/reference/macos-app-guide.md` — **macOS UI**: the app map + how to drive it in
+  tests (sidebar navigation, menus/popovers, keyboard shortcuts, hidden markers).
 - `docs/reference/` — per-subsystem reading list: `mlx-guide.md`,
   `qwen3-tts-guide.md`, `mimi-codec-guide.md`, `metal-guide.md`,
   `swift-performance-guide.md`, `ios-engine-optimization.md`,

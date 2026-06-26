@@ -294,6 +294,47 @@ cmd_xpc() {
   note "done. Relaunch/reconnect is proven when the service reappears after a retire/kill on the next generation."
 }
 
+# gate: one-command macOS pre-merge gate — check_project_inputs → build_foundation macos
+# → test (VocelloMacSmokeUITests) → crashes (post-run check) → single verdict +
+# build/macos/gate-<run>/. Deeper dives (bench/profile/review/xpc) are separate verbs.
+cmd_gate() {
+  local run_id="mac-gate-$(date +%Y%m%d-%H%M%S)"
+  local gate_dir="$ROOT_DIR/build/macos/gate-$run_id"
+  local verdict="$gate_dir/verdict.txt"
+  mkdir -p "$gate_dir"
+  local overall=0
+  { echo "Vocello macOS gate — $run_id"; echo; } | tee "$verdict"
+
+  note "gate step 1/4: check_project_inputs"
+  if "$SCRIPT_DIR/check_project_inputs.sh" >>"$gate_dir/inputs.log" 2>&1; then
+    echo "check_project_inputs: PASS" | tee -a "$verdict"
+  else echo "check_project_inputs: FAIL" | tee -a "$verdict"; overall=1; fi
+
+  note "gate step 2/4: build_foundation_targets macos"
+  if "$SCRIPT_DIR/build_foundation_targets.sh" macos >>"$gate_dir/build.log" 2>&1; then
+    echo "build_foundation macos: PASS" | tee -a "$verdict"
+  else echo "build_foundation macos: FAIL" | tee -a "$verdict"; overall=1; fi
+
+  note "gate step 3/4: test (VocelloMacSmokeUITests)"
+  if ( cmd_test ) >>"$gate_dir/test.log" 2>&1; then
+    echo "test: PASS" | tee -a "$verdict"
+  else echo "test: FAIL" | tee -a "$verdict"; overall=1; fi
+
+  note "gate step 4/4: crashes (post-run check; expect none)"
+  if ( cmd_crashes ) >>"$gate_dir/crashes.log" 2>&1; then
+    echo "crashes: none/new (see crashes.log)" | tee -a "$verdict"
+  else echo "crashes: check failed" | tee -a "$verdict"; fi
+
+  echo | tee -a "$verdict"
+  if (( overall == 0 )); then
+    echo "GATE: PASS" | tee -a "$verdict"; note "gate PASS · $gate_dir"
+  else
+    echo "GATE: FAIL" | tee -a "$verdict"; note "gate FAIL · $gate_dir"
+  fi
+  cat "$verdict" >&2
+  exit "$overall"
+}
+
 main() {
   local sub="${1:-help}"; shift || true
   case "$sub" in
@@ -305,6 +346,7 @@ main() {
     test)      cmd_test "$@" ;;
     review)    cmd_review "$@" ;;
     xpc)       cmd_xpc "$@" ;;
+    gate)      cmd_gate "$@" ;;
     help|-h|--help)
       sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' >&2
       ;;
