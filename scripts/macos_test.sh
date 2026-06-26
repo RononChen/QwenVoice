@@ -196,6 +196,56 @@ cmd_test() {
   else warn "test verdict: FAIL (exit $st) · artifacts → $artifacts"; exit "$st"; fi
 }
 
+# review [--baseline]: run the macOS XCUITest capture tour (VocelloMacReviewTourUITests)
+# over the sidebar screens, gather captures into build/macos/review-shots/<run>/, and
+# (default) print each baseline pair for a vision-MCP diff; --baseline seeds the committed
+# docs/macos-review-baselines/. macOS is the host (direct capture; no burn-in concern).
+cmd_review() {
+  local baseline_mode=0
+  [[ "${1:-}" == "--baseline" ]] && baseline_mode=1
+  local run_id="mac-review-$(date +%Y%m%d-%H%M%S)"
+  local shots="$ROOT_DIR/build/macos/review-shots/$run_id"
+  local baselines="$ROOT_DIR/docs/macos-review-baselines"
+  mkdir -p "$shots" "$baselines"
+  note "review: macOS capture tour (runID=$run_id)"
+  set +e
+  MAC_TEST_SCREENSHOT_DIR="$shots" xcodebuild test -project "$ROOT_DIR/QwenVoice.xcodeproj" \
+    -scheme QwenVoice -configuration Release -destination 'platform=macOS,arch=arm64' \
+    -derivedDataPath "$ROOT_DIR/build/DerivedData" \
+    -only-testing:VocelloMacUITests/VocelloMacReviewTourUITests \
+    > "$shots/tour.log" 2>&1
+  local st=$?
+  set -e
+  note "captures → $shots"
+  if (( baseline_mode == 1 )); then
+    if ls "$shots"/*.png >/dev/null 2>&1; then
+      cp "$shots"/*.png "$baselines/"
+      note "baselines seeded/updated → $baselines (review + git add + commit)"
+    else
+      warn "no PNGs in $shots to seed"
+    fi
+    return "$st"
+  fi
+  note "── baseline pairs (perceptual diff via vision MCP) ──"
+  local any=0 png name
+  for png in "$shots"/*.png; do
+    [[ -f "$png" ]] || continue
+    any=1
+    name="$(basename "$png")"
+    if [[ -f "$baselines/$name" ]]; then
+      printf '  DIFF  %s\n' "$name" >&2
+      printf '        actual:   %s\n' "$png" >&2
+      printf '        baseline: %s\n' "$baselines/$name" >&2
+    else
+      printf '  NEW   %s  (no baseline — run: %s review --baseline)\n' "$name" "$0" >&2
+    fi
+  done
+  (( any == 0 )) && warn "no captures produced (did the tour run?)"
+  note "diff each pair with mcp__zai-mcp-server__ui_diff_check (expected=baseline, actual=capture), or axiom:screenshot-validator."
+  (( st == 0 )) && note "review tour OK" || warn "review tour had failures (exit $st)"
+  return "$st"
+}
+
 main() {
   local sub="${1:-help}"; shift || true
   case "$sub" in
@@ -205,6 +255,7 @@ main() {
     profile) cmd_profile "$@" ;;
     preflight) cmd_preflight "$@" ;;
     test)      cmd_test "$@" ;;
+    review)    cmd_review "$@" ;;
     help|-h|--help)
       sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' >&2
       ;;
