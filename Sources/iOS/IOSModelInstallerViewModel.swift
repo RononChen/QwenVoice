@@ -23,7 +23,7 @@ final class IOSModelInstallerViewModel: ObservableObject {
 
     private let modelAssetStore: LocalModelAssetStore?
     private let modelManager: ModelManagerViewModel
-    private var deliveryActor: IOSModelDeliveryActor?
+    private var coordinator: IOSModelDownloadCoordinator?
     private var lastAcceptedGeneration: [String: UInt64] = [:]
 
     /// Called after a model install completes so the engine can preload it in the background.
@@ -40,17 +40,17 @@ final class IOSModelInstallerViewModel: ObservableObject {
             return
         }
 
-        let actor = IOSModelDeliveryActor(
+        let coordinator = IOSModelDownloadCoordinator(
             modelAssetStore: modelAssetStore,
             snapshotSink: { [weak self] snapshot in
                 self?.apply(snapshot)
             }
         )
-        self.deliveryActor = actor
+        self.coordinator = coordinator
 
         Task {
             await modelManager.refresh()
-            await actor.resumeBackgroundEventsIfNeeded()
+            await coordinator.restoreInFlightDownloadsIfNeeded()
         }
     }
 
@@ -101,14 +101,14 @@ final class IOSModelInstallerViewModel: ObservableObject {
             states[model.id] = .unavailable(unavailableMessage)
             return
         }
-        guard let deliveryActor else {
+        guard let coordinator else {
             states[model.id] = .failed("Model delivery is unavailable in this runtime.")
             return
         }
 
         Task {
             do {
-                try await deliveryActor.install(model: model)
+                try await coordinator.install(model: model)
             } catch {
                 let generation = (lastAcceptedGeneration[model.id] ?? 0) + 1
                 lastAcceptedGeneration[model.id] = generation
@@ -127,13 +127,6 @@ final class IOSModelInstallerViewModel: ObservableObject {
         }
     }
 
-    func pause(_ model: TTSModel) {
-        guard let deliveryActor else { return }
-        Task {
-            await deliveryActor.pause(modelID: model.id)
-        }
-    }
-
     func cancel(_ model: TTSModel) {
         let bumpedGeneration = (lastAcceptedGeneration[model.id] ?? 0) + 1
         lastAcceptedGeneration[model.id] = bumpedGeneration
@@ -143,9 +136,9 @@ final class IOSModelInstallerViewModel: ObservableObject {
         } else {
             states.removeValue(forKey: model.id)
         }
-        guard let deliveryActor else { return }
+        guard let coordinator else { return }
         Task {
-            await deliveryActor.cancel(modelID: model.id)
+            await coordinator.cancel(modelID: model.id)
             await modelManager.refresh()
         }
     }
@@ -154,14 +147,14 @@ final class IOSModelInstallerViewModel: ObservableObject {
         if IOSNativeDeviceFeatureGate.unavailableMessage(for: model) != nil {
             return
         }
-        guard let deliveryActor else {
+        guard let coordinator else {
             states[model.id] = .failed("Model delivery is unavailable in this runtime.")
             return
         }
 
         Task {
             do {
-                try await deliveryActor.delete(model: model)
+                try await coordinator.delete(model: model)
                 await modelManager.refresh()
                 states.removeValue(forKey: model.id)
             } catch {
@@ -182,14 +175,14 @@ final class IOSModelInstallerViewModel: ObservableObject {
         }
     }
 
-    func handleBackgroundEventsCompletion(_ completionHandler: @escaping () -> Void) {
-        IOSModelDeliveryBackgroundEventRelay.store(completionHandler)
-        guard let deliveryActor else {
-            IOSModelDeliveryBackgroundEventRelay.completeIfPending()
+    func handleBackgroundEventsCompletion(_ identifier: String, _ completionHandler: @escaping () -> Void) {
+        IOSModelDeliveryBackgroundEventRelay.store(completionHandler, forSessionIdentifier: identifier)
+        guard let coordinator else {
+            IOSModelDeliveryBackgroundEventRelay.completeOrphans(keeping: [])
             return
         }
         Task {
-            await deliveryActor.resumeBackgroundEventsIfNeeded()
+            await coordinator.resumeBackgroundEventsIfNeeded()
         }
     }
 

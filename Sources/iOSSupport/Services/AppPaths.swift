@@ -79,6 +79,13 @@ enum AppPaths {
         modelDownloadRootDir.appendingPathComponent("ios_model_delivery_state.json", isDirectory: false)
     }
 
+    /// Lightweight in-flight download records for relaunch recovery (Phase 2). Lists downloads
+    /// that were interrupted by an app kill so the coordinator can reattach their background
+    /// URLSession (by identifier) and restore UI state on next launch.
+    static var iosInFlightDownloadsFile: URL {
+        modelDownloadRootDir.appendingPathComponent("ios_inflight_downloads.json", isDirectory: false)
+    }
+
     static var outputsDir: URL {
         appSupportDir.appendingPathComponent("outputs", isDirectory: true)
     }
