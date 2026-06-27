@@ -50,19 +50,27 @@ struct IOSInFlightDownloadsDocument: Codable, Sendable {
     let downloads: [IOSInFlightDownloadRecord]
 }
 
-/// Drives the shared `HuggingFaceDownloader` engine for iOS model downloads over a background
-/// URLSession. **One model at a time** (jetsam safety), parallel files within it, byte-range
-/// chunking off. Replaces the old `IOSModelDeliveryActor`; preserves the
-/// `IOSModelDeliverySnapshot` contract the view model consumes. The in-flight downloader is
-/// retained for the app lifetime so the background session's delegate survives across
-/// backgrounding/relaunch.
+/// Drives the shared `HuggingFaceDownloader` engine for iOS model downloads — **identical profile
+/// to macOS/CLI**: a foreground URLSession (full speed; Apple throttles background sessions),
+/// byte-range chunking for large files (6 connections), parallel files, and up to
+/// `maxConcurrentModels` (3) models downloading at once. Cancelling discards the partial (no
+/// resume). The download only progresses while the app is foreground (a foreground URLSession
+/// suspends on backgrounding); the engine resumes from on-disk partials when the app returns or
+/// on next launch (see the in-flight records). Preserves the `IOSModelDeliverySnapshot` contract
+/// the view model consumes.
+///
+/// The `backgroundSessionIdentifier` / `IOSModelDeliveryBackgroundEventRelay` /
+/// `backgroundSessionCompletionHandler` plumbing is **dormant** under this foreground profile
+/// (kept for a potential future background-mode opt-in / cleanup) — a foreground session never
+/// triggers `urlSessionDidFinishEvents` / `handleEventsForBackgroundURLSession`.
 @MainActor
 final class IOSModelDownloadCoordinator {
     struct InFlightDownload {
         let modelID: String
-        let downloader: HuggingFaceDownloader   // retained => background session delegate alive
+        let downloader: HuggingFaceDownloader   // retained for the download's lifetime
         let task: Task<Void, Never>
         let targetDir: URL
+        /// Dormant under the foreground profile (no background session to identify).
         let backgroundSessionIdentifier: String
         let totalBytes: Int64
         let operationGeneration: UInt64
@@ -70,12 +78,19 @@ final class IOSModelDownloadCoordinator {
 
     typealias SnapshotSink = @MainActor (IOSModelDeliverySnapshot) -> Void
 
+    /// Maximum number of models downloading concurrently. Matches macOS. Downloads stream to
+    /// disk (~1 MB buffers/connection, not the model weights), so this is memory-safe well within
+    /// the iPhone's entitled jetsam limit (jetsam is a generation-time concern, not download-time).
+    private static let maxConcurrentModels = 3
+
     private let modelAssetStore: LocalModelAssetStore
     private let configuration: IOSModelDeliveryConfiguration
     private let fileManager: FileManager
     private let snapshotSink: SnapshotSink
     private let catalogSession: URLSession
-    private var inflight: InFlightDownload?
+    private var inflight: [String: InFlightDownload] = [:]
+    private var pending: [ModelDescriptor] = []
+    private var cachedCatalog: IOSModelCatalogDocument?
     private var operationGeneration: UInt64 = 0
 
     init(
@@ -93,85 +108,58 @@ final class IOSModelDownloadCoordinator {
 
     // MARK: - Public (mirrors what IOSModelInstallerViewModel calls)
 
-    /// Begin downloading `model` over a fresh background URLSession. One model at a time; a
-    /// concurrent request for a different model throws. Cancel = discard (no resume).
+    /// Request a model download. Returns immediately; the bounded queue runs up to
+    /// `maxConcurrentModels` at once. A model already queued or downloading is a no-op.
+    /// Cancel = discard (no resume).
     func install(model: ModelDescriptor) async throws {
         guard model.iosDownloadEligible else {
             throw IOSModelDeliveryError.notEligibleForIOS(modelID: model.id)
         }
-        if let inflight {
-            if inflight.modelID == model.id { return }   // already running; ignore
-            throw IOSModelDeliveryError.invalidConfiguration("Another model download is already running.")
-        }
+        if inflight[model.id] != nil { return }
+        if pending.contains(where: { $0.id == model.id }) { return }
 
         try fileManager.createDirectory(at: AppPaths.modelsDir, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: AppPaths.modelDownloadStagingDir, withIntermediateDirectories: true)
         try? IOSModelDeliverySupport.excludeFromBackup(AppPaths.modelsDir)
         try? IOSModelDeliverySupport.excludeFromBackup(AppPaths.modelDownloadStagingDir)
 
-        let catalog = try await fetchCatalog()
-        let entry = try IOSModelDeliverySupport.matchingCatalogEntry(
-            for: model, in: catalog, configuration: configuration
-        )
-        let totalBytes = entry.totalBytes > 0
-            ? entry.totalBytes
-            : entry.files.reduce(Int64(0)) { $0 + $1.sizeBytes }
-        try IOSModelDeliverySupport.ensureSufficientDiskSpace(
-            requiredBytes: totalBytes, at: AppPaths.appSupportDir, fileManager: fileManager
-        )
-
-        let files = resolveFiles(entry: entry)
-        let repo = model.huggingFaceRepo
-        let revision = model.huggingFaceRevision ?? "main"
-        let targetDir = model.installDirectory(in: AppPaths.modelsDir)
-        let sessionID = "\(configuration.backgroundSessionIdentifier).\(model.id)"
-        let generation = beginOperation()
-
-        let downloader = makeDownloader(
-            modelID: model.id, totalBytes: totalBytes,
-            estimatedBytes: model.estimatedDownloadBytes, generation: generation, sessionID: sessionID
-        )
-
-        // Persist the in-flight record BEFORE starting so a crash mid-setup is recoverable.
-        saveInFlightRecords([.init(
-            modelID: model.id, artifactVersion: model.artifactVersion,
-            backgroundSessionIdentifier: sessionID, repo: repo, revision: revision,
-            targetFolderPath: targetDir.path, totalBytes: totalBytes
-        )])
-
-        inflight = startRun(
-            modelID: model.id, files: files, repo: repo, revision: revision, targetDir: targetDir,
-            downloader: downloader, generation: generation,
-            totalBytes: totalBytes, estimatedBytes: model.estimatedDownloadBytes,
-            sessionID: sessionID
-        )
+        pending.append(model)
+        await startPendingDownloads()
     }
 
-    /// Cancel the in-flight download and discard its staged partial (true cancel; no resume).
+    /// Cancel a download (in-flight or queued) and discard its staged partial (true cancel).
     func cancel(modelID: String) async {
-        guard let active = inflight, active.modelID == modelID else { return }
+        // Queued but not yet started: just drop it from the queue.
+        if let pendingIndex = pending.firstIndex(where: { $0.id == modelID }) {
+            pending.remove(at: pendingIndex)
+            let descriptor = modelAssetStore.descriptor(id: modelID)?.model
+            publish(.init(
+                modelID: modelID, phase: .deleted, downloadedBytes: 0, totalBytes: nil,
+                estimatedBytes: descriptor?.estimatedDownloadBytes, message: nil,
+                operationGeneration: endOperation()
+            ))
+            return
+        }
+        guard let active = inflight[modelID] else { return }
         let terminalGeneration = endOperation()
         active.downloader.cancel()
         active.task.cancel()
         HuggingFaceDownloader.discardStaging(forTargetDirectory: active.targetDir)
-        inflight = nil
-        saveInFlightRecords([])
+        inflight.removeValue(forKey: modelID)
+        removeInFlightRecord(modelID: modelID)
         let descriptor = modelAssetStore.descriptor(id: modelID)?.model
         publish(.init(
             modelID: modelID, phase: .deleted, downloadedBytes: 0, totalBytes: nil,
             estimatedBytes: descriptor?.estimatedDownloadBytes, message: nil,
             operationGeneration: terminalGeneration
         ))
+        await startPendingDownloads()   // drain the freed slot
     }
 
     /// Delete an installed model (and cancel first if it's mid-download).
     func delete(model: ModelDescriptor) async throws {
-        if let active = inflight {
-            if active.modelID == model.id {
-                await cancel(modelID: model.id)
-            } else {
-                throw IOSModelDeliveryError.invalidConfiguration("Another model download is already running.")
-            }
+        if inflight[model.id] != nil || pending.contains(where: { $0.id == model.id }) {
+            await cancel(modelID: model.id)
         }
 
         let generation = beginOperation()
@@ -195,8 +183,9 @@ final class IOSModelDownloadCoordinator {
         ))
     }
 
-    /// On app launch: reattach any in-flight background URLSession (same identifier → system
-    /// re-enqueues pending tasks; on-disk partials let each Range-resume) and restore UI state.
+    /// On app launch: resume any downloads that were in flight when the app was killed. The
+    /// foreground URLSession doesn't survive a kill, but the on-disk partials let each file
+    /// Range-resume; records beyond the concurrency cap are re-queued.
     func restoreInFlightDownloadsIfNeeded() async {
         let records = loadInFlightRecords()
         var activeSessionIDs = Set<String>()
@@ -214,7 +203,14 @@ final class IOSModelDownloadCoordinator {
                 continue
             }
 
-            // Re-resolve the file list from the catalog (single source of truth).
+            // At cap: re-queue so it starts when a slot frees (its record stays for recovery).
+            guard inflight.count < Self.maxConcurrentModels else {
+                if !pending.contains(where: { $0.id == record.modelID }) {
+                    pending.append(descriptor)
+                }
+                continue
+            }
+
             guard let files = try? await resolveFiles(for: descriptor) else {
                 removeInFlightRecord(modelID: record.modelID)
                 continue
@@ -224,36 +220,88 @@ final class IOSModelDownloadCoordinator {
             let generation = beginOperation()
             let downloader = makeDownloader(
                 modelID: record.modelID, totalBytes: record.totalBytes,
-                estimatedBytes: descriptor.estimatedDownloadBytes,
-                generation: generation, sessionID: record.backgroundSessionIdentifier
+                estimatedBytes: descriptor.estimatedDownloadBytes, generation: generation
             )
-            // Immediate UI feedback; the byte count catches up on the first delegate callback.
             publish(.init(
                 modelID: record.modelID, phase: .downloading, downloadedBytes: 0,
                 totalBytes: record.totalBytes, estimatedBytes: descriptor.estimatedDownloadBytes,
                 message: nil, operationGeneration: generation
             ))
-            inflight = startRun(
+            inflight[record.modelID] = startRun(
                 modelID: record.modelID, files: files, repo: record.repo, revision: record.revision,
                 targetDir: targetDir, downloader: downloader, generation: generation,
                 totalBytes: record.totalBytes, estimatedBytes: descriptor.estimatedDownloadBytes,
                 sessionID: record.backgroundSessionIdentifier
             )
-            break   // single model at a time
         }
-        // Flush orphan completion handlers for sessions we did NOT reattach (e.g. the download
-        // finished before the app reattached on relaunch).
+        // Flush orphan completion handlers for sessions we did NOT reattach. (Dormant under the
+        // foreground profile, but harmless.)
         IOSModelDeliveryBackgroundEventRelay.completeOrphans(keeping: activeSessionIDs)
     }
 
-    /// Flush any pending background completion handler for a session we're not running. Called
-    /// from the app delegate's background-event delivery when no in-flight download owns it.
+    /// Flush any pending background completion handler for a session we're not running. (Dormant
+    /// under the foreground profile.)
     func resumeBackgroundEventsIfNeeded() async {
-        let active = inflight.map { Set([$0.backgroundSessionIdentifier]) } ?? []
+        let active = Set(inflight.values.map(\.backgroundSessionIdentifier))
         IOSModelDeliveryBackgroundEventRelay.completeOrphans(keeping: active)
     }
 
-    // MARK: - Private
+    // MARK: - Private: queue
+
+    /// Launch queued downloads until the concurrency cap is reached.
+    private func startPendingDownloads() async {
+        while inflight.count < Self.maxConcurrentModels, let model = pending.first {
+            pending.removeFirst()
+            await beginDownload(model)
+        }
+    }
+
+    /// Resolve one queued model against the (cached) catalog and start its download.
+    private func beginDownload(_ model: ModelDescriptor) async {
+        let entry: IOSModelCatalogEntry
+        do {
+            let catalog = try await fetchCatalog()
+            entry = try IOSModelDeliverySupport.matchingCatalogEntry(
+                for: model, in: catalog, configuration: configuration
+            )
+        } catch {
+            publishFailed(modelID: model.id, message: error.localizedDescription)
+            return
+        }
+        let totalBytes = entry.totalBytes > 0
+            ? entry.totalBytes
+            : entry.files.reduce(Int64(0)) { $0 + $1.sizeBytes }
+        do {
+            try IOSModelDeliverySupport.ensureSufficientDiskSpace(
+                requiredBytes: totalBytes, at: AppPaths.appSupportDir, fileManager: fileManager
+            )
+        } catch {
+            publishFailed(modelID: model.id, message: error.localizedDescription)
+            return
+        }
+
+        let files = resolveFiles(entry: entry)
+        let repo = model.huggingFaceRepo
+        let revision = model.huggingFaceRevision ?? "main"
+        let targetDir = model.installDirectory(in: AppPaths.modelsDir)
+        let sessionID = "\(configuration.backgroundSessionIdentifier).\(model.id)"   // dormant
+        let generation = beginOperation()
+        let downloader = makeDownloader(
+            modelID: model.id, totalBytes: totalBytes,
+            estimatedBytes: model.estimatedDownloadBytes, generation: generation
+        )
+
+        upsertInFlightRecord(.init(
+            modelID: model.id, artifactVersion: model.artifactVersion,
+            backgroundSessionIdentifier: sessionID, repo: repo, revision: revision,
+            targetFolderPath: targetDir.path, totalBytes: totalBytes
+        ))
+        inflight[model.id] = startRun(
+            modelID: model.id, files: files, repo: repo, revision: revision, targetDir: targetDir,
+            downloader: downloader, generation: generation,
+            totalBytes: totalBytes, estimatedBytes: model.estimatedDownloadBytes, sessionID: sessionID
+        )
+    }
 
     /// Spawn the download Task and return the `InFlightDownload` handle. The Task reconciles the
     /// terminal state, gated on `generation` so a cancel/fail that supersedes it is a no-op.
@@ -296,9 +344,9 @@ final class IOSModelDownloadCoordinator {
     ) async {
         do {
             try await downloader.downloadFiles(files, repo: repo, revision: revision, to: targetDir)
-            guard inflight?.operationGeneration == generation else { return }
-            inflight = nil
-            saveInFlightRecords([])
+            guard inflight[modelID]?.operationGeneration == generation else { return }
+            inflight.removeValue(forKey: modelID)
+            removeInFlightRecord(modelID: modelID)
             publish(.init(
                 modelID: modelID, phase: .installed, downloadedBytes: totalBytes,
                 totalBytes: totalBytes, estimatedBytes: estimatedBytes, message: nil,
@@ -306,27 +354,43 @@ final class IOSModelDownloadCoordinator {
             ))
         } catch is CancellationError {
             // Cancel is handled by `cancel(modelID:)` (inflight already cleared); no-op here.
+            return
         } catch let dlError as HuggingFaceDownloader.DownloadError {
             if case .cancelled = dlError { return }
-            guard inflight?.operationGeneration == generation else { return }
-            inflight = nil
-            saveInFlightRecords([])
+            guard inflight[modelID]?.operationGeneration == generation else { return }
+            inflight.removeValue(forKey: modelID)
+            removeInFlightRecord(modelID: modelID)
             publish(.init(
                 modelID: modelID, phase: .failed, downloadedBytes: 0, totalBytes: totalBytes,
                 estimatedBytes: estimatedBytes, message: dlError.localizedDescription,
                 operationGeneration: generation
             ))
         } catch {
-            guard inflight?.operationGeneration == generation else { return }
-            inflight = nil
-            saveInFlightRecords([])
+            guard inflight[modelID]?.operationGeneration == generation else { return }
+            inflight.removeValue(forKey: modelID)
+            removeInFlightRecord(modelID: modelID)
             publish(.init(
                 modelID: modelID, phase: .failed, downloadedBytes: 0, totalBytes: totalBytes,
                 estimatedBytes: estimatedBytes, message: error.localizedDescription,
                 operationGeneration: generation
             ))
         }
+        // A slot just freed (success or failure) — drain the next queued download. (The cancel
+        // paths `return` above, so this only runs for terminal success/failure; cancel drains
+        // itself in `cancel(modelID:)`.)
+        await startPendingDownloads()
     }
+
+    private func publishFailed(modelID: String, message: String) {
+        let descriptor = modelAssetStore.descriptor(id: modelID)?.model
+        publish(.init(
+            modelID: modelID, phase: .failed, downloadedBytes: 0, totalBytes: nil,
+            estimatedBytes: descriptor?.estimatedDownloadBytes, message: message,
+            operationGeneration: endOperation()
+        ))
+    }
+
+    // MARK: - Private: catalog + downloader
 
     /// Resolve a catalog entry's files into engine `RepoFile`s with host-allowlist-validated URLs.
     private func resolveFiles(entry: IOSModelCatalogEntry) -> [HuggingFaceDownloader.RepoFile] {
@@ -338,7 +402,7 @@ final class IOSModelDownloadCoordinator {
         }
     }
 
-    /// Re-fetch the catalog and resolve files for `descriptor` (used by relaunch-restore).
+    /// Resolve files for `descriptor` via the (cached) catalog (used by relaunch-restore).
     private func resolveFiles(for descriptor: ModelDescriptor) async throws -> [HuggingFaceDownloader.RepoFile] {
         let catalog = try await fetchCatalog()
         let entry = try IOSModelDeliverySupport.matchingCatalogEntry(
@@ -347,24 +411,18 @@ final class IOSModelDownloadCoordinator {
         return resolveFiles(entry: entry)
     }
 
+    /// Build the engine with the macOS/CLI profile: foreground URLSession (default), byte-range
+    /// chunking on, 6 concurrent files. The engine's init sets `httpMaximumConnectionsPerHost`
+    /// for foreground sessions. No background-session config (full speed, no throttle).
     private func makeDownloader(
         modelID: String,
         totalBytes: Int64,
         estimatedBytes: Int64?,
-        generation: UInt64,
-        sessionID: String
+        generation: UInt64
     ) -> HuggingFaceDownloader {
-        let bgConfig = URLSessionConfiguration.background(withIdentifier: sessionID)
-        bgConfig.waitsForConnectivity = true
-        bgConfig.sessionSendsLaunchEvents = true
-        bgConfig.isDiscretionary = false
-        bgConfig.allowsExpensiveNetworkAccess = true
-        bgConfig.allowsConstrainedNetworkAccess = true
-        bgConfig.timeoutIntervalForRequest = 300
-
         var engineConfig = HuggingFaceDownloader.Configuration()
-        engineConfig.maxConcurrentFiles = 3          // parallel files within the single model
-        engineConfig.chunkLargeFiles = false         // background sessions throttle range requests
+        engineConfig.maxConcurrentFiles = 6          // parallel files / byte-range chunks per model
+        engineConfig.chunkLargeFiles = true          // split large LFS files across 6 connections
 
         return HuggingFaceDownloader(
             progressHandler: { [weak self] progress in
@@ -375,13 +433,9 @@ final class IOSModelDownloadCoordinator {
                     )
                 }
             },
-            sessionConfiguration: bgConfig,
-            engineConfiguration: engineConfig,
-            backgroundSessionCompletionHandler: { identifier in
-                Task { @MainActor in
-                    IOSModelDeliveryBackgroundEventRelay.complete(forSessionIdentifier: identifier)
-                }
-            }
+            engineConfiguration: engineConfig
+            // sessionConfiguration defaults to .default (foreground) → full speed.
+            // backgroundSessionCompletionHandler omitted: dormant under the foreground profile.
         )
     }
 
@@ -392,7 +446,7 @@ final class IOSModelDownloadCoordinator {
         estimatedBytes: Int64?,
         progress: HuggingFaceDownloader.RepositoryProgress
     ) {
-        guard inflight?.operationGeneration == generation else { return }   // stale
+        guard inflight[modelID]?.operationGeneration == generation else { return }   // stale
         let phase: IOSModelDeliverySnapshot.Phase
         switch progress.phase {
         case .downloading: phase = .downloading
@@ -411,6 +465,13 @@ final class IOSModelDownloadCoordinator {
     }
 
     private func fetchCatalog() async throws -> IOSModelCatalogDocument {
+        if let cachedCatalog { return cachedCatalog }
+        let document = try await fetchCatalogUncached()
+        cachedCatalog = document
+        return document
+    }
+
+    private func fetchCatalogUncached() async throws -> IOSModelCatalogDocument {
         if configuration.catalogURL.isBundledModelCatalog {
             guard let catalogURL = Bundle.main.url(
                 forResource: IOSModelDeliveryConfiguration.bundledCatalogResourceName,
@@ -458,6 +519,12 @@ final class IOSModelDownloadCoordinator {
         )
         guard let data = try? JSONEncoder().encode(document) else { return }
         try? data.write(to: AppPaths.iosInFlightDownloadsFile, options: .atomic)
+    }
+
+    private func upsertInFlightRecord(_ record: IOSInFlightDownloadRecord) {
+        var records = loadInFlightRecords().filter { $0.modelID != record.modelID }
+        records.append(record)
+        saveInFlightRecords(records)
     }
 
     private func removeInFlightRecord(modelID: String) {
