@@ -50,14 +50,17 @@ struct IOSInFlightDownloadsDocument: Codable, Sendable {
     let downloads: [IOSInFlightDownloadRecord]
 }
 
-/// Drives the shared `HuggingFaceDownloader` engine for iOS model downloads — **identical profile
-/// to macOS/CLI**: a foreground URLSession (full speed; Apple throttles background sessions),
-/// byte-range chunking for large files (6 connections), parallel files, and up to
-/// `maxConcurrentModels` (3) models downloading at once. Cancelling discards the partial (no
+/// Drives the shared `HuggingFaceDownloader` engine for iOS model downloads over a **foreground**
+/// URLSession (full speed; Apple throttles background sessions). Apple-aligned stable profile
+/// (per WWDC23 "Build robust and resumable file transfers"): **one native `downloadTask` per file**
+/// (byte-range chunking OFF — manual chunking caused uneven throughput) + the model's files
+/// downloading concurrently (`maxConcurrentFiles = 6`) for speed, and **one model at a time**
+/// (`maxConcurrentModels = 1`; a second request queues). Cancelling discards the partial (no
 /// resume). The download only progresses while the app is foreground (a foreground URLSession
 /// suspends on backgrounding); the engine resumes from on-disk partials when the app returns or
 /// on next launch (see the in-flight records). Preserves the `IOSModelDeliverySnapshot` contract
-/// the view model consumes.
+/// the view model consumes. macOS/CLI keep byte-range ON (fast there); iOS trades that for
+/// stability.
 ///
 /// The `backgroundSessionIdentifier` / `IOSModelDeliveryBackgroundEventRelay` /
 /// `backgroundSessionCompletionHandler` plumbing is **dormant** under this foreground profile
@@ -78,10 +81,10 @@ final class IOSModelDownloadCoordinator {
 
     typealias SnapshotSink = @MainActor (IOSModelDeliverySnapshot) -> Void
 
-    /// Maximum number of models downloading concurrently. Matches macOS. Downloads stream to
-    /// disk (~1 MB buffers/connection, not the model weights), so this is memory-safe well within
-    /// the iPhone's entitled jetsam limit (jetsam is a generation-time concern, not download-time).
-    private static let maxConcurrentModels = 3
+    /// Maximum number of models downloading concurrently. **1 on iOS** (concurrent model downloads
+    /// don't behave well on device — kept single). The bounded queue stays, so a second Download
+    /// request queues and starts when the first terminates; bump this to re-enable concurrency.
+    private static let maxConcurrentModels = 1
 
     private let modelAssetStore: LocalModelAssetStore
     private let configuration: IOSModelDeliveryConfiguration
@@ -421,8 +424,8 @@ final class IOSModelDownloadCoordinator {
         generation: UInt64
     ) -> HuggingFaceDownloader {
         var engineConfig = HuggingFaceDownloader.Configuration()
-        engineConfig.maxConcurrentFiles = 6          // parallel files / byte-range chunks per model
-        engineConfig.chunkLargeFiles = true          // split large LFS files across 6 connections
+        engineConfig.maxConcurrentFiles = 6          // the model's files download concurrently (6)
+        engineConfig.chunkLargeFiles = false         // one native downloadTask per file — stable, even throughput (no chunk tapering)
 
         return HuggingFaceDownloader(
             progressHandler: { [weak self] progress in
