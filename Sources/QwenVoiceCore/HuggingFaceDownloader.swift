@@ -21,6 +21,20 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
         public let phase: DownloadPhase
     }
 
+    /// Tunable download-engine parameters. Defaults match the macOS/CLI profile (6 parallel files,
+    /// byte-range chunking on for large LFS files). iOS uses a memory-safer profile: fewer parallel
+    /// files and `chunkLargeFiles = false` (background URLSession throttles many small range requests,
+    /// and chunks multiply in-flight buffers). The shared URLSession's `httpMaximumConnectionsPerHost`
+    /// tracks `maxConcurrentFiles` for foreground sessions.
+    public struct Configuration: Sendable {
+        public var maxConcurrentFiles = 6
+        public var chunkLargeFiles = true
+        public var chunkedDownloadThreshold: Int64 = 96 * 1024 * 1024
+        public var chunkTargetSize: Int64 = 64 * 1024 * 1024
+        public var maxDownloadRetries = 3
+        public init() {}
+    }
+
     public enum DownloadError: LocalizedError {
         case cancelled
         case httpError(statusCode: Int, path: String)
@@ -53,10 +67,21 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
         }
     }
 
-    struct RepoFile {
-        let path: String
-        let size: Int64
-        let sha256: String?
+    public struct RepoFile: Sendable, Hashable {
+        public let path: String
+        public let size: Int64
+        public let sha256: String?
+        /// If set, download this file from this absolute URL instead of resolving it from
+        /// `{resolveBaseURL}/{repo}/resolve/{revision}/{path}`. iOS passes its catalog's validated
+        /// per-file URLs here (host allowlist enforced by `IOSModelDeliverySupport.downloadURL`).
+        public let absoluteURL: URL?
+
+        public init(path: String, size: Int64, sha256: String?, absoluteURL: URL? = nil) {
+            self.path = path
+            self.size = size
+            self.sha256 = sha256
+            self.absoluteURL = absoluteURL
+        }
     }
 
     struct DownloadStateManifest: Codable, Equatable {
@@ -397,19 +422,11 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
     private let apiBaseURL: URL
     private let resolveBaseURL: URL
     private let fileManager: FileManager
-
-    /// Maximum number of files downloaded concurrently within a single repo. The shared
-    /// URLSession's `httpMaximumConnectionsPerHost` is set to the same value, so this
-    /// bounds both the in-flight file count and the open HTTP connections to the Hub.
-    static let maxConcurrentFileDownloads = 6
-
-    /// Files at or above this size download as parallel byte-range chunks (HuggingFace LFS
-    /// serves HTTP 206 for ranges). Smaller files use the single-stream path.
-    static let chunkedDownloadThreshold: Int64 = 96 * 1024 * 1024
-    /// Target size of each byte-range chunk. The actual chunk size is
-    /// `max(this, expectedSize / maxConcurrentFileDownloads)` so a large file splits into at
-    /// most `maxConcurrentFileDownloads` chunks (one connection each).
-    static let chunkTargetSize: Int64 = 64 * 1024 * 1024
+    private let engineConfiguration: Configuration
+    /// Invoked from `urlSessionDidFinishEvents(forBackgroundURLSession:)` (background sessions
+    /// only) with the session's identifier so iOS can flush its app-delegate completion handler.
+    /// macOS/CLI pass `nil` (foreground sessions never trigger this callback).
+    private let backgroundSessionCompletionHandler: (@Sendable (String) -> Void)?
 
     static func validatedRelativeRepoPath(_ path: String) throws -> String {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -562,29 +579,84 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
     public init(
         progressHandler: ((RepositoryProgress) -> Void)?,
         sessionConfiguration: URLSessionConfiguration = .default,
+        engineConfiguration: Configuration = Configuration(),
         apiBaseURL: URL = URL(string: "https://huggingface.co/api/models")!,
         resolveBaseURL: URL = URL(string: "https://huggingface.co")!,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        backgroundSessionCompletionHandler: (@Sendable (String) -> Void)? = nil
     ) {
         let progressBox = progressHandler.map(RepositoryProgressHandlerBox.init)
         state = DownloadStateRegistry(repositoryProgressHandler: progressBox)
         self.apiBaseURL = apiBaseURL
         self.resolveBaseURL = resolveBaseURL
         self.fileManager = fileManager
+        self.engineConfiguration = engineConfiguration
+        self.backgroundSessionCompletionHandler = backgroundSessionCompletionHandler
         super.init()
-        let config = sessionConfiguration.copy() as? URLSessionConfiguration ?? .default
-        config.timeoutIntervalForResource = 3600
-        config.httpMaximumConnectionsPerHost = Self.maxConcurrentFileDownloads
+
+        let isBackground = sessionConfiguration.identifier != nil
+        let config: URLSessionConfiguration
+        if isBackground {
+            // Background configs are effectively singletons-by-identifier; copying/mutating one
+            // (e.g. httpMaximumConnectionsPerHost) is unreliable and the key is ignored anyway.
+            // Concurrency is bounded by the task group's `maxConcurrentFiles` instead. Callers
+            // (iOS) configure the background config fully before passing it in.
+            config = sessionConfiguration
+        } else {
+            let copy = sessionConfiguration.copy() as? URLSessionConfiguration ?? .default
+            copy.timeoutIntervalForResource = 3600
+            copy.httpMaximumConnectionsPerHost = engineConfiguration.maxConcurrentFiles
+            config = copy
+        }
         session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
 
     // MARK: - Public API
 
     /// Download all files from a HuggingFace repo into `targetDir`.
+    /// Resolve the file list from the live HuggingFace API, then download + verify + install.
+    /// macOS + CLI path.
     public func downloadRepo(repo: String, revision: String = "main", to targetDir: URL) async throws {
         await state.resetForNewRepositoryDownload()
-
         let files = try await listFiles(repo: repo, revision: revision)
+        try await runDownload(
+            files: files,
+            repo: repo,
+            revision: revision,
+            targetDir: targetDir,
+            persistStateManifest: true
+        )
+    }
+
+    /// Download + verify + install a pre-resolved file list (no API call). iOS path — the caller
+    /// supplies files from its catalog, each optionally carrying a validated `absoluteURL`
+    /// (host-allowlist-enforced by the caller). `repo`/`revision` seed the integrity manifest and
+    /// the fallback resolve URL for any file without an `absoluteURL`.
+    public func downloadFiles(
+        _ files: [RepoFile],
+        repo: String,
+        revision: String,
+        to targetDir: URL
+    ) async throws {
+        await state.resetForNewRepositoryDownload()
+        try await runDownload(
+            files: files,
+            repo: repo,
+            revision: revision,
+            targetDir: targetDir,
+            persistStateManifest: false
+        )
+    }
+
+    /// Shared staging → parallel download → SHA-256 verify → atomic install flow used by both
+    /// `downloadRepo` (API path) and `downloadFiles` (catalog path).
+    private func runDownload(
+        files: [RepoFile],
+        repo: String,
+        revision: String,
+        targetDir: URL,
+        persistStateManifest: Bool
+    ) async throws {
         let totalBytes = files.reduce(Int64(0)) { $0 + $1.size }
         await state.beginRepositoryDownload(totalBytes: totalBytes, totalFiles: files.count)
 
@@ -599,13 +671,17 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
         Self.markExcludedFromBackup(filesRoot)
         Self.markExcludedFromBackup(partialRoot)
         Self.markExcludedFromBackup(resumeRoot)
-        try persistDownloadState(
+        // The download-state manifest is the macOS resume-after-crash record; iOS keeps its own
+        // lightweight in-flight list, so the catalog path skips this.
+        if persistStateManifest {
+            try persistDownloadState(
                 repo: repo,
                 revision: revision,
                 targetDir: targetDir,
                 files: files,
                 stagingRoot: stagingRoot
-        )
+            )
+        }
 
         do {
             try await downloadAllFiles(
@@ -701,7 +777,7 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
         // partial files on disk are resumed silently, per-file, via Range requests in
         // `downloadTemporaryFile`. macOS has no pause/resume UI, so we never surface a
         // "Resuming" phase — that was a vestige of the discarded pause/resume feature.
-        let maxConcurrent = min(max(1, Self.maxConcurrentFileDownloads), files.count)
+        let maxConcurrent = min(max(1, engineConfiguration.maxConcurrentFiles), files.count)
 
         try await withThrowingTaskGroup(of: Void.self) { group in
             var fileIterator = files.enumerated().makeIterator()
@@ -774,7 +850,7 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
             try? fileManager.removeItem(at: destURL)
         }
 
-        let downloadURL = try Self.fileResolveURL(
+        let downloadURL = try file.absoluteURL ?? Self.fileResolveURL(
             resolveBaseURL: resolveBaseURL,
             repo: repo,
             revision: revision,
@@ -821,11 +897,6 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
             throw error
         }
     }
-
-    /// Maximum number of times a single file download is retried after a transient
-    /// failure (network error, HTTP 5xx/429, integrity mismatch). Cancellation and HTTP
-    /// 4xx client errors are never retried.
-    private static let maxDownloadRetries = 3
 
     private func downloadFile(
         from url: URL,
@@ -880,7 +951,7 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
                 }
 
                 attempt += 1
-                guard attempt <= Self.maxDownloadRetries else { throw error }
+                guard attempt <= engineConfiguration.maxDownloadRetries else { throw error }
 
                 // A partial that failed integrity can't be resumed into a correct file;
                 // clear it (and any resume blob) so the next attempt downloads fresh.
@@ -916,7 +987,8 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
         // the biggest file is no longer a single-connection long pole. Smaller / non-LFS
         // files — or chunked attempts that already saw the server ignore Range — use the
         // single-stream path below.
-        if !avoidChunking, expectedSize >= Self.chunkedDownloadThreshold, sha256 != nil {
+        if !avoidChunking, engineConfiguration.chunkLargeFiles,
+           expectedSize >= engineConfiguration.chunkedDownloadThreshold, sha256 != nil {
             try? fileManager.removeItem(at: resumeDataURL)
             try await downloadChunkedFile(
                 from: url,
@@ -982,7 +1054,7 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
             try? fileManager.removeItem(at: partialURL)
         }
 
-        let chunkSize = max(Self.chunkTargetSize, expectedSize / Int64(Self.maxConcurrentFileDownloads))
+        let chunkSize = max(engineConfiguration.chunkTargetSize, expectedSize / Int64(engineConfiguration.maxConcurrentFiles))
         let ranges = Self.byteRanges(total: expectedSize, chunkSize: chunkSize)
 
         let assembly = ChunkAssemblyCoordinator(partialURL: partialURL)
@@ -1299,6 +1371,15 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
     }
 
     // MARK: - URLSessionDownloadDelegate
+
+    /// Background sessions only: the system calls this when the session has finished delivering
+    /// all enqueued events (e.g. after it relaunched the app to complete a background download).
+    /// Forward the session's identifier so iOS can flush its app-delegate completion handler.
+    /// Foreground sessions (macOS/CLI) never trigger this, so they're unaffected.
+    public func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        guard let identifier = session.configuration.identifier else { return }
+        backgroundSessionCompletionHandler?(identifier)
+    }
 
     public func urlSession(
         _ session: URLSession,
