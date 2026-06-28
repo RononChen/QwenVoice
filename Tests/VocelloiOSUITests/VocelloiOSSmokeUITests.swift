@@ -6,7 +6,7 @@ import XCTest
 /// Intentionally shallow: it does NOT generate audio (that's the headless
 /// `IOSAutorunHarness` / `vocello bench` path). It asserts the app launches and the
 /// 4-tab information architecture + Studio composer/mode-control are reachable, keyed
-/// off the stable `accessibilityIdentifier`s (kept through refactors per AGENTS.md).
+/// off the stable `accessibilityIdentifier`s (kept through refactors per CLAUDE.md).
 ///
 /// The app is launched once for the whole UI-test target by `VocelloUITestApp` and
 /// stays alive across test classes; each test only resets surface state.

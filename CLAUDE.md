@@ -1,8 +1,8 @@
-# AGENTS.md — Vocello (QwenVoice) Agent Guide for Kimi Code CLI
+# CLAUDE.md — Vocello (QwenVoice) Guide for Claude Code
 
-> This file is the primary onboarding guide for Kimi Code CLI when working in this repository.
-> It replaces any legacy redirect. The unified architecture map lives in
-> [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). When any doc disagrees with the code,
+> This file is the primary onboarding guide for **Claude Code** when working in this repository.
+> It supersedes the former `AGENTS.md` (Kimi Code CLI guide). The unified architecture map lives
+> in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). When any doc disagrees with the code,
 > **the code wins**.
 
 ## 1. Project overview
@@ -25,7 +25,7 @@
 ## 2. Source of truth
 
 Authoritative facts live in this order: `Sources/` → `project.yml` → `scripts/` →
-`.github/workflows/release.yml` → `AGENTS.md` → other prose.
+`.github/workflows/release.yml` → `CLAUDE.md` → other prose.
 `Sources/Resources/qwenvoice_contract.json` is the canonical schema for
 speakers/models/variants/HF revisions. **If you change something that invalidates a doc, update the doc in the same change.**
 
@@ -38,7 +38,7 @@ speakers/models/variants/HF revisions. **If you change something that invalidate
 | [`Sources/Info.plist`](Sources/Info.plist) | macOS app `Info.plist`. |
 | [`Sources/iOS/Info.plist`](Sources/iOS/Info.plist) | iOS app `Info.plist`. |
 | [`Sources/QwenVoice.entitlements`](Sources/QwenVoice.entitlements) | macOS entitlements (sandbox disabled for MLX). |
-| [`Sources/iOS/VocelloiOS.entitlements`](Sources/iOS/VocelloiOS.entitlements) | iOS entitlements (App Group + increased-memory-limit). |
+| `Sources/iOS/VocelloiOS*.entitlements` | iOS entitlements — base / `LocalDevice` (debug) / `Release` variants, all carrying the App Group + `increased-memory-limit`. `project.yml` assigns the right one per build. |
 | [`ExportOptions-appstore.plist`](ExportOptions-appstore.plist) | App Store export options for the signed iOS IPA lane. |
 | [`config/apple-platform-capability-matrix.json`](config/apple-platform-capability-matrix.json) | Per-platform bundle IDs, entitlements, and engine-capability flags. |
 | [`Sources/Resources/qwenvoice_contract.json`](Sources/Resources/qwenvoice_contract.json) | Canonical model/speaker/variant contract. |
@@ -88,13 +88,13 @@ CLI (VocelloCLI / vocello)
 Important source directories:
 
 - `Sources/QwenVoiceBackendCore/` — low-level MLX + audio primitives.
-- `Sources/QwenVoiceCore/` — `TTSEngine`, `MLXTTSEngine`, generation semantics, memory policy, telemetry.
+- `Sources/QwenVoiceCore/` — `TTSEngine`, `MLXTTSEngine`, generation semantics, memory policy, telemetry, the shared `HuggingFaceDownloader` model-download engine.
 - `Sources/QwenVoiceEngineSupport/` — macOS XPC wire protocol (`EngineCommand`, envelopes, codec).
 - `Sources/QwenVoiceNative/` — macOS XPC client / coordinator / `TTSEngineStore`.
 - `Sources/QwenVoiceEngineService/` — out-of-process XPC service host (`EngineServiceHost`).
 - `Sources/Services/` — macOS app-level services (model manager, downloader, database, telemetry).
 - `Sources/ViewModels/`, `Sources/Views/`, `Sources/Models/` — macOS SwiftUI layers.
-- `Sources/iOS/` — iOS app SwiftUI.
+- `Sources/iOS/` — iOS app SwiftUI (incl. `IOSModelDownloadCoordinator`, the iOS download coordination layer).
 - `Sources/iOSSupport/` — iOS-only runtime helpers and `AppPaths`.
 - `Sources/SharedSupport/` — compiled into both apps: player VM, persistence, transcriber, reference-clip recorder.
 - `Sources/VocelloCLI/` — the `vocello` CLI.
@@ -108,7 +108,7 @@ Important source directories:
 Three hosts share one engine implementation (`MLXTTSEngine`):
 
 - **macOS app:** engine runs **out-of-process** in the `QwenVoiceEngineService` XPC service for
-  crash isolation and memory containment. The app talks to it over `NSXPCConnection` via
+  crash isolation and memory contained. The app talks to it over `NSXPCConnection` via
   `QwenVoiceNative`. The service can be **retired under memory pressure** and lazily relaunched.
 - **iOS app:** engine runs **in-process** (`MLXTTSEngine` via `NativeRuntimeFactory`). The old
   ExtensionKit extension was removed because non-UI extensions are Jetsam-capped independently
@@ -121,7 +121,7 @@ Generation modes: **Custom Voice** (built-in speakers + delivery prompt), **Voic
 
 ## 7. Hard rules (do not violate)
 
-- **iOS is on-device only. Never use the iOS Simulator** or simulator-only tools for iOS UI work — no `xcodebuild -destination 'platform=iOS Simulator…'` and **no XcodeBuildMCP simulator tools** (`build_run_sim`, `snapshot_ui`, `list_sims`, …) for the `VocelloiOS` target. Use `scripts/ios_device.sh` (see Commands). The iOS Simulator is intentionally unsupported — the engine runs in-process on Metal.
+- **iOS is on-device only. Never use the iOS Simulator** or simulator-only tools for iOS UI work — no `xcodebuild -destination 'platform=iOS Simulator…'` and **no XcodeBuildMCP simulator tools** (`build_run_sim`, `snapshot_ui`, `list_sims`, `screenshot`, …) and **no `axiom:axiom-tools` `xcui` / `axiom:simulator-tester`** for the `VocelloiOS` target. Use `scripts/ios_device.sh` (see Commands). The iOS Simulator is intentionally unsupported — the engine runs in-process on Metal.
 - **`project.yml` is the Xcode project source of truth.** Never edit `QwenVoice.xcodeproj/project.pbxproj` directly. Edit `project.yml`, then `./scripts/regenerate_project.sh`. (XcodeGen gotcha: the iOS target lists its bundled JSON/catalog/`voice-previews` under `sources:` with `buildPhase: resources`, **not** under `resources:` — XcodeGen silently drops them otherwise and iOS builds compile but crash on launch. See `project.yml`.)
 - **Single shippable config: `Release` only.** No `DEBUG` symbol, no Debug-vs-Release fork. `build.sh` compiles `-Onone` for the local loop; `release.sh` compiles the same config optimized. Debug capabilities are gated at runtime by `DebugMode.isEnabled` (`QWENVOICE_DEBUG=1` env, or the hidden 7-tap version label in Settings → `UserDefaults QwenVoice.DebugModeEnabled`). Reserve `#if DEBUG` for test/sim scaffolding only.
 - **SPM deps are pinned exact for backend determinism.** Move `mlx-swift` and `mlx-swift-lm` **in lockstep** (never one alone); don't float pins without a benchmark-gated review on a throwaway branch (`vocello bench` + listening pass). MLX is the **only** Qwen3-TTS backend — do not pivot to Core ML.
@@ -202,52 +202,62 @@ Telemetry (when `QWENVOICE_DEBUG=1`) writes JSONL under
 `scripts/summarize_generation_telemetry.py`. Committed benchmark logs must be ≤256 KB; raw
 `*.jsonl` is gitignored.
 
-## 9. Kimi Code CLI tool, skill, and MCP routing
+## 9. Tool, skill, and MCP routing (Claude Code)
 
-Reach for the **Bash scripts above first** for build/run/test — they encode the single-config,
-deterministic local loop. Then:
+Reach for the **Bash scripts in §8 first** for build/run/test — they encode the single-config,
+deterministic local loop. Then route by task. (Axiom is reached through the **Skill** tool
+`axiom:axiom-*` and the **Agent** tool `axiom:*-auditor` / `*-analyzer` — there is no
+`mcp__axiom__*` MCP; do not invent one.)
 
-- **MLX / backend / `QwenVoiceBackendCore` work** → `swift-mlx` + `swift-mlx-lm` skills, and
-  read `docs/reference/{mlx-guide,qwen3-tts-guide,mimi-codec-guide,metal-guide}.md` before
-  touching `MLXArray`/`Memory`/`GPU`, prompt construction, or the vendored codec.
-- **Apple framework APIs / iOS 26 / post-cutoff APIs** → `sosumi` MCP
-  (`mcp__sosumi__searchAppleDocumentation` / `mcp__sosumi__fetchAppleDocumentation`) + `axiom`
-  skill. **Library/framework/SDK/CLI docs (non-Apple)** → `context7` MCP
+- **MLX / backend / `QwenVoiceBackendCore` work** → the `mlx-swift` + `mlx-swift-lm` skills
+  (Skill tool), and read `docs/reference/{mlx-guide,qwen3-tts-guide,mimi-codec-guide,metal-guide}.md`
+  before touching `MLXArray`/`Memory`/`GPU`, prompt construction, or the vendored codec.
+- **Apple framework APIs / iOS 26 / post-cutoff APIs** → the `axiom:axiom-apple-docs` skill
+  (carries WWDC 2025+ docs) **and** the `sosumi` MCP
+  (`mcp__sosumi__searchAppleDocumentation` / `mcp__sosumi__fetchAppleDocumentation` /
+  `mcp__sosumi__fetchAppleVideoTranscript`). Per the global `context7` rule, **non-Apple**
+  library/framework/SDK/CLI docs → `context7` MCP
   (`mcp__context7__resolve-library-id` → `mcp__context7__query-docs`).
-- **macOS build/run/inspect** → the Bash scripts, or `xcodebuildmcp` for a quick check (macOS
-  scheme `QwenVoice`). `xcodebuildmcp` simulator tools are **off-limits for iOS** (on-device
-  rule).
+- **macOS build/run/inspect** → the Bash scripts, or `XcodeBuildMCP`
+  (`mcp__XcodeBuildMCP__*`, macOS scheme `QwenVoice`) for a quick check. XcodeBuildMCP
+  simulator tools are **off-limits for iOS** (on-device rule).
 - **iOS on-device lanes** (`scripts/ios_device.sh`, one verb per lane):
-  - `test` → run via script, then inspect `.xcresult` with `axiom` tools or XcodeBuildMCP.
-  - `crashes` → `axiom` crash-analyzer / `mcp__axiom__axiom_xcsym_*` vs the build dSYM.
-  - `profile` → `axiom` performance-profiler / `mcp__axiom__axiom_xcprof_*`.
+  - `test` → run via the script, then inspect the `.xcresult` with the `axiom:test-runner` /
+    `axiom:test-debugger` agent, or XcodeBuildMCP.
+  - `crashes` → `axiom:crash-analyzer` agent / `axiom:axiom-tools` skill (the `xcsym`
+    symbolicator) vs the build dSYM.
+  - `profile` → `axiom:performance-profiler` agent / `axiom:axiom-tools` skill (the `xcprof`
+    analyzer).
   - `debug` → XcodeBuildMCP device/debugging or manual LLDB.
-  - `review` → capture with device tools and diff against `docs/ios-review-baselines/`.
+  - `review` → capture with the device tools and diff against `docs/ios-review-baselines/`.
   Burn-in-safe by construction; the full map + policy is in `docs/reference/ios-device-testing.md` §3.
 - **macOS lanes** (`scripts/macos_test.sh`, one verb per lane):
-  - `test` → `axiom` test-runner / inspect `.xcresult`.
-  - `crashes` → `axiom` crash-analyzer / `mcp__axiom__axiom_xcsym_*` vs the dSYMs.
-  - `profile` → `axiom` performance-profiler / `mcp__axiom__axiom_xcprof_*`.
+  - `test` → `axiom:test-runner` agent / inspect the `.xcresult`.
+  - `crashes` → `axiom:crash-analyzer` agent / `xcsym` vs the dSYMs.
+  - `profile` → `axiom:performance-profiler` agent / `xcprof`.
   - `debug` → LLDB (app + XPC service PID).
   - `review` → capture and diff against `docs/macos-review-baselines/`.
-  - `xpc` → retirement/crash-isolation via script.
+  - `xpc` → retirement/crash-isolation via the script.
   Lane map + the XPC dimension: `docs/reference/macos-testing.md`.
 - **Process / planning** → Superpowers skills: `brainstorming` before creative/feature work,
   `systematic-debugging` for any bug/test failure, `writing-plans` / `executing-plans`,
   `verification-before-completion` before claiming done, `requesting-code-review` /
   `receiving-code-review`, `finishing-a-development-branch`, `using-git-worktrees` for
   isolation, `subagent-driven-development` for parallel implementation work.
-- **Review & audits** → request review with `requesting-code-review`, and use Axiom auditors
-  via the `axiom` skill (`concurrency-auditor`, `memory-auditor`, `swift-performance-analyzer`,
-  `swiftui-{architecture,layout,nav,performance}-auditor`, `codable-auditor`,
-  `security-privacy-scanner`, `accessibility-auditor`, `energy-auditor`, `liquid-glass-auditor`).
-- **Crash logs (.ips / MetricKit / .crash)** → `axiom` crash-analyzer / `mcp__axiom__axiom_xcsym_*`.
-  **Profiling** → `axiom` performance-profiler / `mcp__axiom__axiom_xcprof_*`.
-  **Build/environment failures** → `axiom` build-fixer (but inspect the relevant `scripts/*.sh`
-  output via Bash first).
+- **Review & audits** → request review with `requesting-code-review`, and run Axiom auditors
+  via the **Agent** tool: `axiom:concurrency-auditor`, `axiom:memory-auditor`,
+  `axiom:swift-performance-analyzer`, `axiom:swiftui-{architecture,layout,nav,performance}-auditor`,
+  `axiom:codable-auditor`, `axiom:security-privacy-scanner`, `axiom:accessibility-auditor`,
+  `axiom:energy-auditor`, `axiom:liquid-glass-auditor` (or `/axiom:audit <domain>`, or a
+  project-wide `/axiom:health-check`).
+- **Crash logs (.ips / MetricKit / .crash)** → `axiom:crash-analyzer` agent / `xcsym`.
+  **Profiling** → `axiom:performance-profiler` agent / `xcprof`.
+  **Build/environment failures** → `axiom:build-fixer` agent (but inspect the relevant
+  `scripts/*.sh` output via Bash first).
 - **GitHub** (issues/PRs/releases/remote search) → `mcp__github__*`; `gh`/`git` via Bash for
-  local-only ops. **Hugging Face** (model revisions/downloads) → `hf` CLI via Bash.
-  **Marketing site (`website/`)** → `chrome-devtools` MCP for browser verification +
+  local-only ops. **Hugging Face** (model revisions/downloads) → the `hf` CLI via Bash
+  (or the `huggingface-skills` tools). **Marketing site (`website/`)** → `chrome-devtools` MCP
+  (`mcp__plugin_chrome-devtools-mcp_chrome-devtools__*`) for browser verification +
   `npm --prefix website`.
 
 ## 10. Development conventions and code style
