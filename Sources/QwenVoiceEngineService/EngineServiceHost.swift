@@ -47,6 +47,35 @@ private actor ServiceActiveGenerationCoordinator {
     }
 }
 
+/// Serializes diagnostic JSONL appends so concurrent detached Tasks don't
+/// interleave partial lines or race on file-handle creation.
+private actor DiagnosticEventRecorder {
+    func append(line: String, to url: URL) {
+        let diagnosticsDirectory = url.deletingLastPathComponent()
+        do {
+            try FileManager.default.createDirectory(at: diagnosticsDirectory, withIntermediateDirectories: true)
+            if FileManager.default.fileExists(atPath: url.path) {
+                let handle = try FileHandle(forWritingTo: url)
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                if let encoded = line.data(using: .utf8) {
+                    try handle.write(contentsOf: encoded)
+                }
+            } else {
+                try line.write(to: url, atomically: true, encoding: .utf8)
+            }
+        } catch {
+            diagnosticEventLogger.error("Failed to record diagnostic event: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+}
+
+private let diagnosticEventRecorder = DiagnosticEventRecorder()
+private let diagnosticEventLogger = Logger(
+    subsystem: "com.qwenvoice.app",
+    category: "DiagnosticEventRecorder"
+)
+
 @MainActor
 private final class RuntimeContext: @unchecked Sendable {
     let appSupportDirectory: URL
@@ -116,7 +145,19 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
         }
     }
 
-    private let sessionLock = NSLock()
+    /// Synchronous-only lock wrapper. `NSLock.lock()`/`unlock()` are marked
+    /// `noasync` in recent SDKs, so the host uses this for short critical
+    /// sections that are accessed from both sync and async call sites.
+    private final class SynchronousLock {
+        private let lock = NSLock()
+        func withLock<T>(_ body: () -> T) -> T {
+            lock.lock()
+            defer { lock.unlock() }
+            return body()
+        }
+    }
+
+    private let sessionLock = SynchronousLock()
     private let activeGenerationCoordinator = ServiceActiveGenerationCoordinator()
     private var activeSession: ActiveSession?
     private var runtimeContext: RuntimeContext?
@@ -163,6 +204,7 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
 
     func perform(_ payload: Data, withReply reply: @escaping (Data) -> Void) {
         let replyHandler = EngineReplyHandlerBox(reply: reply)
+        let capturedSessionID = sessionLock.withLock { activeSession?.id }
         Task.detached(priority: .userInitiated) { [weak self, payload] in
             guard let self else { return }
             let response = await self.handleCommandPayload(payload)
@@ -177,6 +219,13 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
                     for: response.id,
                     underlyingError: error
                 )
+            }
+            let sessionStillActive = self.sessionLock.withLock {
+                self.activeSession?.id == capturedSessionID
+            }
+            guard sessionStillActive else {
+                Self.logger.debug("Dropping engine-service reply for a session that is no longer active.")
+                return
             }
             replyHandler.reply(encodedResponse)
         }
@@ -417,6 +466,11 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
             }
             .store(in: &runtimeContext.cancellables)
 
+        // Cancel any prior context's forwarding task before we create the new
+        // one. Without this ordering, the prior task can race the new one
+        // publishing into the same XPC channel.
+        self.runtimeContext?.eventForwardingTask?.cancel()
+
         // Chunk delivery via the engine's ordered AsyncStream. The
         // producer (`MLXTTSEngine`'s
         // `eventSink` callback) yields every event into
@@ -472,10 +526,6 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
             }
         }
 
-        // Cancel any prior context's forwarding task before we
-        // replace the slot. Without this, the prior task races
-        // the new one publishing into the same XPC channel.
-        self.runtimeContext?.eventForwardingTask?.cancel()
         self.runtimeContext = runtimeContext
         return runtimeContext
     }
@@ -489,10 +539,11 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
     }
 
     private func activateSession(id: UUID, eventSink: QwenVoiceEngineClientEventXPCProtocol) {
-        sessionLock.lock()
-        let previousSessionID = activeSession?.id
-        activeSession = ActiveSession(id: id, eventSink: eventSink)
-        sessionLock.unlock()
+        let previousSessionID = sessionLock.withLock {
+            let previous = activeSession?.id
+            activeSession = ActiveSession(id: id, eventSink: eventSink)
+            return previous
+        }
 
         if let previousSessionID, previousSessionID != id {
             Self.logger.notice(
@@ -514,6 +565,19 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
         Self.logger.error("\(message, privacy: .public)")
         Task { @MainActor [weak self] in
             guard let self else { return }
+
+            // If another session has already activated (even if it reuses the
+            // same RuntimeContext/engine), this cleanup belongs to a stale
+            // session and must not mutate engine state. Capture this under
+            // sessionLock before touching runtimeContext.
+            let anotherSessionActive = self.sessionLock.withLock { self.activeSession != nil }
+            guard !anotherSessionActive else {
+                Self.logger.debug(
+                    "Skipping stale session cleanup because a new session is already active."
+                )
+                return
+            }
+
             // Capture the runtime context that was active when this session
             // ended. Re-reading `self.runtimeContext` later in this Task is
             // unsafe: another session may have already replaced it (the host
@@ -526,9 +590,12 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
             // commit for the full timeline (Tier 4.4).
             let contextAtSessionEnd = self.runtimeContext
             await self.activeGenerationCoordinator.cancelCurrent()
+            guard self.isStillTerminatingSession(sessionID) else { return }
             await contextAtSessionEnd?.engine.cancelClonePreparationIfNeeded()
             contextAtSessionEnd?.engine.clearGenerationActivity()
+            guard self.isStillTerminatingSession(sessionID) else { return }
             try? await contextAtSessionEnd?.engine.unloadModel()
+            guard self.isStillTerminatingSession(sessionID) else { return }
             // Only clear the host's runtime-context slot if the context that
             // ended is STILL the active one — otherwise a newer session has
             // already taken it over and we must not clobber its state.
@@ -538,36 +605,44 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
         }
     }
 
+    /// True while this ended session's cleanup may still safely run: either no session has
+    /// reactivated (`activeSession == nil`, the normal case after `clearActiveSessionIfNeeded`),
+    /// or the still-active session is this same one. A DIFFERENT active session means a newer
+    /// session took over mid-cleanup, so this stale cleanup must abort and not clobber its state.
+    private func isStillTerminatingSession(_ sessionID: UUID) -> Bool {
+        self.sessionLock.withLock {
+            self.activeSession == nil || self.activeSession?.id == sessionID
+        }
+    }
+
     @discardableResult
     private func clearActiveSessionIfNeeded(sessionID: UUID) -> Bool {
-        sessionLock.lock()
-        defer { sessionLock.unlock() }
-
-        guard activeSession?.id == sessionID else { return false }
-        activeSession = nil
-        return true
+        sessionLock.withLock {
+            guard activeSession?.id == sessionID else { return false }
+            activeSession = nil
+            return true
+        }
     }
 
     private func publish(_ event: EngineEventEnvelope, toSessionID: UUID? = nil) {
-        let eventSink: QwenVoiceEngineClientEventXPCProtocol?
-        sessionLock.lock()
-        if let toSessionID {
-            eventSink = activeSession?.id == toSessionID ? activeSession?.eventSink : nil
-        } else {
-            eventSink = activeSession?.eventSink
+        let eventSink: QwenVoiceEngineClientEventXPCProtocol? = sessionLock.withLock {
+            if let toSessionID {
+                return activeSession?.id == toSessionID ? activeSession?.eventSink : nil
+            } else {
+                return activeSession?.eventSink
+            }
         }
-        sessionLock.unlock()
 
         guard let eventSink else { return }
         do {
             let payload = try EngineServiceCodec.encode(event)
             eventSink.handleEvent(payload)
         } catch {
-            sessionLock.lock()
-            droppedEncodeEventCount += 1
-            let droppedCount = droppedEncodeEventCount
+            let droppedCount = sessionLock.withLock {
+                droppedEncodeEventCount += 1
+                return droppedEncodeEventCount
+            }
             let diagnosticsDirectory = runtimeContext?.appSupportDirectory
-            sessionLock.unlock()
 
             Self.logger.error(
                 "Failed to encode engine-service event payload (droppedCount=\(droppedCount, privacy: .public)): \(error.localizedDescription, privacy: .public)"
@@ -601,20 +676,8 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
             return
         }
         line.append("\n")
-        do {
-            try FileManager.default.createDirectory(at: diagnosticsDirectory, withIntermediateDirectories: true)
-            if FileManager.default.fileExists(atPath: url.path) {
-                let handle = try FileHandle(forWritingTo: url)
-                defer { try? handle.close() }
-                try handle.seekToEnd()
-                if let encoded = line.data(using: .utf8) {
-                    try handle.write(contentsOf: encoded)
-                }
-            } else {
-                try line.write(to: url, atomically: true, encoding: .utf8)
-            }
-        } catch {
-            logger.error("Failed to record chunk gap event: \(error.localizedDescription, privacy: .public)")
+        Task.detached(priority: .background) {
+            await diagnosticEventRecorder.append(line: line, to: url)
         }
     }
 
@@ -639,20 +702,8 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
             return
         }
         line.append("\n")
-        do {
-            try FileManager.default.createDirectory(at: diagnosticsDirectory, withIntermediateDirectories: true)
-            if FileManager.default.fileExists(atPath: url.path) {
-                let handle = try FileHandle(forWritingTo: url)
-                try handle.seekToEnd()
-                if let encoded = line.data(using: .utf8) {
-                    try handle.write(contentsOf: encoded)
-                }
-                try handle.close()
-            } else {
-                try line.write(to: url, atomically: true, encoding: .utf8)
-            }
-        } catch {
-            logger.error("Failed to record dropped encode event: \(error.localizedDescription, privacy: .public)")
+        Task.detached(priority: .background) {
+            await diagnosticEventRecorder.append(line: line, to: url)
         }
     }
 

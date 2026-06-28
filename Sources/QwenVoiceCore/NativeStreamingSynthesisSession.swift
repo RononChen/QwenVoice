@@ -874,14 +874,17 @@ private struct StreamingExecutionContext: Sendable {
         let sampleRate = model.sampleRate
         let telemetryMode = NativeTelemetryMode.current()
         let telemetryActive = telemetryRecorder != nil
-        let telemetrySampler = telemetryMode.sampleIntervalMS(for: memoryPolicy.deviceClass).map {
-            NativeTelemetrySampler(
+        let telemetrySampler: NativeTelemetrySampler? = {
+            guard let clock = telemetryRecorder?.clock,
+                  let sampleIntervalMS = telemetryMode.sampleIntervalMS(for: memoryPolicy.deviceClass)
+            else { return nil }
+            return NativeTelemetrySampler(
                 // Share the stage recorder's clock so samples and marks join on both
                 // the millisecond and nanosecond timelines.
-                clock: telemetryRecorder?.clock ?? NativeTelemetryClock(),
-                sampleIntervalMS: $0
+                clock: clock,
+                sampleIntervalMS: sampleIntervalMS
             )
-        }
+        }()
         await telemetrySampler?.start()
         await telemetryRecorder?.mark(stage: .streamStartup)
         try FileManager.default.createDirectory(
@@ -1168,15 +1171,18 @@ private struct StreamingExecutionContext: Sendable {
         let outputURL = URL(fileURLWithPath: request.outputPath)
         let sampleRate = model.sampleRate
         let telemetryMode = NativeTelemetryMode.current()
-        let telemetryClock = telemetryRecorder?.clock ?? NativeTelemetryClock()
-        let telemetrySampler = telemetryMode.sampleIntervalMS(for: memoryPolicy.deviceClass).map {
-            NativeTelemetrySampler(
+        let telemetryClock = telemetryRecorder?.clock
+        let telemetrySampler: NativeTelemetrySampler? = {
+            guard let clock = telemetryClock,
+                  let sampleIntervalMS = telemetryMode.sampleIntervalMS(for: memoryPolicy.deviceClass)
+            else { return nil }
+            return NativeTelemetrySampler(
                 // Share the stage recorder's clock so samples and marks join on both
                 // the millisecond and nanosecond timelines.
-                clock: telemetryClock,
-                sampleIntervalMS: $0
+                clock: clock,
+                sampleIntervalMS: sampleIntervalMS
             )
-        }
+        }()
         // Per-chunk decode timeline + final stats. Only populated when telemetry is
         // on (recorder non-nil), so there is zero per-chunk cost when gated off.
         let telemetryActive = telemetryRecorder != nil
@@ -1785,9 +1791,9 @@ private struct StreamingExecutionContext: Sendable {
     private func makeChunkTelemetry(
         chunkIndex: Int,
         timings: ChunkSubstageTimings,
-        clock: NativeTelemetryClock
+        clock: NativeTelemetryClock?
     ) -> GenerationChunkTelemetry {
-        let (arrivalMS, arrivalNS) = clock.now()
+        let (arrivalMS, arrivalNS) = clock?.now() ?? (0, 0)
         return GenerationChunkTelemetry(
             chunkIndex: chunkIndex,
             arrivalMS: max(0, arrivalMS),

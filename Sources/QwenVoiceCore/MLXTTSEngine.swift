@@ -17,6 +17,7 @@ public enum TTSEngineError: LocalizedError, Equatable {
     case modelUnavailable(String)
     case unsupportedRequest(String)
     case generationFailed(String)
+    case insufficientMemory(String)
 
     public var errorDescription: String? {
         switch self {
@@ -26,7 +27,8 @@ public enum TTSEngineError: LocalizedError, Equatable {
             return "The native MLX engine could not find model '\(modelID)'."
         case .modelUnavailable(let message),
              .unsupportedRequest(let message),
-             .generationFailed(let message):
+             .generationFailed(let message),
+             .insufficientMemory(let message):
             return message
         }
     }
@@ -52,7 +54,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
     /// of which format the user imported. `wav` stays the fallback for
     /// inputs whose extension is empty or unrecognized — preserves the
     /// pre-existing behavior for the seed/bootstrap fixtures.
-    static let supportedSavedVoiceAudioExtensions: Set<String> = ["wav", "mp3", "aiff", "m4a"]
+    nonisolated static let supportedSavedVoiceAudioExtensions: Set<String> = ["wav", "mp3", "aiff", "m4a"]
 
     typealias StreamingSessionFactory = (
         UUID,
@@ -222,8 +224,21 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
                     "The engine is already working on audio. Wait for it to finish or cancel it before starting another generation."
                 )
             }
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                modelOperationWaiters.append(continuation)
+            let waiterID = UUID()
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    if Task.isCancelled {
+                        continuation.resume()
+                        return
+                    }
+                    modelOperationWaiters.append(
+                        ModelOperationWaiter(id: waiterID, continuation: continuation)
+                    )
+                }
+            } onCancel: {
+                Task { @MainActor in
+                    self.cancelModelOperationWaiter(id: waiterID)
+                }
             }
             try Task.checkCancellation()
         }
@@ -231,6 +246,14 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         objectWillChange.send()
         activeModelOperation = ActiveModelOperation(id: id, kind: kind)
         return id
+    }
+
+    private func cancelModelOperationWaiter(id: UUID) {
+        guard let index = modelOperationWaiters.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let waiter = modelOperationWaiters.remove(at: index)
+        waiter.continuation.resume()
     }
 
     private func beginProactiveModelOperation(_ kind: ModelOperationKind) -> UUID? {
@@ -248,7 +271,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         let waiters = modelOperationWaiters
         modelOperationWaiters.removeAll()
         for waiter in waiters {
-            waiter.resume()
+            waiter.continuation.resume()
         }
     }
 
@@ -269,7 +292,12 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
     private var idleUnloadTask: Task<Void, Never>?
     private var idleUnloadToken: UUID?
     private var activeModelOperation: ActiveModelOperation?
-    private var modelOperationWaiters: [CheckedContinuation<Void, Never>] = []
+    private var modelOperationWaiters: [ModelOperationWaiter] = []
+
+    private struct ModelOperationWaiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Void, Never>
+    }
 
     private enum ModelOperationKind: String {
         case generation
@@ -566,18 +594,21 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             "cache/normalized_clone_refs",
             isDirectory: true
         )
-        try FileManager.default.createDirectory(
-            at: streamSessionsDirectory,
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.createDirectory(
-            at: voicesDirectory,
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.createDirectory(
-            at: normalizedCloneReferenceDirectory,
-            withIntermediateDirectories: true
-        )
+        let streamSessionsDirectory = self.streamSessionsDirectory
+        try await Task.detached(priority: .utility) {
+            try FileManager.default.createDirectory(
+                at: streamSessionsDirectory,
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.createDirectory(
+                at: voicesDirectory,
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.createDirectory(
+                at: normalizedCloneReferenceDirectory,
+                withIntermediateDirectories: true
+            )
+        }.value
 
         appSupportDirectoryURL = appSupportDirectory
         diagnosticAppSupportBox.url = appSupportDirectory
@@ -1050,34 +1081,36 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
     public func listPreparedVoices() async throws -> [PreparedVoice] {
         try ensureInitialized()
         let voicesDirectory = try requireVoicesDirectory()
-        let fileManager = FileManager.default
-        guard let enumerator = fileManager.enumerator(
-            at: voicesDirectory,
-            includingPropertiesForKeys: nil
-        ) else {
-            return []
-        }
-
-        var voices: [PreparedVoice] = []
-        for fileURL in (enumerator.allObjects as? [URL]) ?? [] {
-            guard Self.supportedSavedVoiceAudioExtensions.contains(fileURL.pathExtension.lowercased()) else {
-                continue
+        return await Task.detached(priority: .utility) {
+            let fileManager = FileManager.default
+            guard let enumerator = fileManager.enumerator(
+                at: voicesDirectory,
+                includingPropertiesForKeys: nil
+            ) else {
+                return [PreparedVoice]()
             }
-            let transcriptURL = fileURL.deletingPathExtension().appendingPathExtension("txt")
-            voices.append(
-                PreparedVoice(
-                    id: fileURL.deletingPathExtension().lastPathComponent,
-                    name: fileURL.deletingPathExtension().lastPathComponent,
-                    audioPath: fileURL.path,
-                    hasTranscript: fileManager.fileExists(atPath: transcriptURL.path),
-                    qualityWarnings: Self.savedReferenceQualityWarnings(forAudioAt: fileURL.path)
-                )
-            )
-        }
 
-        return voices.sorted { lhs, rhs in
-            lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        }
+            var voices: [PreparedVoice] = []
+            for fileURL in (enumerator.allObjects as? [URL]) ?? [] {
+                guard Self.supportedSavedVoiceAudioExtensions.contains(fileURL.pathExtension.lowercased()) else {
+                    continue
+                }
+                let transcriptURL = fileURL.deletingPathExtension().appendingPathExtension("txt")
+                voices.append(
+                    PreparedVoice(
+                        id: fileURL.deletingPathExtension().lastPathComponent,
+                        name: fileURL.deletingPathExtension().lastPathComponent,
+                        audioPath: fileURL.path,
+                        hasTranscript: fileManager.fileExists(atPath: transcriptURL.path),
+                        qualityWarnings: Self.savedReferenceQualityWarnings(forAudioAt: fileURL.path)
+                    )
+                )
+            }
+
+            return voices.sorted { lhs, rhs in
+                lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+        }.value
     }
 
     /// Cheap duration-only probe of a saved-voice reference WAV used at
@@ -1133,44 +1166,48 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             throw MLXTTSEngineError.generationFailed("Invalid saved voice name.")
         }
 
-        try fileManager.createDirectory(at: voicesDirectory, withIntermediateDirectories: true)
+        let (audioDestinationURL, _, normalizedTranscript) = try await Task.detached(priority: .utility) {
+            let fileManager = FileManager.default
+            try fileManager.createDirectory(at: voicesDirectory, withIntermediateDirectories: true)
 
-        // Preserve the source extension so MP3 / AIFF / M4A bytes don't
-        // end up stored under a `.wav` filename. Falls back to `wav` for
-        // inputs whose extension is empty or outside the supported set —
-        // this preserves the pre-existing behavior for the seed/bootstrap
-        // fixtures and matches the fallback the UI pickers expose.
-        let sourceExtension = sourceURL.pathExtension.lowercased()
-        let destinationExtension = Self.supportedSavedVoiceAudioExtensions.contains(sourceExtension)
-            ? sourceExtension
-            : "wav"
-        let audioDestinationURL = voicesDirectory.appendingPathComponent("\(safeName).\(destinationExtension)")
-        let transcriptDestinationURL = voicesDirectory.appendingPathComponent("\(safeName).txt")
+            // Preserve the source extension so MP3 / AIFF / M4A bytes don't
+            // end up stored under a `.wav` filename. Falls back to `wav` for
+            // inputs whose extension is empty or outside the supported set —
+            // this preserves the pre-existing behavior for the seed/bootstrap
+            // fixtures and matches the fallback the UI pickers expose.
+            let sourceExtension = sourceURL.pathExtension.lowercased()
+            let destinationExtension = Self.supportedSavedVoiceAudioExtensions.contains(sourceExtension)
+                ? sourceExtension
+                : "wav"
+            let audioDestinationURL = voicesDirectory.appendingPathComponent("\(safeName).\(destinationExtension)")
+            let transcriptDestinationURL = voicesDirectory.appendingPathComponent("\(safeName).txt")
 
-        // Disallow the new save if a voice with this `safeName` already
-        // exists in ANY supported audio format — otherwise the user could
-        // double-up an entry that the list path would render as a single
-        // ambiguous row.
-        let nameConflictExists = Self.supportedSavedVoiceAudioExtensions.contains { ext in
-            fileManager.fileExists(
-                atPath: voicesDirectory.appendingPathComponent("\(safeName).\(ext)").path
-            )
-        } || fileManager.fileExists(atPath: transcriptDestinationURL.path)
-        if nameConflictExists {
-            throw MLXTTSEngineError.generationFailed(
-                "A saved voice named \"\(safeName)\" already exists. Choose a different name."
-            )
-        }
+            // Disallow the new save if a voice with this `safeName` already
+            // exists in ANY supported audio format — otherwise the user could
+            // double-up an entry that the list path would render as a single
+            // ambiguous row.
+            let nameConflictExists = Self.supportedSavedVoiceAudioExtensions.contains { ext in
+                fileManager.fileExists(
+                    atPath: voicesDirectory.appendingPathComponent("\(safeName).\(ext)").path
+                )
+            } || fileManager.fileExists(atPath: transcriptDestinationURL.path)
+            if nameConflictExists {
+                throw MLXTTSEngineError.generationFailed(
+                    "A saved voice named \"\(safeName)\" already exists. Choose a different name."
+                )
+            }
 
-        try fileManager.copyItem(at: sourceURL, to: audioDestinationURL)
-        let normalizedTranscript = NativePreparedCloneConditioningCache.normalizedTranscript(transcript)
-        if let normalizedTranscript {
-            try normalizedTranscript.write(
-                to: transcriptDestinationURL,
-                atomically: true,
-                encoding: .utf8
-            )
-        }
+            try fileManager.copyItem(at: sourceURL, to: audioDestinationURL)
+            let normalizedTranscript = NativePreparedCloneConditioningCache.normalizedTranscript(transcript)
+            if let normalizedTranscript {
+                try normalizedTranscript.write(
+                    to: transcriptDestinationURL,
+                    atomically: true,
+                    encoding: .utf8
+                )
+            }
+            return (audioDestinationURL, transcriptDestinationURL, normalizedTranscript)
+        }.value
 
         // Audit Finding A (May 2026 dual-variant cleanup): the
         // prior code used `modelRegistry.model(for: .clone)?.id`
@@ -1236,37 +1273,39 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
     public func deletePreparedVoice(id: String) async throws {
         try ensureInitialized()
         let voicesDirectory = try requireVoicesDirectory()
-        let fileManager = FileManager.default
+        try await Task.detached(priority: .utility) {
+            let fileManager = FileManager.default
 
-        // Voices may now be stored under any supported audio extension
-        // (see `supportedSavedVoiceAudioExtensions`). Find whichever
-        // extension this voice's file uses on disk; if no audio file
-        // exists in any supported format, the voice doesn't exist.
-        let candidateAudioURLs = Self.supportedSavedVoiceAudioExtensions.map { ext in
-            voicesDirectory.appendingPathComponent("\(id).\(ext)")
-        }
-        let existingAudioURLs = candidateAudioURLs.filter {
-            fileManager.fileExists(atPath: $0.path)
-        }
-        let transcriptURL = voicesDirectory.appendingPathComponent("\(id).txt")
+            // Voices may now be stored under any supported audio extension
+            // (see `supportedSavedVoiceAudioExtensions`). Find whichever
+            // extension this voice's file uses on disk; if no audio file
+            // exists in any supported format, the voice doesn't exist.
+            let candidateAudioURLs = Self.supportedSavedVoiceAudioExtensions.map { ext in
+                voicesDirectory.appendingPathComponent("\(id).\(ext)")
+            }
+            let existingAudioURLs = candidateAudioURLs.filter {
+                fileManager.fileExists(atPath: $0.path)
+            }
+            let transcriptURL = voicesDirectory.appendingPathComponent("\(id).txt")
 
-        guard !existingAudioURLs.isEmpty else {
-            throw MLXTTSEngineError.generationFailed("Voice '\(id)' does not exist.")
-        }
+            guard !existingAudioURLs.isEmpty else {
+                throw MLXTTSEngineError.generationFailed("Voice '\(id)' does not exist.")
+            }
 
-        for audioURL in existingAudioURLs {
-            try fileManager.removeItem(at: audioURL)
-        }
-        if fileManager.fileExists(atPath: transcriptURL.path) {
-            try? fileManager.removeItem(at: transcriptURL)
-        }
-        let clonePromptRootDirectory = NativePreparedCloneConditioningCache.preparedVoiceClonePromptRootDirectory(
-            in: voicesDirectory,
-            voiceID: id
-        )
-        if fileManager.fileExists(atPath: clonePromptRootDirectory.path) {
-            try? fileManager.removeItem(at: clonePromptRootDirectory)
-        }
+            for audioURL in existingAudioURLs {
+                try fileManager.removeItem(at: audioURL)
+            }
+            if fileManager.fileExists(atPath: transcriptURL.path) {
+                try? fileManager.removeItem(at: transcriptURL)
+            }
+            let clonePromptRootDirectory = NativePreparedCloneConditioningCache.preparedVoiceClonePromptRootDirectory(
+                in: voicesDirectory,
+                voiceID: id
+            )
+            if fileManager.fileExists(atPath: clonePromptRootDirectory.path) {
+                try? fileManager.removeItem(at: clonePromptRootDirectory)
+            }
+        }.value
     }
 
     public func importReferenceAudio(from sourceURL: URL) throws -> ImportedReferenceAudio {

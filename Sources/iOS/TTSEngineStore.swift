@@ -488,7 +488,19 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
     private func guardModelAdmission(shouldSurfaceError: Bool, reason: String) async throws {
         let context = await refreshMemoryContext(reason: reason, source: "admission")
         diagnosticsRecorder?.recordMemoryContext(context, event: "model_admission_observed")
-        _ = shouldSurfaceError
+        guard memoryBudgetPolicy.allowsModelAdmission(for: context) else {
+            diagnosticsRecorder?.recordAction(
+                event: "model_admission_blocked",
+                reason: reason,
+                context: context
+            )
+            let message = memoryBudgetPolicy.modelAdmissionBlockMessage(
+                for: context,
+                perProcessAdmissionBand: context.pressureBand,
+                allowsAggregateGuardedAdmission: false
+            )
+            throw TTSEngineError.insufficientMemory(message)
+        }
     }
 
     private func allowsProactiveWarmOperations(reason: String) async -> Bool {
@@ -623,12 +635,12 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
     }
 
     private func shouldEnforceCriticalMemoryContext(_ context: IOSMemoryContext) -> Bool {
-        // Only the env-forced test path (below) drives this true; real critical pressure is
-        // handled by the band guard. Runtime-gated so it works on the Release device build.
+        // Critical pressure during an active generation cancels the generation and fully
+        // unloads the model. The env-forced test path is retained for diagnostics.
         if context.reason.contains("debug_force_critical_once") {
             return true
         }
-        return false
+        return context.pressureBand == .critical
     }
 
     private func recordActiveGenerationPeakIfNeeded(_ context: IOSMemoryContext) {

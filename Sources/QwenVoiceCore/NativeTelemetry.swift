@@ -49,7 +49,7 @@ public actor NativeTelemetryRecorder {
     private var stageMarks: [NativeTelemetryStageMark] = []
     private var nextSequence: Int = 0
 
-    public init(clock: NativeTelemetryClock = NativeTelemetryClock()) {
+    public init(clock: NativeTelemetryClock) {
         self.clock = clock
     }
 

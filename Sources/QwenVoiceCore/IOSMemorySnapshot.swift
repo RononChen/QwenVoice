@@ -139,10 +139,13 @@ public struct IOSMemorySnapshot: Hashable, Codable, Sendable {
         }
     }()
 
+    private static let defaultMetalDevice = MTLCreateSystemDefaultDevice()
+
     public static func capture(
         role: IOSMemoryProcessRole = .currentProcess,
-        device: MTLDevice? = MTLCreateSystemDefaultDevice()
+        device: MTLDevice? = nil
     ) -> IOSMemorySnapshot {
+        let device = device ?? defaultMetalDevice
         let metrics = taskMemoryMetrics()
         var headroom = availableProcessMemory()
         if let simLimit = simulatedProcessLimitBytes,

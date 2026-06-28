@@ -1021,6 +1021,7 @@ private struct IOSVoicePickerFilterChip: View {
                 }
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("voicePickerFilterChip_\(label)")
         .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 }
@@ -1256,6 +1257,7 @@ struct IOSReferenceClipSheet: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("referenceClipRow_\(option.id)")
     }
 }
 

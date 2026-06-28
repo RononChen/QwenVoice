@@ -40,6 +40,7 @@ final class IOSBatchGenerationCoordinator: ObservableObject {
     @Published private(set) var completedCount = 0
 
     private var task: Task<Void, Never>?
+    private weak var ttsEngine: TTSEngineStore?
 
     var total: Int { items.count }
     var progress: Double { total == 0 ? 0 : Double(completedCount) / Double(total) }
@@ -66,6 +67,7 @@ final class IOSBatchGenerationCoordinator: ObservableObject {
         makeGeneration: @escaping (_ line: String, _ result: GenerationResult) -> Generation
     ) {
         guard !isRunning, !lines.isEmpty else { return }
+        self.ttsEngine = ttsEngine
         let seed = UInt64.random(in: UInt64.min ... UInt64.max)
         items = lines.enumerated().map { Item(index: $0.offset, text: $0.element) }
         completedCount = 0
@@ -112,6 +114,9 @@ final class IOSBatchGenerationCoordinator: ObservableObject {
 
     func cancel() {
         task?.cancel()
+        Task { [weak self] in
+            try? await self?.ttsEngine?.cancelActiveGeneration()
+        }
     }
 
     private func setStatus(_ index: Int, _ status: Item.Status) {

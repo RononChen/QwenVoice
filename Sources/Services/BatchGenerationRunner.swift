@@ -450,10 +450,24 @@ struct BatchGenerationRequest {
         generatedAtUTC: String = ISO8601DateFormatter().string(from: Date()),
         audioPaths: [String?],
         audioQualityReports: [AudioQualityGate.Report?]? = nil
-    ) -> LongFormBatchManifest? {
+    ) async -> LongFormBatchManifest? {
         guard segmentationMode == .longForm else { return nil }
-        let audioStats = audioPaths.map { path in
-            path.flatMap(Self.audioStats)
+        let audioStats = await withTaskGroup(of: (Int, LongFormBatchManifest.SegmentAudioStats?).self, returning: [LongFormBatchManifest.SegmentAudioStats?].self) { group in
+            for (index, path) in audioPaths.enumerated() {
+                group.addTask {
+                    let stats: LongFormBatchManifest.SegmentAudioStats? = if let path = path {
+                        await Self.audioStats(for: path)
+                    } else {
+                        nil
+                    }
+                    return (index, stats)
+                }
+            }
+            var indexed = [Int: LongFormBatchManifest.SegmentAudioStats?]()
+            for await (index, stats) in group {
+                indexed[index] = stats
+            }
+            return (0..<audioPaths.count).map { indexed[$0] ?? nil }
         }
         let segments = lines.enumerated().map { index, text in
             LongFormBatchManifest.Segment(
@@ -489,14 +503,20 @@ struct BatchGenerationRequest {
     func makeLongFormManifest(
         generatedAtUTC: String = ISO8601DateFormatter().string(from: Date()),
         audioPaths: [String]
-    ) -> LongFormBatchManifest? {
-        makeLongFormManifest(
+    ) async -> LongFormBatchManifest? {
+        await makeLongFormManifest(
             generatedAtUTC: generatedAtUTC,
             audioPaths: audioPaths.map(Optional.some)
         )
     }
 
-    private static func audioStats(for path: String) -> LongFormBatchManifest.SegmentAudioStats? {
+    private static func audioStats(for path: String) async -> LongFormBatchManifest.SegmentAudioStats? {
+        await Task.detached(priority: .utility) {
+            computeAudioStats(for: path)
+        }.value
+    }
+
+    private static func computeAudioStats(for path: String) -> LongFormBatchManifest.SegmentAudioStats? {
         let url = URL(fileURLWithPath: path)
         guard let audioFile = try? AVAudioFile(forReading: url) else { return nil }
         let durationSeconds = Double(audioFile.length) / audioFile.processingFormat.sampleRate
@@ -657,6 +677,11 @@ final class BatchGenerationCoordinator: ObservableObject {
         }
 
         guard !lines.isEmpty else { return }
+        let maxBatchSegments = 100
+        if lines.count > maxBatchSegments {
+            errorMessage = "Batch is too large: \(lines.count) segments exceeds the maximum of \(maxBatchSegments). Please split the text and try again."
+            return
+        }
         guard let request = requestBuilder(lines) else {
             errorMessage = "Model configuration not found"
             return
@@ -778,14 +803,18 @@ final class BatchGenerationRunner {
     private let engineStore: TTSEngineStore
     private let store: any GenerationPersisting
     private let generationEvents: GenerationLibraryEvents
-    private let audioQualityEvaluator: (URL) -> AudioQualityGate.Report
+    private let audioQualityEvaluator: (URL) async -> AudioQualityGate.Report
     private let cancellationState = BatchGenerationCancellationState()
 
     init(
         engineStore: TTSEngineStore,
         store: any GenerationPersisting,
         generationEvents: GenerationLibraryEvents = .shared,
-        audioQualityEvaluator: @escaping (URL) -> AudioQualityGate.Report = AudioQualityGate.evaluate
+        audioQualityEvaluator: @escaping (URL) async -> AudioQualityGate.Report = { url in
+            await Task.detached(priority: .utility) {
+                AudioQualityGate.evaluate(url: url)
+            }.value
+        }
     ) {
         self.engineStore = engineStore
         self.store = store
@@ -869,11 +898,11 @@ final class BatchGenerationRunner {
                     )
                 }
 
-                let batchQualityReports = qualityReportsIfNeeded(for: request, results: results)
+                let batchQualityReports = await qualityReportsIfNeeded(for: request, results: results)
                 if let batchQualityReports,
                    batchQualityReports.contains(where: { !$0.passed }) {
                     let audioPaths = results.map { Optional.some($0.audioPath) }
-                    persistLongFormManifestIfNeeded(
+                    await persistLongFormManifestIfNeeded(
                         request: request,
                         audioPaths: audioPaths,
                         qualityReports: batchQualityReports.map(Optional.some)
@@ -931,7 +960,7 @@ final class BatchGenerationRunner {
                     }
                 }
 
-                persistLongFormManifestIfNeeded(
+                await persistLongFormManifestIfNeeded(
                     request: request,
                     items: items,
                     qualityReports: batchQualityReports?.map(Optional.some)
@@ -980,10 +1009,10 @@ final class BatchGenerationRunner {
                 )
 
                 if request.segmentationMode == .longForm {
-                    let qualityReport = audioQualityEvaluator(URL(fileURLWithPath: result.audioPath))
+                    let qualityReport = await audioQualityEvaluator(URL(fileURLWithPath: result.audioPath))
                     if !qualityReport.passed {
                         items[index].status = .failed(message: qualityReport.failureSummary)
-                        persistLongFormManifestIfNeeded(
+                        await persistLongFormManifestIfNeeded(
                             request: request,
                             audioPaths: [Optional.some(result.audioPath)],
                             qualityReports: [Optional.some(qualityReport)]
@@ -1031,7 +1060,7 @@ final class BatchGenerationRunner {
         }
 
         publishProgress(activeItemIndex: nil, message: "Done")
-        persistLongFormManifestIfNeeded(request: request, items: items)
+        await persistLongFormManifestIfNeeded(request: request, items: items)
         return .completed(items: items)
     }
 
@@ -1057,29 +1086,29 @@ final class BatchGenerationRunner {
         )
     }
 
-    private func persistLongFormManifestIfNeeded(
+    private nonisolated func persistLongFormManifestIfNeeded(
         request: BatchGenerationRequest,
         items: [BatchGenerationItemState],
         qualityReports: [AudioQualityGate.Report?]? = nil
-    ) {
+    ) async {
         let audioPaths = items.map(\.audioPath)
-        persistLongFormManifestIfNeeded(
+        await persistLongFormManifestIfNeeded(
             request: request,
             audioPaths: audioPaths,
             qualityReports: qualityReports
         )
     }
 
-    private func persistLongFormManifestIfNeeded(
+    private nonisolated func persistLongFormManifestIfNeeded(
         request: BatchGenerationRequest,
         audioPaths: [String?],
         qualityReports: [AudioQualityGate.Report?]? = nil
-    ) {
-        guard let manifest = request.makeLongFormManifest(audioPaths: audioPaths),
+    ) async {
+        guard let manifest = await request.makeLongFormManifest(audioPaths: audioPaths),
               let firstAudioPath = audioPaths.compactMap({ $0 }).first else {
             return
         }
-        let manifestWithQuality = request.makeLongFormManifest(
+        let manifestWithQuality = await request.makeLongFormManifest(
             audioPaths: audioPaths,
             audioQualityReports: qualityReports
         ) ?? manifest
@@ -1096,11 +1125,13 @@ final class BatchGenerationRunner {
     private func qualityReportsIfNeeded(
         for request: BatchGenerationRequest,
         results: [QwenVoiceNative.GenerationResult]
-    ) -> [AudioQualityGate.Report]? {
+    ) async -> [AudioQualityGate.Report]? {
         guard request.segmentationMode == .longForm else { return nil }
-        return results.map { result in
-            audioQualityEvaluator(URL(fileURLWithPath: result.audioPath))
+        var reports: [AudioQualityGate.Report] = []
+        for result in results {
+            reports.append(await audioQualityEvaluator(URL(fileURLWithPath: result.audioPath)))
         }
+        return reports
     }
 }
 

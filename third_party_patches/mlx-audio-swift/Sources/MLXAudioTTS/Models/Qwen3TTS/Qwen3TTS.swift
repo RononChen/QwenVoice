@@ -889,16 +889,27 @@ private actor Qwen3TTSGenerationGate {
             return
         }
 
-        try await withTaskCancellationHandler {
-            try await waitForTurn(id: id)
-        } onCancel: {
-            Task { await self.cancelWaiter(id: id) }
+        var gateAcquired = false
+        do {
+            try await withTaskCancellationHandler {
+                try await waitForTurn(id: id)
+                // waitForTurn only returns if the continuation was resumed normally
+                // by release(), so the gate has been transferred to us.
+                gateAcquired = true
+            } onCancel: {
+                Task { await self.cancelWaiter(id: id) }
+            }
+        } catch {
+            // Only release the gate if it was actually transferred to us. If we
+            // were cancelled while still queued, cancelWaiter removed us and the
+            // gate is still owned by the current generation.
+            if gateAcquired {
+                release()
+            }
+            throw error
         }
 
-        if Task.isCancelled {
-            release()
-            throw CancellationError()
-        }
+        try Task.checkCancellation()
     }
 
     func release() {
@@ -1885,7 +1896,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         refText: String?,
         language: String?,
         generationParameters: GenerateParameters,
-        streamingInterval: Double
+        streamingInterval: Double,
+        enableChunkTimings: Bool = false
     ) -> AsyncThrowingStream<AudioGeneration, Error> {
         let (stream, continuation) = AsyncThrowingStream<AudioGeneration, Error>.makeStream()
         let producerTask = Task { @Sendable [weak self] in
@@ -1936,10 +1948,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                         guard !Task.isCancelled else { return }
                         continuation.yield(.audio(chunk))
                     },
-                    onAudioChunkTimings: { timings in
+                    onAudioChunkTimings: enableChunkTimings ? { timings in
                         guard !Task.isCancelled else { return }
                         continuation.yield(.chunkTimings(timings))
-                    }
+                    } : nil
                 )
                 }
                 continuation.finish()
@@ -2085,7 +2097,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         customVoiceProfile: String?,
         streamStepEvalPolicy: String?,
         generationSpeedProfile: String?,
-        memoryClearCadence: Int?
+        memoryClearCadence: Int?,
+        enableChunkTimings: Bool = false
     ) -> AsyncThrowingStream<AudioGeneration, Error> {
         let (stream, continuation) = AsyncThrowingStream<AudioGeneration, Error>.makeStream()
         let producerTask = Task { @Sendable [weak self] in
@@ -2123,10 +2136,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                         guard !Task.isCancelled else { return }
                         continuation.yield(.audio($0))
                     },
-                    onAudioChunkTimings: {
+                    onAudioChunkTimings: enableChunkTimings ? {
                         guard !Task.isCancelled else { return }
                         continuation.yield(.chunkTimings($0))
-                    }
+                    } : nil
                 )
                 }
                 continuation.finish()
@@ -2148,7 +2161,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         streamingInterval: Double,
         streamStepEvalPolicy: String?,
         generationSpeedProfile: String?,
-        memoryClearCadence: Int?
+        memoryClearCadence: Int?,
+        enableChunkTimings: Bool = false
     ) -> AsyncThrowingStream<AudioGeneration, Error> {
         let (stream, continuation) = AsyncThrowingStream<AudioGeneration, Error>.makeStream()
         let producerTask = Task { @Sendable [weak self] in
@@ -2184,10 +2198,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                         guard !Task.isCancelled else { return }
                         continuation.yield(.audio($0))
                     },
-                    onAudioChunkTimings: {
+                    onAudioChunkTimings: enableChunkTimings ? {
                         guard !Task.isCancelled else { return }
                         continuation.yield(.chunkTimings($0))
-                    }
+                    } : nil
                 )
                 }
                 continuation.finish()
@@ -2209,7 +2223,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         streamingInterval: Double,
         streamStepEvalPolicy: String?,
         generationSpeedProfile: String?,
-        memoryClearCadence: Int?
+        memoryClearCadence: Int?,
+        enableChunkTimings: Bool = false
     ) -> AsyncThrowingStream<AudioGeneration, Error> {
         let (stream, continuation) = AsyncThrowingStream<AudioGeneration, Error>.makeStream()
         let producerTask = Task { @Sendable [weak self] in
@@ -2247,10 +2262,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                         guard !Task.isCancelled else { return }
                         continuation.yield(.audio($0))
                     },
-                    onAudioChunkTimings: {
+                    onAudioChunkTimings: enableChunkTimings ? {
                         guard !Task.isCancelled else { return }
                         continuation.yield(.chunkTimings($0))
-                    }
+                    } : nil
                 )
                 }
                 continuation.finish()
@@ -2900,12 +2915,17 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     }
                     let streamDecoderStartedAt = ContinuousClock.now
                     let decoderSignpost = Qwen3Signposts.signposter.beginInterval("Audio Decoder")
-                    let decodedWithTimings = speechTokenizer.decoder.streamingStepWithTimings(codesForDecoder)
-                    let decoded = decodedWithTimings.audio.squeezed(axis: 1)
+                    let decoded: MLXArray
+                    if onAudioChunkTimings != nil {
+                        let decodedWithTimings = speechTokenizer.decoder.streamingStepWithTimings(codesForDecoder)
+                        decoded = decodedWithTimings.audio.squeezed(axis: 1)
+                        mimiDecoderBreakdownTotal = mimiDecoderBreakdownTotal.adding(decodedWithTimings.timings)
+                    } else {
+                        decoded = speechTokenizer.decoder.streamingStep(codesForDecoder)
+                    }
                     Qwen3Signposts.signposter.endInterval("Audio Decoder", decoderSignpost)
                     streamingDecoderTotalMS += streamDecoderStartedAt.elapsedMilliseconds
                     streamingDecoderCallCount += 1
-                    mimiDecoderBreakdownTotal = mimiDecoderBreakdownTotal.adding(decodedWithTimings.timings)
                     let audioChunk = decoded[0]
                     let audioChunkEvalStartedAt = ContinuousClock.now
                     let audioChunkEvalSignpost = Qwen3Signposts.signposter.beginInterval("Audio Chunk Eval")
@@ -3039,11 +3059,16 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 let codesChunk = stacked(pendingStreamCodes, axis: 1)
                 let codesForDecoder = codesChunk.transposed(0, 2, 1)
                 let streamDecoderStartedAt = ContinuousClock.now
-                let decodedWithTimings = speechTokenizer.decoder.streamingStepWithTimings(codesForDecoder)
-                let decoded = decodedWithTimings.audio.squeezed(axis: 1)
+                let decoded: MLXArray
+                if onAudioChunkTimings != nil {
+                    let decodedWithTimings = speechTokenizer.decoder.streamingStepWithTimings(codesForDecoder)
+                    decoded = decodedWithTimings.audio.squeezed(axis: 1)
+                    mimiDecoderBreakdownTotal = mimiDecoderBreakdownTotal.adding(decodedWithTimings.timings)
+                } else {
+                    decoded = speechTokenizer.decoder.streamingStep(codesForDecoder)
+                }
                 streamingDecoderTotalMS += streamDecoderStartedAt.elapsedMilliseconds
                 streamingDecoderCallCount += 1
-                mimiDecoderBreakdownTotal = mimiDecoderBreakdownTotal.adding(decodedWithTimings.timings)
                 let audioChunk = decoded[0]
                 if isPureVoiceDesign, designGenerationStepsBeforeFirstChunk == nil {
                     designGenerationStepsBeforeFirstChunk = generatedCodeCount
@@ -3122,7 +3147,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 // Capture final KV-cache footprint before clearing; when the
                 // chunk-timing callback is not registered this is the only
                 // update the peak trackers get.
-                _ = makeChunkKVCacheDiagnostics()
+                if onAudioChunkTimings != nil {
+                    _ = makeChunkKVCacheDiagnostics()
+                }
                 clearGenerationCache()
             }
             mergePreparationStringFlags([
@@ -3200,7 +3227,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         // Capture final KV-cache footprint for non-streaming runs (no chunk
         // boundaries fired, so the peak trackers haven't been updated) BEFORE
         // clearing the generation cache, which resets the KV-cache offset.
-        _ = makeChunkKVCacheDiagnostics()
+        if onAudioChunkTimings != nil {
+            _ = makeChunkKVCacheDiagnostics()
+        }
         mergePreparationStringFlags([
             "qwen_talker_kv_cache_type": kvCacheTypeAtPeak,
         ])

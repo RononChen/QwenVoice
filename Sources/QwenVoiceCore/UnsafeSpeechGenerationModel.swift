@@ -1,4 +1,5 @@
 import Foundation
+import os
 @preconcurrency import MLX
 @preconcurrency import MLXAudioCore
 @preconcurrency import MLXAudioTTS
@@ -10,17 +11,21 @@ import Foundation
 ///
 /// - **Per-request variation** (GitHub #47): `NativeEngineRuntime.
 ///   prepareGeneration` stamps the request's `Qwen3SamplingVariation` here
-///   before the handlers resolve parameters. Single-mutator by construction —
-///   the engine's model-operation gate admits one generation at a time — so
-///   the `nonisolated(unsafe)` static is sound (same contract as the
-///   single-owner notes on `UnsafeSpeechGenerationModel`).
+///   before the handlers resolve parameters. Protected by `OSAllocatedUnfairLock`
+///   so reads/writes are safe even if the parameter-policy call site is not on
+///   the same executor as the writer.
 /// - **Env knobs** (dev-only, resolved once): QWENVOICE_TALKER_TEMP / _TOPP,
 ///   for delivery-tuning A/Bs. The subtalker counterparts live in the
 ///   vendored backend (`Qwen3SamplingOverrides`: QWENVOICE_SUBTALKER_*).
 ///
 /// With neither set, production sampling is the official checkpoint default.
 enum Qwen3TalkerSamplingOverride {
-    nonisolated(unsafe) static var requestVariation: Qwen3SamplingVariation?
+    private static let variationLock = OSAllocatedUnfairLock<Qwen3SamplingVariation?>(initialState: nil)
+
+    static var requestVariation: Qwen3SamplingVariation? {
+        get { variationLock.withLock { $0 } }
+        set { variationLock.withLock { $0 = newValue } }
+    }
 
     static let envTemperature: Float? = floatValue("QWENVOICE_TALKER_TEMP")
     static let envTopP: Float? = floatValue("QWENVOICE_TALKER_TOPP")
@@ -214,7 +219,8 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
                     customVoiceProfile: nil,
                     streamStepEvalPolicy: nil,
                     generationSpeedProfile: nil,
-                    memoryClearCadence: nil
+                    memoryClearCadence: nil,
+                    enableChunkTimings: TelemetryGate.resolvedEnabled
                 )
             }
             self.customGenerateHandler = { text, language, speaker, instruct in
@@ -246,7 +252,8 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
                     streamingInterval: streamingInterval,
                     streamStepEvalPolicy: nil,
                     generationSpeedProfile: nil,
-                    memoryClearCadence: nil
+                    memoryClearCadence: nil,
+                    enableChunkTimings: TelemetryGate.resolvedEnabled
                 )
             }
             self.designGenerateHandler = { text, language, voiceDescription in
@@ -284,7 +291,8 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
                     streamingInterval: streamingInterval,
                     streamStepEvalPolicy: nil,
                     generationSpeedProfile: nil,
-                    memoryClearCadence: nil
+                    memoryClearCadence: nil,
+                    enableChunkTimings: TelemetryGate.resolvedEnabled
                 )
             }
             self.cloneGenerateHandler = { text, language, voiceClonePrompt in

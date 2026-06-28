@@ -21,14 +21,14 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
         public let phase: DownloadPhase
     }
 
-    /// Tunable download-engine parameters. Defaults match the macOS/CLI profile (6 parallel files,
-    /// byte-range chunking on for large LFS files). iOS uses a memory-safer profile: fewer parallel
-    /// files and `chunkLargeFiles = false` (background URLSession throttles many small range requests,
-    /// and chunks multiply in-flight buffers). The shared URLSession's `httpMaximumConnectionsPerHost`
-    /// tracks `maxConcurrentFiles` for foreground sessions.
+    /// Tunable download-engine parameters. Defaults match the macOS/CLI profile: 4 parallel
+    /// connections per host and `chunkLargeFiles = false`. iOS uses a memory-safer profile:
+    /// fewer parallel files and `chunkLargeFiles = false` (background URLSession throttles many
+    /// small range requests, and chunks multiply in-flight buffers). The foreground URLSession's
+    /// `httpMaximumConnectionsPerHost` is capped at 4.
     public struct Configuration: Sendable {
         public var maxConcurrentFiles = 6
-        public var chunkLargeFiles = true
+        public var chunkLargeFiles = false
         public var chunkedDownloadThreshold: Int64 = 96 * 1024 * 1024
         public var chunkTargetSize: Int64 = 64 * 1024 * 1024
         public var maxDownloadRetries = 3
@@ -41,6 +41,7 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
         case fileDownloadFailed(path: String, underlying: Error)
         case integrityCheckFailed(path: String, reason: String)
         case rangeUnsupported(path: String)
+        case chunkAssemblyFailed(path: String, reason: String)
         case invalidRemotePath(String)
         case invalidLocalDestination(String)
         case apiError(String)
@@ -57,6 +58,8 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
                 return "Downloaded file failed integrity checks for \(path): \(reason)"
             case .rangeUnsupported(let path):
                 return "Server did not honor the byte-range request for \(path); retrying as a single stream"
+            case .chunkAssemblyFailed(let path, let reason):
+                return "Failed to assemble byte-range chunk for \(path): \(reason)"
             case .invalidRemotePath(let path):
                 return "Rejected unsafe remote path: \(path)"
             case .invalidLocalDestination(let path):
@@ -225,13 +228,15 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
             destination: URL,
             continuation: CheckedContinuation<DownloadedTemporaryFile, Error>,
             resumeDataURL: URL?,
-            fileIndex: Int
+            fileIndex: Int,
+            existingBytes: Int64 = 0
         ) {
             let taskID = task.taskIdentifier
             activeCancellations[taskID] = TaskCancellationBox(task: task, resumeDataURL: resumeDataURL)
             continuations[taskID] = continuation
             destinations[taskID] = destination
             taskFileIndex[taskID] = fileIndex
+            taskBytes[taskID] = existingBytes
         }
 
         func requestCancellation() {
@@ -397,17 +402,29 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
         }
 
         /// Stream the contents of `tempURL` into the partial at absolute byte `offset`.
+        /// Validates that the number of bytes written matches the temp file's size so a
+        /// truncated or corrupted chunk doesn't silently leave a hole in the partial.
         func writeChunk(tempURL: URL, offset: Int64) throws {
             guard let writeHandle else { return }
+            let attributes = try FileManager.default.attributesOfItem(atPath: tempURL.path)
+            let expectedBytes = Int64(attributes[.size] as? Int64 ?? 0)
             try writeHandle.seek(toOffset: UInt64(offset))
             let readHandle = try FileHandle(forReadingFrom: tempURL)
             defer { try? readHandle.close() }
+            var bytesWritten: Int64 = 0
             while autoreleasepool(invoking: {
                 let data = readHandle.readData(ofLength: 1_048_576)
                 guard !data.isEmpty else { return false }
                 writeHandle.write(data)
+                bytesWritten += Int64(data.count)
                 return true
             }) {}
+            guard bytesWritten == expectedBytes else {
+                throw DownloadError.chunkAssemblyFailed(
+                    path: tempURL.path,
+                    reason: "expected \(expectedBytes) bytes, wrote \(bytesWritten)"
+                )
+            }
         }
 
         func close() {
@@ -605,7 +622,7 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
         } else {
             let copy = sessionConfiguration.copy() as? URLSessionConfiguration ?? .default
             copy.timeoutIntervalForResource = 3600
-            copy.httpMaximumConnectionsPerHost = engineConfiguration.maxConcurrentFiles
+            copy.httpMaximumConnectionsPerHost = 4
             config = copy
         }
         session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
@@ -715,11 +732,10 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
         }
     }
 
-    /// Cancel all in-flight downloads.
-    public func cancel() {
-        Task {
-            await state.requestCancellation()
-        }
+    /// Cancel all in-flight downloads. Await before deleting staging so delegate callbacks
+    /// don't race against a removed directory.
+    public func cancel() async {
+        await state.requestCancellation()
     }
 
     // MARK: - Private: List Files
@@ -948,6 +964,15 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
                         avoidChunking = true
                         try? fileManager.removeItem(at: partialURL)
                     }
+                    // Any chunk-related failure (integrity mismatch or assembly error) is not
+                    // a simple transient network error; retry as a single stream instead.
+                    if case .integrityCheckFailed = dlError {
+                        avoidChunking = true
+                    }
+                    if case .chunkAssemblyFailed = dlError {
+                        avoidChunking = true
+                        try? fileManager.removeItem(at: partialURL)
+                    }
                 }
 
                 attempt += 1
@@ -1158,7 +1183,8 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
                             destination: url,
                             continuation: continuation,
                             resumeDataURL: resumeDataURL,
-                            fileIndex: fileIndex
+                            fileIndex: fileIndex,
+                            existingBytes: existingBytes
                         )
                         task.resume()
                     }
@@ -1177,7 +1203,8 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate, 
                     destination: url,
                     continuation: continuation,
                     resumeDataURL: resumeDataURL,
-                    fileIndex: fileIndex
+                    fileIndex: fileIndex,
+                    existingBytes: existingBytes
                 )
                 task.resume()
             }

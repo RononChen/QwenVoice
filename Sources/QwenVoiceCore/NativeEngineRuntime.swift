@@ -375,9 +375,8 @@ actor NativeEngineRuntime {
         // Propagate to the load coordinator so its cache/tokenizer/model-load marks
         // share this recorder, and carry it to the session (same start clock as its
         // memory sampler). Nil — and therefore zero overhead — when telemetry is off.
-        let telemetryClock = NativeTelemetryClock()
         let telemetryRecorder: NativeTelemetryRecorder? = TelemetryGate.resolvedEnabled
-            ? NativeTelemetryRecorder(clock: telemetryClock)
+            ? NativeTelemetryRecorder(clock: NativeTelemetryClock())
             : nil
         self.telemetryRecorder = telemetryRecorder
         await loadCoordinator.setTelemetryRecorder(telemetryRecorder)
@@ -959,24 +958,33 @@ actor NativeEngineRuntime {
         }
 
         let waiterID = UUID()
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                guard !Task.isCancelled else {
-                    continuation.resume(throwing: CancellationError())
-                    return
-                }
-                prewarmWaiters.append(PrewarmWaiter(id: waiterID, continuation: continuation))
-            }
-        } onCancel: {
-            Task { await self.cancelPrewarmWaiter(id: waiterID) }
-        }
-
+        var slotAcquired = false
         do {
-            try Task.checkCancellation()
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                    guard !Task.isCancelled else {
+                        continuation.resume(throwing: CancellationError())
+                        return
+                    }
+                    prewarmWaiters.append(PrewarmWaiter(id: waiterID, continuation: continuation))
+                }
+                // If we reach this point the continuation was resumed normally by
+                // releasePrewarmSlot(), so the slot has been transferred to us.
+                slotAcquired = true
+            } onCancel: {
+                Task { await self.cancelPrewarmWaiter(id: waiterID) }
+            }
         } catch {
-            releasePrewarmSlot()
+            // Only release the slot if it was actually transferred to us. If we
+            // were cancelled while still queued, cancelPrewarmWaiter removed us
+            // and the slot is still owned by the current prewarm body.
+            if slotAcquired {
+                releasePrewarmSlot()
+            }
             throw error
         }
+
+        try Task.checkCancellation()
         return waitStartedAt.elapsedMilliseconds
     }
 

@@ -262,7 +262,7 @@ struct IOSCustomVoiceView: View {
             onInstallModel: { selectedTab = .settings },
             onPlayerDismiss: { coordinator.dismissInlinePlayer() },
             onPlayerExpand: expandInlinePlayer,
-            onBatch: presentBatch
+            onBatch: nil  // Batch generation is disabled on iOS (P0 bug: unsupported by native engine).
         )
         .opacity(chromeOpacity)
         .iosAppAnimation(IOSSelectionMotion.modeCrossfade, value: isGenerationActive)
@@ -903,7 +903,7 @@ struct IOSVoiceDesignView: View {
             onPlayerDismiss: { coordinator.dismissInlinePlayer() },
             onPlayerExpand: expandInlinePlayer,
             onSaveAsVoice: canSaveVoice ? { presentSaveDesignedVoice() } : nil,
-            onBatch: presentBatch
+            onBatch: nil  // Batch generation is disabled on iOS (P0 bug: unsupported by native engine).
         )
         .opacity(chromeOpacity)
         .iosAppAnimation(IOSSelectionMotion.modeCrossfade, value: isGenerationActive)

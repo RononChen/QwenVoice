@@ -124,9 +124,9 @@ final class ModelManagerViewModel {
     private var recommendedSetupTask: Task<Void, Never>?
     private var lastFailureMessages: [String: String] = [:]
     /// Maximum number of models downloaded at the same time. Each model runs its own
-    /// downloader/URLSession (6 concurrent files), so this bounds the total bandwidth
+    /// downloader/URLSession (4 concurrent files), so this bounds the total bandwidth
     /// and parallelism across simultaneous downloads.
-    private static let maxConcurrentModelDownloads = 3
+    private static let maxConcurrentModelDownloads = 2
     /// Model IDs whose download is actively running (has an in-flight URLSession).
     private var inflightModelDownloads = Set<String>()
     /// Models waiting for a download slot, in launch order.
@@ -476,8 +476,11 @@ final class ModelManagerViewModel {
     func cancelRecommendedSetup() {
         recommendedSetupTask?.cancel()
         // Several candidates can be in flight at once; cancel (discard) them all.
-        for model in recommendedSetupCandidates() {
-            cancelDownload(model)
+        let candidates = recommendedSetupCandidates()
+        Task { [weak self] in
+            for model in candidates {
+                await self?.cancelDownload(model)
+            }
         }
         recommendedSetupTask = nil
         recommendedSetupProgress = nil
@@ -571,10 +574,14 @@ final class ModelManagerViewModel {
         let modelsDirectory = self.modelsDirectory
 
         // Clear any stale downloader/task for this model before starting fresh.
-        downloaders[modelID]?.cancel()
-        downloaders.removeValue(forKey: modelID)
+        // The stale cancel is fire-and-forget here because no staging deletion follows it;
+        // the new download will recreate staging if needed.
+        let staleDownloader = downloaders.removeValue(forKey: modelID)
         downloadTasks[modelID]?.cancel()
         downloadTasks.removeValue(forKey: modelID)
+        if let staleDownloader {
+            Task { await staleDownloader.cancel() }
+        }
 
         try? fileManager.createDirectory(at: modelsDirectory, withIntermediateDirectories: true)
         removeInstallMetadata(for: model)
@@ -641,30 +648,31 @@ final class ModelManagerViewModel {
     }
 
     /// Stop the in-flight download for `modelID` and clear its tracking, without changing
-    /// the model's status. Shared by cancel + delete.
-    private func stopAndClear(for modelID: String) {
+    /// the model's status. Shared by cancel + delete. Awaits the downloader's cancellation
+    /// so callers can safely delete staging afterwards.
+    private func stopAndClear(for modelID: String) async {
         _ = beginEpoch(for: modelID)
         pendingModelDownloads.removeAll { $0.id == modelID }
-        downloaders[modelID]?.cancel()
-        downloaders.removeValue(forKey: modelID)
+        let downloader = downloaders.removeValue(forKey: modelID)
         downloadTasks[modelID]?.cancel()
         downloadTasks.removeValue(forKey: modelID)
         inflightModelDownloads.remove(modelID)
         lastProgressPublishTimes.removeValue(forKey: modelID)
+        if let downloader {
+            await downloader.cancel()
+        }
     }
 
     /// Cancel an in-flight download and discard its staged partial so the next download
     /// starts fresh from zero (a true cancel — no paused state, no silent resume).
-    func cancelDownload(_ model: TTSModel) {
-        stopAndClear(for: model.id)
+    func cancelDownload(_ model: TTSModel) async {
+        await stopAndClear(for: model.id)
         HuggingFaceDownloader.discardStaging(forTargetDirectory: model.installDirectory(in: modelsDirectory))
-        Task {
-            await handleMutationCompletion(for: model.id)
-        }
+        await handleMutationCompletion(for: model.id)
     }
 
-    func delete(_ model: TTSModel) {
-        stopAndClear(for: model.id)
+    func delete(_ model: TTSModel) async {
+        await stopAndClear(for: model.id)
 
         let modelDir = model.installDirectory(in: modelsDirectory)
         try? fileManager.removeItem(at: modelDir)

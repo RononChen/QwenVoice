@@ -50,22 +50,20 @@ struct IOSInFlightDownloadsDocument: Codable, Sendable {
     let downloads: [IOSInFlightDownloadRecord]
 }
 
-/// Drives the shared `HuggingFaceDownloader` engine for iOS model downloads over a **foreground**
-/// URLSession (full speed; Apple throttles background sessions). Apple-aligned stable profile
-/// (per WWDC23 "Build robust and resumable file transfers"): **one native `downloadTask` per file**
-/// (byte-range chunking OFF — manual chunking caused uneven throughput) + the model's files
-/// downloading concurrently (`maxConcurrentFiles = 6`) for speed, and **one model at a time**
-/// (`maxConcurrentModels = 1`; a second request queues). Cancelling discards the partial (no
-/// resume). The download only progresses while the app is foreground (a foreground URLSession
-/// suspends on backgrounding); the engine resumes from on-disk partials when the app returns or
-/// on next launch (see the in-flight records). Preserves the `IOSModelDeliverySnapshot` contract
-/// the view model consumes. macOS/CLI keep byte-range ON (fast there); iOS trades that for
-/// stability.
+/// Drives the shared `HuggingFaceDownloader` engine for iOS model downloads over a **background**
+/// URLSession so large model downloads survive app backgrounding and device locking. Profile:
+/// **one native `downloadTask` per file** (byte-range chunking OFF — manual chunking caused uneven
+/// throughput) + the model's files downloading concurrently (`maxConcurrentFiles = 6`) for speed,
+/// and **one model at a time** (`maxConcurrentModels = 1`; a second request queues). Cancelling
+/// discards the partial (no resume). On app relaunch, in-flight records let the coordinator
+/// reattach to the same background-session identifier and resume from on-disk partials. Preserves
+/// the `IOSModelDeliverySnapshot` contract the view model consumes. macOS/CLI keep byte-range ON
+/// (fast there); iOS trades that for stability/background survivability.
 ///
 /// The `backgroundSessionIdentifier` / `IOSModelDeliveryBackgroundEventRelay` /
-/// `backgroundSessionCompletionHandler` plumbing is **dormant** under this foreground profile
-/// (kept for a potential future background-mode opt-in / cleanup) — a foreground session never
-/// triggers `urlSessionDidFinishEvents` / `handleEventsForBackgroundURLSession`.
+/// `backgroundSessionCompletionHandler` plumbing is active: `HuggingFaceDownloader` forwards
+/// `urlSessionDidFinishEvents(forBackgroundURLSession:)` so the app delegate's system completion
+/// handler is always called.
 @MainActor
 final class IOSModelDownloadCoordinator {
     struct InFlightDownload {
@@ -73,7 +71,7 @@ final class IOSModelDownloadCoordinator {
         let downloader: HuggingFaceDownloader   // retained for the download's lifetime
         let task: Task<Void, Never>
         let targetDir: URL
-        /// Dormant under the foreground profile (no background session to identify).
+        /// Background session identifier used to reattach after app relaunch.
         let backgroundSessionIdentifier: String
         let totalBytes: Int64
         let operationGeneration: UInt64
@@ -145,7 +143,7 @@ final class IOSModelDownloadCoordinator {
         }
         guard let active = inflight[modelID] else { return }
         let terminalGeneration = endOperation()
-        active.downloader.cancel()
+        await active.downloader.cancel()
         active.task.cancel()
         HuggingFaceDownloader.discardStaging(forTargetDirectory: active.targetDir)
         inflight.removeValue(forKey: modelID)
@@ -186,9 +184,9 @@ final class IOSModelDownloadCoordinator {
         ))
     }
 
-    /// On app launch: resume any downloads that were in flight when the app was killed. The
-    /// foreground URLSession doesn't survive a kill, but the on-disk partials let each file
-    /// Range-resume; records beyond the concurrency cap are re-queued.
+    /// On app launch: resume any downloads that were in flight when the app was killed/backgrounded.
+    /// The background URLSession reattaches by identifier; on-disk partials let each file
+    /// Range-resume. Records beyond the concurrency cap are re-queued.
     func restoreInFlightDownloadsIfNeeded() async {
         let records = loadInFlightRecords()
         var activeSessionIDs = Set<String>()
@@ -223,7 +221,8 @@ final class IOSModelDownloadCoordinator {
             let generation = beginOperation()
             let downloader = makeDownloader(
                 modelID: record.modelID, totalBytes: record.totalBytes,
-                estimatedBytes: descriptor.estimatedDownloadBytes, generation: generation
+                estimatedBytes: descriptor.estimatedDownloadBytes, generation: generation,
+                sessionID: record.backgroundSessionIdentifier
             )
             publish(.init(
                 modelID: record.modelID, phase: .downloading, downloadedBytes: 0,
@@ -237,15 +236,17 @@ final class IOSModelDownloadCoordinator {
                 sessionID: record.backgroundSessionIdentifier
             )
         }
-        // Flush orphan completion handlers for sessions we did NOT reattach. (Dormant under the
-        // foreground profile, but harmless.)
+        // Flush orphan completion handlers for sessions we did NOT reattach.
         IOSModelDeliveryBackgroundEventRelay.completeOrphans(keeping: activeSessionIDs)
     }
 
-    /// Flush any pending background completion handler for a session we're not running. (Dormant
-    /// under the foreground profile.)
+    /// Flush any pending background completion handler for a session we're not running, while
+    /// keeping handlers for sessions that have in-flight records (about to be restored) or an
+    /// active downloader.
     func resumeBackgroundEventsIfNeeded() async {
+        let records = loadInFlightRecords()
         let active = Set(inflight.values.map(\.backgroundSessionIdentifier))
+            .union(records.map(\.backgroundSessionIdentifier))
         IOSModelDeliveryBackgroundEventRelay.completeOrphans(keeping: active)
     }
 
@@ -287,11 +288,12 @@ final class IOSModelDownloadCoordinator {
         let repo = model.huggingFaceRepo
         let revision = model.huggingFaceRevision ?? "main"
         let targetDir = model.installDirectory(in: AppPaths.modelsDir)
-        let sessionID = "\(configuration.backgroundSessionIdentifier).\(model.id)"   // dormant
+        let sessionID = "com.qwenvoice.ios.model-download.\(model.id)"
         let generation = beginOperation()
         let downloader = makeDownloader(
             modelID: model.id, totalBytes: totalBytes,
-            estimatedBytes: model.estimatedDownloadBytes, generation: generation
+            estimatedBytes: model.estimatedDownloadBytes, generation: generation,
+            sessionID: sessionID
         )
 
         upsertInFlightRecord(.init(
@@ -414,18 +416,25 @@ final class IOSModelDownloadCoordinator {
         return resolveFiles(entry: entry)
     }
 
-    /// Build the engine with the macOS/CLI profile: foreground URLSession (default), byte-range
-    /// chunking on, 6 concurrent files. The engine's init sets `httpMaximumConnectionsPerHost`
-    /// for foreground sessions. No background-session config (full speed, no throttle).
+    /// Build the engine with the iOS background-session profile: one `URLSession` per model
+    /// (singleton by identifier), byte-range chunking off, 6 concurrent files. The background
+    /// configuration lets downloads continue while the app is backgrounded or the device is locked.
     private func makeDownloader(
         modelID: String,
         totalBytes: Int64,
         estimatedBytes: Int64?,
-        generation: UInt64
+        generation: UInt64,
+        sessionID: String
     ) -> HuggingFaceDownloader {
         var engineConfig = HuggingFaceDownloader.Configuration()
         engineConfig.maxConcurrentFiles = 6          // the model's files download concurrently (6)
         engineConfig.chunkLargeFiles = false         // one native downloadTask per file — stable, even throughput (no chunk tapering)
+
+        let sessionConfig = URLSessionConfiguration.background(withIdentifier: sessionID)
+        sessionConfig.isDiscretionary = false        // user-initiated; do not defer
+        sessionConfig.waitsForConnectivity = true
+        sessionConfig.sessionSendsLaunchEvents = true
+        sessionConfig.httpMaximumConnectionsPerHost = 6
 
         return HuggingFaceDownloader(
             progressHandler: { [weak self] progress in
@@ -436,9 +445,13 @@ final class IOSModelDownloadCoordinator {
                     )
                 }
             },
-            engineConfiguration: engineConfig
-            // sessionConfiguration defaults to .default (foreground) → full speed.
-            // backgroundSessionCompletionHandler omitted: dormant under the foreground profile.
+            sessionConfiguration: sessionConfig,
+            engineConfiguration: engineConfig,
+            backgroundSessionCompletionHandler: { identifier in
+                Task { @MainActor in
+                    IOSModelDeliveryBackgroundEventRelay.complete(forSessionIdentifier: identifier)
+                }
+            }
         )
     }
 

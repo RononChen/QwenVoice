@@ -234,7 +234,9 @@ struct SettingsView: View {
         .alert("Delete Model?", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) { modelToDelete = nil }
             Button("Delete", role: .destructive) {
-                if let model = modelToDelete { viewModel.delete(model) }
+                if let model = modelToDelete {
+                    Task { await viewModel.delete(model) }
+                }
                 modelToDelete = nil
             }
         } message: {
@@ -601,7 +603,7 @@ private struct ActionButton: View {
 
         case .downloading:
             HoverableActionButton(title: "Cancel") {
-                viewModel.cancelDownload(model)
+                Task { await viewModel.cancelDownload(model) }
             }
             .help("Cancel the download (discards partial data)")
             .accessibilityIdentifier("settings_cancel_\(model.id)")

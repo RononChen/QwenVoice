@@ -127,7 +127,7 @@ struct IOSVoiceDesignBriefSheet: View {
                     .padding(.bottom, 10)
 
                 VStack(spacing: 8) {
-                    ForEach(startingPoints, id: \.self) { startingPoint in
+                    ForEach(Array(startingPoints.enumerated()), id: \.element) { index, startingPoint in
                         Button {
                             voiceDescription = startingPoint
                             IOSHaptics.selection()
@@ -153,6 +153,7 @@ struct IOSVoiceDesignBriefSheet: View {
                                 }
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("voiceBrief_starter_\(index)")
                     }
                 }
                 .padding(.horizontal, 20)
