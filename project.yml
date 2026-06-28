@@ -321,7 +321,7 @@ targets:
   VocelloiOS:
     type: application
     platform: iOS
-    # XcodeGen 2.45.4 gotcha (see CLAUDE.md "XcodeGen iOS-resource gotcha" + commit
+    # XcodeGen 2.45.4 gotcha (see .agents/ios-engineer.md "XcodeGen iOS-resource gotcha" + commit
     # 287c969): the bundled resources below MUST be listed under `sources:` with an
     # explicit `buildPhase: resources` override. Listing them under `resources:`
     # silently drops them from the VocelloiOS Resources phase, so iOS builds compile
@@ -360,7 +360,8 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: $(QWENVOICE_DEVELOPMENT_TEAM)
         QVOICE_IOS_APP_GROUP_IDENTIFIER: group.com.patricedery.vocello.shared
-        QVOICE_IOS_APP_ENTITLEMENTS: Sources/iOS/VocelloiOS.entitlements
+        # Override with Sources/iOS/VocelloiOSRelease.entitlements for App Store archive/export.
+        QVOICE_IOS_APP_ENTITLEMENTS: $(QVOICE_IOS_APP_ENTITLEMENTS:Sources/iOS/VocelloiOS.entitlements)
         QVOICE_IOS_DEFAULT_MODEL_CATALOG_URL: "bundle://vocello/ios/catalog/v1/models.json"
         INFOPLIST_KEY_QVoiceModelCatalogURL: $(QVOICE_IOS_DEFAULT_MODEL_CATALOG_URL)
         INFOPLIST_KEY_QVoiceSharedAppGroupIdentifier: $(QVOICE_IOS_APP_GROUP_IDENTIFIER)

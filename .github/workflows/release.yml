@@ -1,7 +1,7 @@
 name: Release
 
 # Single Vocello CI workflow. Scoped to release packaging only, per the
-# carve-out in CLAUDE.md ("Testing policy — important"). No tests, no
+# carve-out in .agents/release-qa-engineer.md ("Testing policy — important"). No tests, no
 # benchmarks, no smoke validation here — those layers stay local-only.
 #
 # Triggers:
@@ -24,9 +24,9 @@ name: Release
 #     (scripts/ios_device.sh + the QVOICE_IOS_AUTORUN harness + the
 #     VocelloiOSUITests smoke; see docs/reference/ios-device-testing.md).
 #     A signed lane still needs the iOS Distribution certificate + an
-#     archive-ios CI job. See CLAUDE.md "Release & iPhone status".
+#     archive-ios CI job. See .agents/release-qa-engineer.md "Release & iPhone status".
 #
-# Toolchain pinning mirrors the local setup documented in CLAUDE.md:
+# Toolchain pinning mirrors the local setup documented in .agents/release-qa-engineer.md:
 #   - Xcode 26.0 (project.yml `xcodeVersion: "26.0"`)
 #   - macOS 26.0 deployment target, Apple Silicon (`arch=arm64`)
 #   - SPM versions inherited from Package.resolved (committed)
@@ -440,7 +440,9 @@ jobs:
           # in ~/.appstoreconnect/private_keys).
           mkdir -p "$RUNNER_TEMP/asc" ~/.appstoreconnect/private_keys
           echo "$ASC_API_KEY_P8" | base64 --decode > "$RUNNER_TEMP/asc/AuthKey_${ASC_API_KEY_ID}.p8"
+          chmod 600 "$RUNNER_TEMP/asc/AuthKey_${ASC_API_KEY_ID}.p8"
           cp "$RUNNER_TEMP/asc/AuthKey_${ASC_API_KEY_ID}.p8" ~/.appstoreconnect/private_keys/
+          chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${ASC_API_KEY_ID}.p8
 
       - name: Inject team id into ExportOptions
         env:
@@ -455,6 +457,8 @@ jobs:
           QWENVOICE_DEVELOPMENT_TEAM: ${{ secrets.QWENVOICE_DEVELOPMENT_TEAM }}
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          # Release entitlements drop get-task-allow, which App Store Connect rejects.
+          QVOICE_IOS_APP_ENTITLEMENTS: Sources/iOS/VocelloiOSRelease.entitlements
         run: |
           set -euo pipefail
           xcodebuild archive \
@@ -465,7 +469,8 @@ jobs:
             -authenticationKeyID "$ASC_API_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_API_ISSUER_ID" \
             -allowProvisioningUpdates \
-            DEVELOPMENT_TEAM="$QWENVOICE_DEVELOPMENT_TEAM" | xcbeautify
+            DEVELOPMENT_TEAM="$QWENVOICE_DEVELOPMENT_TEAM" \
+            QVOICE_IOS_APP_ENTITLEMENTS="$QVOICE_IOS_APP_ENTITLEMENTS" | xcbeautify
 
       - name: Verify archive entitlement + bundled catalog
         # The bundled iOS model catalog must match the contract, and the archived
@@ -480,6 +485,12 @@ jobs:
           codesign -d --entitlements :- "$APP" 2>/dev/null | grep -q "com.apple.developer.kernel.increased-memory-limit" \
             && echo "increased-memory-limit entitlement present" \
             || { echo "::error::archived app missing increased-memory-limit entitlement"; exit 1; }
+          if codesign -d --entitlements :- "$APP" 2>/dev/null | grep -q "com.apple.security.get-task-allow"; then
+            echo "::error::archived app still carries get-task-allow; use VocelloiOSRelease.entitlements for archive"
+            exit 1
+          else
+            echo "get-task-allow absent — release entitlements look correct"
+          fi
 
       - name: Export App Store IPA
         env:
