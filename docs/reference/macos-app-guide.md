@@ -113,7 +113,7 @@ has **both Speed (4-bit) and Quality (8-bit)** variants.
 |---|---|
 | Player bar | `sidebarPlayer_bar` / `sidebarPlayer_playPause` / `sidebarPlayer_waveform` / `sidebarPlayer_time` / `sidebarPlayer_dismiss` |
 | Live badge | `sidebarPlayer_liveBadge` / `sidebarPlayer_liveProgress` |
-| Engine status | `sidebar_backendStatus_idle` / `_starting` / `_active` / `_error` / `_crashed` |
+| Engine status | `sidebar_backendStatus_idle` / `_standby` / `_starting` / `_active` / `_error` / `_crashed` |
 
 ### Batch generation
 

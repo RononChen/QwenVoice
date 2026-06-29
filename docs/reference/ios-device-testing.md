@@ -44,9 +44,12 @@ hardware; git history preserves it).
   `$(QWENVOICE_DEVELOPMENT_TEAM)`. **Never commit the team id.**
 - Optional `export QVOICE_IOS_DEVICE_ID=<id|name|udid>` to pin the target device;
   otherwise the driver auto-discovers the single connected device.
-- The **Speed model must be downloaded on the device once** (Settings → Model
-  Downloads, or just run the app and install it) — the harness loads it; it does not
-  download. A missing model surfaces as a clean sentinel error, not a hang.
+- **Device models (tier-dependent):** the default ui-test gate (`Smoke` + `Sheet` +
+  `OnDeviceDownload`) does **not** require a pre-installed model — Tier A uses the fake
+  backend and `OnDeviceDownload` uninstalls `pro_custom` in `setUp` to exercise the cancel
+  path. **`--cold`**, **`bench`**, and **`profile`** require Custom Voice (Speed) installed
+  once on the iPhone (Settings → Model Downloads). Run `scripts/ios_device.sh models check`
+  for the matrix; the Mac cannot verify App Group files remotely.
 
 The increased-memory entitlement is enabled + verified on the app's App ID (the engine is
 in-process — there is no extension App ID) — see
@@ -89,9 +92,10 @@ on the Mac with the phone locked + screen-dark (OLED-safe). Opt out with `QVOICE
 | `shot [path]` | `screencapture` the macOS iPhone Mirroring window → a real device screenshot (default `build/device-shot.png`). Brings Mirroring frontmost first. |
 | `pull [dest]` | `devicectl device copy from --domain-type appDataContainer --source Library/Caches/Vocello/diagnostics` (the app's pullable mirror — the App-Group container is NOT devicectl-readable). Default dest `build/ios-diagnostics`. |
 | `bench [spec] [--label "note"]` | The full loop: `build → install → launch-with-autorun → poll the sentinel → pull diagnostics → summarize`. Exits non-zero if the generation failed. |
-| `ui-test [--all\|--cold] [target]` | Run `VocelloiOSUITests` on the device (see §2). **Default:** Smoke + Sheet + OnDeviceDownload. `--cold` runs cold generation only (skips when no model). `--all` runs every class (debug). Optional `target` scopes further, e.g. `VocelloiOSUITests/VocelloiOSSheetUITests`. |
-| `preflight` | One-shot readiness check (mirror + device reachable + signing + app + dSYM) + the unlock advisory. Fails fast. |
-| `test [--all\|--cold] [target]` | `ui-test` + a single verdict + artifacts under `build/ios/uitest-artifacts/<run>/`. |
+| `ui-test [--all\|--cold] [target]` | Run `VocelloiOSUITests` on the device (see §2). **Default:** Smoke + Sheet + OnDeviceDownload. `--cold` runs cold generation only (`ui-test` alone: **skips** when Speed model missing). `--all` runs every class (debug). Optional `target` scopes further. |
+| `preflight [--cold]` | One-shot readiness check (mirror + device reachable + signing + app + dSYM) + unlock advisory. `--cold` adds device-model install advisory. |
+| `models` | `models check` — which ui-test/bench tiers need Speed on device (Mac cannot verify App Group files). |
+| `test [--all\|--cold] [target]` | `ui-test` wrapper + verdict artifacts. **`test --cold` fails** if ColdGeneration was skipped for missing Speed model (post-xcresult check). Default gate needs **no** pre-installed model. |
 | `crashes [--test]` | Pull + `xcsym`-symbolicate MetricKit crash/hang diagnostics (see §3). `--test` deliberately crashes to verify the lane. |
 | `debug [spec]` | `get-task-allow` build + attached launch + the LLDB attach command. |
 | `logs [spec]` | Attached launch teeing stdout/stderr → `build/ios-logs/<run>.log`. |
@@ -211,9 +215,10 @@ Run the device-safe UI suite on hardware with **`scripts/ios_device.sh ui-test`*
 
 | Command | Classes | Notes |
 |---------|---------|-------|
-| `scripts/ios_device.sh ui-test` | Smoke, Sheet, OnDeviceDownload | Default (~1–2 min). Smoke + Sheet = Tier A (warm, fake via `VocelloUITestApp`); OnDeviceDownload = Tier B (self-launch, real engine, breaks warm session). |
-| `scripts/ios_device.sh ui-test --cold` | ColdGeneration | Tier B: real generation from cold launch; **skips** when Speed model not installed. |
-| `scripts/ios_device.sh ui-test --all` | All classes | Debug/soak only. Cold gen skips without model. |
+| `scripts/ios_device.sh ui-test` | Smoke, Sheet, OnDeviceDownload | Default (~1–2 min). Tier A fake backend; **OnDeviceDownload uninstalls `pro_custom` in setUp** — do not pre-install for this gate. |
+| `scripts/ios_device.sh ui-test --cold` | ColdGeneration | Tier B: real cold launch; **skips** when Speed model not installed on device. |
+| `scripts/ios_device.sh test --cold` | ColdGeneration (via wrapper) | Same suite as `--cold`, but **fails the run** if ColdGeneration skipped for missing Speed model. |
+| `scripts/ios_device.sh ui-test --all` | All classes | Debug/soak only. Cold gen skips without model unless using `test --cold`. |
 
 **Preflight:** `ui-test` runs `ensure_device_ready` (mirroring up to 60s, devicectl
 reachability, unlock guidance). Retries once on unlock/auth log patterns.

@@ -634,6 +634,12 @@ list files at the pinned revision → stage under `.qwenvoice-downloads/` → ve
 each file's size + **CryptoKit SHA-256** → atomic move → persist a
 `ModelAssetIntegrityManifest.json`. Downloads come from Hugging Face over HTTPS;
 **no cloud inference**. iOS catalog validation: `scripts/check_ios_catalog.sh`.
+Headless install: `vocello models install <id>` (CLI) or the app Settings UI.
+
+**macOS test fixtures:** UI smoke and bench lanes with `QWENVOICE_DEBUG=1` read
+`QwenVoice-Debug/models`; the test driver symlinks that path to the canonical
+`QwenVoice/models` store. See [`reference/testing-runbook.md`](reference/testing-runbook.md) §1b
+and [`scripts/lib/test_models.sh`](../scripts/lib/test_models.sh).
 
 ---
 

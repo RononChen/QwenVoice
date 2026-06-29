@@ -27,6 +27,24 @@ backend-dependent Studio flow (idle → Generate → Generating → inline playe
 surface) runs in seconds with no model. Tier B proves the real cold-launch → model-load →
 generation / download path, and only runs on hardware.
 
+## 1b. Model fixtures (when weights are required)
+
+Real-engine lanes need the **Custom Voice (Speed)** variant (`pro_custom_speed`, ~2.3 GB).
+Download/management tests are the **only** lanes that intentionally remove or re-fetch models.
+
+| Lane | Models required | How to prepare |
+| --- | --- | --- |
+| macOS `test` / `gate` / `profile` | `pro_custom_speed` in **debug** context (`QWENVOICE_DEBUG=1`) | `scripts/macos_test.sh models ensure` (install once to canonical `~/Library/Application Support/QwenVoice/models`, symlink `QwenVoice-Debug/models` → canonical) |
+| macOS ad-hoc `xcodebuild test` | same (tests skip if missing) | `models ensure` before running, or tolerate `XCTSkip` |
+| iOS default `test` / `gate` | **none** (Tier A fake + `OnDeviceDownload` uninstalls in `setUp`) | — |
+| iOS `--cold`, `bench`, `profile` | Speed model **on the device** (App Group) | Install once on iPhone: Settings → Model Downloads |
+| CI Tier A (Simulator) | none | fake backend |
+
+Shared helpers live in [`scripts/lib/test_models.sh`](../../scripts/lib/test_models.sh).
+
+Escape hatches (macOS): `QVOICE_SKIP_MODEL_ENSURE=1` (download UX tests),
+`QVOICE_TEST_MODELS_NO_NETWORK=1` (fail instead of headless `vocello models install`).
+
 ## 2. How the fake backend works
 
 `QVOICE_FAKE_ENGINE=1` (set by the test launch environment, never in production) makes
@@ -62,8 +80,10 @@ needed.
 
 ### macOS UI smoke (local)
 ```sh
-scripts/macos_test.sh test          # build app + XPC, run VocelloMacSmokeUITests
-scripts/macos_test.sh gate          # pre-merge gate
+scripts/macos_test.sh models ensure   # one-time Speed model + debug symlink
+scripts/macos_test.sh models check    # read-only status (debug context)
+scripts/macos_test.sh test            # ensures models, then VocelloMacSmokeUITests
+scripts/macos_test.sh gate            # pre-merge gate (includes model ensure)
 ```
 
 ### iOS Tier A — fake backend (Simulator, local)
@@ -82,10 +102,11 @@ xcodebuild test \
 
 ### iOS Tier B — real engine (paired iPhone, attended)
 ```sh
-scripts/ios_device.sh preflight     # device + signing + app + dSYM readiness
-scripts/ios_device.sh test          # default trio: Smoke + Sheet + OnDeviceDownload
-scripts/ios_device.sh ui-test --cold# ColdGeneration (real model load + generate)
-scripts/ios_device.sh gate          # pre-merge gate (device)
+scripts/ios_device.sh preflight           # device + signing + app + dSYM readiness
+scripts/ios_device.sh models check        # which tiers need device models
+scripts/ios_device.sh test                # default trio: Smoke + Sheet + OnDeviceDownload
+scripts/ios_device.sh test --cold         # ColdGeneration (needs Speed model on device)
+scripts/ios_device.sh gate                # pre-merge gate (device)
 ```
 On device, Smoke/Sheet run against the fake backend (fast); `OnDeviceDownload` / `--cold`
 exercise the real stack. iOS is **on-device only** for real-engine work — never the Simulator.

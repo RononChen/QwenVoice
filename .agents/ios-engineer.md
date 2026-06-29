@@ -38,6 +38,7 @@ Before changing iOS UI or behavior, read:
   (`crash-analyzer`, `performance-profiler`, `test-runner`, `test-debugger`).
 - **Shell tool / scripts** — the only way to build/test/run real-engine iOS work on device:
   - `scripts/ios_device.sh preflight`
+  - `scripts/ios_device.sh models check`
   - `scripts/ios_device.sh test` / `ui-test`
   - `scripts/ios_device.sh profile [spec]`
   - `scripts/ios_device.sh crashes`
@@ -51,9 +52,11 @@ Before changing iOS UI or behavior, read:
 ## Build / test commands
 
 ```sh
-# On-device only. Never use the iOS Simulator.
+# On-device only. Never use the iOS Simulator for Tier B.
 scripts/ios_device.sh preflight
-scripts/ios_device.sh ui-test
+scripts/ios_device.sh models check    # tier matrix: default gate needs no pre-install
+scripts/ios_device.sh ui-test         # default: Smoke + Sheet + OnDeviceDownload
+scripts/ios_device.sh test --cold     # ColdGeneration; fails if Speed model missing on device
 scripts/ios_device.sh gate
 
 # Foundation compile-safety (compile only, no simulator launch)

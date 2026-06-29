@@ -18,17 +18,20 @@ releases that touched UI/engine surfaces. If this doc disagrees with the code, t
    ```
 2. **Automated UI smoke** (always — the permanent `VocelloMacUITests` target):
    ```sh
-   xcodebuild test -project QwenVoice.xcodeproj -scheme QwenVoice \
-     -destination 'platform=macOS,arch=arm64' -derivedDataPath build/DerivedData
+   scripts/macos_test.sh models ensure   # one-time per machine (~2.3 GB Speed; idempotent)
+   scripts/macos_test.sh test            # preferred: ensures models + runs 10 smoke tests
+   # Or the full one-command gate (includes model ensure):
+   scripts/macos_test.sh gate
    ```
-   **10 smoke tests** via `scripts/macos_test.sh test` (or the full `VocelloMacUITests` target
-   — 11 classes including the review tour — via bare `xcodebuild test`): launch/markers,
-   sidebar + Cmd-key navigation, composer typing (strict char-count), a REAL generation
-   through to the player bar (no engine error/crash states), mid-generation cancel,
-   History/Voices/Settings surfaces, enroll + batch sheets. Tests run against the debug
-   data dir (`QWENVOICE_DEBUG=1` in `launchEnvironment`) and skip generation cells gracefully
-   when models aren't installed. Expect **0 failures** (skips acceptable only on model-less
-   machines).
+   **10 smoke tests** in `VocelloMacSmokeUITests` (+1 review tour if bare `xcodebuild test` runs
+   the whole target unscoped): launch/markers, sidebar + Cmd-key navigation, composer typing,
+   REAL generation through to the player bar, mid-generation cancel, History/Voices/Settings,
+   enroll + batch sheets. Tests use the debug data dir (`QWENVOICE_DEBUG=1`). **Script-driven**
+   runs (`macos_test.sh test` / `gate`) set `QVOICE_REQUIRE_TEST_MODELS=1` — missing
+   `pro_custom_speed` in debug context **fails** the run, not `XCTSkip`. Ad-hoc bare
+   `xcodebuild test` without the script may still skip generation tests on model-less machines
+   (legacy/tolerant path only). Expect **0 failures** on the preferred script path after
+   `models ensure`.
 3. **Engine regression net** (when any engine/Sources change since the last green bench):
    ```sh
    QWENVOICE_DEBUG=1 ./build/vocello bench --variants speed --lengths short,medium,long \

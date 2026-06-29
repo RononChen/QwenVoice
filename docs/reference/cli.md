@@ -10,9 +10,12 @@ It serves two roles:
   This replaced computer-use UI-driving for anything scripted.
 
 It links the engine frameworks directly (no XPC), **ships no model weights and no Python**, and runs
-**in place** beside its MLX metallib bundle. It **reuses the models already installed locally by the
-app** (Settings → Model downloads) — the CLI itself does **not** download weights, so `generate`/`bench`
-error if a requested model isn't installed (`vocello models list` shows what's present).
+**in place** beside its MLX metallib bundle. It shares the same on-disk model store as the app
+(`~/Library/Application Support/QwenVoice/models` by default). Install weights via the app
+(Settings → Model downloads) or headlessly with `vocello models install <id>` — the same
+HuggingFace downloader the app uses. `generate`/`bench` fail fast if a requested model isn't
+installed (`vocello models list` / `models status` show what's present). For macOS UI tests and
+bench in debug context, see [`testing-runbook.md`](testing-runbook.md) §1b (`scripts/macos_test.sh models ensure`).
 
 ## Build & run
 
@@ -137,16 +140,21 @@ objective, reference-free delivery-adherence measurement (F0 / speaking-rate / d
 same-seed neutral take). See `scripts/analyze_delivery.py` + the §I.3 writeup in
 [`../../benchmarks/OPTIMIZATION.md`](../../benchmarks/OPTIMIZATION.md).
 
-### `models` — inventory installed/available models (read-only)
+### `models` — inventory and install
 
 ```sh
 vocello models list [--json]
 vocello models status [<id>] [--json]      # adds missing-file detail
+vocello models install <id> [--verbose]    # headless download into the shared models dir
 ```
 
-Shows each model's install state, on-disk size, and (for `status`) any missing required files. No
-download machinery — installing models is done from the app's Settings. Variant-scoped ids
-(`…_speed` / `…_quality`) are what `generate --variant` selects.
+Shows each model's install state, on-disk size, and (for `status`) any missing required files.
+`install` uses the same `HuggingFaceDownloader` as the macOS app — a CLI-installed model is
+immediately usable in the app, and vice versa. Variant-scoped ids (`pro_custom_speed`, `…_quality`)
+are what `generate --variant` selects.
+
+For test/bench lanes with `QWENVOICE_DEBUG=1`, weights live under `QwenVoice-Debug/`; the test
+driver symlinks `QwenVoice-Debug/models` → the canonical store (see [`testing-runbook.md`](testing-runbook.md) §1b).
 
 ### `bench` — drive the perf/quality matrix + aggregate
 
@@ -213,6 +221,7 @@ vocello batch --file lines.txt --mode custom --variant speed --out-dir /tmp/batc
 # Discover what's available (instant — no engine boot)
 vocello speakers list
 vocello models list
+vocello models install pro_custom_speed   # headless; shared with the app
 
 # One-command benchmark: forced 8 GB tier, labelled, append a ledger row
 vocello bench --modes custom --variants speed --lengths short,medium,long --warm 3 \

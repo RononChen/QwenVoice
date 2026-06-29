@@ -69,9 +69,20 @@ enum AppEngineSelection: Equatable {
         }
 
         switch snapshot.loadState {
-        case .idle, .loaded:
+        case .idle:
+            return snapshot.isReady ? .standby : .starting
+        case .loaded:
             return snapshot.isReady ? .idle : .starting
         case .starting:
+            if snapshot.isReady {
+                return .running(
+                    ActivityStatus(
+                        label: "Preparing model…",
+                        fraction: nil,
+                        presentation: prefersInlinePresentation ? .inlinePlayer : .standaloneCard
+                    )
+                )
+            }
             return .starting
         case .running(_, let label, let fraction):
             return .running(

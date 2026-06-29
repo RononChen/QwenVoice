@@ -30,6 +30,8 @@ code wins. These are the invariants that must hold for **every** change:
   changes minimal, and preserve module boundaries.
 - **Commits:** Conventional Commits. Commit + push to `main` once a phase is complete and
   verified (gates green); do not commit secrets or `.env`-style files.
+- **macOS real-engine test fixtures:** `scripts/lib/test_models.sh` + `macos_test.sh models ensure`
+  (details in [`.cursor/rules/testing.mdc`](mdc:.cursor/rules/testing.mdc) and the testing runbook).
 
 Development is **100% in Cursor**: build/run/test via the checked-in `scripts/*.sh` +
 `xcodebuild`. Tests are **never** driven by an agent controlling the screen.

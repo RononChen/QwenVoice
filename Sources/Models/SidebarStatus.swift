@@ -13,6 +13,8 @@ struct ActivityStatus: Equatable {
 
 enum SidebarStatus: Equatable {
     case idle
+    /// XPC is up but no model weights are resident (idle-unload / cold).
+    case standby
     case starting
     case running(ActivityStatus)
     case error(String)

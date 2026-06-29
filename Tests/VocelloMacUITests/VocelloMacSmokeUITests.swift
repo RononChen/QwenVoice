@@ -20,6 +20,9 @@ final class VocelloMacSmokeUITests: XCTestCase {
         installSystemAlertMonitor()
         app = XCUIApplication()
         app.launchEnvironment["QWENVOICE_DEBUG"] = "1"
+        if ProcessInfo.processInfo.environment["QVOICE_REQUIRE_TEST_MODELS"] == "1" {
+            app.launchEnvironment["QVOICE_REQUIRE_TEST_MODELS"] = "1"
+        }
         app.launch()
         XCTAssertTrue(waitFor("mainWindow_ready", timeout: 30), "main window should mount")
     }
@@ -91,6 +94,9 @@ final class VocelloMacSmokeUITests: XCTestCase {
         let generate = element("textInput_generateButton")
         XCTAssertTrue(generate.waitForExistence(timeout: 5), "generate button should exist")
         guard waitForEnabled(generate) else {
+            if requiresTestModels {
+                XCTFail("generate disabled — pro_custom_speed must be installed (scripts/macos_test.sh models ensure)")
+            }
             throw XCTSkip("generate disabled (model not ready in this environment)")
         }
         generate.tap()
@@ -118,6 +124,9 @@ final class VocelloMacSmokeUITests: XCTestCase {
         }
         let generate = element("textInput_generateButton")
         guard generate.waitForExistence(timeout: 5), waitForEnabled(generate) else {
+            if requiresTestModels {
+                XCTFail("generate unavailable — pro_custom_speed must be installed (scripts/macos_test.sh models ensure)")
+            }
             throw XCTSkip("generate unavailable (model not ready)")
         }
         generate.tap()
@@ -185,6 +194,9 @@ final class VocelloMacSmokeUITests: XCTestCase {
 
         let batch = element("textInput_batchButton")
         guard batch.waitForExistence(timeout: 10), batch.isEnabled else {
+            if requiresTestModels {
+                XCTFail("batch unavailable — pro_custom_speed must be installed (scripts/macos_test.sh models ensure)")
+            }
             throw XCTSkip("batch unavailable (model not ready)")
         }
         batch.tap()
@@ -239,8 +251,17 @@ final class VocelloMacSmokeUITests: XCTestCase {
 
     private func skipIfDisabled(_ item: String) throws {
         if disabledSidebarItems().contains(item) {
+            if requiresTestModels {
+                XCTFail("\(item) is disabled — pro_custom_speed must be installed (scripts/macos_test.sh models ensure)")
+            }
             throw XCTSkip("\(item) is disabled in this environment (model not installed)")
         }
+    }
+
+    /// When `scripts/macos_test.sh test` / `gate` exports `QVOICE_REQUIRE_TEST_MODELS=1`,
+    /// missing models fail the run instead of XCTSkip (ad-hoc xcodebuild stays skip-tolerant).
+    private var requiresTestModels: Bool {
+        ProcessInfo.processInfo.environment["QVOICE_REQUIRE_TEST_MODELS"] == "1"
     }
 
     private func activeScreenBecomes(_ item: String, timeout: TimeInterval = 10) -> Bool {

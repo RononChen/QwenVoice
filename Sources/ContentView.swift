@@ -432,7 +432,6 @@ struct ContentView: View {
 
     private func handleEngineSnapshotChange(_ newSnapshot: TTSEngineSnapshot) {
         generationWarmupCoordinator.observe(snapshot: newSnapshot)
-        scheduleGenerationWarmupIfNeeded(for: selectedItem)
         engineLifecycleCoordinator.observe(
             snapshot: newSnapshot,
             hasActiveGeneration: ttsEngineStore.hasActiveGeneration,

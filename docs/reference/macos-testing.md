@@ -20,16 +20,18 @@ app **and** the service.
 - The app built: `scripts/build.sh build` → `build/Vocello.app` (also preserves dSYMs to
   `build/macos/dsyms/`).
 - The XPC service is embedded at `Vocello.app/Contents/XPCServices/QwenVoiceEngineService.xpc`.
-- **The Speed model installed** (one-time ~2.3 GB): `scripts/macos_test.sh models` checks
-  presence + launches the app to install. Generation tests, `vocello bench`, and `profile`
-  require it; the model persists across rebuilds (cleared only by `build.sh clean` /
-  `clean_build_caches.sh --models`).
+- **The Speed model for real-engine lanes** (one-time ~2.3 GB): `scripts/macos_test.sh models ensure`
+  installs headlessly via `vocello models install` into the canonical store and symlinks
+  `QwenVoice-Debug/models` for UI smoke (`QWENVOICE_DEBUG=1`). `test`, `gate`, and `profile`
+  call ensure automatically. Weights persist across rebuilds; only
+  `clean_build_caches.sh --models` wipes the **debug** cache (shipped `QwenVoice/models` is kept).
 
 ## Lane → tool map
 
 | Lane | Verb | Captures / proves | Deeper analysis |
 |------|------|-------------------|-----------------|
-| Preflight | `preflight` | Xcode + app + XPC bundle + dSYMs | — |
+| Preflight | `preflight [--strict-models]` | Xcode + app + XPC bundle + dSYMs + model status | — |
+| Models | `models check\|ensure\|install` | canonical + debug fixture for `pro_custom_speed` | — |
 | Test | `test` | `VocelloMacSmokeUITests` only (**10** smoke tests) | `axiom:test-runner` on the `.xcresult` |
 | Bench | `build.sh cli bench` | deterministic perf/quality matrix | `summarize_generation_telemetry.py` |
 | Crash | `crashes [--test]` | `.ips` for app + XPC service | `axiom:crash-analyzer` / `xcsym` vs the dSYMs |
@@ -37,7 +39,7 @@ app **and** the service.
 | Profile | `profile [spec]` | xctrace/Instruments on the engine (CLI in-process) | `axiom:performance-profiler` / `xcprof` |
 | Review | `review [--baseline]` | sidebar-screen screenshot tour | `screenshot-validator` subagent / manual diff vs `docs/macos-review-baselines/` |
 | XPC | `xpc [--crash-isolation]` | retirement/relaunch + crash isolation | — |
-| Gate | `gate` | preflight → build → test → crashes → verdict | — |
+| Gate | `gate` | models → inputs → build_foundation → test → crashes → verdict | — |
 
 ## Crashes
 
@@ -119,19 +121,20 @@ scriptable parts. Event-stream gaps are recorded by the service to
 ## Gate
 
 ```sh
-scripts/macos_test.sh gate    # check_project_inputs → build_foundation macos → test → crashes → verdict
+scripts/macos_test.sh gate    # models → check_project_inputs → build_foundation macos → test → crashes
 ```
 
-A single PASS/FAIL verdict + per-step logs under `build/macos/gate-<run>/`. Deeper dives
-(bench/profile/review/xpc) are separate verbs, not part of the every-merge gate.
-
-## Verification ladder
+Steps: (1) `ensure_mac_test_models`, (2) `check_project_inputs`, (3) `build_foundation_targets macos`,
+(4) `VocelloMacSmokeUITests` via `test` (re-ensures models + `QVOICE_REQUIRE_TEST_MODELS=1`),
+(5) post-run crash check. Does **not** call the `preflight` verb. A single PASS/FAIL verdict +
+per-step logs under `build/macos/gate-<run>/`. Deeper dives (bench/profile/review/xpc) are separate
+verbs, not part of the every-merge gate.
 
 | Level | Command | Proves |
 |-------|---------|--------|
 | Compile | `scripts/build_foundation_targets.sh macos` | the app + frameworks compile |
 | Compile (test) | `xcodebuild build-for-testing -scheme QwenVoice -destination 'platform=macOS,arch=arm64'` | the test bundle compiles |
-| UI smoke | `scripts/macos_test.sh test` | 10 smoke tests (launch, navigate, generate, cancel, history, voices, settings, batch) |
+| UI smoke | `scripts/macos_test.sh test` | 10 smoke tests (+1 review tour if bare `xcodebuild test` runs the whole target) |
 | UI review | `scripts/macos_test.sh review` | sidebar-screen tour vs baselines |
 | Perf/quality | `scripts/build.sh cli bench --modes … --variants … --lengths …` | RTF/decode/audioQC + telemetry |
 | Crash | `scripts/macos_test.sh crashes` | .ips collection + symbolication |

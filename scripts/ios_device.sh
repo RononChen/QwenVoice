@@ -33,7 +33,8 @@
 #   scripts/ios_device.sh debug [spec]             # attached launch + LLDB attach guidance (get-task-allow build)
 #   scripts/ios_device.sh logs [spec]              # attached launch teeing stdout → build/ios-logs/<run>.log
 #   scripts/ios_device.sh profile [spec]           # Instruments/xctrace trace of an autorun generation (burn-in-safe)
-#   scripts/ios_device.sh preflight                # one-shot readiness (mirror+device+signing+app+dSYM; unlock advisory)
+#   scripts/ios_device.sh preflight [--cold]       # readiness (+ cold-model advisory)
+#   scripts/ios_device.sh models check             # which tiers need device models
 #   scripts/ios_device.sh test [--all|--cold] [only] # ui-test + single verdict + build/ios/uitest-artifacts/
 #   scripts/ios_device.sh review [--baseline]        # on-device UI capture tour + baseline diff (burn-in-aware)
 #   scripts/ios_device.sh gate                 # pre-merge gate: preflight → test → crashes → verdict
@@ -462,6 +463,7 @@ cmd_pull() {
 
 cmd_bench() {
   require_team
+  note "bench requires Custom Voice (Speed) on device — install once via Settings → Model Downloads if autorun fails (see: $0 models check)"
   local spec="custom:speed:" label=""
   # parse: first non-flag arg = spec; --label "note"; --sim-device <profile>
   while [[ $# -gt 0 ]]; do
@@ -852,6 +854,13 @@ cmd_profile() {
 # for ui-test up front instead of guessing.
 cmd_preflight() {
   local rc=0
+  local cold=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --cold) cold=1; shift ;;
+      *) die "unknown preflight flag: $1 (try --cold)" ;;
+    esac
+  done
   note "on-device preflight"
   ensure_mirror 60
 
@@ -899,7 +908,38 @@ PY
   fi
 
   note "unlock advisory: ui-test needs the iPhone UNLOCKED once (automation auth handshake); bench/launch/profile/crashes/logs work locked."
+  if (( cold == 1 )); then
+    note "cold generation requires Custom Voice (Speed) on the device (Settings → Model Downloads, one-time ~2.3 GB)."
+    note "The Mac cannot inspect App Group model files — install on device; bench/autorun fails cleanly if missing."
+  fi
   (( rc == 0 )) && note "preflight OK" || die "preflight not ready (see above)"
+}
+
+cmd_models() {
+  local sub="${1:-check}"
+  shift || true
+  case "$sub" in
+    check|help|-h|--help)
+      note "iOS models live in the App Group on the paired iPhone — not on this Mac."
+      note "Default ui-test (Smoke + Sheet + OnDeviceDownload): no pre-install required."
+      note "  Tier A uses QVOICE_FAKE_ENGINE=1; OnDeviceDownload uninstalls pro_custom in setUp."
+      note "Cold generation (--cold), bench, and profile need Custom Voice (Speed) on device:"
+      note "  Vocello iOS → Settings → Model Downloads (one-time ~2.3 GB)."
+      ;;
+    *)
+      die "unknown models subcommand '$sub' (try: check)"
+      ;;
+  esac
+}
+
+# Fail when ColdGeneration was skipped because the Speed model is missing on device.
+_ios_check_cold_generation_model_skip() {
+  local xcresult="$1"
+  [[ -n "$xcresult" && -d "$xcresult" ]] || return 1
+  local json
+  json="$(xcrun xcresulttool get test-results tests --format json --path "$xcresult" 2>/dev/null || true)"
+  [[ -n "$json" ]] || return 1
+  printf '%s' "$json" | grep -q "Speed model not installed"
 }
 
 # test [--all|--cold] [only]: run VocelloiOSUITests on-device and emit a single verdict +
@@ -912,10 +952,20 @@ cmd_test() {
   local run_id="ios-test-$(date +%Y%m%d-%H%M%S)"
   local artifacts="$ROOT_DIR/build/ios/uitest-artifacts/$run_id"
   mkdir -p "$artifacts"
+  local cold=0
+  local -a ui_args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --cold) cold=1; ui_args+=("$1"); shift ;;
+      --all) ui_args+=("$1"); shift ;;
+      -*) die "unknown test flag: $1" ;;
+      *) ui_args+=("$1"); shift ;;
+    esac
+  done
 
   # Subshell: cmd_ui_test's `die` (exit) must not kill this function before we parse.
   set +e
-  ( cmd_ui_test "$@" )
+  ( cmd_ui_test "${ui_args[@]}" )
   local st=$?
   set -e
 
@@ -929,6 +979,10 @@ cmd_test() {
     fi
   } >"$artifacts/verdict.json"
   cat "$artifacts/verdict.json" >&2
+
+  if (( cold == 1 )) && _ios_check_cold_generation_model_skip "$xcresult"; then
+    die "ColdGeneration skipped — install Custom Voice (Speed) on device once (Settings → Model Downloads). See: $0 models check"
+  fi
 
   local shots="$DERIVED/uitest-screenshots"
   [[ -d "$shots" ]] && cp -R "$shots" "$artifacts/screenshots" 2>/dev/null || true
@@ -1072,9 +1126,10 @@ main() {
     test)      cmd_test "$@" ;;
     review)    cmd_review "$@" ;;
     gate)      cmd_gate "$@" ;;
+    models)    cmd_models "$@" ;;
     help|-h|--help)
       sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' >&2 ;;
-    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|mirror|shot|pull|bench|ui-test|crashes|debug|logs|profile|preflight|test|review|gate|help)" ;;
+    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|mirror|shot|pull|bench|ui-test|crashes|debug|logs|profile|preflight|test|review|gate|models|help)" ;;
   esac
 }
 

@@ -32,11 +32,14 @@ struct VoiceDesignView: View {
     }
 
     private var canGenerate: Bool {
-        ttsEngineStore.isReady
-            && isModelAvailable
-            && draft.hasText
-            && draft.hasVoiceDescription
-            && !ttsEngineStore.hasActiveGeneration
+        GenerationEnginePresentation.allowsGenerationStart(
+            snapshot: ttsEngineStore.snapshot,
+            activeModelID: activeModel?.id,
+            isModelAvailable: isModelAvailable,
+            hasScriptContent: draft.hasText && draft.hasVoiceDescription,
+            isUserGenerating: coordinator.isGenerating,
+            hasActiveGeneration: ttsEngineStore.hasActiveGeneration
+        )
     }
 
     private var canRunBatch: Bool {
@@ -304,7 +307,17 @@ private extension VoiceDesignView {
         if !draft.hasText {
             return "The generated voice uses this brief and delivery once a line is written."
         }
-        return "Ready to generate and save."
+        switch GenerationEnginePresentation.modelWarmPath(
+            snapshot: ttsEngineStore.snapshot,
+            activeModelID: activeModel?.id
+        ) {
+        case .modelCold:
+            return GenerationEnginePresentation.coldStartDetail()
+        case .modelWarming, .modelActivePrep:
+            return "Preparing Voice Design. You can generate now; preparation finishes in the background."
+        default:
+            return "Ready to generate and save."
+        }
     }
 
     var composerFooter: some View {

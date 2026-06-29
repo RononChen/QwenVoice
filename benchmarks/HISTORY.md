@@ -48,3 +48,9 @@ reference ledger, not an auto-compared baseline gate.
 | 2026-06-16 | 0e7d6dd | custom/pro_custom_quality/warm/medium | 0.82 | 10.26 | - | 5155 | 0 | pass | P4 native 8GB full matrix | - |
 | 2026-06-16 | 45720dd | custom/pro_custom_speed/warm/medium | 1.01 | 12.58 | - | 2456 | 0 | pass | streaming-default speed matrix | - |
 | 2026-06-16 | 45720dd | custom/pro_custom_quality/warm/medium | 0.83 | 10.37 | - | 3594 | 0 | pass | streaming-default + custom quality | - |
+| 2026-06-29 | 8a4205a | custom/pro_custom_speed/warm/medium | 1.03 | 12.91 | - | 2536 | 0 | pass | perf-inv HEAD -Onone debug | - |
+| 2026-06-29 | 8a4205a | custom/pro_custom_speed/warm/medium | 1.04 | 13.00 | - | 2850 | 0 | pass | perf-inv HEAD -Onone nodebug | - |
+| 2026-06-29 | 8a4205a | custom/pro_custom_speed/warm/medium | 1.72 | 21.49 | - | 2857 | 0 | pass | perf-inv HEAD -O debug | - |
+| 2026-06-29 | 8a4205a | custom/pro_custom_speed/warm/medium | 1.70 | 21.22 | - | 2860 | 0 | pass | perf-inv HEAD -O nodebug | - |
+| 2026-06-29 | c60dd08 | custom/pro_custom_speed/warm/medium | 0.97 | 12.15 | - | 4237 | 0 | pass | perf-inv v2.1.0 -Onone debug | - |
+| 2026-06-29 | c60dd08 | custom/pro_custom_speed/warm/medium | 1.67 | 20.90 | - | 4288 | 0 | pass | perf-inv v2.1.0 -O debug | - |

@@ -158,7 +158,9 @@ Useful checks:
 ./scripts/check_project_inputs.sh
 ./scripts/build_foundation_targets.sh macos
 ./scripts/build_foundation_targets.sh ios
-./scripts/ios_device.sh ui-test   # on-device iOS UI-flow smoke (requires paired iPhone)
+scripts/macos_test.sh models ensure   # one-time Speed model for macOS UI/bench tests
+scripts/macos_test.sh test            # macOS UI smoke (10 tests, real generation)
+scripts/ios_device.sh ui-test         # on-device iOS UI-flow smoke (requires paired iPhone)
 ```
 
 More technical detail:
@@ -170,7 +172,7 @@ More technical detail:
 
 ## Command-line tool (`vocello`)
 
-Vocello ships a headless command-line tool, `vocello`, built from source alongside the app (it is not part of the app download). It drives the same local Swift + MLX engine in-process — no Python, no bundled weights — and serves two roles: scriptable local generation from the terminal, and the deterministic driver for the perf/quality benchmarks. It uses the models you install in the app (Settings → Model downloads); the CLI itself does not download weights.
+Vocello ships a headless command-line tool, `vocello`, built from source alongside the app (it is not part of the app download). It drives the same local Swift + MLX engine in-process — no Python, no bundled weights — and serves two roles: scriptable local generation from the terminal, and the deterministic driver for the perf/quality benchmarks. Models install via the app (Settings → Model downloads) or `vocello models install <id>` into the shared `~/Library/Application Support/QwenVoice/models` store. For macOS test fixtures (debug symlink), run `scripts/macos_test.sh models ensure` once.
 
 ```sh
 ./scripts/build.sh cli                 # build build/vocello
@@ -184,7 +186,7 @@ build/vocello <command> [options]      # run it (runs in place)
 | `batch` | Synthesize many clips from a file with a single model load. |
 | `voices` | List, enroll, or delete saved clone voices. |
 | `speakers` | List the built-in Custom Voice speakers. |
-| `models` | Inventory installed/available models (state, size). |
+| `models` | List/status/install models (`models install <id>` for headless download). |
 | `bench` | Drive the perf/quality matrix and aggregate the results. |
 
 ```sh
@@ -193,8 +195,11 @@ build/vocello custom --variant speed --text "The train left at dawn."
 echo "Hello there." | build/vocello generate --variant speed --stream --json
 
 # Discover modes/speakers/models, then bulk synth (one model load)
+# Discover modes/speakers/models, then bulk synth (one model load)
 build/vocello modes
 build/vocello speakers list
+build/vocello models list
+build/vocello models install pro_custom_speed   # optional; or use the app / macos_test.sh models ensure
 build/vocello batch --file lines.txt --mode custom --variant speed --out-dir /tmp/batch
 ```
 

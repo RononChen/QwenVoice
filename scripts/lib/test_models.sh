@@ -1,0 +1,230 @@
+# Shared model preflight for macOS test/bench lanes.
+#
+# Canonical weights live under ~/Library/Application Support/QwenVoice/models
+# (survives rebuilds; clean_build_caches.sh --models only wipes the debug cache).
+# Lanes that use QWENVOICE_DEBUG=1 read QwenVoice-Debug/models — we symlink that to
+# the canonical store when the debug side is missing or empty.
+#
+# Usage (from a lane driver):
+#
+#   ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+#   . "$ROOT_DIR/scripts/lib/test_models.sh"
+#   test_models_init "$ROOT_DIR"
+#
+# Escape hatches:
+#   QVOICE_SKIP_MODEL_ENSURE=1       — skip ensure_mac_test_models (download UX tests)
+#   QVOICE_TEST_MODELS_NO_NETWORK=1  — fail instead of vocello models install
+
+# shellcheck shell=bash
+
+# Default variant ids required for macOS smoke / bench / profile.
+MAC_TEST_REQUIRED_MODEL_IDS=(pro_custom_speed)
+
+_test_models_app_support_base() {
+  echo "${HOME}/Library/Application Support"
+}
+
+canonical_models_dir() {
+  echo "$(_test_models_app_support_base)/QwenVoice/models"
+}
+
+debug_models_dir() {
+  echo "$(_test_models_app_support_base)/QwenVoice-Debug/models"
+}
+
+# Caller must invoke once before other helpers.
+test_models_init() {
+  TEST_MODELS_ROOT_DIR="${1:?test_models_init: root dir required}"
+  TEST_MODELS_SCRIPT_DIR="${TEST_MODELS_ROOT_DIR}/scripts"
+  TEST_MODELS_VOCELLO="${TEST_MODELS_ROOT_DIR}/build/vocello"
+}
+
+_test_models_note() { printf '\033[0;36m==>\033[0m %s\n' "$*" >&2; }
+_test_models_warn() { printf '\033[0;33m[warn]\033[0m %s\n' "$*" >&2; }
+_test_models_die()  { printf '\033[0;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
+
+ensure_vocello_cli() {
+  [[ -n "${TEST_MODELS_ROOT_DIR:-}" ]] || _test_models_die "test_models_init not called"
+  if [[ ! -x "$TEST_MODELS_VOCELLO" ]]; then
+    _test_models_note "building vocello CLI (needed for model inventory/install)…"
+    "$TEST_MODELS_SCRIPT_DIR/build.sh" cli
+  fi
+  [[ -x "$TEST_MODELS_VOCELLO" ]] || _test_models_die "vocello CLI missing at $TEST_MODELS_VOCELLO"
+}
+
+# True when the path exists and contains at least one entry (non-empty install).
+models_dir_has_content() {
+  local dir="$1"
+  [[ -d "$dir" ]] || return 1
+  local count
+  count="$(find "$dir" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')"
+  [[ "${count:-0}" -gt 0 ]]
+}
+
+# Symlink $2 → canonical when canonical has content and $2 is missing or empty.
+# No-op when $2 is a symlink or directory that already has content.
+link_models_symlink_to_canonical() {
+  local link_path="$1"
+  local canonical
+  canonical="$(canonical_models_dir)"
+  local parent
+  parent="$(dirname "$link_path")"
+  mkdir -p "$parent"
+
+  if [[ -L "$link_path" ]]; then
+    return 0
+  fi
+  if models_dir_has_content "$link_path"; then
+    return 0
+  fi
+  if ! models_dir_has_content "$canonical"; then
+    return 1
+  fi
+  if [[ -e "$link_path" ]]; then
+    rm -rf "$link_path" || return 1
+  fi
+  ln -sf "$canonical" "$link_path" || return 1
+  return 0
+}
+
+link_debug_models_from_canonical() {
+  link_models_symlink_to_canonical "$(debug_models_dir)"
+}
+
+# $1 = model id, $2 = debug context (0|1, default 0)
+vocello_model_installed() {
+  local model_id="$1"
+  local debug="${2:-0}"
+  ensure_vocello_cli
+  local json
+  if (( debug == 1 )); then
+    json="$(QWENVOICE_DEBUG=1 "$TEST_MODELS_VOCELLO" models status "$model_id" --json 2>/dev/null || true)"
+  else
+    json="$("$TEST_MODELS_VOCELLO" models status "$model_id" --json 2>/dev/null || true)"
+  fi
+  [[ -n "$json" ]] || return 1
+  MODEL_ID="$model_id" JSON="$json" python3 - <<'PY'
+import json, os, sys
+raw = os.environ.get("JSON", "").strip()
+if not raw:
+    sys.exit(1)
+try:
+    data = json.loads(raw)
+except json.JSONDecodeError:
+    sys.exit(1)
+rows = data if isinstance(data, list) else [data]
+mid = os.environ["MODEL_ID"]
+for row in rows:
+    if row.get("id") == mid and row.get("installed") is True:
+        sys.exit(0)
+sys.exit(1)
+PY
+}
+
+# Read-only status for preflight. Returns 0 when all required ids are present in debug context.
+check_mac_test_models() {
+  local strict=0
+  [[ "${1:-}" == "--strict" ]] && strict=1
+  local canonical debug
+  canonical="$(canonical_models_dir)"
+  debug="$(debug_models_dir)"
+  _test_models_note "model check (debug test context — matches QWENVOICE_DEBUG=1 UI smoke)"
+  _test_models_note "  canonical: $canonical"
+  _test_models_note "  debug:     $debug"
+
+  # Report link state without mutating in check-only mode.
+  local linked=0
+  if [[ -L "$debug" ]]; then
+    linked=1
+    _test_models_note "  debug/models: symlink → $(readlink "$debug" 2>/dev/null || echo '?')"
+  elif models_dir_has_content "$debug"; then
+    _test_models_note "  debug/models: directory with content"
+  else
+    _test_models_note "  debug/models: missing or empty (run: scripts/macos_test.sh models ensure)"
+  fi
+
+  local missing=0 id
+  if [[ -x "${TEST_MODELS_VOCELLO:-}" ]] || ensure_vocello_cli 2>/dev/null; then
+    for id in "${MAC_TEST_REQUIRED_MODEL_IDS[@]}"; do
+      if vocello_model_installed "$id" 1; then
+        _test_models_note "  $id (debug): OK"
+      elif vocello_model_installed "$id" 0; then
+        _test_models_warn "  $id: installed in canonical but not visible in debug context — run: scripts/macos_test.sh models ensure"
+        missing=1
+      else
+        _test_models_warn "  $id: not installed"
+        missing=1
+      fi
+    done
+  else
+    _test_models_warn "  vocello CLI unavailable — cannot verify model inventory"
+    missing=1
+  fi
+
+  if (( missing == 0 )); then
+    _test_models_note "models: OK for macOS real-engine lanes"
+    return 0
+  fi
+  if (( strict == 1 )); then
+    _test_models_die "required test models missing (run: scripts/macos_test.sh models ensure)"
+  fi
+  return 1
+}
+
+# Install (if needed), link debug → canonical, verify debug context.
+ensure_mac_test_models() {
+  local require=0
+  [[ "${1:-}" == "--require" ]] && require=1
+
+  if [[ "${QVOICE_SKIP_MODEL_ENSURE:-}" == "1" ]]; then
+    _test_models_note "QVOICE_SKIP_MODEL_ENSURE=1 — skipping model ensure"
+    return 0
+  fi
+
+  ensure_vocello_cli
+  local canonical id
+  canonical="$(canonical_models_dir)"
+  mkdir -p "$(dirname "$canonical")"
+
+  for id in "${MAC_TEST_REQUIRED_MODEL_IDS[@]}"; do
+    if vocello_model_installed "$id" 0; then
+      _test_models_note "model $id: already in canonical store"
+      continue
+    fi
+    if [[ "${QVOICE_TEST_MODELS_NO_NETWORK:-}" == "1" ]]; then
+      if (( require == 1 )); then
+        _test_models_die "model $id not in $canonical and QVOICE_TEST_MODELS_NO_NETWORK=1 — run: scripts/macos_test.sh models ensure (one-time ~2.3 GB download)"
+      fi
+      _test_models_warn "model $id missing; network install disabled (QVOICE_TEST_MODELS_NO_NETWORK=1)"
+      return 1
+    fi
+    _test_models_note "installing $id into canonical store (~2.3 GB one-time; idempotent)…"
+    "$TEST_MODELS_VOCELLO" models install "$id"
+  done
+
+  if ! link_debug_models_from_canonical; then
+    if (( require == 1 )); then
+      _test_models_die "could not link debug models dir — canonical store empty after install?"
+    fi
+    return 1
+  fi
+
+  local missing=0
+  for id in "${MAC_TEST_REQUIRED_MODEL_IDS[@]}"; do
+    if vocello_model_installed "$id" 1; then
+      _test_models_note "model $id: OK in debug test context"
+    else
+      _test_models_warn "model $id: still missing in debug context after ensure"
+      missing=1
+    fi
+  done
+
+  if (( missing != 0 && require == 1 )); then
+    _test_models_die "required test models unavailable after ensure"
+  fi
+  return "$missing"
+}
+
+install_mac_test_models() {
+  ensure_mac_test_models --require
+}

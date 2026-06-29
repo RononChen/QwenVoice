@@ -7,22 +7,24 @@
 # service. Build/run/release stay in scripts/build.sh; this script adds the lanes.
 #
 # usage:
-#   scripts/macos_test.sh preflight                 # Xcode + signing + app + dSYMs + XPC bundle
-#   scripts/macos_test.sh test                      # VocelloMacSmokeUITests → verdict + artifacts
+#   scripts/macos_test.sh preflight [--strict-models]  # Xcode + app + dSYMs + XPC + model status
+#   scripts/macos_test.sh test                      # models ensure → VocelloMacSmokeUITests (10 tests)
 #   scripts/macos_test.sh crashes [--test]          # collect + xcsym-symbolicate .ips (app + XPC service)
 #   scripts/macos_test.sh debug                     # LLDB attach guidance (app + XPC service PID)
 #   scripts/macos_test.sh logs                      # retained os_log → build/macos-logs/<run>.log
-#   scripts/macos_test.sh profile [spec]            # xctrace/Instruments on app + XPC service
+#   scripts/macos_test.sh profile [spec]            # models ensure → xctrace vocello bench
 #   scripts/macos_test.sh review [--baseline]       # UI capture tour + baseline diff (vision MCP)
 #   scripts/macos_test.sh xpc                       # XPC lifecycle: retirement/relaunch + crash isolation
-#   scripts/macos_test.sh gate                      # pre-merge gate: inputs → build → test → crashes → verdict
-#   scripts/macos_test.sh models                    # check/install the Speed model for testing
+#   scripts/macos_test.sh gate                      # models → inputs → build_foundation → test → crashes
+#   scripts/macos_test.sh models check|ensure|install  # test model fixture (Speed variant)
 #   scripts/macos_test.sh help
 
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_DIR="$ROOT_DIR/scripts"
+. "$SCRIPT_DIR/lib/test_models.sh"
+test_models_init "$ROOT_DIR"
 APP_NAME="Vocello"
 BUNDLE_ID="com.qwenvoice.app"
 APP_BUNDLE="$ROOT_DIR/build/$APP_NAME.app"
@@ -134,7 +136,7 @@ cmd_profile() {
   local template="${QVOICE_MAC_PROFILE_TEMPLATE:-Time Profiler}"
   local duration="${QVOICE_MAC_PROFILE_DURATION:-90}"
   command -v xctrace >/dev/null 2>&1 || die "xctrace not found (install Xcode); or dispatch axiom:performance-profiler"
-  [[ -x "$ROOT_DIR/build/vocello" ]] || "$SCRIPT_DIR/build.sh" cli
+  ensure_mac_test_models --require
   local trace="$ROOT_DIR/build/macos/profile-$(date +%Y%m%d-%H%M%S).trace"
   mkdir -p "$(dirname "$trace")"
   note "profile: template='$template', ${duration}s, vocello bench (mode=$mode variant=$variant) — engine in-process"
@@ -157,37 +159,62 @@ cmd_profile() {
 # the preserved dSYMs, and the Speed model. Fails fast with what's missing.
 cmd_preflight() {
   local rc=0
+  local strict_models=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --strict-models) strict_models=1; shift ;;
+      *) die "unknown preflight flag: $1 (try --strict-models)" ;;
+    esac
+  done
   note "macOS preflight"
   command -v xcodebuild >/dev/null 2>&1 && note "  xcodebuild: OK" || { warn "  xcodebuild: ✗ not found"; rc=1; }
   if [[ -d "$APP_BUNDLE" ]]; then note "  app: OK $APP_BUNDLE"; else warn "  app: ✗ not built (run: scripts/build.sh build)"; rc=1; fi
   [[ -d "$XPC_BUNDLE" ]] && note "  xpc service: OK" || warn "  xpc service: ✗ not in bundle (rebuild)"
   [[ -d "$DSYM_DIR" ]] && note "  dsyms: OK $DSYM_DIR" || warn "  dsyms: ✗ none (run: scripts/build.sh build)"
-  # Speed model (for generation tests + bench + profile)
-  if [[ -x "$ROOT_DIR/build/vocello" ]]; then
-    if "$ROOT_DIR/build/vocello" models 2>/dev/null | grep "pro_custom_speed" | grep -q "^✓"; then
-      note "  model pro_custom_speed: OK"
-    else
-      warn "  model pro_custom_speed: ✗ not installed (gen tests/bench skip — run: $0 models)"
-    fi
+  if (( strict_models == 1 )); then
+    check_mac_test_models --strict || rc=1
+  else
+    check_mac_test_models || warn "  models: not ready for generation lanes (run: $0 models ensure)"
   fi
   (( rc == 0 )) && note "preflight OK" || die "preflight not ready (see above)"
 }
 
-# models: check if the Speed model (pro_custom_speed) is installed. If not, launches the
-# app + instructs installing via Settings → Model Downloads. The model (~2.3 GB) is a
-# one-time install that persists across rebuilds.
 cmd_models() {
-  note "model availability check"
-  if [[ -x "$ROOT_DIR/build/vocello" ]] && "$ROOT_DIR/build/vocello" models 2>/dev/null | grep "pro_custom_speed" | grep -q "^✓"; then
-    note "  pro_custom_speed: ✓ available for testing"
-    "$ROOT_DIR/build/vocello" models 2>/dev/null | head -5
-    return 0
-  fi
-  warn "  pro_custom_speed: ✗ NOT installed (generation tests + bench will skip/fail)"
-  ensure_app
-  /usr/bin/open -na "$APP_BUNDLE"
-  note "  ⇒ Vocello.app launched — Settings → Model Downloads → Install 'Custom Voice (Speed)'."
-  note "    (one-time ~2.3 GB download; persists across rebuilds; then re-run: $0 models)"
+  local sub="${1:-check}"
+  shift || true
+  case "$sub" in
+    check)
+      check_mac_test_models || {
+        note "Install once: $0 models ensure  (or $0 models install for canonical only)"
+        note "Last resort: Vocello.app → Settings → Model Downloads"
+        return 1
+      }
+      ;;
+    ensure)
+      ensure_mac_test_models --require
+      ;;
+    install)
+      ensure_vocello_cli
+      local id="${1:-pro_custom_speed}"
+      note "installing $id into canonical store (shared with the app)…"
+      "$TEST_MODELS_VOCELLO" models install "$id"
+      link_debug_models_from_canonical || true
+      ;;
+    help|-h|--help)
+      cat >&2 <<EOF
+models — test fixture for macOS real-engine lanes
+
+  $0 models check     read-only status (debug context, matches UI smoke)
+  $0 models ensure    install if missing + link QwenVoice-Debug/models → canonical
+  $0 models install [id]   headless download via vocello (default: pro_custom_speed)
+
+Escape: QVOICE_SKIP_MODEL_ENSURE=1  QVOICE_TEST_MODELS_NO_NETWORK=1
+EOF
+      ;;
+    *)
+      die "unknown models subcommand '$sub' (try: check|ensure|install|help)"
+      ;;
+  esac
 }
 
 # test: run VocelloMacSmokeUITests (macOS, arm64) → a single verdict + artifacts under
@@ -199,6 +226,8 @@ cmd_test() {
   mkdir -p "$artifacts"
   export MAC_TEST_SCREENSHOT_DIR="$ROOT_DIR/build/macos/uitest-screenshots"
   mkdir -p "$MAC_TEST_SCREENSHOT_DIR"
+  ensure_mac_test_models --require
+  export QVOICE_REQUIRE_TEST_MODELS=1
   note "test: VocelloMacSmokeUITests (macOS, arm64) → $artifacts"
   set +e
   xcodebuild test -project "$ROOT_DIR/QwenVoice.xcodeproj" -scheme QwenVoice \
@@ -331,22 +360,29 @@ cmd_gate() {
   local overall=0
   { echo "Vocello macOS gate — $run_id"; echo; } | tee "$verdict"
 
-  note "gate step 1/4: check_project_inputs"
+  note "gate step 0/5: ensure test models (pro_custom_speed in debug context)"
+  if ensure_mac_test_models --require >>"$gate_dir/models.log" 2>&1; then
+    echo "models: PASS" | tee -a "$verdict"
+  else
+    echo "models: FAIL (see models.log)" | tee -a "$verdict"; overall=1
+  fi
+
+  note "gate step 1/5: check_project_inputs"
   if "$SCRIPT_DIR/check_project_inputs.sh" >>"$gate_dir/inputs.log" 2>&1; then
     echo "check_project_inputs: PASS" | tee -a "$verdict"
   else echo "check_project_inputs: FAIL" | tee -a "$verdict"; overall=1; fi
 
-  note "gate step 2/4: build_foundation_targets macos"
+  note "gate step 2/5: build_foundation_targets macos"
   if "$SCRIPT_DIR/build_foundation_targets.sh" macos >>"$gate_dir/build.log" 2>&1; then
     echo "build_foundation macos: PASS" | tee -a "$verdict"
   else echo "build_foundation macos: FAIL" | tee -a "$verdict"; overall=1; fi
 
-  note "gate step 3/4: test (VocelloMacSmokeUITests)"
+  note "gate step 3/5: test (VocelloMacSmokeUITests)"
   if ( cmd_test ) >>"$gate_dir/test.log" 2>&1; then
     echo "test: PASS" | tee -a "$verdict"
   else echo "test: FAIL" | tee -a "$verdict"; overall=1; fi
 
-  note "gate step 4/4: crashes (post-run check; expect none)"
+  note "gate step 4/5: crashes (post-run check; expect none)"
   if ( cmd_crashes ) >>"$gate_dir/crashes.log" 2>&1; then
     echo "crashes: none/new (see crashes.log)" | tee -a "$verdict"
   else echo "crashes: check failed" | tee -a "$verdict"; fi
@@ -377,7 +413,7 @@ main() {
     help|-h|--help)
       sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' >&2
       ;;
-    *) die "unknown subcommand '$sub' (try: preflight|test|crashes|debug|logs|profile|review|xpc|gate|help)" ;;
+    *) die "unknown subcommand '$sub' (try: preflight|test|crashes|debug|logs|profile|review|xpc|gate|models|help)" ;;
   esac
 }
 

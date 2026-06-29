@@ -1,6 +1,6 @@
 ---
 description: Vocello testing tiers, determinism, and the no-agent-screen-driving rule
-globs: Tests/**,scripts/macos_test.sh,scripts/ios_device.sh,scripts/build_foundation_targets.sh
+globs: Tests/**,scripts/macos_test.sh,scripts/ios_device.sh,scripts/lib/test_models.sh,scripts/build_foundation_targets.sh
 alwaysApply: false
 ---
 
@@ -43,4 +43,13 @@ Tier-A suites on the Simulator via `-only-testing`.
 The iOS Simulator cannot host the MLX/Metal engine, so real model load / generation /
 download is validated on a paired iPhone via `scripts/ios_device.sh`. The Simulator is
 allowed **only** for Tier-A fake-backend tests. macOS UI smoke runs via
-`scripts/macos_test.sh test`.
+`scripts/macos_test.sh test` (calls `models ensure` first; exports
+`QVOICE_REQUIRE_TEST_MODELS=1` so missing weights fail instead of `XCTSkip`).
+
+## Model preflight (macOS)
+
+- Canonical weights: `~/Library/Application Support/QwenVoice/models`.
+- Debug/test context symlinks `QwenVoice-Debug/models` → canonical
+  ([`scripts/lib/test_models.sh`](mdc:scripts/lib/test_models.sh)).
+- `scripts/macos_test.sh models check|ensure|install` — see testing runbook §1b.
+- Escape: `QVOICE_SKIP_MODEL_ENSURE=1`, `QVOICE_TEST_MODELS_NO_NETWORK=1`.

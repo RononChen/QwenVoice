@@ -47,9 +47,14 @@ Before changing scripts or CI, read:
 ## Build / test commands
 
 ```sh
-# Pre-merge gates
+# Pre-merge gates (macOS gate step 0 = model ensure via scripts/lib/test_models.sh)
+scripts/macos_test.sh models ensure   # one-time per machine before first real-engine macOS run
 scripts/macos_test.sh gate
 scripts/ios_device.sh gate
+
+# Model fixture helpers
+scripts/macos_test.sh models check|ensure|install
+scripts/ios_device.sh models check
 
 # Release packaging
 ./scripts/build.sh release
@@ -84,6 +89,9 @@ scripts/ios_device.sh profile [spec]
 - **Deep checkout on CI.** `fetch-depth: 0` is required so `git rev-parse HEAD` in
   `scripts/release.sh` resolves for `release-metadata.txt`.
 - **Burn-in-safe iOS testing.** All on-device lanes go through `scripts/ios_device.sh`.
+- **macOS real-engine tests need model fixtures.** Run `scripts/macos_test.sh models ensure`
+  once per machine; see [`scripts/lib/test_models.sh`](../scripts/lib/test_models.sh) and
+  [`docs/reference/testing-runbook.md`](../docs/reference/testing-runbook.md) §1b.
 
 ## Common mistakes
 

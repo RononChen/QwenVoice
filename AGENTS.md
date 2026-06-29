@@ -161,16 +161,16 @@ QWENVOICE_DEBUG=1 ./scripts/build.sh run # debug data dir + telemetry
 ./scripts/build_foundation_targets.sh ios
 
 # macOS test/debug/profile lanes (one verb per lane)
-scripts/macos_test.sh preflight          # readiness: app + dSYMs + XPC bundle
-scripts/macos_test.sh test               # VocelloMacSmokeUITests
-scripts/macos_test.sh gate               # pre-merge gate
+scripts/macos_test.sh preflight [--strict-models]  # readiness: app + dSYMs + XPC + model status
+scripts/macos_test.sh models check|ensure|install   # test fixture (~2.3 GB Speed; see testing-runbook §1b)
+scripts/macos_test.sh test               # models ensure → VocelloMacSmokeUITests (10 tests)
+scripts/macos_test.sh gate               # models → inputs → build_foundation → test → crashes
 scripts/macos_test.sh crashes            # collect + symbolicate .ips
 scripts/macos_test.sh debug              # LLDB attach (app + XPC service PID)
 scripts/macos_test.sh logs               # retained os_log → build/macos-logs/<run>.log
-scripts/macos_test.sh profile [spec]     # Instruments on the engine (CLI)
+scripts/macos_test.sh profile [spec]     # models ensure → Instruments on vocello bench
 scripts/macos_test.sh review [--baseline]# UI capture tour + baseline diff
 scripts/macos_test.sh xpc [--crash-isolation] # XPC lifecycle / crash isolation
-scripts/macos_test.sh models             # check/install the Speed model (~2.3 GB)
 
 # macOS UI smoke (single VocelloMacSmokeUITests class, 10 tests)
 xcodebuild test -project QwenVoice.xcodeproj -scheme QwenVoice \
@@ -239,9 +239,9 @@ desktop-MCP harness is gone — see the testing runbook). Full MCP inventory and
   crash + profiling skills (`xcsym`, `xcprof`, `xclog` ship in the Axiom plugin `bin/`). Full map:
   `docs/reference/ios-device-testing.md` §3. Also see [`.agents/ios-engineer.md`](.agents/ios-engineer.md)
   and [`.cursor/rules/ios.mdc`](.cursor/rules/ios.mdc).
-- **macOS lanes** (`scripts/macos_test.sh`, one verb per lane): `test` / `crashes` / `profile` /
-  `debug` / `review` / `xpc`. Lane map + XPC dimension: `docs/reference/macos-testing.md`. Also see
-  [`.agents/macos-engineer.md`](.agents/macos-engineer.md).
+- **macOS lanes** (`scripts/macos_test.sh`, one verb per lane): `models` / `test` / `gate` /
+  `crashes` / `profile` / `debug` / `review` / `xpc`. Lane map + XPC dimension:
+  `docs/reference/macos-testing.md`. Also see [`.agents/macos-engineer.md`](.agents/macos-engineer.md).
 - **Review & audits** → run the Axiom auditor subagents via the `Task` tool (e.g.
   `concurrency-auditor`, `memory-auditor`, `swift-performance-analyzer`,
   `swiftui-{architecture,layout,nav,performance}-auditor`, `codable-auditor`,
@@ -304,6 +304,11 @@ the relevant role file path and the task; the subagent should read the role file
 
 ## 12. Testing strategy
 
+- **Model fixtures:** macOS real-engine lanes (`macos_test.sh test|gate|profile`) require
+  `pro_custom_speed`. Run `scripts/macos_test.sh models ensure` once (canonical store +
+  debug symlink via [`scripts/lib/test_models.sh`](scripts/lib/test_models.sh)). iOS default
+  gate does not pre-install models; `--cold` / bench / profile need Speed on the device.
+  Set `QVOICE_SKIP_MODEL_ENSURE=1` only when testing download/management UX.
 - **macOS UI smoke:** `VocelloMacSmokeUITests` (10 tests). Run via `scripts/macos_test.sh test`
   or directly with `xcodebuild test -project QwenVoice.xcodeproj -scheme QwenVoice -destination
   'platform=macOS,arch=arm64' -derivedDataPath build/DerivedData`.
@@ -324,7 +329,7 @@ the relevant role file path and the task; the subagent should read the role file
   ```
   Aggregate with `scripts/summarize_generation_telemetry.py`.
 - **Pre-merge gates:**
-  - macOS: `scripts/macos_test.sh gate`
+  - macOS: `scripts/macos_test.sh gate` (includes model ensure — run `models ensure` once per machine if needed)
   - iOS: `scripts/ios_device.sh gate`
 
 Telemetry (when `QWENVOICE_DEBUG=1`) writes JSONL under

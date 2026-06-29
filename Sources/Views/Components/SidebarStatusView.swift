@@ -22,6 +22,7 @@ struct SidebarStatusView: View {
     private var stateKey: String {
         switch sidebarStatus {
         case .idle: return "idle"
+        case .standby: return "standby"
         case .starting: return "starting"
         case .running: return "active"
         case .error: return "error"
@@ -49,6 +50,8 @@ struct SidebarStatusView: View {
         switch sidebarStatus {
         case .idle:
             idleView
+        case .standby:
+            standbyView
         case .starting:
             startingView
         case .running(let activity):
@@ -72,6 +75,19 @@ struct SidebarStatusView: View {
                 .foregroundStyle(.secondary)
         }
         .accessibilityIdentifier("sidebar_backendStatus_idle")
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var standbyView: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(Color.secondary.opacity(0.55))
+                .frame(width: 5, height: 5)
+            Text("Standby")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityIdentifier("sidebar_backendStatus_standby")
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

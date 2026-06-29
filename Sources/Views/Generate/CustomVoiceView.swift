@@ -57,8 +57,11 @@ struct CustomVoiceReadinessPresentation: Equatable {
             )
         }
 
-        switch snapshot.loadState {
-        case .loaded(let modelID) where modelID == activeModelID:
+        switch GenerationEnginePresentation.modelWarmPath(
+            snapshot: snapshot,
+            activeModelID: activeModelID
+        ) {
+        case .modelReady:
             return CustomVoiceReadinessPresentation(
                 isReady: true,
                 title: "Ready to generate",
@@ -66,31 +69,23 @@ struct CustomVoiceReadinessPresentation: Equatable {
                 trailingText: "Ready",
                 isBusy: false
             )
-        case .starting:
+        case .modelCold:
             return CustomVoiceReadinessPresentation(
-                isReady: false,
+                isReady: true,
+                title: "Ready to generate",
+                detail: GenerationEnginePresentation.coldStartDetail(),
+                trailingText: "Ready",
+                isBusy: false
+            )
+        case .modelWarming, .modelActivePrep:
+            return CustomVoiceReadinessPresentation(
+                isReady: true,
                 title: "Preparing Custom Voice",
                 detail: "Loading the Custom Voice path. You can generate now; preparation finishes in the background.",
                 trailingText: "Preparing",
                 isBusy: true
             )
-        case .idle:
-            return CustomVoiceReadinessPresentation(
-                isReady: false,
-                title: "Preparing Custom Voice",
-                detail: "Warming the Custom Voice path. Generation will finish preparation if it hasn't yet.",
-                trailingText: "Preparing",
-                isBusy: true
-            )
-        case .running(let modelID, _, _) where modelID == activeModelID:
-            return CustomVoiceReadinessPresentation(
-                isReady: false,
-                title: "Preparing Custom Voice",
-                detail: "Warming the Custom Voice path.",
-                trailingText: "Preparing",
-                isBusy: true
-            )
-        case .running:
+        case .engineBusy:
             return CustomVoiceReadinessPresentation(
                 isReady: false,
                 title: "Engine busy",
@@ -98,12 +93,12 @@ struct CustomVoiceReadinessPresentation: Equatable {
                 trailingText: nil,
                 isBusy: true
             )
-        case .loaded:
+        case .modelMismatch:
             return CustomVoiceReadinessPresentation(
-                isReady: false,
-                title: "Custom Voice will prepare on generate",
-                detail: "A different model is loaded. The engine will switch to Custom Voice on generate.",
-                trailingText: nil,
+                isReady: true,
+                title: "Ready to generate",
+                detail: "A different model is loaded. The engine switches to Custom Voice on generate.",
+                trailingText: "Ready",
                 isBusy: false
             )
         case .failed(let message):
@@ -113,6 +108,14 @@ struct CustomVoiceReadinessPresentation: Equatable {
                 detail: message,
                 trailingText: nil,
                 isBusy: false
+            )
+        case .engineUnavailable:
+            return CustomVoiceReadinessPresentation(
+                isReady: false,
+                title: "Engine starting",
+                detail: "The engine is still preparing.",
+                trailingText: nil,
+                isBusy: snapshot.loadState == .starting
             )
         }
     }
@@ -187,10 +190,14 @@ struct CustomVoiceView: View {
     }
 
     private var canGenerate: Bool {
-        ttsEngineStore.isReady
-            && isModelAvailable
-            && draft.hasText
-            && !ttsEngineStore.hasActiveGeneration
+        GenerationEnginePresentation.allowsGenerationStart(
+            snapshot: ttsEngineStore.snapshot,
+            activeModelID: activeModel?.id,
+            isModelAvailable: isModelAvailable,
+            hasScriptContent: draft.hasText,
+            isUserGenerating: coordinator.isGenerating,
+            hasActiveGeneration: ttsEngineStore.hasActiveGeneration
+        )
     }
 
     private var canRunBatch: Bool {
@@ -320,7 +327,7 @@ private extension CustomVoiceView {
                     buttonColor: AppTheme.customVoice,
                     batchAction: { coordinator.presentBatch(draft: draft) },
                     batchDisabled: !canRunBatch,
-                    generateDisabled: !ttsEngineStore.isReady || !isModelAvailable || ttsEngineStore.hasActiveGeneration,
+                    generateDisabled: !canGenerate,
                     isEmbedded: true,
                     usesFlexibleEmbeddedHeight: true,
                     onGenerate: {

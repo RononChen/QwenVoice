@@ -37,7 +37,7 @@ Before changing macOS app or XPC code, read:
 
 - **Shell tool / scripts** (the source of truth for the local loop):
   - `./scripts/build.sh build|run|cli`
-  - `scripts/macos_test.sh test|gate|crashes|debug|logs|profile|review|xpc`
+  - `scripts/macos_test.sh models check|ensure|test|gate|crashes|debug|logs|profile|review|xpc`
   - `./scripts/regenerate_project.sh` after `project.yml` changes
 - **Apple framework APIs / SwiftUI / concurrency** → follow the Axiom skills
   (`axiom-apple-docs`, `axiom-swiftui`, `axiom-concurrency`) via the Read tool.
@@ -57,7 +57,8 @@ Before changing macOS app or XPC code, read:
 ./scripts/build.sh build
 ./scripts/build.sh run
 
-# macOS smoke tests
+# macOS smoke tests (models ensure symlinks QwenVoice-Debug/models → canonical store)
+scripts/macos_test.sh models ensure   # one-time per machine
 scripts/macos_test.sh test
 scripts/macos_test.sh gate
 
