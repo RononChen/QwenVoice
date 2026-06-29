@@ -1,5 +1,9 @@
 # iOS on-device testing — the hybrid method
 
+> **Canonical testing doc:** [`testing-runbook.md`](testing-runbook.md) — two-tier XCUITest
+> model, fake-backend env vars, CI lane, and determinism rules. This file is the **device
+> lanes** deep-dive (headless harness, `scripts/ios_device.sh`, quality lanes).
+
 The **automated/headless** on-device methods. They complement interactive UI review over
 iPhone Mirroring for UI-driven operations + UI design/review. Two automated tools, neither of
 which drives the UI by pixels:
@@ -9,17 +13,24 @@ which drives the UI by pixels:
    one generation with **no UI interaction**, writes telemetry + a completion sentinel
    into the App-Group container, and `scripts/ios_device.sh` pulls them back and
    summarizes. This is the real on-device entitlement/memory/RTF proof.
-2. **Thin XCUITest UI-flow smoke** (`VocelloiOSUITests`) — asserts the app launches and
-   the 4-tab IA + Studio composer/mode-control are reachable, off the stable
-   `accessibilityIdentifier`s. Runs on a paired physical device for the release gate.
+2. **XCUITest UI tests** (`VocelloiOSUITests`) — deterministic, self-driving UI regression.
+   Split into two tiers (see [`testing-runbook.md`](testing-runbook.md)):
+   - **Tier A (fake backend, `QVOICE_FAKE_ENGINE=1`)** — smoke, sheets, and the Studio
+     backend-state flow (generate → inline player, error surface). Runs on the **iOS
+     Simulator, CI, and device** via `FakeTTSEngine` + `FakeModelStatusProvider` (no model
+     load, no Metal).
+   - **Tier B (real engine)** — cold generation and real download. Requires the in-process
+     MLX engine on a **paired physical iPhone** only (MLX cannot initialize on the Simulator).
 
-Why this exists: on-device generation is the never-CI-tested path (real Jetsam, real
-model download, the in-process engine + increased-memory entitlement). iPhone Mirroring is
-**not** the right tool for *scripted generation* (focus races, disconnects, engine-busy
-rejections, no headless trigger) — these automated tools are. See also: generation runs **in-process in the app** (since commit
-`7822a8a`) — a non-UI ExtensionKit extension is Jetsam-capped at a tiny per-process budget
-the entitlement does **not** raise, so it could never load the model; the app process *does*
-get the raised limit. The dead extension target was removed entirely (it never ran on
+Why this exists: **Tier B** on-device generation is the path that exercises real Jetsam,
+real model download, the in-process engine + increased-memory entitlement — and is **not**
+CI-tested. **Tier A** *is* CI-tested (`.github/workflows/ci.yml` runs the fake-backend
+suites on the iOS 26 Simulator on every push/PR). iPhone Mirroring is **not** the right tool
+for *scripted generation* (focus races, disconnects, engine-busy rejections, no headless
+trigger) — the headless harness is. See also: generation runs **in-process in the app** (since
+commit `7822a8a`) — a non-UI ExtensionKit extension is Jetsam-capped at a tiny per-process
+budget the entitlement does **not** raise, so it could never load the model; the app process
+*does* get the raised limit. The dead extension target was removed entirely (it never ran on
 hardware; git history preserves it).
 
 ---
@@ -162,49 +173,79 @@ the sentinel is the authoritative single-run record.
 
 ---
 
-## 2. XCUITest on the device — the standing autonomous UI loop
+## 2. XCUITest — two tiers
 
-**This is the standing automated UI-test method (maintainer decision, 2026-06-04).**
-Run the device-safe UI suite on hardware with
-**`scripts/ios_device.sh ui-test`** (`build-for-testing` → install host app →
-`xcodebuild test-without-building`). Pass `[target]` to scope further, e.g.
+See [`testing-runbook.md`](testing-runbook.md) for the full tier model, fake-backend env
+vars, and CI commands. Summary:
+
+| Tier | Backend | Where | Suites |
+| --- | --- | --- | --- |
+| **A** | `QVOICE_FAKE_ENGINE=1` → `FakeTTSEngine` + `FakeModelStatusProvider` | Simulator + CI + device | Smoke, Sheet, FakeGeneration, FakeGenerationError, ReviewTour |
+| **B** | Real in-process MLX engine | **Paired iPhone only** | ColdGeneration, OnDeviceDownload |
+
+Tier B suites self-skip on the Simulator via a compile-time gate
+(`UITestTier.canRunRealEngine` — `#if targetEnvironment(simulator)`).
+
+### Tier A on Simulator / CI (local)
+
+```sh
+xcodebuild test \
+  -project QwenVoice.xcodeproj -scheme VocelloiOS -configuration Release \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -derivedDataPath build/foundation/local-builds/ios-sim-tierA-dd \
+  -only-testing:VocelloiOSUITests/VocelloiOSSmokeUITests \
+  -only-testing:VocelloiOSUITests/VocelloiOSSheetUITests \
+  -only-testing:VocelloiOSUITests/VocelloiOSFakeGenerationUITests \
+  -only-testing:VocelloiOSUITests/VocelloiOSFakeGenerationErrorUITests \
+  CODE_SIGNING_ALLOWED=NO
+```
+
+CI runs the same Tier-A suites automatically (`.github/workflows/ci.yml`).
+
+### Tier A + B on device (standing method)
+
+Run the device-safe UI suite on hardware with **`scripts/ios_device.sh ui-test`**
+(`build-for-testing` → install host app → `xcodebuild test-without-building`). Pass
+`[target]` to scope further, e.g.
 `scripts/ios_device.sh ui-test VocelloiOSUITests/VocelloiOSSheetUITests`.
 
 | Command | Classes | Notes |
 |---------|---------|-------|
-| `scripts/ios_device.sh ui-test` | Smoke, Sheet, OnDeviceDownload | Default (~1–2 min). One warm app session via `VocelloUITestObserver`. |
-| `scripts/ios_device.sh ui-test --cold` | ColdGeneration | Real generation from cold launch; **skips** when Speed model not installed. |
+| `scripts/ios_device.sh ui-test` | Smoke, Sheet, OnDeviceDownload | Default (~1–2 min). Smoke + Sheet = Tier A (warm, fake via `VocelloUITestApp`); OnDeviceDownload = Tier B (self-launch, real engine, breaks warm session). |
+| `scripts/ios_device.sh ui-test --cold` | ColdGeneration | Tier B: real generation from cold launch; **skips** when Speed model not installed. |
 | `scripts/ios_device.sh ui-test --all` | All classes | Debug/soak only. Cold gen skips without model. |
 
 **Preflight:** `ui-test` runs `ensure_device_ready` (mirroring up to 60s, devicectl
 reachability, unlock guidance). Retries once on unlock/auth log patterns.
 
 `Tests/VocelloiOSUITests/` (target `VocelloiOSUITests`, host `VocelloiOS`):
-- `VocelloUITestApp.swift` — shared warm-app coordinator; resets to Studio between cases.
-- `VocelloUITestObserver.swift` — target-level retain/release across the default trio.
+- `VocelloUITestApp.swift` — shared warm-app coordinator; always launches with
+  `QVOICE_FAKE_ENGINE=1` (Tier A); resets to Studio between cases.
+- `VocelloUITestObserver.swift` — target-level retain/release across the warm Tier-A suites.
 - `VocelloiOSSmokeUITests` — launch + 4-tab reachability + Custom/Design/Clone segments.
 - `VocelloiOSSheetUITests` — sheet regressions: voice select-and-close, preview-keeps-open,
   language select-and-close, brief confirm-closes.
-- `VocelloiOSOnDeviceDownloadUITests` — real URLSession download cancel + pause/resume/cancel
-  (short paths only; no full ~2.3 GB soak).
-- `VocelloiOSColdGenerationUITests` — cold-launch real-generation test. Unlike the smoke suite,
-  this one kills the warm session, launches a fresh app with the engine enabled, types in Custom
-  mode, and waits for actual audio generation to complete (or skips when the model is missing).
+- `VocelloiOSFakeGenerationUITests` — Tier A: fake generate → inline player (happy path).
+- `VocelloiOSFakeGenerationErrorUITests` — Tier A: fake generate error surface.
+- `VocelloiOSOnDeviceDownloadUITests` — **Tier B**: real URLSession download cancel
+  (short paths only; no full ~2.3 GB soak). Self-launches without the fake flag.
+- `VocelloiOSColdGenerationUITests` — **Tier B**: cold-launch real-generation test. Kills
+  the warm session, launches a fresh app with the real engine, types in Custom mode, and
+  waits for actual audio generation to complete (or skips when the model is missing).
 
-The smoke/sheet suites do **not** generate audio (that's the harness above) — the IA + identifiers +
-sheet behaviour are what's under test. The cold-generation suite is the exception: it proves a real
-on-device generation still works from a cold start.
+Smoke and Sheet suites do **not** exercise real audio generation — IA, identifiers, and
+sheet behaviour are what's under test. Tier-A fake-generation suites exercise the Studio
+backend-state flow (generate → player / error) with a canned clip. Tier-B cold-generation
+and OnDeviceDownload prove the real engine and download stack on hardware.
 
 > The full per-element app map + the canonical driving flows live in
 > [`ios-app-guide.md`](ios-app-guide.md); the Studio-specific essentials + gotchas are below.
 
-**Driving identifiers (important):** the screen-level `screen_generateStudio` identifier
-propagates onto its descendants, **shadowing** the Studio selector pills' `studioChip_*` ids
-and the composer's `textInput_*` ids — so tap the pills by their stable **label prefix**
-(`"Voice: "`, `"Language:"`, `"Voice brief:"`), and assert the mode segments
-(`generateSection_custom|design|clone`, which keep their ids) rather than the shadowed ones.
-Inside the bottom-sheet overlays the elements keep their own ids
-(`bottomSheet_close`, `voicePickerRow_*`, `voicePickerPreview_*`, `languagePicker_*`,
+**Driving identifiers (important):** the Studio surface uses `screenPresenceMarker("screen_generateStudio")`
+— a 1pt leaf marker (`Sources/iOS/IOSAccessibility.swift`) so the screen-level id is
+queryable **without shadowing** descendant ids. Query `studioChip_*`, `textInput_*`, and
+`textInput_generateButton` directly. Inside bottom-sheet overlays the elements keep their
+own ids (`bottomSheet_close`, `voicePickerRow_*`, `voicePickerPreview_*`, `languagePicker_*`,
 `voiceBrief_editor`, `voiceBrief_confirm`). Tab buttons (`rootTab_*`) expose an `isSelected`
 trait. See `VocelloiOSSheetUITests.swift` for the helper patterns.
 
@@ -214,10 +255,10 @@ Always pass `-derivedDataPath build/ios` so builds reuse **one**
 tree (one `SourcePackages`) and don't pollute the global `~/Library/Developer/Xcode/DerivedData`:
 
 ```sh
-# Device (standing method) — default device-safe trio:
+# Device — default trio (Tier A smoke/sheet + Tier B download cancel):
 export QWENVOICE_DEVELOPMENT_TEAM=<team-id>
 scripts/ios_device.sh ui-test
-# Cold generation soak (skips when Speed model not installed):
+# Cold generation soak (Tier B; skips when Speed model not installed):
 scripts/ios_device.sh ui-test --cold
 # Direct xcodebuild (after build-for-testing + install):
 xcodebuild test-without-building -project QwenVoice.xcodeproj -scheme VocelloiOS \
@@ -225,11 +266,10 @@ xcodebuild test-without-building -project QwenVoice.xcodeproj -scheme VocelloiOS
 ```
 
 The UI-test target is wired into the `VocelloiOS` scheme's `test` action (and built only
-for `test`, so the foundation compile-safety build stays focused on the app). The smoke +
-sheet suites exercise IA, identifiers, and sheet behaviour only — no audio generation.
+for `test`, so the foundation compile-safety build stays focused on the app).
 
 `accessibilityIdentifier`s are stable surface area (`.agents/ios-engineer.md` "Conventions") — keep them
-through refactors; the smoke + any agent UI checks depend on them.
+through refactors; the XCUITest suites depend on them.
 
 ---
 
@@ -242,7 +282,7 @@ warm-app XCUITest coordinator. All on-device, observed via iPhone Mirroring (OLE
 
 | Lane | Verb | Captures / proves | Deeper analysis |
 |------|------|-------------------|-----------------|
-| Test | `test` / `ui-test` | launch + IA + sheets + real download cancel | `axiom:test-runner` on the `.xcresult` |
+| Test | `test` / `ui-test` | Tier A (smoke/sheet/fake-gen) + Tier B (download cancel) on device | `axiom:test-runner` on the `.xcresult` |
 | Crash | `crashes` | MetricKit crash/hang diagnostics (in-app `IOSCrashObserver`) | `axiom:crash-analyzer` / `xcsym` vs the build dSYM |
 | Debug | `debug` / `logs` | attached stdout + the LLDB attach command (`get-task-allow` build) | XcodeBuildMCP device/debugging; `systematic-debugging` |
 | Profile | `profile` | Instruments/xctrace trace over the engine's `OSSignpost` intervals | `axiom:performance-profiler` / `xcprof analyze` |
@@ -286,8 +326,9 @@ screenshot, then closed — never dwell on a static high-contrast screen.
 | Level | Command | Proves |
 |-------|---------|--------|
 | Compile (app) | `scripts/build_foundation_targets.sh ios` | the in-process engine + harness compile |
-| Compile (UI test) | `xcodebuild build-for-testing -scheme VocelloiOS -destination 'id=<udid>' -derivedDataPath build/ios` | the test target compiles + is wired for the device |
-| UI smoke (device gate) | `scripts/ios_device.sh ui-test` (or `test`) | launch + IA + real download cancel on hardware |
+| Compile (UI test) | `xcodebuild build-for-testing -scheme VocelloiOS -destination 'platform=iOS Simulator,…' -derivedDataPath build/ios` (Tier A) or `-destination 'id=<udid>'` (Tier B) | the test target compiles + is wired |
+| UI smoke (Tier A, Simulator/CI) | `.github/workflows/ci.yml` or the Tier-A `xcodebuild test` block in [`testing-runbook.md`](testing-runbook.md) | fake-backend smoke/sheet/generate on Simulator |
+| UI smoke (device gate) | `scripts/ios_device.sh ui-test` (or `test`) | Tier A smoke/sheet + Tier B download cancel on hardware |
 | UI review | `scripts/ios_device.sh review` | screenshot tour vs `docs/ios-review-baselines/` |
 | Pre-merge gate | `scripts/ios_device.sh gate` | preflight → test → crashes → single verdict |
 | Interactive UI review | `scripts/ios_device.sh launch` + `scripts/ios_device.sh shot <path>` | the full UI renders over iPhone Mirroring for visual review |

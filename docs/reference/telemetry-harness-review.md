@@ -178,10 +178,10 @@ This table maps the insights in each technology reference doc to a concrete prob
 
 | # | Item | Rationale | Primary files | Estimated effort |
 |---|---|---|---|---|
-| P0.1 | Correct iOS process-model statement in `telemetry-and-benchmarking.md` | The doc says the engine runs out-of-process on iOS via ExtensionKit, but the current architecture runs in-process (`IOSMemorySnapshot.swift:238-243`; `telemetry-and-benchmarking.md:5-7`, `:49-51`, `:84`, `:147`). | `docs/reference/telemetry-and-benchmarking.md` | Small |
+| P0.1 | Correct iOS process-model statement in `telemetry-and-benchmarking.md` | **Done** — doc now states macOS XPC out-of-process, iOS in-process (ExtensionKit removed). | `docs/reference/telemetry-and-benchmarking.md` | Small |
 | P0.2 | Add `ProcessInfo.thermalState` to the telemetry summary | Thermal throttling is a top driver of RTF/memory variance and is already observed in the iOS app (`Sources/iOS/QVoiceiOSApp.swift:68-72`). | `NativeTelemetrySampler.swift`, `TelemetrySummary`, `GenerationTelemetryRecord.swift` | Small |
 | P0.3 | Add `gpuWorkingSetUsageRatioPeak` and MLX cache/memory-limit notes | Directly supports the Metal/MLX optimization programs; ratio is already computed for admission. | `IOSMemorySnapshot.swift`, `NativeTelemetrySampler.swift`, `GenerationTelemetryRecord.notes` | Small |
-| P0.4 | Label `QVOICE_IOS_MLX_MEMORY_LIMIT_MB` as dev-only in `telemetry-and-benchmarking.md` | Aligns with `mlx-guide.md` §5.2 and `metal-guide.md` §5.3 anti-pattern language; the current env table lists it without the dev-only warning. | `docs/reference/telemetry-and-benchmarking.md` | Tiny |
+| P0.4 | Label `QVOICE_IOS_MLX_MEMORY_LIMIT_MB` as dev-only in `telemetry-and-benchmarking.md` | **Done** — env table at line 81 labels it "Dev-only / do not ship." | `docs/reference/telemetry-and-benchmarking.md` | Tiny |
 
 > **P0 status:** Completed in commit `8b04179` on branch `feat/telemetry-harness-improvements`. macOS and iOS foundation builds passed; `check_project_inputs.sh` passed.
 
@@ -214,13 +214,13 @@ This table maps the insights in each technology reference doc to a concrete prob
 
 ## 5. Documentation corrections needed
 
-The following are small inaccuracies or inconsistencies between `telemetry-and-benchmarking.md` and the current code/architecture. They should be fixed as part of P0.1 and P0.4.
+The following were small inaccuracies or inconsistencies between `telemetry-and-benchmarking.md` and the current code/architecture. **Fixed (2026-06-28)** as part of P0.1 and P0.4; retained as audit history.
 
-1. **iOS process model:** `telemetry-and-benchmarking.md:5` and `:49` describe the engine as running out-of-process on iOS via ExtensionKit. The engine was moved in-process (`Sources/QwenVoiceCore/IOSMemorySnapshot.swift:238-243`; commit `7822a8a` / extension removal `aed617c`). Update the doc to state: macOS XPC out-of-process, iOS in-process.
-2. **Retired `engine-extension` layer:** `telemetry-and-benchmarking.md:147` already notes the retired layer, but the surrounding prose still implies an extension model. Make this consistent.
-3. **Env-var labels:** `QVOICE_IOS_MLX_MEMORY_LIMIT_MB` (`telemetry-and-benchmarking.md:76`) is a dev-only override that the MLX/Metal docs explicitly warn against shipping. Label it “Dev-only / do not ship.”
-4. **Handshake function name:** `telemetry-and-benchmarking.md:50` references `TelemetryGate.enableFromHandshake()`; the actual method is `applyHandshakeMode(_:)` (`TelemetryGate.swift:43`).
-5. **`QWENVOICE_NATIVE_TELEMETRY_MODE` values:** `telemetry-and-benchmarking.md:47` lists `lightweight|verbose`; the gate also accepts `light`, `full`, and `deep` (`TelemetryGate.swift:90-95`). Document the full accepted set or tighten the doc.
+1. **iOS process model:** **Fixed** — doc now states macOS XPC out-of-process, iOS in-process (ExtensionKit removed).
+2. **Retired `engine-extension` layer:** **Fixed** — surrounding prose updated for consistency.
+3. **Env-var labels:** **Fixed** — `QVOICE_IOS_MLX_MEMORY_LIMIT_MB` labeled dev-only / do not ship in the env table.
+4. **Handshake function name:** **Fixed** — doc references `TelemetryGate.applyHandshakeMode(_:)`.
+5. **`QWENVOICE_NATIVE_TELEMETRY_MODE` values:** **Fixed** — gate accepts `light`, `full`, `deep` aliases.
 
 ---
 

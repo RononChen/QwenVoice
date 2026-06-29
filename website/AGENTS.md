@@ -16,18 +16,23 @@ npm --prefix website run preview  # from repo root: serve the production build
 
 When already inside `website/`, the equivalent commands are `npm run dev`, `npm run build`, and `npm run preview`.
 
-No tests, no lint config, no GitHub Actions workflow. Behavioral verification is manual + browser-driven; Vercel owns deployment for this directory.
+No website-specific tests or lint config. The parent repo has `.github/workflows/ci.yml`
+(iOS Tier-A UI) and `release.yml` (macOS DMG); this directory has no GitHub Actions workflow
+of its own. Behavioral verification is manual + browser-driven; Vercel owns deployment for
+this directory.
 
 ## Tooling for this directory
 
 - This is a **non-app, non-native zone** — do not run the Axiom Swift/iOS auditors here. For React/Vite/library API questions use the `context7` MCP (`resolve-library-id` then `query-docs`); your training data may lag the installed versions.
 - For UI/UX/visual passes, read `PRODUCT.md` and `DESIGN.md` first and use the `chrome-devtools` MCP to verify the running site.
-- For browser verification of the running dev/preview server, use the `chrome-devtools` MCP (`mcp__chrome-devtools__*`: `navigate_page`, `take_screenshot`, `take_snapshot`, `list_console_messages`).
-- Run `npm`/`node` commands through the Bash tool.
+- For browser verification of the running dev/preview server, use the `chrome-devtools` MCP
+  (e.g. `navigate_page`, `take_screenshot`, `take_snapshot`, `list_console_messages`) or the
+  `cursor-ide-browser` MCP (`browser_navigate`, `browser_snapshot`, etc.).
+- Run `npm`/`node` commands through the Shell tool.
 
 ## Architecture
 
-`src/App.jsx` is a **thin composer** (~33 lines). All UI is split across:
+`src/App.jsx` is a **thin composer** (~73 lines). All UI is split across:
 
 - `src/sections/` — one file per page section, in render order: `Nav`, `Hero`, `WorkflowBand` (rendered 3× from data), `Listen`, `Capabilities`, `WhyCloud`, `TryIt`, `HowItRuns`, `Limitations`, `FinalCTA`, `Footer`.
 - `src/components/` — three shared primitives:
@@ -57,7 +62,9 @@ Two design-context files in this directory encode the website's rules:
 - **`PRODUCT.md`** (i.e. `website/PRODUCT.md`, the brand doc — distinct from the repo-root `PRODUCT.md` app-product doc) — brand voice, register (`brand`, not product), copy rules. Required by the `impeccable:impeccable` skill. Key constraints:
   - Say *local*, not *offline* or *on-device*, unless the technical distinction matters.
   - Sentence case. Reserve all caps for tiny labels only.
-  - **No em dashes in visible copy.** Use commas, colons, semicolons, periods, or parentheses. CI for this is a `document.body` text-node walk for the em-dash character — run it after any copy change.
+  - **No em dashes in visible copy.** Use commas, colons, semicolons, periods, or parentheses.
+    After any copy change, manually scan visible text for the em-dash character (there is no
+    automated CI gate for the website).
   - No emoji, no celebration copy, no hype claims, no first-person plural.
 - **`DESIGN.md`** — color strategy, typography rules, motion rules, bans. Specifically: no gradient text, no side-stripe borders >1px on cards, no decorative glassmorphism, no identical card grids, no repeated uppercase eyebrow scaffolding.
 

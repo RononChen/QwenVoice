@@ -7,8 +7,9 @@ and be **retired under memory pressure** then lazily relaunched. Several lanes t
 app **and** the service.
 
 > Build/run/release stay in [`build.sh`](../../scripts/build.sh); this doc covers the lane
-> driver **`scripts/macos_test.sh`**. For the iOS lanes see
-> [`ios-device-testing.md`](ios-device-testing.md). For the macOS app map + driving see
+> driver **`scripts/macos_test.sh`**. For the canonical testing strategy (two-tier iOS model,
+> fake backend, CI) see [`testing-runbook.md`](testing-runbook.md). For the iOS device lanes
+> see [`ios-device-testing.md`](ios-device-testing.md). For the macOS app map + driving see
 > [`macos-app-guide.md`](macos-app-guide.md).
 
 ## Prerequisites
@@ -29,7 +30,7 @@ app **and** the service.
 | Lane | Verb | Captures / proves | Deeper analysis |
 |------|------|-------------------|-----------------|
 | Preflight | `preflight` | Xcode + app + XPC bundle + dSYMs | — |
-| Test | `test` | VocelloMacUITests target (currently 11 tests: 10 smoke + 1 review tour) | `axiom:test-runner` on the `.xcresult` |
+| Test | `test` | `VocelloMacSmokeUITests` only (**10** smoke tests) | `axiom:test-runner` on the `.xcresult` |
 | Bench | `build.sh cli bench` | deterministic perf/quality matrix | `summarize_generation_telemetry.py` |
 | Crash | `crashes [--test]` | `.ips` for app + XPC service | `axiom:crash-analyzer` / `xcsym` vs the dSYMs |
 | Debug | `debug` | LLDB attach (app + service PID) + `logs` | XcodeBuildMCP debugging; `systematic-debugging` |

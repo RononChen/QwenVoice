@@ -46,13 +46,22 @@ Its shared container is rooted under the app-owned `Vocello` subtree and is mana
 
 The May 2026 iOS identity rename moved pre-release storage from the old QVoice App Group to this Vocello App Group without migration, so device builds after the rename start with fresh iPhone data.
 
+The iPhone app also honors:
+
+```sh
+QVOICE_APP_SUPPORT_DIR=/path/to/custom/app-support
+```
+
+(for test/hermetic runs; production uses the App Group container when available).
+
 Maintained iPhone subtrees:
 
 - `models/` stores verified installed model files.
-- `downloads/` and `staging/` store in-progress model delivery state.
+- `downloads/` stores in-progress model delivery state; `downloads/staging/` holds staged partials.
 - `outputs/` stores generated audio. The user can optionally also copy each new clip to an external Files/iCloud folder via Settings → "Saved outputs" (a user-granted security-scoped bookmark; no new entitlement). The internal copy here is always kept and is what History plays from.
 - `voices/` stores saved voice reference assets.
 - `cache/` stores required runtime cache data.
+- `history.sqlite` stores local generation history.
 
 The iPhone app intentionally keeps shared state constrained to the App Group app-support subtree. It does not use a parallel shared-user-defaults channel for model or voice state.
 

@@ -21,22 +21,27 @@ releases that touched UI/engine surfaces. If this doc disagrees with the code, t
    xcodebuild test -project QwenVoice.xcodeproj -scheme QwenVoice \
      -destination 'platform=macOS,arch=arm64' -derivedDataPath build/DerivedData
    ```
-   11 tests: launch/markers, sidebar + Cmd-key navigation, composer typing (strict char-count),
-   a REAL generation through to the player bar (no engine error/crash states), mid-generation
-   cancel, History/Voices/Settings surfaces, enroll + batch sheets. Tests run against the debug
-   data dir (`QWENVOICE_DEBUG=1` in `launchEnvironment`) and skip generation cells gracefully when
-   models aren't installed. Expect **0 failures** (skips acceptable only on model-less machines).
+   **10 smoke tests** via `scripts/macos_test.sh test` (or the full `VocelloMacUITests` target
+   — 11 classes including the review tour — via bare `xcodebuild test`): launch/markers,
+   sidebar + Cmd-key navigation, composer typing (strict char-count), a REAL generation
+   through to the player bar (no engine error/crash states), mid-generation cancel,
+   History/Voices/Settings surfaces, enroll + batch sheets. Tests run against the debug
+   data dir (`QWENVOICE_DEBUG=1` in `launchEnvironment`) and skip generation cells gracefully
+   when models aren't installed. Expect **0 failures** (skips acceptable only on model-less
+   machines).
 3. **Engine regression net** (when any engine/Sources change since the last green bench):
    ```sh
    QWENVOICE_DEBUG=1 ./build/vocello bench --variants speed --lengths short,medium,long \
      --warm 3 --voice <prepared-voice> --label "release-QA" --ledger
    ```
    Gate: audioQC pass on all cells; RTF within noise of the latest `benchmarks/HISTORY.md` rows;
-   the **listening pass** (`vocello bench --review` / by ear) for any engine-adjacent change.
+   a **manual listening pass by ear** for any engine-adjacent change (there is no
+   `vocello bench --review` subcommand).
 4. **Static audits** (release-sized changesets): run the five Axiom auditors per `.agents/release-qa-engineer.md` routing
    (swiftui-architecture, swiftui-performance, memory, concurrency, security-privacy) scoped to the
    changed surfaces; fix or explicitly defer findings.
-5. **Interactive matrix** (releases touching UI; drive via computer-use — never AppleScript):
+5. **Interactive matrix** (releases touching UI; human-driven manual pass — or
+   `scripts/macos_test.sh review` for screenshot baselines):
    | Flow | Key checks |
    |---|---|
    | Record→enroll | record sheet (virtual mic ok: `QWENVOICE_FAKE_MIC_WAV`), <10 s gate ("Need 10 s"), ≥10 s "Use This Clip", review player, **auto-transcription fills**, enrolled row |
@@ -53,7 +58,7 @@ releases that touched UI/engine surfaces. If this doc disagrees with the code, t
    | Shortcuts | Cmd+1…6, Cmd+Return, Space, Cmd+., Cmd+Shift+O/R, Cmd+, |
    | First-run | fresh `QWENVOICE_APP_SUPPORT_DIR` → disabled tabs, Settings redirect, "0 of N recommended", empty History/Voices |
    | Reduce Motion/Transparency | spot-check solid fills (or code-verify the `appAnimation` paths) |
-   Caveat: TCC dialogs are invisible to computer-use — pause for a human + verify with
+   Caveat: TCC permission dialogs require a human to answer — verify with
    `scripts/permissions_doctor.sh` (see `macos-permissions.md`).
 6. **Version bump**: `MARKETING_VERSION` + `CURRENT_PROJECT_VERSION` in `project.yml` (shared by
    the two user-facing targets) → `./scripts/regenerate_project.sh`.

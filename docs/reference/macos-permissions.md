@@ -121,11 +121,10 @@ QWENVOICE_DEBUG=1 QWENVOICE_FAKE_MIC_WAV="$HOME/.../some_10-20s_clip.wav" ./scri
 5. Reading the TCC database from a terminal needs Full Disk Access for that
    terminal; the doctor degrades gracefully without it.
 
-## Agent/computer-use caveat
+## Manual testing / TCC caveat
 
-TCC permission dialogs are **invisible in computer-use screenshots** (only
-allow-listed apps render) and synthetic keystrokes can land on a hidden prompt
-and dismiss it as "Don't Allow". When driving the app after a permission
-reset: pause, let the human answer the prompt, and verify the outcome with the
-doctor (or the TCC query) instead of assuming. With stable dev signing this is
-now a once-per-machine event rather than an every-rebuild hazard.
+TCC permission dialogs require a **human** to answer — automated UI tests cannot reliably
+handle them, and synthetic keystrokes can land on a hidden prompt and dismiss it as
+"Don't Allow". After a permission reset: pause, let a human answer the prompt, and verify
+the outcome with the doctor (or the TCC query) instead of assuming. With stable dev signing
+this is now a once-per-machine event rather than an every-rebuild hazard.

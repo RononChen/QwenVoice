@@ -3,12 +3,15 @@
 A consolidated map of the Vocello iOS app: what every screen/element/option does (user
 view) and how to drive it in tests like a human (identifier/label → action → expected).
 Use this to author accurate, human-like XCUITest flows and to understand the app before
-touching `Sources/iOS/`. On-device only — the iOS Simulator is unsupported.
+touching `Sources/iOS/`. **Real-engine** work (Tier B: cold generation, real download) is
+**on-device only** — MLX cannot initialize on the iOS Simulator. **Tier A** fake-backend UI
+tests (`QVOICE_FAKE_ENGINE=1`) run on the Simulator, CI, and device.
 
 > **Where this fits:** this is the canonical "what the app is + how to drive it" reference.
-> Running the tests lives in [`ios-device-testing.md`](ios-device-testing.md); the
-> generation-engine internals live in [`../ARCHITECTURE.md`](../ARCHITECTURE.md);
-> tone/delivery prompt-writing lives in [`../qwen_tone.md`](../qwen_tone.md).
+> The testing strategy (two tiers, fake backend, CI) lives in [`testing-runbook.md`](testing-runbook.md);
+> device lanes (`scripts/ios_device.sh`) in [`ios-device-testing.md`](ios-device-testing.md);
+> generation-engine internals in [`../ARCHITECTURE.md`](../ARCHITECTURE.md);
+> tone/delivery prompt-writing in [`../qwen_tone.md`](../qwen_tone.md).
 
 ---
 
@@ -46,9 +49,9 @@ coordinator sets this) bypasses onboarding straight to Studio.
 ### Studio — `Sources/iOS/IOSStudioCanvas.swift`, `IOSGenerationModeViews.swift`
 
 The mode segmented control is `generateSectionPicker` (`.contain`) with
-`generateSection_custom|design|clone`. The Studio surface carries a **screen-level
-identifier `screen_generateStudio` that propagates onto descendants** — see the shadowing
-gotcha in §5.
+`generateSection_custom|design|clone`. The Studio surface uses
+`screenPresenceMarker("screen_generateStudio")` — a 1pt leaf marker so the screen id is
+queryable without shadowing descendants (see §5).
 
 | Element | Identifier | Notes |
 |---|---|---|
@@ -61,8 +64,8 @@ gotcha in §5.
 | Error retry | `textInput_generationError` | Retry bar on a failed generation |
 | Inline player | `studio_inlinePlayer` (completed take) / `studio_livePreviewPlayer` (live streaming preview) | Live streaming preview + completed-take card. `studioPlayerCard` is a SwiftUI view identity, not an accessibility identifier. |
 
-**Selector pills (chips)** — `studioChip_*`, but their ids are **shadowed** in Studio, so
-drive them by **label prefix** (§5 gotcha). Per mode:
+**Selector pills (chips)** — `studioChip_*` identifiers are directly queryable in Studio
+(via `screenPresenceMarker`). Per mode:
 
 | Mode | Pills (label prefix → opens) |
 |---|---|
@@ -231,7 +234,7 @@ Italian. The instruction/brief language is independent of the spoken-text langua
 | `resetToStudio()` | Per-test reset: Studio tab + dismiss any stuck sheet |
 | `element(id)` | Broad query (`app.descendants(matching:.any)[id]`) — use sparingly |
 | `button(id)` | Cheap `app.buttons[id]` — tabs/plain buttons |
-| `button(labelPrefix:)` | **Selector pills** (shadowed ids) — match by label prefix |
+| `button(labelPrefix:)` | Optional fallback for selector pills when label is more stable than id |
 | `firstElement(prefix:)` / `firstElement(prefix:excludingIdentifier:)` | Picker rows (`voicePickerRow_*`, `languagePicker_*`) |
 | `waitFor(id, timeout:)` | Existence wait |
 | `waitForConfirmationButton(id, timeout:)` | Poll for a confirm-dialog button (SwiftUI attach lag) |
@@ -239,9 +242,13 @@ Italian. The instruction/brief language is independent of the spoken-text langua
 | `captureScreenshot(named:)` | Attach to `.xcresult` (+ disk if `UI_TEST_SCREENSHOT_DIR` set) |
 | `isSelectedEventually(e)` | Poll `isSelected` (the trait updates a beat after tap) |
 
-Env knobs: `QVOICE_IOS_SKIP_ONBOARDING=1` (skip onboarding), `QVOICE_IOS_DISABLE_ENGINE=1`
-(warm tests skip the model load — fast/hermetic), `QWENVOICE_DEBUG=1` (telemetry on; the
-cold-gen test sets this).
+Env knobs (Tier A warm tests set these via `VocelloUITestApp.launch()`):
+- `QVOICE_FAKE_ENGINE=1` — master switch: swaps in `FakeTTSEngine` + `FakeModelStatusProvider`
+  (no model load, no Metal; enables Simulator/CI).
+- `QVOICE_FAKE_ENGINE_SCENARIO=generateError` — `generate` throws (error-surface tests).
+- `QVOICE_FAKE_MODEL_STATE=notInstalled` — report model as not installed (Install CTA tests).
+- `QVOICE_IOS_SKIP_ONBOARDING=1` — skip first-run onboarding.
+- `QWENVOICE_DEBUG=1` — telemetry on (Tier B cold-gen sets this).
 
 ### Per-element driving map (identifier/label → action → expected)
 
@@ -249,14 +256,14 @@ cold-gen test sets this).
 |---|---|---|---|
 | Tab | `button("rootTab_*")` | tap | assert via `isSelectedEventually` (async) |
 | Mode segment | `element("generateSection_*")` | tap | keeps id; cold-launch may lag → fall back to label `"Custom"` |
-| Selector pill | `button(labelPrefix:)` | tap | opens a sheet → wait for `*_confirm` or `bottomSheet_close` (id is **shadowed**) |
+| Selector pill | `element("studioChip_*")` or `button(labelPrefix:)` | tap | opens a sheet → wait for `*_confirm` or `bottomSheet_close` |
 | Voice row | `firstElement(prefix:"voicePickerRow_", excludingIdentifier: current)` | tap | **provisional** — sheet stays open |
 | Preview | `firstElement(prefix:"voicePickerPreview_")` | tap | plays audio, no select/close |
 | Picker confirm | `element("voicePicker_confirm"/"languagePicker_confirm"/"deliveryPicker_confirm")` | tap | commits + dismisses |
 | Custom tone | `element("deliveryPickerSheet_customTone")` → `_editor`.tap().typeText() | type | counter `_charCount` updates (`/500`) |
 | Voice brief | `element("voiceBrief_editor")`.tap().typeText() | type | confirm `voiceBrief_confirm` |
-| Composer | `app.textViews.firstMatch` (id `textInput_textEditor` is **shadowed**) | tap/type | `typeText("\n")` to dismiss keyboard before Generate |
-| **Generate** | `app.buttons[label == "Generate"]` (id shadowed) — only when `textInput_generateButton` is the CTA (model installed) | tap | wait for `studio_inlinePlayer` / "Play" / voice-name text (≤120s cold) |
+| Composer | `element("textInput_textEditor")` | tap/type | `typeText("\n")` to dismiss keyboard before Generate |
+| **Generate** | `element("textInput_generateButton")` — only when model installed | tap | wait for `studio_inlinePlayer` (Tier A: ~20s; Tier B cold: ≤120s) |
 | **Install (model missing)** | `textInput_installModelButton` | tap | routes to Settings download |
 | Model install/cancel/… | `iosModel{Download,Cancel,Resume,Retry,Delete,Repair}_<id>` | per §3 | confirms via `waitForConfirmationButton` |
 
@@ -281,15 +288,16 @@ from the Voices tab) → (model check) → compose → Generate.
 
 ### Gotchas
 
-1. **Shadowing** — `screen_generateStudio` propagates onto descendants, shadowing
-   `studioChip_*`/`textInput_*`/the Generate button. Drive pills by **label prefix**, the
-   composer via `app.textViews.firstMatch`, Generate via label `"Generate"`. Inside sheets, ids work.
+1. **Screen presence marker** — `screen_generateStudio` is attached via `screenPresenceMarker(_:)`
+   (a 1pt leaf), so `studioChip_*`, `textInput_*`, and `textInput_generateButton` are
+   directly queryable. Inside sheets, ids always work.
 2. **Confirm-gating** — selecting a picker row is provisional; always tap the `*_confirm` header to commit + dismiss.
 3. **Async selection** — `isSelected` lags a tap; poll with `isSelectedEventually`.
 4. **Dismiss keyboard before Generate** — the composer's Return key is "Done"; `typeText("\n")` then wait for the keyboard to vanish before tapping Generate.
 5. **Cold-launch segment lag** — `generateSection_*` may resolve slowly after a cold launch; fall back to label matching.
 6. **Confirm-dialog timing** — SwiftUI attach lags; use `waitForConfirmationButton`.
-7. **`QVOICE_IOS_DISABLE_ENGINE`** — warm tests set this to skip the model load (fast/hermetic). Real-generation tests (cold-gen) omit it + set `QWENVOICE_DEBUG=1`.
+7. **Fake backend (Tier A)** — `VocelloUITestApp` always sets `QVOICE_FAKE_ENGINE=1`. Tier B
+   suites (ColdGeneration, OnDeviceDownload) self-launch without it and skip on the Simulator.
 8. **Unlock once** — XCUITest needs the iPhone unlocked once for the automation auth handshake (`preflight` surfaces this); then it can lock again.
 
 ---

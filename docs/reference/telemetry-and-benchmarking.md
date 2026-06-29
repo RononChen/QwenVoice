@@ -13,9 +13,11 @@ If anything here disagrees with the code, the code wins — fix this file.
 > drive a generation, then read the JSONL this system writes + aggregate with
 > `summarize_generation_telemetry.py`. Benchmarking + output‑quality checks are **first‑class**:
 > committed benchmark/QC scripts, baselines, and summaries are permitted (bounded by the
-> `benchmarks/` cap). Retired surfaces (including the old simulator-only XCUITest path) are
-> banned by `scripts/check_project_inputs.sh`; on-device UI testing is active and documented in
-> `docs/reference/ios-device-testing.md`.
+> `benchmarks/` cap). The **retired** surface is agent/computer-use UI driving (replaced by
+> deterministic XCUITest). **Tier-A** fake-backend XCUITest runs on the iOS Simulator and in
+> CI (`.github/workflows/ci.yml`); **Tier-B** real-engine UI and headless generation remain
+> device-only. See [`testing-runbook.md`](testing-runbook.md) and
+> [`ios-device-testing.md`](ios-device-testing.md).
 
 ---
 
@@ -45,7 +47,7 @@ resolved once per process:
 |---|---|
 | `QWENVOICE_DEBUG=1` (env) | On in any process that inherits it (e.g. `./scripts/build.sh run`). |
 | 7‑tap the version label in Settings (persisted `UserDefaults` flag) | On in the app process; relayed to the engine process over the `initialize` IPC handshake (`telemetryEnabled`). |
-| `QWENVOICE_NATIVE_TELEMETRY_MODE=lightweight\|verbose` | Forces sampling/persistence on regardless of the gate. |
+| `QWENVOICE_NATIVE_TELEMETRY_MODE=lightweight\|verbose` (aliases: `light`, `full`, `deep`) | Forces sampling/persistence on regardless of the gate. |
 
 The engine runs **out of process on macOS** (XPC service) and **in process on iOS**
 (the ExtensionKit extension was removed; see `AGENTS.md` / commit `aed617c`). The
@@ -408,8 +410,10 @@ package does — and records — its own cold load**. Leave it unset for normal 
    `{mode}_qualityVariantButton`. Switching variant or mode forces the next load to be cold.
 2. Type the fixed script; `cmd+Return`; wait for "Ready" / the inline Player.
 3. That first run is the **cold** sample (`warmState=cold`). Repeat ×3 for the **warm** samples.
-   The XCUITest bundles (`VocelloMacUITests` / `VocelloiOSUITests`) exercise the same identifiers
-   programmatically.
+   macOS: `VocelloMacUITests` drives the real engine via the same identifiers. iOS:
+   **Tier A** (`QVOICE_FAKE_ENGINE=1`, Simulator/CI/device) exercises the Studio flow with a
+   fake backend; **Tier B** (device-only) drives real generation. See
+   [`testing-runbook.md`](testing-runbook.md).
 
 **Storage‑safe order (disk‑tight machines):** process one cell at a time — download that package
 → run cold + 3 warm → delete the package (`QwenVoice-Debug/models/<pkg>`) → next cell. Peak disk ≈

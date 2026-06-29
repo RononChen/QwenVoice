@@ -14,6 +14,11 @@
 
 ## 1. Executive Summary
 
+> **Historical premise (2026-06):** Written before the fake-backend / two-tier XCUITest overhaul.
+> The "missing agent-driven UI layer" gap was **not** filled — Tier-A/B deterministic XCUITest
+> + `FakeTTSEngine` replaced it. Recommendations below are evaluation notes, not current direction.
+> See [`testing-runbook.md`](testing-runbook.md).
+
 Vocello already has a solid, low-level on-device test foundation:
 
 - A headless generation harness via `scripts/ios_device.sh` for real audio/RTF/memory proof.
@@ -229,6 +234,9 @@ These are execution venues, not authoring tools:
 
 ## 5. Recommended Architecture
 
+> **Historical only — not implemented.** The project adopted **Tier-A/B XCUITest** with a fake backend instead of Layer 2 (Appium/agent MCP). See [`testing-runbook.md`](testing-runbook.md).
+
+
 A layered strategy that preserves today’s reliable baseline while adding agent-driven capabilities:
 
 ```
@@ -249,6 +257,9 @@ A layered strategy that preserves today’s reliable baseline while adding agent
 ```
 
 ### Immediate next steps (if approved)
+
+> **Do not follow** — superseded by the Tier-A/B XCUITest + fake-backend implementation (2026-06).
+> Retained as audit history.
 
 1. ~~**Strengthen Layer 1:** Update `VocelloiOSSheetUITests` for the new Confirm-button behavior (tap Confirm, assert `selectedID` change, dismiss).~~ **Done** — Confirm buttons are unified across voice/delivery/language pickers and the voice-brief sheet, with matching assertions in `VocelloiOSSheetUITests`.
 2. **Extend Layer 1:** Harden `VocelloiOSColdGenerationUITests` against launch-time flakiness and add coverage for Design/Clone mode cold generation if those modes become critical paths.

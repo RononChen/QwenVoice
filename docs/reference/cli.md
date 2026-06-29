@@ -175,7 +175,7 @@ is forced on; results land in `<data>/diagnostics` and are summarized by
 | `--data-dir` / `--manifest` | override the runtime data dir (default: the debug-isolated folder) / the `qwenvoice_contract.json` path |
 | `--no-summary` | skip running the aggregator |
 
-**Streaming by default.** As of this change, `vocello bench` runs the streaming path by default, so its
+**Streaming by default.** `vocello bench` runs the streaming path by default, so its
 memory numbers match the iOS/app streaming reality. Pass `--no-stream` to run the old accumulate-then-decode
 behavior for comparison.
 
@@ -191,9 +191,9 @@ installed (listing the missing ids), and auto-skips `clone` when its saved voice
 `A_warm_elderly_woman`) is absent (unless `clone` is the only mode). Prerequisites: the requested
 models installed; a saved clone voice for clone (else auto-skipped).
 
-The deterministic `audioQC` gate, the new `scripts/prosody_quality_gate.py`, and
-`scripts/delivery_adherence.py` replace the previous external listening pass for automated gating.
-Manual listening remains the final arbiter for subtle perceptual issues.
+The deterministic `audioQC` gate, `scripts/prosody_quality_gate.py`, and
+`scripts/delivery_adherence.py` provide automated gating for bench runs.
+**Manual listening by ear** remains mandatory before merging any engine-adjacent change.
 
 ## Examples
 

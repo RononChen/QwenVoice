@@ -32,7 +32,9 @@ unintended delta is the signal that caught a regression.
 
 ## Rules
 
-- **On-device only** (the iOS Simulator is unsupported; see [.agents/ios-engineer.md](../../.agents/ios-engineer.md)).
+- **On-device only for this review tour** (Tier B — real engine; the Simulator is not used
+  for baseline capture). Tier-A UI smoke runs on the Simulator/CI with the fake backend;
+  see [`docs/reference/testing-runbook.md`](../reference/testing-runbook.md).
 - **Burn-in aware:** the tour opens each sheet only long enough to capture, then dismisses
   it (capture-and-dismiss) — never dwell on a static high-contrast screen.
 - **Accessibility:** the tour is also a reachability pass — every screen/sheet is reached

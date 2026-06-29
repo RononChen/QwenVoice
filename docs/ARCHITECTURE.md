@@ -5,7 +5,7 @@
 > lifecycle, persistence, model management, and telemetry. When this doc disagrees
 > with the code, **the code wins** — fix this doc.
 >
-> Last reviewed: 2026-06-22.
+> Last reviewed: 2026-06-28.
 
 ## TL;DR
 
@@ -105,7 +105,7 @@ graph.)
 | `QwenVoiceNative` | framework.static | macOS | `QwenVoiceNative` | `com.qwenvoice.native` | macOS app-facing XPC client/coordinator/store bridging XPC to SwiftUI. |
 | `QwenVoiceEngineService` | xpc-service | macOS | `QwenVoiceEngineService` | `com.qwenvoice.app.engine-service` | Out-of-process engine host for crash isolation + memory containment. |
 | `VocelloMacUITests` | bundle.ui-testing | macOS | `VocelloMacUITests` | `com.qwenvoice.app.uitests` | macOS XCUITest smoke. |
-| `VocelloiOSUITests` | bundle.ui-testing | iOS | `VocelloiOSUITests` | `com.patricedery.vocello.uitests` | iOS XCUITest smoke (on-device). |
+| `VocelloiOSUITests` | bundle.ui-testing | iOS | `VocelloiOSUITests` | `com.patricedery.vocello.uitests` | iOS XCUITest: Tier A (fake backend, Simulator/CI/device) + Tier B (real engine, device-only). |
 
 **Two schemes**: `QwenVoice` (macOS app + `VocelloMacUITests`) and `VocelloiOS`
 (iOS app + `VocelloiOSUITests`). A single shippable config, **`Release`**, is
@@ -464,9 +464,9 @@ sequenceDiagram
 ```
 
 iOS casts the engine to capability protocols at runtime
-(`TTSEngineRuntimeControlling`, `ActiveGenerationCancellable`,
-`NativeMemoryReporting`) rather than depending on a concrete type. Key iOS
-behaviors:
+(`TTSEngineRuntimeControlling`, `NativeMemoryReporting`; `FakeTTSEngine` also
+conforms to `ActiveGenerationCancellable` under Tier-A fake-backend tests) rather
+than depending on a concrete type. Key iOS behaviors:
 
 - **Batch = sequential streaming** (`IOSBatchGenerationCoordinator`): each line
   is generated with `shouldStream: true` so per-item peak stays flat; the model
@@ -478,6 +478,8 @@ behaviors:
 - **Clone load profile**: `.fullCapabilities` vs `.iOSProductionDefault`
 (`.withoutCloneEncoders`) depending on the entitled memory limit.
 - **Hardware gate**: `IOSDeviceSupport.isSupportedHardware` (iPhone 15 Pro+).
+  **`FakeEngineConfig.isEnabled` bypasses it** so Tier-A UI tests mount on the
+  iOS Simulator (`QVoiceiOSApp.swift`).
 
 ---
 
@@ -526,6 +528,12 @@ goes to stderr. Full reference: [`reference/cli.md`](reference/cli.md).
 - Dependencies container: `IOSAppDependenciesContainer` / `IOSAppBootstrap`
   (`@ObservableObject`) holding `registry`, `engine` (`TTSEngineStore`),
   `modelManager`, `modelInstaller`. Built via `makeBackend(...)`.
+  When `QVOICE_FAKE_ENGINE=1`, `makeBackend` injects `FakeTTSEngine` +
+  `FakeModelStatusProvider` **before** the App-Group shared-container guard — no
+  model load, no Metal, Simulator-safe (see [`reference/testing-runbook.md`](reference/testing-runbook.md)).
+- Model downloads: `IOSModelDownloadCoordinator` (shared download engine wrapper).
+- Fake-backend test seam: `Sources/iOS/FakeTTSEngine.swift` (`FakeEngineConfig`,
+  `FakeTTSEngine`, `FakeModelStatusProvider`).
 - Studio: `IOSStudioCanvas.swift` with a mode segmented control
   (custom/design/clone), input area, generate button, and live-preview rail.
   Sheets under `Sources/iOS/Sheets/` (e.g. `IOSVoicePreviewPlayer`).
@@ -621,7 +629,7 @@ served at `bundle://vocello/ios/catalog/v1/models.json` via
 `Info.plist … QVoiceModelCatalogURL`) and `voice-previews/` (24 kHz mono Int16
 WAVs named by speaker id, played by `IOSVoicePreviewPlayer`).
 
-**Download** (`Sources/Services/HuggingFaceDownloader.swift`, SwiftHuggingFace):
+**Download** (`Sources/QwenVoiceCore/HuggingFaceDownloader.swift`, SwiftHuggingFace):
 list files at the pinned revision → stage under `.qwenvoice-downloads/` → verify
 each file's size + **CryptoKit SHA-256** → atomic move → persist a
 `ModelAssetIntegrityManifest.json`. Downloads come from Hugging Face over HTTPS;
@@ -746,6 +754,8 @@ Most-frequent imports across `Sources/**/*.swift`:
   [`cli.md`](reference/cli.md),
   [`macos-release-qa.md`](reference/macos-release-qa.md),
   [`ios-device-testing.md`](reference/ios-device-testing.md),
+  [`testing-runbook.md`](reference/testing-runbook.md),
+  [`ios-app-guide.md`](reference/ios-app-guide.md),
   [`privacy-storage.md`](reference/privacy-storage.md),
   [`macos-permissions.md`](reference/macos-permissions.md),
   [`mlx-audio-swift-patching.md`](reference/mlx-audio-swift-patching.md).

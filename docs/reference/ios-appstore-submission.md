@@ -9,7 +9,9 @@ end-to-end. `scripts/ios_device.sh` now **auto-derives the signing team** from t
 Development certificate (no `QWENVOICE_DEVELOPMENT_TEAM` needed for local dev builds; it also falls back to
 offline manual signing if no Apple ID is in Xcode). The development provisioning profile already carries
 `increased-memory-limit`, and on-device generation is healthy — RTF ~1.8 warm, ~2.7 GB peak (well within the
-8 GB-class iPhone budget), 0 memory trims, audio-QC pass; `VocelloiOSUITests` pass on the device; and the UI
+8 GB-class iPhone budget), 0 memory trims, audio-QC pass; `VocelloiOSUITests` pass on the device
+(Tier B real-engine + Tier A fake-backend via `scripts/ios_device.sh test`; Tier A also runs in CI on
+the iOS Simulator — see [`testing-runbook.md`](testing-runbook.md)); and the UI
 holds with no clipping at the largest accessibility Dynamic Type size. **Still maintainer-only below:** the
 **Distribution** cert + **App Store** provisioning profile (regenerated to carry `increased-memory-limit`) +
 the ASC record/metadata/upload.
@@ -43,7 +45,7 @@ the ASC record/metadata/upload.
 
 > Vocello generates speech entirely on-device. It ships with **no bundled model weights** to keep the app
 > small; on first launch you install a voice model from Settings → Voice models (tap **Install** on
-> "Custom Voice"; it downloads a ~1–2 GB 4-bit model from Hugging Face over Wi-Fi, ~1–2 min). After the model
+> "Custom Voice"; it downloads a ~2.3 GB 4-bit Speed model from Hugging Face over Wi-Fi, ~1–2 min). After the model
 > shows **Active**, open Studio, type a short line, pick a built-in speaker, and tap Generate to hear on-device
 > synthesis. Voice Design and Voice Cloning each install their own model the same way. No account or login is
 > required. Microphone + Speech permissions are only requested if you use Voice Cloning's in-app recording.
@@ -53,9 +55,11 @@ non-functional under Guideline 2.1.
 
 ## 3. Screenshots + metadata
 
-- [ ] iPhone screenshots (6.9" and 6.5" required). Capture from the device or simulator: Studio (with a script +
-      voice), Voice Design, Voice Cloning, History, the model-install Settings. (`scripts/ios_device.sh shot`
-      mirrors the device screen.)
+- [ ] iPhone screenshots (6.9" and 6.5" required). Capture from the **device** for real-engine
+      surfaces (generation, model install); Tier-A fake-backend UI can also be captured on the
+      Simulator for static IA/sheet shots. Studio (with a script + voice), Voice Design, Voice
+      Cloning, History, the model-install Settings. (`scripts/ios_device.sh shot` mirrors the
+      device screen.)
 - [ ] App name, subtitle (≤30 chars each), description, keywords (≤100), support URL (the GitHub repo or the
       website), marketing URL (`https://vocello.vercel.app`), copyright.
 
