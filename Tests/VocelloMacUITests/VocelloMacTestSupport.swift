@@ -22,3 +22,23 @@ enum VocelloMacTestSupport {
         }
     }
 }
+
+extension XCTestCase {
+    /// Registers a best-effort monitor that auto-dismisses unexpected system dialogs
+    /// (microphone / speech-recognition permission prompts, automation alerts) so a smoke
+    /// run doesn't stall on them. Removed automatically when the test case finishes.
+    @discardableResult
+    func installSystemAlertMonitor() -> NSObjectProtocol {
+        addUIInterruptionMonitor(withDescription: "System alert") { alert in
+            let labels = ["Allow", "OK", "Continue", "Allow Once", "Don’t Allow", "Don't Allow"]
+            for label in labels {
+                let button = alert.buttons[label]
+                if button.exists {
+                    button.tap()
+                    return true
+                }
+            }
+            return false
+        }
+    }
+}

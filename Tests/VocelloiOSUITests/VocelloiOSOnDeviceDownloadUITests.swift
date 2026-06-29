@@ -1,29 +1,44 @@
 import XCTest
 
-/// On-device regression for the iOS model download manager.
+/// On-device regression for the iOS model download manager (Tier B).
 ///
-/// Runs on a real iPhone and uses the production URLSession download backend. To avoid
-/// downloading the full ~2.3 GB model, the test only verifies the **cancel** path: start
-/// a download, immediately open the Pause/Cancel dialog, choose Cancel Download, and
-/// confirm the Install button returns.
+/// Runs on a real iPhone with the **real** backend (no `QVOICE_FAKE_ENGINE`) so it uses
+/// the production URLSession download stack. It is skipped on the Simulator/CI (compile-time
+/// gate) because the real engine can't initialize there. To avoid downloading the full ~2.3 GB
+/// model, the test only verifies the **cancel** path: start a download, tap Cancel, choose
+/// Cancel Download in the confirmation dialog, and confirm the Install button returns
+/// (Cancel discards the partial; there is no Pause/Resume).
 final class VocelloiOSOnDeviceDownloadUITests: XCTestCase {
-
-    override class func setUp() {
-        super.setUp()
-        VocelloUITestBootstrap.registerObserverIfNeeded()
-        VocelloUITestApp.shared.retainIfNeeded()
-    }
+    private var app: XCUIApplication!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
         continueAfterFailure = false
-        VocelloUITestApp.shared.resetToStudio()
+
+        // Tier B: real download backend on a paired device only (compile-time gate).
+        try XCTSkipUnless(
+            UITestTier.canRunRealEngine,
+            "Tier B (real on-device download) runs on a paired device only — MLX cannot run on the iOS Simulator."
+        )
+
+        installSystemAlertMonitor()
+
+        // Self-launch a fresh, real-engine app (no fake flag) so the production URLSession
+        // download stack is exercised. Skip onboarding so we land on Studio deterministically.
+        VocelloUITestApp.shared.forceTerminate()
+        Thread.sleep(forTimeInterval: 1.0)
+        app = XCUIApplication()
+        app.launchEnvironment["QVOICE_IOS_SKIP_ONBOARDING"] = "1"
+        app.launch()
+        _ = app.wait(for: .runningForeground, timeout: 30)
+        VocelloUITestApp.dismissOnboardingIfPresent(in: app)
+
         navigateToSettings()
         uninstallProCustomIfNeeded()
     }
 
     override func tearDown() {
-        VocelloUITestApp.shared.resetToStudio()
+        app?.terminate()
         super.tearDown()
     }
 
@@ -38,76 +53,42 @@ final class VocelloiOSOnDeviceDownloadUITests: XCTestCase {
             cancelButton.waitForExistence(timeout: 30),
             "Cancel button should appear after starting a real download"
         )
-        VocelloUITestApp.shared.captureScreenshot(named: "device-download-started-pro-custom")
+        captureScreenshot(named: "device-download-started-pro-custom")
         cancelButton.tap()
 
         XCTAssertTrue(
-            VocelloUITestApp.shared.waitForConfirmationButton("iosModelCancelDownloadConfirmButton"),
+            element("iosModelCancelDownloadConfirmButton").waitForExistence(timeout: 10),
             "Cancel Download option should be offered"
         )
         element("iosModelCancelDownloadConfirmButton").tap()
 
         if !installButton.waitForExistence(timeout: 30) {
             print("=== Accessibility hierarchy after cancel ===")
-            print(VocelloUITestApp.shared.app.debugDescription)
+            print(app.debugDescription)
             print("=== End hierarchy ===")
             XCTFail("Install button should reappear after cancelling on a real device")
         }
-        VocelloUITestApp.shared.captureScreenshot(named: "device-download-cancelled-pro-custom")
+        captureScreenshot(named: "device-download-cancelled-pro-custom")
     }
 
-    /// Start a real download, pause with stable progress UI, resume, then cancel.
-    func testRealDeviceDownloadPauseResumeAndCancel() {
-        let installButton = element("iosModelDownload_pro_custom")
-        XCTAssertTrue(installButton.waitForExistence(timeout: 10), "Install button should be visible")
-        installButton.tap()
-
-        let cancelButton = element("iosModelCancel_pro_custom")
-        XCTAssertTrue(
-            cancelButton.waitForExistence(timeout: 30),
-            "Cancel button should appear after starting a real download"
-        )
-
-        cancelButton.tap()
-
-        XCTAssertTrue(
-            VocelloUITestApp.shared.waitForConfirmationButton("iosModelPauseConfirmButton"),
-            "Pause option should be offered"
-        )
-        element("iosModelPauseConfirmButton").tap()
-
-        let resumeButton = element("iosModelResume_pro_custom")
-        XCTAssertTrue(resumeButton.waitForExistence(timeout: 30), "Resume button should appear while paused")
-        VocelloUITestApp.shared.captureScreenshot(named: "device-download-paused-pro-custom")
-
-        resumeButton.tap()
-
-        let cancelAfterResume = element("iosModelCancel_pro_custom")
-        XCTAssertTrue(
-            cancelAfterResume.waitForExistence(timeout: 30),
-            "Cancel button should reappear after resuming"
-        )
-        cancelAfterResume.tap()
-
-        XCTAssertTrue(
-            VocelloUITestApp.shared.waitForConfirmationButton("iosModelCancelDownloadConfirmButton"),
-            "Cancel Download option should be offered after resume"
-        )
-        element("iosModelCancelDownloadConfirmButton").tap()
-
-        if !installButton.waitForExistence(timeout: 30) {
-            print("=== Accessibility hierarchy after pause/resume cancel ===")
-            print(VocelloUITestApp.shared.app.debugDescription)
-            print("=== End hierarchy ===")
-            XCTFail("Install button should reappear after pause/resume/cancel on a real device")
-        }
-        VocelloUITestApp.shared.captureScreenshot(named: "device-download-pause-resume-cancelled-pro-custom")
-    }
+    // Pause/Resume was removed from the download UX (Cancel now discards the partial),
+    // so the former testRealDeviceDownloadPauseResumeAndCancel is gone — the cancel path
+    // above is the complete coverage for the current behavior.
 
     // MARK: - Helpers
 
     private func element(_ identifier: String) -> XCUIElement {
-        VocelloUITestApp.shared.element(identifier)
+        app.descendants(matching: .any)[identifier].firstMatch
+    }
+
+    private func captureScreenshot(named name: String) {
+        let screenshot = app.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        XCTContext.runActivity(named: "Screenshot: \(name)") { activity in
+            activity.add(attachment)
+        }
     }
 
     private func navigateToSettings() {

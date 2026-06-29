@@ -21,13 +21,14 @@ final class VocelloiOSSmokeUITests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
+        installSystemAlertMonitor()
         VocelloUITestApp.shared.resetToStudio()
     }
 
-    /// Confirms the Studio tab + its Custom/Design/Clone mode control are present.
-    /// (Note: the screen-level `screen_generateStudio` identifier propagates onto the composer +
-    /// pills, shadowing their own `textInput_*` / `studioChip_*` ids — so this asserts the mode
-    /// segments, which keep their identifiers, rather than those shadowed ones.)
+    /// Confirms the Studio tab, its Custom/Design/Clone mode control, and the composer are
+    /// present. `screen_generateStudio` is now a leaf presence-marker (it no longer
+    /// propagates onto descendants), so the composer's own `textInput_textEditor` id is
+    /// directly queryable again.
     func testStudioLaunchSurface() {
         XCTAssertTrue(waitFor("rootTab_studio"), "Studio tab should exist on launch")
         XCTAssertTrue(waitFor("screen_generateStudio"), "Studio screen should be the default surface")
@@ -36,6 +37,10 @@ final class VocelloiOSSmokeUITests: XCTestCase {
                 && element("generateSection_design").exists
                 && element("generateSection_clone").exists,
             "all three Custom/Design/Clone mode segments should be present"
+        )
+        XCTAssertTrue(
+            element("textInput_textEditor").waitForExistence(timeout: 10),
+            "the composer text editor should be queryable (no longer shadowed by screen_generateStudio)"
         )
         VocelloUITestApp.shared.captureScreenshot(named: "smoke-studio-surface")
     }
@@ -64,13 +69,12 @@ final class VocelloiOSSmokeUITests: XCTestCase {
         VocelloUITestApp.shared.waitFor(identifier, timeout: timeout)
     }
 
-    /// Poll an element's `isSelected` (the trait updates a beat after the tap).
+    /// Wait for an element's `isSelected` trait (it updates a beat after the tap) using a
+    /// predicate expectation instead of a manual sleep-poll loop.
     private func isSelectedEventually(_ e: XCUIElement, timeout: TimeInterval = 6) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if e.isSelected { return true }
-            usleep(200_000)
-        }
-        return e.isSelected
+        if e.isSelected { return true }
+        let predicate = NSPredicate(format: "isSelected == true")
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: e)
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 }

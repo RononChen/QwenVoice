@@ -146,8 +146,9 @@ struct IOSGenerateContainerView: View {
                 voiceDesignDraft: voiceDesignDraft
             )
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("screen_generateStudio")
+        // Leaf presence marker (see `screenPresenceMarker`): keeps `screen_generateStudio`
+        // queryable without shadowing the composer/pill ids beneath it.
+        .screenPresenceMarker("screen_generateStudio")
     }
 }
 

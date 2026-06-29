@@ -1,10 +1,34 @@
 import XCTest
 
+/// Test tiers for `VocelloiOSUITests`.
+///
+/// - **Tier A**: fake-backend UI tests. The app launches with `QVOICE_FAKE_ENGINE=1`, which
+///   swaps in `FakeTTSEngine` + `FakeModelStatusProvider` (no 2.3 GB model, no Metal) **and**
+///   bypasses the on-device hardware gate, so these run on the iOS Simulator and in CI as
+///   well as on device.
+/// - **Tier B**: real-engine tests (cold generation, real download). They need the in-process
+///   MLX engine, which **cannot initialize on the iOS Simulator** (it crashes enumerating the
+///   Metal GPU), so they run on a paired iPhone only.
+///
+/// Tier B is gated at **compile time**: the UI test bundle is built for its run destination,
+/// so `targetEnvironment(simulator)` is false on device and true on the Simulator. That makes
+/// the gate reliable with no runner-env plumbing — `scripts/ios_device.sh` selects which
+/// suites run on device, and CI runs only the Tier-A suites on the Simulator.
+enum UITestTier {
+    static var canRunRealEngine: Bool {
+        #if targetEnvironment(simulator)
+        false
+        #else
+        true
+        #endif
+    }
+}
+
 /// Shared app coordinator for the whole `VocelloiOSUITests` target.
 ///
-/// Warm smoke/sheet tests disable the real engine (`QVOICE_IOS_DISABLE_ENGINE=1`) so
-/// runs stay fast and hermetic on device; real download/generation tests use their own
-/// `XCUIApplication` launches.
+/// The shared instance always drives the **Tier-A fake backend** (`QVOICE_FAKE_ENGINE=1`):
+/// fast, hermetic, and Simulator/CI-runnable. Real-engine (Tier-B) suites do not use this
+/// coordinator — they launch their own `XCUIApplication` with the real engine on device.
 final class VocelloUITestApp: @unchecked Sendable {
     static let shared = VocelloUITestApp()
     private init() {}
@@ -121,18 +145,11 @@ final class VocelloUITestApp: @unchecked Sendable {
         element(identifier).waitForExistence(timeout: timeout)
     }
 
-    /// Waits for a confirmation-dialog button (SwiftUI attach timing can lag one beat).
+    /// Waits for a confirmation-dialog button. `waitForExistence` already polls internally,
+    /// so a single bounded wait covers the one-beat SwiftUI attach lag without a sleep loop.
     @discardableResult
     func waitForConfirmationButton(_ identifier: String, timeout: TimeInterval = 10) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            let button = element(identifier)
-            if button.waitForExistence(timeout: 1) {
-                return true
-            }
-            usleep(200_000)
-        }
-        return element(identifier).exists
+        element(identifier).waitForExistence(timeout: timeout)
     }
 
     /// Dismiss first-run onboarding when present. Shared by warm and cold test paths.
@@ -197,7 +214,14 @@ final class VocelloUITestApp: @unchecked Sendable {
 
     private func launch() {
         app = XCUIApplication()
-        // UI-only smoke/sheet tests do not need the heavy model load.
+        // Tier A: the deterministic fake backend (FakeTTSEngine + FakeModelStatusProvider).
+        // This avoids the ~2.3 GB model load + Metal warmup (slow/flaky and contends with
+        // the accessibility server) *and* bypasses the on-device hardware gate so the UI
+        // mounts on the iOS Simulator and in CI. The fake reports the model as installed and
+        // produces a canned clip, so backend-dependent UI (Studio generate → player, error
+        // surface) is exercised live and instantly. Real model load + generation is covered
+        // by the Tier-B cold-launch suite, which launches its own app without this flag.
+        app.launchEnvironment["QVOICE_FAKE_ENGINE"] = "1"
         // Keep tests hermetic: skip the first-run onboarding cover so every test
         // starts on the Studio surface deterministically.
         app.launchEnvironment["QVOICE_IOS_SKIP_ONBOARDING"] = "1"
@@ -223,6 +247,28 @@ final class VocelloUITestApp: @unchecked Sendable {
         guard let app = app else { return }
         if app.state != .runningForeground {
             app.activate()
+        }
+    }
+}
+
+extension XCTestCase {
+    /// Registers a best-effort monitor that auto-dismisses unexpected system alerts
+    /// (permission prompts, automation/pairing dialogs) so a warm UI run doesn't stall on
+    /// them. XCUITest invokes registered monitors when an interaction is interrupted, so the
+    /// taps that `resetToStudio()` / each test perform give the monitor a chance to fire.
+    /// The monitor is automatically removed when the test case finishes.
+    @discardableResult
+    func installSystemAlertMonitor() -> NSObjectProtocol {
+        addUIInterruptionMonitor(withDescription: "System alert") { alert in
+            let labels = ["Allow While Using App", "Allow Once", "Allow", "OK", "Continue"]
+            for label in labels {
+                let button = alert.buttons[label]
+                if button.exists {
+                    button.tap()
+                    return true
+                }
+            }
+            return false
         }
     }
 }

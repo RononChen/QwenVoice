@@ -5,12 +5,13 @@ import XCTest
 /// (the iOS Simulator is unsupported).
 ///
 /// Reaching the sheets: the Studio **selector pills** are tapped by their stable label
-/// prefix ("Voice: ", "Language:", "Voice brief:") — their own `studioChip_*` identifiers are
-/// shadowed by the screen-level `screen_generateStudio` identifier that SwiftUI propagates
-/// onto descendants (same reason `textInput_*` are shadowed). Inside the sheets the elements
-/// keep their own identifiers (`voicePickerRow_*`, `voicePickerPreview_*`, `voicePicker_confirm`,
-/// `languagePicker_*`, `voiceBrief_editor`, `voiceBrief_confirm`) because the bottom panel is a
-/// separate overlay, so those are driven by identifier.
+/// prefix ("Voice: ", "Language:", "Voice brief:"). (Their own `studioChip_*` identifiers are
+/// now also queryable — `screen_generateStudio` is a leaf marker that no longer propagates
+/// onto descendants — but the label-prefix taps remain a robust, human-readable way to reach
+/// them.) Inside the sheets the elements keep their own identifiers (`voicePickerRow_*`,
+/// `voicePickerPreview_*`, `voicePicker_confirm`, `languagePicker_*`, `voiceBrief_editor`,
+/// `voiceBrief_confirm`) because the bottom panel is a separate overlay, so those are driven
+/// by identifier.
 ///
 /// These assert *behaviour* (select-and-confirm, preview-doesn't-close, confirm gating),
 /// not pixels — the no-rubber-band scroll feel + thumb fade are verified by visual review.
@@ -25,6 +26,7 @@ final class VocelloiOSSheetUITests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
+        installSystemAlertMonitor()
         VocelloUITestApp.shared.resetToStudio()
     }
 

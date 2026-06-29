@@ -17,6 +17,7 @@ final class VocelloMacSmokeUITests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
+        installSystemAlertMonitor()
         app = XCUIApplication()
         app.launchEnvironment["QWENVOICE_DEBUG"] = "1"
         app.launch()
