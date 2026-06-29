@@ -54,3 +54,4 @@ reference ledger, not an auto-compared baseline gate.
 | 2026-06-29 | 8a4205a | custom/pro_custom_speed/warm/medium | 1.70 | 21.22 | - | 2860 | 0 | pass | perf-inv HEAD -O nodebug | - |
 | 2026-06-29 | c60dd08 | custom/pro_custom_speed/warm/medium | 0.97 | 12.15 | - | 4237 | 0 | pass | perf-inv v2.1.0 -Onone debug | - |
 | 2026-06-29 | c60dd08 | custom/pro_custom_speed/warm/medium | 1.67 | 20.90 | - | 4288 | 0 | pass | perf-inv v2.1.0 -O debug | - |
+| 2026-06-29 | 7a327f5 | custom/pro_custom_speed/warm/medium | 1.70 | 21.20 | - | 3538 | 0 | pass | multi-mode-ui-xpc-audit | - |

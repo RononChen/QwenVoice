@@ -163,7 +163,7 @@ QWENVOICE_DEBUG=1 ./scripts/build.sh run # debug data dir + telemetry
 # macOS test/debug/profile lanes (one verb per lane)
 scripts/macos_test.sh preflight [--strict-models]  # readiness: app + dSYMs + XPC + model status
 scripts/macos_test.sh models check|ensure|install   # test fixture (~2.3 GB Speed; see testing-runbook §1b)
-scripts/macos_test.sh test               # models ensure → VocelloMacSmokeUITests (10 tests)
+scripts/macos_test.sh test               # models ensure → VocelloMacSmokeUITests (12 tests)
 scripts/macos_test.sh gate               # models → inputs → build_foundation → test → crashes
 scripts/macos_test.sh crashes            # collect + symbolicate .ips
 scripts/macos_test.sh debug              # LLDB attach (app + XPC service PID)
@@ -172,7 +172,7 @@ scripts/macos_test.sh profile [spec]     # models ensure → Instruments on voce
 scripts/macos_test.sh review [--baseline]# UI capture tour + baseline diff
 scripts/macos_test.sh xpc [--crash-isolation] # XPC lifecycle / crash isolation
 
-# macOS UI smoke (single VocelloMacSmokeUITests class, 10 tests)
+# macOS UI smoke (single VocelloMacSmokeUITests class, 12 tests)
 xcodebuild test -project QwenVoice.xcodeproj -scheme QwenVoice \
   -destination 'platform=macOS,arch=arm64' -derivedDataPath build/DerivedData
 
@@ -309,7 +309,7 @@ the relevant role file path and the task; the subagent should read the role file
   debug symlink via [`scripts/lib/test_models.sh`](scripts/lib/test_models.sh)). iOS default
   gate does not pre-install models; `--cold` / bench / profile need Speed on the device.
   Set `QVOICE_SKIP_MODEL_ENSURE=1` only when testing download/management UX.
-- **macOS UI smoke:** `VocelloMacSmokeUITests` (10 tests). Run via `scripts/macos_test.sh test`
+- **macOS UI smoke:** `VocelloMacSmokeUITests` (12 tests). Run via `scripts/macos_test.sh test`
   or directly with `xcodebuild test -project QwenVoice.xcodeproj -scheme QwenVoice -destination
   'platform=macOS,arch=arm64' -derivedDataPath build/DerivedData`.
 - **iOS UI tests — two tiers** (`VocelloiOSUITests`):

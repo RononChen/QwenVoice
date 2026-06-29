@@ -159,7 +159,7 @@ Useful checks:
 ./scripts/build_foundation_targets.sh macos
 ./scripts/build_foundation_targets.sh ios
 scripts/macos_test.sh models ensure   # one-time Speed model for macOS UI/bench tests
-scripts/macos_test.sh test            # macOS UI smoke (10 tests, real generation)
+scripts/macos_test.sh test            # macOS UI smoke (12 tests, 3-mode real generation)
 scripts/ios_device.sh ui-test         # on-device iOS UI-flow smoke (requires paired iPhone)
 ```
 

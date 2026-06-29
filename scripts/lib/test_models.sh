@@ -17,8 +17,12 @@
 
 # shellcheck shell=bash
 
-# Default variant ids required for macOS smoke / bench / profile.
-MAC_TEST_REQUIRED_MODEL_IDS=(pro_custom_speed)
+# Default variant ids required for macOS smoke / bench / profile (Speed tier, ~2.3 GB each).
+MAC_TEST_REQUIRED_MODEL_IDS=(pro_custom_speed pro_design_speed pro_clone_speed)
+
+# Bench default clone voice — enrolled in debug context for Clone UI smoke + vocello bench.
+MAC_TEST_CLONE_VOICE_NAME="A_warm_elderly_woman"
+MAC_TEST_CLONE_REF_TRANSCRIPT="Hello, this is an automated clone reference clip."
 
 _test_models_app_support_base() {
   echo "${HOME}/Library/Application Support"
@@ -161,12 +165,104 @@ check_mac_test_models() {
     missing=1
   fi
 
+  if vocello_clone_voice_present 1; then
+    _test_models_note "  clone voice $MAC_TEST_CLONE_VOICE_NAME (debug): OK"
+  else
+    _test_models_warn "  clone voice $MAC_TEST_CLONE_VOICE_NAME: not enrolled (run: scripts/macos_test.sh models ensure)"
+    missing=1
+  fi
+
   if (( missing == 0 )); then
     _test_models_note "models: OK for macOS real-engine lanes"
     return 0
   fi
   if (( strict == 1 )); then
     _test_models_die "required test models missing (run: scripts/macos_test.sh models ensure)"
+  fi
+  return 1
+}
+
+# $1 = debug context (0|1, default 0). True when the bench default clone voice is enrolled.
+vocello_clone_voice_present() {
+  local debug="${1:-0}"
+  ensure_vocello_cli
+  local json
+  if (( debug == 1 )); then
+    json="$(QWENVOICE_DEBUG=1 "$TEST_MODELS_VOCELLO" voices list --json 2>/dev/null || true)"
+  else
+    json="$("$TEST_MODELS_VOCELLO" voices list --json 2>/dev/null || true)"
+  fi
+  [[ -n "$json" ]] || return 1
+  VOICE_NAME="$MAC_TEST_CLONE_VOICE_NAME" JSON="$json" python3 - <<'PY'
+import json, os, sys
+raw = os.environ.get("JSON", "").strip()
+name = os.environ["VOICE_NAME"]
+if not raw:
+    sys.exit(1)
+try:
+    voices = json.loads(raw)
+except json.JSONDecodeError:
+    sys.exit(1)
+if not isinstance(voices, list):
+    sys.exit(1)
+for v in voices:
+    if v.get("name") == name or v.get("id") == name:
+        sys.exit(0)
+sys.exit(1)
+PY
+}
+
+# Bootstrap reference audio + enroll bench default clone voice in debug context.
+ensure_mac_test_clone_fixture() {
+  local require=0
+  [[ "${1:-}" == "--require" ]] && require=1
+
+  if vocello_clone_voice_present 1; then
+    _test_models_note "clone voice $MAC_TEST_CLONE_VOICE_NAME: already enrolled (debug)"
+    return 0
+  fi
+
+  if ! vocello_model_installed pro_custom_speed 1; then
+    if (( require == 1 )); then
+      _test_models_die "clone fixture needs pro_custom_speed to bootstrap reference audio"
+    fi
+    _test_models_warn "clone fixture skipped — pro_custom_speed not ready"
+    return 1
+  fi
+
+  local ref_dir ref_wav
+  ref_dir="$(mktemp -d "${TMPDIR:-/tmp}/qvoice-clone-fixture.XXXXXX")"
+  ref_wav="$ref_dir/ref.wav"
+  _test_models_note "generating clone reference clip via vocello (debug context)…"
+  if ! QWENVOICE_DEBUG=1 "$TEST_MODELS_VOCELLO" generate --mode custom --variant speed \
+    --text "$MAC_TEST_CLONE_REF_TRANSCRIPT" --out "$ref_wav" --no-stream >/dev/null 2>&1; then
+    rm -rf "$ref_dir"
+    if (( require == 1 )); then
+      _test_models_die "failed to generate clone reference clip for fixture"
+    fi
+    _test_models_warn "clone reference generation failed"
+    return 1
+  fi
+
+  _test_models_note "enrolling clone voice $MAC_TEST_CLONE_VOICE_NAME ..."
+  if ! QWENVOICE_DEBUG=1 "$TEST_MODELS_VOCELLO" voices enroll \
+    --name "$MAC_TEST_CLONE_VOICE_NAME" --audio "$ref_wav" \
+    --transcript "$MAC_TEST_CLONE_REF_TRANSCRIPT" >/dev/null 2>&1; then
+    rm -rf "$ref_dir"
+    if (( require == 1 )); then
+      _test_models_die "failed to enroll clone voice $MAC_TEST_CLONE_VOICE_NAME"
+    fi
+    _test_models_warn "clone voice enrollment failed"
+    return 1
+  fi
+  rm -rf "$ref_dir"
+
+  if vocello_clone_voice_present 1; then
+    _test_models_note "clone voice $MAC_TEST_CLONE_VOICE_NAME: OK in debug test context"
+    return 0
+  fi
+  if (( require == 1 )); then
+    _test_models_die "clone voice $MAC_TEST_CLONE_VOICE_NAME missing after enrollment"
   fi
   return 1
 }
@@ -193,7 +289,7 @@ ensure_mac_test_models() {
     fi
     if [[ "${QVOICE_TEST_MODELS_NO_NETWORK:-}" == "1" ]]; then
       if (( require == 1 )); then
-        _test_models_die "model $id not in $canonical and QVOICE_TEST_MODELS_NO_NETWORK=1 — run: scripts/macos_test.sh models ensure (one-time ~2.3 GB download)"
+        _test_models_die "model $id not in $canonical and QVOICE_TEST_MODELS_NO_NETWORK=1 — run: scripts/macos_test.sh models ensure (one-time ~6.9 GB for all three Speed models)"
       fi
       _test_models_warn "model $id missing; network install disabled (QVOICE_TEST_MODELS_NO_NETWORK=1)"
       return 1
@@ -222,6 +318,13 @@ ensure_mac_test_models() {
   if (( missing != 0 && require == 1 )); then
     _test_models_die "required test models unavailable after ensure"
   fi
+
+  if (( require == 1 )); then
+    ensure_mac_test_clone_fixture --require
+  else
+    ensure_mac_test_clone_fixture || (( missing |= 1 ))
+  fi
+
   return "$missing"
 }
 

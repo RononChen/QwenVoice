@@ -91,23 +91,34 @@ final class VocelloMacSmokeUITests: XCTestCase {
 
         XCTAssertTrue(typeScript("Automated smoke generation."), "typed text should land")
 
-        let generate = element("textInput_generateButton")
-        XCTAssertTrue(generate.waitForExistence(timeout: 5), "generate button should exist")
-        guard waitForEnabled(generate) else {
-            if requiresTestModels {
-                XCTFail("generate disabled — pro_custom_speed must be installed (scripts/macos_test.sh models ensure)")
-            }
-            throw XCTSkip("generate disabled (model not ready in this environment)")
-        }
-        generate.tap()
+        try tapGenerateAndWaitForPlayer(modeLabel: "Custom Voice")
+        clearEditor()
+    }
 
-        // Generation incl. a possible cold model load — generous timeout.
+    func testGenerateVoiceDesignSmoke() throws {
+        try skipIfDisabled("voiceDesign")
+        element("sidebar_voiceDesign").tap()
+        XCTAssertTrue(waitFor("screen_voiceDesign"))
+
         XCTAssertTrue(
-            element("sidebarPlayer_bar").waitForExistence(timeout: 180),
-            "player bar should appear after generation"
+            fillVoiceBrief(),
+            "voice brief should be filled via starting points or typing"
         )
-        XCTAssertFalse(element("sidebar_backendStatus_error").exists, "no engine error state")
-        XCTAssertFalse(element("sidebar_backendStatus_crashed").exists, "no engine crash state")
+        XCTAssertTrue(typeScript("Automated Voice Design generation."), "typed text should land")
+
+        try tapGenerateAndWaitForPlayer(modeLabel: "Voice Design")
+        clearEditor()
+    }
+
+    func testGenerateVoiceCloningSmoke() throws {
+        try skipIfDisabled("voiceCloning")
+        XCTAssertTrue(
+            openCloneVoiceFromSavedVoices(named: "A_warm_elderly_woman"),
+            "saved clone voice should hand off to Voice Cloning"
+        )
+        XCTAssertTrue(typeScript("Automated Voice Cloning generation."), "typed text should land")
+
+        try tapGenerateAndWaitForPlayer(modeLabel: "Voice Cloning")
         clearEditor()
     }
 
@@ -252,10 +263,103 @@ final class VocelloMacSmokeUITests: XCTestCase {
     private func skipIfDisabled(_ item: String) throws {
         if disabledSidebarItems().contains(item) {
             if requiresTestModels {
-                XCTFail("\(item) is disabled — pro_custom_speed must be installed (scripts/macos_test.sh models ensure)")
+                XCTFail("\(item) is disabled — run scripts/macos_test.sh models ensure (pro_custom_speed, pro_design_speed, pro_clone_speed)")
             }
             throw XCTSkip("\(item) is disabled in this environment (model not installed)")
         }
+    }
+
+    private func tapGenerateAndWaitForPlayer(modeLabel: String) throws {
+        let generate = element("textInput_generateButton")
+        XCTAssertTrue(generate.waitForExistence(timeout: 5), "generate button should exist")
+        guard waitForEnabled(generate) else {
+            if requiresTestModels {
+                XCTFail("generate disabled for \(modeLabel) — run scripts/macos_test.sh models ensure")
+            }
+            throw XCTSkip("generate disabled (model not ready in this environment)")
+        }
+        generate.tap()
+
+        // Generation incl. a possible cold model load — generous timeout.
+        XCTAssertTrue(
+            element("sidebarPlayer_bar").waitForExistence(timeout: 180),
+            "player bar should appear after \(modeLabel) generation"
+        )
+        XCTAssertFalse(element("sidebar_backendStatus_error").exists, "no engine error state after \(modeLabel)")
+        XCTAssertFalse(element("sidebar_backendStatus_crashed").exists, "no engine crash state after \(modeLabel)")
+    }
+
+    @discardableResult
+    private func fillVoiceBrief() -> Bool {
+        if selectVoiceBriefStarter() { return true }
+        return typeVoiceBrief("A warm, calm middle-aged male narrator with a clear, measured pace.")
+    }
+
+    @discardableResult
+    private func selectVoiceBriefStarter() -> Bool {
+        let menu = element("voiceDesign_briefStarters")
+        guard menu.waitForExistence(timeout: 10) else { return false }
+        menu.click()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+
+        let starter = element("voiceDesign_briefStarter_0")
+        if starter.waitForExistence(timeout: 5) {
+            starter.click()
+        } else {
+            let fallback = app.menuItems.element(boundBy: 0)
+            guard fallback.waitForExistence(timeout: 5) else { return false }
+            fallback.click()
+        }
+        return waitForVoiceBriefFilled(timeout: 5)
+    }
+
+    private func waitForVoiceBriefFilled(timeout: TimeInterval) -> Bool {
+        let anchor = element("voiceDesign_voiceDescriptionValue")
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let value = ((anchor.value as? String) ?? anchor.label).trimmingCharacters(in: .whitespacesAndNewlines)
+            if anchor.exists, !value.isEmpty { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        }
+        return false
+    }
+
+    @discardableResult
+    private func typeVoiceBrief(_ text: String) -> Bool {
+        let field = element("voiceDesign_voiceDescriptionField")
+        guard field.waitForExistence(timeout: 10) else { return false }
+        for attempt in 0..<2 {
+            if attempt == 0 {
+                field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+            } else {
+                field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleClick()
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+            app.typeText(text)
+            if waitForVoiceBriefFilled(timeout: 3) { return true }
+        }
+        return false
+    }
+
+    @discardableResult
+    private func openCloneVoiceFromSavedVoices(named voiceID: String) -> Bool {
+        if disabledSidebarItems().contains("voices") { return false }
+        element("sidebar_voices").tap()
+        guard waitFor("screen_voices", timeout: 15) else { return false }
+
+        let useButton = element("voicesRow_use_\(voiceID)")
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline {
+            if useButton.waitForExistence(timeout: 1), useButton.isEnabled {
+                useButton.click()
+                if waitFor("screen_voiceCloning", timeout: 10),
+                   element("voiceCloning_activeReference").waitForExistence(timeout: 10) {
+                    return true
+                }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        }
+        return false
     }
 
     /// When `scripts/macos_test.sh test` / `gate` exports `QVOICE_REQUIRE_TEST_MODELS=1`,

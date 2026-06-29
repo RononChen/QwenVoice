@@ -19,7 +19,7 @@ injectable and tests split into two tiers.
 | --- | --- | --- | --- |
 | **A — fake backend** | [`FakeTTSEngine`](../../Sources/iOS/FakeTTSEngine.swift) + `FakeModelStatusProvider` (`QVOICE_FAKE_ENGINE=1`) | **iOS Simulator + CI** and device | `Smoke`, `Sheet`, `FakeGeneration`, `FakeGenerationError`, `ReviewTour` |
 | **B — real engine** | real in-process MLX engine, real model/download | **paired iPhone only** (MLX can't init on the Simulator) | `ColdGeneration`, `OnDeviceDownload` |
-| **macOS UI smoke** | real (out-of-process XPC) | **local macOS 26 host** (not CI yet) | `VocelloMacSmokeUITests` (10 tests) |
+| **macOS UI smoke** | real (out-of-process XPC) | **local macOS 26 host** (not CI yet) | `VocelloMacSmokeUITests` (12 tests) |
 
 Why the split: the MLX engine initializes the Metal GPU at launch and **crashes on the iOS
 Simulator** (`EXC_BAD_ACCESS` on the `GPUEnum` queue). Tier A bypasses MLX entirely, so the

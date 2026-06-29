@@ -8,7 +8,7 @@
 #
 # usage:
 #   scripts/macos_test.sh preflight [--strict-models]  # Xcode + app + dSYMs + XPC + model status
-#   scripts/macos_test.sh test                      # models ensure → VocelloMacSmokeUITests (10 tests)
+#   scripts/macos_test.sh test                      # models ensure → VocelloMacSmokeUITests (12 tests)
 #   scripts/macos_test.sh crashes [--test]          # collect + xcsym-symbolicate .ips (app + XPC service)
 #   scripts/macos_test.sh debug                     # LLDB attach guidance (app + XPC service PID)
 #   scripts/macos_test.sh logs                      # retained os_log → build/macos-logs/<run>.log
@@ -205,7 +205,7 @@ cmd_models() {
 models — test fixture for macOS real-engine lanes
 
   $0 models check     read-only status (debug context, matches UI smoke)
-  $0 models ensure    install if missing + link QwenVoice-Debug/models → canonical
+  $0 models ensure    install if missing + link QwenVoice-Debug/models → canonical + clone voice
   $0 models install [id]   headless download via vocello (default: pro_custom_speed)
 
 Escape: QVOICE_SKIP_MODEL_ENSURE=1  QVOICE_TEST_MODELS_NO_NETWORK=1
@@ -228,6 +228,8 @@ cmd_test() {
   mkdir -p "$MAC_TEST_SCREENSHOT_DIR"
   ensure_mac_test_models --require
   export QVOICE_REQUIRE_TEST_MODELS=1
+  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+  pkill -x QwenVoiceEngineService >/dev/null 2>&1 || true
   note "test: VocelloMacSmokeUITests (macOS, arm64) → $artifacts"
   set +e
   xcodebuild test -project "$ROOT_DIR/QwenVoice.xcodeproj" -scheme QwenVoice \
@@ -328,7 +330,7 @@ cmd_xpc() {
         pid="$(pgrep -xn QwenVoiceEngineService || echo '?')"
         note "  service: SPAWNED (pid $pid)"
         if (( ci == 1 )) && [[ "$pid" != "?" ]]; then
-          note "  crash-isolation: killing service pid $pid…"
+          note "  crash-isolation: killing service pid $pid ..."
           kill -KILL "$pid" 2>/dev/null || true
           sleep 2
           if pgrep -x "$APP_NAME" >/dev/null 2>&1; then

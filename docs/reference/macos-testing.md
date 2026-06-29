@@ -20,19 +20,18 @@ app **and** the service.
 - The app built: `scripts/build.sh build` → `build/Vocello.app` (also preserves dSYMs to
   `build/macos/dsyms/`).
 - The XPC service is embedded at `Vocello.app/Contents/XPCServices/QwenVoiceEngineService.xpc`.
-- **The Speed model for real-engine lanes** (one-time ~2.3 GB): `scripts/macos_test.sh models ensure`
-  installs headlessly via `vocello models install` into the canonical store and symlinks
-  `QwenVoice-Debug/models` for UI smoke (`QWENVOICE_DEBUG=1`). `test`, `gate`, and `profile`
-  call ensure automatically. Weights persist across rebuilds; only
-  `clean_build_caches.sh --models` wipes the **debug** cache (shipped `QwenVoice/models` is kept).
+- **Speed models for real-engine lanes** (one-time ~6.9 GB for all three modes, ~2.3 GB each): `scripts/macos_test.sh models ensure`
+  installs `pro_custom_speed`, `pro_design_speed`, and `pro_clone_speed` headlessly via
+  `vocello models install` into the canonical store, symlinks `QwenVoice-Debug/models` for UI
+  smoke (`QWENVOICE_DEBUG=1`), and bootstraps the bench clone voice (`A_warm_elderly_woman`).
 
 ## Lane → tool map
 
 | Lane | Verb | Captures / proves | Deeper analysis |
 |------|------|-------------------|-----------------|
 | Preflight | `preflight [--strict-models]` | Xcode + app + XPC bundle + dSYMs + model status | — |
-| Models | `models check\|ensure\|install` | canonical + debug fixture for `pro_custom_speed` | — |
-| Test | `test` | `VocelloMacSmokeUITests` only (**10** smoke tests) | `axiom:test-runner` on the `.xcresult` |
+| Models | `models check\|ensure\|install` | three Speed models + clone voice fixture | — |
+| Test | `test` | `VocelloMacSmokeUITests` only (**12** smoke tests, 3-mode generation) | `axiom:test-runner` on the `.xcresult` |
 | Bench | `build.sh cli bench` | deterministic perf/quality matrix | `summarize_generation_telemetry.py` |
 | Crash | `crashes [--test]` | `.ips` for app + XPC service | `axiom:crash-analyzer` / `xcsym` vs the dSYMs |
 | Debug | `debug` | LLDB attach (app + service PID) + `logs` | `./scripts/macos_test.sh debug`; Axiom `build-fixer` |
@@ -134,7 +133,7 @@ verbs, not part of the every-merge gate.
 |-------|---------|--------|
 | Compile | `scripts/build_foundation_targets.sh macos` | the app + frameworks compile |
 | Compile (test) | `xcodebuild build-for-testing -scheme QwenVoice -destination 'platform=macOS,arch=arm64'` | the test bundle compiles |
-| UI smoke | `scripts/macos_test.sh test` | 10 smoke tests (+1 review tour if bare `xcodebuild test` runs the whole target) |
+| UI smoke | `scripts/macos_test.sh test` | 12 smoke tests (+1 review tour if bare `xcodebuild test` runs the whole target) |
 | UI review | `scripts/macos_test.sh review` | sidebar-screen tour vs baselines |
 | Perf/quality | `scripts/build.sh cli bench --modes … --variants … --lengths …` | RTF/decode/audioQC + telemetry |
 | Crash | `scripts/macos_test.sh crashes` | .ips collection + symbolication |
