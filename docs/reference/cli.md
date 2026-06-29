@@ -163,9 +163,10 @@ vocello bench [--modes custom,design,clone] [--variants speed,quality] \
               [--lengths short,medium,long] [--warm 3] [options]
 ```
 
-Per cell: 1 cold (medium) for Custom/Design + N warm per length; Voice Cloning is warm-only. Telemetry
-is forced on; results land in `<data>/diagnostics` and are summarized by
-`scripts/summarize_generation_telemetry.py`.
+Per cell: 1 cold (medium) for Custom/Design + N warm per length; Voice Cloning is warm-only.
+Telemetry defaults to lightweight; use `--telemetry off` for engine-only WAV runs without
+instrumentation. Results land in `<data>/diagnostics` and are summarized by
+`scripts/summarize_generation_telemetry.py` (skipped when `--telemetry off`).
 
 | Option | Meaning |
 |---|---|
@@ -176,7 +177,7 @@ is forced on; results land in `<data>/diagnostics` and are summarized by
 | `--label "<note>"` | stamp a note on the summary / ledger row |
 | `--ledger` | append a one-line row to `benchmarks/HISTORY.md` (the perf-over-time ledger) |
 | `--force-class` | **dev/diagnostic only** — force a constrained memory tier on any Mac: `8gb` · `16gb` · `high` · `iphone` (sets the `QWENVOICE_FORCE_MEMORY_CLASS` knob, relayed to the engine over the `initialize` handshake; stamps `notes.deviceClass`) |
-| `--telemetry` | `lightweight` (default) · `verbose` (raw per-sample sidecars) |
+| `--telemetry` | `off` · `lightweight` (default) · `verbose` (raw per-sample sidecars) |
 | `--no-stream` | accumulate the full result before decoding (old bench behavior) |
 | `--ttfc` | add an engine first-chunk-latency probe per cell → table + `diagnostics/bench-ttfc.json` |
 | `--keep` / `--force` | append to existing diagnostics / allow clearing even the real app data dir |
@@ -184,7 +185,9 @@ is forced on; results land in `<data>/diagnostics` and are summarized by
 | `--no-summary` | skip running the aggregator |
 
 **Streaming by default.** `vocello bench` runs the streaming path by default, so its
-memory numbers match the iOS/app streaming reality. Pass `--no-stream` to run the old accumulate-then-decode
+memory numbers match the iOS/app streaming reality. Streaming takes drain `engine.events`
+and disable inline preview PCM (`QWENVOICE_STREAMING_PREVIEW_DATA=off`) so long matrices
+do not retain chunk events across takes. Pass `--no-stream` to run the old accumulate-then-decode
 behavior for comparison.
 
 **What it measures.** Engine truth — RTF, decode, memory, per-stage GPU, and the `audioQC` verdict.
@@ -195,9 +198,9 @@ first-chunk probe (a warm streaming take per cell, run after the summary so it d
 RTF/decode medians) — distinct from the app's buffered TTFA.
 
 **Preflight.** Before running, `bench` fails fast if any requested `(mode × variant)` model isn't
-installed (listing the missing ids), and auto-skips `clone` when its saved voice (`--voice`, default
-`A_warm_elderly_woman`) is absent (unless `clone` is the only mode). Prerequisites: the requested
-models installed; a saved clone voice for clone (else auto-skipped).
+installed (listing the missing ids), and fails if `clone` is in `--modes` but the saved voice
+(`--voice`, default `A_warm_elderly_woman`) is absent. Prerequisites: the requested models
+installed; a saved clone voice when clone is in the matrix.
 
 The deterministic `audioQC` gate, `scripts/prosody_quality_gate.py`, and
 `scripts/delivery_adherence.py` provide automated gating for bench runs.

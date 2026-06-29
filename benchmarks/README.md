@@ -26,5 +26,7 @@ Name milestone files by date + context, e.g. `2026-05-30-floor8gb-quality.md`. C
 - Still **no** auto-compared baseline manifest and **no** benchmark script harness — those remain
   retired (the guard's existing denylist is unchanged). These are reference logs, not a CI gate.
 
-See [`docs/reference/telemetry-and-benchmarking.md`](../docs/reference/telemetry-and-benchmarking.md)
-for how the telemetry is captured and how to run the reusable benchmark.
+See [`docs/reference/benchmarking-procedure.md`](../docs/reference/benchmarking-procedure.md)
+for the operator runbook (workflows, preflight, reading results) and
+[`docs/reference/telemetry-and-benchmarking.md`](../docs/reference/telemetry-and-benchmarking.md)
+for the telemetry schema and knobs.

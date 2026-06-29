@@ -374,7 +374,7 @@ regenerate the project after changing them.
 - [`docs/reference/`](docs/reference/) — per-subsystem reading list:
   - `mlx-guide.md`, `qwen3-tts-guide.md`, `mimi-codec-guide.md`, `metal-guide.md`
   - `swift-performance-guide.md`, `ios-engine-optimization.md`
-  - `telemetry-and-benchmarking.md`, `cli.md`
+  - `benchmarking-procedure.md`, `telemetry-and-benchmarking.md`, `cli.md`
   - `macos-release-qa.md`, `ios-device-testing.md`, `ios-appstore-submission.md`
   - `privacy-storage.md`, `macos-permissions.md`, `mlx-audio-swift-patching.md`
 - [`PRODUCT.md`](PRODUCT.md) — product/brand.

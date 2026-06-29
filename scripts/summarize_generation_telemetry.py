@@ -42,6 +42,23 @@ DEFAULT_DIR = os.path.expanduser(
     "~/Library/Application Support/QwenVoice-Debug/diagnostics"
 )
 
+# Engine rows with these finishReason values are omitted from benchmark medians
+# (failed/superseded/cancelled runs would skew RTF and memory aggregates).
+_BENCHMARK_SUCCESS_FINISH_REASONS = frozenset({
+    "eos",
+    "max_tokens",
+    "maxTokens",
+    "completed",
+})
+
+
+def _engine_row_counts_for_benchmark(row):
+    """True when an engine JSONL row should contribute to benchmark aggregates."""
+    finish = row.get("finishReason")
+    if finish is None:
+        return True  # legacy rows without finishReason
+    return finish in _BENCHMARK_SUCCESS_FINISH_REASONS
+
 
 def git_short_sha():
     """Short HEAD SHA of the repo in CWD, or '-' when unavailable."""
@@ -202,6 +219,8 @@ def _engine_run(e, app_lookup):
         # exhausting its available memory budget during the run.
         "physFootMB": summary.get("physFootprintPeakMB"),
         "headMinMB": summary.get("headroomMinMB"),
+        "gpuWsRatioPeak": summary.get("gpuWorkingSetUsageRatioPeak"),
+        "thermalWorst": (e.get("thermalState") or {}).get("worst"),
         "compressedMB": summary.get("compressedPeakMB"),
         # Kernel memory-pressure activity during the run (stage marks).
         "trims": trim_count,
@@ -265,6 +284,7 @@ def load_runs(diag_dir):
     return [
         _engine_run(e, app_lookup)
         for e in iter_jsonl(os.path.join(diag_dir, "engine", "generations.jsonl"))
+        if _engine_row_counts_for_benchmark(e)
     ]
 
 
@@ -279,6 +299,9 @@ class CellAccumulator:
     decode_loop_ms: list = field(default_factory=list)
     peak_gpu_mb: list = field(default_factory=list)
     phys_foot_mb: list = field(default_factory=list)
+    head_min_mb: list = field(default_factory=list)
+    gpu_ws_ratio_peaks: list = field(default_factory=list)
+    thermal_worsts: list = field(default_factory=list)
     trims: list = field(default_factory=list)
     worst_trims: list = field(default_factory=list)
     ui_stalls: list = field(default_factory=list)
@@ -307,6 +330,12 @@ class CellAccumulator:
             self.peak_gpu_mb.append(run["peakGpuMB"])
         if run.get("physFootMB") is not None:
             self.phys_foot_mb.append(run["physFootMB"])
+        if run.get("headMinMB") is not None:
+            self.head_min_mb.append(run["headMinMB"])
+        if run.get("gpuWsRatioPeak") is not None:
+            self.gpu_ws_ratio_peaks.append(run["gpuWsRatioPeak"])
+        if run.get("thermalWorst") is not None:
+            self.thermal_worsts.append(run["thermalWorst"])
         if run.get("trims") is not None:
             self.trims.append(run["trims"])
         if run.get("worstTrim") is not None:
@@ -378,6 +407,9 @@ class CellAccumulator:
             "decodeLoopMS": med(self.decode_loop_ms),
             "peakGpuMB": med(self.peak_gpu_mb),
             "physFootMB": med(self.phys_foot_mb),
+            "headMinMB": med(self.head_min_mb),
+            "gpuWsRatioPeak": med(self.gpu_ws_ratio_peaks),
+            "thermalWorst": _worst_thermal(self.thermal_worsts),
             "rtfIQR": iqr(self.rtfs),
             "physFootIQR": iqr(self.phys_foot_mb),
             "trims": med(self.trims),
@@ -407,15 +439,21 @@ class CellAccumulator:
 def aggregate_runs(diag_dir):
     """Stream engine + app rows and aggregate them into finalized cell summaries.
 
-    Returns (runs, cells, delivery_cells) where `runs` is the materialized list of
-    per-run dicts, and the cell dicts are keyed by (mode, modelID, warmState, bucket)
-    with delivery cells keyed by (mode, modelID, warmState, delivery).
+    Returns (runs, cells, delivery_cells, skipped_failed) where `runs` is the
+    materialized list of per-run dicts, and the cell dicts are keyed by
+    (mode, modelID, warmState, bucket) with delivery cells keyed by
+    (mode, modelID, warmState, delivery). Rows with finishReason
+    failed/superseded/cancelled are omitted from aggregates.
     """
     app_lookup = _app_index(diag_dir)
     accumulators = {}
     delivery_accumulators = {}
     runs = []
+    skipped_failed = 0
     for e in iter_jsonl(os.path.join(diag_dir, "engine", "generations.jsonl")):
+        if not _engine_row_counts_for_benchmark(e):
+            skipped_failed += 1
+            continue
         run = _engine_run(e, app_lookup)
         runs.append(run)
         if run.get("delivery"):
@@ -432,11 +470,32 @@ def aggregate_runs(diag_dir):
         summary["lenBucket"] = None
         summary["delivery"] = key[3]
         delivery_cells[key] = summary
-    return runs, cells, delivery_cells
+    return runs, cells, delivery_cells, skipped_failed
 
 
 # Worst-first ranking of QC verdicts for cell aggregation.
 _QC_SEVERITY = {"pass": 0, "warn": 1, "fail": 2}
+
+_THERMAL_SEVERITY = {
+    "nominal": 0,
+    "fair": 1,
+    "serious": 2,
+    "critical": 3,
+}
+
+
+def _worst_thermal(states):
+    """Return the worst thermal state label seen in a cell."""
+    if not states:
+        return None
+    worst, rank = None, -1
+    for state in states:
+        if state is None:
+            continue
+        r = _THERMAL_SEVERITY.get(state, 0)
+        if r > rank:
+            rank, worst = r, state
+    return worst
 
 
 def cell_qc(group):
@@ -882,11 +941,13 @@ def main():
     args = parser.parse_args()
     diag_dir = args.diag_dir
 
-    runs, cells, delivery_cells = aggregate_runs(diag_dir)
+    runs, cells, delivery_cells, skipped_failed = aggregate_runs(diag_dir)
     if not runs:
         print(f"No telemetry rows under {diag_dir}/engine/generations.jsonl")
         print("Run the benchmark first (see docs/reference/telemetry-and-benchmarking.md).")
         return 1
+    if skipped_failed:
+        print(f"(skipped {skipped_failed} non-success engine row(s) with finishReason failed/superseded/cancelled)")
     prosody_rows = load_prosody(diag_dir)
 
     if args.ledger_row:
@@ -908,7 +969,8 @@ def main():
     header = (
         f"{'mode':<8} {'model':<26} {'state':<5} {'len':<6} {'n':>2} "
         f"{'RTF':>6} {'tok/s':>7} {'TTFC ms':>8} {'decode ms':>9} "
-        f"{'peakGPU':>8} {'physFoot':>8} {'trims':>9} {'UIstall':>9} {'QC':<12}"
+        f"{'peakGPU':>8} {'physFoot':>8} {'headMin':>8} {'gpuWS':>6} {'thermal':<8} "
+        f"{'trims':>9} {'UIstall':>9} {'QC':<12}"
         + variance_cols
     )
     tiers = sorted({r["deviceClass"] for r in runs})
@@ -934,6 +996,9 @@ def main():
             f"{fmt(summary['decodeLoopMS'], 0):>9} "
             f"{fmt(summary['peakGpuMB'], 0):>8} "
             f"{fmt(summary['physFootMB'], 0):>8} "
+            f"{fmt(summary.get('headMinMB'), 0):>8} "
+            f"{fmt(summary.get('gpuWsRatioPeak')):>6} "
+            f"{(summary.get('thermalWorst') or '-'):<8} "
             f"{fmt_trims(summary):>9} "
             f"{fmt_ui_stall(summary):>9} "
             f"{cell_qc(summary):<12}"

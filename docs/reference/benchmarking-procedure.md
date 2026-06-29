@@ -1,0 +1,458 @@
+# Benchmarking procedure — operator runbook
+
+Step-by-step guide for running Vocello performance and quality benchmarks on **macOS**
+(CLI and app/XPC) and **iOS** (on-device autorun). This document covers **when** to bench,
+**how** to drive each platform path, **what** artifacts to expect, and **how** to read results.
+
+For telemetry schema, record fields, and MLX timing semantics, see
+[`telemetry-and-benchmarking.md`](telemetry-and-benchmarking.md). For CLI flags, see
+[`cli.md`](cli.md) §bench.
+
+If anything here disagrees with the code, the code wins — fix this file.
+
+---
+
+## 1. Purpose and principles
+
+### When to run a benchmark
+
+Run a benchmark when you change anything that can affect **decode throughput**, **memory
+peaks**, **first-chunk latency**, or **audio quality**:
+
+- MLX / vendored Qwen3-TTS or Mimi codec
+- Memory policy, streaming interval, idle-unload, XPC lifecycle
+- Model load path, prewarm, clone conditioning
+- Before merging engine-adjacent work or cutting a macOS/iOS release
+
+### What “good” means
+
+A benchmark pass requires **all** of the following:
+
+| Gate | Criterion |
+|------|-----------|
+| **audioQC** | No `fail` in any cell (`pass` or `warn` only). Any `fail` blocks promotion. |
+| **RTF** | `derivedMetrics.audioSecondsPerWallSecond` within noise of the latest [`benchmarks/HISTORY.md`](../../benchmarks/HISTORY.md) row for the headline cell (same tier, same variant). |
+| **Memory** | No rising `physFoot` peak or non-zero `hardTrim` in `trims` on floor-tier runs. |
+| **Listening pass** | Mandatory human ear check for engine changes — automated QC is a tripwire, not a substitute. |
+
+**RTF > 1** means faster than realtime (more audio seconds produced per wall second).
+
+### Design constraints
+
+1. **Primary driver is headless** — `vocello bench` drives the matrix in-process with exact
+   cold/warm control. UI driving for benchmarks is retired.
+2. **Telemetry is runtime-gated** — identical code in Release; off unless debug env/toggle/handshake.
+3. **No CI auto-gate today** — benchmarks are local/release-lane only (see §9).
+4. **Lazy MLX caveat** — decode breakdown columns measure Swift wall-clock around lazy graph
+   ops, not per-stage GPU compute. Use Instruments signposts for GPU attribution (§6.3).
+
+---
+
+## 2. Platform topology
+
+Three hosts write telemetry; only some layers exist per path:
+
+```text
+                    CLI (vocello bench)     macOS app + XPC        iOS app (in-process)
+                    ───────────────────     ───────────────        ────────────────────
+Engine row          yes                     yes                    yes
+Engine-service row  no                      yes (XPC transport)    no
+App row             no                      yes (UI timings)       yes (UI timings)
+Merged row          no (CLI)                yes (macOS merger)     partial
+TTFC column         — (no app process)      yes (submit→chunk)     yes
+UIstall column      —                       yes                    yes
+```
+
+| Path | Driver | Engine topology | Best for |
+|------|--------|-----------------|----------|
+| **CLI** | `./build/vocello bench` | In-process `MLXTTSEngine` | Deterministic RTF/decode/memory matrix; release QA step 3 |
+| **macOS UI** | App + `QwenVoiceEngineService` XPC | Out-of-process engine | End-to-end TTFC, UI stall, XPC transport; UI smoke tests |
+| **macOS profile** | `scripts/macos_test.sh profile` | In-process via CLI inside trace | Instruments / os_signpost validation |
+| **iOS device** | `scripts/ios_device.sh bench` | In-process | iPhone tier, Jetsam, on-device RTF |
+
+**Important:** CLI bench numbers are **not** identical to macOS XPC UI numbers. Compare like with
+like (CLI vs CLI, UI vs UI). Use CLI for backend optimization; use UI/XPC for integration regressions.
+
+---
+
+## 3. Preflight checklist
+
+Run before any benchmark session:
+
+### Build and CLI
+
+```sh
+./scripts/build.sh cli          # produces build/vocello
+./scripts/check_project_inputs.sh
+```
+
+### Models and clone fixture (macOS)
+
+```sh
+scripts/macos_test.sh models ensure
+```
+
+This installs (or symlinks into debug context):
+
+- `pro_custom_speed`, `pro_design_speed`, `pro_clone_speed` (~6.9 GB one-time if none installed)
+- Clone voice `A_warm_elderly_woman` (reference clip + enrollment via `vocello`)
+
+Set `QVOICE_REQUIRE_TEST_MODELS=1` is automatic on script paths; bare `xcodebuild` may skip tests.
+
+### Environment hygiene
+
+| Check | Action |
+|-------|--------|
+| Quiet machine | Quit heavy apps; watch thermals (see §6.4). |
+| Single Vocello session | `pkill -x Vocello; pkill -x QwenVoiceEngineService` before UI benches. |
+| Debug data dir | `QWENVOICE_DEBUG=1` → `~/Library/Application Support/QwenVoice-Debug/` |
+| Floor-tier simulation | `QWENVOICE_FORCE_MEMORY_CLASS=floor_8gb_mac` (propagates to engine via handshake) |
+| Suppress proactive warm | `QWENVOICE_SUPPRESS_WARMUP=1` for accurate Custom/Design **cold** rows in UI runs |
+
+### iOS device
+
+- Paired physical iPhone (never Simulator for real engine)
+- Speed model installed via Settings → Model Downloads (or prior autorun)
+- `scripts/ios_device.sh preflight` before bench/gate
+
+---
+
+## 4. Standard workflows
+
+### 4.1 Release QA engine net (macOS)
+
+From [`macos-release-qa.md`](macos-release-qa.md) step 3 — run when `Sources/` engine code changed:
+
+```sh
+scripts/macos_test.sh models ensure
+
+QWENVOICE_DEBUG=1 ./build/vocello bench \
+  --modes custom,design,clone \
+  --variants speed \
+  --lengths short,medium,long \
+  --warm 3 \
+  --voice A_warm_elderly_woman \
+  --label "release-QA" \
+  --ledger
+```
+
+Gate: all cells `QC=pass` (or documented `warn` with listening pass); RTF within noise of
+`HISTORY.md`; **listening pass by ear**.
+
+### 4.2 Quick multi-mode smoke (Speed, short matrix)
+
+```sh
+QWENVOICE_DEBUG=1 ./build/vocello bench \
+  --modes custom,design,clone \
+  --variants speed \
+  --lengths short,medium \
+  --warm 1 \
+  --label "my-change" \
+  --ledger \
+  --force
+```
+
+`--force` clears diagnostics before run (default without `--keep`).
+
+### 4.3 Full 6-cell matrix (Speed + Quality)
+
+Default CLI includes both variants; fixture installs **Speed only**:
+
+```sh
+# Option A: Speed only (matches models ensure)
+QWENVOICE_DEBUG=1 ./build/vocello bench \
+  --variants speed --lengths short,medium,long --warm 3 --label "speed-matrix"
+
+# Option B: include Quality — ensure Quality weights installed first (~12–18 GB peak disk)
+QWENVOICE_DEBUG=1 ./build/vocello bench \
+  --variants speed,quality --lengths short,medium,long --warm 3 --label "full-matrix"
+```
+
+**Clone is warm-only by design** — no cold clone cell; rows always show `warmState=warm`.
+
+### 4.4 Floor-tier forced run
+
+Exercise constrained-tier code paths on any Mac:
+
+```sh
+QWENVOICE_DEBUG=1 \
+  QWENVOICE_FORCE_MEMORY_CLASS=floor_8gb_mac \
+  QWENVOICE_SUPPRESS_WARMUP=1 \
+  ./build/vocello bench \
+  --modes custom --variants speed --lengths medium --warm 3 \
+  --label "floor-tier" --ledger
+```
+
+Summarizer header shows `tier: floor_8gb_mac ⚠ forced`.
+
+### 4.5 Memory-pressure exercise
+
+While a generation is running on forced floor tier:
+
+```sh
+sudo memory_pressure -S -l warn    # or: -S -l critical
+```
+
+Then summarize and confirm non-zero `trims` / `memory_pressure` stage marks.
+
+### 4.6 Delivery / prosody cells
+
+```sh
+QWENVOICE_DEBUG=1 ./build/vocello bench \
+  --modes custom,design \
+  --variants speed \
+  --lengths medium \
+  --warm 1 \
+  --delivery happy,calm,whisper \
+  --prosody-profile path/to/profile.json \
+  --label "delivery-audit"
+```
+
+Adds instruct-bearing warm takes; summarizer prints a delivery block with prosody deltas.
+
+### 4.7 iOS on-device bench
+
+```sh
+scripts/ios_device.sh bench custom:speed: \
+  --label "ios-device-bench"
+```
+
+Optional restriction simulation:
+
+```sh
+scripts/ios_device.sh bench --sim-device iphone15pro custom:speed:
+```
+
+Pulls diagnostics from device; runs summarizer; exits non-zero if autorun status ≠ ok.
+
+### 4.8 macOS Instruments profile (signpost validation)
+
+```sh
+QVOICE_MAC_PROFILE_TEMPLATE=os_signpost \
+QVOICE_MAC_PROFILE_DURATION=120 \
+scripts/macos_test.sh profile custom:speed:
+```
+
+Produces `build/macos/profile-<timestamp>.trace`. **In-process only** — not the production XPC path.
+For XPC: attach `xctrace` to `QwenVoiceEngineService` while generating via UI.
+
+### 4.9 UI-driven generation (macOS XPC)
+
+Real generation through XPC is covered by `VocelloMacSmokeUITests` (12 smokes + review tour):
+
+```sh
+scripts/macos_test.sh models ensure
+scripts/macos_test.sh test
+```
+
+This validates integration (player bar, backend status) but is **not** the primary RTF matrix driver.
+
+---
+
+## 5. Matrix semantics
+
+### Fixed corpus
+
+Defined in `BenchCommand.corpus` — do not change without updating baselines:
+
+| Bucket | Chars (approx) | Text role |
+|--------|----------------|-----------|
+| short | < 70 | One sentence |
+| medium | 70–220 | Two sentences |
+| long | > 220 | Extended narration |
+
+`lenBucket()` in Swift and Python must agree (bench fails on corpus drift).
+
+### Mode payloads
+
+| Mode | Payload |
+|------|---------|
+| Custom Voice | Default speaker + optional delivery |
+| Voice Design | Fixed brief: *"A warm, calm middle-aged male narrator with a clear, measured pace."* |
+| Voice Cloning | Saved voice `A_warm_elderly_woman` (or `--voice`) |
+
+### Cold vs warm
+
+| Mode | Cold sample | Warm samples |
+|------|-------------|--------------|
+| Custom | 1× (after `unloadModel`) | `--warm` × each length |
+| Design | 1× | `--warm` × each length |
+| Clone | **none** (warm-by-design) | `--warm` × each length |
+
+CLI forces cold via explicit unload before cold take. UI cold requires
+`QWENVOICE_SUPPRESS_WARMUP=1` or variant/mode switch.
+
+### Streaming default
+
+`vocello bench` streams by default (`--no-stream` for legacy quality-first accumulation).
+Streaming populates `chunkTimeline`; non-streaming leaves it empty.
+
+---
+
+## 6. Reading results
+
+### 6.1 Summarizer invocation
+
+```sh
+python3 scripts/summarize_generation_telemetry.py [DIAGNOSTICS_DIR] [--label NOTE]
+```
+
+Default dir: `~/Library/Application Support/QwenVoice-Debug/diagnostics`
+
+Useful flags:
+
+| Flag | Purpose |
+|------|---------|
+| `--show-variance` | IQR / outlier hints per cell |
+| `--merged` | Cross-layer first-chunk table from `generations-merged.jsonl` |
+| `--compare-baseline PATH` | Percent deltas vs committed baseline markdown |
+| `--ledger-row` | One HISTORY.md row (pipe to `>> benchmarks/HISTORY.md`) |
+| `--cell mode/model/state[/len]` | Headline cell for ledger (default `custom/quality/warm`) |
+
+### 6.2 Headline table columns
+
+| Column | Source | Notes |
+|--------|--------|-------|
+| RTF | `derivedMetrics.audioSecondsPerWallSecond` | Primary throughput KPI |
+| tok/s | Codec tokens / decode wall | Compare across variants |
+| TTFC ms | App row `submitToFirstChunkMS` | `-` for CLI (no app process) |
+| peakGPU / physFoot | Sampler peaks | physFoot = Jetsam-relevant on iOS |
+| trims | `memory_trim` stage marks | Floor/mid/iPhone tiers |
+| UIstall | App row stall counters | `-` for CLI |
+| QC | `audioQC.verdict` + flags | `fail` = hard stop |
+
+### 6.3 Decode breakdown (lazy MLX)
+
+**RTF vs decode ms:** Both now prefer `qwen_token_loop_total` for wall time when present. See
+[`telemetry-and-benchmarking.md`](telemetry-and-benchmarking.md) §7 (RTF vs decode ms).
+
+Columns: `talker · sampCB0 · codePred · code2wav · stepEval · other`
+
+- **stepEval** ≈ fused per-frame `eval()` (Talker + CodePredictor + sampling) — best compute proxy in JSONL
+- **talker / codePred** ≈ graph **build** time, not GPU kernels
+- **code2wav ≈ 0** — decoder is `asyncEval`'d and overlaps the token loop
+
+Validate with Instruments signposts: **Step Eval Flush**, **Code Predictor Loop**, **Talker Forward**, **Audio Decoder**.
+
+### 6.4 Chunk timeline block
+
+When streaming, summarizer prints per-cell medians: chunk count, first-chunk ms, inter-chunk ms,
+substage ms. Use for cold-start vs steady-state analysis.
+
+### 6.5 Thermal and environment
+
+Summarizer prints **thermal** (worst state in cell), **gpuWS** (`gpuWorkingSetUsageRatioPeak`),
+and **headMin** (`headroomMinMB`) when the sampler collected them. Re-run if thermal throttling
+suspected; inspect raw JSONL for full `thermalState` start/end/worst.
+
+---
+
+## 7. Tracking performance over time
+
+### HISTORY.md ledger
+
+```sh
+python3 scripts/summarize_generation_telemetry.py --ledger-row --label "what changed" \
+  >> benchmarks/HISTORY.md
+```
+
+Or use `vocello bench --ledger` (appends one row after run).
+
+### Milestone snapshots
+
+```sh
+python3 scripts/summarize_generation_telemetry.py --label "stepeval fix" \
+  > benchmarks/2026-06-29-stepeval.md
+```
+
+Compare with `git diff`. No auto-fail gate — maintainer judgment.
+
+### Baseline comparison
+
+```sh
+python3 scripts/summarize_generation_telemetry.py \
+  --compare-baseline benchmarks/baseline-2026-06-16-45720dd-streaming-default.md
+```
+
+---
+
+## 8. Quality gates
+
+### Layer 1 — audioQC (automatic, every run)
+
+Engine runs reference-free PCM analysis: `nonfinite`, `clipping`, `clicks`, `dropout`, `near_silent`.
+Punctuation-aware pause budget avoids false positives on natural delivery.
+
+### Layer 2 — Prosody scripts (optional)
+
+`scripts/prosody_quality_gate.py`, `scripts/delivery_adherence.py` on bench WAVs when using `--delivery`.
+
+### Layer 3 — Listening pass (mandatory pre-merge for engine)
+
+Play takes; judge timbre, prosody, artifacts. Record verdict in snapshot note or HISTORY.md.
+
+---
+
+## 9. Artifact map
+
+### On disk (gitignored)
+
+| Path | Contents |
+|------|----------|
+| `~/Library/Application Support/QwenVoice-Debug/diagnostics/engine/generations.jsonl` | Richest backend rows |
+| `.../engine-service/generations.jsonl` | XPC transport (macOS app path) |
+| `.../app/generations.jsonl` | UI timings |
+| `.../generations-merged.jsonl` | Joined layers (macOS) |
+| `.../engine/samples-<UUID>.jsonl` | Verbose per-sample series |
+| `QwenVoice-Debug/outputs/bench/*.wav` | Bench WAV outputs |
+
+Auto-pruned: `generations.jsonl` ~8 MB cap; verbose sidecars newest-48 / 64 MB.
+
+### Committed (bounded)
+
+| Path | Rule |
+|------|------|
+| `benchmarks/HISTORY.md` | Compact ledger rows |
+| `benchmarks/baseline-*.md` | Full summarizer snapshots ≤ 256 KB each |
+| `benchmarks/*-audit-*.md` | Audit reports |
+
+**Never commit raw `*.jsonl`** under `benchmarks/` (guard-enforced).
+
+### CI / automation
+
+- `.github/workflows/ci.yml` — Tier-A iOS fake UI only; **no bench**
+- `.github/workflows/release.yml` — packaging; **no bench**
+- Pre-merge: `scripts/macos_test.sh gate` — UI smoke + models; **no bench**
+
+Engine regression net remains **manual local** until a self-hosted macOS bench job exists.
+
+---
+
+## 10. Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| Custom/Design "cold" shows `warm` | Proactive warmup ran | `QWENVOICE_SUPPRESS_WARMUP=1` for UI; CLI unloads explicitly |
+| Clone missing from matrix | No enrolled voice | `scripts/macos_test.sh models ensure` |
+| `preflightModels` fails Quality | Speed-only fixture | Install Quality weights or use `--variants speed` |
+| Summarizer empty | Wrong diagnostics dir / gate off | Confirm `QWENVOICE_DEBUG=1`; check `engine/generations.jsonl` |
+| RTF vs decode ms disagree | Different time bases + lazy MLX | Read §6.3; use signpost trace |
+| All QC warn:dropout on long | Often natural pauses | Listening pass; check punctuation-aware budget |
+| iOS bench timeout | Model missing / autorun stuck | `scripts/ios_device.sh console`; install Speed model |
+| Clone cold row appears | Summarizer labels first clone take | Clone is warm-by-design; ignore cold label if present |
+
+---
+
+## 11. Related documents
+
+| Doc | Role |
+|-----|------|
+| [`telemetry-and-benchmarking.md`](telemetry-and-benchmarking.md) | Schema, knobs, telemetry architecture |
+| [`cli.md`](cli.md) | Full `vocello bench` flag reference |
+| [`macos-release-qa.md`](macos-release-qa.md) | Release gate sequence |
+| [`macos-testing.md`](macos-testing.md) | UI test / profile / gate lanes |
+| [`ios-device-testing.md`](ios-device-testing.md) | iOS bench, gate, device lanes |
+| [`telemetry-harness-review.md`](telemetry-harness-review.md) | 2026-06-15 harness technical review |
+| [`benchmarks/OPTIMIZATION.md`](../../benchmarks/OPTIMIZATION.md) | Optimization program status |
+| [`benchmarks/HISTORY.md`](../../benchmarks/HISTORY.md) | Performance ledger |
+| [`benchmarks/benchmarking-procedure-audit-2026-06-29.md`](../../benchmarks/benchmarking-procedure-audit-2026-06-29.md) | 2026-06-29 procedure audit |

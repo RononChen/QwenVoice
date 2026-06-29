@@ -250,7 +250,7 @@ backend throughput:
 | Key | Definition | Read as |
 |---|---|---|
 | `audioSeconds` | Generated audio duration (frames ÷ sample rate). | Output length. |
-| `decodeWallSeconds` | Decode wall time (model `.info.generateTime`, else `streamStartup→streamCompleted` span). | Compute cost. |
+| `decodeWallSeconds` | Decode wall time (`qwen_token_loop_total` when present, else model `.info.generateTime`, else `streamStartup→streamGenerationEnded` span). Excludes WAV finalize I/O. | Compute cost — **same time base as the summarizer `decode ms` column.** |
 | `audioSecondsPerWallSecond` | `audioSeconds ÷ decodeWallSeconds`. | **Real‑time factor: >1 = faster than realtime.** Primary throughput KPI. |
 | `tokensPerSecond` | Codec tokens ÷ decode wall seconds (from `.info` when present). | Decode throughput; compare across model variants / patches. |
 | `generatedTokenCount` | Codec tokens produced. | Work done; normalize other metrics by this. |
@@ -258,6 +258,27 @@ backend throughput:
 Time‑to‑first‑audio (perceived latency) is the **app** row's `submitToFirstChunkMS` /
 `submitToFirstAudibleMS`; the engine row's `firstChunk` stage mark is the backend‑only
 portion.
+
+### RTF vs `decode ms` (read together, don't diff naively)
+
+The summarizer prints **RTF** from `derivedMetrics.audioSecondsPerWallSecond` and **decode
+ms** from `timingsMS.qwen_token_loop_total`. As of the P0‑1 alignment, both prefer the same
+token‑loop wall clock when `qwen_token_loop_total` is present.
+
+Caveats that still apply:
+
+- **Lazy MLX** — substage columns (`talkerForward`, `codePredictor`, `streamStepEval`, Mimi
+  decoder) measure Swift wall time around lazy graph ops; they sum to less than
+  `qwen_token_loop_total` when work is pipelined across iterations.
+- **`.info.generateTime`** — emitted mid‑stream before the trailing decoder flush; retained
+  only as a fallback. When it differs from the token loop, `qwen_stream_decoder_drain_ms`
+  captures the gap.
+- **Stage marks** — `streamGenerationEnded` closes before WAV finalize; do not compare
+  `streamStartup→streamCompleted` to decode ms (finalize I/O inflates the old span).
+
+Use **RTF** for release throughput gates; use **decode breakdown + chunk timeline** for
+where time goes; use **Instruments signposts** (see [`benchmarking-procedure.md`](benchmarking-procedure.md)
+§4.8) for GPU attribution.
 
 ---
 
@@ -351,6 +372,11 @@ dominant `timingsMS` substage across your before/after.
 ---
 
 ## 11. Reusable benchmark procedure (full matrix)
+
+> **Operator runbook:** Step-by-step workflows, platform topology (CLI vs macOS XPC vs iOS device),
+> preflight, artifact map, and troubleshooting live in
+> [`benchmarking-procedure.md`](benchmarking-procedure.md). This section retains the matrix
+> semantics and manual UI procedure; the runbook is the preferred entry point for agents and release QA.
 
 > **Primary driver — the `vocello` CLI (headless, deterministic).**
 > `./scripts/build.sh cli bench --lengths short,medium,long --warm 3` drives this entire matrix

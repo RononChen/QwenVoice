@@ -1402,6 +1402,10 @@ private struct StreamingExecutionContext: Sendable {
             )
         }
 
+        // Token loop + pipelined decoder drain finished; post-stream work (WAV
+        // finalize, telemetry marks) is tracked separately from decodeWallSeconds.
+        await telemetryRecorder?.mark(stage: .streamGenerationEnded)
+
         let finalWriteSignpost = NativeStreamingSignposts.signposter.beginInterval("Native Final WAV Finish")
         let finalWAVFinishStartedAt = ContinuousClock.now
         finalWriter.finish()
@@ -1433,9 +1437,19 @@ private struct StreamingExecutionContext: Sendable {
         // token-loop total, generated-code count) are only finalized post-loop, so
         // the pre-loop `timingOverridesMS` snapshot misses them entirely.
         signpostTimingsMS["native_generation_stream_ms"] = generationStreamStartedAt.elapsedMilliseconds
-        let finalTimingsMS = telemetryActive
+        var finalTimingsMS = telemetryActive
             ? timingOverridesMS.merging(model.latestPreparationTimingsMS) { _, new in new }.merging(signpostTimingsMS) { _, new in new }
             : timingOverridesMS.merging(signpostTimingsMS) { _, new in new }
+        if telemetryActive,
+           let info = latestInfo,
+           let tokenLoopMS = finalTimingsMS["qwen_token_loop_total"],
+           tokenLoopMS > 0 {
+            let infoMS = Int((info.generateTime * 1_000).rounded())
+            let drainMS = max(0, tokenLoopMS - infoMS)
+            if drainMS > 0 {
+                finalTimingsMS["qwen_stream_decoder_drain_ms"] = drainMS
+            }
+        }
         let finalBooleanFlags = booleanFlags.merging(model.latestPreparationBooleanFlags) { _, new in new }
         let finalStringFlags = stringFlags.merging(model.latestPreparationStringFlags) { _, new in new }
 
@@ -1823,14 +1837,20 @@ private struct StreamingExecutionContext: Sendable {
     ) -> [String: Double] {
         var metrics: [String: Double] = ["audioSeconds": audioSeconds]
 
-        // Decode wall time: prefer the model's own measurement, else the
-        // streamStartup→streamCompleted span from the stage timeline.
+        // Decode wall time: prefer the model's finalized token-loop total (includes
+        // pipelined decoder drain after the `.info` event), else `.info.generateTime`,
+        // else the streamStartup→streamGenerationEnded span (excludes WAV finalize).
         let decodeWallSeconds: Double
-        if let info, info.generateTime > 0 {
+        if let tokenLoopMS = modelTimingsMS["qwen_token_loop_total"], tokenLoopMS > 0 {
+            decodeWallSeconds = Double(tokenLoopMS) / 1_000
+        } else if let info, info.generateTime > 0 {
             decodeWallSeconds = info.generateTime
         } else {
             let startMS = stageMarks.first { $0.stage == NativeRuntimeStage.streamStartup.rawValue }?.tMS
-            let endMS = stageMarks.first { $0.stage == NativeRuntimeStage.streamCompleted.rawValue }?.tMS
+            let endMS = stageMarks.first {
+                $0.stage == NativeRuntimeStage.streamGenerationEnded.rawValue
+                    || $0.stage == NativeRuntimeStage.streamCompleted.rawValue
+            }?.tMS
             if let startMS, let endMS, endMS > startMS {
                 decodeWallSeconds = Double(endMS - startMS) / 1_000
             } else {

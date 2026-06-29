@@ -14,6 +14,7 @@ enum NativeRuntimeStage: String, Codable, Sendable {
     case clonePreparation
     case streamStartup
     case firstChunk
+    case streamGenerationEnded
     case streamCompleted
     case streamFailed
     case unload
@@ -36,6 +37,8 @@ enum NativeRuntimeStage: String, Codable, Sendable {
             return "generation startup"
         case .firstChunk:
             return "first stream chunk"
+        case .streamGenerationEnded:
+            return "stream generation ended"
         case .streamCompleted:
             return "generation completion"
         case .streamFailed:

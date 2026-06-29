@@ -34,9 +34,12 @@ releases that touched UI/engine surfaces. If this doc disagrees with the code, t
    **0 failures** on the preferred script path after `models ensure`.
 3. **Engine regression net** (when any engine/Sources change since the last green bench):
    ```sh
-   QWENVOICE_DEBUG=1 ./build/vocello bench --variants speed --lengths short,medium,long \
-     --warm 3 --voice <prepared-voice> --label "release-QA" --ledger
+   scripts/macos_test.sh models ensure   # Speed trio + clone voice A_warm_elderly_woman
+   QWENVOICE_DEBUG=1 ./build/vocello bench --modes custom,design,clone \
+     --variants speed --lengths short,medium,long \
+     --warm 3 --voice A_warm_elderly_woman --label "release-QA" --ledger
    ```
+   Full procedure: [`benchmarking-procedure.md`](benchmarking-procedure.md) §4.1.
    Gate: audioQC pass on all cells; RTF within noise of the latest `benchmarks/HISTORY.md` rows;
    a **manual listening pass by ear** for any engine-adjacent change (there is no
    `vocello bench --review` subcommand).

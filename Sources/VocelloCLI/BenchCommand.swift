@@ -83,14 +83,22 @@ enum BenchCommand {
             throw CLIError("corpus drift: '\(c.len)' text buckets as '\(lenBucket(c.text.count))' (\(c.text.count) chars) — adjust the corpus or lenBucket thresholds")
         }
 
-        // Telemetry on (in-process) regardless of env; default to the debug-isolated
-        // data dir (holds the full model set) unless --data-dir is given.
-        // --telemetry verbose adds the raw per-sample sidecars (the env var carries
-        // it to the sampler).
-        let telemetryVerbose = (args.string("telemetry") ?? "lightweight").lowercased() == "verbose"
-        TelemetryGate.applyHandshakeMode(telemetryVerbose ? .verbose : .lightweight)
-        if telemetryVerbose { setenv("QWENVOICE_NATIVE_TELEMETRY_MODE", "verbose", 1) }
-        setenv("QWENVOICE_DEBUG", "1", 0)
+        // Telemetry: default lightweight; verbose adds sidecars; off skips JSONL/sampler
+        // while still writing WAV outputs (engine-only baseline runs).
+        let telemetryRaw = (args.string("telemetry") ?? "lightweight").lowercased()
+        let telemetryOff = telemetryRaw == "off"
+        let telemetryVerbose = telemetryRaw == "verbose"
+        if telemetryOff {
+            setenv("QWENVOICE_NATIVE_TELEMETRY_MODE", "off", 1)
+        } else {
+            TelemetryGate.applyHandshakeMode(telemetryVerbose ? .verbose : .lightweight)
+            if telemetryVerbose { setenv("QWENVOICE_NATIVE_TELEMETRY_MODE", "verbose", 1) }
+            setenv("QWENVOICE_DEBUG", "1", 0)
+        }
+
+        // Bench isolates memory from inline preview PCM (no UI consumer) and must
+        // drain the macOS `.unbounded` engine.events stream during streaming takes.
+        setenv("QWENVOICE_STREAMING_PREVIEW_DATA", "off", 1)
 
         // --force-class: run constrained-tier code paths on any Mac. Must be set
         // before the device class is first resolved (i.e. before bootstrap).
@@ -121,35 +129,40 @@ enum BenchCommand {
         let prosodyProfilePath = args.string("prosody-profile")
 
         let dataDir = CLIPaths.dataDirectory(override: args.string("data-dir"))
+        if telemetryOff, args.string("data-dir") == nil,
+           ProcessInfo.processInfo.environment["QWENVOICE_APP_SUPPORT_DIR"]?.isEmpty != false {
+            // Use the debug-isolated model store without enabling TelemetryGate via QWENVOICE_DEBUG.
+            setenv("QWENVOICE_APP_SUPPORT_DIR", Self.defaultDebugDataDir().path, 1)
+        }
+        let resolvedDataDir = telemetryOff && args.string("data-dir") == nil
+            ? CLIPaths.dataDirectory(override: nil)
+            : dataDir
         if !args.flag("keep") {
-            try clearDiagnosticsIfSafe(dataDir: dataDir, force: args.flag("force"))
+            try clearDiagnosticsIfSafe(dataDir: resolvedDataDir, force: args.flag("force"))
         }
 
-        note("bench • data: \(dataDir.path)")
+        note("bench • data: \(resolvedDataDir.path)")
         let runtime = try await CLIRuntime.bootstrap(
-            dataDirectory: dataDir,
+            dataDirectory: resolvedDataDir,
             manifestOverride: args.string("manifest").map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) })
 
-        let outDir = dataDir.appendingPathComponent("outputs/bench", isDirectory: true)
+        let outDir = resolvedDataDir.appendingPathComponent("outputs/bench", isDirectory: true)
         try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
 
-        // --- Preflight (fail fast / auto-skip up front, not mid-matrix) ---
-        // Clone needs a saved voice; if absent, auto-skip clone unless it's the only mode.
+        // --- Preflight (fail fast up front, not mid-matrix) ---
+        // Clone needs a saved voice when clone is in --modes.
         var cloneReference: CloneReference?
         if modes.contains("clone") {
             let voices = try await runtime.engine.listPreparedVoices()
             let have = voices.map(\.name).joined(separator: ", ")
             if let v = voices.first(where: { $0.name == cloneVoiceName || $0.id == cloneVoiceName }) {
                 cloneReference = CloneReference(audioPath: v.audioPath, transcript: nil, preparedVoiceID: v.id)
-            } else if modes == ["clone"] {
-                throw CLIError("clone bench needs saved voice '\(cloneVoiceName)' (have: \(have.isEmpty ? "none" : have))")
             } else {
-                note("preflight: no saved voice '\(cloneVoiceName)' — skipping clone (have: \(have.isEmpty ? "none" : have))")
-                modes.removeAll { $0 == "clone" }
+                throw CLIError("clone bench needs saved voice '\(cloneVoiceName)' (have: \(have.isEmpty ? "none" : have))")
             }
         }
         // Every requested (mode × variant) model must be installed — fail fast.
-        try preflightModels(runtime: runtime, modes: modes, variants: variants, dataDir: dataDir)
+        try preflightModels(runtime: runtime, modes: modes, variants: variants, dataDir: resolvedDataDir)
 
         let coldLen = lengths.contains("medium") ? "medium" : lengths.first
         var total = 0
@@ -213,9 +226,9 @@ enum BenchCommand {
 
         note("✓ \(total) takes in \(String(format: "%.0f", Date().timeIntervalSince(started)))s")
 
-        let diagDir = dataDir.appendingPathComponent("diagnostics", isDirectory: true)
+        let diagDir = resolvedDataDir.appendingPathComponent("diagnostics", isDirectory: true)
         let label = args.string("label") ?? ""
-        if !args.flag("no-summary") {
+        if !args.flag("no-summary"), !telemetryOff {
             runSummarizer(diagnostics: diagDir, label: label)
             // Prosody analysis for --delivery takes: deterministic, reference-free,
             // complements audioQC with tone/cadence deltas vs the paired neutral take.
@@ -223,7 +236,7 @@ enum BenchCommand {
                 runDeliveryProsodyAnalysis(diagnostics: diagDir, profilePath: prosodyProfilePath)
             }
         }
-        if args.flag("ledger") {
+        if args.flag("ledger"), !telemetryOff {
             appendLedgerRow(diagnostics: diagDir, label: label)
         }
 
@@ -279,7 +292,15 @@ enum BenchCommand {
         if let delivery { setenv("QWENVOICE_BENCH_DELIVERY", delivery, 1) }
         defer { if delivery != nil { unsetenv("QWENVOICE_BENCH_DELIVERY") } }
         let t0 = Date()
-        let result = try await runtime.engine.generate(request)
+        let result: GenerationResult
+        if shouldStream {
+            // Drain engine.events so the macOS unbounded stream does not retain preview/chunk
+            // events across matrix takes (see GenerateCommand.generateObservingFirstChunk).
+            let (genResult, _, _) = try await GenerateCommand.generateObservingFirstChunk(runtime, request)
+            result = genResult
+        } else {
+            result = try await runtime.engine.generate(request)
+        }
         let wall = Date().timeIntervalSince(t0)
         let deliveryTag = delivery.map { "/\($0)" } ?? ""
         FileHandle.standardError.write(Data(
@@ -400,6 +421,16 @@ enum BenchCommand {
         }
     }
 
+    /// Debug-isolated Application Support folder (models + diagnostics) without
+    /// lighting TelemetryGate via `QWENVOICE_DEBUG`.
+    private static func defaultDebugDataDir() -> URL {
+        let base = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: (NSHomeDirectory() as NSString)
+                .appendingPathComponent("Library/Application Support"), isDirectory: true)
+        return base.appendingPathComponent("QwenVoice-Debug", isDirectory: true)
+    }
+
     /// The shipped app's real (non-debug) data dir — never auto-cleared.
     private static func realAppDataDir() -> URL {
         let base = FileManager.default
@@ -481,14 +512,16 @@ enum BenchCommand {
                         [--lengths short,medium,long] [--warm 3] [options]
 
         Per cell: 1 cold (medium) for Custom/Design + N warm per length; Voice
-        Cloning is warm-only. Telemetry is forced on; results land in
-        <data>/diagnostics and are summarized by scripts/summarize_generation_telemetry.py.
+        Cloning is warm-only. Telemetry defaults to lightweight (JSONL + sampler);
+        use --telemetry off for engine-only WAV runs without instrumentation.
+        Results land in <data>/diagnostics and are summarized by
+        scripts/summarize_generation_telemetry.py (skipped when --telemetry off).
 
         Measures engine truth — RTF / decode / memory / audioQC. It does NOT capture
         the app's end-to-end through-XPC latency (TTFC/TTFA) or the merged 3-layer row
         (use the app for those); --ttfc adds an engine-side first-chunk probe.
-        Prerequisites: the requested models installed; a saved clone voice for clone
-        (else clone is auto-skipped).
+        Prerequisites: the requested models installed; saved clone voice
+        '\(defaultCloneVoice)' when clone is in --modes.
 
         Options:
           --modes        comma list (default custom,design,clone)
@@ -513,7 +546,7 @@ enum BenchCommand {
           --label "<n>"  stamp a note on the summary / ledger row
           --ledger       append a one-line row to benchmarks/HISTORY.md (perf ledger)
           --force-class  run a constrained tier on any Mac: 8gb|16gb|high|iphone
-          --telemetry    lightweight (default) | verbose (raw per-sample sidecars)
+          --telemetry    off | lightweight (default) | verbose (raw per-sample sidecars)
           --no-stream    accumulate the full result before decoding (old bench behavior)
           --ttfc         add an engine first-chunk-latency probe per cell (warm
                          streaming) → table + diagnostics/bench-ttfc.json

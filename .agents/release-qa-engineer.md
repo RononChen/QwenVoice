@@ -28,7 +28,8 @@ Before changing scripts or CI, read:
 1. The script you are modifying (header comments encode intent and env vars).
 2. `.github/workflows/release.yml` if touching CI.
 3. `docs/reference/macos-release-qa.md` for the full macOS release QA checklist.
-4. `docs/reference/telemetry-and-benchmarking.md` for benchmark/telemetry expectations.
+4. `docs/reference/benchmarking-procedure.md` for the operator runbook (when to bench, platform lanes, preflight).
+5. `docs/reference/telemetry-and-benchmarking.md` for benchmark/telemetry schema and knobs.
 
 ## Tools and skills (Cursor)
 

@@ -292,7 +292,7 @@ def test_aggregate_runs_streams_and_summarizes():
         os.makedirs(engine_dir)
         shutil.copy(fixture_path, os.path.join(engine_dir, "generations.jsonl"))
 
-        runs, cells, delivery_cells = sgt.aggregate_runs(tmp)
+        runs, cells, delivery_cells, _ = sgt.aggregate_runs(tmp)
         assert len(runs) == 4
         assert not delivery_cells
 
@@ -325,7 +325,7 @@ def test_aggregate_runs_chunk_cells():
         os.makedirs(engine_dir)
         shutil.copy(fixture_path, os.path.join(engine_dir, "generations.jsonl"))
 
-        runs, cells, _ = sgt.aggregate_runs(tmp)
+        runs, cells, _, _ = sgt.aggregate_runs(tmp)
         key = ("custom", "Qwen3-TTS-12Hz-1.7B-4bit", "warm", "short")
         summary = cells[key]
         assert summary["n"] == 2
@@ -390,7 +390,7 @@ def test_aggregate_runs_delivery_cells():
                 "audioQC": {"verdict": "pass", "flags": []},
             }) + "\n")
 
-        runs, cells, delivery_cells = sgt.aggregate_runs(tmp)
+        runs, cells, delivery_cells, _ = sgt.aggregate_runs(tmp)
         assert len(runs) == 2
         assert not cells
         key = ("custom", "Qwen3-TTS-12Hz-1.7B-4bit", "warm", "instruct-demo")
@@ -401,6 +401,77 @@ def test_aggregate_runs_delivery_cells():
         assert summary["n"] == 2
         assert summary["rtf"] == 1.1
         assert summary["physFootMB"] == 3100
+
+
+def test_aggregate_runs_skips_non_success_finish_reason():
+    """Failed/superseded/cancelled engine rows are omitted from medians."""
+    with tempfile.TemporaryDirectory() as tmp:
+        engine_dir = os.path.join(tmp, "engine")
+        os.makedirs(engine_dir)
+        base = {
+            "mode": "custom",
+            "modelID": "Qwen3-TTS-12Hz-1.7B-4bit",
+            "warmState": "warm",
+            "notes": {"deviceClass": "mid16GBMac", "promptChars": "35"},
+            "derivedMetrics": {"audioSecondsPerWallSecond": 1.0, "tokensPerSecond": 1000.0},
+            "timingsMS": {"qwen_token_loop_total": 200},
+            "summary": {"physFootprintPeakMB": 3000, "stageMarks": []},
+            "mlxMemoryByStage": {},
+            "audioQC": {"verdict": "pass", "flags": []},
+        }
+        with open(os.path.join(engine_dir, "generations.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({**base, "generationID": "gen-ok", "finishReason": "eos"}) + "\n")
+            f.write(json.dumps({**base, "generationID": "gen-fail", "finishReason": "failed",
+                                "derivedMetrics": {"audioSecondsPerWallSecond": 9.9,
+                                                   "tokensPerSecond": 9999.0}}) + "\n")
+            f.write(json.dumps({**base, "generationID": "gen-super", "finishReason": "superseded",
+                                "derivedMetrics": {"audioSecondsPerWallSecond": 8.8,
+                                                   "tokensPerSecond": 8888.0}}) + "\n")
+
+        runs, cells, _, skipped = sgt.aggregate_runs(tmp)
+        assert skipped == 2
+        assert len(runs) == 1
+        assert runs[0]["generationID"] == "gen-ok"
+        key = ("custom", "Qwen3-TTS-12Hz-1.7B-4bit", "warm", "short")
+        assert cells[key]["rtf"] == 1.0
+        assert cells[key]["n"] == 1
+
+
+def test_load_runs_skips_non_success_finish_reason():
+    """load_runs applies the same finishReason filter as aggregate_runs."""
+    with tempfile.TemporaryDirectory() as tmp:
+        engine_dir = os.path.join(tmp, "engine")
+        os.makedirs(engine_dir)
+        with open(os.path.join(engine_dir, "generations.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "generationID": "gen-ok",
+                "mode": "custom",
+                "modelID": "Qwen3-TTS-12Hz-1.7B-4bit",
+                "warmState": "warm",
+                "finishReason": "completed",
+                "notes": {"deviceClass": "mid16GBMac"},
+                "derivedMetrics": {},
+                "timingsMS": {},
+                "summary": {"stageMarks": []},
+                "mlxMemoryByStage": {},
+                "audioQC": {"verdict": "pass", "flags": []},
+            }) + "\n")
+            f.write(json.dumps({
+                "generationID": "gen-cancel",
+                "mode": "custom",
+                "modelID": "Qwen3-TTS-12Hz-1.7B-4bit",
+                "warmState": "warm",
+                "finishReason": "cancelled",
+                "notes": {"deviceClass": "mid16GBMac"},
+                "derivedMetrics": {},
+                "timingsMS": {},
+                "summary": {"stageMarks": []},
+                "mlxMemoryByStage": {},
+                "audioQC": {"verdict": "pass", "flags": []},
+            }) + "\n")
+
+        runs = sgt.load_runs(tmp)
+        assert [r["generationID"] for r in runs] == ["gen-ok"]
 
 
 def test_mimi_decoder_breakdown_aggregation():
@@ -446,7 +517,7 @@ def test_mimi_decoder_breakdown_aggregation():
                 "audioQC": {"verdict": "pass", "flags": []},
             }) + "\n")
 
-        runs, cells, _ = sgt.aggregate_runs(tmp)
+        runs, cells, _, _ = sgt.aggregate_runs(tmp)
         run = runs[0]
         assert run["mimi_quantizerMS"] == 1
         assert run["mimi_decoderBlocksMS"] == 2

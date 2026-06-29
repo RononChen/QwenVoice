@@ -16,6 +16,7 @@
 #   scripts/macos_test.sh review [--baseline]       # UI capture tour + baseline diff (vision MCP)
 #   scripts/macos_test.sh xpc                       # XPC lifecycle: retirement/relaunch + crash isolation
 #   scripts/macos_test.sh gate                      # models → inputs → build_foundation → test → crashes
+#                                                    # optional: QWENVOICE_GATE_BENCH=1 adds bounded vocello bench
 #   scripts/macos_test.sh models check|ensure|install  # test model fixture (Speed variant)
 #   scripts/macos_test.sh help
 
@@ -353,41 +354,94 @@ cmd_xpc() {
 
 # gate: one-command macOS pre-merge gate — check_project_inputs → build_foundation macos
 # → test (VocelloMacSmokeUITests) → crashes (post-run check) → single verdict +
-# build/macos/gate-<run>/. Deeper dives (bench/profile/review/xpc) are separate verbs.
+# build/macos/gate-<run>/. Optional bounded engine bench when QWENVOICE_GATE_BENCH=1.
+# Deeper dives (bench/profile/review/xpc) are separate verbs.
+
+run_gate_bench() {
+  local gate_dir="$1"
+  local log="$gate_dir/bench.log"
+  note "gate bench: custom/speed/medium warm×1 (engine in-process)"
+  "$ROOT_DIR/scripts/build.sh" cli >>"$log" 2>&1 || return 1
+  QWENVOICE_DEBUG=1 "$ROOT_DIR/build/vocello" bench --modes custom --variants speed \
+    --lengths medium --warm 1 --label "mac-gate-bench" --force >>"$log" 2>&1 || return 1
+  local diag
+  diag="$(python3 - <<'PY'
+import os
+print(os.path.expanduser("~/Library/Application Support/QwenVoice-Debug/diagnostics"))
+PY
+)"
+  python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$diag" --label "mac-gate-bench" >>"$log" 2>&1 || return 1
+  python3 - <<'PY' >>"$log" 2>&1
+import json, os, sys
+diag = os.path.join(os.path.expanduser("~/Library/Application Support/QwenVoice-Debug"), "diagnostics")
+path = os.path.join(diag, "engine", "generations.jsonl")
+if not os.path.isfile(path):
+    print("gate bench: no engine/generations.jsonl", file=sys.stderr)
+    sys.exit(1)
+fails = []
+for line in open(path, encoding="utf-8"):
+    line = line.strip()
+    if not line:
+        continue
+    row = json.loads(line)
+    qc = (row.get("audioQC") or {}).get("verdict")
+    if qc == "fail":
+        fails.append(row.get("generationID", "?"))
+if fails:
+    print(f"gate bench: audioQC fail on {len(fails)} row(s): {', '.join(fails)}", file=sys.stderr)
+    sys.exit(1)
+print("gate bench: audioQC pass on all rows")
+PY
+  return $?
+}
+
 cmd_gate() {
   local run_id="mac-gate-$(date +%Y%m%d-%H%M%S)"
   local gate_dir="$ROOT_DIR/build/macos/gate-$run_id"
   local verdict="$gate_dir/verdict.txt"
   mkdir -p "$gate_dir"
   local overall=0
+  local gate_bench=0
+  [[ "${QWENVOICE_GATE_BENCH:-0}" == "1" ]] && gate_bench=1
+  local total_steps=5
+  (( gate_bench )) && total_steps=6
   { echo "Vocello macOS gate — $run_id"; echo; } | tee "$verdict"
 
-  note "gate step 0/5: ensure test models (pro_custom_speed in debug context)"
+  note "gate step 0/$total_steps: ensure test models (pro_custom_speed in debug context)"
   if ensure_mac_test_models --require >>"$gate_dir/models.log" 2>&1; then
     echo "models: PASS" | tee -a "$verdict"
   else
     echo "models: FAIL (see models.log)" | tee -a "$verdict"; overall=1
   fi
 
-  note "gate step 1/5: check_project_inputs"
+  note "gate step 1/$total_steps: check_project_inputs"
   if "$SCRIPT_DIR/check_project_inputs.sh" >>"$gate_dir/inputs.log" 2>&1; then
     echo "check_project_inputs: PASS" | tee -a "$verdict"
   else echo "check_project_inputs: FAIL" | tee -a "$verdict"; overall=1; fi
 
-  note "gate step 2/5: build_foundation_targets macos"
+  note "gate step 2/$total_steps: build_foundation_targets macos"
   if "$SCRIPT_DIR/build_foundation_targets.sh" macos >>"$gate_dir/build.log" 2>&1; then
     echo "build_foundation macos: PASS" | tee -a "$verdict"
   else echo "build_foundation macos: FAIL" | tee -a "$verdict"; overall=1; fi
 
-  note "gate step 3/5: test (VocelloMacSmokeUITests)"
+  note "gate step 3/$total_steps: test (VocelloMacSmokeUITests)"
   if ( cmd_test ) >>"$gate_dir/test.log" 2>&1; then
     echo "test: PASS" | tee -a "$verdict"
   else echo "test: FAIL" | tee -a "$verdict"; overall=1; fi
 
-  note "gate step 4/5: crashes (post-run check; expect none)"
+  note "gate step 4/$total_steps: crashes (post-run check; expect none)"
   if ( cmd_crashes ) >>"$gate_dir/crashes.log" 2>&1; then
     echo "crashes: none/new (see crashes.log)" | tee -a "$verdict"
   else echo "crashes: check failed" | tee -a "$verdict"; fi
+
+  if (( gate_bench )); then
+    note "gate step 5/$total_steps: bounded vocello bench (QWENVOICE_GATE_BENCH=1)"
+    if run_gate_bench "$gate_dir"; then
+      echo "bench: PASS (see bench.log)" | tee -a "$verdict"
+    else
+      echo "bench: FAIL (see bench.log)" | tee -a "$verdict"; overall=1
+    fi
+  fi
 
   echo | tee -a "$verdict"
   if (( overall == 0 )); then
