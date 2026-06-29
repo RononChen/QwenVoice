@@ -369,4 +369,3 @@ regenerate the project after changing them.
 - [`PRODUCT.md`](PRODUCT.md) — product/brand.
 - [`website/AGENTS.md`](website/AGENTS.md) + [`website/PRODUCT.md`](website/PRODUCT.md) — marketing site.
 - [`docs/qwen_tone.md`](docs/qwen_tone.md) — tone prompt-writing (supplemental; may lag shipped behavior).
-- If using XcodeBuildMCP, use the installed XcodeBuildMCP skill before calling XcodeBuildMCP tools.
