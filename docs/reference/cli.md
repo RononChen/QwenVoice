@@ -175,7 +175,7 @@ instrumentation. Results land in `<data>/diagnostics` and are summarized by
 | `--voice` / `--voice-brief` | clone voice name / design brief |
 | `--delivery [list]` | add **instruct-bearing delivery cells** (Custom/Design, warm, medium text, 1 take each): comma list of preset ids (e.g. `happy,calm,whisper`); the bare flag runs the default set (`happy,calm,whisper`). Rows are stamped `notes.delivery` and summarized in their own block, so the headline matrix and `--ledger` row stay comparable; the plain warm takes double as the neutral reference for prosody/delivery A/Bs |
 | `--label "<note>"` | stamp a note on the summary / ledger row |
-| `--ledger` | append a one-line row to `benchmarks/HISTORY.md` (the perf-over-time ledger) |
+| `--ledger` | append a one-line row to `benchmarks/HISTORY.md` via a **single** summarizer pass (`--emit-ledger-row`) |
 | `--force-class` | **dev/diagnostic only** — force a constrained memory tier on any Mac: `8gb` · `16gb` · `high` · `iphone` (sets the `QWENVOICE_FORCE_MEMORY_CLASS` knob, relayed to the engine over the `initialize` handshake; stamps `notes.deviceClass`) |
 | `--telemetry` | `off` · `lightweight` (default) · `verbose` (raw per-sample sidecars) |
 | `--no-stream` | accumulate the full result before decoding (old bench behavior) |

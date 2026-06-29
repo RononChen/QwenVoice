@@ -84,6 +84,8 @@ scripts/macos_test.sh models ensure   # one-time Speed model + debug symlink
 scripts/macos_test.sh models check    # read-only status (debug context)
 scripts/macos_test.sh test            # ensures models, then VocelloMacSmokeUITests
 scripts/macos_test.sh gate            # pre-merge gate (includes model ensure)
+# optional bounded engine bench: QWENVOICE_GATE_BENCH=1 scripts/macos_test.sh gate
+scripts/macos_test.sh profile [spec]  # Instruments + vocello bench; fails on bench error unless --allow-bench-fail
 ```
 
 ### iOS Tier A — fake backend (Simulator, local)
@@ -150,5 +152,7 @@ Tier B is **not** in CI (no physical iPhone on the runners); run it attended on 
 QWENVOICE_DEBUG=1 ./build/vocello bench --modes clone --variants speed \
   --lengths short,medium,long --warm 3 --voice <prepared-voice> --label "release-QA" --ledger
 ```
-Aggregate telemetry with `scripts/summarize_generation_telemetry.py`. Committed benchmark logs
-must be ≤256 KB; raw `*.jsonl` is gitignored.
+`--ledger` runs the summarizer once and appends one row to `benchmarks/HISTORY.md`. For manual
+aggregation or regression checks, use `scripts/summarize_generation_telemetry.py` with
+`--compare-baseline` (see [`macos-release-qa.md`](macos-release-qa.md) step 3). Committed
+benchmark logs must be ≤256 KB; raw `*.jsonl` is gitignored.

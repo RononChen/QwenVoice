@@ -648,14 +648,18 @@ and [`scripts/lib/test_models.sh`](../scripts/lib/test_models.sh).
 Telemetry is **off in production** and on only when `TelemetryGate.isEnabled` —
 resolved from `QWENVOICE_DEBUG` (1/true/on/yes) or
 `QWENVOICE_NATIVE_TELEMETRY_MODE`, then mirrored to `UserDefaults` and
-propagated to the engine over the `initialize` handshake. Records are written by
-the `GenerationTelemetryJSONLSink` actor as JSONL under
+propagated to the engine over the `initialize` handshake. All diagnostic writers respect
+`TelemetryGate.resolvedEnabled` — when the gate is off, no JSONL is appended.
+
+Records are written by the `GenerationTelemetryJSONLSink` actor as JSONL under
 `…/QwenVoice[-Debug]/diagnostics/`:
 
 - `app/generations.jsonl`
 - `engine/generations.jsonl`
 - `engine-service/generations.jsonl` (macOS)
 - `generations-merged.jsonl` (merged by `Sources/Services/GenerationTelemetryMerger`)
+- `*/native-events.jsonl` (chunk gaps, warm-admission, XPC retirement — gated)
+- `<documents>/generation-failures.jsonl` (`GenerationFailureDiagnosticLogger` — gated)
 
 `GenerationTelemetryRecord` is a versioned Codable struct keyed by `generationID`
 with `layer { engine, engineService, app, merged }`, wall/audio timings, a

@@ -165,10 +165,11 @@ scripts/macos_test.sh preflight [--strict-models]  # readiness: app + dSYMs + XP
 scripts/macos_test.sh models check|ensure|install   # test fixture (~2.3 GB Speed; see testing-runbook §1b)
 scripts/macos_test.sh test               # models ensure → VocelloMacSmokeUITests (12 tests)
 scripts/macos_test.sh gate               # models → inputs → build_foundation → test → crashes
+# optional bounded engine bench: QWENVOICE_GATE_BENCH=1 scripts/macos_test.sh gate
 scripts/macos_test.sh crashes            # collect + symbolicate .ips
 scripts/macos_test.sh debug              # LLDB attach (app + XPC service PID)
 scripts/macos_test.sh logs               # retained os_log → build/macos-logs/<run>.log
-scripts/macos_test.sh profile [spec]     # models ensure → Instruments on vocello bench
+scripts/macos_test.sh profile [spec]     # models ensure → Instruments on vocello bench (fails if bench non-zero unless --allow-bench-fail or QVOICE_MAC_PROFILE_ALLOW_BENCH_FAIL=1)
 scripts/macos_test.sh review [--baseline]# UI capture tour + baseline diff
 scripts/macos_test.sh xpc [--crash-isolation] # XPC lifecycle / crash isolation
 
@@ -189,6 +190,8 @@ scripts/ios_device.sh gate               # pre-merge gate
 scripts/ios_device.sh doctor|launch|console|pull|shot|mirror
 
 # Perf/quality gate (deterministic driver; listening pass is mandatory pre-merge)
+# Full operator procedure: docs/reference/benchmarking-procedure.md §4.1
+# Optional regression compare after bench: docs/reference/macos-release-qa.md step 3 (--compare-baseline)
 QWENVOICE_DEBUG=1 ./build/vocello bench --modes clone --variants speed \
   --lengths short,medium,long --warm 3 --voice <prepared-voice> --label "release-QA" --ledger
 
@@ -327,9 +330,12 @@ the relevant role file path and the task; the subagent should read the role file
     --lengths short,medium,long --warm 3 --voice <prepared-voice> \
     --label "release-QA" --ledger
   ```
-  Aggregate with `scripts/summarize_generation_telemetry.py`.
+  `--ledger` runs the summarizer **once** (via internal `--emit-ledger-row`) and appends one row to
+  `benchmarks/HISTORY.md`. For manual aggregation or regression checks, use
+  `scripts/summarize_generation_telemetry.py` with `--compare-baseline` (see
+  [`macos-release-qa.md`](docs/reference/macos-release-qa.md) step 3).
 - **Pre-merge gates:**
-  - macOS: `scripts/macos_test.sh gate` (includes model ensure — run `models ensure` once per machine if needed)
+  - macOS: `scripts/macos_test.sh gate` (includes model ensure — run `models ensure` once per machine if needed). Optional engine regression: `QWENVOICE_GATE_BENCH=1 scripts/macos_test.sh gate` (bounded custom/speed/medium bench + audioQC).
   - iOS: `scripts/ios_device.sh gate`
 
 Telemetry (when `QWENVOICE_DEBUG=1`) writes JSONL under
@@ -371,10 +377,11 @@ regenerate the project after changing them.
 - [`docs/reference/ios-app-guide.md`](docs/reference/ios-app-guide.md) — **iOS UI**: app map + how to drive it in tests.
 - [`docs/reference/macos-app-guide.md`](docs/reference/macos-app-guide.md) — **macOS UI**: app map + how to drive it in tests.
 - [`docs/reference/macos-testing.md`](docs/reference/macos-testing.md) — **macOS lanes**: test/debug/profile/review/xpc/gate + XPC lifecycle.
+- [`docs/reference/benchmarking-procedure.md`](docs/reference/benchmarking-procedure.md) — **bench runbook**: when/how to bench, platform lanes, signpost profile, HISTORY ledger.
 - [`docs/reference/`](docs/reference/) — per-subsystem reading list:
   - `mlx-guide.md`, `qwen3-tts-guide.md`, `mimi-codec-guide.md`, `metal-guide.md`
   - `swift-performance-guide.md`, `ios-engine-optimization.md`
-  - `benchmarking-procedure.md`, `telemetry-and-benchmarking.md`, `cli.md`
+  - `telemetry-and-benchmarking.md`, `cli.md`
   - `macos-release-qa.md`, `ios-device-testing.md`, `ios-appstore-submission.md`
   - `privacy-storage.md`, `macos-permissions.md`, `mlx-audio-swift-patching.md`
 - [`PRODUCT.md`](PRODUCT.md) — product/brand.

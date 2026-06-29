@@ -234,6 +234,8 @@ scripts/macos_test.sh profile custom:speed:
 ```
 
 Produces `build/macos/profile-<timestamp>.trace`. **In-process only** — not the production XPC path.
+The lane **fails** when `vocello bench` exits non-zero unless you pass `--allow-bench-fail` or set
+`QVOICE_MAC_PROFILE_ALLOW_BENCH_FAIL=1` (useful when you only need the trace artifact).
 For XPC: attach `xctrace` to `QwenVoiceEngineService` while generating via UI.
 
 ### 4.9 UI-driven generation (macOS XPC)
@@ -356,7 +358,8 @@ python3 scripts/summarize_generation_telemetry.py --ledger-row --label "what cha
   >> benchmarks/HISTORY.md
 ```
 
-Or use `vocello bench --ledger` (appends one row after run).
+Or use `vocello bench --ledger` — one summarizer invocation (`--emit-ledger-row` internally)
+that prints the table and appends one row to `benchmarks/HISTORY.md`.
 
 ### Milestone snapshots
 

@@ -51,6 +51,7 @@ Before changing scripts or CI, read:
 # Pre-merge gates (macOS gate step 0 = model ensure via scripts/lib/test_models.sh)
 scripts/macos_test.sh models ensure   # one-time per machine before first real-engine macOS run
 scripts/macos_test.sh gate
+QWENVOICE_GATE_BENCH=1 scripts/macos_test.sh gate   # optional: bounded custom/speed/medium bench + audioQC
 scripts/ios_device.sh gate
 
 # Model fixture helpers
@@ -60,15 +61,18 @@ scripts/ios_device.sh models check
 # Release packaging
 ./scripts/build.sh release
 
-# Benchmark driver
+# Benchmark driver (--ledger = single summarizer pass → benchmarks/HISTORY.md)
 QWENVOICE_DEBUG=1 ./build/vocello bench --modes clone --variants speed \
   --lengths short,medium,long --warm 3 --voice <prepared-voice> \
   --label "release-QA" --ledger
 
-# Aggregate telemetry
-scripts/summarize_generation_telemetry.py
+# Optional regression compare (see macos-release-qa.md step 3)
+python3 scripts/summarize_generation_telemetry.py \
+  ~/Library/Application\ Support/QwenVoice-Debug/diagnostics \
+  --compare-baseline benchmarks/baseline-2026-06-16-45720dd-streaming-default.md \
+  --label "release-QA"
 
-# Crash/profile
+# Crash/profile (profile fails on bench error unless --allow-bench-fail / QVOICE_MAC_PROFILE_ALLOW_BENCH_FAIL=1)
 scripts/macos_test.sh crashes
 scripts/macos_test.sh profile [spec]
 scripts/ios_device.sh crashes

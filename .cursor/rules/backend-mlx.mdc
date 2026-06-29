@@ -29,3 +29,6 @@ follow the `mlx-swift` / `mlx-swift-lm` skills.
   is not skipped in the common no-replacement case.
 - **SPM pins move in lockstep** and **MLX is the only backend** — see
   [`.cursor/rules/project-structure.mdc`](mdc:.cursor/rules/project-structure.mdc).
+- **Telemetry-gated diagnostics.** `GenerationFailureDiagnosticLogger`, `native-events.jsonl`
+  writers (`EngineServiceHost`, `MLXTTSEngine`), and `GenerationTelemetryJSONLSink` all honor
+  `TelemetryGate.resolvedEnabled` — do not add ungated diagnostic append paths.

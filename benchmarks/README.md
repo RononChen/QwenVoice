@@ -7,7 +7,8 @@ benchmark result logs are now permitted in the repo — but **bounded**, so they
 
 - **`HISTORY.md`** — the running ledger: one compact row per benchmark run (date · git SHA · cell ·
   RTF · tok/s · TTFC · physFoot · trims · note), for watching the trend over time. Append a row with
-  `python3 scripts/summarize_generation_telemetry.py --ledger-row --label "what changed" >> benchmarks/HISTORY.md`.
+  `python3 scripts/summarize_generation_telemetry.py --ledger-row --label "what changed" >> benchmarks/HISTORY.md`,
+  or use `vocello bench --ledger` (single summarizer pass via internal `--emit-ledger-row`).
 - **`OPTIMIZATION.md`** — the standing optimization-progress log: what was investigated, decided, shipped,
   and deferred (workstreams + findings + invariants + next steps), anchored to the reference baseline.
 - A saved full summary table from `summarize_generation_telemetry.py --label "<note>"` (`.md` / `.txt`)

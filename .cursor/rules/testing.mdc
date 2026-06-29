@@ -53,3 +53,15 @@ allowed **only** for Tier-A fake-backend tests. macOS UI smoke runs via
   ([`scripts/lib/test_models.sh`](mdc:scripts/lib/test_models.sh)).
 - `scripts/macos_test.sh models check|ensure|install` — see testing runbook §1b.
 - Escape: `QVOICE_SKIP_MODEL_ENSURE=1`, `QVOICE_TEST_MODELS_NO_NETWORK=1`.
+
+## macOS bench lanes
+
+- **`gate`:** default = model ensure → inputs → foundation build → UI smoke → crash check.
+  Opt-in bounded engine bench: `QWENVOICE_GATE_BENCH=1 scripts/macos_test.sh gate`
+  (custom/speed/medium + audioQC).
+- **`profile`:** Instruments trace during in-process `vocello bench`. **Fails** when bench
+  exits non-zero unless `--allow-bench-fail` or `QVOICE_MAC_PROFILE_ALLOW_BENCH_FAIL=1`
+  (use when you only need the trace artifact).
+
+See [`macos-testing.md`](mdc:docs/reference/macos-testing.md) and
+[`benchmarking-procedure.md`](mdc:docs/reference/benchmarking-procedure.md) §4.8.
