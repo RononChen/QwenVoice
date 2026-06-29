@@ -1,0 +1,32 @@
+---
+description: Vocello iOS app invariants (VocelloiOS / QVoiceiOS)
+globs: Sources/iOS/**,Sources/iOSSupport/**
+alwaysApply: false
+---
+
+# iOS app invariants
+
+Deep role guide: [`.agents/ios-engineer.md`](mdc:.agents/ios-engineer.md). Architecture:
+[`docs/ARCHITECTURE.md`](mdc:docs/ARCHITECTURE.md) §6 (iOS request lifecycle).
+
+- **Engine runs in-process** on Metal (`NativeRuntimeFactory` → `MLXTTSEngine`, wrapped in
+  `TTSEngineStore`). The iOS app deliberately does **not** link the macOS XPC stack. Real
+  generation is on-device only; the Simulator only runs the Tier-A fake backend.
+- **Fake-backend seam:** `QVOICE_FAKE_ENGINE=1` swaps in `FakeTTSEngine` +
+  `FakeModelStatusProvider` in [`IOSAppBootstrap`](mdc:Sources/iOS/IOSAppBootstrap.swift)
+  and bypasses the `IOSDeviceSupport.isSupportedHardware` gate in
+  [`QVoiceiOSApp`](mdc:Sources/iOS/QVoiceiOSApp.swift) so the UI mounts on the Simulator.
+  Production never sets these vars — keep that branch test-only.
+- **Cooperative cancel.** iOS does not conform to `ActiveGenerationCancellable` for real
+  takes; the generate flow must discard the result on `Task.isCancelled` so cancelled takes
+  never land in History.
+- **Use `IOSScrollView`** for vertical scroll, not raw `ScrollView`.
+- **Animations** route through `appAnimation` / `AppLaunchConfiguration.performAnimated` and
+  honor Reduce Motion; Liquid Glass falls back to solid fills under Reduce Transparency.
+- **No color-only signal:** mode colors always pair with an icon/label/position cue.
+- **Entitlements:** keep the App Group `group.com.patricedery.vocello.shared` and
+  `com.apple.developer.kernel.increased-memory-limit`; `project.yml` assigns the right
+  entitlements file per build. Respect the RAM-gated clone load profile
+  (`.fullCapabilities` vs `.iOSProductionDefault`).
+- **Stable `accessibilityIdentifier`s** (`screen_*`, `rootTab_*`, `textInput_*`,
+  `studioChip_*`, `iosModel*`) must survive refactors — they are UI-test surface area.

@@ -29,18 +29,20 @@ Before changing anything in this layer, read:
 2. The relevant subsystem guide under `docs/reference/` (e.g. `mlx-guide.md` for `MLXArray`/`Memory`/`GPU`, `qwen3-tts-guide.md` for prompt construction, `mimi-codec-guide.md` for codec work).
 3. `Sources/Resources/qwenvoice_contract.json` if you are touching model IDs, speakers, variants, or HF revisions.
 
-## Tools and skills
+## Tools and skills (Cursor)
 
-- **`swift-mlx`** and **`swift-mlx-lm`** skills (`Skill` tool) — use for MLX API patterns, memory, model loading, and Qwen3-TTS specifics.
-- **`systematic-debugging`** skill (`Skill` tool) — use first for any bug, test failure, or unexpected engine behavior.
+- **MLX / backend** → follow the **`mlx-swift`** and **`mlx-swift-lm`** skills (open their
+  `SKILL.md` with the Read tool and follow them) for MLX API patterns, wired memory, model
+  loading, and Qwen3-TTS specifics.
 - **Bash scripts** for build/test:
   - `scripts/build_foundation_targets.sh macos|ios` for compile-safety.
   - `scripts/build.sh cli` to build `vocello`.
   - `QWENVOICE_DEBUG=1 ./build/vocello bench …` for perf/quality gates.
-- **`mcp__xcodebuildmcp__build_sim`** for a quick compile-safety check (macOS scheme `QwenVoice`).
-- **`mcp__sosumi__*`** for Apple framework docs when an API boundary is unclear.
-- **`mcp__context7__*`** for non-Apple library docs.
-- **`Agent` tool with `subagent_type: "explore"`** for read-only deep dives into the vendored stack.
+- **Apple framework docs** when an API boundary is unclear → the `axiom-apple-docs` skill
+  (Xcode-bundled guides + WWDC 2025+).
+- **Non-Apple library docs** (e.g. GRDB, SwiftHuggingFace) → the **`context7`** MCP via
+  `CallMcpTool` (`resolve-library-id` → `query-docs`).
+- **Read-only deep dives** into the vendored stack → Task tool with `subagent_type: "explore"`.
 
 ## Build / test commands
 

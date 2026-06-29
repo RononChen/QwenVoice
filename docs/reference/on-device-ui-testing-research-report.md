@@ -1,8 +1,14 @@
 # On-Device iOS UI-Driven Testing: Tools, Plugins & MCPs Research Report
 
-> **Scope:** Evaluate tools and MCPs that can *drive* UI tests on a physical iOS device for the Vocello/QwenVoice project. The report covers native Apple frameworks, open-source cross-platform tools, AI-native alternatives, device-cloud options, and MCP-based integrations. Per project instructions, **no installation or configuration was performed** — this is research and recommendations only.
+> **⚠️ Superseded — historical reference only.** The testing strategy is now implemented and
+> documented in **[`testing-runbook.md`](testing-runbook.md)** (the single source of truth):
+> deterministic XCUITest with a two-tier model (Tier-A fake backend on the Simulator/CI,
+> Tier-B real engine on device) and a CI lane. The conclusion below held up — we did **not**
+> adopt Appium or any agent/MCP UI driver; we strengthened the native XCUITest suite, added a
+> fake backend, and added screenshot diagnostics. This file is kept only to record the options
+> that were evaluated and why they were rejected.
 >
-> **Update:** We are **not** implementing Appium or any additional MCP driver. The project is strengthening its existing XCUITest suite and adding screenshot-based diagnostics, so the Appium and cross-platform paths below are retained for reference only.
+> **Scope:** Evaluate tools and MCPs that can *drive* UI tests on a physical iOS device for the Vocello/QwenVoice project. The report covers native Apple frameworks, open-source cross-platform tools, AI-native alternatives, device-cloud options, and MCP-based integrations. Per project instructions, **no installation or configuration was performed** — this is research and recommendations only.
 
 ---
 

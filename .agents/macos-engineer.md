@@ -33,16 +33,19 @@ Before changing macOS app or XPC code, read:
 3. `docs/ARCHITECTURE.md` §5 — macOS request lifecycle and XPC wire protocol.
 4. `docs/reference/privacy-storage.md` if the change touches on-disk data locations.
 
-## Tools and skills
+## Tools and skills (Cursor)
 
-- **`xcodebuildmcp`** skill (`Skill` tool) — for XcodeBuildMCP conventions.
-- **`axiom`** skill (`Skill` tool) + Axiom agents — for XPC, crash, profile, UI review, and audit work.
-- **Bash scripts:**
+- **Bash scripts** (the source of truth for the local loop):
   - `./scripts/build.sh build|run|cli`
   - `scripts/macos_test.sh test|gate|crashes|debug|logs|profile|review|xpc`
   - `./scripts/regenerate_project.sh` after `project.yml` changes
-- **`mcp__xcodebuildmcp__*`** — allowed for macOS scheme `QwenVoice` (build, run, test, inspect `.xcresult`).
-- **`Agent` tool with `subagent_type: "explore"`** for XPC lifecycle investigations.
+- **Apple framework APIs / SwiftUI / concurrency** → follow the Axiom skills
+  (`axiom-apple-docs`, `axiom-swiftui`, `axiom-concurrency`) via the Read tool.
+- **Crash / profile / test / UI-review** → launch the matching Axiom subagent with the **Task
+  tool** (`crash-analyzer`, `performance-profiler`, `test-runner`, `test-debugger`).
+- **XcodeBuildMCP** (`CallMcpTool`) is available for the macOS scheme `QwenVoice` for a quick
+  build/run/inspect check.
+- **XPC lifecycle investigations** → Task tool with `subagent_type: "explore"`.
 
 ## Build / test commands
 

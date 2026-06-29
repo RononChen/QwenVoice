@@ -22,14 +22,14 @@ npm --prefix website run build    # production build → website/dist/
 npm --prefix website run preview  # serve the production build
 ```
 
-## Tools
+## Tools (Cursor)
 
-- **`chrome-devtools`** skill (`Skill` tool) for browser automation and verification.
-- **`mcp__chrome-devtools__*`** (`navigate_page`, `take_screenshot`, `take_snapshot`,
-  `list_console_messages`) for verifying the running site.
-- **`context7` MCP** (`mcp__context7__resolve-library-id` → `mcp__context7__query-docs`) for
-  React / Vite / library API questions.
-- **Bash** for `npm`/`node` commands.
+- **`chrome-devtools`** skill — follow its `SKILL.md` (Read tool) for browser automation and
+  verification; the chrome-devtools MCP is available via `CallMcpTool` (`navigate_page`,
+  `take_screenshot`, `take_snapshot`, `list_console_messages`) for verifying the running site.
+- **React / Vite / library API questions** → the **`context7`** MCP (via `CallMcpTool`:
+  `resolve-library-id` → `query-docs`) for current library docs; web search/fetch as fallback.
+- **Bash** for `npm`/`node` commands via the Shell tool.
 
 ## Boundaries
 

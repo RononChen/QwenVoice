@@ -30,18 +30,16 @@ Before changing scripts or CI, read:
 3. `docs/reference/macos-release-qa.md` for the full macOS release QA checklist.
 4. `docs/reference/telemetry-and-benchmarking.md` for benchmark/telemetry expectations.
 
-## Tools and skills
+## Tools and skills (Cursor)
 
-- **`axiom`** skill (`Skill` tool) — for `xcsym` crash symbolication, `xcprof` profiling,
-  test-runner/debugger, and build-fixer agents.
-- **Axiom agents via `Agent` tool:**
-  - `axiom:crash-analyzer` for `.ips` / MetricKit / `.crash`
-  - `axiom:performance-profiler` for Instruments/xctrace analysis
-  - `axiom:test-runner` / `axiom:test-debugger` for `.xcresult` investigation
-  - `axiom:build-fixer` for environment/build failures (after inspecting script output)
-- **`mcp__github__*`** — for release artifacts, PRs, workflow dispatch.
-- **`mcp__xcodebuildmcp__*`** — for macOS `.xcresult` inspection only.
-- **Bash** — scripts are the source of truth; run them directly.
+- **Bash** — scripts are the source of truth; run them directly via the Shell tool.
+- **Axiom subagents** via the **Task tool** for analysis:
+  - `crash-analyzer` for `.ips` / MetricKit / `.crash` (or the `xcsym` CLI directly)
+  - `performance-profiler` for Instruments/xctrace analysis
+  - `test-runner` / `test-debugger` for `.xcresult` investigation
+  - `build-fixer` for environment/build failures (after inspecting script output)
+- **GitHub** (release artifacts, PRs, workflow dispatch) → `gh` via the Shell tool.
+- **XcodeBuildMCP** (`CallMcpTool`) — for macOS `.xcresult` inspection only.
 
 ## Build / test commands
 
@@ -76,8 +74,9 @@ scripts/ios_device.sh profile [spec]
   `QwenVoice.xcodeproj/project.pbxproj` directly.
 - **Developer ID signing + notarization.** macOS release uses Developer ID Application cert,
   hardened runtime, and `notarytool` stapling. CI uses App Store Connect API key auth.
-- **No tests in CI.** `.github/workflows/release.yml` is scoped to packaging only; local gates
-  (`macos_test.sh gate`, `ios_device.sh gate`) stay local-only.
+- **CI runs Tier A only.** The CI lane runs Tier A fake-backend UI tests (macOS UI runner + iOS
+  Simulator). Tier B real-engine/generation gates (`macos_test.sh gate`, `ios_device.sh gate`)
+  stay local/attended — never put real-engine generation or real model downloads in CI.
 - **Committed benchmark summaries ≤256 KB.** Raw `*.jsonl` is gitignored.
 - **Deep checkout on CI.** `fetch-depth: 0` is required so `git rev-parse HEAD` in
   `scripts/release.sh` resolves for `release-metadata.txt`.
@@ -86,7 +85,8 @@ scripts/ios_device.sh profile [spec]
 ## Common mistakes
 
 - Adding a `Debug` configuration or `#if DEBUG` scaffolding in scripts.
-- Running iOS UI tests in the simulator.
+- Running **real-engine** iOS tests (generation/download) in the simulator or CI. Only Tier A
+  fake-backend UI tests (`QVOICE_FAKE_ENGINE=1`) belong there.
 - Committing raw `.jsonl` telemetry to `benchmarks/`.
 - Forgetting to preserve dSYMs (`scripts/build.sh` copies them to `build/macos/dsyms`).
 - Changing signing/notarization env vars without updating the workflow secret docs.

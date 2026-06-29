@@ -29,18 +29,23 @@ Before changing iOS UI or behavior, read:
 3. `docs/ARCHITECTURE.md` §6 — iOS request lifecycle, cooperative cancel, batch semantics, memory posture.
 4. `docs/reference/ios-engine-optimization.md` if the change affects generation performance or memory.
 
-## Tools and skills
+## Tools and skills (Cursor)
 
-- **`xcodebuildmcp`** skill (`Skill` tool) — for XcodeBuildMCP conventions (macOS only; iOS stays on-device).
-- **`axiom`** skill (`Skill` tool) + Axiom agents — for crash analysis, profiling, and test debugging.
-- **Bash scripts** — the only way to build/test/run on iOS:
+- **Apple framework APIs / iOS 26 / post-cutoff APIs** → follow the **Axiom** skills (open the
+  relevant `SKILL.md` with the Read tool and follow it): `axiom-apple-docs`, `axiom-swiftui`,
+  `axiom-concurrency`. They carry WWDC 2025+ docs and the Xcode-bundled guides.
+- **Crash / profile / test debugging** → launch the matching Axiom subagent with the **Task tool**
+  (`crash-analyzer`, `performance-profiler`, `test-runner`, `test-debugger`).
+- **Bash scripts** — the only way to build/test/run real-engine iOS work on device:
   - `scripts/ios_device.sh preflight`
   - `scripts/ios_device.sh test` / `ui-test`
   - `scripts/ios_device.sh profile [spec]`
   - `scripts/ios_device.sh crashes`
   - `scripts/ios_device.sh review [--baseline]`
   - `scripts/ios_device.sh gate`
-- **`mcp__xcodebuildmcp__*`** — allowed for macOS scheme work only; **never** for `VocelloiOS` simulator work.
+- **Read-only investigation** → Task tool with `subagent_type: "explore"`.
+- **iOS Simulator** is allowed **only** for Tier A fake-backend UI tests (`QVOICE_FAKE_ENGINE=1`);
+  never for real-engine/generation work on `VocelloiOS`.
 
 ## Build / test commands
 
@@ -56,8 +61,10 @@ scripts/ios_device.sh gate
 
 ## Invariants (do not regress)
 
-- **On-device only.** The iOS Simulator is unsupported. The engine runs in-process on Metal.
-  All validation happens on a paired physical device via `scripts/ios_device.sh`.
+- **Real-engine work is on-device only.** The MLX engine runs in-process on Metal, which the
+  iOS Simulator cannot host — all generation/download/memory validation happens on a paired
+  physical device via `scripts/ios_device.sh`. Tier A fake-backend UI tests
+  (`QVOICE_FAKE_ENGINE=1`) may run on the Simulator/CI.
 - **Cooperative cancel.** iOS does not conform to `ActiveGenerationCancellable`. The generate
   flow must discard the result on `Task.isCancelled` so cancelled takes never land in History.
 - **Use `IOSScrollView`.** iOS vertical scroll surfaces use `IOSScrollView`, not raw `ScrollView`.
@@ -76,8 +83,8 @@ scripts/ios_device.sh gate
 
 ## Common mistakes
 
-- Using `mcp__xcodebuildmcp__build_run_sim`, `snapshot_ui`, `list_sims`, or `screenshot` for
-  iOS. These are off-limits for `VocelloiOS`.
+- Running **real-engine** iOS work on the Simulator. Simulator use is limited to Tier A
+  fake-backend UI tests; real generation/download must run on a paired device.
 - Rethrowing `CancellationError` early inside `MLXTTSEngine.generate`.
 - Using raw `ScrollView` instead of `IOSScrollView`.
 - Making color the only indicator for mode or state.

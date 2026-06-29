@@ -1,6 +1,8 @@
-# AGENTS.md — Vocello (QwenVoice) Guide for Kimi Code CLI
+# AGENTS.md — Vocello (QwenVoice) Agent Guide
 
-> This file is the primary onboarding guide for **Kimi Code CLI** when working in this repository.
+> This file is the primary onboarding guide for AI coding agents working in this repository.
+> Development happens **entirely in Cursor**; Cursor reads `AGENTS.md` natively, and the
+> glob-scoped invariants live alongside it in [`.cursor/rules/`](.cursor/rules/).
 > The unified architecture map lives in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). When any doc
 > disagrees with the code, **the code wins**.
 >
@@ -122,7 +124,7 @@ Generation modes: **Custom Voice** (built-in speakers + delivery prompt), **Voic
 
 ## 7. Hard rules (do not violate)
 
-- **iOS is on-device only. Never use the iOS Simulator** or simulator-only tools for iOS UI work — no `xcodebuild -destination 'platform=iOS Simulator…'` and **no XcodeBuildMCP simulator tools** (`mcp__xcodebuildmcp__build_run_sim`, `mcp__xcodebuildmcp__snapshot_ui`, `mcp__xcodebuildmcp__list_sims`, `mcp__xcodebuildmcp__screenshot`, …) and **no Axiom `xcui` / simulator-tester** for the `VocelloiOS` target. Use `scripts/ios_device.sh` (see Commands). The iOS Simulator is intentionally unsupported — the engine runs in-process on Metal.
+- **Real-engine / generation iOS work is on-device only.** Any test or task that loads a model, runs Metal, or exercises actual synthesis/voice-cloning/real-download must run on a **paired physical iPhone** via `scripts/ios_device.sh` — never `xcodebuild -destination 'platform=iOS Simulator…'`, never XcodeBuildMCP simulator tools (`build_run_sim`, `snapshot_ui`, `screenshot`, …), never Axiom `xcui` / simulator-tester. The engine runs in-process on Metal, so generation on the Simulator is meaningless. **Exception — fake-backend (Tier A) UI tests** (launched with `QVOICE_FAKE_ENGINE=1`, which swaps in `FakeTTSEngine` + `FakeModelStatusProvider`: no model load, no Metal) **may run on the iOS Simulator and in CI.** See the Tier A / Tier B split in [`.cursor/rules/testing.mdc`](.cursor/rules/testing.mdc) and the testing runbook. When in doubt, run on device.
 - **`project.yml` is the Xcode project source of truth.** Never edit `QwenVoice.xcodeproj/project.pbxproj` directly. Edit `project.yml`, then `./scripts/regenerate_project.sh`. (XcodeGen gotcha: the iOS target lists its bundled JSON/catalog/`voice-previews` under `sources:` with `buildPhase: resources`, **not** under `resources:` — XcodeGen silently drops them otherwise and iOS builds compile but crash on launch. See `project.yml`.)
 - **Single shippable config: `Release` only.** No `DEBUG` symbol, no Debug-vs-Release fork. `build.sh` compiles `-Onone` for the local loop; `release.sh` compiles the same config optimized. Debug capabilities are gated at runtime by `DebugMode.isEnabled` (`QWENVOICE_DEBUG=1` env, or the hidden 7-tap version label in Settings → `UserDefaults QwenVoice.DebugModeEnabled`). Reserve `#if DEBUG` for test/sim scaffolding only.
 - **SPM deps are pinned exact for backend determinism.** Move `mlx-swift` and `mlx-swift-lm` **in lockstep** (never one alone); don't float pins without a benchmark-gated review on a throwaway branch (`vocello bench` + listening pass). MLX is the **only** Qwen3-TTS backend — do not pivot to Core ML.
@@ -203,61 +205,54 @@ Telemetry (when `QWENVOICE_DEBUG=1`) writes JSONL under
 `scripts/summarize_generation_telemetry.py`. Committed benchmark logs must be ≤256 KB; raw
 `*.jsonl` is gitignored.
 
-## 9. Tool, skill, and MCP routing (Kimi Code CLI)
+## 9. Tool and MCP routing (Cursor)
 
-Reach for the **Bash scripts in §8 first** for build/run/test — they encode the single-config,
-deterministic local loop. Then route by task.
+Development is **100% in Cursor**. Reach for the **checked-in scripts in §8 first** for
+build/run/test — they encode the single-config, deterministic local loop and tests are run by
+`scripts/*.sh` + `xcodebuild`, **never by an agent driving the screen** (the old computer-use /
+desktop-MCP harness is gone — see the testing runbook). Then route by task:
 
-- **MLX / backend / `QwenVoiceBackendCore` work** → the `swift-mlx` + `swift-mlx-lm` skills
-  (`Skill` tool), and read `docs/reference/{mlx-guide,qwen3-tts-guide,mimi-codec-guide,metal-guide}.md`
-  before touching `MLXArray`/`Memory`/`GPU`, prompt construction, or the vendored codec. Also see
-  `.agents/backend-mlx.md`.
-- **Apple framework APIs / iOS 26 / post-cutoff APIs** → the `sosumi` MCP
-  (`mcp__sosumi__searchAppleDocumentation` / `mcp__sosumi__fetchAppleDocumentation` /
-  `mcp__sosumi__fetchAppleVideoTranscript`) and the `axiom` skill. Per the global `context7` rule,
-  **non-Apple** library/framework/SDK/CLI docs → `context7` MCP
-  (`mcp__context7__resolve-library-id` → `mcp__context7__query-docs`).
-- **macOS build/run/inspect** → the Bash scripts, or `XcodeBuildMCP`
-  (`mcp__xcodebuildmcp__*`, macOS scheme `QwenVoice`) for a quick check. XcodeBuildMCP
-  simulator tools are **off-limits for iOS** (on-device rule).
-- **iOS on-device lanes** (`scripts/ios_device.sh`, one verb per lane):
-  - `test` → run via the script, then inspect the `.xcresult` with the `axiom` skill/agents
-    (`mcp__axiom__axiom_xclog_*`, `axiom:test-runner`, `axiom:test-debugger`), or XcodeBuildMCP.
-  - `crashes` → `axiom:crash-analyzer` agent / `axiom` skill (`mcp__axiom__axiom_xcsym_*`)
-    vs the build dSYM.
-  - `profile` → `axiom:performance-profiler` agent / `axiom` skill (`mcp__axiom__axiom_xcprof_*`).
-  - `debug` → XcodeBuildMCP device/debugging or manual LLDB.
-  - `review` → capture with the device tools and diff against `docs/ios-review-baselines/`.
-  Burn-in-safe by construction; the full map + policy is in `docs/reference/ios-device-testing.md` §3.
-  Also see `.agents/ios-engineer.md`.
-- **macOS lanes** (`scripts/macos_test.sh`, one verb per lane):
-  - `test` → `axiom:test-runner` agent / inspect the `.xcresult`.
-  - `crashes` → `axiom:crash-analyzer` agent / `mcp__axiom__axiom_xcsym_*` vs the dSYMs.
-  - `profile` → `axiom:performance-profiler` agent / `mcp__axiom__axiom_xcprof_*`.
-  - `debug` → LLDB (app + XPC service PID).
-  - `review` → capture and diff against `docs/macos-review-baselines/`.
-  - `xpc` → retirement/crash-isolation via the script.
-  Lane map + the XPC dimension: `docs/reference/macos-testing.md`.
-  Also see `.agents/macos-engineer.md`.
-- **Process / planning** → Superpowers skills: `brainstorming` before creative/feature work,
-  `systematic-debugging` for any bug/test failure, `writing-plans` / `executing-plans`,
-  `verification-before-completion` before claiming done, `requesting-code-review` /
-  `receiving-code-review`, `finishing-a-development-branch`, `using-git-worktrees` for
-  isolation, `subagent-driven-development` for parallel implementation work.
-- **Review & audits** → request review with `requesting-code-review`, and run Axiom auditors
-  via the **Agent** tool: `axiom:concurrency-auditor`, `axiom:memory-auditor`,
-  `axiom:swift-performance-analyzer`, `axiom:swiftui-{architecture,layout,nav,performance}-auditor`,
-  `axiom:codable-auditor`, `axiom:security-privacy-scanner`, `axiom:accessibility-auditor`,
-  `axiom:energy-auditor`, `axiom:liquid-glass-auditor` (or `/axiom:audit <domain>`, or a
-  project-wide `/axiom:health-check`).
-- **Crash logs (.ips / MetricKit / .crash)** → `axiom:crash-analyzer` agent /
-  `mcp__axiom__axiom_xcsym_*`. **Profiling** → `axiom:performance-profiler` agent /
-  `mcp__axiom__axiom_xcprof_*`. **Build/environment failures** → `axiom:build-fixer` agent
-  (but inspect the relevant `scripts/*.sh` output via Bash first).
-- **GitHub** (issues/PRs/releases/remote search) → `mcp__github__*`; `gh`/`git` via Bash for
-  local-only ops. **Hugging Face** (model revisions/downloads) → the `hf` CLI via Bash.
-  **Marketing site (`website/`)** → `mcp__chrome-devtools__*` for browser verification +
-  `npm --prefix website`; see `website/AGENTS.md`.
+- **MLX / backend / `QwenVoiceBackendCore` work** → the `mlx-swift` and `mlx-swift-lm` Cursor
+  skills (read their `SKILL.md`), and read
+  `docs/reference/{mlx-guide,qwen3-tts-guide,mimi-codec-guide,metal-guide}.md` before touching
+  `MLXArray`/`Memory`/`GPU`, prompt construction, or the vendored codec. Also see
+  [`.agents/backend-mlx.md`](.agents/backend-mlx.md) and
+  [`.cursor/rules/backend-mlx.mdc`](.cursor/rules/backend-mlx.mdc).
+- **Apple framework APIs / iOS 26 / post-cutoff APIs** → the Axiom skills (`axiom-apple-docs`,
+  `axiom-swiftui`, `axiom-concurrency`, `axiom-data`, …) — they carry WWDC 2025+ docs. The
+  Xcode-bundled for-LLM guides under
+  `/Applications/Xcode.app/Contents/PlugIns/IDEIntelligenceChat.framework/.../AdditionalDocumentation/`
+  are also readable directly.
+- **Non-Apple library / framework / SDK / CLI docs** (GRDB, SwiftHuggingFace, React/Vite, etc.) →
+  the **`context7`** MCP via `CallMcpTool` (`resolve-library-id` → `query-docs`) — prefer it over
+  web search for library docs, even for well-known libraries.
+- **Build / run / inspect** → the §8 scripts. `XcodeBuildMCP` (macOS scheme `QwenVoice`) is fine
+  for a quick macOS build/run check. **XcodeBuildMCP simulator tools and Axiom `xcui`/
+  simulator-tester remain off-limits for real-engine iOS work** (§7); fake-backend Tier-A tests
+  may target the Simulator.
+- **iOS on-device lanes** (`scripts/ios_device.sh`, one verb per lane): `test` / `crashes` /
+  `profile` / `debug` / `review`. Inspect the resulting `.xcresult` / `.ips` with the Axiom
+  crash + profiling skills (`xcsym`, `xcprof`, `xclog` ship in the Axiom plugin `bin/`). Full map:
+  `docs/reference/ios-device-testing.md` §3. Also see [`.agents/ios-engineer.md`](.agents/ios-engineer.md)
+  and [`.cursor/rules/ios.mdc`](.cursor/rules/ios.mdc).
+- **macOS lanes** (`scripts/macos_test.sh`, one verb per lane): `test` / `crashes` / `profile` /
+  `debug` / `review` / `xpc`. Lane map + XPC dimension: `docs/reference/macos-testing.md`. Also see
+  [`.agents/macos-engineer.md`](.agents/macos-engineer.md).
+- **Review & audits** → run the Axiom auditor subagents via the `Task` tool (e.g.
+  `concurrency-auditor`, `memory-auditor`, `swift-performance-analyzer`,
+  `swiftui-{architecture,layout,nav,performance}-auditor`, `codable-auditor`,
+  `security-privacy-scanner`, `accessibility-auditor`), or `/axiom:audit <domain>` /
+  `/axiom:health-check`. For a diff review use the `bugbot` or `security-review` subagents.
+- **Crash logs (.ips / MetricKit / .crash)** → `crash-analyzer` subagent / Axiom `xcsym`.
+  **Profiling** → `performance-profiler` subagent / Axiom `xcprof`. **Build/environment
+  failures** → `build-fixer` subagent (but inspect the relevant `scripts/*.sh` output first).
+- **Parallel/large work** → the `Task` tool with `subagent_type: "explore"` (read-only
+  investigation), `"generalPurpose"` (multi-step implementation/research), or `"shell"` (command
+  execution). Pass the relevant `.agents/<role>.md` path and the task; the subagent reads it first.
+- **GitHub** (issues/PRs/releases) → `gh` via the terminal. **Hugging Face** (model
+  revisions/downloads) → the `hf` CLI (Hugging Face skills available). **Marketing site
+  (`website/`)** → chrome-devtools MCP for browser verification + `npm --prefix website`; see
+  `website/AGENTS.md`.
 
 ## 10. Agent roles
 
@@ -272,17 +267,19 @@ contained in one area:
 | [`.agents/release-qa-engineer.md`](.agents/release-qa-engineer.md) | `scripts/`, `.github/workflows/release.yml`, packaging, signing, benchmarks, crash/profile analysis, UI review baselines. | Changing build/release scripts, CI, running gates, investigating crashes or performance regressions. |
 | [`.agents/website-engineer.md`](.agents/website-engineer.md) | Pointer to `website/AGENTS.md`. | Marketing site work. |
 
-When dispatching subagents, use the `Agent` tool with `subagent_type: "coder"` for implementation,
-`"explore"` for read-only investigation, or `"plan"` for architecture design. Pass the relevant
-role file path and the task; the subagent should read the role file before acting.
+When dispatching subagents, use Cursor's `Task` tool with `subagent_type: "generalPurpose"` for
+implementation, `"explore"` for read-only investigation, or `"shell"` for command execution. Pass
+the relevant role file path and the task; the subagent should read the role file before acting.
 
 ## 11. Development conventions and code style
 
 - **Do not edit `QwenVoice.xcodeproj/project.pbxproj` directly.** Edit `project.yml`, then run
   `./scripts/regenerate_project.sh`.
 - **Single shippable config:** `Release` only. Use `#if DEBUG` only for test/sim scaffolding.
-- **iOS is on-device only.** Never use the iOS Simulator or XcodeBuildMCP simulator tools for the
-  `VocelloiOS` target.
+- **Real-engine iOS work is on-device only.** Model load / Metal / real generation runs on a
+  paired iPhone via `scripts/ios_device.sh`; the iOS Simulator + XcodeBuildMCP simulator tools are
+  off-limits for it. **Fake-backend (Tier A) UI tests** (`QVOICE_FAKE_ENGINE=1`) may use the
+  Simulator/CI — see §7 and `.cursor/rules/testing.mdc`.
 - **SPM dependencies are pinned exact.** Move `mlx-swift` and `mlx-swift-lm` **in lockstep**;
   do not float pins without a benchmark-gated review on a throwaway branch.
 - **The build is the typecheck.** There is no formatter/linter. Follow existing Swift style,
@@ -304,8 +301,14 @@ role file path and the task; the subagent should read the role file before actin
 - **macOS UI smoke:** `VocelloMacSmokeUITests` (10 tests). Run via `scripts/macos_test.sh test`
   or directly with `xcodebuild test -project QwenVoice.xcodeproj -scheme QwenVoice -destination
   'platform=macOS,arch=arm64' -derivedDataPath build/DerivedData`.
-- **iOS UI smoke:** `VocelloiOSUITests`, run **only on a paired physical device** via
-  `scripts/ios_device.sh ui-test` or `scripts/ios_device.sh test`.
+- **iOS UI tests — two tiers** (`VocelloiOSUITests`):
+  - **Tier A — fake-backend UI** (`QVOICE_FAKE_ENGINE=1`): smoke, sheets, and the
+    backend-state Studio flow (install/generate/player/error) driven by `FakeTTSEngine` +
+    `FakeModelStatusProvider` — no model, no Metal. **May run on the iOS Simulator and in CI**
+    (and on device). This is the fast pre-merge signal.
+  - **Tier B — real-engine** (cold generation, real download, on-device memory): the real-path
+    gate that keeps the fake honest. **Paired physical iPhone only**, attended, via
+    `scripts/ios_device.sh test`.
 - **Compile-safety:** `scripts/build_foundation_targets.sh macos|ios`.
 - **Perf/quality gate:** the `vocello` CLI benchmark plus telemetry summarizer:
   ```sh

@@ -1,0 +1,46 @@
+---
+description: Vocello testing tiers, determinism, and the no-agent-screen-driving rule
+globs: Tests/**,scripts/macos_test.sh,scripts/ios_device.sh,scripts/build_foundation_targets.sh
+alwaysApply: false
+---
+
+# Testing (deterministic XCUITest, two tiers)
+
+Tests are run by `scripts/*.sh` + `xcodebuild`, **never** by an agent driving the screen
+(the old computer-use / desktop-MCP harness is gone). Keep tests deterministic and
+self-driving. See [`AGENTS.md`](mdc:AGENTS.md) §12 and the testing runbook.
+
+## Two tiers (iOS)
+
+- **Tier A — fake backend** (`QVOICE_FAKE_ENGINE=1`): smoke, sheets, and the Studio
+  backend-state flow (generate → inline player, error surface). Driven by
+  [`FakeTTSEngine`](mdc:Sources/iOS/FakeTTSEngine.swift) + `FakeModelStatusProvider` — no
+  2.3 GB model, no Metal. The shared coordinator
+  [`VocelloUITestApp`](mdc:Tests/VocelloiOSUITests/VocelloUITestApp.swift) always launches
+  this. **Runs on the iOS Simulator and in CI**, and on device. This is the fast pre-merge
+  signal.
+- **Tier B — real engine** (cold generation, real download): needs the in-process MLX
+  engine on a **paired physical iPhone**. These suites self-launch their own app (no fake
+  flag) and are guarded with `XCTSkipUnless(UITestTier.canRunRealEngine, …)`.
+
+`UITestTier.canRunRealEngine` is a **compile-time** gate (`#if targetEnvironment(simulator)`):
+false on the Simulator, true on device. No runner-env flag is needed — `scripts/ios_device.sh`
+selects which suites run on device (`--cold` for cold generation), and CI runs only the
+Tier-A suites on the Simulator via `-only-testing`.
+
+## Determinism rules
+
+- Use `waitForExistence` / `XCTNSPredicateExpectation`, **not** `usleep`/`Thread.sleep`/
+  RunLoop polling, to wait for UI.
+- Register `installSystemAlertMonitor()` in `setUp` so permission/automation dialogs can't
+  stall a run.
+- Query by stable `accessibilityIdentifier`; do not rely on brittle label/hierarchy
+  fallbacks. Never let a `screen_*` container shadow descendant ids — use the
+  `screenPresenceMarker(_:)` leaf marker (see [`IOSAccessibility`](mdc:Sources/iOS/IOSAccessibility.swift)).
+
+## Real-engine work is on-device only
+
+The iOS Simulator cannot host the MLX/Metal engine, so real model load / generation /
+download is validated on a paired iPhone via `scripts/ios_device.sh`. The Simulator is
+allowed **only** for Tier-A fake-backend tests. macOS UI smoke runs via
+`scripts/macos_test.sh test`.
