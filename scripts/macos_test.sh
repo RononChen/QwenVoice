@@ -267,7 +267,7 @@ cmd_review() {
     fi
   done
   (( any == 0 )) && warn "no captures produced (did the tour run?)"
-  note "diff each pair with mcp__zai-mcp-server__ui_diff_check (expected=baseline, actual=capture), or axiom:screenshot-validator."
+  note "diff each pair with screenshot-validator (/axiom:audit screenshots) or a manual visual pass (expected=baseline, actual=capture)."
   (( st == 0 )) && note "review tour OK" || warn "review tour had failures (exit $st)"
   return "$st"
 }

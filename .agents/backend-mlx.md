@@ -34,14 +34,16 @@ Before changing anything in this layer, read:
 - **MLX / backend** → follow the **`mlx-swift`** and **`mlx-swift-lm`** skills (open their
   `SKILL.md` with the Read tool and follow them) for MLX API patterns, wired memory, model
   loading, and Qwen3-TTS specifics.
-- **Bash scripts** for build/test:
+- **Shell tool / scripts** for build/test:
   - `scripts/build_foundation_targets.sh macos|ios` for compile-safety.
   - `scripts/build.sh cli` to build `vocello`.
   - `QWENVOICE_DEBUG=1 ./build/vocello bench …` for perf/quality gates.
 - **Apple framework docs** when an API boundary is unclear → the `axiom-apple-docs` skill
   (Xcode-bundled guides + WWDC 2025+).
-- **Non-Apple library docs** (e.g. GRDB, SwiftHuggingFace) → the **`context7`** MCP via
+- **Non-Apple library docs** (e.g. GRDB, SwiftHuggingFace) → **`user-context7`** MCP via
   `CallMcpTool` (`resolve-library-id` → `query-docs`).
+- **Hugging Face hub** (model cards, revisions) → **`plugin-huggingface-skills-huggingface-skills`**
+  MCP and/or the `hf` CLI.
 - **Read-only deep dives** into the vendored stack → Task tool with `subagent_type: "explore"`.
 
 ## Build / test commands

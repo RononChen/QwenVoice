@@ -32,14 +32,17 @@ Before changing scripts or CI, read:
 
 ## Tools and skills (Cursor)
 
-- **Bash** — scripts are the source of truth; run them directly via the Shell tool.
+- **Shell tool** — scripts are the source of truth; run them directly.
 - **Axiom subagents** via the **Task tool** for analysis:
   - `crash-analyzer` for `.ips` / MetricKit / `.crash` (or the `xcsym` CLI directly)
   - `performance-profiler` for Instruments/xctrace analysis
   - `test-runner` / `test-debugger` for `.xcresult` investigation
+  - `screenshot-validator` for UI review baseline diffs
   - `build-fixer` for environment/build failures (after inspecting script output)
 - **GitHub** (release artifacts, PRs, workflow dispatch) → `gh` via the Shell tool.
-- **XcodeBuildMCP** (`CallMcpTool`) — for macOS `.xcresult` inspection only.
+- **XcodeBuildMCP** (`user-xcodebuildmcp`) — macOS, Simulator (Tier A), and device workflows
+  enabled; see [`.xcodebuildmcp/config.yaml`](../.xcodebuildmcp/config.yaml). Prefer
+  `scripts/*.sh` for gates and Tier-B device work; use profiles `ios-sim` / `macos` / `ios-device`.
 
 ## Build / test commands
 

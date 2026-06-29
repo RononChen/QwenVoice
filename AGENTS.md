@@ -2,7 +2,8 @@
 
 > This file is the primary onboarding guide for AI coding agents working in this repository.
 > Development happens **entirely in Cursor**; Cursor reads `AGENTS.md` natively, and the
-> glob-scoped invariants live alongside it in [`.cursor/rules/`](.cursor/rules/).
+> glob-scoped invariants live alongside it in [`.cursor/rules/`](.cursor/rules/) (including
+> [MCP routing](.cursor/rules/mcp-routing.mdc)).
 > The unified architecture map lives in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). When any doc
 > disagrees with the code, **the code wins**.
 >
@@ -210,7 +211,8 @@ Telemetry (when `QWENVOICE_DEBUG=1`) writes JSONL under
 Development is **100% in Cursor**. Reach for the **checked-in scripts in §8 first** for
 build/run/test — they encode the single-config, deterministic local loop and tests are run by
 `scripts/*.sh` + `xcodebuild`, **never by an agent driving the screen** (the old computer-use /
-desktop-MCP harness is gone — see the testing runbook). Then route by task:
+desktop-MCP harness is gone — see the testing runbook). Full MCP inventory and routing rules:
+[`.cursor/rules/mcp-routing.mdc`](.cursor/rules/mcp-routing.mdc). Summary:
 
 - **MLX / backend / `QwenVoiceBackendCore` work** → the `mlx-swift` and `mlx-swift-lm` Cursor
   skills (read their `SKILL.md`), and read
@@ -224,12 +226,14 @@ desktop-MCP harness is gone — see the testing runbook). Then route by task:
   `/Applications/Xcode.app/Contents/PlugIns/IDEIntelligenceChat.framework/.../AdditionalDocumentation/`
   are also readable directly.
 - **Non-Apple library / framework / SDK / CLI docs** (GRDB, SwiftHuggingFace, React/Vite, etc.) →
-  the **`context7`** MCP via `CallMcpTool` (`resolve-library-id` → `query-docs`) — prefer it over
-  web search for library docs, even for well-known libraries.
-- **Build / run / inspect** → the §8 scripts. `XcodeBuildMCP` (macOS scheme `QwenVoice`) is fine
-  for a quick macOS build/run check. **XcodeBuildMCP simulator tools and Axiom `xcui`/
-  simulator-tester remain off-limits for real-engine iOS work** (§7); fake-backend Tier-A tests
-  may target the Simulator.
+  the **`user-context7`** MCP (`resolve-library-id` → `query-docs`) via `CallMcpTool` — prefer it
+  over web search for library docs, even for well-known libraries.
+- **Build / run / inspect** → the §8 scripts first. **`user-xcodebuildmcp`** exposes simulator,
+  macOS, device, debugging, and UI-automation workflows (see [`.xcodebuildmcp/config.yaml`](.xcodebuildmcp/config.yaml);
+  reload MCP after edits). Call `session_show_defaults` before the first MCP action; use profile
+  `macos` / `ios-sim` / `ios-device` via `session_use_defaults_profile`. **XcodeBuildMCP simulator
+  tools and Axiom `xcui`/`simulator-tester` remain off-limits for real-engine iOS work** (§7);
+  fake-backend Tier-A tests may use the Simulator via `test_sim` or `scripts/*.sh` + CI.
 - **iOS on-device lanes** (`scripts/ios_device.sh`, one verb per lane): `test` / `crashes` /
   `profile` / `debug` / `review`. Inspect the resulting `.xcresult` / `.ips` with the Axiom
   crash + profiling skills (`xcsym`, `xcprof`, `xclog` ship in the Axiom plugin `bin/`). Full map:
@@ -241,18 +245,20 @@ desktop-MCP harness is gone — see the testing runbook). Then route by task:
 - **Review & audits** → run the Axiom auditor subagents via the `Task` tool (e.g.
   `concurrency-auditor`, `memory-auditor`, `swift-performance-analyzer`,
   `swiftui-{architecture,layout,nav,performance}-auditor`, `codable-auditor`,
-  `security-privacy-scanner`, `accessibility-auditor`), or `/axiom:audit <domain>` /
-  `/axiom:health-check`. For a diff review use the `bugbot` or `security-review` subagents.
+  `security-privacy-scanner`, `accessibility-auditor`, `screenshot-validator`), or
+  `/axiom:audit <domain>` / `/axiom:health-check`. For a diff review use the `bugbot` or
+  `security-review` subagents.
 - **Crash logs (.ips / MetricKit / .crash)** → `crash-analyzer` subagent / Axiom `xcsym`.
   **Profiling** → `performance-profiler` subagent / Axiom `xcprof`. **Build/environment
   failures** → `build-fixer` subagent (but inspect the relevant `scripts/*.sh` output first).
 - **Parallel/large work** → the `Task` tool with `subagent_type: "explore"` (read-only
   investigation), `"generalPurpose"` (multi-step implementation/research), or `"shell"` (command
   execution). Pass the relevant `.agents/<role>.md` path and the task; the subagent reads it first.
-- **GitHub** (issues/PRs/releases) → `gh` via the terminal. **Hugging Face** (model
-  revisions/downloads) → the `hf` CLI (Hugging Face skills available). **Marketing site
-  (`website/`)** → chrome-devtools MCP for browser verification + `npm --prefix website`; see
-  `website/AGENTS.md`.
+- **GitHub** (issues/PRs/releases) → `gh` via the Shell tool. **Hugging Face** (model revisions,
+  hub search) → **`plugin-huggingface-skills-huggingface-skills`** MCP and/or the `hf` CLI.
+  **Marketing site (`website/`)** → `chrome-devtools` or `cursor-ide-browser` MCP + `npm --prefix
+  website`; see `website/AGENTS.md`. **Cursor IDE** (reveal file, rename chat, worktree moves) →
+  `cursor-app-control` MCP — sparingly.
 
 ## 10. Agent roles
 

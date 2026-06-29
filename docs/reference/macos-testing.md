@@ -33,9 +33,9 @@ app **and** the service.
 | Test | `test` | `VocelloMacSmokeUITests` only (**10** smoke tests) | `axiom:test-runner` on the `.xcresult` |
 | Bench | `build.sh cli bench` | deterministic perf/quality matrix | `summarize_generation_telemetry.py` |
 | Crash | `crashes [--test]` | `.ips` for app + XPC service | `axiom:crash-analyzer` / `xcsym` vs the dSYMs |
-| Debug | `debug` | LLDB attach (app + service PID) + `logs` | XcodeBuildMCP debugging; `systematic-debugging` |
+| Debug | `debug` | LLDB attach (app + service PID) + `logs` | `./scripts/macos_test.sh debug`; Axiom `build-fixer` |
 | Profile | `profile [spec]` | xctrace/Instruments on the engine (CLI in-process) | `axiom:performance-profiler` / `xcprof` |
-| Review | `review [--baseline]` | sidebar-screen screenshot tour | vision MCP `ui_diff_check` vs `docs/macos-review-baselines/` |
+| Review | `review [--baseline]` | sidebar-screen screenshot tour | `screenshot-validator` subagent / manual diff vs `docs/macos-review-baselines/` |
 | XPC | `xpc [--crash-isolation]` | retirement/relaunch + crash isolation | — |
 | Gate | `gate` | preflight → build → test → crashes → verdict | — |
 
@@ -66,8 +66,8 @@ scripts/macos_test.sh logs               # retained os_log → build/macos-logs/
 ```
 
 The subsystem is `com.qwenvoice.app` (app + service + the `performance` signpost category).
-For interactive debugging, XcodeBuildMCP's debugging workflow or Xcode → Debug → Attach to
-Process (by PID) both work.
+For interactive debugging, `scripts/macos_test.sh debug` (LLDB attach by PID), Xcode → Debug → Attach to
+Process, or XcodeBuildMCP debugging if you enable that workflow in `.xcodebuildmcp/config.yaml`.
 
 ## Profile
 
@@ -91,7 +91,8 @@ scripts/macos_test.sh review --baseline   # seed/update docs/macos-review-baseli
 
 Runs `VocelloMacReviewTourUITests` (walks the 6 sidebar screens, screenshots each via
 `VocelloMacTestSupport.captureScreenshot`). Diff each capture against its committed baseline
-via a vision MCP (`mcp__zai-mcp-server__ui_diff_check`). macOS is the host — direct capture,
+via the **`screenshot-validator`** Axiom subagent (`/axiom:audit screenshots`) or a manual
+visual pass. macOS is the host — direct capture,
 no Mirroring chrome, no burn-in concern.
 
 ## XPC lifecycle (macOS-unique)

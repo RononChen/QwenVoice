@@ -1,0 +1,103 @@
+---
+description: Cursor MCP servers, plugins, and tool routing for Vocello (QwenVoice)
+alwaysApply: true
+---
+
+# MCP and plugin routing
+
+Development is **100% in Cursor**. Prefer **checked-in `scripts/*.sh`** for build/run/test
+(the deterministic local loop). Use MCPs to augment — not replace — those scripts.
+
+## Enabled MCP servers (current)
+
+| Server ID | Name | Use for |
+| --- | --- | --- |
+| `user-xcodebuildmcp` | xcodebuildmcp | Apple platform build/test/run via MCP tools (see scope below) |
+| `user-context7` | context7 | Library/SDK/CLI docs (`resolve-library-id` → `query-docs`) |
+| `plugin-chrome-devtools-mcp-chrome-devtools` | chrome-devtools | Website verification (`navigate_page`, `take_snapshot`, `take_screenshot`, …) |
+| `cursor-ide-browser` | cursor-ide-browser | In-IDE browser tab (`browser_navigate`, `browser_snapshot`, …) |
+| `plugin-huggingface-skills-huggingface-skills` | huggingface-skills | Hub model/dataset/paper lookup (`hub_repo_search`, `hub_repo_details`, …) |
+| `cursor-app-control` | cursor-app-control | Cursor IDE control (`open_resource`, `move_agent_to_root`, `rename_chat`, …) |
+
+Invoke MCP tools with **`CallMcpTool`** (read each tool's JSON descriptor under the MCP
+filesystem first). Use the **Shell** tool for terminal commands — not a separate Bash tool.
+
+## XcodeBuildMCP (`user-xcodebuildmcp`)
+
+Read the **`xcodebuildmcp`** skill (`SKILL.md`) before first use.
+
+**Enabled workflows** (see repo [`.xcodebuildmcp/config.yaml`](mdc:.xcodebuildmcp/config.yaml)):
+`simulator`, `macos`, `device`, `debugging`, `ui-automation`, `project-discovery`.
+Reload the MCP server after editing that file (Cursor → Settings → MCP → xcodebuildmcp → Restart).
+
+Tools include `session_show_defaults`, `session_use_defaults_profile`, `build_sim`,
+`test_sim`, `build_macos`, `build_run_macos`, `test_macos`, `test_device`, `debug_attach_sim`,
+`snapshot_ui`, `list_devices`, etc. Extra workflows (coverage, xcode-ide, …) can be added to
+`enabledWorkflows` — see https://xcodebuildmcp.com/docs/configuration
+
+**Session discipline (required):**
+
+1. Call `session_show_defaults` before the first build/run/test in a session.
+2. Switch profiles with `session_use_defaults_profile`: `ios-sim` (Tier-A Simulator),
+   `macos` (`QwenVoice`), `ios-device` (Tier-B — set `deviceId` via `session_set_defaults`).
+3. Use `discover_projs` only when defaults are missing or wrong — never speculatively.
+4. Prefer combined tools (`build_run_sim`, `build_run_macos`) over separate build + launch chains.
+
+**Vocello routing:**
+
+- **macOS app (`QwenVoice` scheme):** `./scripts/build.sh` remains primary; MCP
+  `build_run_macos` / `test_macos` are OK for quick checks (`session_use_defaults_profile: macos`).
+- **Tier-A iOS fake-backend tests (`VocelloiOS`, `QVOICE_FAKE_ENGINE=1`):** MCP simulator
+  tools (`test_sim`, `build_run_sim`, `snapshot_ui`) OK on the Simulator and in CI
+  (profile `ios-sim`).
+- **Tier-B real-engine iOS (MLX/Metal/generation/download):** prefer `scripts/ios_device.sh`
+  on a paired iPhone. MCP `device` tools are optional helpers (profile `ios-device` + runtime
+  `deviceId`) — never the Simulator or simulator UI tools.
+
+## Context7 (`user-context7`)
+
+For GRDB, SwiftHuggingFace, React, Vite, and any non-Apple library docs — even when you
+think you know the API. Do **not** use for refactoring, business logic, or general CS.
+
+Steps: `resolve-library-id` → pick best `/org/project` match → `query-docs` with the full
+question. User rule: [`.cursor/rules/context7.mdc`](mdc:.cursor/rules/context7.mdc) (if
+present at user level, same policy applies).
+
+## Browser verification (website)
+
+For `website/`: read `website/PRODUCT.md` + `website/DESIGN.md`, then either:
+
+- **`chrome-devtools`** MCP — full DevTools (network, performance, Lighthouse), or
+- **`cursor-ide-browser`** MCP — lightweight in-IDE tab automation.
+
+Run `npm --prefix website run dev|preview` via Shell first.
+
+## Hugging Face (`plugin-huggingface-skills-huggingface-skills`)
+
+For model revision lookup, dataset metadata, and hub search. The **`hf` CLI** and Hugging
+Face skills remain valid for downloads and local model management.
+
+## Cursor app control (`cursor-app-control`)
+
+Use sparingly: `open_resource` to reveal files/terminals/URLs in Glass, `rename_chat` for
+conversation titles, `move_agent_to_root` after worktree switches. Do **not** use for
+build/test automation.
+
+## Axiom plugin (auditors + CLI)
+
+Subagents via the **Task** tool (`crash-analyzer`, `build-fixer`, `test-runner`,
+`concurrency-auditor`, …) or `/axiom:audit <domain>`. Binaries (`xcsym`, `xcprof`, `xclog`)
+ship in the Axiom plugin. **Do not** drive app UI through Axiom `xcui` / `simulator-tester` for real-engine iOS work** — use deterministic XCUITest + `scripts/*.sh`.
+
+## UI review baselines (vision diff)
+
+After `scripts/macos_test.sh review` or `scripts/ios_device.sh review`, compare captures
+vs `docs/*-review-baselines/` using the **`screenshot-validator`** Axiom subagent
+(`/axiom:audit screenshots`) or a manual visual pass. The retired `zai-mcp-server`
+`ui_diff_check` tool is no longer available.
+
+## Retired / off-limits
+
+- Agent/computer-use screen driving — gone; see [`testing-runbook.md`](mdc:docs/reference/testing-runbook.md).
+- **`plugin-xcodebuildmcp-sentry`** — removed; use `user-xcodebuildmcp`.
+- Real-engine iOS on Simulator — off-limits (§7 in root [`AGENTS.md`](mdc:AGENTS.md)).

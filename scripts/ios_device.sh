@@ -946,7 +946,7 @@ cmd_test() {
 # tour opens each sheet only long enough to capture, then dismisses it. Captures land in
 # build/ios/review-shots/<run>/; committed baselines live in docs/ios-review-baselines/.
 # `--baseline` seeds/updates baselines from this run. The perceptual diff is a vision-MCP
-# step (ui_diff_check / axiom:screenshot-validator); this verb captures + does a
+# step (screenshot-validator / manual visual pass); this verb captures + does a
 # file-level baseline check and prints the pairs to diff.
 cmd_review() {
   require_team
@@ -993,7 +993,7 @@ cmd_review() {
     fi
   done
   (( any == 0 )) && warn "no captures produced (did the tour run?)"
-  note "diff each pair with mcp__zai-mcp-server__ui_diff_check (expected=baseline, actual=capture), or axiom:screenshot-validator."
+  note "diff each pair with screenshot-validator (/axiom:audit screenshots) or a manual visual pass (expected=baseline, actual=capture)."
 
   (( st == 0 )) && note "review tour OK" || warn "review tour had failures (exit $st)"
   return "$st"

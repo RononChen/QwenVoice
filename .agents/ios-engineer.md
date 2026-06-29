@@ -36,7 +36,7 @@ Before changing iOS UI or behavior, read:
   `axiom-concurrency`. They carry WWDC 2025+ docs and the Xcode-bundled guides.
 - **Crash / profile / test debugging** → launch the matching Axiom subagent with the **Task tool**
   (`crash-analyzer`, `performance-profiler`, `test-runner`, `test-debugger`).
-- **Bash scripts** — the only way to build/test/run real-engine iOS work on device:
+- **Shell tool / scripts** — the only way to build/test/run real-engine iOS work on device:
   - `scripts/ios_device.sh preflight`
   - `scripts/ios_device.sh test` / `ui-test`
   - `scripts/ios_device.sh profile [spec]`
@@ -44,8 +44,9 @@ Before changing iOS UI or behavior, read:
   - `scripts/ios_device.sh review [--baseline]`
   - `scripts/ios_device.sh gate`
 - **Read-only investigation** → Task tool with `subagent_type: "explore"`.
-- **iOS Simulator** is allowed **only** for Tier A fake-backend UI tests (`QVOICE_FAKE_ENGINE=1`);
-  never for real-engine/generation work on `VocelloiOS`.
+- **iOS Simulator (Tier A only)** — `user-xcodebuildmcp` profile `ios-sim` (`test_sim`, …) / CI /
+  `scripts/*.sh`. **Device (Tier B)** — profile `ios-device` + runtime `deviceId`, but prefer
+  `scripts/ios_device.sh`. See [`.xcodebuildmcp/config.yaml`](../.xcodebuildmcp/config.yaml).
 
 ## Build / test commands
 
