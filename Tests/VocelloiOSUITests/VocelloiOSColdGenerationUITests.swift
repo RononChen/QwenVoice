@@ -29,7 +29,7 @@ final class VocelloiOSColdGenerationUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 1.0)
 
         app = XCUIApplication()
-        // Do NOT set QVOICE_IOS_DISABLE_ENGINE — we want the real model load + generation.
+        // Do NOT set QVOICE_FAKE_ENGINE — we want the real model load + generation.
         // Enable durable telemetry so the engine layer writes diagnostics we can pull.
         app.launchEnvironment["QWENVOICE_DEBUG"] = "1"
         app.launch()

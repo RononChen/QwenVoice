@@ -110,17 +110,6 @@ struct QVoiceiOSApp: App {
 
     private func startEngineIfNeeded() {
         guard !didInitializeEngine, let engine = deps.engine else { return }
-        // UI-test fast path: the SwiftUI smoke/sheet tests exercise navigation + the
-        // bottom-sheet pickers only (no audio generation), so they launch with
-        // QVOICE_IOS_DISABLE_ENGINE=1 to skip the ~2.3 GB model load. Loading the model
-        // on every per-test relaunch contended the app's accessibility server and made
-        // element waits flaky across the batch. Production NEVER sets this var, so the
-        // engine starts exactly as before — no behavior, memory, or performance change off
-        // the test path; the headless QVOICE_IOS_AUTORUN bench needs the engine and never
-        // sets it. (One dictionary lookup at launch otherwise.)
-        if ProcessInfo.processInfo.environment["QVOICE_IOS_DISABLE_ENGINE"] == "1" {
-            return
-        }
         didInitializeEngine = true
         engine.start()
         Task {
