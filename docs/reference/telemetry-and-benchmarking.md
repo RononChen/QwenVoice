@@ -346,7 +346,11 @@ sampler + a sidecar write; for the tightest latency numbers use `lightweight` an
    `QWENVOICE_NATIVE_TELEMETRY_MODE=verbose` for the raw series).
 2. Drive a generation from the UI or via the `vocello` CLI — **cold** (first run after launch /
    model switch) and **warm** (back‑to‑back) both matter.
-3. Read the merged row:
+3. Read the merged row (engine-only for CLI; use `--merged` for macOS XPC UI bench):
+
+```sh
+python3 scripts/summarize_generation_telemetry.py "$DIR" --merged --show-variance
+```
 
 ```sh
 DIR=~/Library/Application\ Support/QwenVoice-Debug/diagnostics

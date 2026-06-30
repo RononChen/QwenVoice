@@ -94,6 +94,9 @@ public final class TTSEngineStore: ObservableObject {
     public func generate(_ request: GenerationRequest) async throws -> GenerationResult {
         try beginActiveGeneration()
         defer { finishActiveGeneration() }
+        if BenchForceColdPolicy.shouldUnloadBeforeGeneration {
+            try? await unloadModel()
+        }
         return try await engine.generate(request)
     }
 

@@ -115,6 +115,8 @@ final class AppGenerationTimeline {
             }
         }
 
+        let notes = currentTaskQOSNotes()
+            .merging(BenchRunContext.telemetryNotes()) { current, _ in current }
         let record = GenerationTelemetryRecord(
             generationID: key,
             layer: .app,
@@ -125,8 +127,11 @@ final class AppGenerationTimeline {
             summary: summary,
             timingsMS: timingsMS,
             counters: counters,
-            notes: currentTaskQOSNotes()
+            notes: notes
         )
+        Task { @MainActor in
+            MacUITestSurfaceMarkers.markGenerationComplete(id: id)
+        }
         let appSupportDirectory = AppPaths.appSupportDir
         Task.detached(priority: .background) {
             await GenerationTelemetryJSONLSink.shared.write(

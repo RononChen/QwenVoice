@@ -23,8 +23,8 @@ releases that touched UI/engine surfaces. If this doc disagrees with the code, t
    # Or the full one-command gate (includes model ensure):
    scripts/macos_test.sh gate
    ```
-   **12 smoke tests** in `VocelloMacSmokeUITests` (+1 review tour if bare `xcodebuild test` runs
-   the whole target unscoped): launch/markers, sidebar + Cmd-key navigation, composer typing,
+   **~12 smoke tests** in `VocelloMacSmokeUITests` via `scripts/macos_test.sh test` (`-only-testing`
+   scoped — never runs review/journey/bench). Optional deeper flows: `scripts/macos_test.sh journey`.
    REAL generation in Custom Voice, Voice Design, and Voice Cloning through to the player bar,
    mid-generation cancel, History/Voices/Settings, enroll + batch sheets. Tests use the debug
    data dir (`QWENVOICE_DEBUG=1`). **Script-driven** runs (`macos_test.sh test` / `gate`) set
@@ -59,8 +59,9 @@ releases that touched UI/engine surfaces. If this doc disagrees with the code, t
    |---|---|
    | Record→enroll | record sheet (virtual mic ok: `QWENVOICE_FAKE_MIC_WAV`), <10 s gate ("Need 10 s"), ≥10 s "Use This Clip", review player, **auto-transcription fills**, enrolled row |
    | Clone handoff | voices row "Open in Cloning" hydrates source/reference/transcript |
-   | 3 modes e2e | generate per mode; streaming preview; player; no error states |
-   | Cancel | mid-generation cancel returns UI clean (also automated) |
+   | 3 modes e2e | generate per mode; streaming preview; player; no error states (`test` + `journey`) |
+   | Cancel | mid-generation cancel returns UI clean (`test`) |
+   | History replay | row appears + replay from history (`journey`) |
    | Error paths | model-missing rows (Download CTA), output-dir fallback (delete chosen dir → orange badge + "no longer exists" caption + Reset), engine-busy readiness |
    | History CRUD | persistence across relaunch, search filter, delete + confirmation dialog |
    | Saved Voices | quality warnings, preview, use, delete |

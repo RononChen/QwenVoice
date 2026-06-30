@@ -39,8 +39,8 @@ A benchmark pass requires **all** of the following:
 
 ### Design constraints
 
-1. **Primary driver is headless** — `vocello bench` drives the matrix in-process with exact
-   cold/warm control. UI driving for benchmarks is retired.
+1. **Primary backend driver is headless** — `vocello bench` drives the matrix in-process with exact
+   cold/warm control. **`scripts/macos_test.sh bench-ui`** is the supplementary XPC integration net (§4.10).
 2. **Telemetry is runtime-gated** — identical code in Release; off unless debug env/toggle/handshake.
 3. **No CI auto-gate today** — benchmarks are local/release-lane only (see §9).
 4. **Lazy MLX caveat** — decode breakdown columns measure Swift wall-clock around lazy graph
@@ -67,6 +67,7 @@ UIstall column      —                       yes                    yes
 |------|--------|-----------------|----------|
 | **CLI** | `./build/vocello bench` | In-process `MLXTTSEngine` | Deterministic RTF/decode/memory matrix; release QA step 3 |
 | **macOS UI** | App + `QwenVoiceEngineService` XPC | Out-of-process engine | End-to-end TTFC, UI stall, XPC transport; UI smoke tests |
+| **macOS XPC UI bench** | `scripts/macos_test.sh bench-ui` | Out-of-process engine | Full release matrix through real app + XPC; merged 3-layer telemetry |
 | **macOS profile** | `scripts/macos_test.sh profile` | In-process via CLI inside trace | Instruments / os_signpost validation |
 | **iOS device** | `scripts/ios_device.sh bench` | In-process | iPhone tier, Jetsam, on-device RTF |
 
@@ -240,14 +241,76 @@ For XPC: attach `xctrace` to `QwenVoiceEngineService` while generating via UI.
 
 ### 4.9 UI-driven generation (macOS XPC)
 
-Real generation through XPC is covered by `VocelloMacSmokeUITests` (12 smokes + review tour):
+Real generation through XPC is covered by `VocelloMacSmokeUITests` (~12 tests) and optional
+`VocelloMacHumanJourneyUITests` (phase-A player + history flows):
 
 ```sh
 scripts/macos_test.sh models ensure
-scripts/macos_test.sh test
+scripts/macos_test.sh test      # smoke only (-only-testing scoped)
+scripts/macos_test.sh journey   # deeper human flows
 ```
 
 This validates integration (player bar, backend status) but is **not** the primary RTF matrix driver.
+
+### 4.10 macOS XPC UI benchmark (supplementary integration net)
+
+**Primary backend regression remains `vocello bench` (§4.1).** Use this lane when Native,
+Services, Views, or XPC transport changed — it drives the **same Speed matrix** (29 takes
+default) through `VocelloMacBenchUITests` + real app + XPC service.
+
+**Bench driver contract:** completion waits on `mainWindow_lastTelemetryFlushed` (ack-based flush, not fixed sleeps). Telemetry rows stamp `notes.benchRunID`, `benchTakeIndex`, `benchCell`, `benchWarmState` when `QVOICE_MAC_BENCH_RUN_ID` is set. Gate with `--run-id`:
+
+```sh
+python3 scripts/check_macos_xpc_bench.py ~/Library/Application\ Support/QwenVoice-Debug/diagnostics \
+  --run-id xpc-bench-YYYYMMDD-HHMMSS
+```
+
+**One-time machine setup** (three gates — password vs Accessibility vs keychain):
+
+```sh
+scripts/macos_uitest_doctor.sh              # diagnose
+sudo /usr/bin/automationmodetool enable-automationmode-without-authentication   # Gate 1
+scripts/macos_uitest_doctor.sh --open-accessibility   # Gate 2 (Xcode, Xcode Helper, Runner)
+```
+
+See [`macos-testing.md`](macos-testing.md) § UI test machine setup.
+
+**Dev iteration** (3 takes):
+
+```sh
+scripts/macos_test.sh models ensure
+scripts/macos_test.sh bench-ui --warm 1 --lengths medium --modes custom --label xpc-bench-smoke
+```
+
+**Full release matrix** (29 takes, Speed):
+
+```sh
+scripts/macos_test.sh bench-ui --label xpc-bench-full
+```
+
+Optional dual-process profile (app + `QwenVoiceEngineService`):
+
+```sh
+scripts/macos_test.sh bench-ui --profile --profile-template "Time Profiler" --label xpc-profile
+```
+
+Artifacts: `build/macos/bench-ui-<timestamp>/` (log, summarizer `--merged`, verdict, optional `.trace`).
+
+Post-run gate:
+
+```sh
+python3 scripts/check_macos_xpc_bench.py ~/Library/Application\ Support/QwenVoice-Debug/diagnostics
+```
+
+| Phase | Tool |
+|-------|------|
+| Trace capture | `bench-ui --profile` / `xctrace record --attach` |
+| Trace analysis | Axiom `performance-profiler` / `xcprof analyze` |
+| Logs / warm-admission | Axiom `xclog` / `scripts/macos_test.sh logs` |
+| Crash post-mortem | Axiom `crash-analyzer` / `xcsym` |
+
+Cold takes: app relaunch + `QWENVOICE_SUPPRESS_WARMUP=1` + `QWENVOICE_BENCH_FORCE_COLD=1`
+(debug-only unload before generate). Warm takes stay in-session.
 
 ---
 
@@ -255,7 +318,8 @@ This validates integration (player bar, backend status) but is **not** the prima
 
 ### Fixed corpus
 
-Defined in `BenchCommand.corpus` — do not change without updating baselines:
+Defined in `BenchMatrixSpec` (`Sources/QwenVoiceCore/BenchMatrixSpec.swift`; shared with
+`BenchCommand` and XPC UI bench) — do not change without updating baselines:
 
 | Bucket | Chars (approx) | Text role |
 |--------|----------------|-----------|
@@ -281,8 +345,8 @@ Defined in `BenchCommand.corpus` — do not change without updating baselines:
 | Design | 1× | `--warm` × each length |
 | Clone | **none** (warm-by-design) | `--warm` × each length |
 
-CLI forces cold via explicit unload before cold take. UI cold requires
-`QWENVOICE_SUPPRESS_WARMUP=1` or variant/mode switch.
+CLI forces cold via explicit unload before cold take. UI cold uses app relaunch +
+`QWENVOICE_SUPPRESS_WARMUP=1` + `QWENVOICE_BENCH_FORCE_COLD=1` (see §4.10).
 
 ### Streaming default
 

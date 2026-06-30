@@ -31,14 +31,48 @@ app **and** the service.
 |------|------|-------------------|-----------------|
 | Preflight | `preflight [--strict-models]` | Xcode + app + XPC bundle + dSYMs + model status | — |
 | Models | `models check\|ensure\|install` | three Speed models + clone voice fixture | — |
-| Test | `test` | `VocelloMacSmokeUITests` only (**12** smoke tests, 3-mode generation) | `axiom:test-runner` on the `.xcresult` |
+| Test | `test` | `VocelloMacSmokeUITests` only (~12 smoke tests, human driver) | `axiom:test-runner` on the `.xcresult` |
+| Journey | `journey` | `VocelloMacHumanJourneyUITests` (compose → generate → player → history) | same |
+| XPC UI bench | `bench-ui` | `VocelloMacBenchUITests` matrix (29 takes default) + merged summarizer + `--run-id` gate | `check_macos_xpc_bench.py`; `performance-profiler` / `xcprof` with `--profile` |
+| UITest doctor | `uitest-doctor` | automation mode + signing + TCC guidance (Gates 1–3) | — |
 | Bench | `build.sh cli bench` | deterministic perf/quality matrix | `summarize_generation_telemetry.py` |
 | Crash | `crashes [--test]` | `.ips` for app + XPC service | `axiom:crash-analyzer` / `xcsym` vs the dSYMs |
 | Debug | `debug` | LLDB attach (app + service PID) + `logs` | `./scripts/macos_test.sh debug`; Axiom `build-fixer` |
 | Profile | `profile [spec]` | xctrace/Instruments on the engine (CLI in-process) | `axiom:performance-profiler` / `xcprof` |
-| Review | `review [--baseline]` | sidebar-screen screenshot tour | `screenshot-validator` subagent / manual diff vs `docs/macos-review-baselines/` |
+| Review | `review [--baseline] [--subset resting\|full]` | catalog-driven captures (`VocelloMacReviewUITests`) | `screenshot-validator` subagent / manual diff vs `docs/macos-review-baselines/` |
 | XPC | `xpc [--crash-isolation]` | retirement/relaunch + crash isolation | — |
 | Gate | `gate` | models → inputs → build_foundation → test → crashes → verdict; optional bounded `vocello bench` when `QWENVOICE_GATE_BENCH=1` | — |
+
+## UI test machine setup
+
+macOS XCUITest hits **three unrelated security systems**. Run `scripts/macos_uitest_doctor.sh`
+(or `scripts/macos_test.sh uitest-doctor`) before `test`, `journey`, `review`, or `bench-ui`.
+
+| Gate | Symptom | Fix |
+|------|---------|-----|
+| **1 — Authorization Services** | Password to “Enable UI Automation” | `sudo automationmodetool enable-automationmode-without-authentication` |
+| **2 — TCC Accessibility** | Allow Xcode / Xcode Helper / Runner | System Settings → Privacy & Security → Accessibility (one-time) |
+| **3 — Keychain** | `codesign wants to access key…` | “Always Allow” once, or `security set-key-partition-list …` |
+
+**Stable signing:** `scripts/macos_test.sh test` and `bench-ui` pass Apple Development signing
+overrides to `xcodebuild` ([`scripts/lib/uitest_signing.sh`](../../scripts/lib/uitest_signing.sh))
+so TCC grants survive rebuilds. Verify:
+
+```sh
+codesign -dr - build/DerivedData/Build/Products/Release/VocelloMacUITests-Runner.app
+```
+
+Cross-link: mic/speech TCC is separate — [`macos-permissions.md`](macos-permissions.md).
+
+## XPC UI benchmark
+
+```sh
+scripts/macos_test.sh bench-ui --label xpc-bench-full          # 29 takes (Speed)
+scripts/macos_test.sh bench-ui --warm 1 --lengths medium --modes custom   # dev smoke
+scripts/macos_test.sh bench-ui --profile --label xpc-profile   # optional dual-process trace
+```
+
+See [`benchmarking-procedure.md`](benchmarking-procedure.md) §4.10 for matrix semantics and Axiom routing.
 
 ## Crashes
 
@@ -89,15 +123,21 @@ QwenVoiceEngineService`, and generate via the UI.
 ## Review
 
 ```sh
-scripts/macos_test.sh review              # capture the sidebar-screen tour
-scripts/macos_test.sh review --baseline   # seed/update docs/macos-review-baselines/
+scripts/macos_test.sh review                        # full catalog (resting + post-gen states)
+scripts/macos_test.sh review --subset resting       # fast PR visual pass
+scripts/macos_test.sh review --baseline             # seed/update docs/macos-review-baselines/
+scripts/macos_test.sh journey                       # phase-A human flows (player + history)
 ```
 
-Runs `VocelloMacReviewTourUITests` (walks the 6 sidebar screens, screenshots each via
-`VocelloMacTestSupport.captureScreenshot`). Diff each capture against its committed baseline
-via the **`screenshot-validator`** Axiom subagent (`/axiom:audit screenshots`) or a manual
-visual pass. macOS is the host — direct capture,
-no Mirroring chrome, no burn-in concern.
+**Drivers:** human-like tests (`VocelloMacSmokeUITests`, `VocelloMacHumanJourneyUITests`,
+`VocelloMacReviewUITests`) share `VocelloMacUIQuery` + `VocelloMacUITestApp` (one session,
+`XCTNSPredicateExpectation` waits — no RunLoop polling). The bench matrix uses
+`VocelloMacBenchUITests` separately (cold/warm relaunch, telemetry-flush markers).
+
+Runs `VocelloMacReviewUITests` (catalog keys like `review-custom-postgen`, `review-history-populated`).
+Diff each capture against its committed baseline via the **`screenshot-validator`** Axiom subagent
+(`/axiom:audit screenshots`) or a manual visual pass. macOS is the host — direct capture, no
+Mirroring chrome, no burn-in concern.
 
 ## XPC lifecycle (macOS-unique)
 
@@ -137,7 +177,8 @@ verbs, not part of the every-merge gate.
 |-------|---------|--------|
 | Compile | `scripts/build_foundation_targets.sh macos` | the app + frameworks compile |
 | Compile (test) | `xcodebuild build-for-testing -scheme QwenVoice -destination 'platform=macOS,arch=arm64'` | the test bundle compiles |
-| UI smoke | `scripts/macos_test.sh test` | 12 smoke tests (+1 review tour if bare `xcodebuild test` runs the whole target) |
+| UI smoke | `scripts/macos_test.sh test` | ~12 smoke tests (`-only-testing:VocelloMacSmokeUITests`) |
+| Journey | `scripts/macos_test.sh journey` | phase-A compose → player → history |
 | UI review | `scripts/macos_test.sh review` | sidebar-screen tour vs baselines |
 | Perf/quality | `scripts/build.sh cli bench --modes … --variants … --lengths …` | RTF/decode/audioQC + telemetry |
 | Crash | `scripts/macos_test.sh crashes` | .ips collection + symbolication |

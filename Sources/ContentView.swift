@@ -635,6 +635,28 @@ private struct HiddenWindowMarkers: View {
                 value: "true",
                 identifier: "mainWindow_ready"
             )
+            if MacUITestSurfaceMarkers.isEnabled {
+                hiddenMarker(
+                    value: MacUITestSurfaceMarkers.composeReadyCustom ? "true" : "false",
+                    identifier: "mainWindow_composeReady_custom"
+                )
+                hiddenMarker(
+                    value: MacUITestSurfaceMarkers.composeReadyDesign ? "true" : "false",
+                    identifier: "mainWindow_composeReady_design"
+                )
+                hiddenMarker(
+                    value: MacUITestSurfaceMarkers.composeReadyClone ? "true" : "false",
+                    identifier: "mainWindow_composeReady_clone"
+                )
+                hiddenMarker(
+                    value: MacUITestSurfaceMarkers.lastGenerationCompleteID ?? "none",
+                    identifier: "mainWindow_lastGenerationComplete"
+                )
+                hiddenMarker(
+                    value: MacUITestSurfaceMarkers.lastTelemetryFlushedID ?? "none",
+                    identifier: "mainWindow_lastTelemetryFlushed"
+                )
+            }
         }
     }
 

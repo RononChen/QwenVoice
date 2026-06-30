@@ -121,6 +121,19 @@ QWENVOICE_DEBUG=1 QWENVOICE_FAKE_MIC_WAV="$HOME/.../some_10-20s_clip.wav" ./scri
 5. Reading the TCC database from a terminal needs Full Disk Access for that
    terminal; the doctor degrades gracefully without it.
 
+## UI automation (XCUITest — separate from mic/speech TCC)
+
+macOS UI tests hit **Authorization Services** (password to enable UI Automation) and
+**TCC Accessibility** (Xcode, Xcode Helper, `VocelloMacUITests-Runner`). These are
+distinct from microphone/speech grants above.
+
+```sh
+scripts/macos_uitest_doctor.sh
+sudo /usr/bin/automationmodetool enable-automationmode-without-authentication   # Gate 1
+```
+
+Full setup: [`macos-testing.md`](macos-testing.md) § UI test machine setup.
+
 ## Manual testing / TCC caveat
 
 TCC permission dialogs require a **human** to answer — automated UI tests cannot reliably

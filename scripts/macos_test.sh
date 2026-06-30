@@ -8,12 +8,15 @@
 #
 # usage:
 #   scripts/macos_test.sh preflight [--strict-models]  # Xcode + app + dSYMs + XPC + model status
-#   scripts/macos_test.sh test                      # models ensure → VocelloMacSmokeUITests (12 tests)
+#   scripts/macos_test.sh uitest-doctor [--open-accessibility]  # UI automation readiness (Gate 1–3)
+#   scripts/macos_test.sh bench-ui [--modes …] [--lengths …] [--warm 3] [--label …] [--profile] [--keep]
+#   scripts/macos_test.sh test                      # models ensure → VocelloMacSmokeUITests (~12 tests)
+#   scripts/macos_test.sh journey                   # VocelloMacHumanJourneyUITests (phase-A flows)
 #   scripts/macos_test.sh crashes [--test]          # collect + xcsym-symbolicate .ips (app + XPC service)
 #   scripts/macos_test.sh debug                     # LLDB attach guidance (app + XPC service PID)
 #   scripts/macos_test.sh logs                      # retained os_log → build/macos-logs/<run>.log
 #   scripts/macos_test.sh profile [spec]            # models ensure → xctrace vocello bench
-#   scripts/macos_test.sh review [--baseline]       # UI capture tour + baseline diff (vision MCP)
+#   scripts/macos_test.sh review [--baseline] [--subset resting|full]  # catalog captures + baseline diff
 #   scripts/macos_test.sh xpc                       # XPC lifecycle: retirement/relaunch + crash isolation
 #   scripts/macos_test.sh gate                      # models → inputs → build_foundation → test → crashes
 #                                                    # optional: QWENVOICE_GATE_BENCH=1 adds bounded vocello bench
@@ -25,6 +28,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_DIR="$ROOT_DIR/scripts"
 . "$SCRIPT_DIR/lib/test_models.sh"
+. "$SCRIPT_DIR/lib/uitest_signing.sh"
 test_models_init "$ROOT_DIR"
 APP_NAME="Vocello"
 BUNDLE_ID="com.qwenvoice.app"
@@ -38,6 +42,11 @@ warn() { printf '\033[0;33m[warn]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[0;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
 
 ensure_app() { [[ -d "$APP_BUNDLE" ]] || "$SCRIPT_DIR/build.sh" build; }
+
+# Stable Apple Development signing for macOS UI tests (runner + app under test).
+cmd_uitest_doctor() {
+  exec "$SCRIPT_DIR/macos_uitest_doctor.sh" "$@"
+}
 
 # crashes [--test]: collect macOS .ips crash reports (app + XPC service) from
 # ~/Library/Logs/DiagnosticReports and symbolicate against the preserved build dSYMs.
@@ -248,10 +257,20 @@ cmd_test() {
   pkill -x "$APP_NAME" >/dev/null 2>&1 || true
   pkill -x QwenVoiceEngineService >/dev/null 2>&1 || true
   note "test: VocelloMacSmokeUITests (macOS, arm64) → $artifacts"
+  load_uitest_signing_args
+  local identity
+  identity="$(uitest_resolve_signing_identity)"
+  if [[ "$identity" != "-" ]]; then
+    note "uitest signing: $identity"
+  else
+    warn "uitest signing: ad-hoc (TCC grants may not survive rebuilds)"
+  fi
   set +e
   xcodebuild test -project "$ROOT_DIR/QwenVoice.xcodeproj" -scheme QwenVoice \
     -configuration Release -destination 'platform=macOS,arch=arm64' \
     -derivedDataPath "$ROOT_DIR/build/DerivedData" \
+    "${UITEST_XCODEBUILD_SIGNING_ARGS[@]}" \
+    -only-testing:VocelloMacUITests/VocelloMacSmokeUITests \
     > "$artifacts/test.log" 2>&1
   local st=$?
   set -e
@@ -270,23 +289,199 @@ cmd_test() {
   else warn "test verdict: FAIL (exit $st) · artifacts → $artifacts"; exit "$st"; fi
 }
 
-# review [--baseline]: run the macOS XCUITest capture tour (VocelloMacReviewTourUITests)
-# over the sidebar screens, gather captures into build/macos/review-shots/<run>/, and
-# (default) print each baseline pair for a vision-MCP diff; --baseline seeds the committed
-# docs/macos-review-baselines/. macOS is the host (direct capture; no burn-in concern).
+# bench-ui: full-matrix macOS XPC UI benchmark (VocelloMacBenchUITests) + merged summarizer + gate.
+cmd_bench_ui() {
+  local modes="custom,design,clone" lengths="short,medium,long" warm=3 label="" profile=0
+  local skip_doctor=0 keep=0
+  local profile_template="${QVOICE_MAC_PROFILE_TEMPLATE:-Time Profiler}"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --modes) modes="${2:-}"; shift 2 ;;
+      --modes=*) modes="${1#*=}"; shift ;;
+      --lengths) lengths="${2:-}"; shift 2 ;;
+      --lengths=*) lengths="${1#*=}"; shift ;;
+      --warm) warm="${2:-3}"; shift 2 ;;
+      --warm=*) warm="${1#*=}"; shift ;;
+      --label) label="${2:-}"; shift 2 ;;
+      --label=*) label="${1#*=}"; shift ;;
+      --profile) profile=1; shift ;;
+      --profile-template) profile_template="${2:-Time Profiler}"; shift 2 ;;
+      --profile-template=*) profile_template="${1#*=}"; shift ;;
+      --skip-uitest-doctor) skip_doctor=1; shift ;;
+      --keep) keep=1; shift ;;
+      -h|--help|help)
+        cat <<'EOF'
+bench-ui — macOS XPC UI benchmark (supplementary integration lane)
+
+  scripts/macos_test.sh bench-ui [--modes custom,design,clone] [--lengths short,medium,long]
+      [--warm 3] [--label NOTE] [--profile] [--profile-template "Time Profiler"]
+      [--skip-uitest-doctor] [--keep]
+
+Dev iteration (3 takes):
+  scripts/macos_test.sh bench-ui --warm 1 --lengths medium --modes custom --label smoke
+
+Full release matrix (29 takes, Speed):
+  scripts/macos_test.sh bench-ui --label xpc-bench-full
+EOF
+        return 0
+        ;;
+      *) die "unknown bench-ui flag '$1' (try --help)" ;;
+    esac
+  done
+
+  if (( skip_doctor == 0 )); then
+    note "bench-ui step 0: uitest doctor"
+    "$SCRIPT_DIR/macos_uitest_doctor.sh" || true
+    if command -v automationmodetool >/dev/null 2>&1 \
+        && automationmodetool 2>&1 | grep -q 'requires user authentication'; then
+      die "UI Automation still requires a password each run — fix Gate 1:
+  sudo /usr/bin/automationmodetool enable-automationmode-without-authentication
+(or pass --skip-uitest-doctor if you accept the prompt)"
+    fi
+  fi
+
+  local run_id="xpc-bench-$(date +%Y%m%d-%H%M%S)"
+  local artifacts="$ROOT_DIR/build/macos/bench-ui-$run_id"
+  local diag="$HOME/Library/Application Support/QwenVoice-Debug/diagnostics"
+  mkdir -p "$artifacts"
+  [[ -n "$label" ]] || label="$run_id"
+
+  ensure_mac_test_models --require
+  export QVOICE_REQUIRE_TEST_MODELS=1
+
+  if (( keep == 0 )) && [[ -d "$diag" ]]; then
+    note "bench-ui: clearing prior diagnostics in $diag"
+    rm -rf "$diag"
+    mkdir -p "$diag/engine" "$diag/engine-service" "$diag/app"
+  fi
+
+  printf '{"modes":"%s","lengths":"%s","warm":%s}\n' "$modes" "$lengths" "$warm" \
+    > /tmp/vocello-bench-matrix.json
+  note "bench-ui: matrix → /tmp/vocello-bench-matrix.json (modes=$modes lengths=$lengths warm=$warm)"
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$artifacts/run-start-iso.txt"
+
+  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+  pkill -x QwenVoiceEngineService >/dev/null 2>&1 || true
+  sleep 1
+
+  local profile_app_pid="" profile_svc_pid=""
+  if (( profile )); then
+    note "bench-ui: dual-process profile ($profile_template) — poll for Vocello + QwenVoiceEngineService"
+    (
+      for _ in {1..120}; do
+        local apid; apid="$(pgrep -xn "$APP_NAME" || true)"
+        if [[ -n "$apid" ]]; then
+          xctrace record --template "$profile_template" --attach "$apid" \
+            --output "$artifacts/vocello.trace" \
+            > "$artifacts/profile-app.log" 2>&1 &
+          echo $! > "$artifacts/profile-app.pid"
+          break
+        fi
+        sleep 2
+      done
+    ) &
+    (
+      for _ in {1..120}; do
+        local spid; spid="$(pgrep -xn QwenVoiceEngineService || true)"
+        if [[ -n "$spid" ]]; then
+          xctrace record --template "$profile_template" --attach "$spid" \
+            --output "$artifacts/engine-service.trace" \
+            > "$artifacts/profile-service.log" 2>&1 &
+          echo $! > "$artifacts/profile-service.pid"
+          break
+        fi
+        sleep 5
+      done
+    ) &
+  fi
+
+  load_uitest_signing_args
+  note "bench-ui: VocelloMacBenchUITests (modes=$modes lengths=$lengths warm=$warm) → $artifacts"
+  set +e
+  QWENVOICE_DEBUG=1 \
+  QWENVOICE_SUPPRESS_WARMUP=1 \
+  QWENVOICE_UI_TEST_HOOKS=1 \
+  QVOICE_MAC_BENCH_RUN_ID="$run_id" \
+  QVOICE_MAC_BENCH_MODES="$modes" \
+  QVOICE_MAC_BENCH_LENGTHS="$lengths" \
+  QVOICE_MAC_BENCH_WARM="$warm" \
+  QVOICE_MAC_BENCH_LABEL="$label" \
+  xcodebuild test -project "$ROOT_DIR/QwenVoice.xcodeproj" -scheme QwenVoice \
+    -configuration Release -destination 'platform=macOS,arch=arm64' \
+    -derivedDataPath "$ROOT_DIR/build/DerivedData" \
+    "${UITEST_XCODEBUILD_SIGNING_ARGS[@]}" \
+    -only-testing:VocelloMacUITests/VocelloMacBenchUITests/testFullMatrix \
+    > "$artifacts/bench-ui.log" 2>&1
+  local st=$?
+  set -e
+
+  note "bench-ui: waiting for final telemetry merge…"
+  sleep 3
+
+  if [[ -f "$artifacts/profile-app.pid" ]]; then
+    profile_app_pid="$(cat "$artifacts/profile-app.pid" 2>/dev/null || true)"
+    kill "$profile_app_pid" 2>/dev/null || true
+    wait "$profile_app_pid" 2>/dev/null || true
+  fi
+  if [[ -f "$artifacts/profile-service.pid" ]]; then
+    profile_svc_pid="$(cat "$artifacts/profile-service.pid" 2>/dev/null || true)"
+    kill "$profile_svc_pid" 2>/dev/null || true
+    wait "$profile_svc_pid" 2>/dev/null || true
+  fi
+
+  local xcresult; xcresult="$(find "$ROOT_DIR/build/DerivedData/Logs/Test" -name '*.xcresult' -type d 2>/dev/null | sort | tail -1 || true)"
+  echo "xcresult: ${xcresult:-<none>}" | tee "$artifacts/verdict.txt"
+  echo "xcodebuild exit: $st" | tee -a "$artifacts/verdict.txt"
+
+  note "bench-ui: summarizer (--merged)"
+  python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$diag" \
+    --label "$label" --merged --show-variance \
+    | tee "$artifacts/summary.log" || warn "summarizer failed or found no rows"
+
+  note "bench-ui: XPC gate"
+  local gate_st=0
+  local since_iso=""
+  [[ -f "$artifacts/run-start-iso.txt" ]] && since_iso="$(tr -d '\n' < "$artifacts/run-start-iso.txt")"
+  python3 "$ROOT_DIR/scripts/check_macos_xpc_bench.py" "$diag" \
+    --modes "$modes" --lengths "$lengths" --warm "$warm" \
+    --run-id "$run_id" \
+    ${since_iso:+--since-recorded "$since_iso"} \
+    | tee -a "$artifacts/verdict.txt" || gate_st=$?
+
+  if (( st == 0 && gate_st == 0 )); then
+    note "bench-ui PASS · $artifacts"
+  else
+    warn "bench-ui FAIL (xcodebuild=$st gate=$gate_st) · $artifacts"
+    exit 1
+  fi
+}
+
+# review [--baseline] [--subset resting|full]: catalog-driven captures (VocelloMacReviewUITests)
 cmd_review() {
-  local baseline_mode=0
-  [[ "${1:-}" == "--baseline" ]] && baseline_mode=1
+  local baseline_mode=0 subset="full"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --baseline) baseline_mode=1; shift ;;
+      --subset) subset="${2:-full}"; shift 2 ;;
+      --subset=*) subset="${1#*=}"; shift ;;
+      *) die "unknown review flag '$1' (try --baseline or --subset resting|full)" ;;
+    esac
+  done
   local run_id="mac-review-$(date +%Y%m%d-%H%M%S)"
   local shots="$ROOT_DIR/build/macos/review-shots/$run_id"
   local baselines="$ROOT_DIR/docs/macos-review-baselines"
   mkdir -p "$shots" "$baselines"
-  note "review: macOS capture tour (runID=$run_id)"
+  note "review: macOS capture catalog (subset=$subset runID=$run_id)"
+  load_uitest_signing_args
   set +e
-  MAC_TEST_SCREENSHOT_DIR="$shots" xcodebuild test -project "$ROOT_DIR/QwenVoice.xcodeproj" \
+  MAC_TEST_SCREENSHOT_DIR="$shots" \
+  QVOICE_MAC_REVIEW_SUBSET="$subset" \
+  xcodebuild test -project "$ROOT_DIR/QwenVoice.xcodeproj" \
     -scheme QwenVoice -configuration Release -destination 'platform=macOS,arch=arm64' \
     -derivedDataPath "$ROOT_DIR/build/DerivedData" \
-    -only-testing:VocelloMacUITests/VocelloMacReviewTourUITests \
+    "${UITEST_XCODEBUILD_SIGNING_ARGS[@]}" \
+    -only-testing:VocelloMacUITests/VocelloMacReviewUITests \
     > "$shots/tour.log" 2>&1
   local st=$?
   set -e
@@ -316,8 +511,34 @@ cmd_review() {
   done
   (( any == 0 )) && warn "no captures produced (did the tour run?)"
   note "diff each pair with screenshot-validator (/axiom:audit screenshots) or a manual visual pass (expected=baseline, actual=capture)."
-  (( st == 0 )) && note "review tour OK" || warn "review tour had failures (exit $st)"
+  (( st == 0 )) && note "review OK" || warn "review had failures (exit $st)"
   return "$st"
+}
+
+cmd_journey() {
+  local run_id="mac-journey-$(date +%Y%m%d-%H%M%S)"
+  local artifacts="$ROOT_DIR/build/macos/journey-artifacts/$run_id"
+  mkdir -p "$artifacts"
+  ensure_mac_test_models --require
+  export QVOICE_REQUIRE_TEST_MODELS=1
+  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+  pkill -x QwenVoiceEngineService >/dev/null 2>&1 || true
+  note "journey: VocelloMacHumanJourneyUITests → $artifacts"
+  load_uitest_signing_args
+  set +e
+  xcodebuild test -project "$ROOT_DIR/QwenVoice.xcodeproj" -scheme QwenVoice \
+    -configuration Release -destination 'platform=macOS,arch=arm64' \
+    -derivedDataPath "$ROOT_DIR/build/DerivedData" \
+    "${UITEST_XCODEBUILD_SIGNING_ARGS[@]}" \
+    -only-testing:VocelloMacUITests/VocelloMacHumanJourneyUITests \
+    > "$artifacts/journey.log" 2>&1
+  local st=$?
+  set -e
+  local xcresult; xcresult="$(find "$ROOT_DIR/build/DerivedData/Logs/Test" -name '*.xcresult' -type d 2>/dev/null | sort | tail -1 || true)"
+  echo "xcresult: ${xcresult:-<none>}" > "$artifacts/verdict.txt"
+  echo "exit: $st" >> "$artifacts/verdict.txt"
+  cat "$artifacts/verdict.txt" >&2
+  (( st == 0 )) && note "journey PASS · $artifacts" || { warn "journey FAIL · $artifacts"; exit "$st"; }
 }
 
 # xpc [--crash-isolation] [--watch N]: exercise the XPC engine-service lifecycle — the
@@ -478,14 +699,17 @@ main() {
     profile) cmd_profile "$@" ;;
     preflight) cmd_preflight "$@" ;;
     test)      cmd_test "$@" ;;
+    journey)   cmd_journey "$@" ;;
+    bench-ui)  cmd_bench_ui "$@" ;;
     review)    cmd_review "$@" ;;
     xpc)       cmd_xpc "$@" ;;
     gate)      cmd_gate "$@" ;;
     models)    cmd_models "$@" ;;
+    uitest-doctor) cmd_uitest_doctor "$@" ;;
     help|-h|--help)
       sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' >&2
       ;;
-    *) die "unknown subcommand '$sub' (try: preflight|test|crashes|debug|logs|profile|review|xpc|gate|models|help)" ;;
+    *) die "unknown subcommand '$sub' (try: preflight|test|journey|bench-ui|crashes|debug|logs|profile|review|xpc|gate|models|uitest-doctor|help)" ;;
   esac
 }
 

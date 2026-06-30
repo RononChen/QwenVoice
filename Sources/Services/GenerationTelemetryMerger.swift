@@ -14,8 +14,8 @@ import QwenVoiceCore
 /// merge polls briefly before giving up.
 enum GenerationTelemetryMerger {
     private static let mergedFileName = "generations-merged.jsonl"
-    private static let pollAttempts = 5
-    private static let pollIntervalNanos: UInt64 = 100_000_000 // 100 ms × 5 = ~500 ms
+    private static let pollAttempts = 15
+    private static let pollIntervalNanos: UInt64 = 200_000_000 // 200 ms × 15 ≈ 3 s
 
     /// Schedule a merge for the given generation. No-op when telemetry is off.
     static func scheduleMerge(generationID: UUID?) {
@@ -25,6 +25,9 @@ enum GenerationTelemetryMerger {
         let appSupportDirectory = AppPaths.appSupportDir
         Task.detached(priority: .background) {
             await merge(generationID: key, appSupportDirectory: appSupportDirectory)
+            await MainActor.run {
+                MacUITestSurfaceMarkers.markTelemetryFlushed(id: key)
+            }
         }
     }
 

@@ -821,13 +821,18 @@ private struct EngineServiceTransportAccumulator {
         guard TelemetryGate.resolvedEnabled else { return }
         guard let generationID, chunksForwarded > 0 else { return }
         var timingsMS: [String: Int] = [:]
+        var stageMarks: [NativeTelemetryStageMark] = []
         if let firstChunkUptime {
             let spanSeconds = ProcessInfo.processInfo.systemUptime - firstChunkUptime
             let spanMS = Int(spanSeconds * 1_000)
             timingsMS["chunkForwardingSpanMS"] = max(0, spanMS)
             let spanNS = UInt64(spanSeconds * 1_000_000_000)
             timingsMS["chunkForwardingSpanNS"] = Int(min(UInt64(Int.max), spanNS))
+            stageMarks.append(NativeTelemetryStageMark(tMS: 0, stage: "firstChunk"))
         }
+        let mergedNotes = notes
+            .merging(currentTaskQOSNotes()) { current, _ in current }
+            .merging(BenchRunContext.telemetryNotes()) { current, _ in current }
         let record = GenerationTelemetryRecord(
             generationID: generationID.uuidString,
             layer: .engineService,
@@ -835,9 +840,10 @@ private struct EngineServiceTransportAccumulator {
             mode: mode,
             usedStreaming: usedStreaming,
             finishReason: finishReason,
+            stageMarks: stageMarks,
             timingsMS: timingsMS,
             counters: ["chunksForwarded": chunksForwarded, "chunkGaps": gapCount],
-            notes: notes.merging(currentTaskQOSNotes()) { current, _ in current }
+            notes: mergedNotes
         )
         Task.detached(priority: .background) {
             await GenerationTelemetryJSONLSink.shared.write(

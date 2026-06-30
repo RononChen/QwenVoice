@@ -402,6 +402,7 @@ targets:
       - path: Tests/VocelloMacUITests
     dependencies:
       - target: QwenVoice
+      - target: QwenVoiceCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.qwenvoice.app.uitests

@@ -1,14 +1,15 @@
 # macOS UI review baselines
 
-Committed PNG baselines for macOS UI review (Phase 5 of the macOS testing overhaul). Each
-file is a screenshot of one sidebar screen, captured by
-`VocelloMacReviewTourUITests.testCaptureReviewScreens` and named with a stable key.
+Committed PNG baselines for macOS UI review. Each file is a screenshot captured by
+`VocelloMacReviewUITests` (catalog-driven; resting and post-generation states) and named with a
+stable key.
 
 ## Workflow
 
 ```sh
-# 1. Capture the current macOS UI into build/macos/review-shots/<run>/ (XCUITest tour).
-scripts/macos_test.sh review
+# 1. Capture the current macOS UI into build/macos/review-shots/<run>/ (catalog tour).
+scripts/macos_test.sh review                        # full catalog
+scripts/macos_test.sh review --subset resting       # fast PR pass (resting screens only)
 
 # 2. Seed/update the committed baselines from a known-good run, then review + commit.
 scripts/macos_test.sh review --baseline
@@ -27,12 +28,27 @@ unintended delta is the signal that caught a regression.
 
 ## Capture keys
 
-`review-custom`, `review-design`, `review-clone`, `review-history`, `review-voices`,
-`review-settings`.
+**Resting subset** (`--subset resting`):
+
+- `review-custom-resting`
+- `review-design-ready` (brief filled)
+- `review-voices-list`
+- `review-settings-models`
+
+**Full catalog** (adds post-generation / populated states):
+
+- `review-custom-ready` — script typed, readiness `ready=true`
+- `review-custom-postgen` — player visible after generation
+- `review-clone-reference` — handoff from `A_warm_elderly_woman`
+- `review-history-populated` — history after at least one generation
+
+Legacy keys (`review-custom`, `review-design`, …) from the old sidebar-only tour may still
+exist in older baselines; re-seed with `--baseline` after intentional UI changes.
 
 ## Rules
 
 - macOS is the host — screenshots are direct XCUITest `app.screenshot()` (no iPhone
   Mirroring chrome, no OLED burn-in concern).
-- `accessibilityIdentifier`s are stable surface area — the tour drives the `sidebar_*`
-  buttons; a screen identifier change is a test-breaking change.
+- `accessibilityIdentifier`s are stable surface area — the catalog drives `sidebar_*`
+  buttons and waits on `mainWindow_activeScreen` / readiness markers; identifier changes
+  are test-breaking changes.

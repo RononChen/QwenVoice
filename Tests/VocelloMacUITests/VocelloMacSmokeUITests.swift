@@ -1,53 +1,25 @@
+import QwenVoiceCore
 import XCTest
 
-/// macOS UI smoke suite — the standing automated pre-release gate.
-///
-/// Mirrors the iOS suite's pattern (Tests/VocelloiOSUITests): resolve elements
-/// by stable `accessibilityIdentifier` (AGENTS.md: identifiers are stable
-/// surface area), tolerate missing models via the hidden window markers
-/// (`mainWindow_disabledSidebarItems`), and keep every test independent.
-///
-/// Launches with `QWENVOICE_DEBUG=1` so all test data (History rows, output
-/// WAVs) lands in the isolated `QwenVoice-Debug/` folder, never real data.
-///
-/// Run: `xcodebuild test -scheme QwenVoice -destination 'platform=macOS,arch=arm64'`
-final class VocelloMacSmokeUITests: XCTestCase {
-    private var app: XCUIApplication!
-
-    override func setUp() {
-        super.setUp()
-        continueAfterFailure = false
-        installSystemAlertMonitor()
-        app = XCUIApplication()
-        app.launchEnvironment["QWENVOICE_DEBUG"] = "1"
-        if ProcessInfo.processInfo.environment["QVOICE_REQUIRE_TEST_MODELS"] == "1" {
-            app.launchEnvironment["QVOICE_REQUIRE_TEST_MODELS"] = "1"
-        }
-        app.launch()
-        XCTAssertTrue(waitFor("mainWindow_ready", timeout: 30), "main window should mount")
-    }
-
-    override func tearDown() {
-        app.terminate()
-        app = nil
-        super.tearDown()
-    }
-
-    // MARK: - Launch & navigation
+/// macOS UI smoke suite — fast pre-merge gate via human-like driver.
+final class VocelloMacSmokeUITests: VocelloMacHumanTestCase {
 
     func testMainWindowReady() {
-        XCTAssertTrue(element("sidebar_customVoice").exists, "sidebar should be present")
-        XCTAssertTrue(element("sidebar_settings").exists, "settings item should be present")
+        XCTAssertTrue(element("sidebar_customVoice").exists)
+        XCTAssertTrue(element("sidebar_settings").exists)
     }
 
     func testSidebarNavigation() {
         let disabled = disabledSidebarItems()
         for item in ["customVoice", "voiceDesign", "voiceCloning", "history", "voices", "settings"] {
             guard !disabled.contains(item) else { continue }
-            element("sidebar_\(item)").tap()
+            navigateSidebar(item)
             XCTAssertTrue(
-                activeScreenBecomes(item),
-                "sidebar_\(item) should activate screen \(item)"
+                VocelloMacUIQuery.waitForMarkerValue(
+                    app,
+                    identifier: "mainWindow_activeScreen",
+                    contains: item
+                )
             )
         }
     }
@@ -62,366 +34,118 @@ final class VocelloMacSmokeUITests: XCTestCase {
             guard !disabled.contains(item) else { continue }
             app.typeKey(key, modifierFlags: .command)
             XCTAssertTrue(
-                activeScreenBecomes(item),
-                "Cmd+\(key) should activate screen \(item)"
+                VocelloMacUIQuery.waitForMarkerValue(
+                    app,
+                    identifier: "mainWindow_activeScreen",
+                    contains: item,
+                    timeout: 10
+                )
             )
         }
     }
 
-    // MARK: - Composer
-
     func testComposerTypingUpdatesCharCount() throws {
         try skipIfDisabled("customVoice")
-        element("sidebar_customVoice").tap()
-        XCTAssertTrue(waitFor("screen_customVoice"))
-
-        XCTAssertTrue(typeScript("Smoke test sentence."), "typed text should land in the editor")
-
+        navigateSidebar("customVoice")
+        XCTAssertTrue(element("screen_customVoice").waitForExistence(timeout: 10))
+        typeScript("Smoke test sentence.")
         let charCount = element("textInput_charCount")
-        XCTAssertTrue(charCount.waitForExistence(timeout: 5), "char count badge should exist")
+        XCTAssertTrue(charCount.waitForExistence(timeout: 5))
         let label = ((charCount.value as? String) ?? charCount.label)
-        XCTAssertFalse(label.hasPrefix("0"), "char count should reflect the typed text (got: \(label))")
+        XCTAssertFalse(label.hasPrefix("0"))
         clearEditor()
     }
 
     func testGenerateCustomVoiceSmoke() throws {
         try skipIfDisabled("customVoice")
-        element("sidebar_customVoice").tap()
-        XCTAssertTrue(waitFor("screen_customVoice"))
-
-        XCTAssertTrue(typeScript("Automated smoke generation."), "typed text should land")
-
-        try tapGenerateAndWaitForPlayer(modeLabel: "Custom Voice")
+        navigateSidebar("customVoice")
+        typeScript("Automated smoke generation.")
+        try generateAndWaitForPlayer(modeLabel: "Custom Voice")
         clearEditor()
     }
 
     func testGenerateVoiceDesignSmoke() throws {
         try skipIfDisabled("voiceDesign")
-        element("sidebar_voiceDesign").tap()
-        XCTAssertTrue(waitFor("screen_voiceDesign"))
-
-        XCTAssertTrue(
-            fillVoiceBrief(),
-            "voice brief should be filled via starting points or typing"
-        )
-        XCTAssertTrue(typeScript("Automated Voice Design generation."), "typed text should land")
-
-        try tapGenerateAndWaitForPlayer(modeLabel: "Voice Design")
+        navigateSidebar("voiceDesign")
+        fillVoiceBrief()
+        typeScript("Automated Voice Design generation.")
+        try generateAndWaitForPlayer(modeLabel: "Voice Design")
         clearEditor()
     }
 
     func testGenerateVoiceCloningSmoke() throws {
         try skipIfDisabled("voiceCloning")
-        XCTAssertTrue(
-            openCloneVoiceFromSavedVoices(named: "A_warm_elderly_woman"),
-            "saved clone voice should hand off to Voice Cloning"
-        )
-        XCTAssertTrue(typeScript("Automated Voice Cloning generation."), "typed text should land")
-
-        try tapGenerateAndWaitForPlayer(modeLabel: "Voice Cloning")
+        openCloneVoiceFromSavedVoices(named: "A_warm_elderly_woman")
+        typeScript("Automated Voice Cloning generation.")
+        try generateAndWaitForPlayer(modeLabel: "Voice Cloning")
         clearEditor()
     }
 
     func testCancelDuringGeneration() throws {
         try skipIfDisabled("customVoice")
-        element("sidebar_customVoice").tap()
-        XCTAssertTrue(waitFor("screen_customVoice"))
-
-        guard typeScript(
+        navigateSidebar("customVoice")
+        typeScript(
             "A deliberately longer script so the generation runs long enough for the"
             + " cancel control to appear and be exercised by the automated smoke suite."
-        ) else {
-            throw XCTSkip("composer not ready (strict typing coverage lives in testComposerTypingUpdatesCharCount)")
-        }
+        )
         let generate = element("textInput_generateButton")
-        guard generate.waitForExistence(timeout: 5), waitForEnabled(generate) else {
+        guard generate.waitForExistence(timeout: 5), generate.isEnabled else {
             if requiresTestModels {
-                XCTFail("generate unavailable — pro_custom_speed must be installed (scripts/macos_test.sh models ensure)")
+                XCTFail("generate unavailable — run scripts/macos_test.sh models ensure")
             }
             throw XCTSkip("generate unavailable (model not ready)")
         }
-        generate.tap()
-
+        VocelloMacUIQuery.clickWhenReady(generate)
         let cancel = element("textInput_cancelButton")
         guard cancel.waitForExistence(timeout: 30) else {
             throw XCTSkip("generation finished before cancel appeared")
         }
-        cancel.tap()
-        // Cancel is cooperative; allow time for the UI to settle back.
-        XCTAssertTrue(
-            waitForDisappearance(cancel, timeout: 120),
-            "cancel button should disappear after cancellation"
-        )
-        XCTAssertFalse(element("sidebar_backendStatus_error").exists, "cancel must not surface an error state")
+        cancel.click()
+        XCTAssertTrue(VocelloMacUIQuery.waitForNonExistence(cancel, timeout: 120))
+        XCTAssertFalse(element("sidebar_backendStatus_error").exists)
         clearEditor()
     }
 
-    // MARK: - Library screens
-
     func testHistoryScreen() throws {
         try skipIfDisabled("history")
-        element("sidebar_history").tap()
-        XCTAssertTrue(waitFor("screen_history"))
-        XCTAssertTrue(element("history_searchField").exists, "search field should exist")
-        XCTAssertTrue(element("history_sortPicker").exists, "sort picker should exist")
+        navigateSidebar("history")
+        XCTAssertTrue(element("screen_history").waitForExistence(timeout: 10))
+        XCTAssertTrue(element("history_searchField").exists)
+        XCTAssertTrue(element("history_sortPicker").exists)
     }
 
     func testVoicesScreenAndEnrollSheet() throws {
         try skipIfDisabled("voices")
-        element("sidebar_voices").tap()
-        XCTAssertTrue(waitFor("screen_voices"))
-
+        navigateSidebar("voices")
         let enroll = element("voices_enrollButton")
-        XCTAssertTrue(enroll.waitForExistence(timeout: 10), "enroll button should exist")
-        enroll.tap()
-        XCTAssertTrue(
-            element("voicesEnroll_nameField").waitForExistence(timeout: 10),
-            "enroll sheet should open with the name field"
-        )
-        let cancel = element("voicesEnroll_cancelButton")
-        XCTAssertTrue(cancel.exists, "enroll sheet should have a cancel button")
-        cancel.tap()
-        XCTAssertTrue(
-            waitForDisappearance(element("voicesEnroll_nameField"), timeout: 10),
-            "enroll sheet should close on cancel"
-        )
+        XCTAssertTrue(enroll.waitForExistence(timeout: 10))
+        VocelloMacUIQuery.clickWhenReady(enroll)
+        XCTAssertTrue(element("voicesEnroll_nameField").waitForExistence(timeout: 10))
+        element("voicesEnroll_cancelButton").click()
+        XCTAssertTrue(VocelloMacUIQuery.waitForNonExistence(element("voicesEnroll_nameField"), timeout: 10))
     }
 
     func testSettingsScreen() {
-        element("sidebar_settings").tap()
-        XCTAssertTrue(waitFor("screen_settings"))
-        XCTAssertTrue(
-            element("settings_modelDownloadsSummary").waitForExistence(timeout: 10),
-            "model downloads summary should exist"
-        )
-        XCTAssertTrue(element("preferences_autoPlayToggle").exists, "auto-play toggle should exist")
-        XCTAssertTrue(element("preferences_outputDirectory").exists, "output directory row should exist")
+        navigateSidebar("settings")
+        XCTAssertTrue(element("screen_settings").waitForExistence(timeout: 10))
+        XCTAssertTrue(element("settings_modelDownloadsSummary").waitForExistence(timeout: 10))
+        XCTAssertTrue(element("preferences_autoPlayToggle").exists)
+        XCTAssertTrue(element("preferences_outputDirectory").exists)
     }
 
     func testBatchSheetOpens() throws {
         try skipIfDisabled("customVoice")
-        element("sidebar_customVoice").tap()
-        XCTAssertTrue(waitFor("screen_customVoice"))
-
+        navigateSidebar("customVoice")
         let batch = element("textInput_batchButton")
         guard batch.waitForExistence(timeout: 10), batch.isEnabled else {
             if requiresTestModels {
-                XCTFail("batch unavailable — pro_custom_speed must be installed (scripts/macos_test.sh models ensure)")
+                XCTFail("batch unavailable — run scripts/macos_test.sh models ensure")
             }
             throw XCTSkip("batch unavailable (model not ready)")
         }
-        batch.tap()
-        XCTAssertTrue(
-            element("batch_textEditor").waitForExistence(timeout: 10),
-            "batch sheet should open with its text editor"
-        )
-        let cancel = element("batch_cancelButton")
-        XCTAssertTrue(cancel.exists, "batch sheet should have a cancel button")
-        cancel.tap()
-        XCTAssertTrue(
-            waitForDisappearance(element("batch_textEditor"), timeout: 10),
-            "batch sheet should close on cancel"
-        )
-    }
-
-    // MARK: - Helpers (ported from the iOS suite)
-
-    private func element(_ identifier: String) -> XCUIElement {
-        app.descendants(matching: .any)[identifier].firstMatch
-    }
-
-    @discardableResult
-    private func waitFor(_ identifier: String, timeout: TimeInterval = 15) -> Bool {
-        element(identifier).waitForExistence(timeout: timeout)
-    }
-
-    private func waitForDisappearance(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if !element.exists { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
-        }
-        return !element.exists
-    }
-
-    /// The hidden `mainWindow_disabledSidebarItems` marker carries a
-    /// comma-separated list of sidebar items disabled because their model is
-    /// not installed — tests skip rather than fail in model-less environments.
-    private func disabledSidebarItems() -> Set<String> {
-        let marker = element("mainWindow_disabledSidebarItems")
-        guard marker.exists else { return [] }
-        let raw = (marker.value as? String) ?? marker.label
-        guard raw != "none" else { return [] }
-        // Marker carries accessibility IDs ("sidebar_customVoice,…") — strip
-        // the prefix so callers use bare item names.
-        return Set(raw.split(separator: ",").map {
-            String($0).trimmingCharacters(in: .whitespaces)
-                .replacingOccurrences(of: "sidebar_", with: "")
-        })
-    }
-
-    private func skipIfDisabled(_ item: String) throws {
-        if disabledSidebarItems().contains(item) {
-            if requiresTestModels {
-                XCTFail("\(item) is disabled — run scripts/macos_test.sh models ensure (pro_custom_speed, pro_design_speed, pro_clone_speed)")
-            }
-            throw XCTSkip("\(item) is disabled in this environment (model not installed)")
-        }
-    }
-
-    private func tapGenerateAndWaitForPlayer(modeLabel: String) throws {
-        let generate = element("textInput_generateButton")
-        XCTAssertTrue(generate.waitForExistence(timeout: 5), "generate button should exist")
-        guard waitForEnabled(generate) else {
-            if requiresTestModels {
-                XCTFail("generate disabled for \(modeLabel) — run scripts/macos_test.sh models ensure")
-            }
-            throw XCTSkip("generate disabled (model not ready in this environment)")
-        }
-        generate.tap()
-
-        // Generation incl. a possible cold model load — generous timeout.
-        XCTAssertTrue(
-            element("sidebarPlayer_bar").waitForExistence(timeout: 180),
-            "player bar should appear after \(modeLabel) generation"
-        )
-        XCTAssertFalse(element("sidebar_backendStatus_error").exists, "no engine error state after \(modeLabel)")
-        XCTAssertFalse(element("sidebar_backendStatus_crashed").exists, "no engine crash state after \(modeLabel)")
-    }
-
-    @discardableResult
-    private func fillVoiceBrief() -> Bool {
-        if selectVoiceBriefStarter() { return true }
-        return typeVoiceBrief("A warm, calm middle-aged male narrator with a clear, measured pace.")
-    }
-
-    @discardableResult
-    private func selectVoiceBriefStarter() -> Bool {
-        let menu = element("voiceDesign_briefStarters")
-        guard menu.waitForExistence(timeout: 10) else { return false }
-        menu.click()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
-
-        let starter = element("voiceDesign_briefStarter_0")
-        if starter.waitForExistence(timeout: 5) {
-            starter.click()
-        } else {
-            let fallback = app.menuItems.element(boundBy: 0)
-            guard fallback.waitForExistence(timeout: 5) else { return false }
-            fallback.click()
-        }
-        return waitForVoiceBriefFilled(timeout: 5)
-    }
-
-    private func waitForVoiceBriefFilled(timeout: TimeInterval) -> Bool {
-        let anchor = element("voiceDesign_voiceDescriptionValue")
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            let value = ((anchor.value as? String) ?? anchor.label).trimmingCharacters(in: .whitespacesAndNewlines)
-            if anchor.exists, !value.isEmpty { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
-        }
-        return false
-    }
-
-    @discardableResult
-    private func typeVoiceBrief(_ text: String) -> Bool {
-        let field = element("voiceDesign_voiceDescriptionField")
-        guard field.waitForExistence(timeout: 10) else { return false }
-        for attempt in 0..<2 {
-            if attempt == 0 {
-                field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
-            } else {
-                field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleClick()
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.4))
-            app.typeText(text)
-            if waitForVoiceBriefFilled(timeout: 3) { return true }
-        }
-        return false
-    }
-
-    @discardableResult
-    private func openCloneVoiceFromSavedVoices(named voiceID: String) -> Bool {
-        if disabledSidebarItems().contains("voices") { return false }
-        element("sidebar_voices").tap()
-        guard waitFor("screen_voices", timeout: 15) else { return false }
-
-        let useButton = element("voicesRow_use_\(voiceID)")
-        let deadline = Date().addingTimeInterval(30)
-        while Date() < deadline {
-            if useButton.waitForExistence(timeout: 1), useButton.isEnabled {
-                useButton.click()
-                if waitFor("screen_voiceCloning", timeout: 10),
-                   element("voiceCloning_activeReference").waitForExistence(timeout: 10) {
-                    return true
-                }
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
-        }
-        return false
-    }
-
-    /// When `scripts/macos_test.sh test` / `gate` exports `QVOICE_REQUIRE_TEST_MODELS=1`,
-    /// missing models fail the run instead of XCTSkip (ad-hoc xcodebuild stays skip-tolerant).
-    private var requiresTestModels: Bool {
-        ProcessInfo.processInfo.environment["QVOICE_REQUIRE_TEST_MODELS"] == "1"
-    }
-
-    private func activeScreenBecomes(_ item: String, timeout: TimeInterval = 10) -> Bool {
-        let marker = element("mainWindow_activeScreen")
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            let value = ((marker.value as? String) ?? marker.label)
-            if value.contains(item) { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
-        }
-        return false
-    }
-
-    /// The engine resolves model availability asynchronously after launch —
-    /// poll for the generate button to enable before deciding to skip.
-    private func waitForEnabled(_ element: XCUIElement, timeout: TimeInterval = 45) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if element.exists, element.isEnabled { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
-        }
-        return element.exists && element.isEnabled
-    }
-
-    /// SwiftUI's TextEditor on macOS exposes a scroll-area wrapper; clicking
-    /// it doesn't always focus the inner AXTextArea. Click the element's
-    /// center, then type at the APPLICATION level (routes to first responder)
-    /// and verify the char-count badge moved — retrying once with a
-    /// double-click if the first attempt didn't land.
-    @discardableResult
-    private func typeScript(_ text: String) -> Bool {
-        let editor = element("textInput_textEditor")
-        guard editor.waitForExistence(timeout: 10) else { return false }
-        for attempt in 0..<2 {
-            if attempt == 0 {
-                editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).click()
-            } else {
-                editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).doubleClick()
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.4))
-            app.typeText(text)
-            let deadline = Date().addingTimeInterval(3)
-            while Date() < deadline {
-                let badge = element("textInput_charCount")
-                let label = ((badge.value as? String) ?? badge.label)
-                if badge.exists, !label.isEmpty, !label.hasPrefix("0") { return true }
-                RunLoop.current.run(until: Date().addingTimeInterval(0.3))
-            }
-        }
-        return false
-    }
-
-    private func clearEditor() {
-        let editor = element("textInput_textEditor")
-        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).click()
-        app.typeKey("a", modifierFlags: .command)
-        app.typeKey(.delete, modifierFlags: [])
+        VocelloMacUIQuery.clickWhenReady(batch)
+        XCTAssertTrue(element("batch_textEditor").waitForExistence(timeout: 10))
+        element("batch_cancelButton").click()
+        XCTAssertTrue(VocelloMacUIQuery.waitForNonExistence(element("batch_textEditor"), timeout: 10))
     }
 }

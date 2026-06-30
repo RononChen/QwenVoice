@@ -9,14 +9,10 @@ import QwenVoiceCore
 /// With `--delivery`, it also runs a reference-free prosody analysis on the
 /// paired neutral-vs-instructed WAVs and surfaces the deltas in the summary.
 enum BenchCommand {
-    /// Fixed corpus — keep identical to benchmarks/baseline-*-length-sweep.md.
-    static let corpus: [(len: String, text: String)] = [
-        ("short", "The train left the station at dawn."),
-        ("medium", "The morning train slipped quietly out of the station, carrying a handful of sleepy travelers toward the coast."),
-        ("long", "The morning train slipped quietly out of the station, carrying a handful of sleepy travelers toward the coast. Outside the fogged windows, pale fields gave way to grey water, and the rhythm of the rails settled into a steady, hypnotic hum. By the time the sun finally broke through, most of the passengers had drifted into an unhurried silence."),
-    ]
-    static let defaultDesignBrief = "A warm, calm middle-aged male narrator with a clear, measured pace."
-    static let defaultCloneVoice = "A_warm_elderly_woman"
+    /// Fixed corpus — shared with macOS XPC UI bench via `BenchMatrixSpec`.
+    static var corpus: [(len: String, text: String)] { BenchMatrixSpec.corpus }
+    static var defaultDesignBrief: String { BenchMatrixSpec.defaultDesignBrief }
+    static var defaultCloneVoice: String { BenchMatrixSpec.defaultCloneVoice }
 
     /// Default delivery cells for `--delivery` (bare flag): one expressive, one
     /// calm, one whisper — the three preset families with distinct acoustic
@@ -27,7 +23,7 @@ enum BenchCommand {
     /// filenames and the telemetry `lenBucket`. Mirrors the logic in
     /// `scripts/summarize_generation_telemetry.py`.
     static func lenBucket(_ chars: Int) -> String {
-        chars == 0 ? "n/a" : chars < 70 ? "short" : chars > 220 ? "long" : "medium"
+        BenchMatrixSpec.lenBucket(chars)
     }
 
     /// A resolved delivery cell: `id` is the stable `<preset>.<intensity>` token
@@ -78,10 +74,7 @@ enum BenchCommand {
 
         // Invariant: the filename length token is derived via the same lenBucket
         // the summarizer uses, so producer and consumer agree by construction.
-        // Fail loudly if a corpus edit drifts past a threshold.
-        for c in corpus where lenBucket(c.text.count) != c.len {
-            throw CLIError("corpus drift: '\(c.len)' text buckets as '\(lenBucket(c.text.count))' (\(c.text.count) chars) — adjust the corpus or lenBucket thresholds")
-        }
+        try BenchMatrixSpec.validateCorpus()
 
         // Telemetry: default lightweight; verbose adds sidecars; off skips JSONL/sampler
         // while still writing WAV outputs (engine-only baseline runs).

@@ -453,6 +453,9 @@ private extension CustomVoiceView {
             isBusy: readinessPresentation.isBusy,
             accessibilityIdentifier: "customVoice_readiness"
         )
+        .onChange(of: readinessPresentation.isReady) { _, ready in
+            MacUITestSurfaceMarkers.setComposeReady(mode: "custom", ready: ready)
+        }
     }
 
     // selectedSpeakerValueAnchor moved to SpeakerPickerRow struct

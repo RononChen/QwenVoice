@@ -41,6 +41,10 @@ has **both Speed (4-bit) and Quality (8-bit)** variants.
 | `mainWindow_activeScreen` | The active screen id (e.g. `screen_customVoice`) |
 | `mainWindow_activeTitle` | The active sidebar title |
 | `mainWindow_disabledSidebarItems` | Comma-separated disabled items (model-aware) |
+| `mainWindow_composeReady_{custom,design,clone}` | `"true"` when generate would enable (debug / `QWENVOICE_UI_TEST_HOOKS=1`) |
+| `mainWindow_lastGenerationComplete` | UUID of the last completed generation |
+| `mainWindow_lastTelemetryFlushed` | UUID after merged telemetry write |
+| `{mode}_readiness` | `accessibilityValue` is `ready=true` or `ready=false` |
 
 ### Custom Voice (`sidebar_customVoice` → `screen_customVoice`)
 
@@ -146,6 +150,24 @@ higher-fidelity output.
 ---
 
 ## 5. Driving the macOS UI like a human
+
+### Test infrastructure (XCUITest)
+
+Human-like suites (`VocelloMacSmokeUITests`, `VocelloMacHumanJourneyUITests`,
+`VocelloMacReviewUITests`) use a **shared app session**
+([`VocelloMacUITestApp`](../../Tests/VocelloMacUITests/VocelloMacUITestApp.swift)) and
+predicate-based queries ([`VocelloMacUIQuery`](../../Tests/VocelloMacUITests/VocelloMacUIQuery.swift)).
+The **bench matrix** ([`VocelloMacBenchUITests`](../../Tests/VocelloMacUITests/VocelloMacBenchUITests.swift))
+uses a separate cold/warm relaunch policy via [`VocelloMacUIBase`](../../Tests/VocelloMacUITests/VocelloMacUIBase.swift).
+
+Run via script lanes (each passes `-only-testing`):
+
+| Lane | Class |
+|------|-------|
+| `scripts/macos_test.sh test` | `VocelloMacSmokeUITests` |
+| `scripts/macos_test.sh journey` | `VocelloMacHumanJourneyUITests` |
+| `scripts/macos_test.sh review` | `VocelloMacReviewUITests` |
+| `scripts/macos_test.sh bench-ui` | `VocelloMacBenchUITests/testFullMatrix` |
 
 ### macOS-specific patterns (vs iOS)
 

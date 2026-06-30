@@ -52,6 +52,16 @@ Before changing scripts or CI, read:
 scripts/macos_test.sh models ensure   # one-time per machine before first real-engine macOS run
 scripts/macos_test.sh gate
 QWENVOICE_GATE_BENCH=1 scripts/macos_test.sh gate   # optional: bounded custom/speed/medium bench + audioQC
+
+# Supplementary XPC UI matrix (when Native/Services/Views/XPC changed — not CI by default)
+scripts/macos_test.sh uitest-doctor
+scripts/macos_test.sh bench-ui --label xpc-bench-full
+python3 scripts/check_macos_xpc_bench.py ~/Library/Application\ Support/QwenVoice-Debug/diagnostics \
+  --run-id xpc-bench-YYYYMMDD-HHMMSS
+
+# Human journey + review (optional pre-release)
+scripts/macos_test.sh journey
+scripts/macos_test.sh review --subset resting
 scripts/ios_device.sh gate
 
 # Model fixture helpers

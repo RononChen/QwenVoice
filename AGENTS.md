@@ -163,17 +163,20 @@ QWENVOICE_DEBUG=1 ./scripts/build.sh run # debug data dir + telemetry
 # macOS test/debug/profile lanes (one verb per lane)
 scripts/macos_test.sh preflight [--strict-models]  # readiness: app + dSYMs + XPC + model status
 scripts/macos_test.sh models check|ensure|install   # test fixture (~2.3 GB Speed; see testing-runbook §1b)
-scripts/macos_test.sh test               # models ensure → VocelloMacSmokeUITests (12 tests)
+scripts/macos_test.sh uitest-doctor [--open-accessibility]  # UI automation readiness (Gate 1–3)
+scripts/macos_test.sh test               # models ensure → VocelloMacSmokeUITests (~12 tests)
+scripts/macos_test.sh journey            # VocelloMacHumanJourneyUITests (phase-A flows)
+scripts/macos_test.sh bench-ui [--modes …] [--warm 3] [--label …]  # VocelloMacBenchUITests matrix
 scripts/macos_test.sh gate               # models → inputs → build_foundation → test → crashes
 # optional bounded engine bench: QWENVOICE_GATE_BENCH=1 scripts/macos_test.sh gate
 scripts/macos_test.sh crashes            # collect + symbolicate .ips
 scripts/macos_test.sh debug              # LLDB attach (app + XPC service PID)
 scripts/macos_test.sh logs               # retained os_log → build/macos-logs/<run>.log
 scripts/macos_test.sh profile [spec]     # models ensure → Instruments on vocello bench (fails if bench non-zero unless --allow-bench-fail or QVOICE_MAC_PROFILE_ALLOW_BENCH_FAIL=1)
-scripts/macos_test.sh review [--baseline]# UI capture tour + baseline diff
+scripts/macos_test.sh review [--baseline] [--subset resting|full]  # catalog captures + baseline diff
 scripts/macos_test.sh xpc [--crash-isolation] # XPC lifecycle / crash isolation
 
-# macOS UI smoke (single VocelloMacSmokeUITests class, 12 tests)
+# macOS UI smoke (VocelloMacSmokeUITests only — use scripts/macos_test.sh test for -only-testing)
 xcodebuild test -project QwenVoice.xcodeproj -scheme QwenVoice \
   -destination 'platform=macOS,arch=arm64' -derivedDataPath build/DerivedData
 
@@ -242,8 +245,8 @@ desktop-MCP harness is gone — see the testing runbook). Full MCP inventory and
   crash + profiling skills (`xcsym`, `xcprof`, `xclog` ship in the Axiom plugin `bin/`). Full map:
   `docs/reference/ios-device-testing.md` §3. Also see [`.agents/ios-engineer.md`](.agents/ios-engineer.md)
   and [`.cursor/rules/ios.mdc`](.cursor/rules/ios.mdc).
-- **macOS lanes** (`scripts/macos_test.sh`, one verb per lane): `models` / `test` / `gate` /
-  `crashes` / `profile` / `debug` / `review` / `xpc`. Lane map + XPC dimension:
+- **macOS lanes** (`scripts/macos_test.sh`, one verb per lane): `models` / `test` / `journey` /
+  `bench-ui` / `gate` / `crashes` / `profile` / `debug` / `review` / `xpc` / `uitest-doctor`. Lane map + XPC dimension:
   `docs/reference/macos-testing.md`. Also see [`.agents/macos-engineer.md`](.agents/macos-engineer.md).
 - **Review & audits** → run the Axiom auditor subagents via the `Task` tool (e.g.
   `concurrency-auditor`, `memory-auditor`, `swift-performance-analyzer`,
@@ -312,9 +315,21 @@ the relevant role file path and the task; the subagent should read the role file
   debug symlink via [`scripts/lib/test_models.sh`](scripts/lib/test_models.sh)). iOS default
   gate does not pre-install models; `--cold` / bench / profile need Speed on the device.
   Set `QVOICE_SKIP_MODEL_ENSURE=1` only when testing download/management UX.
-- **macOS UI smoke:** `VocelloMacSmokeUITests` (12 tests). Run via `scripts/macos_test.sh test`
-  or directly with `xcodebuild test -project QwenVoice.xcodeproj -scheme QwenVoice -destination
-  'platform=macOS,arch=arm64' -derivedDataPath build/DerivedData`.
+- **macOS UI tests** (real XPC — no fake-backend tier):
+  - **Smoke** — `VocelloMacSmokeUITests` (12 tests). Run via `scripts/macos_test.sh test`
+    (`-only-testing` scoped; never runs review/journey/bench).
+  - **Journey** — `VocelloMacHumanJourneyUITests` (phase-A: player + history replay). Run via
+    `scripts/macos_test.sh journey`.
+  - **Review** — `VocelloMacReviewUITests` (catalog captures; `--subset resting|full`). Run via
+    `scripts/macos_test.sh review`.
+  - **Bench matrix** — `VocelloMacBenchUITests` (29 takes default). Run via
+    `scripts/macos_test.sh bench-ui`; gate with `scripts/check_macos_xpc_bench.py --run-id …`.
+  - **Drivers:** human-like suites share [`VocelloMacUIQuery`](Tests/VocelloMacUITests/VocelloMacUIQuery.swift)
+    + [`VocelloMacUITestApp`](Tests/VocelloMacUITests/VocelloMacUITestApp.swift) (one session,
+    predicate waits). Bench uses [`VocelloMacUIBase`](Tests/VocelloMacUITests/VocelloMacUIBase.swift)
+    (cold/warm relaunch, telemetry-flush markers).
+  - Direct `xcodebuild test` without `-only-testing` runs the **entire** `VocelloMacUITests` target
+    (smoke + journey + review + bench) — prefer the script lanes.
 - **iOS UI tests — two tiers** (`VocelloiOSUITests`):
   - **Tier A — fake-backend UI** (`QVOICE_FAKE_ENGINE=1`): smoke, sheets, and the
     backend-state Studio flow (install/generate/player/error) driven by `FakeTTSEngine` +

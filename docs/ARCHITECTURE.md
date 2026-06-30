@@ -104,7 +104,7 @@ graph.)
 | `QwenVoiceEngineSupport` | framework.static | macOS | `QwenVoiceEngineSupport` | `com.qwenvoice.engine-support` | macOS runtime helpers + the **XPC wire protocol** (`EngineCommand`, envelopes, codec). |
 | `QwenVoiceNative` | framework.static | macOS | `QwenVoiceNative` | `com.qwenvoice.native` | macOS app-facing XPC client/coordinator/store bridging XPC to SwiftUI. |
 | `QwenVoiceEngineService` | xpc-service | macOS | `QwenVoiceEngineService` | `com.qwenvoice.app.engine-service` | Out-of-process engine host for crash isolation + memory containment. |
-| `VocelloMacUITests` | bundle.ui-testing | macOS | `VocelloMacUITests` | `com.qwenvoice.app.uitests` | macOS XCUITest smoke. |
+| `VocelloMacUITests` | bundle.ui-testing | macOS | `VocelloMacUITests` | `com.qwenvoice.app.uitests` | macOS XCUITest: smoke, journey, review catalog, XPC bench matrix (real engine). |
 | `VocelloiOSUITests` | bundle.ui-testing | iOS | `VocelloiOSUITests` | `com.patricedery.vocello.uitests` | iOS XCUITest: Tier A (fake backend, Simulator/CI/device) + Tier B (real engine, device-only). |
 
 **Two schemes**: `QwenVoice` (macOS app + `VocelloMacUITests`) and `VocelloiOS`

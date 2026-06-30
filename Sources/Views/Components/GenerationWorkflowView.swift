@@ -157,7 +157,7 @@ struct WorkflowReadinessNote: View {
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(title)
-        .accessibilityValue(detail)
+        .accessibilityValue(isReady ? "ready=true" : "ready=false")
         .optionalAccessibilityIdentifier(accessibilityIdentifier)
     }
 }

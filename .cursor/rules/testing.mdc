@@ -28,6 +28,24 @@ false on the Simulator, true on device. No runner-env flag is needed — `script
 selects which suites run on device (`--cold` for cold generation), and CI runs only the
 Tier-A suites on the Simulator via `-only-testing`.
 
+## macOS UI test drivers
+
+macOS has **no fake-backend tier** — all `VocelloMacUITests` classes exercise real XPC.
+
+- **Human driver** — `VocelloMacSmokeUITests`, `VocelloMacHumanJourneyUITests`,
+  `VocelloMacReviewUITests` share [`VocelloMacUITestApp`](mdc:Tests/VocelloMacUITests/VocelloMacUITestApp.swift)
+  (one app session, `resetToGenerateSurface()` between tests) and
+  [`VocelloMacUIQuery`](mdc:Tests/VocelloMacUITests/VocelloMacUIQuery.swift) (`XCTNSPredicateExpectation`
+  only — no RunLoop polling).
+- **Bench driver** — `VocelloMacBenchUITests` uses
+  [`VocelloMacUIBase`](mdc:Tests/VocelloMacUITests/VocelloMacUIBase.swift) (cold/warm relaunch,
+  matrix navigation). Waits on `mainWindow_lastTelemetryFlushed` instead of fixed sleeps.
+- **Script lanes** scope `-only-testing`: `test` → smoke; `journey` → journeys; `review` → catalog;
+  `bench-ui` → `testFullMatrix` only.
+- **UITest hooks** — `QWENVOICE_UI_TEST_HOOKS=1` / debug telemetry expose
+  `mainWindow_composeReady_*`, `mainWindow_lastGenerationComplete`, `mainWindow_lastTelemetryFlushed`
+  (see [`macos-app-guide.md`](mdc:docs/reference/macos-app-guide.md)).
+
 ## Determinism rules
 
 - Use `waitForExistence` / `XCTNSPredicateExpectation`, **not** `usleep`/`Thread.sleep`/
@@ -62,6 +80,13 @@ allowed **only** for Tier-A fake-backend tests. macOS UI smoke runs via
 - **`profile`:** Instruments trace during in-process `vocello bench`. **Fails** when bench
   exits non-zero unless `--allow-bench-fail` or `QVOICE_MAC_PROFILE_ALLOW_BENCH_FAIL=1`
   (use when you only need the trace artifact).
+- **`bench-ui`:** supplementary **XPC UI matrix** (29 takes default) through real app +
+  XPC — use when Native/Services/Views/XPC changed. **CLI `vocello bench` remains primary
+  for engine RTF/decode.** See [`benchmarking-procedure.md`](mdc:docs/reference/benchmarking-procedure.md) §4.10.
+- **`journey`:** phase-A human flows (player + history replay) via `VocelloMacHumanJourneyUITests`.
+- **`review`:** catalog captures via `VocelloMacReviewUITests` (`--subset resting|full`).
+- **`uitest-doctor`:** Gate 1–3 readiness before unattended XCUITest (`automationmodetool`,
+  signing, Accessibility).
 
 See [`macos-testing.md`](mdc:docs/reference/macos-testing.md) and
-[`benchmarking-procedure.md`](mdc:docs/reference/benchmarking-procedure.md) §4.8.
+[`benchmarking-procedure.md`](mdc:docs/reference/benchmarking-procedure.md) §4.8–§4.10.
