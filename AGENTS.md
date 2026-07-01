@@ -29,7 +29,7 @@
 ## 2. Source of truth
 
 Authoritative facts live in this order: `Sources/` → `project.yml` → `scripts/` →
-`.github/workflows/release.yml` → `AGENTS.md` → other prose.
+`.gitlab-ci.yml` → `AGENTS.md` → other prose.
 `Sources/Resources/qwenvoice_contract.json` is the canonical schema for
 speakers/models/variants/HF revisions. **If you change something that invalidates a doc, update the doc in the same change.**
 
@@ -47,7 +47,8 @@ speakers/models/variants/HF revisions. **If you change something that invalidate
 | [`config/apple-platform-capability-matrix.json`](config/apple-platform-capability-matrix.json) | Per-platform bundle IDs, entitlements, and engine-capability flags. |
 | [`Sources/Resources/qwenvoice_contract.json`](Sources/Resources/qwenvoice_contract.json) | Canonical model/speaker/variant contract. |
 | [`website/package.json`](website/package.json) | Marketing site dependencies (React + Vite). |
-| [`.github/workflows/release.yml`](.github/workflows/release.yml) | CI workflow for signed/notarized macOS DMG and optional iOS archive. |
+| [`.gitlab-ci.yml`](.gitlab-ci.yml) | **Primary CI/CD** — Tier-A iOS Simulator tests, signed macOS release pipeline, GitHub mirror job. |
+| [`.github/workflows/`](.github/workflows/) | Legacy GitHub Actions reference (not triggered; CI moved to GitLab). |
 
 ## 4. Technology stack
 
@@ -260,7 +261,9 @@ desktop-MCP harness is gone — see the testing runbook). Full MCP inventory and
 - **Parallel/large work** → the `Task` tool with `subagent_type: "explore"` (read-only
   investigation), `"generalPurpose"` (multi-step implementation/research), or `"shell"` (command
   execution). Pass the relevant `.agents/<role>.md` path and the task; the subagent reads it first.
-- **GitHub** (issues/PRs/releases) → `gh` via the Shell tool. **Hugging Face** (model revisions,
+- **GitLab** (issues/MRs/releases/pipelines) → `glab` via the Shell tool (`brew install glab`).
+  **GitHub mirror** (read-only discoverability) → `gh` only for mirror maintenance when the
+  account is reinstated. **Hugging Face** (model revisions,
   hub search) → **`plugin-huggingface-skills-huggingface-skills`** MCP and/or the `hf` CLI.
   **Marketing site (`website/`)** → `chrome-devtools` or `cursor-ide-browser` MCP + `npm --prefix
   website`; see `website/AGENTS.md`. **Cursor IDE** (reveal file, rename chat, worktree moves) →
@@ -276,7 +279,7 @@ contained in one area:
 | [`.agents/backend-mlx.md`](.agents/backend-mlx.md) | `QwenVoiceBackendCore`, `QwenVoiceCore`, MLX, vendored codec, model load, synthesis, memory policy, audio QC, clone conditioning. | Touching `MLXArray`, `Memory`, `GPU`, prompt construction, model registry, generation semantics, telemetry. |
 | [`.agents/ios-engineer.md`](.agents/ios-engineer.md) | `VocelloiOS` target, `Sources/iOS/`, `Sources/iOSSupport/`, `SharedSupport` iOS-side. | Any iOS UI, on-device generation flow, iOS permissions/entitlements, App Store submission. |
 | [`.agents/macos-engineer.md`](.agents/macos-engineer.md) | macOS app, `QwenVoiceNative`, `QwenVoiceEngineService`, `QwenVoiceEngineSupport`, `Sources/Services`, `Sources/ViewModels`, `Sources/Views`. | macOS SwiftUI/AppKit work, XPC protocol, service lifecycle, macOS UI smoke. |
-| [`.agents/release-qa-engineer.md`](.agents/release-qa-engineer.md) | `scripts/`, `.github/workflows/release.yml`, packaging, signing, benchmarks, crash/profile analysis, UI review baselines. | Changing build/release scripts, CI, running gates, investigating crashes or performance regressions. |
+| [`.agents/release-qa-engineer.md`](.agents/release-qa-engineer.md) | `scripts/`, `.gitlab-ci.yml`, packaging, signing, benchmarks, crash/profile analysis, UI review baselines. | Changing build/release scripts, CI, running gates, investigating crashes or performance regressions. |
 | [`.agents/website-engineer.md`](.agents/website-engineer.md) | Pointer to `website/AGENTS.md`. | Marketing site work. |
 
 When dispatching subagents, use Cursor's `Task` tool with `subagent_type: "generalPurpose"` for
@@ -359,11 +362,10 @@ Telemetry (when `QWENVOICE_DEBUG=1`) writes JSONL under
 
 ## 13. Deployment and release
 
-- **macOS:** publishing a GitHub release triggers [`.github/workflows/release.yml`](.github/workflows/release.yml),
-  which builds, signs, notarizes, staples, and attaches `Vocello-macos26.dmg`.
-- **iOS:** the workflow has an optional `archive-ios` job (manual `workflow_dispatch`) that exports
-  a signed IPA and can upload to TestFlight. A normal release does **not** block on iOS.
-- **Website:** deployed from the `website/` directory by Vercel.
+- **macOS:** tag `v*` on GitLab and run the manual **`package`** job in [`.gitlab-ci.yml`](.gitlab-ci.yml),
+  which builds, signs, notarizes, staples, and attaches `Vocello-macos26.dmg` to the GitLab Release.
+- **iOS:** optional `compile-ios` job (non-blocking). App Store IPA export remains a manual lane.
+- **Website:** deployed from the `website/` directory by Vercel (connect to GitLab `VocelloApp/QwenVoice`, root `website/`).
 
 Version and build numbers live in `project.yml` (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`);
 regenerate the project after changing them.
@@ -397,7 +399,7 @@ regenerate the project after changing them.
   - `mlx-guide.md`, `qwen3-tts-guide.md`, `mimi-codec-guide.md`, `metal-guide.md`
   - `swift-performance-guide.md`, `ios-engine-optimization.md`
   - `telemetry-and-benchmarking.md`, `cli.md`
-  - `macos-release-qa.md`, `ios-device-testing.md`, `ios-appstore-submission.md`
+  - `macos-release-qa.md`, `ios-device-testing.md`, `ios-appstore-submission.md`, `gitlab-ci.md`
   - `privacy-storage.md`, `macos-permissions.md`, `mlx-audio-swift-patching.md`
 - [`PRODUCT.md`](PRODUCT.md) — product/brand.
 - [`website/AGENTS.md`](website/AGENTS.md) + [`website/PRODUCT.md`](website/PRODUCT.md) — marketing site.
