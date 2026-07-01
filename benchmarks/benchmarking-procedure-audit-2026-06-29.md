@@ -1,5 +1,9 @@
 # Benchmarking procedure audit — 2026-06-29
 
+> **Historical audit (2026-06-29).** References to "compile + fake UI only" (e.g. §6 process
+> gaps) reflect the pre-removal CI model. Current CI is compile-only for iOS; the real iOS
+> pre-merge gate is `scripts/ios_device.sh gate` on a paired iPhone.
+
 **Scope:** Full benchmarking stack — CLI (`vocello bench`), telemetry harness, summarizer,
 platform lanes (macOS CLI/XPC/profile, iOS device bench), fixtures, docs, and CI integration.
 

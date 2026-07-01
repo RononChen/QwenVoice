@@ -37,9 +37,9 @@ this doc.** All claims below are cited to a file or commit; re-verify before rel
 ## 1. Architecture — why the engine runs in-process
 
 iOS generation runs **in-process in the app**: `IOSAppBootstrap` selects `MLXTTSEngine` via
-`NativeRuntimeFactory` on real hardware (and `IOSSimulatorTTSEngine`, a Metal-free fake, on the
-simulator for UI review). Both are wrapped in the same `TTSEngineStore`, so the UI is engine-agnostic.
-(`Sources/iOS/IOSAppBootstrap.swift` engine-selection block.)
+`NativeRuntimeFactory` on real hardware only. The MLX engine cannot initialize on the iOS Simulator,
+so all iOS UI tests and generation validation run on a paired iPhone. The engine is wrapped in
+`TTSEngineStore` like macOS. (`Sources/iOS/IOSAppBootstrap.swift` engine-selection block.)
 
 It did **not** start here. The original design ran generation out-of-process in a `VocelloEngineExtension`
 ExtensionKit extension (mirroring the macOS XPC split). That can never work on iOS: a **non-UI

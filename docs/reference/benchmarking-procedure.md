@@ -487,7 +487,7 @@ Auto-pruned: `generations.jsonl` ~8 MB cap; verbose sidecars newest-48 / 64 MB.
 
 ### CI / automation
 
-- `.github/workflows/ci.yml` — Tier-A iOS fake UI only; **no bench**
+- `.github/workflows/ci.yml` — `ios-compile-check` (compile-only; no XCUITest, no bench)
 - `.github/workflows/release.yml` — packaging; **no bench**
 - Pre-merge: `scripts/macos_test.sh gate` — UI smoke + models; **no bench**
 

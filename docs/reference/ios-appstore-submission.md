@@ -10,8 +10,8 @@ Development certificate (no `QWENVOICE_DEVELOPMENT_TEAM` needed for local dev bu
 offline manual signing if no Apple ID is in Xcode). The development provisioning profile already carries
 `increased-memory-limit`, and on-device generation is healthy — RTF ~1.8 warm, ~2.7 GB peak (well within the
 8 GB-class iPhone budget), 0 memory trims, audio-QC pass; `VocelloiOSUITests` pass on the device
-(Tier B real-engine + Tier A fake-backend via `scripts/ios_device.sh test`; Tier A also runs in CI on
-the iOS Simulator — see [`testing-runbook.md`](testing-runbook.md)); and the UI
+via `scripts/ios_device.sh test` / `gate` (GitHub CI is compile-only for iOS — see
+[`testing-runbook.md`](testing-runbook.md)); and the UI
 holds with no clipping at the largest accessibility Dynamic Type size. **Still maintainer-only below:** the
 **Distribution** cert + **App Store** provisioning profile (regenerated to carry `increased-memory-limit`) +
 the ASC record/metadata/upload.
@@ -55,9 +55,8 @@ non-functional under Guideline 2.1.
 
 ## 3. Screenshots + metadata
 
-- [ ] iPhone screenshots (6.9" and 6.5" required). Capture from the **device** for real-engine
-      surfaces (generation, model install); Tier-A fake-backend UI can also be captured on the
-      Simulator for static IA/sheet shots. Studio (with a script + voice), Voice Design, Voice
+- [ ] iPhone screenshots (6.9" and 6.5" required). Capture from the **device** for all
+      surfaces (generation, model install, sheets). Studio (with a script + voice), Voice Design, Voice
       Cloning, History, the model-install Settings. (`scripts/ios_device.sh shot` mirrors the
       device screen.)
 - [ ] App name, subtitle (≤30 chars each), description, keywords (≤100), support URL (the GitHub repo or the

@@ -44,7 +44,7 @@ Before changing macOS app or XPC code, read:
 - **Crash / profile / test / UI-review** → launch the matching Axiom subagent with the **Task
   tool** (`crash-analyzer`, `performance-profiler`, `test-runner`, `test-debugger`,
   `screenshot-validator`).
-- **XcodeBuildMCP** (`user-xcodebuildmcp` via `CallMcpTool`) — macOS + Simulator + device
+- **XcodeBuildMCP** (`user-xcodebuildmcp` via `CallMcpTool`) — macOS + device
   workflows enabled in [`.xcodebuildmcp/config.yaml`](../.xcodebuildmcp/config.yaml). Use profile
   `macos` for quick checks; `./scripts/build.sh` / `scripts/macos_test.sh` remain primary. Call
   `session_show_defaults` before the first MCP action.

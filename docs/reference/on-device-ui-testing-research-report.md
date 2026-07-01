@@ -1,12 +1,11 @@
 # On-Device iOS UI-Driven Testing: Tools, Plugins & MCPs Research Report
 
-> **⚠️ Superseded — historical reference only.** The testing strategy is now implemented and
-> documented in **[`testing-runbook.md`](testing-runbook.md)** (the single source of truth):
-> deterministic XCUITest with a two-tier model (Tier-A fake backend on the Simulator/CI,
-> Tier-B real engine on device) and a CI lane. The conclusion below held up — we did **not**
-> adopt Appium or any agent/MCP UI driver; we strengthened the native XCUITest suite, added a
-> fake backend, and added screenshot diagnostics. This file is kept only to record the options
-> that were evaluated and why they were rejected.
+> **⚠️ Historical research only (superseded twice).** Do not follow recommendations below.
+> **Current strategy** (see **[`testing-runbook.md`](testing-runbook.md)**): on-device XCUITest only
+> via `scripts/ios_device.sh`; the fake backend and iOS Simulator test tier were **removed**
+> (commit `4793260`); GitHub CI is compile-only for iOS (`build-for-testing`, no XCUITest).
+> The conclusion below held up — we did **not** adopt Appium or any agent/MCP UI driver.
+> This file is kept only to record the options that were evaluated and why they were rejected.
 >
 > **Scope:** Evaluate tools and MCPs that can *drive* UI tests on a physical iOS device for the Vocello/QwenVoice project. The report covers native Apple frameworks, open-source cross-platform tools, AI-native alternatives, device-cloud options, and MCP-based integrations. Per project instructions, **no installation or configuration was performed** — this is research and recommendations only.
 
@@ -14,10 +13,10 @@
 
 ## 1. Executive Summary
 
-> **Historical premise (2026-06):** Written before the fake-backend / two-tier XCUITest overhaul.
-> The "missing agent-driven UI layer" gap was **not** filled — Tier-A/B deterministic XCUITest
-> + `FakeTTSEngine` replaced it. Recommendations below are evaluation notes, not current direction.
-> See [`testing-runbook.md`](testing-runbook.md).
+> **Historical premise (2026-06):** Written before the fake-backend / two-tier XCUITest overhaul
+> (since removed). The "missing agent-driven UI layer" gap was **not** filled with Appium/MCP;
+> native on-device XCUITest replaced it. Recommendations below are evaluation notes, not current
+> direction. See [`testing-runbook.md`](testing-runbook.md).
 
 Vocello already has a solid, low-level on-device test foundation:
 

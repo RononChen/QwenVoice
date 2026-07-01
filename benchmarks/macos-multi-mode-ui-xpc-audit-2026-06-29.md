@@ -1,5 +1,9 @@
 # macOS multi-mode UI generation + Axiom QA audit — 2026-06-29
 
+> **Historical audit (2026-06-29).** iOS Simulator `.ips` noise and `QVOICE_FAKE_ENGINE`
+> references reflect the pre-removal testing model; the fake backend was removed 2026-06-29.
+> Current iOS testing is on-device only; GitHub CI is compile-only.
+
 **Scope:** Extend macOS XCUITest to real UI-driven generation in Custom Voice, Voice Design, and Voice Cloning; run full validation lanes (models → test → XPC → bench → review → crashes) plus Axiom artifact analysis and static auditors.
 
 **Commit:** `7a327f5` (local; uncommitted implementation at audit time)  

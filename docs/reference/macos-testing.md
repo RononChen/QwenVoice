@@ -7,8 +7,8 @@ and be **retired under memory pressure** then lazily relaunched. Several lanes t
 app **and** the service.
 
 > Build/run/release stay in [`build.sh`](../../scripts/build.sh); this doc covers the lane
-> driver **`scripts/macos_test.sh`**. For the canonical testing strategy (two-tier iOS model,
-> fake backend, CI) see [`testing-runbook.md`](testing-runbook.md). For the iOS device lanes
+> driver **`scripts/macos_test.sh`**. For the canonical testing strategy (on-device iOS,
+> compile-only CI) see [`testing-runbook.md`](testing-runbook.md). For the iOS device lanes
 > see [`ios-device-testing.md`](ios-device-testing.md). For the macOS app map + driving see
 > [`macos-app-guide.md`](macos-app-guide.md).
 

@@ -14,9 +14,9 @@ If anything here disagrees with the code, the code wins — fix this file.
 > `summarize_generation_telemetry.py`. Benchmarking + output‑quality checks are **first‑class**:
 > committed benchmark/QC scripts, baselines, and summaries are permitted (bounded by the
 > `benchmarks/` cap). The **retired** surface is agent/computer-use UI driving (replaced by
-> deterministic XCUITest). **Tier-A** fake-backend XCUITest runs on the iOS Simulator and in
-> CI (`.github/workflows/ci.yml`); **Tier-B** real-engine UI and headless generation remain
-> device-only. See [`testing-runbook.md`](testing-runbook.md) and
+> deterministic XCUITest). iOS UI tests and real-engine generation run **on-device only** via
+> `scripts/ios_device.sh`; GitHub CI (`.github/workflows/ci.yml`) is **compile-only** for iOS
+> (`build-for-testing`, no XCUITest). See [`testing-runbook.md`](testing-runbook.md) and
 > [`ios-device-testing.md`](ios-device-testing.md).
 
 ---
@@ -442,9 +442,8 @@ package does — and records — its own cold load**. Leave it unset for normal 
 2. Type the fixed script; `cmd+Return`; wait for "Ready" / the inline Player.
 3. That first run is the **cold** sample (`warmState=cold`). Repeat ×3 for the **warm** samples.
    macOS: `VocelloMacUITests` drives the real engine via the same identifiers. iOS:
-   **Tier A** (`QVOICE_FAKE_ENGINE=1`, Simulator/CI/device) exercises the Studio flow with a
-   fake backend; **Tier B** (device-only) drives real generation. See
-   [`testing-runbook.md`](testing-runbook.md).
+   `VocelloiOSUITests` drives real generation on a paired iPhone via
+   `scripts/ios_device.sh` (see [`testing-runbook.md`](testing-runbook.md)).
 
 **Storage‑safe order (disk‑tight machines):** process one cell at a time — download that package
 → run cold + 3 warm → delete the package (`QwenVoice-Debug/models/<pkg>`) → next cell. Peak disk ≈
