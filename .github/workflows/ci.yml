@@ -78,14 +78,21 @@ jobs:
           set -euo pipefail
           xcrun simctl list > /dev/null
           UDID=$(python3 <<'PY'
-          import json, subprocess, sys
+          import json, re, subprocess, sys
           data = json.loads(subprocess.check_output(
               ["xcrun", "simctl", "list", "devices", "available", "-j"], text=True
           ))
           prefs = ("iPhone 17 Pro", "iPhone 16 Pro", "iPhone 16")
           candidates = []
+
+          def is_ios_26_runtime(runtime: str) -> bool:
+              if "SimRuntime.iOS-" not in runtime:
+                  return False
+              m = re.search(r"SimRuntime\.iOS-(\d+)", runtime)
+              return m is not None and int(m.group(1)) >= 26
+
           for runtime, devices in data.get("devices", {}).items():
-              if "iOS 26" not in runtime:
+              if not is_ios_26_runtime(runtime):
                   continue
               for d in devices:
                   if not d.get("isAvailable", True):
@@ -95,6 +102,9 @@ jobs:
                       candidates.append((name, d["udid"]))
           if not candidates:
               print("no iOS 26 iPhone simulator", file=sys.stderr)
+              for runtime in data.get("devices", {}):
+                  if "SimRuntime.iOS-" in runtime:
+                      print(runtime, file=sys.stderr)
               sys.exit(1)
           for pref in prefs:
               for name, udid in candidates:
