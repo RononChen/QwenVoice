@@ -62,9 +62,9 @@ name: Release
 #       Ten-character Apple Developer Team ID (e.g. ABCDE12345). Used
 #       for both codesign (--timestamp seal) and the team-ID match in
 #       verify_release_bundle.sh.
+# DISABLED: Release pipeline moved to .gitlab-ci.yml. Kept as reference; manual dispatch only.
+
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       output_name:
