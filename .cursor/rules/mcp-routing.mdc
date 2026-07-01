@@ -18,6 +18,12 @@ Development is **100% in Cursor**. Prefer **checked-in `scripts/*.sh`** for buil
 | `cursor-ide-browser` | cursor-ide-browser | In-IDE browser tab (`browser_navigate`, `browser_snapshot`, …) |
 | `plugin-huggingface-skills-huggingface-skills` | huggingface-skills | Hub model/dataset/paper lookup (`hub_repo_search`, `hub_repo_details`, …) |
 | `cursor-app-control` | cursor-app-control | Cursor IDE control (`open_resource`, `move_agent_to_root`, `rename_chat`, …) |
+| `peekaboo` | peekaboo | **User-global** macOS desktop automation (`see`, `image`, `click`, `type`, `hotkey`, …) — exploratory QA only |
+| `mirroir` | mirroir | **User-global** iPhone Mirroring drive (`describe_screen`, `tap`, `swipe`, …) — exploratory QA on real device |
+
+Configured in **`~/.cursor/mcp.json`** (not committed). Both launch via
+`$HOME/.cursor/bin/mcp_stdio_wrapper.sh` (Cursor spawn env fix). Setup:
+[`docs/reference/computer-use-mcp-alternatives-cursor.md`](mdc:docs/reference/computer-use-mcp-alternatives-cursor.md).
 
 Invoke MCP tools with **`CallMcpTool`** (read each tool's JSON descriptor under the MCP
 filesystem first). Use the **Shell** tool for terminal commands — not a separate Bash tool.
@@ -93,6 +99,7 @@ vs `docs/*-review-baselines/` using the **`screenshot-validator`** Axiom subagen
 
 ## Retired / off-limits
 
-- Agent/computer-use screen driving — gone; see [`testing-runbook.md`](mdc:docs/reference/testing-runbook.md).
+- Agent/computer-use **shell** driving (`uitest.sh`, mirror coordinate hacks in `ios_device.sh`) — gone; see [`testing-runbook.md`](mdc:docs/reference/testing-runbook.md).
+- **User-global exploratory MCP** (Jul 2026 pilot): **`peekaboo`** (macOS Vocello.app) and **`mirroir`** (iPhone Mirroring on paired device) in `~/.cursor/mcp.json` — **exploratory QA only**; pre-merge gates remain `macos_test.sh gate` / `ios_device.sh gate`. Do not use mirroir for CI; do not resurrect mirror clicks in shell scripts.
 - **`plugin-xcodebuildmcp-sentry`** — removed; use `user-xcodebuildmcp`.
 - iOS Simulator for any Vocello test or agent workflow — off-limits (§7 in root [`AGENTS.md`](mdc:AGENTS.md)).

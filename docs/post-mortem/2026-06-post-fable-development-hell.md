@@ -425,7 +425,7 @@ The Jul 1 stabilization gives a **deterministic regression backbone** (XCUITest 
 
 - **Short term:** Treat `macos_test.sh gate` + `ios_device.sh gate` as pre-merge gates; iPhone Mirroring stays **observation-only** per current policy.
 - **Do not resurrect** mirror-coordinate driving in shell scripts without a platform MCP — the repo already deprecated it (`7346cc0`); [`scripts/ios_device.sh`](../../scripts/ios_device.sh) `shot` captures the mirror window for human review, not agent clicks.
-- **If revisiting agent-driven UI:** evaluate Appium + `appium-mcp` for real-device iOS (researched in [`on-device-ui-testing-research-report.md`](../reference/on-device-ui-testing-research-report.md)) or a future Cursor-native desktop automation path with iPhone Mirroring support.
+- **If revisiting agent-driven UI:** user-scoped **Peekaboo + mirroir** pilot (Jul 2026) — see [`docs/reference/computer-use-mcp-alternatives-cursor.md`](../reference/computer-use-mcp-alternatives-cursor.md). Appium + `appium-mcp` remains Option 2 for AX-native iOS.
 - **If computer-use returns to any harness:** restore a minimal **`uitest.sh`-style lifecycle shell** (prep / reset / verify-generation / bench-step) **decoupled** from UI driving method — the May 2026 design got this separation right; measurement must not depend on how the agent clicked.
 
 ### Suggested release train

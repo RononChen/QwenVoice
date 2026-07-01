@@ -265,6 +265,12 @@ desktop-MCP harness is gone — see the testing runbook). Full MCP inventory and
   **Marketing site (`website/`)** → `chrome-devtools` or `cursor-ide-browser` MCP + `npm --prefix
   website`; see `website/AGENTS.md`. **Cursor IDE** (reveal file, rename chat, worktree moves) →
   `cursor-app-control` MCP — sparingly.
+- **Exploratory desktop / mirrored-iPhone UI (user-global MCP, not repo gates)** → **`peekaboo`**
+  (macOS Vocello: `see` → click/type/hotkey) and **`mirroir`** (real iPhone via Mirroring:
+  `describe_screen` → `tap`). Config in `~/.cursor/mcp.json` + `$HOME/.cursor/bin/mcp_stdio_wrapper.sh`.
+  [`docs/reference/computer-use-mcp-alternatives-cursor.md`](docs/reference/computer-use-mcp-alternatives-cursor.md),
+  [`docs/reference/computer-use-mcp-pilot-log.md`](docs/reference/computer-use-mcp-pilot-log.md).
+  Gates unchanged: `macos_test.sh gate`, `ios_device.sh gate`; `ios_device.sh shot` observation-only.
 
 ## 10. Agent roles
 
@@ -393,6 +399,7 @@ regenerate the project after changing them.
   - `swift-performance-guide.md`, `ios-engine-optimization.md`
   - `telemetry-and-benchmarking.md`, `cli.md`
   - `macos-release-qa.md`, `ios-device-testing.md`, `ios-appstore-submission.md`
+  - `computer-use-mcp-alternatives-cursor.md`, `computer-use-mcp-pilot-log.md`
   - `privacy-storage.md`, `macos-permissions.md`, `mlx-audio-swift-patching.md`
 - [`PRODUCT.md`](PRODUCT.md) — product/brand.
 - [`website/AGENTS.md`](website/AGENTS.md) + [`website/PRODUCT.md`](website/PRODUCT.md) — marketing site.
