@@ -167,7 +167,7 @@ scripts/macos_test.sh uitest-doctor [--open-accessibility]  # UI automation read
 scripts/macos_test.sh test               # models ensure → VocelloMacSmokeUITests (~12 tests)
 scripts/macos_test.sh journey            # VocelloMacHumanJourneyUITests (phase-A flows)
 scripts/macos_test.sh bench-ui [--modes …] [--warm 3] [--label …]  # VocelloMacBenchUITests matrix
-scripts/macos_test.sh gate               # models → inputs → build_foundation → test → crashes
+scripts/macos_test.sh gate               # models → inputs → build_foundation → test → crashes (gate-fatal on new .ips)
 # optional bounded engine bench: QWENVOICE_GATE_BENCH=1 scripts/macos_test.sh gate
 scripts/macos_test.sh crashes            # collect + symbolicate .ips
 scripts/macos_test.sh debug              # LLDB attach (app + XPC service PID)
@@ -189,7 +189,7 @@ scripts/ios_device.sh review [--baseline]# UI capture tour + baseline diff
 scripts/ios_device.sh crashes [--test]   # pull + symbolicate MetricKit diagnostics
 scripts/ios_device.sh debug [spec]       # get-task-allow build + LLDB attach
 scripts/ios_device.sh logs [spec]        # attached launch → retained log
-scripts/ios_device.sh gate               # pre-merge gate
+scripts/ios_device.sh gate               # pre-merge gate: preflight → test → generation → crashes (fatal)
 scripts/ios_device.sh doctor|launch|console|pull|shot|mirror
 
 # Perf/quality gate (deterministic driver; listening pass is mandatory pre-merge)
@@ -350,8 +350,8 @@ the relevant role file path and the task; the subagent should read the role file
   `scripts/summarize_generation_telemetry.py` with `--compare-baseline` (see
   [`macos-release-qa.md`](docs/reference/macos-release-qa.md) step 3).
 - **Pre-merge gates:**
-  - macOS: `scripts/macos_test.sh gate` (includes model ensure — run `models ensure` once per machine if needed). Optional engine regression: `QWENVOICE_GATE_BENCH=1 scripts/macos_test.sh gate` (bounded custom/speed/medium bench + audioQC).
-  - iOS: `scripts/ios_device.sh gate`
+  - macOS: `scripts/macos_test.sh gate` (includes model ensure — run `models ensure` once per machine if needed; new .ips during the run are gate-fatal). Optional engine regression: `QWENVOICE_GATE_BENCH=1 scripts/macos_test.sh gate` (bounded custom/speed/medium bench + audioQC + compare vs `benchmarks/baselines/mac-gate-bench.json`).
+  - iOS: `scripts/ios_device.sh gate` — preflight → default UI tests → headless generation (needs Speed on device; `QVOICE_GATE_SKIP_GENERATION=1` to skip) → crash-delta check (gate-fatal).
 
 Telemetry (when `QWENVOICE_DEBUG=1`) writes JSONL under
 `~/Library/Application Support/QwenVoice-Debug/diagnostics/`. Committed benchmark logs must be

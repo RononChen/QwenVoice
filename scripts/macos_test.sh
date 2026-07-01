@@ -610,29 +610,56 @@ cmd_xpc() {
 # build/macos/gate-<run>/. Optional bounded engine bench when QWENVOICE_GATE_BENCH=1.
 # Deeper dives (bench/profile/review/xpc) are separate verbs.
 
+GATE_BENCH_BASELINE="$ROOT_DIR/benchmarks/baselines/mac-gate-bench.json"
+
 run_gate_bench() {
   local gate_dir="$1"
   local log="$gate_dir/bench.log"
   note "gate bench: custom/speed/medium warm×1 (engine in-process)"
   "$ROOT_DIR/scripts/build.sh" cli >>"$log" 2>&1 || return 1
-  QWENVOICE_DEBUG=1 "$ROOT_DIR/build/vocello" bench --modes custom --variants speed \
-    --lengths medium --warm 1 --label "mac-gate-bench" --force >>"$log" 2>&1 || return 1
   local diag
   diag="$(python3 - <<'PY'
 import os
 print(os.path.expanduser("~/Library/Application Support/QwenVoice-Debug/diagnostics"))
 PY
 )"
-  python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$diag" --label "mac-gate-bench" >>"$log" 2>&1 || return 1
-  python3 - <<'PY' >>"$log" 2>&1
+  # Timestamp marker to isolate THIS run's rows for audioQC + baseline compare.
+  # (The engine JSONL is size-capped and auto-prunes oldest-first, so line-count
+  # deltas are unreliable — filter by recordedAt instead.)
+  local engine_jsonl="$diag/engine/generations.jsonl"
+  local since_utc
+  since_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  QWENVOICE_DEBUG=1 "$ROOT_DIR/build/vocello" bench --modes custom --variants speed \
+    --lengths medium --warm 1 --label "mac-gate-bench" --force >>"$log" 2>&1 || return 1
+
+  # Isolate the new rows into a private diagnostics tree for deterministic analysis.
+  local run_diag="$gate_dir/bench-diag"
+  mkdir -p "$run_diag/engine"
+  [[ -f "$engine_jsonl" ]] || { echo "gate bench: no engine/generations.jsonl" >>"$log"; return 1; }
+  SINCE="$since_utc" python3 - "$engine_jsonl" > "$run_diag/engine/generations.jsonl" <<'PY'
 import json, os, sys
-diag = os.path.join(os.path.expanduser("~/Library/Application Support/QwenVoice-Debug"), "diagnostics")
-path = os.path.join(diag, "engine", "generations.jsonl")
-if not os.path.isfile(path):
-    print("gate bench: no engine/generations.jsonl", file=sys.stderr)
-    sys.exit(1)
+since = os.environ["SINCE"]
+for line in open(sys.argv[1], encoding="utf-8"):
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        row = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    if (row.get("recordedAt") or "") >= since:
+        print(line)
+PY
+  [[ -s "$run_diag/engine/generations.jsonl" ]] || { echo "gate bench: bench produced no new telemetry rows" >>"$log"; return 1; }
+
+  python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$run_diag" --label "mac-gate-bench" >>"$log" 2>&1 || return 1
+
+  # audioQC must pass on every row of THIS run.
+  python3 - "$run_diag/engine/generations.jsonl" <<'PY' >>"$log" 2>&1 || return 1
+import json, sys
 fails = []
-for line in open(path, encoding="utf-8"):
+for line in open(sys.argv[1], encoding="utf-8"):
     line = line.strip()
     if not line:
         continue
@@ -645,7 +672,20 @@ if fails:
     sys.exit(1)
 print("gate bench: audioQC pass on all rows")
 PY
-  return $?
+
+  # Regression compare vs the committed baseline (exit 2 on >5% regression).
+  if [[ -f "$GATE_BENCH_BASELINE" ]]; then
+    if ! python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$run_diag" \
+        --compare-baseline "$GATE_BENCH_BASELINE" >>"$log" 2>&1; then
+      echo "gate bench: REGRESSION vs $GATE_BENCH_BASELINE (see bench.log)" >>"$log"
+      return 1
+    fi
+    echo "gate bench: no regression vs $(basename "$GATE_BENCH_BASELINE")" >>"$log"
+  else
+    echo "gate bench: no committed baseline at $GATE_BENCH_BASELINE — compare skipped" >>"$log"
+    echo "  (seed one: run the gate bench, then summarize_generation_telemetry.py <run-diag> --save-baseline $GATE_BENCH_BASELINE)" >>"$log"
+  fi
+  return 0
 }
 
 cmd_gate() {
@@ -659,6 +699,11 @@ cmd_gate() {
   local total_steps=5
   (( gate_bench )) && total_steps=6
   { echo "Vocello macOS gate — $run_id"; echo; } | tee "$verdict"
+
+  # Marker for the gate-fatal crash-delta check: only .ips files newer than this
+  # (i.e. crashes that happen DURING the gate run) fail the gate.
+  local crash_marker="$gate_dir/.crash-marker"
+  touch "$crash_marker"
 
   note "gate step 0/$total_steps: ensure test models (pro_custom_speed in debug context)"
   if ensure_mac_test_models --require >>"$gate_dir/models.log" 2>&1; then
@@ -682,10 +727,22 @@ cmd_gate() {
     echo "test: PASS" | tee -a "$verdict"
   else echo "test: FAIL" | tee -a "$verdict"; overall=1; fi
 
-  note "gate step 4/$total_steps: crashes (post-run check; expect none)"
+  note "gate step 4/$total_steps: crashes (GATE-FATAL on new .ips during this run)"
   if ( cmd_crashes ) >>"$gate_dir/crashes.log" 2>&1; then
-    echo "crashes: none/new (see crashes.log)" | tee -a "$verdict"
-  else echo "crashes: check failed" | tee -a "$verdict"; fi
+    local dr="$HOME/Library/Logs/DiagnosticReports"
+    local new_ips
+    new_ips="$(find "$dr" \( -name 'Vocello-*.ips' -o -name 'QwenVoiceEngineService-*.ips' -o -name '*engine-service*.ips' \) -newer "$crash_marker" 2>/dev/null || true)"
+    if [[ -n "$new_ips" ]]; then
+      echo "crashes: FAIL — new .ips during this gate run:" | tee -a "$verdict"
+      echo "$new_ips" | sed 's/^/    /' | tee -a "$verdict"
+      overall=1
+    else
+      echo "crashes: PASS (no new .ips)" | tee -a "$verdict"
+    fi
+  else
+    echo "crashes: FAIL (check errored — see crashes.log)" | tee -a "$verdict"
+    overall=1
+  fi
 
   if (( gate_bench )); then
     note "gate step 5/$total_steps: bounded vocello bench (QWENVOICE_GATE_BENCH=1)"

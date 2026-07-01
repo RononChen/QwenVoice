@@ -817,7 +817,7 @@ def compare_summaries(baseline, current, threshold=0.05):
     """Return regression entries where current is worse than baseline by > threshold.
 
     A regression is:
-      - rtf increased by > threshold
+      - rtf decreased by > threshold (rtf = audioSecondsPerWallSecond; higher is better)
       - tokps decreased by > threshold
       - ttfcMS increased by > threshold
       - physFootMB increased by > threshold
@@ -831,7 +831,7 @@ def compare_summaries(baseline, current, threshold=0.05):
         if base is None:
             continue
         for metric, direction in [
-            ("rtf", "up"),
+            ("rtf", "down"),
             ("ttfcMS", "up"),
             ("physFootMB", "up"),
             ("tokps", "down"),

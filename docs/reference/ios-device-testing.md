@@ -96,7 +96,7 @@ on the Mac with the phone locked + screen-dark (OLED-safe). Opt out with `QVOICE
 | `logs [spec]` | Attached launch teeing stdout/stderr → `build/ios-logs/<run>.log`. |
 | `profile [spec]` | Instruments/xctrace trace of an autorun generation → `build/ios/profile-<ts>.trace`. |
 | `review [--baseline]` | On-device UI capture tour + baseline pairs (see §3); `--baseline` seeds `docs/ios-review-baselines/`. |
-| `gate` | One-command pre-merge gate: preflight → test → crashes → verdict (`build/ios/gate-<run>/`). |
+| `gate` | One-command pre-merge gate: preflight → test → **generation (headless autorun)** → crashes (**gate-fatal on new payloads**) → verdict (`build/ios/gate-<run>/`). Generation needs Speed on device; skip with `QVOICE_GATE_SKIP_GENERATION=1`. |
 
 ```sh
 export QWENVOICE_DEVELOPMENT_TEAM=<team-id>
@@ -289,7 +289,7 @@ warm-app XCUITest coordinator. All on-device, observed via iPhone Mirroring (OLE
 | Debug | `debug` / `logs` | attached stdout + the LLDB attach command (`get-task-allow` build) | `./scripts/ios_device.sh debug`; Axiom `build-fixer` |
 | Profile | `profile` | Instruments/xctrace trace over the engine's `OSSignpost` intervals | `axiom:performance-profiler` / `xcprof analyze` |
 | Review | `review` | XCUITest screenshot tour of the key screens | `screenshot-validator` subagent / manual diff vs `docs/ios-review-baselines/` |
-| Gate | `gate` | preflight → test → crashes → single verdict | — |
+| Gate | `gate` | preflight → test → generation → crashes (fatal) → single verdict | — |
 
 **Crash lane.** `IOSCrashObserver` (`Sources/iOSSupport/Services/IOSCrashObserver.swift`)
 subscribes to MetricKit crash/hang diagnostics + an `NSException` handler and writes them
@@ -332,7 +332,7 @@ screenshot, then closed — never dwell on a static high-contrast screen.
 | CI compile check | `.github/workflows/ci.yml` `ios-compile-check` job | VocelloiOS + VocelloiOSUITests compile on push/PR |
 | UI smoke (device gate) | `scripts/ios_device.sh ui-test` (or `test`) | Smoke + Sheet + OnDeviceDownload on hardware |
 | UI review | `scripts/ios_device.sh review` | screenshot tour vs `docs/ios-review-baselines/` |
-| Pre-merge gate | `scripts/ios_device.sh gate` | preflight → test → crashes → single verdict |
+| Pre-merge gate | `scripts/ios_device.sh gate` | preflight → test → generation → crashes (fatal) → single verdict |
 | Interactive UI review | `scripts/ios_device.sh launch` + `scripts/ios_device.sh shot <path>` | the full UI renders over iPhone Mirroring for visual review |
 | On-device proof | `scripts/ios_device.sh bench "custom:speed:…"` | real generation, entitlement/memory headroom, RTF/`audioQC` |
 

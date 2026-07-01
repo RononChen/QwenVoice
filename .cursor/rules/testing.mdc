@@ -73,7 +73,8 @@ download validation run on a paired iPhone via `scripts/ios_device.sh`. macOS UI
 ## macOS bench lanes
 
 - **`gate`:** default = model ensure → inputs → foundation build → UI smoke → crash check.
-  Opt-in bounded engine bench: `QWENVOICE_GATE_BENCH=1 scripts/macos_test.sh gate`
+  Opt-in bounded engine bench + baseline compare: `QWENVOICE_GATE_BENCH=1 scripts/macos_test.sh gate`
+  (compares vs `benchmarks/baselines/mac-gate-bench.json`; reseed with `--save-baseline` after intentional perf changes)
   (custom/speed/medium + audioQC).
 - **`profile`:** Instruments trace during in-process `vocello bench`. **Fails** when bench
   exits non-zero unless `--allow-bench-fail` or `QVOICE_MAC_PROFILE_ALLOW_BENCH_FAIL=1`

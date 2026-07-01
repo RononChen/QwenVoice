@@ -41,7 +41,7 @@ app **and** the service.
 | Profile | `profile [spec]` | xctrace/Instruments on the engine (CLI in-process) | `axiom:performance-profiler` / `xcprof` |
 | Review | `review [--baseline] [--subset resting\|full]` | catalog-driven captures (`VocelloMacReviewUITests`) | `screenshot-validator` subagent / manual diff vs `docs/macos-review-baselines/` |
 | XPC | `xpc [--crash-isolation]` | retirement/relaunch + crash isolation | — |
-| Gate | `gate` | models → inputs → build_foundation → test → crashes → verdict; optional bounded `vocello bench` when `QWENVOICE_GATE_BENCH=1` | — |
+| Gate | `gate` | models → inputs → build_foundation → test → crashes (**gate-fatal on new .ips**) → verdict; optional bounded `vocello bench` + audioQC + baseline compare (`benchmarks/baselines/mac-gate-bench.json`) when `QWENVOICE_GATE_BENCH=1` | — |
 
 ## UI test machine setup
 
@@ -164,7 +164,7 @@ scriptable parts. Event-stream gaps are recorded by the service to
 
 ```sh
 scripts/macos_test.sh gate    # models → check_project_inputs → build_foundation macos → test → crashes
-QWENVOICE_GATE_BENCH=1 scripts/macos_test.sh gate   # …plus bounded custom/speed/medium bench + audioQC check
+QWENVOICE_GATE_BENCH=1 scripts/macos_test.sh gate   # …plus bounded custom/speed/medium bench + audioQC + regression compare vs benchmarks/baselines/mac-gate-bench.json
 ```
 
 Steps: (1) `ensure_mac_test_models`, (2) `check_project_inputs`, (3) `build_foundation_targets macos`,

@@ -38,7 +38,8 @@
 #   scripts/ios_device.sh test [--all|--cold] [only] # ui-test + single verdict + build/ios/uitest-artifacts/
 #   scripts/ios_device.sh review [--baseline]        # on-device UI capture tour + baseline diff (burn-in-aware)
 #   scripts/ios_device.sh uitest-doctor [--enable-gate1]  # Mac Gate 1 + iPhone unlock advisory
-#   scripts/ios_device.sh gate                 # pre-merge gate: preflight → test → crashes → verdict
+#   scripts/ios_device.sh gate                 # pre-merge gate: preflight → test → generation → crashes → verdict
+#                                              # (generation needs Speed on device; QVOICE_GATE_SKIP_GENERATION=1 to skip)
 #
 # Observation: every device command auto-starts macOS iPhone Mirroring (watch on the Mac;
 # the phone stays locked + screen-dark, OLED-safe; mirroring also keeps a LOCKED device
@@ -1102,9 +1103,13 @@ cmd_review() {
 }
 
 # gate: one-command on-device pre-merge gate — preflight → test (default scope) → crashes
-# (post-run; expect none on a clean build) → a single PASS/FAIL verdict + per-step logs +
+# (crash-delta check is GATE-FATAL) → a single PASS/FAIL verdict + per-step logs +
 # a verdict.txt under build/ios/gate-<run>/. Burns-in safe. Deeper dives (profile, review,
 # bench/listening-pass) are separate verbs — run them pre-release, not on every merge.
+#
+# Generation step prerequisite: Custom Voice (Speed) installed on the device
+# (Settings → Model Downloads; see `$0 models check`). Escape hatch for
+# download/management-UX work on a model-less device: QVOICE_GATE_SKIP_GENERATION=1.
 cmd_gate() {
   require_team
   local run_id="ios-gate-$(date +%Y%m%d-%H%M%S)"
@@ -1112,28 +1117,67 @@ cmd_gate() {
   mkdir -p "$gate_dir"
   local verdict="$gate_dir/verdict.txt"
   local overall=0
+  local skip_generation="${QVOICE_GATE_SKIP_GENERATION:-0}"
+  local total=4
+  [[ "$skip_generation" == "1" ]] && total=3
 
   { echo "Vocello on-device gate — $run_id"; echo; } | tee "$verdict"
 
-  note "gate 1/3: preflight"
+  # Snapshot pre-existing on-device crash payload names so the final check can
+  # fail ONLY on crashes that appear during this gate run (the device keeps old
+  # payloads across runs). Pull may fail when no diagnostics exist yet — fine.
+  local crash_baseline="$gate_dir/crash-baseline.txt"
+  {
+    local pre_pull="$gate_dir/.pre-diagnostics"
+    if ( cmd_pull "$pre_pull" ) >/dev/null 2>&1; then
+      find "$pre_pull" -path '*/crashes/*' -type f -exec basename {} \; 2>/dev/null | sort
+    fi
+    rm -rf "$pre_pull"
+  } > "$crash_baseline" || true
+
+  note "gate 1/$total: preflight"
   if ( cmd_preflight ) >>"$gate_dir/preflight.log" 2>&1; then
     echo "preflight: PASS" | tee -a "$verdict"
   else
     echo "preflight: FAIL (see preflight.log)" | tee -a "$verdict"; overall=1
   fi
 
-  note "gate 2/3: test (default scope)"
+  note "gate 2/$total: test (default scope)"
   if ( cmd_test ) >>"$gate_dir/test.log" 2>&1; then
     echo "test: PASS" | tee -a "$verdict"
   else
     echo "test: FAIL (see test.log)" | tee -a "$verdict"; overall=1
   fi
 
-  note "gate 3/3: crashes (post-run check; expect none)"
-  if ( cmd_crashes ) >>"$gate_dir/crashes.log" 2>&1; then
-    echo "crashes: none/new (see crashes.log)" | tee -a "$verdict"
+  if [[ "$skip_generation" != "1" ]]; then
+    note "gate 3/$total: generation (headless autorun; real engine)"
+    if _gate_generation_check "$gate_dir" >>"$gate_dir/generation.log" 2>&1; then
+      echo "generation: PASS (see generation.log)" | tee -a "$verdict"
+    else
+      echo "generation: FAIL (see generation.log — needs Speed model on device: $0 models check)" | tee -a "$verdict"
+      overall=1
+    fi
   else
-    echo "crashes: check failed (see crashes.log)" | tee -a "$verdict"
+    note "generation step skipped (QVOICE_GATE_SKIP_GENERATION=1)"
+    echo "generation: SKIPPED (QVOICE_GATE_SKIP_GENERATION=1)" | tee -a "$verdict"
+  fi
+
+  note "gate $total/$total: crashes (GATE-FATAL on new payloads)"
+  if ( cmd_crashes ) >>"$gate_dir/crashes.log" 2>&1; then
+    local crash_after="$gate_dir/crash-after.txt"
+    find "$ROOT_DIR/build/ios-diagnostics" -path '*/crashes/*' -type f -exec basename {} \; 2>/dev/null | sort > "$crash_after" || true
+    local new_crashes
+    new_crashes="$(comm -13 "$crash_baseline" "$crash_after" 2>/dev/null || true)"
+    if [[ -n "$new_crashes" ]]; then
+      echo "crashes: FAIL — new payload(s) during this gate run:" | tee -a "$verdict"
+      echo "$new_crashes" | sed 's/^/    /' | tee -a "$verdict"
+      overall=1
+    else
+      echo "crashes: PASS (no new payloads)" | tee -a "$verdict"
+    fi
+  else
+    echo "crashes: FAIL (check errored — see crashes.log)" | tee -a "$verdict"
+    overall=1
   fi
 
   echo | tee -a "$verdict"
@@ -1146,6 +1190,34 @@ cmd_gate() {
   fi
   cat "$verdict" >&2
   exit "$overall"
+}
+
+# Slim headless generation check for the gate: reuse the app the test step just
+# installed (no rebuild), launch with a bounded autorun spec, poll the sentinel,
+# and pass/fail on its status. Same mechanism as `bench` minus build/install/summary.
+_gate_generation_check() {
+  local gate_dir="$1"
+  [[ -d "$APP_PATH" ]] || cmd_install >/dev/null 2>&1 || true
+  local run_id
+  run_id="$(cmd_launch "custom:speed:Gate generation smoke." | tail -1)"
+  local timeout="${QVOICE_IOS_BENCH_TIMEOUT:-300}"
+  local dest="$gate_dir/.gen-diagnostics"
+  rm -rf "$dest"
+  local waited=0 sentinel=""
+  while (( waited < timeout )); do
+    sleep 10; waited=$((waited + 10))
+    ( cmd_pull "$dest" ) >/dev/null 2>&1 || true
+    sentinel="$(find "$dest" -name autorun-done.json -path "*/${run_id}/*" 2>/dev/null | head -1)"
+    [[ -n "$sentinel" && -f "$sentinel" ]] && break
+  done
+  [[ -n "$sentinel" && -f "$sentinel" ]] || { echo "no autorun sentinel after ${timeout}s"; return 1; }
+  cp "$sentinel" "$gate_dir/generation-sentinel.json" 2>/dev/null || true
+  python3 - "$sentinel" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+print(f"status={r.get('status')} mode={r.get('mode')} rtf={r.get('realtimeFactor')} wall={r.get('wallSeconds')}s error={r.get('error')}")
+sys.exit(0 if r.get("status") == "ok" else 1)
+PY
 }
 
 main() {
