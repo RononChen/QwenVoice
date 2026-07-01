@@ -4,7 +4,42 @@ Complete these steps **before** the first push to `origin` (GitLab). The agent-s
 (`.gitlab-ci.yml`, URL sweep, remotes) is already on `main`; GitLab just needs a project shell
 and your credentials.
 
-## 1. Create the project
+## One-command setup (after creating a GitLab PAT)
+
+Create a token at **GitLab → Preferences → Access tokens** with scopes **`api`**
+and **`write_repository`**, then either:
+
+```sh
+export GITLAB_TOKEN='glpat-...'   # paste once; do not commit
+./scripts/gitlab_setup_all.sh
+```
+
+Or copy [`scripts/gitlab-ci-secrets.env.example`](../scripts/gitlab-ci-secrets.env.example)
+to **`.gitlab-ci-secrets.env`** (gitignored), fill `GITLAB_TOKEN`, and run:
+
+```sh
+./scripts/gitlab_setup_all.sh
+# With Apple signing + mirror vars in the same file:
+SET_CI_VARS=1 ./scripts/gitlab_setup_all.sh
+```
+
+This script uses your existing **`gh`** login to import **`PowerBeef/QwenVoice`**
+from GitHub, rewire remotes, and push **`main` + tags**. Optional:
+
+```sh
+# Skip import if you already created the project manually
+SKIP_IMPORT=1 ./scripts/gitlab_setup_all.sh
+
+# Also upload CI variables whose values are already in your shell env
+SET_CI_VARS=1 ./scripts/gitlab_setup_all.sh
+```
+
+Apple signing secret **values** are not readable from GitHub Actions via CLI — copy them
+from your password manager into GitLab **Settings → CI/CD → Variables** (names listed in
+[`gitlab-ci.md`](gitlab-ci.md)). For the GitHub mirror, add **`GITHUB_MIRROR_TOKEN`**
+(fine-grained PAT with push to `PowerBeef/QwenVoice` only).
+
+## 1. Create the project (manual alternative)
 
 **Option A — Import from GitHub (recommended; preserves tags/releases):**
 

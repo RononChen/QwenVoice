@@ -46,3 +46,6 @@ build_log*.txt
 benchmarks/**/*.jsonl
 samples-*.jsonl
 **/diagnostics/
+
+# GitLab cutover secrets (copy from scripts/gitlab-ci-secrets.env.example)
+.gitlab-ci-secrets.env
