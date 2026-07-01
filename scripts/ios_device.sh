@@ -37,6 +37,7 @@
 #   scripts/ios_device.sh models check             # which tiers need device models
 #   scripts/ios_device.sh test [--all|--cold] [only] # ui-test + single verdict + build/ios/uitest-artifacts/
 #   scripts/ios_device.sh review [--baseline]        # on-device UI capture tour + baseline diff (burn-in-aware)
+#   scripts/ios_device.sh uitest-doctor [--enable-gate1]  # Mac Gate 1 + iPhone unlock advisory
 #   scripts/ios_device.sh gate                 # pre-merge gate: preflight → test → crashes → verdict
 #
 # Observation: every device command auto-starts macOS iPhone Mirroring (watch on the Mac;
@@ -326,10 +327,17 @@ cmd_doctor() {
   printf '  device: %s\n' "$dev" >&2
   if [[ -d "$APP_PATH" ]]; then
     printf '  app:   built (%s)\n' "$APP_PATH" >&2
-    printf '  entitlement: ' >&2
-    codesign -d --entitlements :- "$APP_PATH" 2>/dev/null \
-      | grep -o 'increased-memory-limit' | head -1 || printf '(not found)\n' >&2
-    printf '\n' >&2
+    local ent; ent="$(codesign -d --entitlements :- "$APP_PATH" 2>/dev/null || true)"
+    if grep -q 'application-groups' <<<"$ent"; then
+      printf '  app group: OK (%s)\n' "$APP_GROUP" >&2
+    else
+      warn "app group missing from signed app — rebuild after fixing CODE_SIGN_ENTITLEMENTS (run: $0 build)"
+    fi
+    if grep -q 'increased-memory-limit' <<<"$ent"; then
+      printf '  increased-memory-limit: OK\n' >&2
+    else
+      warn "increased-memory-limit missing from signed app"
+    fi
   else
     printf '  app:   not built yet (run: %s build)\n' "$0" >&2
   fi
@@ -575,7 +583,18 @@ _ui_test_build_for_testing() {
 
 _ui_test_log_needs_unlock_retry() {
   local log="$1"
-  grep -qiE 'Unlock iPhone|ApproveFailed|device locked|SFAuthenticationErrorCodeApproveFailedToPost' "$log"
+  grep -qiE \
+    'Unlock iPhone|ApproveFailed|device locked|was not, or could not be, unlocked|Unable to launch.*unlocked|SFAuthenticationErrorCodeApproveFailedToPost|Failed to initialize for UI testing|authentication error 12|Timed out waiting for response|Échec d.authentification|authentification' \
+    "$log"
+}
+
+_ios_uitest_gate1_open() {
+  command -v automationmodetool >/dev/null 2>&1 \
+    && automationmodetool 2>&1 | grep -q 'requires user authentication'
+}
+
+cmd_uitest_doctor() {
+  exec "$ROOT_DIR/scripts/ios_uitest_doctor.sh" "$@"
 }
 
 _ui_test_latest_xcresult() {
@@ -617,14 +636,26 @@ cmd_ui_test() {
   require_team
   local scope="default"
   local only=""
+  local skip_doctor=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --all) scope="all"; shift ;;
       --cold) scope="cold"; shift ;;
-      -*) die "unknown ui-test flag: $1 (try --all, --cold, or a VocelloiOSUITests/… target)" ;;
+      --skip-uitest-doctor) skip_doctor=1; shift ;;
+      -*) die "unknown ui-test flag: $1 (try --all, --cold, --skip-uitest-doctor, or a VocelloiOSUITests/… target)" ;;
       *) only="$1"; shift ;;
     esac
   done
+
+  if (( skip_doctor == 0 )); then
+    note "ui-test step 0: uitest doctor"
+    "$ROOT_DIR/scripts/ios_uitest_doctor.sh" || true
+    if _ios_uitest_gate1_open; then
+      die "Mac UI Automation still requires your login password each run — fix Gate 1 once:
+  scripts/enable_unattended_uitest.sh
+(or pass --skip-uitest-doctor if you accept the prompt)"
+    fi
+  fi
 
   ensure_device_ready
   local dev; dev="$(resolve_device)"
@@ -1133,9 +1164,10 @@ main() {
     review)    cmd_review "$@" ;;
     gate)      cmd_gate "$@" ;;
     models)    cmd_models "$@" ;;
+    uitest-doctor) cmd_uitest_doctor "$@" ;;
     help|-h|--help)
       sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' >&2 ;;
-    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|mirror|shot|pull|bench|ui-test|crashes|debug|logs|profile|preflight|test|review|gate|models|help)" ;;
+    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|mirror|shot|pull|bench|ui-test|uitest-doctor|crashes|debug|logs|profile|preflight|test|review|gate|models|help)" ;;
   esac
 }
 

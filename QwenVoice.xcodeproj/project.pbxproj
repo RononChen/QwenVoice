@@ -2259,7 +2259,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.patricedery.vocello;
 				PRODUCT_MODULE_NAME = QVoiceiOS;
 				PRODUCT_NAME = Vocello;
-				QVOICE_IOS_APP_ENTITLEMENTS = "$(QVOICE_IOS_APP_ENTITLEMENTS:Sources/iOS/VocelloiOS.entitlements)";
+				QVOICE_IOS_APP_ENTITLEMENTS = Sources/iOS/VocelloiOS.entitlements;
 				QVOICE_IOS_APP_GROUP_IDENTIFIER = group.com.patricedery.vocello.shared;
 				QVOICE_IOS_DEFAULT_MODEL_CATALOG_URL = "bundle://vocello/ios/catalog/v1/models.json";
 				SDKROOT = iphoneos;

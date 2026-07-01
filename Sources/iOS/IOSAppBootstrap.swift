@@ -63,8 +63,9 @@ extension QVoiceiOSApp {
             switch self {
             case .missingSharedContainer(let appGroupIdentifier):
                 return """
-                Vocello needs an App Group shared container to keep the UI app and engine extension in sync.
-                Add \(appGroupIdentifier) to both iPhone targets, then rebuild.
+                Vocello needs an App Group shared container for on-device storage (models, history, voices).
+                The TTS engine runs in-process in this app — there is no separate engine extension.
+                Add \(appGroupIdentifier) to the VocelloiOS target entitlements and provisioning profile, then rebuild.
                 """
             }
         }

@@ -88,6 +88,7 @@ on the Mac with the phone locked + screen-dark (OLED-safe). Opt out with `QVOICE
 | `bench [spec] [--label "note"]` | The full loop: `build → install → launch-with-autorun → poll the sentinel → pull diagnostics → summarize`. Exits non-zero if the generation failed. |
 | `ui-test [--all\|--cold] [target]` | Run `VocelloiOSUITests` on the device (see §2). **Default:** Smoke + Sheet + OnDeviceDownload. `--cold` runs cold generation only (`ui-test` alone: **skips** when Speed model missing). `--all` runs every class (debug). Optional `target` scopes further. |
 | `preflight [--cold]` | One-shot readiness check (mirror + device reachable + signing + app + dSYM) + unlock advisory. `--cold` adds device-model install advisory. |
+| `uitest-doctor [--enable-gate1]` | Mac Gate 1 + device doctor + iPhone unlock/passcode guidance for unattended ui-test. |
 | `models` | `models check` — which ui-test/bench tiers need Speed on device (Mac cannot verify App Group files). |
 | `test [--all\|--cold] [target]` | `ui-test` wrapper + verdict artifacts. **`test --cold` fails** if ColdGeneration was skipped for missing Speed model (post-xcresult check). Default gate needs **no** pre-installed model. |
 | `crashes [--test]` | Pull + `xcsym`-symbolicate MetricKit crash/hang diagnostics (see §3). `--test` deliberately crashes to verify the lane. |
@@ -191,8 +192,36 @@ Run UI tests on hardware with **`scripts/ios_device.sh ui-test`**
 | `scripts/ios_device.sh test --cold` | ColdGeneration (via wrapper) | Same suite as `--cold`, but **fails the run** if ColdGeneration skipped for missing Speed model. |
 | `scripts/ios_device.sh ui-test --all` | All classes | Debug/soak only. Cold gen skips without model unless using `test --cold`. |
 
-**Preflight:** `ui-test` runs `ensure_device_ready` (mirroring up to 60s, devicectl
-reachability, unlock guidance). Retries once on unlock/auth log patterns.
+**Preflight:** `ui-test` runs `ios_uitest_doctor` (Mac Gate 1 check), then `ensure_device_ready`
+(mirroring up to 60s, devicectl reachability, unlock guidance). Retries once on unlock/auth log
+patterns (including French authentication errors).
+
+### Unattended / agent-driven ui-test setup
+
+Two **independent** security layers block on-device XCUITest. Conflating them is the common mistake.
+
+| Gate | Where | Symptom | Fix |
+|------|-------|---------|-----|
+| **1 — Mac Authorization Services** | This Mac | Login password to “Enable UI Automation” | **One-time:** `scripts/enable_unattended_uitest.sh` (sudo admin password once; persists across reboots) |
+| **2 — iPhone unlock handshake** | Paired iPhone | “device was not unlocked”, auth error 12, `Failed to initialize for UI testing` | Wake + **unlock the phone once** when the runner attaches; it may auto-lock again after |
+| **3 — iPhone passcode (iOS 15+)** | Paired iPhone | Passcode/Touch ID to authorize UI automation (~daily) | **No supported bypass** with passcode ON — see options below |
+
+Diagnose everything:
+
+```sh
+scripts/ios_device.sh uitest-doctor
+scripts/ios_device.sh uitest-doctor --enable-gate1   # same as enable_unattended_uitest.sh
+```
+
+**Fully unattended ui-test** on local hardware (Apple’s constraints):
+
+1. Close **Mac Gate 1** (`enable_unattended_uitest.sh`).
+2. On a **dedicated desk test iPhone**, remove the device passcode (Settings → Face ID & Passcode) — the CI device-farm pattern Apple engineers describe on the forums. Re-enable passcode when the phone leaves the desk.
+3. Keep Developer Mode + “Enable UI Automation” (Settings → Developer) on, iPhone Mirroring connected, phone **awake and unlocked** when `ui-test` starts.
+
+If company policy forbids removing the passcode, the realistic options are: unlock the phone once before the first ui-test of the day (~daily Apple prompt), or use **`scripts/ios_device.sh bench`** for unattended real-engine validation (headless autorun — no XCUITest auth).
+
+`ui-test` fails fast when Mac Gate 1 is still open (unless `--skip-uitest-doctor`). Cross-link macOS Accessibility gates: [`macos-testing.md`](macos-testing.md) § UI test machine setup.
 
 `Tests/VocelloiOSUITests/` (target `VocelloiOSUITests`, host `VocelloiOS`):
 - `VocelloUITestApp.swift` — shared warm-app coordinator (real engine); resets to Studio between cases.

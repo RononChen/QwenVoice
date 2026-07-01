@@ -39,7 +39,8 @@ section_automation_mode() {
         cat >&2 <<'EOF'
     ⚠ Gate 1 OPEN: XCTest will ask for your login password each run.
       One-time fix (admin password once):
-        sudo /usr/bin/automationmodetool enable-automationmode-without-authentication
+        scripts/enable_unattended_uitest.sh
+      Or: scripts/ios_uitest_doctor.sh --enable-gate1
 EOF
     fi
 }

@@ -55,11 +55,10 @@ final class AppModel {
     }
 
     /// Which mode the unified Studio screen is currently editing.
-    /// Mirrors the legacy `IOSGenerationSection`; the enum stays
-    /// because `TTSContract` keyed against it.
-    var studioMode: IOSGenerationSection = .custom {
-        didSet { IOSAppDefaults.lastStudioModeRawValue = studioMode.rawValue }
-    }
+    /// Cold launch always starts on `.custom`; mode persists only for the
+    /// current session (background/foreground). Explicit handoffs (Voices →
+    /// Clone, etc.) still set this in-session.
+    var studioMode: IOSGenerationSection = .custom
 
     // MARK: - Drafts
 
@@ -142,15 +141,9 @@ final class AppModel {
         self.customVoiceDraft = CustomVoiceDraft(selectedSpeaker: modelRegistry.defaultSpeaker.id)
         self.isOnboardingPresented = !IOSAppDefaults.hasCompletedOnboarding
 
-        // State restoration: return to the last tab + Studio mode. (Setting these
-        // in init does not fire the didSet observers, so no spurious write.) The
-        // preview-runtime override below intentionally takes precedence.
+        // State restoration: return to the last tab (Studio mode always cold-starts on Custom).
         if let raw = IOSAppDefaults.lastTabRawValue, let restored = IOSAppTab(rawValue: raw) {
             self.tab = restored
-        }
-        if let raw = IOSAppDefaults.lastStudioModeRawValue,
-           let restored = IOSGenerationSection(rawValue: raw) {
-            self.studioMode = restored
         }
 
         let environment = ProcessInfo.processInfo.environment

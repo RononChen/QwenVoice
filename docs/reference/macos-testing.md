@@ -50,7 +50,7 @@ macOS XCUITest hits **three unrelated security systems**. Run `scripts/macos_uit
 
 | Gate | Symptom | Fix |
 |------|---------|-----|
-| **1 — Authorization Services** | Password to “Enable UI Automation” | `sudo automationmodetool enable-automationmode-without-authentication` |
+| **1 — Authorization Services** | Password to “Enable UI Automation” | `scripts/enable_unattended_uitest.sh` |
 | **2 — TCC Accessibility** | Allow Xcode / Xcode Helper / Runner | System Settings → Privacy & Security → Accessibility (one-time) |
 | **3 — Keychain** | `codesign wants to access key…` | “Always Allow” once, or `security set-key-partition-list …` |
 
