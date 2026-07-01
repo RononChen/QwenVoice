@@ -19,9 +19,10 @@ name: CI
 # Toolchain pinning mirrors release.yml: Xcode 26.0, XcodeGen + xcbeautify via Homebrew,
 # SPM versions inherited from the committed Package.resolved.
 
-# DISABLED: CI moved to .gitlab-ci.yml. Kept as reference; manual dispatch only.
-
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
     inputs:
       macos_ui_smoke:

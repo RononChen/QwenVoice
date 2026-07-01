@@ -58,4 +58,4 @@ Day-to-day: `glab` for MRs/issues/releases (`brew install glab && glab auth logi
 - **Vercel:** connect the project to GitLab (`VocelloApp/QwenVoice`, root `website/`, branch `main`).
 - **Cursor:** [Integrations](https://cursor.com/dashboard/integrations) → GitLab → **Sync Repos** after the project exists. Cloud Agents/Bugbot on GitLab require **Premium/Ultimate**.
 
-See also: [`testing-runbook.md`](testing-runbook.md), [`macos-release-qa.md`](macos-release-qa.md), [`gitlab-project-setup.md`](gitlab-project-setup.md).
+See also: [`testing-runbook.md`](testing-runbook.md), [`macos-release-qa.md`](macos-release-qa.md).
