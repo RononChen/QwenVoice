@@ -69,7 +69,8 @@ UIstall column      —                       yes                    yes
 | **macOS UI** | App + `QwenVoiceEngineService` XPC | Out-of-process engine | End-to-end TTFC, UI stall, XPC transport; UI smoke tests |
 | **macOS XPC UI bench** | `scripts/macos_test.sh bench-ui` | Out-of-process engine | Full release matrix through real app + XPC; merged 3-layer telemetry |
 | **macOS profile** | `scripts/macos_test.sh profile` | In-process via CLI inside trace | Instruments / os_signpost validation |
-| **iOS device** | `scripts/ios_device.sh bench` | In-process | iPhone tier, Jetsam, on-device RTF |
+| **iOS device** | `scripts/ios_device.sh bench` | In-process | iPhone tier, Jetsam, on-device RTF (headless autorun, single take) |
+| **iOS UI bench** | `scripts/ios_device.sh bench-ui` | In-process | Full release matrix through the real Studio UI on the iPhone; gate `scripts/check_ios_ui_bench.py` (engine layer only — no XPC on iOS) |
 
 **Important:** CLI bench numbers are **not** identical to macOS XPC UI numbers. Compare like with
 like (CLI vs CLI, UI vs UI). Use CLI for backend optimization; use UI/XPC for integration regressions.
@@ -464,6 +465,7 @@ regression signal:
 | local release / `-O` CLI | optimized | in-process | RTF ≈ 1.7 |
 | macOS `bench-ui` | Release app | app + XPC service | RTF ≈ 1.7 |
 | iOS `ios_device.sh bench` | `-Onone` device | in-process on iPhone | RTF ≈ 1.6–1.9 |
+| iOS `ios_device.sh bench-ui` | `-Onone` device | in-process, real Studio UI | same engine numbers as `bench` (same build flags); adds UI-path coverage |
 
 Compare a row only against a baseline from the **same lane** (HISTORY.md rows carry the
 label; keep the lane in the label text).

@@ -14,8 +14,14 @@ import QwenVoiceCore
 /// merge polls briefly before giving up.
 enum GenerationTelemetryMerger {
     private static let mergedFileName = "generations-merged.jsonl"
-    private static let pollAttempts = 15
-    private static let pollIntervalNanos: UInt64 = 200_000_000 // 200 ms × 15 ≈ 3 s
+    // Audit J1: 3 s of polling at .background priority was not enough — under
+    // bench load the app/engine-service layer writes (themselves detached
+    // background tasks) get starved past the window, the merge gave up, and the
+    // flush marker advanced with the app row still unwritten; the bench's next
+    // relaunch then terminated the app mid-write. .utility + a 15 s window keeps
+    // the marker honest (it fires early as soon as all three layers land).
+    private static let pollAttempts = 75
+    private static let pollIntervalNanos: UInt64 = 200_000_000 // 200 ms × 75 ≈ 15 s
 
     /// Schedule a merge for the given generation. No-op when telemetry is off.
     static func scheduleMerge(generationID: UUID?) {
@@ -23,7 +29,7 @@ enum GenerationTelemetryMerger {
         guard let generationID else { return }
         let key = generationID.uuidString
         let appSupportDirectory = AppPaths.appSupportDir
-        Task.detached(priority: .background) {
+        Task.detached(priority: .utility) {
             await merge(generationID: key, appSupportDirectory: appSupportDirectory)
             await MainActor.run {
                 MacUITestSurfaceMarkers.markTelemetryFlushed(id: key)

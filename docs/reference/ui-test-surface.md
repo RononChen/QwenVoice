@@ -152,7 +152,7 @@ Dynamic ids show their Swift interpolation pattern (e.g. `voicesRow_\(id)`).
 | `voices_enrollButton` | `ContentView.swift` |
 | `voices_retryButton` | `VoicesView.swift` |
 
-## iOS (VocelloiOS) — 84 identifiers
+## iOS (VocelloiOS) — 85 identifiers
 
 | Identifier | Declared in |
 |---|---|
@@ -209,6 +209,7 @@ Dynamic ids show their Swift interpolation pattern (e.g. `voicesRow_\(id)`).
 | `iosSettings_storageRow` | `SettingsScreen.swift` |
 | `iosSettings_variationRow` | `IOSSettingsViews.swift` |
 | `iosSettings_versionLabel` | `IOSSettingsViews.swift` |
+| `iosStudio_benchClearScript` | `IOSStudioBenchHooks.swift` |
 | `languagePicker_\(language.rawValue)` | `IOSBottomSheets.swift` |
 | `languagePicker_confirm` | `IOSBottomSheets.swift` |
 | `onboarding_cta` | `IOSOnboardingFlow.swift` |

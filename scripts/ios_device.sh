@@ -26,6 +26,8 @@
 #   scripts/ios_device.sh shot [out.png]          # capture the iPhone Mirroring window (device screen) → PNG
 #   scripts/ios_device.sh pull [dest]             # pull the app-container diagnostics mirror
 #   scripts/ios_device.sh bench [spec] [--label "note"]
+#   scripts/ios_device.sh bench-ui [--modes m,..] [--lengths l,..] [--warm N] [--label "note"]
+#                                                 # full-matrix UI-DRIVEN bench (XCUITest)
 #                                                 # build→install→autorun→pull→summarize
 #   scripts/ios_device.sh ui-test [--all|--cold] [only]
 #                                                 # device-safe UI tests (default: Smoke+Sheet+OnDeviceDownload)
@@ -637,6 +639,90 @@ PY
 
   # Exit non-zero on a failed generation so CI/automation can gate on it.
   python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("status")=="ok" else 1)' "$sentinel"
+}
+
+# bench-ui [--modes m1,m2] [--lengths l1,l2] [--warm N] [--label "note"]:
+# full-matrix UI-DRIVEN on-device benchmark (VocelloiOSBenchUITests) — the iOS
+# counterpart of `scripts/macos_test.sh bench-ui`. Drives the real Studio UI per
+# take; the engine's durable telemetry rows (stamped notes.benchRunID) are pulled
+# and gated by scripts/check_ios_ui_bench.py against the take count the test
+# reports in its VOCELLO-BENCH-UI-MANIFEST line (clone cells are skipped when no
+# saved voice exists on the device — enroll one on the phone; the mic is NOT
+# available through iPhone Mirroring).
+# Prereqs: all three Speed models installed (custom+design+clone by default).
+cmd_bench_ui() {
+  require_team
+  local modes="custom,design,clone" lengths="short,medium,long" warm=3 label=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --modes) modes="${2:-}"; shift 2 ;;
+      --modes=*) modes="${1#*=}"; shift ;;
+      --lengths) lengths="${2:-}"; shift 2 ;;
+      --lengths=*) lengths="${1#*=}"; shift ;;
+      --warm) warm="${2:-3}"; shift 2 ;;
+      --warm=*) warm="${1#*=}"; shift ;;
+      --label) label="${2:-}"; shift 2 ;;
+      --label=*) label="${1#*=}"; shift ;;
+      *) die "unknown bench-ui flag: $1 (try --modes, --lengths, --warm, --label)" ;;
+    esac
+  done
+
+  ensure_device_ready
+  local dev; dev="$(resolve_device)"
+  local run_id="ios-bench-ui-$(date +%Y%m%d-%H%M%S)"
+  local out_dir="$ROOT_DIR/build/ios/bench-ui-$run_id"
+  mkdir -p "$out_dir"
+  local log="$out_dir/bench-ui.log"
+
+  note "bench-ui: matrix modes=$modes lengths=$lengths warm=$warm runID=$run_id"
+  _ui_test_build_for_testing "$dev"
+  note "installing host app before XCUITest attach"
+  xcrun devicectl device install app --device "$dev" "$APP_PATH"
+
+  # TEST_RUNNER_-prefixed env reaches the on-device runner process.
+  export TEST_RUNNER_QVOICE_IOS_BENCH_RUN_ID="$run_id"
+  export TEST_RUNNER_QVOICE_IOS_BENCH_MODES="$modes"
+  export TEST_RUNNER_QVOICE_IOS_BENCH_LENGTHS="$lengths"
+  export TEST_RUNNER_QVOICE_IOS_BENCH_WARM="$warm"
+
+  set +e
+  _run_ui_test_once "$dev" "$log" -only-testing:"VocelloiOSUITests/VocelloiOSBenchUITests/testFullMatrix"
+  local test_status=$?
+  set -e
+  unset TEST_RUNNER_QVOICE_IOS_BENCH_RUN_ID TEST_RUNNER_QVOICE_IOS_BENCH_MODES \
+        TEST_RUNNER_QVOICE_IOS_BENCH_LENGTHS TEST_RUNNER_QVOICE_IOS_BENCH_WARM
+
+  if (( test_status != 0 )); then
+    warn "bench-ui XCUITest exited $test_status — device state: $(probe_device_state 2>/dev/null || echo unknown)"
+  fi
+
+  # The manifest line is the authoritative take count (accounts for skipped clone).
+  local ran
+  ran="$(grep -oE 'VOCELLO-BENCH-UI-MANIFEST ran=[0-9]+' "$log" | tail -1 | grep -oE '[0-9]+' || true)"
+  [[ -n "$ran" ]] || die "bench-ui: no manifest line in the test log — the matrix never ran (see $log)"
+  note "bench-ui: test reported $ran takes"
+
+  local dest="$ROOT_DIR/build/ios-diagnostics"
+  rm -rf "$dest"
+  cmd_pull "$dest" >/dev/null || die "could not pull diagnostics after bench-ui"
+  local diag="$dest"
+  local engine_jsonl; engine_jsonl="$(find "$dest" -path '*/engine/generations.jsonl' 2>/dev/null | head -1)"
+  [[ -n "$engine_jsonl" ]] && diag="$(dirname "$(dirname "$engine_jsonl")")"
+
+  note "── telemetry summary (engine decode / RTF / audioQC / RAM) ──"
+  python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$diag" \
+    ${label:+--label "$label"} >&2 || warn "summarizer found no engine rows"
+
+  note "── bench-ui gate ──"
+  local gate_status=0
+  python3 "$ROOT_DIR/scripts/check_ios_ui_bench.py" "$diag" \
+    --run-id "$run_id" --expected "$ran" | tee "$out_dir/gate.log" || gate_status=1
+
+  if (( test_status != 0 || gate_status != 0 )); then
+    warn "bench-ui FAIL (xcodebuild=$test_status gate=$gate_status) · $out_dir"
+    return 1
+  fi
+  note "bench-ui PASS · $out_dir"
 }
 
 UI_TEST_DEFAULT_CLASSES=(
@@ -1364,6 +1450,7 @@ main() {
     shot)    cmd_shot "$@" ;;
     pull)    cmd_pull "$@" ;;
     bench)   cmd_bench "$@" ;;
+    bench-ui) cmd_bench_ui "$@" ;;
     ui-test) cmd_ui_test "$@" ;;
     crashes) cmd_crashes "$@" ;;
     debug)   cmd_debug "$@" ;;

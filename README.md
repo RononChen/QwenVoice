@@ -131,6 +131,7 @@ Useful checks:
 scripts/macos_test.sh models ensure   # one-time Speed model for macOS UI/bench tests
 scripts/macos_test.sh test            # macOS UI smoke (12 tests; -only-testing scoped via script)
 scripts/ios_device.sh ui-test         # on-device iOS UI-flow smoke (requires paired iPhone)
+scripts/ios_device.sh bench-ui        # on-device full-matrix benchmark driven through the real UI
 scripts/ios_device.sh device-state    # interference probe: phone-in-use / call / mirror state
 scripts/ios_device.sh gate            # iOS pre-merge gate (tests + headless generation + crash check)
 ```

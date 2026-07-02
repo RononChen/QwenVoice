@@ -192,6 +192,10 @@ xcodebuild test -project QwenVoice.xcodeproj -scheme QwenVoice \
 # iOS — ON-DEVICE ONLY (paired iPhone; never the iOS Simulator)
 scripts/ios_device.sh preflight          # readiness: mirror+device+signing+app+dSYM
 scripts/ios_device.sh bench [spec]       # build → install → autorun → pull → summarize
+scripts/ios_device.sh bench-ui [--modes …] [--lengths …] [--warm N] [--label …]
+                                         # full-matrix UI-DRIVEN bench (VocelloiOSBenchUITests;
+                                         # gate: scripts/check_ios_ui_bench.py; clone cells need a
+                                         # saved voice enrolled ON the phone)
 scripts/ios_device.sh ui-test|test       # VocelloiOSUITests on device
 scripts/ios_device.sh profile [spec]     # Instruments/xctrace trace
 scripts/ios_device.sh review [--baseline]# UI capture tour + baseline diff
@@ -348,6 +352,9 @@ the relevant role file path and the task; the subagent should read the role file
 - **iOS UI tests** (`VocelloiOSUITests`) — **paired physical iPhone only** via
   `scripts/ios_device.sh`. Default gate: Smoke + Sheet + OnDeviceDownload; add `--cold` for
   ColdGeneration (needs Speed model on device). GitHub CI runs compile-only for iOS.
+- **iOS UI-driven bench** — `scripts/ios_device.sh bench-ui` runs `VocelloiOSBenchUITests`
+  (full matrix through the real Studio UI; gate `scripts/check_ios_ui_bench.py`). Step-by-step
+  procedure for both platforms' UI benches: `docs/reference/testing-runbook.md` §3b.
 - **Compile-safety:** `scripts/build_foundation_targets.sh macos|ios`.
 - **Perf/quality gate:** the `vocello` CLI benchmark plus telemetry summarizer:
   ```sh

@@ -133,7 +133,10 @@ final class AppGenerationTimeline {
             MacUITestSurfaceMarkers.markGenerationComplete(id: id)
         }
         let appSupportDirectory = AppPaths.appSupportDir
-        Task.detached(priority: .background) {
+        // .utility, not .background: under bench load a .background write can be
+        // starved long enough for the app to be relaunched first (audit J1),
+        // permanently losing the app-layer row.
+        Task.detached(priority: .utility) {
             await GenerationTelemetryJSONLSink.shared.write(
                 record: record,
                 appSupportDirectory: appSupportDirectory,

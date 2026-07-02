@@ -20,6 +20,14 @@ XcodeBuildMCP simulator tools, or Axiom `xcui` / simulator-tester for iOS work.
   launches the real engine once per session for `Smoke`, `Sheet`, and `ReviewTour`.
 - **Cold / download** — `ColdGeneration` and `OnDeviceDownload` self-launch their own
   `XCUIApplication` when they need a fresh instance or download-specific setup.
+- **UI bench** — `VocelloiOSBenchUITests` (full matrix through the real Studio UI) runs
+  ONLY via `scripts/ios_device.sh bench-ui`; gate `scripts/check_ios_ui_bench.py`. Its
+  corpus must stay IDENTICAL to `BenchMatrixSpec.corpus`. Debug hooks
+  (`iosStudio_lastGenerationComplete` / `iosStudio_generationError` /
+  `iosStudio_benchClearScript`) live in
+  [`IOSStudioBenchHooks`](mdc:Sources/iOS/Studio/IOSStudioBenchHooks.swift), active only
+  under `QWENVOICE_UI_TEST_HOOKS=1`. Clone cells need a saved voice enrolled ON the
+  phone — the iPhone mic is unavailable through iPhone Mirroring.
 
 Default device gate (`scripts/ios_device.sh test`): Smoke + Sheet + OnDeviceDownload.
 Add `--cold` for `ColdGeneration` (needs Speed model on device).

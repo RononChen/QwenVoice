@@ -45,5 +45,10 @@ struct StudioScreen: View {
             voiceCloningDraft: $appModel.voiceCloningDraft,
             pendingVoiceCloningHandoff: $appModel.pendingVoiceCloningHandoff
         )
+        .overlay(alignment: .topLeading) {
+            if IOSStudioBenchHooks.isEnabled {
+                IOSStudioBenchHooks()
+            }
+        }
     }
 }

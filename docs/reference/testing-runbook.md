@@ -76,6 +76,65 @@ scripts/ios_device.sh test --cold         # ColdGeneration (needs Speed model on
 scripts/ios_device.sh gate                # pre-merge gate (device)
 ```
 
+## 3b. UI-driven benchmark lanes — step-by-step (any agent can run these)
+
+Both platforms have a **full-matrix benchmark driven through the real UI** (XCUITest taps
+the actual mode segments, composer, and Generate button; the engine's durable telemetry is
+gated afterwards). Follow these procedures literally.
+
+### macOS: `scripts/macos_test.sh bench-ui`
+
+1. **Preconditions (all required):**
+   - Idle machine — `pgrep -x xcodebuild` must print nothing (a concurrent build
+     contaminates RTF).
+   - Models: `scripts/macos_test.sh models ensure` once per machine.
+   - Unattended automation ready: `scripts/macos_test.sh uitest-doctor` reports Gates 1–3 OK.
+2. **Run:** `scripts/macos_test.sh bench-ui --label "<why-you-are-running>"`
+   (default 29-take matrix: custom/design/clone × short/medium/long, 1 cold + 3 warm;
+   scope down with `--modes custom --lengths medium --warm 1` for a smoke).
+   Duration ≈ 20 min full matrix. Do NOT touch the machine while it runs.
+3. **Verdict:** printed XPC gate — `expected=N engine=N service=N app=N merged=N` then
+   `PASS`/`FAIL`. Artifacts: `build/macos/bench-ui-<runID>/` (log, summary, verdict).
+4. **Triage:** missing service/app rows = audit J1 family (see
+   `docs/rescue-plan-progress.md` §3b). Frozen markers (`did not advance` in the log) =
+   `MacUITestSurfaceMarkers` observability. A take stuck on generate = check
+   `sidebar_backendStatus_error`/`_crashed` in the log, then `scripts/macos_test.sh crashes`.
+
+### iOS: `scripts/ios_device.sh bench-ui` (paired iPhone; NEVER the Simulator)
+
+1. **Preconditions (all required):**
+   - `scripts/ios_device.sh device-state` → `MIRROR_ACTIVE` (exit 0). Anything else:
+     fix per the printed advice (phone locked nearby, Mirroring resumed, no call).
+   - All three Speed models installed on the phone (Settings → Model Downloads):
+     Custom Voice, Voice Design, Voice Cloning. `scripts/ios_device.sh models check`.
+     Note: the `gate`'s OnDeviceDownload test UNINSTALLS Custom Voice — reinstall before
+     benching if a gate ran since the last install. Downloads are serial (queued), ~4 min each.
+   - Clone cells additionally need a **saved voice enrolled on the phone** (Voices →
+     Save a new voice, attended — the mic does not work through iPhone Mirroring).
+     Without one, clone cells are skipped automatically and the gate adjusts.
+   - Phone unlocked for the XCUITest attach (first run of the day may show the
+     passcode/automation prompt — human enters it).
+2. **Run:** `scripts/ios_device.sh bench-ui --label "<why>"` (same matrix semantics and
+   scoping flags as macOS). The driver builds, installs, runs
+   `VocelloiOSBenchUITests/testFullMatrix`, pulls diagnostics, summarizes, and gates.
+3. **Verdict:** `scripts/check_ios_ui_bench.py` prints per-cell rows + `PASS`/`FAIL`
+   against the take count the test itself reported (`VOCELLO-BENCH-UI-MANIFEST ran=N`
+   in the log). Artifacts: `build/ios/bench-ui-<runID>/` + `build/ios-diagnostics/`.
+4. **Triage:** install/attach errors (`CoreDeviceError 3002`, `Connection interrupted`) =
+   device unreachable/locked → re-check `device-state`, unlock, retry once. Take timeout =
+   read `iosStudio_generationError` in the log; model missing = `textInput_installModelButton`
+   assertion. Interference mid-run: the sentinel polls abort with the cause named.
+5. **Comparing numbers:** engine rows from `bench-ui` are like-for-like with
+   `ios_device.sh bench` (same `-Onone` build). Never compare against macOS or CLI lanes
+   (see `benchmarking-procedure.md` §7 like-for-like table).
+
+### Agent-driven exploratory UI QA (not a gate)
+
+Peekaboo (macOS app) and the Mirroring window recipes (iOS) remain for exploratory QA
+only — procedures in [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md); measurement always
+goes through `scripts/uitest_measure.sh`, never through screenshots alone. The iPhone
+mic is unavailable through Mirroring — recording/enroll flows are attended, on the phone.
+
 ### Compile-safety (fast, no run)
 ```sh
 scripts/build_foundation_targets.sh macos

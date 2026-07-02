@@ -7,15 +7,13 @@
 
 ## 1. Current state (2026-07-02, `main` @ 42aa64e+)
 
-
-
 ### Done and verified
 
 
 | Area                    | What landed                                                                                                                                                                                                        | Key commits          |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------- |
 | Visual regression net   | 8 macOS + 7 iOS review-baseline PNGs seeded (`docs/*-review-baselines/`); xcresult-attachment fallback in both review lanes                                                                                        | `6586592`            |
-| Measurement shell       | `scripts/uitest_measure.sh` (prep/finish, reset, smoke-check, bench-wait, verify-generation, streaming-preview-check, bench-compare) — validated live end-to-end                                                   | `6586592`, `b899d64` |
+| Measurement shell       | `scripts/uitest_measure.sh` (prep/finish, he click was me ignore reset, smoke-check, bench-wait, verify-generation, streaming-preview-check, bench-compare) — validated live end-to-end                            | `6586592`, `b899d64` |
 | Bench regression gating | `benchmarks/baselines/mac-gate-bench.json` + `benchmarks/baselines/full-matrix-speed.json`; `QWENVOICE_GATE_BENCH=1 macos_test.sh gate` compares and fails on >5% regression; summarizer RTF direction fixed       | `5b96bbf`, `846721f` |
 | Hardened gates          | New crashes during a gate run are gate-fatal (both platforms); iOS gate gained a headless generation step (design:speed — the download test uninstalls pro_custom BY DESIGN)                                       | `5b96bbf`            |
 | Agent-driven UI loop    | Peekaboo macOS generate loop verified (see pilot log §4); runbooks regenerated (`ui-test-surface.md` generated catalog + `ui-smoke-runbooks.md`)                                                                   | `b899d64`            |
@@ -25,8 +23,6 @@
 | Thermal policy          | `TTSEngineStore.startThermalObservation` — proactive warm blocked at serious/critical; generation never thermally blocked; `QVOICE_IOS_THERMAL_GATE=off`                                                           | `846721f`            |
 | UI P0/P1                | iOS batch REMOVED (decision) · tab lock RELAXED (decision) · ScrollView + Reduce Motion routing (iOS + macOS live re-read) · player scrubber/transcript VoiceOver ids · dead uiProfile fork removed                | `8b78470`, `e396b94` |
 | Decisions on record     | **1.7B variants only** (0.6B ruled out — Voice Design needs 1.7B) · iOS batch removed · tab lock relaxed · cold launch lands Studio→Custom                                                                         | `42aa64e`, `8f70f68` |
-
-
 
 
 ### Also done: AppModel migration Phases 3b/5/6 (landed in `0df766b` + `411ce84`)
@@ -61,11 +57,7 @@ Compile-verified (`build_foundation_targets.sh ios` BUILD SUCCEEDED). On-device
 | iPhone 17 Pro on-device | RTF 1.6–1.9, physFoot 2.4–3.3 GB, 0 trims | `docs/reference/ios-engine-optimization.md` §6      |
 
 
-
-
 ## 2. Remaining work — exact steps
-
-
 
 ### A. Attended-device items (need the human; do these first when the phone is available)
 
@@ -87,8 +79,6 @@ Compile-verified (`build_foundation_targets.sh ios` BUILD SUCCEEDED). On-device
 3. **mirroir tour** (after any Cursor restart): `~/.mirroir-mcp/settings.json` already
   maps the French window name. Run pilot log §5's tour; update
    `docs/reference/computer-use-mcp-pilot-log.md` §5 with results.
-
-
 
 ### B. XPC bench-ui merged-row follow-up (desk work, medium)
 
@@ -164,11 +154,40 @@ concurrency as a quick fix.
 - **Driving the mirrored phone from the Mac (attended installs):** peekaboo `see`
 cannot map elements inside the Mirroring window (video stream, no AX tree). See via
 `screencapture -x -o -l $(swift scripts/lib/mirror_state_ocr.swift window-id)`, then
-peekaboo `click` with screen coords (window origin/size from peekaboo `see
-PID:<mirroring-pid>`; screenshot px = 2× window points). Focus the app first
+peekaboo `click` with screen coords (window origin/size from peekaboo `see PID:<mirroring-pid>`; screenshot px = 2× window points). Focus the app first
 (`app focus`); a paused mirror shows "Connexion en pause" — click Reprendre to resume.
+- **The iPhone MICROPHONE is unavailable through iPhone Mirroring** ("Le micro de
+l'iPhone n'est pas disponible à partir du Mac", verified 2026-07-02). Voice
+recording/enrollment is NOT broken in the app — it works when operated directly on the
+phone (maintainer-confirmed same day). Never triage recording as an app defect from a
+mirror session, and never drive record/enroll flows via the mirror; that step is
+attended, on the physical phone.
 
+## 3b. Active work (2026-07-02 afternoon)
 
+- **iOS gate: PASS** (all 4 steps; all three Speed models installed on the phone).
+  iOS single-take benches green: custom RTF 1.89 / design 1.99 / clone 1.68, physFoot
+  2.4–3.2 GB, 0 trims, QC pass. Design dropout did NOT reproduce; the perceptual
+  listening pass on the History takes is still owed by the maintainer.
+- **"Recording broken" report RESOLVED — not an app defect.** The mic is unavailable
+  through iPhone Mirroring (see guardrail above); works on the physical phone.
+- **iOS UI-driven bench (`ios_device.sh bench-ui`) — NEW, shakeout in progress.**
+  Parts: `VocelloiOSBenchUITests` (matrix driver; corpus must stay identical to
+  `BenchMatrixSpec.corpus`), `IOSStudioBenchHooks` (env-gated markers + hidden
+  clear-script button), driver verb in `ios_device.sh`, gate
+  `scripts/check_ios_ui_bench.py` (expected count comes from the test's
+  `VOCELLO-BENCH-UI-MANIFEST ran=N` line — clone cells skip without a saved voice).
+  Shakeout command: `scripts/ios_device.sh bench-ui --modes custom --lengths short
+  --warm 1 --label shakeout`. If takes fail: check the marker ids exist (hooks env),
+  the keyboard-dismiss `\n` step, and `textInput_generateButton` hittability.
+- **macOS XPC bench-ui J1 — round 3 pending verification.** Round 1: per-take flush
+  wait (was matching the previous take). Round 2: `MacUITestSurfaceMarkers` made
+  `@Observable` (plain statics never invalidated SwiftUI, markers were frozen at
+  "none"). Round 3 (uncommitted with 1+2): merger poll 3 s → 15 s + `.utility`
+  priority for merger and app-layer JSONL write (background-priority writes were
+  starved past the relaunch under bench load; takes #10/#29 — the two takes followed
+  by a relaunch/terminate — lost their app/service rows twice in a row). Verify:
+  `scripts/macos_test.sh bench-ui --label j1-verify` → expect 29/29/29/29 gate PASS.
 
 ## 4. Where everything lives (quick index)
 
