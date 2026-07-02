@@ -27,15 +27,26 @@
 | UI P0/P1 | iOS batch REMOVED (decision) · tab lock RELAXED (decision) · ScrollView + Reduce Motion routing (iOS + macOS live re-read) · player scrubber/transcript VoiceOver ids · dead uiProfile fork removed | `8b78470`, `e396b94` |
 | Decisions on record | **1.7B variants only** (0.6B ruled out — Voice Design needs 1.7B) · iOS batch removed · tab lock relaxed · cold launch lands Studio→Custom | `42aa64e`, `8f70f68` |
 
-### In flight
+### Also done: AppModel migration Phases 3b/5/6 (landed in `0df766b` + `411ce84`)
 
-- **AppModel migration Phases 3b/5/6** — a subagent was implementing this
-  (honest-comment-first approach; constraints: keep all accessibilityIdentifiers,
-  IOSScrollView, iosAppAnimation, compile with `build_foundation_targets.sh ios`).
-  **If its work is uncommitted when you read this:** `git status`; if clean, check
-  whether AppModel.swift still carries "Phase 5/6 not started" comments — if so the
-  work was lost; re-run it with the same constraints or descope to honest comment
-  updates. Verify with the iOS foundation compile + `scripts/ios_device.sh test`.
+All migration phase comments in `Sources/iOS/App/AppModel.swift` now read
+"complete-as-designed" — that is the final architecture, not a TODO:
+
+- **3b:** engine calls deliberately stay in the per-mode views (they need four
+  environment-owned stores that predate `AppModel`); shared cancel lives in
+  `IOSStudioGenerationActions`.
+- **5:** no `presentedSheet` enum (surfaces have different payloads/hosting);
+  the real fix was pairing the delete-model sheet with the focus backdrop via
+  `AppModel.presentDeleteModelSheet/dismissDeleteModelSheet`. System modals
+  (fileImporter/alerts/dialogs) intentionally remain local `@State`.
+- **6:** `HistoryScreen`/`SettingsScreen` own their bodies; `IOSLibraryViews.swift`
+  and `IOSSettingsContainerView` deleted (the Voices-library branch was dead code —
+  live Voices tab is `IOSVoicesView`). All protected identifiers survive verbatim
+  (`docs/reference/ui-test-surface.md` regenerated); the only removed ids were the
+  dead branch's `savedVoiceMenu_*`/`savedVoiceDeleteConfirm_*`, unreferenced by tests.
+
+Compile-verified (`build_foundation_targets.sh ios` BUILD SUCCEEDED). On-device
+`scripts/ios_device.sh test` NOT yet run post-migration — fold into step A1 below.
 
 ### Current performance reference (like-for-like lanes — NEVER mix)
 
