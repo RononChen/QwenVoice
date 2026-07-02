@@ -325,9 +325,15 @@ Vocello's default talker KV cache is unbounded `KVCacheSimple` in fp16. Two alte
 
 Neither is shipped on any tier because the iOS streaming peak is already ~3 GB and 0 trims.
 
-### 7.6 The 0.6B variant
+### 7.6 The 0.6B variant — ruled out
 
-Because 1.7B-4bit backend speed is bounded by GPU compute and launch overhead, the realistic path to better iPhone RTF is evaluating the smaller **0.6B Qwen3-TTS** variant. It is verified but unlisted in the current contract. A future evaluation must measure RTF, memory, and quality against the 1.7B Speed baseline.
+The smaller **0.6B Qwen3-TTS** variant was considered as the next iPhone RTF/footprint
+lever but **ruled out by maintainer decision (2026-07-02)**: Voice Design is only
+available on the 1.7B model, and Vocello ships one model family (1.7B Speed 4-bit /
+Quality 8-bit) across all three modes. It is off the roadmap — do not re-open without
+a new maintainer decision. iPhone speed work targets the 1.7B variants only
+(benchmark-gated mlx-swift bumps, kernel-level work — see
+[`ios-engine-optimization.md`](ios-engine-optimization.md) §9).
 
 ---
 
