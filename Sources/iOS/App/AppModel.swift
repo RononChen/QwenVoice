@@ -33,16 +33,27 @@ struct IOSBottomPanelPresentation: Identifiable {
 /// `ObservableObject` on iOS 17+, and pair with `@Bindable` when a child
 /// view needs to write back. Anything passed by value stays a `let`.
 ///
-/// Phases that consume this model:
-/// - Phase 2 (this one): tab, studioMode, drafts, onboarding gate,
-///   player sheet item. Existing screen containers still own the
-///   downstream flows; AppModel is the new source of truth for the
-///   pieces shared across them.
-/// - Phase 3: per-mode generation state (`StudioGenerationCoordinator`)
-///   becomes an Observable property here.
-/// - Phase 5: sheet presentation state (delivery / voice / reference /
-///   model install / delete model) collapses into one
-///   `presentedSheet` enum on this model.
+/// Migration status (all phases complete, 2026-07):
+/// - Phase 2: tab, studioMode, drafts, onboarding gate, player sheet
+///   item live here; screens read `@Environment(AppModel.self)`.
+/// - Phase 3b: per-mode generation lifecycle state lives in the three
+///   `StudioGenerationCoordinator` instances below. The engine call
+///   (`ttsEngine.generate`) intentionally stays in the per-mode views —
+///   see the coordinator section comment. Complete as designed.
+/// - Phase 5: presentation state is centralized on this model as three
+///   typed surfaces rather than one `presentedSheet` enum:
+///   `playerSheetItem` (system sheet), `deleteModelSheetItem` and
+///   `bottomPanelItem` (edge-to-edge overlays hosted by `RootView` at
+///   fixed z-order). Every custom overlay presents/dismisses through
+///   the `present…`/`dismiss…` methods below so the focus-backdrop flag
+///   can never desync from the item. A single enum was rejected: the
+///   payloads and hosting differ per surface, so merging them would
+///   churn call sites without removing any dismiss/race path.
+///   System-modal presentations (fileImporter, alerts, confirmation
+///   dialogs, the save-voice sheet, recorder fullScreenCovers) stay as
+///   local `@State` in their owning views — SwiftUI presents them
+///   modally above the app, so they cannot race the AppModel overlays.
+///   Complete as designed.
 @MainActor
 @Observable
 final class AppModel {
@@ -102,14 +113,21 @@ final class AppModel {
     /// blurred/dimmed, matching the reference backdrop-filter focus layer.
     var isFocusBackdropPresented: Bool = false
 
-    // MARK: - Studio generation coordinators (Phase 3b)
+    // MARK: - Studio generation coordinators (Phase 3b — complete as designed)
 
     /// Per-mode generation lifecycle. Per-mode views read state via
     /// `appModel.coordinator(for: .custom)` instead of holding their
     /// own scattered `@State` for `isGenerating`, `errorMessage`, and
     /// `lastCompletedOutput`. The actual engine call (`ttsEngine.generate`)
-    /// still lives in the view body because it has to assemble
-    /// mode-specific payloads from drafts + speakers + delivery.
+    /// deliberately stays in the per-mode views: it assembles
+    /// mode-specific payloads from the drafts plus environment-owned
+    /// stores (`TTSEngineStore`, `AudioPlayerViewModel`,
+    /// `ModelManagerViewModel`, `SavedVoicesViewModel`) that exist only
+    /// in the SwiftUI environment. Hoisting it into the coordinators
+    /// would mean injecting those app-lifetime objects into `AppModel`
+    /// (constructed before the environment exists) for no behavioral
+    /// gain; the shared cancel path already lives in
+    /// `IOSStudioGenerationActions`.
     let customCoordinator = StudioGenerationCoordinator(mode: .custom)
     let designCoordinator = StudioGenerationCoordinator(mode: .design)
     let cloneCoordinator = StudioGenerationCoordinator(mode: .clone)
@@ -120,6 +138,16 @@ final class AppModel {
         case .design: return designCoordinator
         case .clone: return cloneCoordinator
         }
+    }
+
+    func presentDeleteModelSheet(_ item: IOSDeleteModelSheetPresentation) {
+        isFocusBackdropPresented = true
+        deleteModelSheetItem = item
+    }
+
+    func dismissDeleteModelSheet() {
+        deleteModelSheetItem = nil
+        isFocusBackdropPresented = false
     }
 
     func presentBottomPanel(

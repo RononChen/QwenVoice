@@ -11,9 +11,10 @@ import QwenVoiceCore
 /// - Custom `TabDock` at the bottom (no native `TabView`; the design
 ///   uses a mode-tinted glass dock that doesn't fit `Tab` API).
 ///
-/// Each tab still delegates to its current screen container for Phase
-/// 2. Phases 3–5 will progressively replace those bodies with the new
-/// screens (StudioScreen, VoicesScreen, HistoryScreen, SettingsScreen).
+/// Each tab routes to its dedicated screen (StudioScreen, VoicesScreen,
+/// HistoryScreen, SettingsScreen); those screens own their bodies
+/// directly — the legacy per-tab container indirection is gone
+/// (AppModel migration Phases 2–6, see `AppModel`'s type comment).
 struct RootView: View {
     @Environment(AppModel.self) private var appModel
     @Environment(\.scenePhase) private var scenePhase
@@ -216,8 +217,7 @@ struct RootView: View {
     }
 
     private func dismissDeleteModelSheet() {
-        appModel.deleteModelSheetItem = nil
-        appModel.isFocusBackdropPresented = false
+        appModel.dismissDeleteModelSheet()
     }
 
     private func dismissBottomPanel() {

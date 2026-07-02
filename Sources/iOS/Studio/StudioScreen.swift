@@ -16,12 +16,16 @@ import QwenVoiceCore
 ///   │   dock area (CTA / gen / player)
 ///   └─────────────────────────────┘
 ///
-/// Phase 3a — keeps the existing per-mode views (`IOSCustomVoiceView`,
-/// `IOSVoiceDesignView`, `IOSVoiceCloningView`) as the owners of the
-/// generation lifecycle. They render `IOSStudioCanvas` internally with
-/// the right chip configuration. Future work (Phase 3b) extracts the
-/// generation state into an `@Observable StudioGenerationCoordinator`
-/// so the per-mode views collapse into a single `StudioBody`.
+/// Phase 3 (complete as designed) — the per-mode views
+/// (`IOSCustomVoiceView`, `IOSVoiceDesignView`, `IOSVoiceCloningView`)
+/// render `IOSStudioCanvas` internally with the right chip
+/// configuration. Their UI-visible generation lifecycle state lives on
+/// `AppModel`'s per-mode `StudioGenerationCoordinator`s (Phase 3b); the
+/// engine-call assembly deliberately stays in the per-mode views
+/// because each builds a mode-specific payload from its draft plus
+/// environment-owned stores. Collapsing them into a single `StudioBody`
+/// was evaluated and rejected — it would trade three straightforward
+/// views for one view with three-way branching everywhere.
 ///
 /// The prefetch coordinator and engine signposts continue to live in
 /// the existing per-mode bodies. `RootView` owns the bottom chrome,

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import QwenVoiceCore
 
 /// Top-level Settings tab entry point. Reads/writes `AppModel`
@@ -9,16 +10,250 @@ import QwenVoiceCore
 /// autoplay toggle, storage row, Reduce Motion / Reduce Transparency
 /// rows linking to iOS Settings, version footer.
 ///
-/// The actual rendering still lives in the legacy
-/// `IOSSettingsContainerView`; Phase 6 lifts the body into a
-/// dedicated `SettingsView` and wires the `IOSDeleteModelSheet`
-/// flow that was deferred from Track M.
+/// Phase 6: this screen owns the Settings body directly; the legacy
+/// `IOSSettingsContainerView` / `IOSSettingsView` indirection is gone.
+/// The reusable row/section primitives (`IOSSettingsReferenceSection`,
+/// `IOSModelRow`, …) live in `IOSSettingsViews.swift`.
 struct SettingsScreen: View {
     @Environment(AppModel.self) private var appModel
+    @EnvironmentObject private var modelManager: ModelManagerViewModel
+    @EnvironmentObject private var modelInstaller: IOSModelInstallerViewModel
+    @Environment(\.openURL) private var openURL
+
+    @AppStorage("autoPlay") private var autoPlay = true
+    @AppStorage(IOSGenerationVariationPreference.key) private var generationVariation = IOSGenerationVariationPreference.defaultValue
+    @AppStorage(IOSAppDefaults.reduceMotionEnabledKey) private var reduceMotionEnabled = false
+    @AppStorage(IOSAppDefaults.reduceTransparencyEnabledKey) private var reduceTransparencyEnabled = false
+    // Drives the "Saved outputs" row value reactively (empty == internal "Keep in app (History)").
+    @AppStorage(IOSSavedOutputsDestination.displayNameKey) private var savedOutputsName = ""
+    @State private var isSavedOutputsDialogPresented = false
+    @State private var isFolderPickerPresented = false
+    @State private var modelPendingCancel: TTSModel? = nil
+
+    private var previewSettingsState: IOSPreviewSettingsState? {
+        IOSPreviewRuntime.current?.definition.settingsState
+    }
+
+    private var installedModelBytes: Int64 {
+        TTSModel.all.reduce(0) { total, model in
+            guard case let .installed(bytes) = effectiveStatus(for: model) else {
+                return total
+            }
+            return total + Int64(bytes)
+        }
+    }
+
+    private var storageSummaryText: String {
+        installedModelBytes > 0
+            ? "\(IOSSettingsFormatters.fileSize(installedModelBytes)) used"
+            : "0 GB used"
+    }
 
     var body: some View {
         @Bindable var appModel = appModel
 
-        IOSSettingsContainerView(selectedTab: $appModel.tab)
+        IOSStudioShellScreen(
+            selectedTab: $appModel.tab,
+            activeTab: .settings,
+            tint: IOSAppTab.settings.dockAccent(studioMode: .custom)
+        ) {
+            IOSScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    IOSSettingsReferenceSection(title: "Voice models") {
+                        ForEach(TTSModel.all) { model in
+                            IOSModelRow(
+                                model: model,
+                                status: effectiveStatus(for: model),
+                                operationState: effectiveOperationState(for: model),
+                                onInstall: { install(model) },
+                                onRequestCancelOptions: { requestCancelOptions(for: model) },
+                                onDirectCancel: { cancel(model) },
+                                onDelete: { delete(model) }
+                            )
+
+                            if model.id != TTSModel.all.last?.id {
+                                IOSSettingsReferenceDivider()
+                            }
+                        }
+                    }
+
+                    IOSSettingsReferenceSection(title: "Settings") {
+                        IOSSettingsReferenceToggleRow(
+                            symbol: "play.fill",
+                            title: "Autoplay after generate",
+                            accessibilityIdentifier: "iosSettings_autoPlayToggle",
+                            isOn: $autoPlay,
+                            tint: IOSBrandTheme.accent
+                        )
+
+                        IOSSettingsReferenceDivider()
+
+                        IOSSettingsVariationRow(selection: $generationVariation)
+
+                        IOSSettingsReferenceDivider()
+
+                        IOSSettingsReferenceValueRow(
+                            symbol: "bookmark",
+                            title: "Saved outputs",
+                            accessibilityIdentifier: "iosSettings_savedOutputsRow",
+                            value: savedOutputsName.isEmpty ? "Keep in app (History)" : savedOutputsName,
+                            showsChevron: true,
+                            action: { isSavedOutputsDialogPresented = true }
+                        )
+
+                        IOSSettingsReferenceDivider()
+
+                        IOSSettingsReferenceValueRow(
+                            symbol: "arrow.down.to.line",
+                            title: "Storage",
+                            accessibilityIdentifier: "iosSettings_storageRow",
+                            value: storageSummaryText,
+                            showsChevron: false
+                        )
+
+                        IOSSettingsReferenceDivider()
+
+                        IOSSettingsReferenceToggleRow(
+                            symbol: "sparkles",
+                            title: "Reduce Motion",
+                            accessibilityIdentifier: "iosSettings_reduceMotionToggle",
+                            isOn: $reduceMotionEnabled,
+                            tint: IOSBrandTheme.accent
+                        )
+
+                        IOSSettingsReferenceDivider()
+
+                        IOSSettingsReferenceToggleRow(
+                            symbol: "lock.fill",
+                            title: "Reduce Transparency",
+                            accessibilityIdentifier: "iosSettings_reduceTransparencyToggle",
+                            isOn: $reduceTransparencyEnabled,
+                            tint: IOSBrandTheme.accent
+                        )
+                    }
+
+                    IOSSettingsReferenceSection(title: "About") {
+                        IOSSettingsReferenceValueRow(
+                            symbol: "hand.raised.fill",
+                            title: "Privacy Policy",
+                            accessibilityIdentifier: "iosSettings_privacyPolicyRow",
+                            value: "",
+                            showsChevron: true,
+                            action: { open("https://vocello.vercel.app/privacy") }
+                        )
+
+                        IOSSettingsReferenceDivider()
+
+                        IOSSettingsReferenceValueRow(
+                            symbol: "chevron.left.forwardslash.chevron.right",
+                            title: "Open source & licenses",
+                            accessibilityIdentifier: "iosSettings_openSourceRow",
+                            value: "",
+                            showsChevron: true,
+                            action: { open("https://github.com/PowerBeef/QwenVoice") }
+                        )
+
+                        IOSSettingsReferenceDivider()
+
+                        // Permission recovery: mic / speech access is requested in-flow;
+                        // if denied, this is the path back without leaving the app guessing.
+                        IOSSettingsReferenceValueRow(
+                            symbol: "gearshape.fill",
+                            title: "Open iOS Settings",
+                            accessibilityIdentifier: "iosSettings_openIOSSettingsRow",
+                            value: "Permissions",
+                            showsChevron: true,
+                            action: { open(UIApplication.openSettingsURLString) }
+                        )
+                    }
+
+                    IOSSettingsBrandFooter()
+                }
+                // Extra bottom padding so the bottom-most section clears
+                // the TabDock's gradient fade in RootView.
+                .padding(.bottom, 90)
+            }
+        }
+        .toolbar(.hidden, for: .navigationBar)
+        .task {
+            await modelManager.refresh()
+        }
+        .confirmationDialog(
+            "Saved outputs",
+            isPresented: $isSavedOutputsDialogPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Keep in app (History)") { IOSSavedOutputsDestination.clearFolder() }
+            Button("Choose a Folder…") { isFolderPickerPresented = true }
+        } message: {
+            Text("Generated clips are always kept on this iPhone for History. Optionally also copy each new clip to a folder you choose — Files or iCloud Drive.")
+        }
+        .confirmationDialog(
+            "Cancel download?",
+            isPresented: Binding(
+                get: { modelPendingCancel != nil },
+                set: { isPresented in
+                    if !isPresented { modelPendingCancel = nil }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let model = modelPendingCancel {
+                Button("Cancel Download", role: .destructive) {
+                    cancel(model)
+                    modelPendingCancel = nil
+                }
+                .accessibilityIdentifier("iosModelCancelDownloadConfirmButton")
+                Button("Keep Download", role: .cancel) {
+                    modelPendingCancel = nil
+                }
+            }
+        } message: {
+            Text("Canceling removes the downloaded data. You can download it again from scratch.")
+        }
+        .fileImporter(
+            isPresented: $isFolderPickerPresented,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false
+        ) { result in
+            guard case let .success(urls) = result, let url = urls.first else { return }
+            try? IOSSavedOutputsDestination.setFolder(url)
+        }
+    }
+
+    private func effectiveOperationState(for model: TTSModel) -> IOSModelInstallerViewModel.OperationState {
+        if let previewState = previewSettingsState?.sample(for: model)?.operationState {
+            return previewState
+        }
+
+        return modelInstaller.state(for: model)
+    }
+
+    private func effectiveStatus(for model: TTSModel) -> ModelManagerViewModel.ModelStatus {
+        previewSettingsState?.sample(for: model)?.status
+            ?? modelManager.statuses[model.id]
+            ?? .checking
+    }
+
+    private func open(_ urlString: String) {
+        guard let url = URL(string: urlString) else { return }
+        openURL(url)
+    }
+
+    private func install(_ model: TTSModel) {
+        modelInstaller.install(model)
+    }
+
+    private func requestCancelOptions(for model: TTSModel) {
+        IOSHaptics.selection()
+        modelPendingCancel = model
+    }
+
+    private func cancel(_ model: TTSModel) {
+        modelInstaller.cancel(model)
+    }
+
+    private func delete(_ model: TTSModel) {
+        modelInstaller.delete(model)
     }
 }

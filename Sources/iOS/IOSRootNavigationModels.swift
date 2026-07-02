@@ -10,31 +10,6 @@ enum IOSAppTab: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-enum IOSLibrarySection: String, CaseIterable, Identifiable {
-    case history
-    case voices
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .history:
-            return "History"
-        case .voices:
-            return "Voices"
-        }
-    }
-
-    var selectionTint: Color {
-        switch self {
-        case .history:
-            return IOSBrandTheme.library
-        case .voices:
-            return IOSBrandTheme.library
-        }
-    }
-}
-
 enum IOSGenerationSection: String, CaseIterable, Identifiable {
     case custom
     case design

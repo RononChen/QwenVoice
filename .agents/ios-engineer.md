@@ -26,7 +26,7 @@
 Before changing iOS UI or behavior, read:
 1. `docs/reference/ios-app-guide.md` — app map + how to drive it in tests.
 2. `docs/reference/ios-device-testing.md` §3 — on-device lanes and burn-in safety.
-3. `docs/ARCHITECTURE.md` §6 — iOS request lifecycle, cooperative cancel, batch semantics, memory posture.
+3. `docs/ARCHITECTURE.md` §6 — iOS request lifecycle, cooperative cancel, memory posture (batch was removed from iOS 2026-07-02).
 4. `docs/reference/ios-engine-optimization.md` if the change affects generation performance or memory.
 
 ## Tools and skills (Cursor)
@@ -76,8 +76,7 @@ scripts/ios_device.sh gate
   transparency is enabled.
 - **`increased-memory-limit` entitlement.** Required for model load headroom. Do not remove.
 - **Supported hardware gate.** `IOSDeviceSupport.isSupportedHardware` enforces iPhone 15 Pro+.
-- **Batch = sequential streaming.** `IOSBatchGenerationCoordinator` streams each line to keep
-  per-item peak flat; the model stays warm across items within the idle-unload window.
+- **No batch on iOS** (removed 2026-07-02, maintainer decision — dead UI, native engine unsupported, Jetsam risk; macOS batch unaffected). Re-adding requires a sequential-streaming design validated on device.
 - **Clone load profile.** Respect `.fullCapabilities` vs `.iOSProductionDefault`
   (`.withoutCloneEncoders`) depending on the entitled memory limit.
 - **`accessibilityIdentifier`s are stable.** Values like `voicesRow_*`, `textInput_*`,

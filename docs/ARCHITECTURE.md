@@ -448,12 +448,12 @@ distinct type from the macOS one) that wraps the in-process `MLXTTSEngine`.
 sequenceDiagram
     autonumber
     participant V as SwiftUI View (Studio)
-    participant C as StudioGenerationCoordinator<br/>/ IOSBatchGenerationCoordinator
+    participant C as StudioGenerationCoordinator
     participant S as TTSEngineStore<br/>(Sources/iOS)
     participant E as MLXTTSEngine<br/>(in-process, QwenVoiceCore)
     participant P as GenerationPersistence
 
-    V->>C: start / batch
+    V->>C: start
     C->>S: generate(request)
     S->>E: generate(request) (same process)
     E-->>S: GenerationEvent stream (.bufferingNewest(64))
@@ -467,11 +467,18 @@ iOS casts the engine to capability protocols at runtime
 (`TTSEngineRuntimeControlling`, `NativeMemoryReporting`) rather than depending on a
 concrete type. Key iOS behaviors:
 
-- **Batch = sequential streaming** (`IOSBatchGenerationCoordinator`): each line
-  is generated with `shouldStream: true` so per-item peak stays flat; the model
-  stays warm across items within the idle-unload window. Headless/bench mode
-  toggles `AudioPlayerViewModel.batchSuppression` to drop chunks.
+- **No batch on iOS** (removed 2026-07-02, maintainer decision): the affordance was
+  dead UI (`onBatch` nil everywhere; native engine unsupported, Jetsam risk).
+  `IOSBatchSheet` + `IOSBatchGenerationCoordinator` deleted; macOS batch unaffected.
+  If batch returns it must be sequential streaming, validated on device.
 - **Cooperative cancel**: results are discarded on `Task.isCancelled`.
+- **Thermal gate** (2026-07-02): `TTSEngineStore.startThermalObservation` records
+  thermal transitions and blocks PROACTIVE warm work (prewarm/clone priming) at
+  serious/critical; generation is never thermally blocked
+  (`QVOICE_IOS_THERMAL_GATE=off` escape hatch).
+- **Interruption recorder** (2026-07-02): `IOSInterruptionRecorder` (CXCallObserver +
+  UIApplication lifecycle) runs during autorun only; events land in the bench
+  sentinel as `interruptions` so doomed runs self-report calls/backgrounding.
 - **Memory posture**: `.iPhonePro` policy; `Qwen3TTSMemoryCaches.clearAll()` on
   hard-trim/unload/failure (macOS preserves cache warmth).
 - **Clone load profile**: `.fullCapabilities` vs `.iOSProductionDefault`
