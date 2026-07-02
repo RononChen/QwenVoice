@@ -2,14 +2,20 @@ import AppKit
 import SwiftUI
 
 struct AppLaunchConfiguration {
-    let animationsEnabled: Bool
+    /// Live read (2026-07-02): honors a mid-session Reduce Motion toggle immediately.
+    /// `accessibilityDisplayShouldReduceMotion` is a cheap workspace property — no
+    /// caching needed, and the old launch-only snapshot ignored System Settings
+    /// changes until restart.
+    var animationsEnabled: Bool {
+        overriddenAnimationsEnabled ?? !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    private let overriddenAnimationsEnabled: Bool?
 
     static let current = AppLaunchConfiguration()
 
-    /// Resolved once at launch, like the rest of this configuration —
-    /// Reduce Motion is honored on the next launch if toggled mid-session.
-    init(animationsEnabled: Bool = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion) {
-        self.animationsEnabled = animationsEnabled
+    init(animationsEnabled: Bool? = nil) {
+        self.overriddenAnimationsEnabled = animationsEnabled
     }
 
     var initialSidebarItem: SidebarItem? {

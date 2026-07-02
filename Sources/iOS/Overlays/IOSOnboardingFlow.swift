@@ -114,7 +114,7 @@ struct IOSOnboardingFlow: View {
     private func handleCTA() {
         IOSHaptics.impact(.light)
         if page < totalPages - 1 {
-            withAnimation(IOSDesignMotion.sheetReveal) {
+            IOSAccessibleAnimation.perform(IOSDesignMotion.sheetReveal) {
                 page += 1
             }
         } else {
@@ -125,7 +125,7 @@ struct IOSOnboardingFlow: View {
     private func complete() {
         IOSAppDefaults.hasCompletedOnboarding = true
         IOSHaptics.success()
-        withAnimation(IOSDesignMotion.sheetSlideUp) {
+        IOSAccessibleAnimation.perform(IOSDesignMotion.sheetSlideUp) {
             isPresented = false
         }
     }

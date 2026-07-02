@@ -17,9 +17,10 @@ struct TabDock: View {
         appModel.tab.dockAccent(studioMode: appModel.studioMode.mode)
     }
 
-    private var isTabSwitchingDisabled: Bool {
-        ttsEngine.hasActiveGeneration
-    }
+    // Tabs stay ENABLED during generation (relaxed 2026-07-02, maintainer decision):
+    // generation state lives on AppModel's per-mode coordinators and the engine task,
+    // so browsing History/Settings mid-take is safe — returning to Studio shows the
+    // live/completed card. The old lock made Settings unreachable for the whole take.
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,7 +29,7 @@ struct TabDock: View {
                     TabDockButton(
                         tab: tab,
                         isSelected: appModel.tab == tab,
-                        isDisabled: isTabSwitchingDisabled && appModel.tab != tab,
+                        isDisabled: false,
                         action: { select(tab) }
                     )
                 }
@@ -56,9 +57,8 @@ struct TabDock: View {
     }
 
     private func select(_ tab: IOSAppTab) {
-        guard !isTabSwitchingDisabled else { return }
         guard appModel.tab != tab else { return }
-        withAnimation(Theme.Motion.stateChange) {
+        IOSAccessibleAnimation.perform(Theme.Motion.stateChange) {
             appModel.tab = tab
         }
     }

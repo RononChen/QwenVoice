@@ -287,7 +287,7 @@ struct SettingsView: View {
 
     private func focusHighlighted(using proxy: ScrollViewProxy) {
         guard let mode = highlightedMode else { return }
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+        AppLaunchConfiguration.performAnimated(.spring(response: 0.35, dampingFraction: 0.82)) {
             proxy.scrollTo(mode.rawValue, anchor: .center)
         }
         flashedMode = mode
@@ -775,7 +775,7 @@ private struct HoverableActionButton: View {
         .brightness(isHovering ? 0.12 : 0)
         .scaleEffect(isHovering ? 1.02 : 1.0)
         .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.14)) {
+            AppLaunchConfiguration.performAnimated(.easeOut(duration: 0.14)) {
                 isHovering = hovering
             }
         }

@@ -176,7 +176,7 @@ struct IOSStudioPlayerCard: View {
             trailingControls
         }
         // Card stays put; only the status line + trailing cluster cross-fade between phases.
-        .animation(reduceMotion ? nil : IOSDesignMotion.stateChange, value: phase.isLive)
+        .iosAppAnimation(IOSDesignMotion.stateChange, value: phase.isLive)
     }
 
     /// Full-width "Save as voice" CTA on a completed Design card — enrolls the generated clip as a

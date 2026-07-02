@@ -167,7 +167,6 @@ struct IOSCustomVoiceView: View {
     }
 
     @State private var detectedPromptLanguage: Qwen3SupportedLanguage = .auto
-    @State private var batchConfig: IOSBatchConfig?
 
     var body: some View {
         pageContent
@@ -177,62 +176,6 @@ struct IOSCustomVoiceView: View {
                 guard !Task.isCancelled else { return }
                 detectedPromptLanguage = PromptLanguageDetector.detect(promptText)
             }
-            .sheet(item: $batchConfig) { config in
-                IOSBatchSheet(config: config, onClose: { batchConfig = nil })
-            }
-    }
-
-    private func presentBatch() {
-        guard let model = activeModel, isModelAvailable else { return }
-        let lines = IOSBatchGenerationCoordinator.lines(from: promptText)
-        guard lines.count >= 2 else { return }
-        let modelID = model.id
-        let modeRaw = model.mode.rawValue
-        let tier = model.tier
-        let outputSubfolder = model.outputSubfolder
-        let supportsInstruction = model.supportsInstructionControl
-        let speakerID = draft.selectedSpeaker
-        let deliveryInstruction = draft.resolvedDeliveryInstruction
-        let languageHint = draft.selectedLanguage.rawValue
-        batchConfig = IOSBatchConfig(
-            lines: lines,
-            tint: IOSBrandTheme.custom,
-            modeLabel: "Custom Voice",
-            outputSubfolder: outputSubfolder,
-            caller: "IOSCustomVoiceView.batch",
-            makeRequest: { line, index, total, seed, outputPath in
-                GenerationRequest(
-                    mode: .custom,
-                    modelID: modelID,
-                    text: line,
-                    outputPath: outputPath,
-                    shouldStream: true,
-                    streamingInterval: GenerationSemantics.appStreamingInterval,
-                    batchIndex: index,
-                    batchTotal: total,
-                    languageHint: languageHint,
-                    payload: .custom(
-                        speakerID: speakerID,
-                        deliveryStyle: supportsInstruction ? deliveryInstruction : nil
-                    ),
-                    seed: seed,
-                    variation: IOSGenerationVariationPreference.requestValue()
-                )
-            },
-            makeGeneration: { line, result in
-                Generation(
-                    text: line,
-                    mode: modeRaw,
-                    modelTier: tier,
-                    voice: speakerID,
-                    emotion: supportsInstruction ? deliveryInstruction : nil,
-                    speed: nil,
-                    audioPath: result.audioPath,
-                    duration: result.durationSeconds,
-                    createdAt: Date()
-                )
-            }
-        )
     }
 
     @ViewBuilder
@@ -260,8 +203,7 @@ struct IOSCustomVoiceView: View {
             },
             onInstallModel: { selectedTab = .settings },
             onPlayerDismiss: { coordinator.dismissInlinePlayer() },
-            onPlayerExpand: expandInlinePlayer,
-            onBatch: nil  // Batch generation is disabled on iOS (P0 bug: unsupported by native engine).
+            onPlayerExpand: expandInlinePlayer
         )
         .opacity(chromeOpacity)
         .iosAppAnimation(IOSSelectionMotion.modeCrossfade, value: isGenerationActive)
@@ -541,7 +483,6 @@ struct IOSVoiceDesignView: View {
     @State private var pendingVoiceForReview: PreparedVoice?
     /// A designed voice that was just saved → drives the "Saved ✓ · Use in Clone" confirmation banner.
     @State private var savedDesignedResult: IOSDesignedVoiceSaveResult?
-    @State private var batchConfig: IOSBatchConfig?
 
     // Generation lifecycle moved to AppModel.designCoordinator (Phase 3b).
     private var coordinator: StudioGenerationCoordinator { appModel.designCoordinator }
@@ -666,9 +607,6 @@ struct IOSVoiceDesignView: View {
                 try? await Task.sleep(for: .milliseconds(350))
                 guard !Task.isCancelled else { return }
                 detectedPromptLanguage = PromptLanguageDetector.detect(promptText)
-            }
-            .sheet(item: $batchConfig) { config in
-                IOSBatchSheet(config: config, onClose: { batchConfig = nil })
             }
             .sheet(isPresented: Binding(
                 get: { isSaveSheetPresented },
@@ -900,8 +838,7 @@ struct IOSVoiceDesignView: View {
             onInstallModel: { selectedTab = .settings },
             onPlayerDismiss: { coordinator.dismissInlinePlayer() },
             onPlayerExpand: expandInlinePlayer,
-            onSaveAsVoice: canSaveVoice ? { presentSaveDesignedVoice() } : nil,
-            onBatch: nil  // Batch generation is disabled on iOS (P0 bug: unsupported by native engine).
+            onSaveAsVoice: canSaveVoice ? { presentSaveDesignedVoice() } : nil
         )
         .opacity(chromeOpacity)
         .iosAppAnimation(IOSSelectionMotion.modeCrossfade, value: isGenerationActive)
@@ -1013,58 +950,6 @@ struct IOSVoiceDesignView: View {
             .prefix(3)
             .joined(separator: " ")
         return clipped.isEmpty ? "Designed Voice" : clipped
-    }
-
-    private func presentBatch() {
-        guard let model = activeModel, isModelAvailable else { return }
-        let lines = IOSBatchGenerationCoordinator.lines(from: promptText)
-        guard lines.count >= 2 else { return }
-        let modelID = model.id
-        let modeRaw = model.mode.rawValue
-        let tier = model.tier
-        let outputSubfolder = model.outputSubfolder
-        let voiceDescription = draft.voiceDescription
-        let deliveryInstruction = draft.resolvedDeliveryInstruction
-        let languageHint = draft.selectedLanguage.rawValue
-        batchConfig = IOSBatchConfig(
-            lines: lines,
-            tint: IOSBrandTheme.design,
-            modeLabel: "Voice Design",
-            outputSubfolder: outputSubfolder,
-            caller: "IOSVoiceDesignView.batch",
-            makeRequest: { line, index, total, seed, outputPath in
-                GenerationRequest(
-                    mode: .design,
-                    modelID: modelID,
-                    text: line,
-                    outputPath: outputPath,
-                    shouldStream: true,
-                    streamingInterval: GenerationSemantics.appStreamingInterval,
-                    batchIndex: index,
-                    batchTotal: total,
-                    languageHint: languageHint,
-                    payload: .design(
-                        voiceDescription: voiceDescription,
-                        deliveryStyle: deliveryInstruction
-                    ),
-                    seed: seed,
-                    variation: IOSGenerationVariationPreference.requestValue()
-                )
-            },
-            makeGeneration: { line, result in
-                Generation(
-                    text: line,
-                    mode: modeRaw,
-                    modelTier: tier,
-                    voice: voiceDescription,
-                    emotion: deliveryInstruction,
-                    speed: nil,
-                    audioPath: result.audioPath,
-                    duration: result.durationSeconds,
-                    createdAt: Date()
-                )
-            }
-        )
     }
 
     private func generate() {

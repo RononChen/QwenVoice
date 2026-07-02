@@ -1156,7 +1156,7 @@ struct IOSFilterChipRow<Option: Hashable & Identifiable>: View {
         let isSelected = option == selection
 
         return Button {
-            withAnimation(IOSDesignMotion.stateChange) {
+            IOSAccessibleAnimation.perform(IOSDesignMotion.stateChange) {
                 selection = option
             }
             IOSHaptics.selection()

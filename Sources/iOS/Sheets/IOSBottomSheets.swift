@@ -105,7 +105,7 @@ struct IOSDeliveryPickerSheet: View {
             headerLeading: {
                 if isCustomToneEditorVisible {
                     Button {
-                        withAnimation(IOSDesignMotion.stateChange) {
+                        IOSAccessibleAnimation.perform(IOSDesignMotion.stateChange) {
                             isCustomToneEditorVisible = false
                         }
                     } label: {
@@ -181,7 +181,7 @@ struct IOSDeliveryPickerSheet: View {
                 if let onUseCustomTone {
                     Button {
                         onUseCustomTone()
-                        withAnimation(IOSDesignMotion.stateChange) {
+                        IOSAccessibleAnimation.perform(IOSDesignMotion.stateChange) {
                             isCustomToneEditorVisible = true
                         }
                     } label: {
@@ -558,7 +558,8 @@ struct IOSQwenLanguagePickerSheet: View {
                 .accessibilityIdentifier("languagePicker_confirm")
             }
         ) {
-            ScrollView(.vertical, showsIndicators: false) {
+            // Sheet floats above the dock — no bottom fade needed.
+            IOSScrollView(bottomFadeHeight: 0) {
                 LazyVStack(alignment: .leading, spacing: 4) {
                     let recommendedLanguages = languages.filter(isRecommended)
                     let others = languages.filter { !isRecommended($0) }
@@ -571,9 +572,7 @@ struct IOSQwenLanguagePickerSheet: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 24)
-                .iosDisableScrollBounce()
             }
-            .iosSubtleScrollIndicator()
         }
     }
 
