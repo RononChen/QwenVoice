@@ -13,6 +13,7 @@ Pilot for **Option 1**: user-scoped **Peekaboo** (macOS) + **mirroir-mcp** (iPho
 | `~/.cursor/bin/mcp_stdio_wrapper.sh` | Created, executable (`exec npx -y "$@"`) |
 | `~/.cursor/mcp.json` → `peekaboo` | Added (wrapper → `@steipete/peekaboo mcp`) |
 | `~/.cursor/mcp.json` → `mirroir` | Added (wrapper → `mirroir-mcp`) |
+| `~/.mirroir-mcp/settings.json` | **`mirroringProcessName` override for French macOS** (see §5) |
 | Existing `context7`, `xcodebuildmcp` | Preserved |
 
 ---
@@ -29,8 +30,6 @@ Pilot for **Option 1**: user-scoped **Peekaboo** (macOS) + **mirroir-mcp** (iPho
 
 **TCC note:** Cursor may prompt for Screen Recording even when “Cursor” is already ON in Settings — the MCP child chain (`npx` → Node → Peekaboo/mirroir) can need a fresh Allow from an in-app tool call. See [`computer-use-mcp-alternatives-cursor.md`](computer-use-mcp-alternatives-cursor.md) troubleshooting.
 
-**Cursor session stability:** MCP panel shows persistent connection after restart. Multi-tool calls in Agent chat not formally benchmarked in this log pass.
-
 ---
 
 ## 3. Wrapper + stdio validation (initial probe)
@@ -38,54 +37,66 @@ Pilot for **Option 1**: user-scoped **Peekaboo** (macOS) + **mirroir-mcp** (iPho
 | Check | Result |
 | --- | --- |
 | Wrapper → `peekaboo permissions status` | Pass — Screen Recording, Accessibility, Event Synthesizing granted (terminal probe) |
-| Wrapper → MCP `initialize` + `tools/list` (scripted newline JSON) | Inconclusive — exit 0, empty stdout (npm MCP framing differs from naive probe) |
 | Live validation | **Superseded by §2** — Cursor MCP panel green after TCC + restart |
 
 ---
 
-## 4. macOS Vocello smoke (Peekaboo CLI equivalent)
+## 4. macOS Vocello — FULL generate loop via Peekaboo MCP (2026-07-01 evening)
+
+**Validated end to end in Agent chat**, paired with the restored measurement shell
+[`scripts/uitest_measure.sh`](../../scripts/uitest_measure.sh):
 
 | Step | Result |
 | --- | --- |
-| `./scripts/build.sh build` | Pass — `build/Vocello.app` |
-| Launch Vocello | Pass |
-| `peekaboo list windows --app Vocello` | Pass — main window 720×612 at (211, 30) |
-| `peekaboo see --app Vocello --window-title Vocello` | Pass — **79** AX elements, **51** interactable (Speed/Quality chips, voice row, etc.) |
-| `peekaboo image --app Vocello` | Pass — screenshot captured |
-| Full generate loop via Peekaboo MCP in Agent chat | **Not logged yet** |
-| Full generate loop (`type` + `cmd+return` + player verify) via CLI | **Not run** (avoid side effects on user history) |
+| `uitest_measure.sh reset` + `prep` (debug-data mode, single-instance guard) | Pass |
+| Peekaboo `see` on Vocello | Pass — **291 AX elements** incl. all `accessibilityIdentifier`s (`sidebar_*`, `textInput_*`, `customVoice_readiness`, …) |
+| `click` editor + `type` 126-char script | Pass — `textInput_charCount` = “126 characters”, readiness → ready |
+| `hotkey cmd,return` (app-targeted) | Pass — generation started |
+| `uitest_measure.sh verify-generation custom` | **Pass** — WAV (365 KB, 7.52 s) + `history.sqlite` row matched, `result.json` written |
+| `uitest_measure.sh streaming-preview-check` | **Pass** — Live Engine Play + Autoplay Start before final; 0 underruns, 0 chunk gaps |
+| `uitest_measure.sh finish` | Pass — debug flag cleared |
 
-**Friction vs old `uitest.sh` + CC computer-use:**
+**Hard-won operational rules (encoded in the shell):**
 
-- Peekaboo exposes rich AX map (`elem_*` IDs) — closer to precision-first than pure pixel math; aligns with Vocello `accessibilityIdentifier` surface.
-- No restored `prep`/`reset`/`verify-generation` shell — measurement still decoupled manually via scripts if needed.
-- **MCP path validated** via Cursor panel (§2); Agent-driven Vocello flows ready to try.
+1. **Never** `tell application "Vocello" to activate` / `open -na` while a measured
+   session runs — LaunchServices can spawn a **second instance without debug mode**
+   whose takes land in the user's real library. `prep` writes the persisted DebugMode
+   flag + enforces a single instance; `activate` targets the PID via System Events;
+   `finish` clears the flag.
+2. **Signpost store lag:** `log show` exposes fresh `os_signpost` events only after a
+   multi-minute logd flush. `bench-wait` therefore waits on the **history.sqlite row**
+   (written at the same instant as “Final File Ready”) and uses the signpost store as
+   fallback; `streaming-preview-check` queries with `--start <since>` (not `--last Nm`).
+3. Peekaboo `type`/`hotkey`: click the field first (`foreground: true`), then type at
+   focus; target hotkeys at the app (`app: "Vocello"`).
+
+Per-mode procedures: [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md).
 
 ---
 
-## 5. iOS mirroir smoke
+## 5. iOS mirroir — blocked on localized window name, fix staged
 
 | Step | Result |
 | --- | --- |
-| `scripts/ios_device.sh preflight` | Partial — device paired, signing OK, Mirroring up; **iOS app not built** on device at initial probe |
-| `scripts/ios_device.sh shot` → `build/pilot-mirror-shot.png` | Pass — Mirroring window captured |
-| Mirrored content (initial) | **Files app** — Vocello not foreground on phone |
-| mirroir MCP connected in Cursor | **Pass** (§2, 11 tools) |
-| mirroir `describe_screen` / `tap` on Vocello UI | **Not run yet** — needs `ios_device.sh build` + Vocello foreground on phone |
+| `scripts/ios_device.sh build` + `install` + `launch` | Pass (app on device, foreground) |
+| iPhone Mirroring up (`ios_device.sh mirror`) | Pass — window present |
+| mirroir `status` / `describe_screen` | **FAIL — “'iphone' is not open”** |
+| Root cause | mirroir-mcp looks up the Mirroring window by process name **“iPhone Mirroring”**; French macOS names it **“Recopie de l’iPhone”** |
+| Fix | `~/.mirroir-mcp/settings.json` → `{"mirroringProcessName": "Recopie de l’iPhone"}` ([config reference](https://github.com/jfarcand/mirroir-mcp/blob/main/docs/configuration.md)) |
+| Status | **Settings written; requires Cursor restart** (mirroir reads settings at server startup) — re-run the Studio tour after restart |
 
-**Next steps for full iOS pilot:** `scripts/ios_device.sh build` + install, launch Vocello on phone, unlock once, then mirroir `status` → `describe_screen` → Studio tab smoke in Agent chat.
+**Planned tour after restart:** `check_health` → `describe_screen` → Studio tab smoke
+(Custom/Design/Clone segments) → Settings → Model Downloads (drive the one-time
+Voice Design (Speed) install the hardened gate needs) → evidence via `ios_device.sh shot`.
 
 ---
 
 ## 6. Summary
 
-| Layer | Verdict |
+| Goal | Status |
 | --- | --- |
-| User MCP config + wrapper | **Installed** |
-| TCC (Cursor.app) | **Granted** |
-| Cursor MCP live session | **Connected** (peekaboo 27, mirroir 11 tools) |
-| Peekaboo macOS observe Vocello | **Works** (CLI); MCP ready |
-| mirroir iOS drive | **MCP connected**; Vocello-on-device smoke **pending** |
-| Replace XCUITest gates | **No** — exploratory only |
-
-See [`computer-use-mcp-alternatives-cursor.md`](computer-use-mcp-alternatives-cursor.md) for full alternative survey and setup reference.
+| Peekaboo connected + full macOS generate loop | ✅ **Done** (verified WAV + DB + streaming health) |
+| Deterministic measurement decoupled from driving | ✅ `uitest_measure.sh` restored |
+| mirroir connected | ✅ (11 tools) |
+| mirroir driving Vocello iOS | ⏳ blocked on Cursor restart for the localization fix |
+| Gates | Unchanged — XCUITest + script lanes remain authoritative |

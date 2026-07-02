@@ -15,8 +15,11 @@
 # usage: scripts/uitest_measure.sh <command> [options]
 #
 # commands:
-#   prep                  Launch build/Vocello.app with QWENVOICE_DEBUG=1 (fresh
-#                         instance; quits any running copy first). Prints the PID.
+#   prep                  Launch build/Vocello.app in debug-data mode (persisted
+#                         DebugMode flag; fresh instance, quits any running copy).
+#                         Prints the PID. Pair with `finish` when done.
+#   finish                Quit the app + clear the persisted debug flag (so normal
+#                         user launches return to the real data dir).
 #   reset [--include-voices|--full]
 #                         Quit Vocello and reset debug-mode runtime state.
 #                         Default: clear generations table + delete outputs/<mode>/ files.
@@ -55,6 +58,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 APP_NAME="Vocello"
+BUNDLE_ID="com.qwenvoice.app"
 APP_BUNDLE="$ROOT_DIR/build/$APP_NAME.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 DEBUG_DATA_DIR="$HOME/Library/Application Support/QwenVoice-Debug"
@@ -71,13 +75,15 @@ die()  { printf '\033[0;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
 usage() { sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 quit_app_if_running() {
+    # SIGTERM (graceful) → SIGKILL. Never `tell application … to quit`: AppleScript
+    # app-name targeting can LAUNCH a fresh LaunchServices instance first.
     if pgrep -x "$APP_NAME" >/dev/null 2>&1; then
-        osascript -e "tell application \"$APP_NAME\" to quit" >/dev/null 2>&1 || true
+        pkill -x "$APP_NAME" 2>/dev/null || true
         for _ in {1..20}; do
-            pgrep -x "$APP_NAME" >/dev/null 2>&1 || return 0
+            pgrep -x "$APP_NAME" >/dev/null 2>&1 || break
             sleep 0.25
         done
-        pkill -x "$APP_NAME" 2>/dev/null || true
+        pkill -9 -x "$APP_NAME" 2>/dev/null || true
         sleep 0.5
     fi
     pkill -x QwenVoiceEngineService >/dev/null 2>&1 || true
@@ -87,21 +93,45 @@ now_ts() {
     python3 -c "import datetime as dt; d=dt.datetime.now(); print(d.strftime('%Y-%m-%d %H:%M:%S.')+d.strftime('%f')[:3])"
 }
 
+# Bring the RUNNING instance frontmost by PID via System Events (safe: cannot
+# spawn a second copy the way `tell application "Vocello" to activate` can).
+activate_pid() {
+    local pid="$1"
+    osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $pid) to true" \
+        >/dev/null 2>&1
+}
+
+DEBUG_FLAG_KEY="QwenVoice.DebugModeEnabled"
+
 cmd_prep() {
     [[ -d "$APP_BUNDLE" ]] || die "app not built at $APP_BUNDLE — run: scripts/build.sh build"
     quit_app_if_running
-    # Direct binary exec so QWENVOICE_DEBUG reaches the process (LaunchServices `open`
-    # launches with a clean environment and would silently use the real data dir).
-    QWENVOICE_DEBUG=1 QWENVOICE_UI_TEST_HOOKS=1 "$APP_BINARY" >/dev/null 2>&1 &
-    local pid=$!
+    # Launch via LaunchServices (survives this script's shell — a direct binary exec
+    # dies with the tool session). LaunchServices strips env vars, so debug-data mode
+    # comes from the persisted DebugMode flag that DebugMode.resolve() reads as its
+    # env fallback. `finish` (or reset --full) clears it again.
+    defaults write "$BUNDLE_ID" "$DEBUG_FLAG_KEY" -bool true
+    /usr/bin/open -na "$APP_BUNDLE"
+    local pid=""
     for _ in {1..40}; do
-        kill -0 "$pid" 2>/dev/null && pgrep -x "$APP_NAME" >/dev/null 2>&1 && break
+        pid="$(pgrep -x "$APP_NAME" | head -1)"
+        [[ -n "$pid" ]] && break
         sleep 0.25
     done
-    pgrep -x "$APP_NAME" >/dev/null 2>&1 || die "$APP_NAME did not stay running after launch"
+    [[ -n "$pid" ]] || die "$APP_NAME did not appear in the process list after launch"
+    local count; count="$(pgrep -x "$APP_NAME" | wc -l | tr -d ' ')"
+    (( count == 1 )) || die "expected exactly 1 $APP_NAME instance, found $count — quit the extras and re-run prep"
     sleep 1
-    osascript -e "tell application \"$APP_NAME\" to activate" >/dev/null 2>&1 || true
+    activate_pid "$pid" || true
     echo "$pid"
+}
+
+# finish: quit the app and clear the persisted debug flag so the user's normal
+# launches go back to the real data dir.
+cmd_finish() {
+    quit_app_if_running
+    defaults delete "$BUNDLE_ID" "$DEBUG_FLAG_KEY" >/dev/null 2>&1 || true
+    note "debug flag cleared; $APP_NAME quit"
 }
 
 cmd_reset() {
@@ -139,8 +169,9 @@ cmd_reset() {
 }
 
 cmd_activate() {
-    pgrep -x "$APP_NAME" >/dev/null 2>&1 || die "$APP_NAME is not running — run: $0 prep"
-    osascript -e "tell application \"$APP_NAME\" to activate" >/dev/null 2>&1
+    local pid; pid="$(pgrep -x "$APP_NAME" | head -1)"
+    [[ -n "$pid" ]] || die "$APP_NAME is not running — run: $0 prep"
+    activate_pid "$pid" || die "could not bring $APP_NAME (pid $pid) frontmost"
 }
 
 cmd_artifacts_dir() {
@@ -195,6 +226,11 @@ PY
     fi
 }
 
+# Wait for generation completion after <since>. PRIMARY signal: a new
+# history.sqlite row (written at the same instant GenerationPersistence emits
+# "Final File Ready"). The signpost store is only a FALLBACK because logd
+# flushes os_signpost events to the `log show` store with multi-minute lag —
+# polling the store right after a generation reliably misses fresh events.
 cmd_bench_wait() {
     local since="" timeout=90
     while [[ $# -gt 0 ]]; do
@@ -205,13 +241,36 @@ cmd_bench_wait() {
         esac
     done
     [[ -n "$since" ]] || since="$(now_ts)"
+    # since is local time (from `now`); DB createdAt is UTC — convert once.
+    local since_utc
+    since_utc="$(SINCE="$since" python3 -c '
+import datetime as dt, os
+local = dt.datetime.strptime(os.environ["SINCE"], "%Y-%m-%d %H:%M:%S.%f").astimezone()
+print(local.astimezone(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
+')" || die "invalid --since '$since' (expect: YYYY-MM-DD HH:MM:SS.mmm — get one from: $0 now)"
+
     local deadline=$(($(date +%s) + timeout))
-    local log_show_failed=0
     while [[ "$(date +%s)" -lt "$deadline" ]]; do
-        local log_buf found
-        log_buf="$(/usr/bin/log show --signpost --predicate "$BENCH_LOG_PREDICATE" --last 3m --style compact 2>/dev/null)"
-        [[ -z "$log_buf" ]] && log_show_failed=1
-        found="$(printf '%s' "$log_buf" | SINCE="$since" python3 -c '
+        # 1) DB row (authoritative completion signal, no flush lag)
+        if [[ -f "$HISTORY_DB" ]]; then
+            local row_ts
+            row_ts="$(sqlite3 -readonly "$HISTORY_DB" \
+                "SELECT createdAt FROM generations WHERE createdAt > '$since_utc' ORDER BY createdAt DESC LIMIT 1" 2>/dev/null || true)"
+            if [[ -n "$row_ts" ]]; then
+                ROW_TS="$row_ts" python3 -c '
+import datetime as dt, os
+utc = dt.datetime.strptime(os.environ["ROW_TS"], "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=dt.timezone.utc)
+print(utc.astimezone().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
+'
+                return 0
+            fi
+        fi
+        # 2) Signpost store fallback (may lag; covers [since, now] not a fixed window).
+        # log show rejects fractional seconds in --start — trim to whole seconds.
+        local found
+        found="$(/usr/bin/log show --signpost --predicate "$BENCH_LOG_PREDICATE" \
+                    --start "${since%.*}" --style compact 2>/dev/null \
+            | SINCE="$since" python3 -c '
 import os, re, sys
 since = os.environ["SINCE"]
 last = None
@@ -224,19 +283,15 @@ for line in sys.stdin:
     ts = f"{m.group(1)} {m.group(2)}"
     if ts > since:
         last = ts
-print(last) if last else sys.exit(1)
+print(last) if last else exit(1)
 ' 2>/dev/null || true)"
         if [[ -n "$found" ]]; then
             echo "$found"
             return 0
         fi
-        sleep 0.5
+        sleep 1
     done
-    if (( log_show_failed )); then
-        echo "error: timeout after ${timeout}s waiting for Final File Ready since $since (log show produced no output — check permissions / that Vocello emits signposts)" >&2
-    else
-        echo "error: timeout after ${timeout}s waiting for Final File Ready since $since" >&2
-    fi
+    echo "error: timeout after ${timeout}s waiting for a completed generation since $since (no new history.sqlite row, no Final File Ready signpost)" >&2
     return 1
 }
 
@@ -365,8 +420,12 @@ cmd_streaming_preview_check() {
     local final_ts
     final_ts="$(cmd_bench_wait --since "$since" --timeout "$timeout")" || return $?
 
-    local log_buf
-    log_buf="$(/usr/bin/log show --signpost --predicate "$BENCH_LOG_PREDICATE" --last 5m --style compact 2>/dev/null)" \
+    # --start (not a fixed --last window): logd flushes signposts with lag and the
+    # check may run well after the generation completed. log show rejects fractional
+    # seconds in --start, so trim to whole seconds (the > since filter below still
+    # uses the full-precision timestamp).
+    local log_buf start_ts="${since%.*}"
+    log_buf="$(/usr/bin/log show --signpost --predicate "$BENCH_LOG_PREDICATE" --start "$start_ts" --style compact 2>/dev/null)" \
         || die "log show --signpost failed"
 
     local db_row=""
@@ -501,6 +560,7 @@ main() {
     local sub="${1:-help}"; shift || true
     case "$sub" in
         prep)                    cmd_prep "$@" ;;
+        finish)                  cmd_finish "$@" ;;
         reset)                   cmd_reset "$@" ;;
         activate)                cmd_activate "$@" ;;
         artifacts-dir)           cmd_artifacts_dir "$@" ;;
@@ -513,7 +573,7 @@ main() {
         logs)                    cmd_logs "$@" ;;
         bench-compare)           cmd_bench_compare "$@" ;;
         help|-h|--help)          usage ;;
-        *) die "unknown command '$sub' (try: prep|reset|activate|artifacts-dir|smoke-check|now|bench-wait|verify-generation|streaming-preview-check|db|logs|bench-compare|help)" ;;
+        *) die "unknown command '$sub' (try: prep|finish|reset|activate|artifacts-dir|smoke-check|now|bench-wait|verify-generation|streaming-preview-check|db|logs|bench-compare|help)" ;;
     esac
 }
 

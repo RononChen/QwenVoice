@@ -1003,8 +1003,9 @@ cmd_test() {
   done
 
   # Subshell: cmd_ui_test's `die` (exit) must not kill this function before we parse.
+  # ${ui_args[@]+…}: bash 3.2 + set -u errors on expanding an EMPTY array.
   set +e
-  ( cmd_ui_test "${ui_args[@]}" )
+  ( cmd_ui_test ${ui_args[@]+"${ui_args[@]}"} )
   local st=$?
   set -e
 
@@ -1107,9 +1108,10 @@ cmd_review() {
 # a verdict.txt under build/ios/gate-<run>/. Burns-in safe. Deeper dives (profile, review,
 # bench/listening-pass) are separate verbs — run them pre-release, not on every merge.
 #
-# Generation step prerequisite: Custom Voice (Speed) installed on the device
-# (Settings → Model Downloads; see `$0 models check`). Escape hatch for
-# download/management-UX work on a model-less device: QVOICE_GATE_SKIP_GENERATION=1.
+# Generation step prerequisite: Voice Design (Speed) installed on the device
+# (Settings → Model Downloads — NOT Custom Voice: the download test uninstalls
+# pro_custom by design). Escape hatch for download/management-UX work on a
+# model-less device: QVOICE_GATE_SKIP_GENERATION=1.
 cmd_gate() {
   require_team
   local run_id="ios-gate-$(date +%Y%m%d-%H%M%S)"
@@ -1154,7 +1156,7 @@ cmd_gate() {
     if _gate_generation_check "$gate_dir" >>"$gate_dir/generation.log" 2>&1; then
       echo "generation: PASS (see generation.log)" | tee -a "$verdict"
     else
-      echo "generation: FAIL (see generation.log — needs Speed model on device: $0 models check)" | tee -a "$verdict"
+      echo "generation: FAIL (see generation.log — needs Voice Design (Speed) on device: $0 models check)" | tee -a "$verdict"
       overall=1
     fi
   else
@@ -1195,11 +1197,16 @@ cmd_gate() {
 # Slim headless generation check for the gate: reuse the app the test step just
 # installed (no rebuild), launch with a bounded autorun spec, poll the sentinel,
 # and pass/fail on its status. Same mechanism as `bench` minus build/install/summary.
+#
+# Uses DESIGN (Speed) deliberately: the default-gate OnDeviceDownloadUITests
+# uninstalls pro_custom in its setUp (that's what it tests), so custom-mode
+# generation can never survive a default gate run. pro_design is untouched —
+# install Voice Design (Speed) on the device ONCE and the gate stays repeatable.
 _gate_generation_check() {
   local gate_dir="$1"
   [[ -d "$APP_PATH" ]] || cmd_install >/dev/null 2>&1 || true
   local run_id
-  run_id="$(cmd_launch "custom:speed:Gate generation smoke." | tail -1)"
+  run_id="$(cmd_launch "design:speed:Gate generation smoke." | tail -1)"
   local timeout="${QVOICE_IOS_BENCH_TIMEOUT:-300}"
   local dest="$gate_dir/.gen-diagnostics"
   rm -rf "$dest"
