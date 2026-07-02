@@ -152,7 +152,7 @@ Dynamic ids show their Swift interpolation pattern (e.g. `voicesRow_\(id)`).
 | `voices_enrollButton` | `ContentView.swift` |
 | `voices_retryButton` | `VoicesView.swift` |
 
-## iOS (VocelloiOS) — 86 identifiers
+## iOS (VocelloiOS) — 84 identifiers
 
 | Identifier | Declared in |
 |---|---|
@@ -169,17 +169,17 @@ Dynamic ids show their Swift interpolation pattern (e.g. `voicesRow_\(id)`).
 | `design_savedVoice_useInClone` | `IOSGenerationModeViews.swift` |
 | `engineLifecycleToast_\(descriptor.identifier)` | `IOSEngineLifecycleToast.swift` |
 | `generate_miniPlayer_seekRail` | `IOSGenerationSharedViews.swift` |
-| `historyClearDeleteFiles` | `IOSLibraryViews.swift` |
-| `historyClearKeepFiles` | `IOSLibraryViews.swift` |
-| `historyClearMenu` | `IOSLibraryViews.swift` |
-| `historyModeFilter` | `IOSLibraryViews.swift` |
-| `historyRetryButton` | `IOSLibraryViews.swift` |
-| `historyRowDeleteConfirm_\(item.historyAccessibilityID)` | `IOSLibraryViews.swift` |
-| `historyRowMenu_\(item.historyAccessibilityID)` | `IOSLibraryViews.swift` |
-| `historyRowTap_\(item.historyAccessibilityID)` | `IOSLibraryViews.swift` |
-| `historyRow_\(item.historyAccessibilityID)` | `IOSLibraryViews.swift` |
-| `historySearchField` | `IOSLibraryViews.swift` |
-| `iosModelCancelDownloadConfirmButton` | `IOSSettingsViews.swift` |
+| `historyClearDeleteFiles` | `HistoryScreen.swift` |
+| `historyClearKeepFiles` | `HistoryScreen.swift` |
+| `historyClearMenu` | `HistoryScreen.swift` |
+| `historyModeFilter` | `HistoryScreen.swift` |
+| `historyRetryButton` | `HistoryScreen.swift` |
+| `historyRowDeleteConfirm_\(item.historyAccessibilityID)` | `HistoryScreen.swift` |
+| `historyRowMenu_\(item.historyAccessibilityID)` | `HistoryScreen.swift` |
+| `historyRowTap_\(item.historyAccessibilityID)` | `HistoryScreen.swift` |
+| `historyRow_\(item.historyAccessibilityID)` | `HistoryScreen.swift` |
+| `historySearchField` | `HistoryScreen.swift` |
+| `iosModelCancelDownloadConfirmButton` | `SettingsScreen.swift` |
 | `iosModelCancel_\(model.id)` | `IOSSettingsViews.swift` |
 | `iosModelDelete_\(model.id)` | `IOSSettingsViews.swift` |
 | `iosModelDownload_\(model.id)` | `IOSSettingsViews.swift` |
@@ -199,14 +199,14 @@ Dynamic ids show their Swift interpolation pattern (e.g. `voicesRow_\(id)`).
 | `iosRecord_stop` | `IOSRecordingOverlay.swift` |
 | `iosRecord_use` | `IOSRecordingOverlay.swift` |
 | `iosSettingsOpenSystemSettings` | `IOSSettingsViews.swift` |
-| `iosSettings_autoPlayToggle` | `IOSSettingsViews.swift` |
-| `iosSettings_openIOSSettingsRow` | `IOSSettingsViews.swift` |
-| `iosSettings_openSourceRow` | `IOSSettingsViews.swift` |
-| `iosSettings_privacyPolicyRow` | `IOSSettingsViews.swift` |
-| `iosSettings_reduceMotionToggle` | `IOSSettingsViews.swift` |
-| `iosSettings_reduceTransparencyToggle` | `IOSSettingsViews.swift` |
-| `iosSettings_savedOutputsRow` | `IOSSettingsViews.swift` |
-| `iosSettings_storageRow` | `IOSSettingsViews.swift` |
+| `iosSettings_autoPlayToggle` | `SettingsScreen.swift` |
+| `iosSettings_openIOSSettingsRow` | `SettingsScreen.swift` |
+| `iosSettings_openSourceRow` | `SettingsScreen.swift` |
+| `iosSettings_privacyPolicyRow` | `SettingsScreen.swift` |
+| `iosSettings_reduceMotionToggle` | `SettingsScreen.swift` |
+| `iosSettings_reduceTransparencyToggle` | `SettingsScreen.swift` |
+| `iosSettings_savedOutputsRow` | `SettingsScreen.swift` |
+| `iosSettings_storageRow` | `SettingsScreen.swift` |
 | `iosSettings_variationRow` | `IOSSettingsViews.swift` |
 | `iosSettings_versionLabel` | `IOSSettingsViews.swift` |
 | `languagePicker_\(language.rawValue)` | `IOSBottomSheets.swift` |
@@ -221,8 +221,6 @@ Dynamic ids show their Swift interpolation pattern (e.g. `voicesRow_\(id)`).
 | `recordVoice_keepDespiteWarning` | `IOSRecordVoiceSheet.swift` |
 | `referenceClipRow_\(option.id)` | `IOSBottomSheets.swift` |
 | `rootTab_\(tab.rawValue)` | `TabDock.swift` |
-| `savedVoiceDeleteConfirm_\(voice.id)` | `IOSLibraryViews.swift` |
-| `savedVoiceMenu_\(voice.id)` | `IOSLibraryViews.swift` |
 | `screen_…` | `IOSAccessibility.swift` |
 | `studio_inlinePlayer_dismissConfirm` | `IOSStudioInlinePlayerCard.swift` |
 | `studio_inlinePlayer_saveAsVoice` | `IOSStudioInlinePlayerCard.swift` |
