@@ -80,7 +80,7 @@ final class AppGenerationTimeline {
         usedStreaming: Bool,
         finishReason: String?,
         summary: TelemetrySummary?
-    ) {
+    ) async {
         guard TelemetryGate.appProcessIntendedEnabled else { return }
         guard let key = id?.uuidString else { return }
         let now = clock.now
@@ -129,20 +129,42 @@ final class AppGenerationTimeline {
             counters: counters,
             notes: notes
         )
-        Task { @MainActor in
-            MacUITestSurfaceMarkers.markGenerationComplete(id: id)
-        }
         let appSupportDirectory = AppPaths.appSupportDir
-        // .utility, not .background: under bench load a .background write can be
-        // starved long enough for the app to be relaunched first (audit J1),
-        // permanently losing the app-layer row.
-        Task.detached(priority: .utility) {
+        if Self.shouldFlushAppRowSynchronously {
+            // Bench cold-relaunch terminates the app before a detached write lands
+            // (audit J1 takes #10/#29). Await the actor write on the MainActor task
+            // so the row is durable before scheduleMerge / the next relaunch.
             await GenerationTelemetryJSONLSink.shared.write(
                 record: record,
                 appSupportDirectory: appSupportDirectory,
                 subdirectory: "app"
             )
+            MacUITestSurfaceMarkers.markGenerationComplete(id: id)
+        } else {
+            Task { @MainActor in
+                MacUITestSurfaceMarkers.markGenerationComplete(id: id)
+            }
+            // .utility, not .background: under bench load a .background write can be
+            // starved long enough for the app to be relaunched first (audit J1),
+            // permanently losing the app-layer row.
+            Task.detached(priority: .utility) {
+                await GenerationTelemetryJSONLSink.shared.write(
+                    record: record,
+                    appSupportDirectory: appSupportDirectory,
+                    subdirectory: "app"
+                )
+            }
         }
+    }
+
+    /// When UI-test hooks are on, the macOS bench driver relaunches between cold
+    /// cells — the app-layer row must land before `recordCompleted` returns.
+    private static var shouldFlushAppRowSynchronously: Bool {
+        #if os(macOS)
+        return MacUITestSurfaceMarkers.isEnabled
+        #else
+        return false
+        #endif
     }
 
     private static func milliseconds(

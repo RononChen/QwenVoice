@@ -10,7 +10,21 @@
 > from this doc. One background run may still be in flight (§2 Step 1). Start at §2
 > and do the steps in order.
 
-## 1. Current state (2026-07-02, `main` @ 761c1a4)
+## 1. Current state (2026-07-02, `main` + uncommitted J1 closure)
+
+### Session update (Composer 2.5 pickup, 2026-07-02 afternoon)
+
+| Step | Status | Artifact |
+| --- | --- | --- |
+| 1 macOS J1 verify | **PASS** | `build/macos/bench-ui-xpc-bench-20260702-155134/` → 29/29/29/29 |
+| 2 iOS bench-ui shakeout | **BLOCKED** | iPhone `6AE2516C…` state `unavailable` in devicectl — reconnect/unlock |
+| 3 iOS full matrix | **BLOCKED** | same |
+| 4 design listening | **OWED (human)** | maintainer listens to History design takes on phone |
+| 5 macOS gate+review | **PASS** | `gate-mac-gate-20260702-163644`; review captures `mac-review-20260702-164903` (8 PNG diffs — visual pass) |
+| 5 iOS gate | **BLOCKED** | needs phone |
+
+**J1 root cause (final):** warm flush timeout (12 s) << long-take generation time after player bar.
+Fix: `VocelloMacBenchUITests.telemetryFlushTimeout` + hard XCTFail; inline `await` app JSONL when hooks on.
 
 ### Done and verified
 
@@ -70,7 +84,21 @@ Compile-verified (`build_foundation_targets.sh ios` BUILD SUCCEEDED). On-device
 
 ### Step 1 — J1 verification (macOS, no phone needed)
 
-**Status at handoff:** the `j1-verify-round3` run FAILED EARLY (log:
+**Status: VERIFIED PASS (2026-07-02).** Run `j1-verify-timeout-fix` →
+`expected=29 engine=29 service=29 app=29 merged=29` + PASS
+(`build/macos/bench-ui-xpc-bench-20260702-155134/`).
+
+Root cause was **not** row-loss from async writes alone — the bench driver's
+`waitForTelemetryFlush` used a 12 s warm timeout while `tapGenerateAndWaitForPlayer`
+returns at first-chunk (player bar). Warm **long** takes (#10 before design cold,
+#29 final) were still generating when the soft-failed flush let relaunch/terminate
+kill the app before `recordCompleted`. Fix: length-aware flush timeouts (60/120/300 s)
++ hard XCTFail on flush timeout; kept inline `await` app JSONL write when UI-test
+hooks are on (`AppGenerationTimeline.recordCompleted` async).
+
+If a future rerun fails the gate, use the triage tree below (do not revert the fixes):
+
+**Historical failure at handoff:** the `j1-verify-round3` run FAILED EARLY (log:
 `/tmp/bench-ui-j5.log`, artifacts `build/macos/bench-ui-xpc-bench-20260702-142137/`)
 with a NEW signature, not the J1 row loss: take #1 (custom/medium/cold) died at
 `VocelloMacUIQuery.clearScriptEditor` (line 111) — app launched fine, sidebar
@@ -234,14 +262,11 @@ attended, on the physical phone.
   Shakeout command: `scripts/ios_device.sh bench-ui --modes custom --lengths short
   --warm 1 --label shakeout`. If takes fail: check the marker ids exist (hooks env),
   the keyboard-dismiss `\n` step, and `textInput_generateButton` hittability.
-- **macOS XPC bench-ui J1 — round 3 pending verification.** Round 1: per-take flush
-  wait (was matching the previous take). Round 2: `MacUITestSurfaceMarkers` made
-  `@Observable` (plain statics never invalidated SwiftUI, markers were frozen at
-  "none"). Round 3 (uncommitted with 1+2): merger poll 3 s → 15 s + `.utility`
-  priority for merger and app-layer JSONL write (background-priority writes were
-  starved past the relaunch under bench load; takes #10/#29 — the two takes followed
-  by a relaunch/terminate — lost their app/service rows twice in a row). Verify:
-  `scripts/macos_test.sh bench-ui --label j1-verify` → expect 29/29/29/29 gate PASS.
+- **macOS XPC bench-ui J1 — CLOSED (2026-07-02).** Root cause: 12 s warm flush
+  timeout vs long takes still generating after player bar; fix in
+  `VocelloMacBenchUITests.telemetryFlushTimeout` + hard fail on flush timeout;
+  inline `await` app JSONL write when hooks on. Verified:
+  `bench-ui-xpc-bench-20260702-155134` → 29/29/29/29 PASS.
 
 ## 4. Where everything lives (quick index)
 

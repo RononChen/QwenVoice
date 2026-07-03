@@ -96,8 +96,9 @@ gated afterwards). Follow these procedures literally.
 3. **Verdict:** printed XPC gate — `expected=N engine=N service=N app=N merged=N` then
    `PASS`/`FAIL`. Artifacts: `build/macos/bench-ui-<runID>/` (log, summary, verdict).
 4. **Triage:** missing service/app rows = audit J1 family (see
-   `docs/rescue-plan-progress.md` §3b). Frozen markers (`did not advance` in the log) =
-   `MacUITestSurfaceMarkers` observability. A take stuck on generate = check
+   `docs/rescue-plan-progress.md` §3b) — **closed 2026-07-02** (length-aware flush
+   timeouts; was 12 s warm vs long takes still generating after player bar). Frozen
+   markers (`did not advance` in the log) = `MacUITestSurfaceMarkers` observability. A take stuck on generate = check
    `sidebar_backendStatus_error`/`_crashed` in the log, then `scripts/macos_test.sh crashes`.
 
 ### iOS: `scripts/ios_device.sh bench-ui` (paired iPhone; NEVER the Simulator)

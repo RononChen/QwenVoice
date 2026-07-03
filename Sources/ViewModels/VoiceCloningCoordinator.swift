@@ -190,7 +190,7 @@ final class VoiceCloningCoordinator {
                     LivePreviewEstimate(text: currentDraft.text)
                 )
                 let result = try await ttsEngineStore.generate(generationRequest)
-                AppGenerationTimeline.shared.recordCompleted(
+                await AppGenerationTimeline.shared.recordCompleted(
                     id: generationRequest.generationID,
                     mode: generationRequest.modeIdentifier,
                     usedStreaming: result.usedStreaming,

@@ -49,7 +49,8 @@ final class VocelloMacBenchUITests: VocelloMacUIBase {
             try tapGenerateAndWaitForPlayer(modeLabel: label)
             waitForTelemetryFlush(
                 previousCompletedID: completedBeforeTake,
-                timeout: take.warmState == "cold" ? 20 : 12
+                timeout: telemetryFlushTimeout(for: take),
+                label: label
             )
             clearEditor()
         }
@@ -58,6 +59,17 @@ final class VocelloMacBenchUITests: VocelloMacUIBase {
     func markerValue(_ marker: XCUIElement) -> String {
         guard marker.exists else { return "" }
         return (marker.value as? String) ?? marker.label
+    }
+
+    /// Player bar appears at first chunk; long scripts can run for minutes after that.
+    /// Audit J1: a 12 s warm timeout let takes #10/#29 (warm/long at relaunch
+    /// boundaries) soft-fail and terminate the app before `recordCompleted` landed.
+    private func telemetryFlushTimeout(for take: BenchMatrixSpec.Take) -> TimeInterval {
+        switch take.length {
+        case "long": return take.warmState == "cold" ? 360 : 300
+        case "medium": return take.warmState == "cold" ? 180 : 120
+        default: return take.warmState == "cold" ? 90 : 60
+        }
     }
 
     /// Wait until the merge/flush marker catches up to THIS take's generation.
@@ -73,7 +85,11 @@ final class VocelloMacBenchUITests: VocelloMacUIBase {
     ///    take before the design cold relaunch, and the final take).
     /// The wait therefore requires the completed ID to CHANGE from its
     /// pre-generate value before comparing it to the flushed ID.
-    private func waitForTelemetryFlush(previousCompletedID: String, timeout: TimeInterval) {
+    private func waitForTelemetryFlush(
+        previousCompletedID: String,
+        timeout: TimeInterval,
+        label: String
+    ) {
         let completeMarker = element("mainWindow_lastGenerationComplete")
         let flushedMarker = element("mainWindow_lastTelemetryFlushed")
         let predicate = NSPredicate { [self] _, _ in
@@ -86,9 +102,12 @@ final class VocelloMacBenchUITests: VocelloMacUIBase {
         let exp = XCTNSPredicateExpectation(predicate: predicate, object: flushedMarker)
         let result = XCTWaiter.wait(for: [exp], timeout: timeout)
         if result != .completed {
-            // Soft-fail: the merger itself polls only ~3 s for the slower layers,
-            // so a stuck marker means rows may be lost — surface it in the log.
-            print("[bench] telemetry flush marker did not advance past \(previousCompletedID) to a flushed take within \(timeout)s")
+            XCTFail(
+                "telemetry flush marker did not advance past \(previousCompletedID) for \(label) within \(Int(timeout))s — app row may be lost on relaunch"
+            )
+        } else {
+            // Let detached merger / JSONL fsync settle before the next terminate.
+            Thread.sleep(forTimeInterval: 0.5)
         }
     }
 }
