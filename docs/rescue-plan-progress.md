@@ -12,6 +12,19 @@
 
 ## 1. Current state (2026-07-02, `main` + uncommitted J1 closure)
 
+### Session update (Composer 2.5 pickup, 2026-07-03 ~00:30)
+
+| Step | Status | Artifact |
+| --- | --- | --- |
+| 1 macOS J1 verify | **PASS** | `build/macos/bench-ui-xpc-bench-20260702-155134/` → 29/29/29/29 |
+| 2 iOS bench-ui shakeout | **PASS** | `build/ios/bench-ui-ios-bench-ui-20260703-000049/` (telemetry mirror fix) |
+| 3 iOS full matrix | **PASS** | `build/ios/bench-ui-ios-bench-ui-20260703-001546/` → 29/29 engine gate; HISTORY rows appended |
+| 4 design listening | **OWED (human)** | maintainer listens to History design takes on phone |
+| 5 macOS gate+review | **PASS** | `gate-mac-gate-20260702-163644`; review `mac-review-20260702-164903` |
+| 5 iOS gate | **PASS** | `gate-ios-gate-20260703-003025` |
+
+**iOS bench fixes this session:** `ensure_mirror` auto-nudges Reprendre/Resume when devicectl is up but mirroring is paused; `_run_ui_test_once` restores caller errexit; bench clear hook dismisses inline player between warm takes; voice-brief starter path skips Confirm.
+
 ### Session update (Composer 2.5 pickup, 2026-07-02 afternoon)
 
 | Step | Status | Artifact |

@@ -195,16 +195,21 @@ final class VocelloiOSBenchUITests: XCTestCase {
         // A brief persists in the draft for the session; set it once.
         let chip = app.descendants(matching: .any)["studioChip_voiceBrief"].firstMatch
         XCTAssertTrue(chip.waitForExistence(timeout: 10), "voice-brief chip should exist in Design mode")
+        if !chip.label.contains("Describe the voice") {
+            return
+        }
         chip.tap()
         let starter = app.descendants(matching: .any)["voiceBrief_starter_0"].firstMatch
         if starter.waitForExistence(timeout: 8) {
+            // Starter rows fill + dismiss the sheet — no Confirm step.
             starter.tap()
-        } else {
-            let editor = app.descendants(matching: .any)["voiceBrief_editor"].firstMatch
-            XCTAssertTrue(editor.waitForExistence(timeout: 8), "voice-brief editor should exist")
-            editor.tap()
-            app.typeText("A warm, calm middle-aged male narrator with a clear, measured pace.")
+            _ = starter.waitForNonExistence(timeout: 8)
+            return
         }
+        let editor = app.descendants(matching: .any)["voiceBrief_editor"].firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 8), "voice-brief editor should exist")
+        editor.tap()
+        app.typeText("A warm, calm middle-aged male narrator with a clear, measured pace.")
         let confirm = app.descendants(matching: .any)["voiceBrief_confirm"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 8), "voice-brief confirm should exist")
         confirm.tap()

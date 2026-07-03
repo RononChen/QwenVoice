@@ -343,6 +343,7 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         }
         syncFromBackend()
         notifyMemoryContextDidChange()
+        IOSPullableDiagnosticsMirror.syncEngineTelemetryIfEnabled()
         return result
     }
 

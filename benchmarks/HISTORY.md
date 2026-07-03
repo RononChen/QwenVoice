@@ -59,3 +59,6 @@ reference ledger, not an auto-compared baseline gate.
 | 2026-06-29 | 7a7b8fb | custom/pro_custom_speed/warm/medium | 1.07 | 13.35 | - | 2845 | 0 | pass | p0-harness-validation | - |
 | 2026-07-02 | 67078da | custom/pro_custom_speed/warm/medium | 1.05 | 13.17 | - | 2837 | 0 | pass | rescue-P2 full-matrix speed (-Onone CLI) | - |
 | 2026-07-02 | 67078da | custom/pro_custom_speed/warm/medium | 1.05 | 13.08 | - | 2487 | 0 | pass | rescue-P2 full-matrix speed (-Onone CLI, idle machine) | - |
+| 2026-07-03 | 6601032 | design/pro_design/warm/medium | 1.72 | 21.45 | - | 3052 | 0 | pass | ios-ui-bench-baseline | - |
+| 2026-07-03 | 6601032 | custom/pro_custom/warm/medium | 1.71 | 21.40 | - | 2615 | 0 | pass | ios-ui-bench-baseline | - |
+| 2026-07-03 | 6601032 | clone/pro_clone/warm/medium | 0.91 | 11.37 | - | 3364 | 0 | pass | ios-ui-bench-baseline | - |

@@ -96,12 +96,27 @@ MIRROR_APP="iPhone Mirroring"   # bundle com.apple.ScreenContinuity
 # Opt out with QVOICE_IOS_NO_MIRROR=1. (Locking the phone itself is an Apple security
 # boundary — no Mac-side CLI does it — so lock once per session, it then stays locked while
 # mirroring, or rely on the phone's Auto-Lock; iPhone Mirroring reconnects on auto-lock.)
+# Nudge a paused Mirroring session ("Connection paused / Reprendre / Resume").
+# The overlay is macOS chrome; activate + Return presses the default Resume button.
+_nudge_mirror_resume() {
+  local state; state="$(probe_device_state 2>/dev/null || true)"
+  [[ "${state%%|*}" == "MIRROR_CONNECTING" ]] || return 0
+  note "mirroring session paused — nudging Resume (Reprendre)…"
+  osascript -e "tell application \"$MIRROR_APP\" to activate" \
+            -e 'delay 0.5' \
+            -e 'tell application "System Events" to keystroke return' >/dev/null 2>&1 || true
+  sleep 2
+}
+
 ensure_mirror() {
   [[ "${QVOICE_IOS_NO_MIRROR:-}" == "1" ]] && return 0
   local max_wait="${1:-30}"
   if pgrep -fq "iPhone Mirroring" 2>/dev/null \
      && xcrun devicectl list devices 2>/dev/null | grep -qi "available"; then
-    return 0   # already mirroring and a device is reachable
+    _nudge_mirror_resume
+    local post; post="$(probe_device_state 2>/dev/null || true)"
+    [[ "${post%%|*}" != "MIRROR_CONNECTING" ]] && return 0
+    note "device reachable but mirroring still paused — waiting for Resume to take effect…"
   fi
   note "starting iPhone Mirroring (observation; keeps a locked device reachable, OLED-safe)…"
   open -a "$MIRROR_APP" >/dev/null 2>&1 || warn "could not launch iPhone Mirroring ($MIRROR_APP)"
@@ -110,6 +125,9 @@ ensure_mirror() {
   local nudged=0
   while (( waited < max_wait )); do
     if xcrun devicectl list devices 2>/dev/null | grep -qi "available"; then
+      _nudge_mirror_resume
+      local post; post="$(probe_device_state 2>/dev/null || true)"
+      [[ "${post%%|*}" != "MIRROR_CONNECTING" ]] || continue
       note "iPhone Mirroring up; device reachable."
       return 0
     fi
@@ -120,10 +138,7 @@ ensure_mirror() {
     if (( nudged == 0 )); then
       local state; state="$(probe_device_state 2>/dev/null || true)"
       if [[ "${state%%|*}" == "MIRROR_CONNECTING" ]]; then
-        note "mirroring session paused — nudging Resume…"
-        osascript -e "tell application \"$MIRROR_APP\" to activate" \
-                  -e 'delay 0.5' \
-                  -e 'tell application "System Events" to keystroke return' >/dev/null 2>&1 || true
+        _nudge_mirror_resume
         nudged=1
       fi
     fi
@@ -686,8 +701,22 @@ cmd_bench_ui() {
   export TEST_RUNNER_QVOICE_IOS_BENCH_WARM="$warm"
 
   set +e
-  _run_ui_test_once "$dev" "$log" -only-testing:"VocelloiOSUITests/VocelloiOSBenchUITests/testFullMatrix"
-  local test_status=$?
+  local attempt=1 test_status=0
+  while (( attempt <= 2 )); do
+    if (( attempt > 1 )); then
+      warn "retrying bench-ui after unlock/auth failure — unlock the iPhone, dismiss any automation prompt, then wait…"
+      sleep 8
+      : >"$log"
+    fi
+    _run_ui_test_once "$dev" "$log" -only-testing:"VocelloiOSUITests/VocelloiOSBenchUITests/testFullMatrix"
+    test_status=$?
+    if (( test_status == 0 )); then break; fi
+    if (( attempt == 1 )) && _ui_test_log_needs_unlock_retry "$log"; then
+      attempt=$((attempt + 1))
+      continue
+    fi
+    break
+  done
   set -e
   unset TEST_RUNNER_QVOICE_IOS_BENCH_RUN_ID TEST_RUNNER_QVOICE_IOS_BENCH_MODES \
         TEST_RUNNER_QVOICE_IOS_BENCH_LENGTHS TEST_RUNNER_QVOICE_IOS_BENCH_WARM
@@ -781,6 +810,8 @@ _run_ui_test_once() {
   local log="$2"
   shift 2
   local -a only_args=( "$@" )
+  local errexit_was=0
+  [[ $- == *e* ]] && errexit_was=1
   set +e
   if [[ -s "$log" ]]; then
     xcodebuild test-without-building \
@@ -800,7 +831,7 @@ _run_ui_test_once() {
       2>&1 | tee "$log"
   fi
   local status=${PIPESTATUS[0]}
-  set -e
+  if (( errexit_was )); then set -e; else set +e; fi
   return "$status"
 }
 

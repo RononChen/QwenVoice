@@ -37,6 +37,11 @@ struct IOSStudioBenchHooks: View {
                 appModel.customVoiceDraft.text = ""
                 appModel.voiceDesignDraft.text = ""
                 appModel.voiceCloningDraft.text = ""
+                // Warm in-session takes reuse one launch; dismiss the inline
+                // player so the dock returns to the Generate CTA for the next take.
+                for mode in [GenerationMode.custom, .design, .clone] {
+                    appModel.coordinator(for: mode).dismissInlinePlayer()
+                }
             } label: {
                 Color.clear.frame(width: 8, height: 8)
             }
