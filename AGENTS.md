@@ -240,9 +240,10 @@ desktop-MCP harness is gone — see the testing runbook). Full MCP inventory and
   `MLXArray`/`Memory`/`GPU`, prompt construction, or the vendored codec. Also see
   [`.agents/backend-mlx.md`](.agents/backend-mlx.md) and
   [`.cursor/rules/backend-mlx.mdc`](.cursor/rules/backend-mlx.mdc).
-- **Apple framework APIs / iOS 26 / post-cutoff APIs** → the Axiom skills (`axiom-apple-docs`,
-  `axiom-swiftui`, `axiom-concurrency`, `axiom-data`, …) — they carry WWDC 2025+ docs. The
-  Xcode-bundled for-LLM guides under
+- **Apple framework APIs / iOS 26 / post-cutoff APIs** → **`user-axiom`** MCP
+  (`axiom_get_catalog` → `axiom_read_skill` for skills such as `axiom-apple-docs`,
+  `axiom-swiftui`, `axiom-concurrency`, `axiom-data`, …). The Xcode-bundled for-LLM guides
+  under
   `/Applications/Xcode.app/Contents/PlugIns/IDEIntelligenceChat.framework/.../AdditionalDocumentation/`
   are also readable directly.
 - **Non-Apple library / framework / SDK / CLI docs** (GRDB, SwiftHuggingFace, React/Vite, etc.) →
@@ -255,22 +256,23 @@ desktop-MCP harness is gone — see the testing runbook). Full MCP inventory and
   Axiom `xcui`/`simulator-tester` are off-limits for iOS** (§7); use `scripts/ios_device.sh` or
   MCP `ios-device` profile for on-device work.
 - **iOS on-device lanes** (`scripts/ios_device.sh`, one verb per lane): `test` / `crashes` /
-  `profile` / `debug` / `review`. Inspect the resulting `.xcresult` / `.ips` with the Axiom
-  crash + profiling skills (`xcsym`, `xcprof`, `xclog` ship in the Axiom plugin `bin/`). Full map:
-  `docs/reference/ios-device-testing.md` §3. Also see [`.agents/ios-engineer.md`](.agents/ios-engineer.md)
-  and [`.cursor/rules/ios.mdc`](.cursor/rules/ios.mdc).
+  `profile` / `debug` / `review`. Inspect the resulting `.xcresult` / `.ips` via **`user-axiom`**
+  MCP tools (`axiom_xcsym_*`, `axiom_xcprof_*`, `axiom_xclog_*`) or `axiom_get_agent` for
+  named agents. Full map: `docs/reference/ios-device-testing.md` §3. Also see
+  [`.agents/ios-engineer.md`](.agents/ios-engineer.md) and [`.cursor/rules/ios.mdc`](.cursor/rules/ios.mdc).
 - **macOS lanes** (`scripts/macos_test.sh`, one verb per lane): `models` / `test` / `journey` /
   `bench-ui` / `gate` / `crashes` / `profile` / `debug` / `review` / `xpc` / `uitest-doctor`. Lane map + XPC dimension:
   `docs/reference/macos-testing.md`. Also see [`.agents/macos-engineer.md`](.agents/macos-engineer.md).
-- **Review & audits** → run the Axiom auditor subagents via the `Task` tool (e.g.
+- **Review & audits** → **`user-axiom`** `axiom_get_agent` for named auditors (e.g.
   `concurrency-auditor`, `memory-auditor`, `swift-performance-analyzer`,
   `swiftui-{architecture,layout,nav,performance}-auditor`, `codable-auditor`,
-  `security-privacy-scanner`, `accessibility-auditor`, `screenshot-validator`), or
-  `/axiom:audit <domain>` / `/axiom:health-check`. For a diff review use the `bugbot` or
-  `security-review` subagents.
-- **Crash logs (.ips / MetricKit / .crash)** → `crash-analyzer` subagent / Axiom `xcsym`.
-  **Profiling** → `performance-profiler` subagent / Axiom `xcprof`. **Build/environment
-  failures** → `build-fixer` subagent (but inspect the relevant `scripts/*.sh` output first).
+  `security-privacy-scanner`, `accessibility-auditor`, `screenshot-validator`); follow
+  instructions in-session or via Task `generalPurpose` when scope is large. For a diff review
+  use the `bugbot` or `security-review` subagents.
+- **Crash logs (.ips / MetricKit / .crash)** → `axiom_xcsym_crash` / `axiom_get_agent`
+  agent=`crash-analyzer`. **Profiling** → `axiom_xcprof_analyze` / `axiom_get_agent`
+  agent=`performance-profiler`. **Build/environment failures** → `axiom_get_agent`
+  agent=`build-fixer` (but inspect the relevant `scripts/*.sh` output first).
 - **Parallel/large work** → the `Task` tool with `subagent_type: "explore"` (read-only
   investigation), `"generalPurpose"` (multi-step implementation/research), or `"shell"` (command
   execution). Pass the relevant `.agents/<role>.md` path and the task; the subagent reads it first.

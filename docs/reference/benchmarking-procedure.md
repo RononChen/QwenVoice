@@ -306,9 +306,9 @@ python3 scripts/check_macos_xpc_bench.py ~/Library/Application\ Support/QwenVoic
 | Phase | Tool |
 |-------|------|
 | Trace capture | `bench-ui --profile` / `xctrace record --attach` |
-| Trace analysis | Axiom `performance-profiler` / `xcprof analyze` |
-| Logs / warm-admission | Axiom `xclog` / `scripts/macos_test.sh logs` |
-| Crash post-mortem | Axiom `crash-analyzer` / `xcsym` |
+| Trace analysis | `axiom_xcprof_analyze` / `axiom_get_agent` → `performance-profiler` |
+| Logs / warm-admission | `axiom_xclog_*` / `scripts/macos_test.sh logs` |
+| Crash post-mortem | `axiom_xcsym_crash` / `axiom_get_agent` → `crash-analyzer` |
 
 Cold takes: app relaunch + `QWENVOICE_SUPPRESS_WARMUP=1` + `QWENVOICE_BENCH_FORCE_COLD=1`
 (debug-only unload before generate). Warm takes stay in-session.

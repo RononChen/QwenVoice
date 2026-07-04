@@ -306,17 +306,18 @@ warm-app XCUITest coordinator. All on-device, observed via iPhone Mirroring (OLE
 
 | Lane | Verb | Captures / proves | Deeper analysis |
 |------|------|-------------------|-----------------|
-| Test | `test` / `ui-test` | Smoke + Sheet + OnDeviceDownload on device | `axiom:test-runner` on the `.xcresult` |
-| Crash | `crashes` | MetricKit crash/hang diagnostics (in-app `IOSCrashObserver`) | `axiom:crash-analyzer` / `xcsym` vs the build dSYM |
-| Debug | `debug` / `logs` | attached stdout + the LLDB attach command (`get-task-allow` build) | `./scripts/ios_device.sh debug`; Axiom `build-fixer` |
-| Profile | `profile` | Instruments/xctrace trace over the engine's `OSSignpost` intervals | `axiom:performance-profiler` / `xcprof analyze` |
-| Review | `review` | XCUITest screenshot tour of the key screens | `screenshot-validator` subagent / manual diff vs `docs/ios-review-baselines/` |
+| Test | `test` / `ui-test` | Smoke + Sheet + OnDeviceDownload on device | `axiom_get_agent` → `test-runner` on the `.xcresult` |
+| Crash | `crashes` | MetricKit crash/hang diagnostics (in-app `IOSCrashObserver`) | `axiom_xcsym_crash` / `axiom_get_agent` → `crash-analyzer` |
+| Debug | `debug` / `logs` | attached stdout + the LLDB attach command (`get-task-allow` build) | `./scripts/ios_device.sh debug`; `axiom_get_agent` → `build-fixer` |
+| Profile | `profile` | Instruments/xctrace trace over the engine's `OSSignpost` intervals | `axiom_xcprof_analyze` / `axiom_get_agent` → `performance-profiler` |
+| Review | `review` | XCUITest screenshot tour of the key screens | `axiom_get_agent` → `screenshot-validator` / manual diff vs `docs/ios-review-baselines/` |
 | Gate | `gate` | preflight → test → generation → crashes (fatal) → single verdict | — |
 
 **Crash lane.** `IOSCrashObserver` (`Sources/iOSSupport/Services/IOSCrashObserver.swift`)
 subscribes to MetricKit crash/hang diagnostics + an `NSException` handler and writes them
 to the pullable diagnostics dir; `build` preserves the `.dSYM` under `build/ios/dsyms/`;
-`crashes` pulls + symbolicates via `xcsym` (or the `axiom:crash-analyzer` agent).
+`crashes` pulls + symbolicates via `xcsym` when on PATH, or the **`user-axiom`** MCP tool
+`axiom_xcsym_crash` / `axiom_get_agent` agent=`crash-analyzer`.
 `crashes --test` deliberately crashes (`QVOICE_IOS_CRASH_TEST`) to verify capture +
 symbolication end-to-end. (MetricKit delivers on its periodic cycle, so the self-test may
 need a short wait, or fall back to Xcode → Window → Devices and Simulators → Device Logs.)

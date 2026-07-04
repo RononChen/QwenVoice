@@ -185,6 +185,7 @@ Official **`appium/appium-mcp`**: real-device prep, gestures, screenshots, optio
 | macOS regression | `scripts/macos_test.sh gate` |
 | iOS regression | `scripts/ios_device.sh gate` |
 | iOS observation screenshot | `scripts/ios_device.sh shot` (no agent clicks in shell) |
+| Crash / profile / audit analysis | **Axiom MCP** (`user-axiom`: `axiom_xcsym_*`, `axiom_xcprof_*`, `axiom_get_agent`) |
 | Deterministic bench timing / generation verification | `scripts/uitest_measure.sh` (verify-generation, streaming-preview-check, bench-compare) — no MCP replaces it |
 
 ---

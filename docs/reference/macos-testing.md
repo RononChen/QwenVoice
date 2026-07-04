@@ -31,15 +31,15 @@ app **and** the service.
 |------|------|-------------------|-----------------|
 | Preflight | `preflight [--strict-models]` | Xcode + app + XPC bundle + dSYMs + model status | — |
 | Models | `models check\|ensure\|install` | three Speed models + clone voice fixture | — |
-| Test | `test` | `VocelloMacSmokeUITests` only (~12 smoke tests, human driver) | `axiom:test-runner` on the `.xcresult` |
+| Test | `test` | `VocelloMacSmokeUITests` only (~12 smoke tests, human driver) | `axiom_get_agent` → `test-runner` on the `.xcresult` |
 | Journey | `journey` | `VocelloMacHumanJourneyUITests` (compose → generate → player → history) | same |
-| XPC UI bench | `bench-ui` | `VocelloMacBenchUITests` matrix (29 takes default) + merged summarizer + `--run-id` gate | `check_macos_xpc_bench.py`; `performance-profiler` / `xcprof` with `--profile` |
+| XPC UI bench | `bench-ui` | `VocelloMacBenchUITests` matrix (29 takes default) + merged summarizer + `--run-id` gate | `check_macos_xpc_bench.py`; `axiom_xcprof_analyze` with `--profile` |
 | UITest doctor | `uitest-doctor` | automation mode + signing + TCC guidance (Gates 1–3) | — |
 | Bench | `build.sh cli bench` | deterministic perf/quality matrix | `summarize_generation_telemetry.py` |
-| Crash | `crashes [--test]` | `.ips` for app + XPC service | `axiom:crash-analyzer` / `xcsym` vs the dSYMs |
-| Debug | `debug` | LLDB attach (app + service PID) + `logs` | `./scripts/macos_test.sh debug`; Axiom `build-fixer` |
-| Profile | `profile [spec]` | xctrace/Instruments on the engine (CLI in-process) | `axiom:performance-profiler` / `xcprof` |
-| Review | `review [--baseline] [--subset resting\|full]` | catalog-driven captures (`VocelloMacReviewUITests`) | `screenshot-validator` subagent / manual diff vs `docs/macos-review-baselines/` |
+| Crash | `crashes [--test]` | `.ips` for app + XPC service | `axiom_xcsym_crash` / `axiom_get_agent` → `crash-analyzer` |
+| Debug | `debug` | LLDB attach (app + service PID) + `logs` | `./scripts/macos_test.sh debug`; `axiom_get_agent` → `build-fixer` |
+| Profile | `profile [spec]` | xctrace/Instruments on the engine (CLI in-process) | `axiom_xcprof_analyze` / `axiom_get_agent` → `performance-profiler` |
+| Review | `review [--baseline] [--subset resting\|full]` | catalog-driven captures (`VocelloMacReviewUITests`) | `axiom_get_agent` → `screenshot-validator` / manual diff vs `docs/macos-review-baselines/` |
 | XPC | `xpc [--crash-isolation]` | retirement/relaunch + crash isolation | — |
 | Gate | `gate` | models → inputs → build_foundation → test → crashes (**gate-fatal on new .ips**) → verdict; optional bounded `vocello bench` + audioQC + baseline compare (`benchmarks/baselines/mac-gate-bench.json`) when `QWENVOICE_GATE_BENCH=1` | — |
 
@@ -86,9 +86,9 @@ scripts/macos_test.sh crashes            # collect recent .ips → xcsym symboli
 scripts/macos_test.sh crashes --test     # SIGSEGV a launched app to verify the lane
 ```
 
-`xcsym crash <file> --dsym-dir build/macos/dsyms` symbolicates. If `xcsym` isn't on PATH
-(install `axiom-tools`), the verb prints the exact command to run, or dispatch
-`axiom:crash-analyzer`.
+`xcsym crash <file> --dsym-dir build/macos/dsyms` symbolicates when `xcsym` is on PATH.
+If not, use the **`user-axiom`** MCP tool `axiom_xcsym_crash`, or `axiom_get_agent`
+agent=`crash-analyzer`.
 
 ## Debug + logs
 
@@ -135,8 +135,8 @@ scripts/macos_test.sh journey                       # phase-A human flows (playe
 `VocelloMacBenchUITests` separately (cold/warm relaunch, telemetry-flush markers).
 
 Runs `VocelloMacReviewUITests` (catalog keys like `review-custom-postgen`, `review-history-populated`).
-Diff each capture against its committed baseline via the **`screenshot-validator`** Axiom subagent
-(`/axiom:audit screenshots`) or a manual visual pass. macOS is the host — direct capture, no
+Diff each capture against its committed baseline via **`user-axiom`** `axiom_get_agent`
+agent=`screenshot-validator` or a manual visual pass. macOS is the host — direct capture, no
 Mirroring chrome, no burn-in concern.
 
 ## XPC lifecycle (macOS-unique)

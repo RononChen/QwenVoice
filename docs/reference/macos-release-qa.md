@@ -50,7 +50,8 @@ releases that touched UI/engine surfaces. If this doc disagrees with the code, t
      --label "release-QA"
    ```
    Investigate any highlighted cell before shipping.
-4. **Static audits** (release-sized changesets): run the five Axiom auditors per `.agents/release-qa-engineer.md` routing
+4. **Static audits** (release-sized changesets): fetch the five Axiom auditors via **`user-axiom`**
+   `axiom_get_agent` per `.agents/release-qa-engineer.md` routing
    (swiftui-architecture, swiftui-performance, memory, concurrency, security-privacy) scoped to the
    changed surfaces; fix or explicitly defer findings.
 5. **Interactive matrix** (releases touching UI; human-driven manual pass — or

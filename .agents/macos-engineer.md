@@ -39,11 +39,12 @@ Before changing macOS app or XPC code, read:
   - `./scripts/build.sh build|run|cli`
   - `scripts/macos_test.sh models check|ensure|test|gate|crashes|debug|logs|profile|review|xpc`
   - `./scripts/regenerate_project.sh` after `project.yml` changes
-- **Apple framework APIs / SwiftUI / concurrency** → follow the Axiom skills
-  (`axiom-apple-docs`, `axiom-swiftui`, `axiom-concurrency`) via the Read tool.
-- **Crash / profile / test / UI-review** → launch the matching Axiom subagent with the **Task
-  tool** (`crash-analyzer`, `performance-profiler`, `test-runner`, `test-debugger`,
-  `screenshot-validator`).
+- **Apple framework APIs / SwiftUI / concurrency** → **`user-axiom`** MCP
+  (`axiom_read_skill` for `axiom-apple-docs`, `axiom-swiftui`, `axiom-concurrency`).
+- **Crash / profile / test / UI-review** → **`user-axiom`** MCP tools and agents:
+  `axiom_xcsym_crash`, `axiom_xcprof_analyze`, `axiom_xclog_*`; or `axiom_get_agent` for
+  `crash-analyzer`, `performance-profiler`, `test-runner`, `test-debugger`,
+  `screenshot-validator`.
 - **XcodeBuildMCP** (`user-xcodebuildmcp` via `CallMcpTool`) — macOS + device
   workflows enabled in [`.xcodebuildmcp/config.yaml`](../.xcodebuildmcp/config.yaml). Use profile
   `macos` for quick checks; `./scripts/build.sh` / `scripts/macos_test.sh` remain primary. Call

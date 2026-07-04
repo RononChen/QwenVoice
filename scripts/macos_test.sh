@@ -84,14 +84,14 @@ cmd_crashes() {
   note "collected $n crash report(s) → $dest"
 
   [[ -d "$DSYM_DIR" ]] || { warn "no preserved dSYMs at $DSYM_DIR — run: scripts/build.sh build"; return 0; }
-  note "── symbolication (via xcsym; install axiom-tools if missing) ──"
+  note "── symbolication (via xcsym when on PATH; else user-axiom axiom_xcsym_crash) ──"
   for f in "$dest"/*.ips; do
     [[ -f "$f" ]] || continue
     if command -v xcsym >/dev/null 2>&1; then
       xcsym crash "$f" --dsym-dir "$DSYM_DIR" 2>&1 || warn "xcsym failed on $(basename "$f")"
     else
-      warn "xcsym not on PATH — symbolicating $(basename "$f") needs axiom-tools:"
-      warn "  xcsym crash \"$f\" --dsym-dir \"$DSYM_DIR\"   (or dispatch axiom:crash-analyzer)"
+      warn "xcsym not on PATH — use user-axiom MCP tool axiom_xcsym_crash, or:"
+      warn "  xcsym crash \"$f\" --dsym-dir \"$DSYM_DIR\"   (or axiom_get_agent crash-analyzer)"
     fi
   done
 }
@@ -154,7 +154,7 @@ cmd_profile() {
   local variant="${rest%%:*}"
   local template="${QVOICE_MAC_PROFILE_TEMPLATE:-Time Profiler}"
   local duration="${QVOICE_MAC_PROFILE_DURATION:-90}"
-  command -v xctrace >/dev/null 2>&1 || die "xctrace not found (install Xcode); or dispatch axiom:performance-profiler"
+  command -v xctrace >/dev/null 2>&1 || die "xctrace not found (install Xcode); or user-axiom axiom_xcprof_analyze / axiom_get_agent performance-profiler"
   ensure_mac_test_models --require
   local trace="$ROOT_DIR/build/macos/profile-$(date +%Y%m%d-%H%M%S).trace"
   mkdir -p "$(dirname "$trace")"
@@ -178,7 +178,7 @@ cmd_profile() {
   wait "$xcpid" || true
   [[ -d "$trace" ]] || die "no trace produced at $trace"
   note "trace → $trace"
-  note "analyze: open in Instruments, or: xcprof analyze \"$trace\" / axiom:performance-profiler"
+  note "analyze: open in Instruments, or: axiom_xcprof_analyze / axiom_get_agent performance-profiler / xcprof analyze \"$trace\""
   note "XPC service profile (production path): launch app, 'xctrace record --attach QwenVoiceEngineService', generate via UI."
 }
 
@@ -246,7 +246,7 @@ EOF
 
 # test: run VocelloMacSmokeUITests (macOS, arm64) → a single verdict + artifacts under
 # build/macos/uitest-artifacts/<run>/ (xcresult path + best-effort xcresulttool summary +
-# any MAC_TEST_SCREENSHOT_DIR shots). Deep .xcresult analysis routes to axiom:test-runner.
+# any MAC_TEST_SCREENSHOT_DIR shots). Deep .xcresult analysis: user-axiom axiom_get_agent test-runner.
 cmd_test() {
   local run_id="mac-test-$(date +%Y%m%d-%H%M%S)"
   local artifacts="$ROOT_DIR/build/macos/uitest-artifacts/$run_id"
@@ -526,7 +526,7 @@ cmd_review() {
     fi
   done
   (( any == 0 )) && warn "no captures produced (did the tour run?)"
-  note "diff each pair with screenshot-validator (/axiom:audit screenshots) or a manual visual pass (expected=baseline, actual=capture)."
+  note "diff each pair with user-axiom axiom_get_agent screenshot-validator or a manual visual pass (expected=baseline, actual=capture)."
   (( st == 0 )) && note "review OK" || warn "review had failures (exit $st)"
   return "$st"
 }

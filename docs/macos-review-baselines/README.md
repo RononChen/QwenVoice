@@ -20,8 +20,8 @@ On a normal `review` run, the verb prints each capture with its baseline pair (o
 when no baseline exists yet). The **perceptual diff** is a vision-MCP step — run it on
 each `(baseline, actual)` pair:
 
-- the **`screenshot-validator`** Axiom subagent (`/axiom:audit screenshots`), or
-- the `axiom:screenshot-validator` agent / `impeccable` skill for a deeper UI pass.
+- **`user-axiom`** `axiom_get_agent` agent=`screenshot-validator`, or
+- the `impeccable` skill for a deeper UI pass.
 
 Update a baseline only when the UI change is intentional; a diff that flags an
 unintended delta is the signal that caught a regression.

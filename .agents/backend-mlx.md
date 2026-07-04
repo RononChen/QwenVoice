@@ -38,8 +38,8 @@ Before changing anything in this layer, read:
   - `scripts/build_foundation_targets.sh macos|ios` for compile-safety.
   - `scripts/build.sh cli` to build `vocello`.
   - `QWENVOICE_DEBUG=1 ./build/vocello bench …` for perf/quality gates.
-- **Apple framework docs** when an API boundary is unclear → the `axiom-apple-docs` skill
-  (Xcode-bundled guides + WWDC 2025+).
+- **Apple framework docs** when an API boundary is unclear → **`user-axiom`** MCP
+  (`axiom_read_skill` for `axiom-apple-docs` and related skills).
 - **Non-Apple library docs** (e.g. GRDB, SwiftHuggingFace) → **`user-context7`** MCP via
   `CallMcpTool` (`resolve-library-id` → `query-docs`).
 - **Hugging Face hub** (model cards, revisions) → **`plugin-huggingface-skills-huggingface-skills`**

@@ -992,15 +992,15 @@ cmd_crashes() {
     return 0
   fi
 
-  note "── symbolication (via xcsym; install axiom-tools if missing) ──"
+  note "── symbolication (via xcsym when on PATH; else user-axiom axiom_xcsym_crash) ──"
   local f
   for f in "$crash_dir"/*; do
     [[ -f "$f" ]] || continue
     if command -v xcsym >/dev/null 2>&1; then
       xcsym crash "$f" --dsym "$dsym" 2>&1 || warn "xcsym failed on $(basename "$f")"
     else
-      warn "xcsym not on PATH — symbolicating $(basename "$f") needs axiom-tools:"
-      warn "  xcsym crash \"$f\" --dsym \"$dsym\"   (or dispatch the axiom:crash-analyzer agent)"
+      warn "xcsym not on PATH — use user-axiom MCP tool axiom_xcsym_crash, or:"
+      warn "  xcsym crash \"$f\" --dsym \"$dsym\"   (or axiom_get_agent crash-analyzer)"
     fi
   done
 }
@@ -1068,7 +1068,7 @@ cmd_profile() {
   local dev; dev="$(resolve_device)"
   ensure_mirror
   command -v xctrace >/dev/null 2>&1 \
-    || die "xctrace not found (install Xcode); or dispatch the axiom:performance-profiler agent"
+    || die "xctrace not found (install Xcode); or user-axiom axiom_xcprof_analyze / axiom_get_agent performance-profiler"
 
   [[ -d "$APP_PATH" ]] || cmd_build
   cmd_install >/dev/null
@@ -1087,7 +1087,7 @@ cmd_profile() {
   [[ -d "$trace" ]] || die "no trace produced at $trace"
 
   note "trace → $trace"
-  note "analyze: open in Instruments, or dispatch axiom:performance-profiler / run: xcprof analyze \"$trace\""
+  note "analyze: open in Instruments, or axiom_xcprof_analyze / axiom_get_agent performance-profiler / xcprof analyze \"$trace\""
 
   local dest="$ROOT_DIR/build/ios-diagnostics"
   rm -rf "$dest"
@@ -1200,7 +1200,7 @@ _ios_check_cold_generation_model_skip() {
 # gather artifacts under build/ios/uitest-artifacts/<runID>/. Thin wrapper over ui-test
 # (same scope flags) run in a subshell so its `die` is captured, plus a best-effort
 # xcresulttool summary. Screenshots land via the test app's UI_TEST_SCREENSHOT_DIR. For
-# deep .xcresult analysis, dispatch the axiom:test-runner agent on the bundle.
+# deep .xcresult analysis: user-axiom axiom_get_agent test-runner.
 cmd_test() {
   require_team
   local run_id="ios-test-$(date +%Y%m%d-%H%M%S)"
@@ -1312,7 +1312,7 @@ cmd_review() {
     fi
   done
   (( any == 0 )) && warn "no captures produced (did the tour run?)"
-  note "diff each pair with screenshot-validator (/axiom:audit screenshots) or a manual visual pass (expected=baseline, actual=capture)."
+  note "diff each pair with user-axiom axiom_get_agent screenshot-validator or a manual visual pass (expected=baseline, actual=capture)."
 
   (( st == 0 )) && note "review tour OK" || warn "review tour had failures (exit $st)"
   return "$st"

@@ -31,11 +31,12 @@ Before changing iOS UI or behavior, read:
 
 ## Tools and skills (Cursor)
 
-- **Apple framework APIs / iOS 26 / post-cutoff APIs** → follow the **Axiom** skills (open the
-  relevant `SKILL.md` with the Read tool and follow it): `axiom-apple-docs`, `axiom-swiftui`,
-  `axiom-concurrency`. They carry WWDC 2025+ docs and the Xcode-bundled guides.
-- **Crash / profile / test debugging** → launch the matching Axiom subagent with the **Task tool**
-  (`crash-analyzer`, `performance-profiler`, `test-runner`, `test-debugger`).
+- **Apple framework APIs / iOS 26 / post-cutoff APIs** → **`user-axiom`** MCP
+  (`axiom_get_catalog` → `axiom_read_skill` for `axiom-apple-docs`, `axiom-swiftui`,
+  `axiom-concurrency`, …).
+- **Crash / profile / test debugging** → **`user-axiom`** MCP tools and agents:
+  `axiom_xcsym_crash`, `axiom_xcprof_analyze`, `axiom_xclog_*`; or `axiom_get_agent` for
+  `crash-analyzer`, `performance-profiler`, `test-runner`, `test-debugger`.
 - **Shell tool / scripts** — the only way to build/test/run real-engine iOS work on device:
   - `scripts/ios_device.sh preflight`
   - `scripts/ios_device.sh models check`

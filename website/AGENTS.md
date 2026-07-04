@@ -23,7 +23,7 @@ this directory.
 
 ## Tooling for this directory
 
-- This is a **non-app, non-native zone** — do not run the Axiom Swift/iOS auditors here. For React/Vite/library API questions use the **`user-context7`** MCP (`resolve-library-id` then `query-docs`); your training data may lag the installed versions.
+- This is a **non-app, non-native zone** — do not run Axiom Swift/iOS auditors here (including via **`user-axiom`** MCP). For React/Vite/library API questions use the **`user-context7`** MCP (`resolve-library-id` then `query-docs`); your training data may lag the installed versions.
 - For UI/UX/visual passes, read `PRODUCT.md` and `DESIGN.md` first and use the `chrome-devtools` MCP to verify the running site.
 - For browser verification of the running dev/preview server, use the `chrome-devtools` MCP
   (e.g. `navigate_page`, `take_screenshot`, `take_snapshot`, `list_console_messages`) or the

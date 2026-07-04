@@ -34,12 +34,17 @@ Before changing scripts or CI, read:
 ## Tools and skills (Cursor)
 
 - **Shell tool** — scripts are the source of truth; run them directly.
-- **Axiom subagents** via the **Task tool** for analysis:
-  - `crash-analyzer` for `.ips` / MetricKit / `.crash` (or the `xcsym` CLI directly)
-  - `performance-profiler` for Instruments/xctrace analysis
-  - `test-runner` / `test-debugger` for `.xcresult` investigation
-  - `screenshot-validator` for UI review baseline diffs
-  - `build-fixer` for environment/build failures (after inspecting script output)
+- **Axiom MCP (`user-axiom`)** for post-run analysis (read tool schema first):
+
+  | Need | MCP path |
+  | --- | --- |
+  | Crash triage | `axiom_xcsym_crash` or `axiom_get_agent` → `crash-analyzer` |
+  | Profile analysis | `axiom_xcprof_analyze` or `axiom_get_agent` → `performance-profiler` |
+  | Test failure | `axiom_get_agent` → `test-runner` / `test-debugger` |
+  | UI baseline diff | `axiom_get_agent` → `screenshot-validator` |
+  | Build/env failure | `axiom_get_agent` → `build-fixer` (after reading script output) |
+  | Static audits | `axiom_get_agent` → named auditors (`concurrency-auditor`, `memory-auditor`, …) |
+
 - **GitHub** (release artifacts, PRs, workflow dispatch) → `gh` via the Shell tool.
 - **XcodeBuildMCP** (`user-xcodebuildmcp`) — macOS and on-device iOS workflows enabled; see
   [`.xcodebuildmcp/config.yaml`](../.xcodebuildmcp/config.yaml). Prefer `scripts/*.sh` for
