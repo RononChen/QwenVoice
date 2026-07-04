@@ -25,7 +25,7 @@
 
 Before changing iOS UI or behavior, read:
 1. `docs/reference/ios-app-guide.md` — app map + how to drive it in tests.
-2. `docs/reference/ios-device-testing.md` §3 — on-device lanes and burn-in safety.
+2. `docs/reference/ios-device-testing.md` § Daily workflow + § Lane map — on-device lanes and burn-in safety.
 3. `docs/ARCHITECTURE.md` §6 — iOS request lifecycle, cooperative cancel, memory posture (batch was removed from iOS 2026-07-02).
 4. `docs/reference/ios-engine-optimization.md` if the change affects generation performance or memory.
 
@@ -54,9 +54,9 @@ Before changing iOS UI or behavior, read:
 ```sh
 # On-device only. Never use the iOS Simulator.
 scripts/ios_device.sh preflight
-scripts/ios_device.sh models check    # tier matrix: default gate needs no pre-install
-scripts/ios_device.sh ui-test         # default: Smoke + Sheet + OnDeviceDownload
-scripts/ios_device.sh test --cold     # ColdGeneration; fails if Speed model missing on device
+scripts/ios_device.sh models check    # tier matrix (install all Speed models on device once)
+scripts/ios_device.sh test            # default: Smoke + Sheet + ColdGeneration
+scripts/ios_device.sh ui-test --download  # opt-in OnDeviceDownload (uninstalls pro_custom)
 scripts/ios_device.sh gate
 
 # Foundation compile-safety (compile only, no simulator launch)

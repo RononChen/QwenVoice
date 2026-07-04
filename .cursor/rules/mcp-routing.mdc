@@ -53,7 +53,10 @@ Tools include `session_show_defaults`, `session_use_defaults_profile`, `build_ma
   `build_run_macos` / `test_macos` are OK for quick checks (`session_use_defaults_profile: macos`).
 - **iOS (`VocelloiOS`):** prefer `scripts/ios_device.sh` on a paired iPhone for all UI tests
   and real-engine work. MCP `device` tools are optional helpers (profile `ios-device` + runtime
-  `deviceId`). **Never** use Simulator or simulator UI tools for iOS.
+  `deviceId`). **Never** use Simulator or simulator UI tools for iOS. Post-run triage playbook:
+  [`ios-device-testing.md` § Agent + MCP workflow](mdc:docs/reference/ios-device-testing.md#agent--mcp-workflow)
+  (`test-runner` on `build/ios/Logs/Test/*.xcresult`; `check_ios_ui_bench.py` on
+  `build/ios-diagnostics/`; `axiom_xcprof_analyze` on `bench-ui --profile` traces).
 
 ## Context7 (`user-context7`)
 

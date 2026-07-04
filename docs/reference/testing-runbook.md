@@ -68,6 +68,10 @@ scripts/macos_test.sh profile [spec]  # Instruments + vocello bench; fails on be
 ```
 
 ### iOS UI tests (paired iPhone, attended)
+
+**Operator guide:** [`ios-device-testing.md`](ios-device-testing.md) — one-time setup,
+§ Daily workflow, § Visual reference (workflow diagrams), lane map with time budgets, model fixture policy.
+
 ```sh
 scripts/ios_device.sh preflight           # device + signing + app + dSYM readiness
 scripts/ios_device.sh models check        # which lanes need device models
@@ -107,8 +111,9 @@ gated afterwards). Follow these procedures literally.
 1. **Preconditions (all required):**
    - `scripts/ios_device.sh device-state` → `MIRROR_ACTIVE` (exit 0). Anything else:
      fix per the printed advice (phone locked nearby, Mirroring resumed, no call).
-   - All three Speed models installed on the phone (Settings → Model Downloads):
-     Custom Voice, Voice Design, Voice Cloning. `scripts/ios_device.sh models check`.
+   - All three Speed models on the phone: `scripts/ios_device.sh models check --strict`
+     (headless inventory pull — phone locked OK). See
+     [`ios-device-testing.md` § Agent + MCP workflow](ios-device-testing.md#agent--mcp-workflow).
      Note: `ui-test --download` (OnDeviceDownload) UNINSTALLS Custom Voice — run it separately
      from the default gate; reinstall Custom Voice before the next default `test` / `gate`.
      benching if a gate ran since the last install. Downloads are serial (queued), ~4 min each.
@@ -118,7 +123,8 @@ gated afterwards). Follow these procedures literally.
    - Phone unlocked for the XCUITest attach (first run of the day may show the
      passcode/automation prompt — human enters it).
 2. **Run:** `scripts/ios_device.sh bench-ui --label "<why>"` (same matrix semantics and
-   scoping flags as macOS). The driver builds, installs, runs
+   scoping flags as macOS; optional `--profile` for xctrace during matrix). The driver runs
+   `device-state` + `uitest-doctor` preflight, builds, installs, runs
    `VocelloiOSBenchUITests/testFullMatrix`, pulls diagnostics, summarizes, and gates.
 3. **Verdict:** `scripts/check_ios_ui_bench.py` prints per-cell rows + `PASS`/`FAIL`
    against the take count the test itself reported (`VOCELLO-BENCH-UI-MANIFEST ran=N`
@@ -127,6 +133,7 @@ gated afterwards). Follow these procedures literally.
    device unreachable/locked → re-check `device-state`, unlock, retry once. Take timeout =
    read `iosStudio_generationError` in the log; model missing = `textInput_installModelButton`
    assertion. Interference mid-run: the sentinel polls abort with the cause named.
+   Post-run MCP playbook: [`ios-device-testing.md` § Agent + MCP workflow](ios-device-testing.md#agent--mcp-workflow).
 5. **Comparing numbers:** engine rows from `bench-ui` are like-for-like with
    `ios_device.sh bench` (same `-Onone` build). Never compare against macOS or CLI lanes
    (see `benchmarking-procedure.md` §7 like-for-like table).

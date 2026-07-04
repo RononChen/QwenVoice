@@ -14,7 +14,7 @@ import QwenVoiceCore
 /// generation with no UI for `scripts/ios_device.sh bench`; it ships inert.
 @main
 struct QVoiceiOSApp: App {
-    @StateObject private var deps = IOSAppDependenciesContainer()
+    @StateObject private var deps: IOSAppDependenciesContainer
     @UIApplicationDelegateAdaptor private var appDelegate: IOSAppDelegate
     @StateObject private var audioPlayer = AudioPlayerViewModel()
     @StateObject private var savedVoicesViewModel = SavedVoicesViewModel()
@@ -24,6 +24,18 @@ struct QVoiceiOSApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        if IOSModelsInventoryWriter.isRequested {
+            let seed = QVoiceiOSApp.modelAssetStoreSeed()
+            MainActor.assumeIsolated {
+                do {
+                    try IOSModelsInventoryWriter.runAndExit(storeVersionSeed: seed)
+                } catch {
+                    IOSModelsInventoryWriter.writeFailure(error, storeVersionSeed: seed)
+                }
+            }
+            fatalError("IOSModelsInventoryWriter.runAndExit must terminate the process")
+        }
+        _deps = StateObject(wrappedValue: IOSAppDependenciesContainer())
         configureAudioSession()
         configureNativeRuntimeMemoryCacheIfNeeded()
         IOSCrashObserver.shared.start()

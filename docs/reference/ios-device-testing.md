@@ -1,391 +1,806 @@
-# iOS on-device testing — the hybrid method
+# iOS on-device testing — lanes + operator guide
 
-> **Canonical testing doc:** [`testing-runbook.md`](testing-runbook.md) — on-device
-> XCUITest model, CI compile lane, and determinism rules. This file is the **device
-> lanes** deep-dive (headless harness, `scripts/ios_device.sh`, quality lanes).
+The iOS testing/debugging/benchmarking/UI-review lanes. The engine runs **in-process** in
+the app (not an ExtensionKit extension — Jetsam would cap it independently of the
+`increased-memory-limit` entitlement). GitHub CI runs **compile-only** for iOS; the real
+pre-merge gate is `scripts/ios_device.sh gate` on a paired physical iPhone.
 
-The **automated/headless** on-device methods. They complement interactive UI review over
-iPhone Mirroring for UI-driven operations + UI design/review. Two automated tools, neither of
-which drives the UI by pixels:
+> Build/run stay in [`build.sh`](../../scripts/build.sh) / [`ios_device.sh`](../../scripts/ios_device.sh).
+> For the canonical testing strategy (on-device model, CI compile lane, determinism rules)
+> see [`testing-runbook.md`](testing-runbook.md). For the app map + driving flows see
+> [`ios-app-guide.md`](ios-app-guide.md).
 
-1. **Headless generation harness** — the on-device analog of `vocello bench`. Launch
-   the app over `devicectl` with an autorun spec; the in-app `IOSAutorunHarness` runs
-   one generation with **no UI interaction**, writes telemetry + a completion sentinel
-   into the App-Group container, and `scripts/ios_device.sh` pulls them back and
-   summarizes. This is the real on-device entitlement/memory/RTF proof.
-2. **XCUITest UI tests** (`VocelloiOSUITests`) — deterministic, self-driving UI regression
-   on a **paired physical iPhone** only (real in-process MLX engine). See
-   [`testing-runbook.md`](testing-runbook.md).
+Two automated backends — neither drives the UI by pixels:
 
-Why this exists: on-device generation is the path that exercises real Jetsam, real model
-download, and the in-process engine + increased-memory entitlement. GitHub CI runs
-**compile-only** for iOS; the real UI gate is `scripts/ios_device.sh gate` locally.
-iPhone Mirroring is **not** the right tool for *scripted generation* (focus races, disconnects, engine-busy rejections, no headless
-trigger) — the headless harness is. See also: generation runs **in-process in the app** (since
-commit `7822a8a`) — a non-UI ExtensionKit extension is Jetsam-capped at a tiny per-process
-budget the entitlement does **not** raise, so it could never load the model; the app process
-*does* get the raised limit. The dead extension target was removed entirely (it never ran on
-hardware; git history preserves it).
+1. **Headless generation harness** (`IOSAutorunHarness`) — launch via `devicectl` with an
+   autorun spec; one generation with no UI; telemetry + sentinel pulled back and summarized.
+2. **XCUITest** (`VocelloiOSUITests`) — deterministic UI regression on a **paired iPhone only**
+   (real in-process MLX engine).
+
+iPhone Mirroring is for **observation**, not scripted generation (focus races, disconnects,
+no headless trigger). Use the headless harness for unattended real-engine proof.
+
+See [§ Visual reference](#visual-reference-diagrams) for workflow diagrams. The iOS Simulator
+is **never** used for Vocello testing.
 
 ---
 
-## Prerequisites
+## Visual reference (diagrams)
 
-- **Xcode 26** (`devicectl` / CoreDevice).
-- **A paired iPhone 15 Pro or newer** (iPhone 17 Pro preferred when multiple devices are
-  paired), **Developer Mode ON**, Mac trusted (USB). Verify on the device itself the first time.
-- `export QWENVOICE_DEVELOPMENT_TEAM=<your-apple-team-id>` — matches `project.yml`'s
-  `$(QWENVOICE_DEVELOPMENT_TEAM)`. **Never commit the team id.**
-- Optional `export QVOICE_IOS_DEVICE_ID=<id|name|udid>` to pin the target device;
-  otherwise the driver auto-discovers the single connected device.
-- **Device models (required for default gate):** install **all three Speed models**
-  (`pro_custom`, `pro_design`, `pro_clone`) on the paired iPhone once via Settings →
-  Model Downloads (~6.9 GB). Default `test` / `gate` runs Smoke + Sheet + ColdGeneration
-  plus headless Custom Voice generation. `OnDeviceDownload` is opt-in (`ui-test --download`;
-  uninstalls `pro_custom` in setUp). Run `scripts/ios_device.sh models check` for the matrix;
-  the Mac cannot verify App Group files remotely.
+Quick index — each diagram matches [`scripts/ios_device.sh`](../../scripts/ios_device.sh).
 
-The increased-memory entitlement is enabled + verified on the app's App ID (the engine is
-in-process — there is no extension App ID) — see
-[`ios-increased-memory-entitlement-request.md`](ios-increased-memory-entitlement-request.md).
+| # | Diagram | Jump |
+| --- | --- | --- |
+| 1 | [System overview](#diagram-system) | Mac ↔ iPhone, two backends |
+| 2 | [CI vs local verification](#diagram-ci-local) | What GitHub runs vs pre-merge gate |
+| 3 | [One-time setup flow](#diagram-setup) | First-run checklist order |
+| 4 | [Daily command picker](#diagram-daily) | Which verb for your change |
+| 5 | [Pre-merge `gate` pipeline](#diagram-gate) | Four gate steps + verdict |
+| 6 | [`test` / `ui-test` pipeline](#diagram-uitest) | Build, install, batched class run |
+| 7 | [Headless `bench` + data pull](#diagram-bench) | Autorun loop and diagnostics path |
+| 8 | [XCUITest session model](#diagram-xcuitest-sessions) | Warm vs cold app sessions |
+| 9 | [Security gates](#diagram-security-gates) | Three layers blocking XCUITest |
+| 10 | [Model fixture states](#diagram-models) | Ready, after `--download`, missing |
+| 11 | [Agent session flow](#diagram-agent-mcp) | Preflight MCP → shell gate → Axiom triage |
+| 12 | [Model verification ladder](#diagram-model-ladder) | Advisory → inventory pull → late XCTSkip |
 
-- **Screen mirroring (observation, on by default):** device commands auto-start macOS **iPhone Mirroring**
-  so you watch the live app on the Mac while the phone stays **locked + screen-dark (OLED burn-in safe)**.
-  iPhone Mirroring also keeps a *locked* device reachable to `devicectl` (a locked phone without mirroring
-  goes "unavailable"). **Lock the phone once** per session (Apple exposes no Mac-side lock CLI; it then stays
-  locked while mirroring) or rely on Auto-Lock — iPhone Mirroring reconnects when the phone auto-locks. Opt
-  out with `QVOICE_IOS_NO_MIRROR=1`; start it manually with `scripts/ios_device.sh mirror`.
+<a id="diagram-system"></a>
 
-- **Unlock vs lock:** `bench`, `launch`, and `pull` work with a **locked** phone (mirroring
-  keeps CoreDevice reachable). **`ui-test` requires the iPhone unlocked once** at the start of
-  the run so XCUITest can complete the automation auth handshake (`Unlock iPhone … to Continue`
-  / `SFAuthenticationErrorCodeApproveFailedToPost` when locked). Lock again after the handshake
-  if you prefer; mirroring keeps the tunnel up.
+### 1. System overview
+
+Mac operator runs `ios_device.sh` and `xcodebuild`; the paired iPhone runs the real
+in-process MLX engine. iPhone Mirroring keeps a locked device observable and
+`devicectl`-reachable.
+
+```mermaid
+flowchart LR
+  subgraph mac [Mac operator]
+    script[ios_device.sh]
+    xcbuild[xcodebuild]
+    mirror[iPhone Mirroring]
+  end
+  subgraph phone [Paired iPhone never Simulator]
+    app[Vocello.app]
+    xcuitest[VocelloiOSUITests]
+    autorun[IOSAutorunHarness]
+    engine[MLXTTSEngine in-process]
+  end
+  script --> mirror
+  script -->|devicectl| app
+  xcbuild -->|build-for-testing| xcuitest
+  xcuitest --> app
+  script -->|QVOICE_IOS_AUTORUN env| autorun
+  autorun --> engine
+  app --> engine
+```
+
+<a id="diagram-ci-local"></a>
+
+### 2. CI vs local verification
+
+GitHub CI catches compile regressions; only a physical iPhone proves the real engine.
+
+```mermaid
+flowchart TB
+  change[Push or PR to main]
+  change --> ciJob[ios-compile-check in ci.yml]
+  ciJob --> compileOnly["build-for-testing generic/platform=iOS"]
+  compileOnly --> compileOk[Compile and link only no device]
+  change --> localDev[Local developer]
+  localDev --> gateCmd["scripts/ios_device.sh gate"]
+  gateCmd --> realProof[XCUITest plus headless autorun on iPhone]
+  compileOk -.->|does NOT replace| gateCmd
+```
+
+<a id="diagram-setup"></a>
+
+### 3. One-time setup flow
+
+Run once per Mac + test iPhone. Order matters — see [§ One-time setup checklist](#one-time-setup-checklist).
+
+```mermaid
+flowchart TD
+  s1["1 Xcode 26 devicectl"]
+  s2["2 Pair iPhone 15 Pro plus Developer Mode"]
+  s3["3 QWENVOICE_DEVELOPMENT_TEAM"]
+  s4["4 increased-memory entitlement"]
+  s5["5 Install 3 Speed models on phone"]
+  s6["6 enable_unattended_uitest.sh"]
+  s7["7 Optional desk-phone no passcode"]
+  s8["8 doctor preflight models check"]
+  s1 --> s2 --> s3 --> s4 --> s5 --> s6 --> s7 --> s8
+```
+
+<a id="diagram-daily"></a>
+
+### 4. Daily command picker
+
+Pick the smallest lane that matches your change. Pre-merge default: `gate`.
+
+```mermaid
+flowchart TD
+  start[iOS code changed]
+  start --> compileOnly{Compile or SPM only?}
+  compileOnly -->|yes| foundation["build_foundation_targets.sh ios ~1 min"]
+  compileOnly -->|no| needDevice{What changed?}
+  needDevice -->|UI identifiers or sheets| testCmd["ios_device.sh test unlock once"]
+  needDevice -->|Engine MLX or generation| gateCmd["ios_device.sh gate ~8-15 min"]
+  needDevice -->|Perf matrix pre-release| benchuiCmd["ios_device.sh bench-ui ~20 min"]
+  needDevice -->|Download UX only| dlCmd["ui-test --download then reinstall Custom Voice"]
+  needDevice -->|Visual regressions| reviewCmd["ios_device.sh review"]
+  needDevice -->|Debug failure| debugCmd["logs console debug crashes"]
+  needDevice -->|Single RTF smoke| benchCmd["ios_device.sh bench"]
+```
+
+<a id="diagram-gate"></a>
+
+### 5. Pre-merge `gate` pipeline
+
+Artifacts land in `build/ios/gate-<runID>/` (`verdict.txt`, per-step logs).
+ColdGeneration (real UI generation) runs inside step 2 — step 3 is a separate headless proof.
+
+```mermaid
+flowchart TD
+  start[gate starts]
+  baseline[Snapshot crash baseline names via pull]
+  step1["Step 1 preflight"]
+  step2["Step 2 test Smoke Sheet ColdGeneration"]
+  skipGen{QVOICE_GATE_SKIP_GENERATION=1?}
+  step3["Step 3 headless custom speed autorun poll up to 300s"]
+  step4["Step 4 crashes compare new payloads gate-fatal"]
+  verdict["verdict.txt GATE PASS or FAIL"]
+  start --> baseline --> step1 --> step2 --> skipGen
+  skipGen -->|yes skip| step4
+  skipGen -->|no| step3 --> step4
+  step4 --> verdict
+```
+
+<a id="diagram-uitest"></a>
+
+### 6. `test` / `ui-test` pipeline
+
+Default scope batches Smoke, Sheet, and ColdGeneration into **one** `xcodebuild
+test-without-building` invocation (three `-only-testing:` flags).
+
+```mermaid
+flowchart TD
+  g1[uitest-doctor Mac Gate 1]
+  ready["ensure_device_ready mirror 60s unlock advisory"]
+  build[build-for-testing]
+  install[devicectl install app]
+  batch["test-without-building Smoke + Sheet + ColdGeneration one invocation"]
+  retry{Unlock or auth failure?}
+  retryOnce[Retry once after 8s]
+  wrap["test wrapper xcresult plus ColdGeneration skip check"]
+  g1 --> ready --> build --> install --> batch
+  batch --> retry
+  retry -->|yes once| retryOnce --> batch
+  retry -->|no| wrap
+```
+
+Phone must be **unlocked once** at attach; it may auto-lock after the handshake.
+
+<a id="diagram-bench"></a>
+
+### 7. Headless `bench` + data pull
+
+Phone can stay **locked**. App Group diagnostics are not `devicectl`-readable — the harness
+mirrors into the app container first.
+
+**Pipeline:**
+
+```mermaid
+flowchart LR
+  b1[build] --> b2[install] --> b3["launch autorun spec"] --> b4["poll autorun-done.json"] --> b5[pull] --> b6[summarize]
+```
+
+**Data path:**
+
+```mermaid
+flowchart LR
+  engine[Engine telemetry]
+  appGroup["App Group diagnostics not pullable"]
+  mirror["Library/Caches/Vocello/diagnostics mirror"]
+  pulled[build/ios-diagnostics]
+  summary[summarize_generation_telemetry.py]
+  engine --> appGroup --> mirror --> pulled --> summary
+```
+
+<a id="diagram-xcuitest-sessions"></a>
+
+### 8. XCUITest session model
+
+Default `test` mixes warm suites (Smoke, Sheet) with one cold suite (ColdGeneration).
+
+```mermaid
+flowchart TB
+  warm[VocelloUITestApp warm session one app instance]
+  warm --> SmokeSuite[VocelloiOSSmokeUITests]
+  warm --> SheetSuite[VocelloiOSSheetUITests]
+  warm --> ReviewSuite[VocelloiOSReviewTourUITests]
+  cold[Fresh app launch per suite]
+  cold --> ColdSuite[VocelloiOSColdGenerationUITests]
+  cold --> DownloadSuite[VocelloiOSOnDeviceDownloadUITests opt-in]
+```
+
+<a id="diagram-security-gates"></a>
+
+### 9. Security gates (three layers)
+
+XCUITest lanes hit all three gates. Headless `bench` / gate generation step bypasses gates 2–3.
+
+```mermaid
+flowchart TD
+  uitestLanes["XCUITest lanes test bench-ui review"]
+  headlessLanes["Headless lanes bench gate generation step"]
+  g1["Gate 1 Mac Authorization Services enable_unattended_uitest.sh"]
+  g2["Gate 2 iPhone unlock once at attach"]
+  g3["Gate 3 iPhone passcode prompt daily"]
+  runTests[Tests execute]
+  runHeadless[Autorun executes phone locked OK]
+  uitestLanes --> g1 --> g2 --> g3 --> runTests
+  headlessLanes --> runHeadless
+```
+
+<a id="diagram-models"></a>
+
+### 10. Model fixture states
+
+Models live in the iPhone App Group. The Mac verifies install state via headless inventory
+pull (`models check`) or late XCTSkip during XCUITest.
+
+```mermaid
+flowchart TD
+  ready["Ready all 3 Speed models on device"]
+  ok[default test gate bench-ui OK]
+  afterDl["After ui-test --download pro_custom uninstalled"]
+  reinstall[Reinstall Custom Voice on phone]
+  missing[Speed model missing on device]
+  fail["test gate FAIL ColdGeneration XCTSkip"]
+  ready --> ok
+  ready --> afterDl --> reinstall --> ready
+  ready --> missing --> fail
+```
+
+<a id="diagram-agent-mcp"></a>
+
+### 11. Agent session flow (MCP + shell)
+
+[`scripts/ios_device.sh`](../../scripts/ios_device.sh) runs all **gates**; MCPs augment
+preflight, observation, and post-run triage only.
+
+```mermaid
+flowchart TB
+  subgraph preflight [Preflight MCP plus Shell]
+    ds[device-state]
+    ud[uitest-doctor]
+    mc[models check --strict]
+  end
+  subgraph gates [Deterministic gates Shell only]
+    test[ios_device.sh test]
+    benchui[ios_device.sh bench-ui]
+    gate[ios_device.sh gate]
+  end
+  subgraph observe [Observation non-gate]
+    shot[ios_device.sh shot]
+    mirroir[mirroir describe_screen exploratory only]
+  end
+  subgraph triage [Post-run analysis user-axiom]
+    axTest[test-runner on xcresult]
+    axPerf[axiom_xcprof_analyze]
+    axCrash[axiom_xcsym_crash]
+  end
+  preflight --> gates
+  gates --> triage
+  observe -.->|watch only| benchui
+```
+
+<a id="diagram-model-ladder"></a>
+
+### 12. Model verification ladder
+
+Headless inventory closes the macOS `models check` parity gap. Until inventory is built,
+use the bench probe workaround.
+
+```mermaid
+flowchart LR
+  advisory[models check advisory only]
+  inventory["models check headless pull models-status.json"]
+  strict[models check --strict exit 1]
+  probe["bench custom:speed probe locked OK"]
+  late[ColdGeneration XCTSkip or bench-ui XCTFail]
+  advisory --> inventory --> strict
+  advisory --> probe
+  inventory --> late
+  strict --> late
+```
 
 ---
 
-## 1. Headless generation harness
+## One-time setup checklist
 
-### `scripts/ios_device.sh`
+See [diagram 3 — One-time setup flow](#diagram-setup). Run once per Mac + test iPhone. Order matters.
 
-A small `devicectl` driver. The signing team comes from `$QWENVOICE_DEVELOPMENT_TEAM`;
-the device is auto-discovered or pinned via `$QVOICE_IOS_DEVICE_ID` (neither committed).
-
-Every device verb below first runs an **auto-mirror preflight** (`ensure_mirror`): it starts
-macOS iPhone Mirroring and waits for the device to be `devicectl`-reachable, so you watch
-on the Mac with the phone locked + screen-dark (OLED-safe). Opt out with `QVOICE_IOS_NO_MIRROR=1`.
-
-| Verb | What it does |
-|------|--------------|
-| `doctor` | Environment + device preflight (Xcode, team env, device, built-app entitlement). |
-| `build` | Signed device build, `-Onone`, automatic signing (`-allowProvisioningUpdates`) → `build/ios/…/Vocello.app` (one shared iOS tree). |
-| `install` | `devicectl device install app` the built app. |
-| `launch [spec]` | Launch via `devicectl`. With a spec → sets the autorun + telemetry env; prints the generated `runID` on stdout. Without → a plain launch. |
-| `console [spec]` | Attached `--console` launch — streams the app's `[autorun]` stdout live (best for diagnosing a failed run). |
-| `mirror` | Start macOS iPhone Mirroring + confirm the device is reachable (the preflight, runnable on its own). |
-| `shot [path]` | `screencapture` the macOS iPhone Mirroring window → a real device screenshot (default `build/device-shot.png`). Brings Mirroring frontmost first. |
-| `pull [dest]` | `devicectl device copy from --domain-type appDataContainer --source Library/Caches/Vocello/diagnostics` (the app's pullable mirror — the App-Group container is NOT devicectl-readable). Default dest `build/ios-diagnostics`. |
-| `bench [spec] [--label "note"]` | The full loop: `build → install → launch-with-autorun → poll the sentinel → pull diagnostics → summarize`. Exits non-zero if the generation failed. |
-| `bench-ui [--modes m,…] [--lengths l,…] [--warm N] [--label "note"]` | **Full-matrix UI-DRIVEN bench** (`VocelloiOSBenchUITests`, iOS counterpart of `macos_test.sh bench-ui`): drives the real Studio UI per take (default 29-take custom/design/clone matrix), engine telemetry stamped `notes.benchRunID`, gated by `scripts/check_ios_ui_bench.py` against the test's `VOCELLO-BENCH-UI-MANIFEST` take count. Needs all Speed models installed; **clone cells need a saved voice enrolled on the phone** (mic is unavailable through Mirroring) and are skipped otherwise. Debug hooks: `Sources/iOS/Studio/IOSStudioBenchHooks.swift` (`iosStudio_lastGenerationComplete` / `iosStudio_generationError` / `iosStudio_benchClearScript`, active only under `QWENVOICE_UI_TEST_HOOKS=1`). |
-| `ui-test [--all\|--cold\|--download] [target]` | Run `VocelloiOSUITests` on the device (see §2). **Default:** Smoke + Sheet + ColdGeneration (all Speed models on device). `--download` runs OnDeviceDownload only. `--cold` is ColdGeneration-only. `--all` runs every class. |
-| `device-state [--json]` | Interference probe: `MIRROR_ACTIVE` (0) / `PHONE_IN_USE` (10) / `CALL_ACTIVE` (11) / `MIRROR_CONNECTING` (12) / `MIRROR_DISCONNECTED` (13) / `DEVICE_UNREACHABLE` (14). Visual (window screenshot + Vision OCR, fr+en) — the Mirroring window has no accessibility content. |
-| `preflight [--cold]` | One-shot readiness check (mirror + device reachable + signing + app + dSYM) + unlock advisory. `--cold` adds device-model install advisory. |
-| `uitest-doctor [--enable-gate1]` | Mac Gate 1 + device doctor + iPhone unlock/passcode guidance for unattended ui-test. |
-| `models` | `models check` — which ui-test/bench tiers need Speed on device (Mac cannot verify App Group files). |
-| `test [--all\|--cold\|--download] [target]` | `ui-test` wrapper + verdict artifacts. **Fails** if ColdGeneration skipped (missing Speed models). |
-| `crashes [--test]` | Pull + `xcsym`-symbolicate MetricKit crash/hang diagnostics (see §3). `--test` deliberately crashes to verify the lane. |
-| `debug [spec]` | `get-task-allow` build + attached launch + the LLDB attach command. |
-| `logs [spec]` | Attached launch teeing stdout/stderr → `build/ios-logs/<run>.log`. |
-| `profile [spec]` | Instruments/xctrace trace of an autorun generation → `build/ios/profile-<ts>.trace`. |
-| `review [--baseline]` | On-device UI capture tour + baseline pairs (see §3); `--baseline` seeds `docs/ios-review-baselines/`. |
-| `gate` | One-command pre-merge gate: preflight → test → **generation (Custom Voice headless autorun)** → crashes (**gate-fatal on new payloads**) → verdict. Needs all Speed models on device; skip generation with `QVOICE_GATE_SKIP_GENERATION=1`. |
+1. **Xcode 26** with CoreDevice (`devicectl`).
+2. **Pair an iPhone 15 Pro or newer** (iPhone 17 Pro preferred when multiple devices are
+   paired). USB, Mac trusted, **Developer Mode ON** on the device.
+3. **Signing:** `export QWENVOICE_DEVELOPMENT_TEAM=<your-apple-team-id>` (matches
+   `project.yml`; never commit). Optional: `export QVOICE_IOS_DEVICE_ID=<id|name|udid>` to
+   pin the target device.
+4. **Increased-memory entitlement** on the app App ID — see
+   [`ios-increased-memory-entitlement-request.md`](ios-increased-memory-entitlement-request.md).
+5. **Install all three Speed models on the iPhone** (~6.9 GB total): Vocello → Settings →
+   Model Downloads (`pro_custom`, `pro_design`, `pro_clone`). Required for default `test` /
+   `gate` / `bench-ui`. Verify with `scripts/ios_device.sh models check --strict` (headless
+   inventory pull — phone locked OK).
+6. **Mac Gate 1 (UI Automation):** `scripts/enable_unattended_uitest.sh` (sudo once; persists
+   across reboots). Or `scripts/ios_device.sh uitest-doctor --enable-gate1`.
+7. **Optional desk-phone pattern:** remove the device passcode for fully unattended XCUITest
+   (re-enable when the phone leaves the desk). See § UI test machine setup.
+8. **Verify:**
 
 ```sh
 export QWENVOICE_DEVELOPMENT_TEAM=<team-id>
 scripts/ios_device.sh doctor
+scripts/ios_device.sh preflight
+scripts/ios_device.sh models check
+```
+
+**Mirroring (on by default):** every device verb auto-starts macOS **iPhone Mirroring** so you
+watch on the Mac while the phone stays locked + screen-dark (OLED-safe). Mirroring also keeps
+a locked device `devicectl`-reachable. Opt out with `QVOICE_IOS_NO_MIRROR=1`.
+
+**Unlock vs lock:** `bench`, `launch`, `pull`, and gate generation work with a **locked** phone.
+**`ui-test` / `test` require the iPhone unlocked once** at the start for the XCUITest automation
+auth handshake; it may auto-lock again after.
+
+---
+
+## Daily workflow — which command when
+
+See [diagram 4 — Daily command picker](#diagram-daily).
+
+| You changed… | Run |
+| --- | --- |
+| Swift compile / SPM only | `scripts/build_foundation_targets.sh ios` |
+| SwiftUI identifiers, sheets, navigation | `scripts/ios_device.sh test` |
+| Engine, generation, memory, download | `scripts/ios_device.sh gate` |
+| Native/Views before release; perf matrix | `scripts/ios_device.sh bench-ui --label "why"` |
+| Download/cancel UX only | `scripts/ios_device.sh ui-test --download` then reinstall Custom Voice |
+| Visual regressions | `scripts/ios_device.sh review` |
+| Single headless generation + RTF | `scripts/ios_device.sh bench "custom:speed:…"` |
+
+**Pre-merge default:** `scripts/ios_device.sh gate` on your paired iPhone.
+
+---
+
+## Lane map
+
+Driver: [`scripts/ios_device.sh`](../../scripts/ios_device.sh). Signing team from
+`$QWENVOICE_DEVELOPMENT_TEAM` (or keychain auto-derive); device from `$QVOICE_IOS_DEVICE_ID`
+or auto-discovery.
+
+| Lane | Verb | Typical duration | Phone state | Models | Proves | Artifacts | Deeper analysis |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Doctor | `doctor` | ~10 s | any | — | Xcode, team, device, entitlements | — | — |
+| Preflight | `preflight` | ~30 s | locked OK | optional `--strict-models` | mirror + reachability + app + dSYM | — | — |
+| UITest doctor | `uitest-doctor` | ~10 s | — | — | Mac Gate 1 + unlock guidance | — | — |
+| Device state | `device-state` | ~5 s | — | — | call / phone-in-use / mirror dead | — | § Interference |
+| Models | `models check` | ~15 s | locked OK | `--strict` gates | headless inventory pull | `build/ios-diagnostics/models-status.json` | § Model verification |
+| Build / install | `build`, `install` | 1–3 min | locked OK | — | signed `-Onone` app | `build/ios/` | — |
+| Test | `test` / `ui-test` | **~4–6 min** | **unlock once** | all Speed | Smoke + Sheet + ColdGeneration (batched) | `build/ios/uitest-artifacts/` | `axiom_get_agent` → `test-runner` |
+| Gate | `gate` | **~7–12 min** | unlock for test step | all Speed | preflight → test → headless gen → crash delta | `build/ios/gate-<runID>/` | — |
+| Bench | `bench [spec]` | ~3–6 min | locked OK | Custom Speed min. | headless RTF / audioQC / telemetry | `build/ios-diagnostics/` | summarizer |
+| Bench UI | `bench-ui` | **~20+ min** | unlock once | all Speed + clone voice | 29-take UI matrix; optional `--profile` | `build/ios/bench-ui-<runID>/` | `check_ios_ui_bench.py` |
+| Crash | `crashes [--test]` | ~1 min | locked OK | — | MetricKit payloads | `build/ios-diagnostics/` | `axiom_xcsym_crash` |
+| Debug / logs | `debug`, `logs`, `console` | varies | locked OK | — | stdout / LLDB attach | `build/ios-logs/` | `build-fixer` |
+| Profile | `profile [spec]` | ~2 min | locked OK | Speed | xctrace + autorun | `build/ios/profile-*.trace` | `axiom_xcprof_analyze` |
+| Review | `review [--baseline]` | ~3 min | unlock once | — | screenshot tour | `build/ios/review-shots/` | `screenshot-validator` |
+| Observe | `mirror`, `shot`, `launch`, `pull` | varies | locked OK | — | visual / manual | `build/device-shot.png` | — |
+
+Every verb (except `doctor` / `models check` alone) runs **auto-mirror preflight** unless
+`QVOICE_IOS_NO_MIRROR=1`.
+
+### Preflight verbs — do not conflate
+
+| Verb | Checks | Use when |
+| --- | --- | --- |
+| `doctor` | Xcode, team, device id, built app entitlements | First-time env sanity |
+| `preflight` | mirror + devicectl reachability + signing + app + dSYM | Before `gate` or expensive lanes |
+| `uitest-doctor` | Mac Gate 1 + iPhone unlock/passcode guidance | Before **any** XCUITest |
+| `device-state` | OCR mirror window: call / in-use / mirror dead | Before `bench-ui`; when runs hang |
+| `models check` | Headless inventory pull (`models-status.json`); `--strict` exits 1 | Before gate / `bench-ui`; `preflight --strict-models` |
+
+macOS has `models ensure` (headless install). iOS has **manual install on the phone only**.
+
+---
+
+## Model fixture policy
+
+See [diagram 10 — Model fixture states](#diagram-models).
+
+| Lane | Models required | How to prepare |
+| --- | --- | --- |
+| Default `test` / `gate` | All three Speed (`pro_custom`, `pro_design`, `pro_clone`) | Settings → Model Downloads on iPhone (~6.9 GB once) |
+| `bench`, gate generation | Custom Voice Speed minimum | Same (Custom Voice) |
+| `bench-ui` | All three Speed | Same + **saved clone voice on phone** for clone cells |
+| `ui-test --download` | None at start (test uninstalls `pro_custom`) | **Opt-in only.** Reinstall Custom Voice before next default `test` / `gate` |
+| `ui-test --cold` | Custom Voice Speed | ColdGeneration only |
+| CI | None | `build-for-testing` compile-only |
+
+**Escape hatches:**
+
+- `QVOICE_GATE_SKIP_GENERATION=1` — skip gate headless generation step (UI tests still run).
+- ColdGeneration **skipped** (missing model) → `test` / `gate` **FAIL** (not a silent pass).
+
+**Asymmetry vs macOS:** `macos_test.sh models ensure` installs from the Mac. iOS downloads
+on the phone only — `models check` pulls headless inventory via `QVOICE_IOS_MODELS_CHECK=1`
+→ `Library/Caches/Vocello/diagnostics/models-status.json`. Use `models check --strict` or
+`preflight --strict-models` before long lanes. Interim probe:
+`bench "custom:speed:Model probe."` (~1–3 min, locked phone OK). See
+[diagram 12 — Model verification ladder](#diagram-model-ladder).
+
+---
+
+## Why `gate` runs ColdGeneration and headless autorun
+
+See [diagram 5 — Pre-merge gate pipeline](#diagram-gate).
+
+The gate runs **two** real-engine proofs on purpose — they overlap on Custom Voice but
+exercise different surfaces:
+
+| Step | Mechanism | What it proves |
+| --- | --- | --- |
+| **ColdGeneration** (in `test`) | XCUITest cold launch → composer → Generate → player | UI cold-start path, warm-app teardown, end-user flow |
+| **Gate generation** | Headless `custom:speed` autorun (no UI) | Entitlement/memory headroom, RTF, `audioQC`, durable telemetry without UI flake |
+
+Skip the generation step when merging UI-only changes: `QVOICE_GATE_SKIP_GENERATION=1`.
+Use `bench` alone for quick headless iteration without the full XCUITest attach cycle.
+
+---
+
+## XCUITest vs headless — when to use which
+
+| Need | Use |
+| --- | --- |
+| Identifiers, tabs, sheets, navigation | `test` (Smoke + Sheet) |
+| Cold-start UI generation | ColdGeneration (in default `test`) |
+| Download/cancel UX | `ui-test --download` (destructive — reinstall Custom Voice after) |
+| RTF, audioQC, memory, unattended proof | `bench` or gate generation step |
+| Full perf matrix through Studio UI | `bench-ui` |
+| Fully unattended (passcode policy blocks XCUITest) | `bench` — no automation auth handshake |
+
+---
+
+## UI test machine setup
+
+See [diagram 9 — Security gates](#diagram-security-gates) and
+[diagram 8 — XCUITest session model](#diagram-xcuitest-sessions).
+[diagram 6](#diagram-uitest) shows the full `test` pipeline.
+
+Three **independent** security layers block on-device XCUITest:
+
+| Gate | Where | Symptom | Fix |
+| --- | --- | --- | --- |
+| **1 — Mac Authorization Services** | This Mac | Login password to “Enable UI Automation” | **One-time:** `scripts/enable_unattended_uitest.sh` |
+| **2 — iPhone unlock handshake** | Paired iPhone | “device was not unlocked”, auth error 12 | Wake + **unlock once** when the runner attaches |
+| **3 — iPhone passcode (iOS 15+)** | Paired iPhone | Passcode/Touch ID to authorize UI automation (~daily) | No supported bypass with passcode ON |
+
+```sh
+scripts/ios_device.sh uitest-doctor
+scripts/ios_device.sh uitest-doctor --enable-gate1
+```
+
+**Fully unattended ui-test:** close Mac Gate 1; use a dedicated desk iPhone with passcode
+removed; Developer Mode + “Enable UI Automation” on; phone awake and unlocked when
+`ui-test` starts. If passcode must stay on: unlock once before the first ui-test of the day,
+or use `bench` for unattended engine validation.
+
+`ui-test` fails fast when Mac Gate 1 is still open (unless `--skip-uitest-doctor`).
+Cross-link macOS gates: [`macos-testing.md`](macos-testing.md) § UI test machine setup.
+
+### Default scope and suites
+
+See [diagram 6 — test / ui-test pipeline](#diagram-uitest).
+
+| Command | Classes | Notes |
+| --- | --- | --- |
+| `ui-test` / `test` | Smoke, Sheet, ColdGeneration | Default. Requires all Speed models. |
+| `ui-test --download` | OnDeviceDownload | **Uninstalls `pro_custom` in setUp.** |
+| `ui-test --cold` | ColdGeneration only | |
+| `ui-test --all` | All classes | Debug/soak only |
+
+`Tests/VocelloiOSUITests/` (host `VocelloiOS`):
+
+- `VocelloUITestApp.swift` — warm-app coordinator (real engine); resets to Studio between cases.
+- `VocelloiOSSmokeUITests` — launch + 4-tab reachability + mode segments.
+- `VocelloiOSSheetUITests` — sheet regressions (voice, preview, language, brief).
+- `VocelloiOSColdGenerationUITests` — cold-launch real generation (or XCTSkip if model missing).
+- `VocelloiOSOnDeviceDownloadUITests` — download cancel UX (opt-in lane).
+- `VocelloiOSReviewTourUITests` — screenshot tour for baseline diffing.
+
+Smoke and Sheet do **not** exercise real audio generation. ColdGeneration and
+OnDeviceDownload prove the real engine and download stack.
+
+**Driving identifiers:** Studio uses `screenPresenceMarker("screen_generateStudio")` — a 1pt
+leaf marker so the screen id is queryable without shadowing descendants. Query
+`studioChip_*`, `textInput_*`, `textInput_generateButton` directly. See
+[`ios-app-guide.md`](ios-app-guide.md) and `VocelloiOSSheetUITests.swift`.
+
+```sh
+# Default (Smoke + Sheet + ColdGeneration):
+export QWENVOICE_DEVELOPMENT_TEAM=<team-id>
+scripts/ios_device.sh test
+
+# Opt-in download lane (reinstall Custom Voice before gate):
+scripts/ios_device.sh ui-test --download
+```
+
+Always pass `-derivedDataPath build/ios` for direct `xcodebuild` so builds reuse one tree.
+
+Launch env vars: see [`testing-runbook.md`](testing-runbook.md) §2 (`QVOICE_IOS_SKIP_ONBOARDING=1`,
+`QWENVOICE_DEBUG=1` for ColdGeneration telemetry).
+
+---
+
+## Quality lanes (detail)
+
+**Crash.** `IOSCrashObserver` writes MetricKit payloads to the pullable diagnostics dir;
+`build` preserves `.dSYM` under `build/ios/dsyms/`. `crashes --test` deliberately crashes
+(`QVOICE_IOS_CRASH_TEST`) to verify capture → pull → symbolication.
+
+**Debug.** `get-task-allow` on dev entitlements. `debug` prints LLDB attach command;
+`logs` tees attached-launch stdout to `build/ios-logs/<run>.log`.
+
+**Profile.** `profile [spec]` records xctrace while `IOSAutorunHarness` runs one generation.
+Override template/duration via `QVOICE_IOS_PROFILE_TEMPLATE` / `QVOICE_IOS_PROFILE_DURATION`.
+
+**Review.** `VocelloiOSReviewTourUITests` captures key screens; `review --baseline` seeds
+`docs/ios-review-baselines/`. Capture-and-dismiss — no static burn-in dwell.
+
+**Burn-in policy.** Mirroring keeps the device screen dark. Headless lanes never light the
+phone. Review tour opens each sheet only long enough to screenshot.
+
+---
+
+## Headless generation harness (reference)
+
+See [diagram 7 — Headless bench + data pull](#diagram-bench).
+
+### Verb reference
+
+| Verb | What it does |
+| --- | --- |
+| `launch [spec]` | Launch via `devicectl`. With spec → autorun + telemetry env; prints `runID`. |
+| `console [spec]` | Attached launch — streams `[autorun]` stdout live. |
+| `pull [dest]` | Copy diagnostics mirror from app container (default `build/ios-diagnostics`). |
+| `bench [spec] [--label]` | `build → install → launch-with-autorun → poll sentinel → pull → summarize`. |
+
+```sh
 scripts/ios_device.sh bench "custom:speed:Hello from Vocello on device" --label "in-process engine"
 ```
 
-`bench` prints the single-run headline (status / mode / model / audio-sec · wall · RTF /
-finish / output path / device) from the sentinel, then the full
-`summarize_generation_telemetry.py` table (engine decode breakdown, RTF, `audioQC`, RAM)
-from the pulled `diagnostics/engine/generations.jsonl`.
-
 ### Autorun spec + environment
 
-The harness (`Sources/iOS/IOSAutorunHarness.swift`) fires **only** when
-`QVOICE_IOS_AUTORUN` is present and non-empty in the launch environment — a normal user
-launch never sets it, so it ships completely inert (no `#if DEBUG` needed; it follows
-the same runtime-gate philosophy as `TelemetryGate`).
-
-`bench` / `launch <spec>` set three launch env vars (via
-`devicectl device process launch -e '{…}'`):
+Harness: [`Sources/iOS/IOSAutorunHarness.swift`](../../Sources/iOS/IOSAutorunHarness.swift).
+Fires only when `QVOICE_IOS_AUTORUN` is set — inert on normal user launch.
 
 | Env var | Purpose |
-|---------|---------|
-| `QVOICE_IOS_AUTORUN` | The spec: `<mode>:<variant>:<text>`. `mode ∈ custom\|design\|clone`, `variant ∈ speed\|quality` (iPhone resolves speed-only), text is everything after the 2nd `:`. Forgiving: bare `1`/`on`, a bare mode, or a partial spec fall back to defaults. |
-| `QWENVOICE_DEBUG=1` | Lights up `TelemetryGate` so the engine appends its decode/RTF/`audioQC` row to `diagnostics/engine/generations.jsonl`. **Runtime-gated, not `#if DEBUG`** — works in the Release build the device runs. |
-| `QVOICE_IOS_DEVICE_RUN_ID=<runID>` | Tags the run; the completion sentinel lands at `diagnostics/<runID>/autorun-done.json`. |
+| --- | --- |
+| `QVOICE_IOS_AUTORUN` | `<mode>:<variant>:<text>`. `mode ∈ custom\|design\|clone`, `variant ∈ speed\|quality`. |
+| `QWENVOICE_DEBUG=1` | Engine telemetry JSONL (runtime-gated, not `#if DEBUG`). |
+| `QVOICE_IOS_DEVICE_RUN_ID` | Tags run; sentinel at `diagnostics/<runID>/autorun-done.json`. |
 
-The harness drives the same in-process `TTSEngineStore.generate(_:)` the UI uses
-(resolving the model the same way: `ModelDescriptor.model(for: mode)`), then writes the
-sentinel:
+Sentinel example:
 
 ```jsonc
-// diagnostics/<runID>/autorun-done.json
 { "status": "ok", "mode": "custom", "variant": "speed", "modelID": "…",
-  "generationID": "…", "durationSeconds": 5.1, "wallSeconds": 13.7,
-  "realtimeFactor": 0.37, "finishReason": "…", "audioPath": "…",
-  "deviceModel": "iPhone", "systemVersion": "26.x", … }
+  "durationSeconds": 5.1, "wallSeconds": 13.7, "realtimeFactor": 0.37, … }
 ```
 
-`clone` autorun needs a saved voice on the device (else a clean sentinel error). Note
-clone generation in-app currently uses `.iOSProductionDefault` (= `withoutCloneEncoders`,
-memory-conscious). A clone autorun needs the iOS clone-encoders capability enabled
-(`.fullCapabilities` load profile); if the device is on the memory-conscious profile, the
-run records a clean sentinel error rather than crashing.
+`clone` autorun needs a saved voice on device. Clone generation may use the memory-conscious
+load profile — autorun records a clean sentinel error rather than crashing if encoders are
+unavailable.
 
-### Where the data lives + how it's pulled
+### Where data lives + how it's pulled
 
-At runtime the engine telemetry and the sentinel are written to the **App-Group container**
-(`AppPaths.appSupportDir` = `group.com.patricedery.vocello.shared`), under `diagnostics/`. But
-`devicectl` **cannot** read an app-group container, so the autorun harness also **mirrors** them into
-the app's own data container at `Library/Caches/Vocello/diagnostics` (which `devicectl` *can* read).
-`pull`/`bench` copy from that mirror:
+Telemetry writes to the **App-Group container**, but `devicectl` cannot read app groups.
+The harness **mirrors** into `Library/Caches/Vocello/diagnostics` in the app container:
 
 ```sh
 xcrun devicectl device copy from --device <id> \
   --domain-type appDataContainer \
   --domain-identifier com.patricedery.vocello \
   --source Library/Caches/Vocello/diagnostics --destination build/ios-diagnostics
-```
-
-The summarizer reads the pulled tree directly:
-
-```sh
 python3 scripts/summarize_generation_telemetry.py build/ios-diagnostics/diagnostics --label "…"
 ```
 
-On iOS (in-process, no XPC) only `engine/generations.jsonl` is populated — the summarizer
-iterates engine rows and joins `app/` rows when present, so TTFC may be blank while RTF /
-tokens/s / decode breakdown / `audioQC` / RAM all come through. `engine/generations.jsonl`
-is append-only + size-capped (auto-pruned oldest-first), so it accumulates across runs;
-the sentinel is the authoritative single-run record.
+On iOS only `engine/generations.jsonl` is populated (no XPC app rows). The sentinel is the
+authoritative single-run record; JSONL is append-only and accumulates across runs.
 
 ---
 
-## 1c. Interference states (fail doomed runs fast)
+## Interference states (fail doomed runs fast)
 
-Three real-world situations doom an in-flight run: **you pick up and use the phone**
-(the app under test backgrounds; the mirror session pauses), **an incoming call**, and
-**a dead/paused Mirroring session**. `scripts/lib/ios_device_state.sh` probes them by
-screenshotting the Mirroring window (`screencapture -l`, no focus steal) and OCR-classifying
-it (Vision, French + English keywords) — the window exposes no accessibility content.
-
-How the lanes react:
+`scripts/lib/ios_device_state.sh` OCR-classifies the Mirroring window (French + English).
 
 | Lane | Reaction |
 | --- | --- |
-| `ensure_device_ready` (ui-test/test/gate preflight) | `CALL_ACTIVE` → immediate abort. `PHONE_IN_USE` → warn only (the unlock handshake legitimately needs the phone in hand). |
-| `bench` / gate generation sentinel polls | `CALL_ACTIVE`/`MIRROR_DISCONNECTED`/`DEVICE_UNREACHABLE` → abort that poll cycle; `PHONE_IN_USE` for 2 consecutive polls (≈20 s) → abort. Cause named in the error. |
-| `ui-test` retry loop | Before the one retry: probe; `PHONE_IN_USE`/`CALL_ACTIVE` → die with the cause instead of a doomed second attempt. Final failures print the device state. |
-| `ensure_mirror` | A paused session ("Connection paused / Resume") gets one automatic Resume nudge (activate + Return — the pause overlay is macOS chrome, not mirrored iOS content). |
-| Autorun harness (on device) | `IOSInterruptionRecorder` (CXCallObserver + UIApplication lifecycle) stamps `interruptions: [{type, atMS}]` into `autorun-done.json`; `bench`/gate print them ("call_incoming at t=42.0s"). Autorun-only — ships inert. |
+| `ensure_device_ready` (ui-test/gate) | `CALL_ACTIVE` → abort. `PHONE_IN_USE` → warn (unlock handshake). |
+| `bench` / gate generation polls | `CALL_ACTIVE` / mirror dead / unreachable → abort; `PHONE_IN_USE` ×2 (~20 s) → abort. |
+| `ui-test` retry | Before retry: probe; in-use/call → die with cause named. |
+| `ensure_mirror` | Paused session gets one Resume nudge (activate + Return). |
 
-Probe one-shot: `scripts/ios_device.sh device-state [--json]` (exit code = verdict).
+Probe: `scripts/ios_device.sh device-state [--json]` (exit code = verdict).
 
-## 2. XCUITest — on-device only
+Exit codes: `0` MIRROR_ACTIVE · `10` PHONE_IN_USE · `11` CALL_ACTIVE · `12` MIRROR_CONNECTING ·
+`13` MIRROR_DISCONNECTED · `14` DEVICE_UNREACHABLE.
 
-See [`testing-runbook.md`](testing-runbook.md) for commands, launch env vars, and CI.
-
-| Backend | Where | Suites |
-| --- | --- | --- |
-| Real in-process MLX engine | **Paired iPhone only** | Smoke, Sheet, OnDeviceDownload, ColdGeneration, ReviewTour |
-
-Run UI tests on hardware with **`scripts/ios_device.sh ui-test`**
-(`build-for-testing` → install host app → `xcodebuild test-without-building`). Pass
-`[target]` to scope further, e.g.
-`scripts/ios_device.sh ui-test VocelloiOSUITests/VocelloiOSSheetUITests`.
-
-| Command | Classes | Notes |
-|---------|---------|-------|
-| `scripts/ios_device.sh ui-test` | Smoke, Sheet, ColdGeneration | Default (~1–2 min). Requires all Speed models on device. |
-| `scripts/ios_device.sh ui-test --download` | OnDeviceDownload | Download/cancel UX; **uninstalls `pro_custom` in setUp**. |
-| `scripts/ios_device.sh ui-test --cold` | ColdGeneration only | Same cold-launch test as default scope. |
-| `scripts/ios_device.sh ui-test --all` | All classes | Debug/soak only. Cold gen skips without model unless using `test --cold`. |
-
-**Preflight:** `ui-test` runs `ios_uitest_doctor` (Mac Gate 1 check), then `ensure_device_ready`
-(mirroring up to 60s, devicectl reachability, unlock guidance). Retries once on unlock/auth log
-patterns (including French authentication errors).
-
-### Unattended / agent-driven ui-test setup
-
-Two **independent** security layers block on-device XCUITest. Conflating them is the common mistake.
-
-| Gate | Where | Symptom | Fix |
-|------|-------|---------|-----|
-| **1 — Mac Authorization Services** | This Mac | Login password to “Enable UI Automation” | **One-time:** `scripts/enable_unattended_uitest.sh` (sudo admin password once; persists across reboots) |
-| **2 — iPhone unlock handshake** | Paired iPhone | “device was not unlocked”, auth error 12, `Failed to initialize for UI testing` | Wake + **unlock the phone once** when the runner attaches; it may auto-lock again after |
-| **3 — iPhone passcode (iOS 15+)** | Paired iPhone | Passcode/Touch ID to authorize UI automation (~daily) | **No supported bypass** with passcode ON — see options below |
-
-Diagnose everything:
-
-```sh
-scripts/ios_device.sh uitest-doctor
-scripts/ios_device.sh uitest-doctor --enable-gate1   # same as enable_unattended_uitest.sh
-```
-
-**Fully unattended ui-test** on local hardware (Apple’s constraints):
-
-1. Close **Mac Gate 1** (`enable_unattended_uitest.sh`).
-2. On a **dedicated desk test iPhone**, remove the device passcode (Settings → Face ID & Passcode) — the CI device-farm pattern Apple engineers describe on the forums. Re-enable passcode when the phone leaves the desk.
-3. Keep Developer Mode + “Enable UI Automation” (Settings → Developer) on, iPhone Mirroring connected, phone **awake and unlocked** when `ui-test` starts.
-
-If company policy forbids removing the passcode, the realistic options are: unlock the phone once before the first ui-test of the day (~daily Apple prompt), or use **`scripts/ios_device.sh bench`** for unattended real-engine validation (headless autorun — no XCUITest auth).
-
-`ui-test` fails fast when Mac Gate 1 is still open (unless `--skip-uitest-doctor`). Cross-link macOS Accessibility gates: [`macos-testing.md`](macos-testing.md) § UI test machine setup.
-
-`Tests/VocelloiOSUITests/` (target `VocelloiOSUITests`, host `VocelloiOS`):
-- `VocelloUITestApp.swift` — shared warm-app coordinator (real engine); resets to Studio between cases.
-- `VocelloUITestObserver.swift` — target-level retain/release across warm suites.
-- `VocelloiOSSmokeUITests` — launch + 4-tab reachability + Custom/Design/Clone segments.
-- `VocelloiOSSheetUITests` — sheet regressions: voice select-and-close, preview-keeps-open,
-  language select-and-close, brief confirm-closes.
-- `VocelloiOSOnDeviceDownloadUITests` — real URLSession download cancel
-  (short paths only; no full ~2.3 GB soak). Self-launches a fresh app instance.
-- `VocelloiOSColdGenerationUITests` — cold-launch real-generation test. Kills
-  the warm session, launches a fresh app, types in Custom mode, and waits for actual audio
-  generation to complete (or skips when the model is missing).
-- `VocelloiOSReviewTourUITests` — on-device UI capture tour for baseline diffing.
-
-Smoke and Sheet suites do **not** exercise real audio generation — IA, identifiers, and
-sheet behaviour are what's under test. ColdGeneration and OnDeviceDownload prove the real
-engine and download stack on hardware.
-
-> The full per-element app map + the canonical driving flows live in
-> [`ios-app-guide.md`](ios-app-guide.md); the Studio-specific essentials + gotchas are below.
-
-**Driving identifiers (important):** the Studio surface uses `screenPresenceMarker("screen_generateStudio")`
-— a 1pt leaf marker (`Sources/iOS/IOSAccessibility.swift`) so the screen-level id is
-queryable **without shadowing** descendant ids. Query `studioChip_*`, `textInput_*`, and
-`textInput_generateButton` directly. Inside bottom-sheet overlays the elements keep their
-own ids (`bottomSheet_close`, `voicePickerRow_*`, `voicePickerPreview_*`, `languagePicker_*`,
-`voiceBrief_editor`, `voiceBrief_confirm`). Tab buttons (`rootTab_*`) expose an `isSelected`
-trait. See `VocelloiOSSheetUITests.swift` for the helper patterns.
-
-Run via the script (preferred) or directly — always pass `-derivedDataPath build/ios`:
-
-Always pass `-derivedDataPath build/ios` so builds reuse **one**
-tree (one `SourcePackages`) and don't pollute the global `~/Library/Developer/Xcode/DerivedData`:
-
-```sh
-# Device — default trio (Smoke + Sheet + OnDeviceDownload):
-export QWENVOICE_DEVELOPMENT_TEAM=<team-id>
-scripts/ios_device.sh ui-test
-# Cold generation soak (skips when Speed model not installed):
-scripts/ios_device.sh ui-test --cold
-# Direct xcodebuild (after build-for-testing + install):
-xcodebuild test-without-building -project QwenVoice.xcodeproj -scheme VocelloiOS \
-  -destination 'id=<device-udid>' -derivedDataPath build/ios -allowProvisioningUpdates
-```
-
-The UI-test target is wired into the `VocelloiOS` scheme's `test` action (and built only
-for `test`, so the foundation compile-safety build stays focused on the app).
-
-`accessibilityIdentifier`s are stable surface area (`.agents/ios-engineer.md` "Conventions") — keep them
-through refactors; the XCUITest suites depend on them.
+Autorun harness stamps `interruptions: [{type, atMS}]` into `autorun-done.json` via
+`IOSInterruptionRecorder` (calls + app lifecycle).
 
 ---
-
-## 3. On-device quality lanes (testing overhaul)
-
-The driver is organized into lanes — one verb each — built on the headless harness + the
-warm-app XCUITest coordinator. All on-device, observed via iPhone Mirroring (OLED-safe).
-
-**Lane → tool map**
-
-| Lane | Verb | Captures / proves | Deeper analysis |
-|------|------|-------------------|-----------------|
-| Test | `test` / `ui-test` | Smoke + Sheet + OnDeviceDownload on device | `axiom_get_agent` → `test-runner` on the `.xcresult` |
-| Crash | `crashes` | MetricKit crash/hang diagnostics (in-app `IOSCrashObserver`) | `axiom_xcsym_crash` / `axiom_get_agent` → `crash-analyzer` |
-| Debug | `debug` / `logs` | attached stdout + the LLDB attach command (`get-task-allow` build) | `./scripts/ios_device.sh debug`; `axiom_get_agent` → `build-fixer` |
-| Profile | `profile` | Instruments/xctrace trace over the engine's `OSSignpost` intervals | `axiom_xcprof_analyze` / `axiom_get_agent` → `performance-profiler` |
-| Review | `review` | XCUITest screenshot tour of the key screens | `axiom_get_agent` → `screenshot-validator` / manual diff vs `docs/ios-review-baselines/` |
-| Gate | `gate` | preflight → test → generation → crashes (fatal) → single verdict | — |
-
-**Crash lane.** `IOSCrashObserver` (`Sources/iOSSupport/Services/IOSCrashObserver.swift`)
-subscribes to MetricKit crash/hang diagnostics + an `NSException` handler and writes them
-to the pullable diagnostics dir; `build` preserves the `.dSYM` under `build/ios/dsyms/`;
-`crashes` pulls + symbolicates via `xcsym` when on PATH, or the **`user-axiom`** MCP tool
-`axiom_xcsym_crash` / `axiom_get_agent` agent=`crash-analyzer`.
-`crashes --test` deliberately crashes (`QVOICE_IOS_CRASH_TEST`) to verify capture +
-symbolication end-to-end. (MetricKit delivers on its periodic cycle, so the self-test may
-need a short wait, or fall back to Xcode → Window → Devices and Simulators → Device Logs.)
-
-**Debug lane.** `VocelloiOS.entitlements` carries `get-task-allow` (dev only — drop before
-App Store), so `debug` can attach LLDB (`process attach --name Vocello --device <udid>`, or
-Xcode → Debug → Attach to Process). `logs` retains the attached-launch stdout
-(incl. `[autorun]`/`[QVoiceiOSApp]` prints) to `build/ios-logs/<run>.log`.
-
-**Profile lane.** `profile [spec]` records an Instruments/xctrace trace (default `Time
-Profiler`; override via `QVOICE_IOS_PROFILE_TEMPLATE` / `QVOICE_IOS_PROFILE_DURATION`)
-while `IOSAutorunHarness` runs one generation, then cross-references the in-app telemetry.
-The engine emits `OSSignpost` intervals under `com.qwenvoice.engine` /
-`com.patricedery.vocello` — use a signpost-bearing template to capture them.
-
-**Review lane.** `VocelloiOSReviewTourUITests` navigates the key screens + a sheet and
-screenshots each (XCUITest `app.screenshot()` — no Mirroring chrome). `review` gathers the
-captures + prints each baseline pair for a vision-MCP diff; `review --baseline` seeds the
-committed `docs/ios-review-baselines/`. The tour doubles as an a11y reachability pass
-(every screen reached via a hittable, identified control).
-
-**Burn-in policy (hard constraint).** iPhone Mirroring is kept on so the device screen
-stays dark/locked — headless lanes (`bench`/`profile`/`crashes`/`logs`) never light it.
-The UI-review tour is **capture-and-dismiss**: each sheet is opened only long enough to
-screenshot, then closed — never dwell on a static high-contrast screen.
 
 ### Virtual microphone (`QWENVOICE_FAKE_MIC_WAV`) on device
 
 [`ReferenceClipRecorder`](../../Sources/SharedSupport/ViewModels/ReferenceClipRecorder.swift)
-supports the same virtual-mic env var as macOS: when set to a **readable on-device path**,
-Record simulates capture from that WAV (elapsed time + level meter from the clip envelope;
-no mic TCC prompt).
-
-**macOS paths do not work on iPhone.** Stage a 10–20 s mono WAV into the app container,
-then launch with the device-local path:
+supports virtual mic when set to a **readable on-device path**. macOS paths do not work.
 
 ```sh
-# 1. Push a fixture WAV into the app data container (example destination — adjust after pull)
 xcrun devicectl device copy to --device <udid> \
   --destination "Library/Caches/Vocello/fake-mic.wav" \
   --source /path/on/mac/to/reference-clip.wav \
   --domain-type appDataContainer --domain-identifier com.patricedery.vocello
 
-# 2. Launch with the ON-DEVICE path (ios_device.sh launch forwards QWENVOICE_* env vars)
-QWENVOICE_FAKE_MIC_WAV="Library/Caches/Vocello/fake-mic.wav" \
-  scripts/ios_device.sh launch
+QWENVOICE_FAKE_MIC_WAV="Library/Caches/Vocello/fake-mic.wav" scripts/ios_device.sh launch
 ```
 
-**Recording on the physical phone** (real mic) is required for manual Clone QA — iPhone
-Mirroring does not expose the device microphone to the Mac.
+Real mic recording for Clone QA must happen on the physical phone — Mirroring does not
+expose the device microphone.
+
+---
+
+## Known inefficiencies (documented; remaining gaps)
+
+These are **current behavior** — not bugs — but they explain residual friction:
+
+1. **No skip-build fast path.** Every `ui-test` runs `build-for-testing` + reinstall even when
+   `build/ios/…/Vocello.app` is fresh. **Future:** skip when app + test bundle exist unless
+   `QVOICE_IOS_FORCE_BUILD=1`.
+
+2. **Gate generation overlap.** ColdGeneration (UI) + headless autorun both exercise Custom Voice
+   — intentional (see § Why gate runs both) but adds wall-clock time. **Future:** optional
+   `QVOICE_GATE_UI_ONLY=1` for UI-only merges (tradeoff documented above).
+
+**Closed (2026-07):** default `test` batches three classes into one xcodebuild invocation;
+`bench-ui` runs `device-state` + `uitest-doctor` preflight and supports `--profile`;
+`models check --strict` uses headless inventory pull.
 
 ---
 
 ## Verification ladder
 
+See [diagram 2 — CI vs local verification](#diagram-ci-local).
+
 | Level | Command | Proves |
-|-------|---------|--------|
-| Compile (app) | `scripts/build_foundation_targets.sh ios` | the in-process engine + harness compile |
-| Compile (UI test) | `xcodebuild build-for-testing -scheme VocelloiOS -destination 'generic/platform=iOS'` (CI) or `-destination 'id=<udid>'` (device) | the test target compiles + is wired |
-| CI compile check | `.github/workflows/ci.yml` `ios-compile-check` job | VocelloiOS + VocelloiOSUITests compile on push/PR |
-| UI smoke (device gate) | `scripts/ios_device.sh ui-test` (or `test`) | Smoke + Sheet + OnDeviceDownload on hardware |
+| --- | --- | --- |
+| Compile (app) | `scripts/build_foundation_targets.sh ios` | in-process engine + harness compile |
+| Compile (UI test) | `build-for-testing` (`generic/platform=iOS` in CI, or device id locally) | test target wired |
+| CI compile check | `.github/workflows/ci.yml` `ios-compile-check` | VocelloiOS + VocelloiOSUITests compile on push/PR |
+| UI smoke (device) | `scripts/ios_device.sh test` | Smoke + Sheet + ColdGeneration on hardware |
 | UI review | `scripts/ios_device.sh review` | screenshot tour vs `docs/ios-review-baselines/` |
-| Pre-merge gate | `scripts/ios_device.sh gate` | preflight → test → generation → crashes (fatal) → single verdict |
-| Interactive UI review | `scripts/ios_device.sh launch` + `scripts/ios_device.sh shot <path>` | the full UI renders over iPhone Mirroring for visual review |
-| On-device proof | `scripts/ios_device.sh bench "custom:speed:…"` | real generation, entitlement/memory headroom, RTF/`audioQC` |
+| Pre-merge gate | `scripts/ios_device.sh gate` | preflight → test → generation → crashes (fatal) → verdict |
+| Interactive UI review | `launch` + `shot` | full UI over iPhone Mirroring |
+| On-device engine proof | `scripts/ios_device.sh bench "custom:speed:…"` | RTF / audioQC / telemetry |
+| Model inventory (device) | `scripts/ios_device.sh models check --strict` | all Speed tiers verified on phone |
+
+---
+
+## Agent + MCP workflow
+
+See [diagram 11 — Agent session flow](#diagram-agent-mcp). **Principle:** `scripts/ios_device.sh`
+runs all gates (`gate`, `test`, `bench-ui`). MCPs augment preflight, observation, and triage —
+they do not replace XCUITest or drive regression matrices.
+
+### MCP routing matrix
+
+| Phase | Tool | When | iOS-specific notes |
+| --- | --- | --- | --- |
+| **Preflight** | `scripts/ios_device.sh device-state` | Before `bench-ui` / long runs | Exit 0 = `MIRROR_ACTIVE`; abort if call / mirror dead |
+| | `scripts/ios_device.sh uitest-doctor` | Before any XCUITest | Mac Gate 1 + unlock guidance |
+| | `user-xcodebuildmcp` `session_show_defaults` → profile `ios-device` → `list_devices` | Agent session start | Optional; **`ios_device.sh` stays primary** for test/bench |
+| | `scripts/ios_device.sh models check --strict` | Before gate / `bench-ui` | Headless inventory pull; phone locked OK |
+| **Run gate** | `scripts/ios_device.sh gate` | Pre-merge | ~7–12 min; unlock once for step 2 |
+| **Run UI bench** | `scripts/ios_device.sh bench-ui --label "why"` | Engine/UI matrix before release | ~20 min; clone voice on phone; scope with `--modes` / `--warm 1` |
+| **Run headless bench** | `scripts/ios_device.sh bench "custom:speed:…"` | RTF/audioQC without XCUITest | Phone **locked OK**; unattended engine proof |
+| **Observe** | `scripts/ios_device.sh shot` | During long `bench-ui` | Mac-side Mirroring capture — no agent taps |
+| | `mirroir` `describe_screen` | Exploratory QA only | Mic unavailable; not for bench matrix |
+| **Triage fail** | `axiom_get_agent` → `test-runner` | `test` / `bench-ui` xcresult | Artifact: `build/ios/Logs/Test/*.xcresult` |
+| | Read `build/ios/bench-ui-<runID>/bench-ui.log` | Stuck generate / manifest | Look for `iosStudio_generationError`, `VOCELLO-BENCH-UI-MANIFEST` |
+| | `python3 scripts/check_ios_ui_bench.py …` | Re-gate pulled telemetry | Invoked by `bench-ui`; re-run manually after fixes |
+| | `axiom_xcprof_analyze` | After `profile` or `bench-ui --profile` | Trace: `build/ios/profile-*.trace` or `build/ios/bench-ui-*/vocello.trace` |
+| | `axiom_xcsym_crash` / `crash-analyzer` | After `crashes` | Pulled MetricKit under `build/ios-diagnostics/` |
+| | `axiom_xclog_attach` / `axiom_xclog_show` | Debug hangs | Pair with `ios_device.sh logs` |
+| **Review** | `axiom_get_agent` → `screenshot-validator` | After `review` | Compare `build/ios/review-shots/` vs baselines |
+
+### Never use for iOS gates
+
+- XcodeBuildMCP `*_sim`, `tap` / `snapshot_ui` on simulator
+- Axiom `xcui` / `simulator-tester`
+- mirroir / peekaboo driving during `bench-ui` or `gate`
+
+### Playbook A — Pre-merge smoke (fast)
+
+1. `scripts/build_foundation_targets.sh ios` (no device)
+2. `scripts/ios_device.sh device-state` → must be 0
+3. Unlock phone once
+4. `scripts/ios_device.sh test`
+5. On fail → `axiom_get_agent` `test-runner` with latest `build/ios/Logs/Test/*.xcresult`
+
+### Playbook B — Full iOS UI bench (macOS `bench-ui` equivalent)
+
+```sh
+scripts/ios_device.sh device-state          # exit 0
+scripts/ios_device.sh models check --strict
+scripts/ios_device.sh uitest-doctor         # Gates 1–3
+# Unlock phone; dismiss automation prompt if shown
+scripts/ios_device.sh bench-ui --label "release-matrix" \
+  --warm 1 --lengths medium --modes custom   # dev smoke subset first
+scripts/ios_device.sh bench-ui --label "release-matrix-full"  # full 29-take when clean
+```
+
+**During run:** optional `ios_device.sh shot` every few minutes (observation only). Do **not**
+touch the phone or mirroir-tap.
+
+**After run:** PASS → note `build/ios/bench-ui-<runID>/gate.log`; FAIL → grep log for
+`iosStudio_generationError`; re-run `check_ios_ui_bench.py`; `test-runner` on xcresult.
+
+### Playbook C — Headless benchmark (no XCUITest friction)
+
+```sh
+scripts/ios_device.sh bench "custom:speed:Bench smoke." --label "ios-rtf-check"
+scripts/ios_device.sh bench --sim-device iphone15pro "clone:speed:…"  # memory tier sim
+```
+
+### Playbook D — Exploratory UI + measurement gap
+
+macOS uses Peekaboo + `uitest_measure.sh`. iOS today:
+
+- **Exploratory drive:** mirroir + [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md) § iOS
+- **Proof:** still `gate` / `test --cold` / `bench-ui` — no iOS `verify-generation` yet
+
+### Artifact map (where MCP tools look)
+
+| Artifact | Path | MCP / tool |
+| --- | --- | --- |
+| UI test xcresult | `build/ios/Logs/Test/*.xcresult` | `test-runner` |
+| Gate verdict | `build/ios/gate-<runID>/verdict.txt` | read in-session |
+| Bench-ui log + gate | `build/ios/bench-ui-<runID>/` | grep log; `check_ios_ui_bench.py` |
+| Pulled telemetry | `build/ios-diagnostics/` | summarizer; `check_ios_ui_bench.py` |
+| Model inventory | `build/ios-diagnostics/models-status.json` | `models check` |
+| Profile trace | `build/ios/profile-*.trace` or `bench-ui-*/vocello.trace` | `axiom_xcprof_analyze` |
+| Review shots | `build/ios/review-shots/` | `screenshot-validator` |
+| Crash payloads | `build/ios-diagnostics/**/crashes/` | `axiom_xcsym_crash` |
+
+### Model verification (macOS parity)
+
+See [diagram 12 — Model verification ladder](#diagram-model-ladder). Weights live in the App
+Group — `devicectl` cannot read them directly. Headless inventory mirrors the autorun pattern:
+`QVOICE_IOS_MODELS_CHECK=1` → app writes pullable `models-status.json` using
+`LocalModelAssetStore.integrity()` for `pro_custom_speed`, `pro_design_speed`,
+`pro_clone_speed` (+ `cloneVoicesEnrolled`).
+
+| Need | Command | Phone state | Notes |
+| --- | --- | --- | --- |
+| Strict preflight | `models check --strict` or `preflight --strict-models` | Locked OK | Fails fast before long lanes |
+| Fastest engine probe | `bench "custom:speed:Model probe."` | Locked OK | ~1–3 min; fails at sentinel if Custom Voice missing |
+| Advisory only | `models check --advisory` | — | No device launch |
+| Install missing weights | **Human on phone:** Settings → Model Downloads | Unlocked | No MCP install from Mac |
+| After `--download` lane | Reinstall Custom Voice, then `models check --strict` | — | `--download` uninstalls `pro_custom` |
+
+---
 
 ## Still deferred
 
-A signed-IPA / TestFlight distribution lane (needs the iOS Distribution cert + an
-`archive-ios` CI job). On-device proof is **not** a public-release blocker (macOS-first;
-see `AGENTS.md`).
+Signed-IPA / TestFlight distribution lane (iOS Distribution cert + `archive-ios` CI job).
+On-device proof is not a public-release blocker (macOS-first; see `AGENTS.md`).

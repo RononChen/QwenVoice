@@ -45,6 +45,11 @@ Before changing scripts or CI, read:
   | Build/env failure | `axiom_get_agent` → `build-fixer` (after reading script output) |
   | Static audits | `axiom_get_agent` → named auditors (`concurrency-auditor`, `memory-auditor`, …) |
 
+  **iOS artifact paths** (see [`ios-device-testing.md` § Agent + MCP workflow](../docs/reference/ios-device-testing.md#agent--mcp-workflow)):
+  `build/ios/Logs/Test/*.xcresult` (UI tests), `build/ios/bench-ui-<runID>/` (UI bench),
+  `build/ios-diagnostics/` (telemetry + crashes + `models-status.json`),
+  `build/ios/gate-<runID>/verdict.txt`, `build/ios/profile-*.trace` / `bench-ui-*/vocello.trace`.
+
 - **GitHub** (release artifacts, PRs, workflow dispatch) → `gh` via the Shell tool.
 - **XcodeBuildMCP** (`user-xcodebuildmcp`) — macOS and on-device iOS workflows enabled; see
   [`.xcodebuildmcp/config.yaml`](../.xcodebuildmcp/config.yaml). Prefer `scripts/*.sh` for
@@ -71,7 +76,7 @@ scripts/ios_device.sh gate
 
 # Model fixture helpers
 scripts/macos_test.sh models check|ensure|install
-scripts/ios_device.sh models check
+scripts/ios_device.sh models check --strict   # headless inventory on paired iPhone
 
 # Release packaging
 ./scripts/build.sh release

@@ -52,6 +52,7 @@
 		207CC9B667B93AD4010CE0B5 /* MLXAudioTTS in Frameworks */ = {isa = PBXBuildFile; productRef = 356CE30F0920C8E6BEDAFCBF /* MLXAudioTTS */; };
 		221EB5F147B661B78C0F203C /* sohee.wav in Resources */ = {isa = PBXBuildFile; fileRef = B03BDEE35746990C5202A7A9 /* sohee.wav */; };
 		22DDAD6351784EA1052742F1 /* VocelloiOSSheetUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B7BEC208EBCD33A51F21653 /* VocelloiOSSheetUITests.swift */; };
+		2386ED71C3DBDA3DB7BDFAFD /* IOSModelsInventoryWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19BD6A72F95893AC0AE0B3D9 /* IOSModelsInventoryWriter.swift */; };
 		239559E64242761BAE36E4E5 /* BenchMatrixSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 669B831BA8E23D3DC59C2339 /* BenchMatrixSpec.swift */; };
 		2589BEF4455DB23814489EF1 /* CLIRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C15F6A1291506C7D8605BB /* CLIRuntime.swift */; };
 		258EEA1F20457D450A2883C0 /* IOSStudioInlinePlayerCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DB48541EB53A7C555669534 /* IOSStudioInlinePlayerCard.swift */; };
@@ -475,6 +476,7 @@
 		17D7FB0EE4F126BCF4DF0D89 /* TTSEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSEngine.swift; sourceTree = "<group>"; };
 		18DE6BAD8C5C43316C0B347E /* EngineServiceIPC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineServiceIPC.swift; sourceTree = "<group>"; };
 		18F6712D7D04D4BA5606C455 /* QwenVoiceEmbeddedRuntime.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = QwenVoiceEmbeddedRuntime.entitlements; sourceTree = "<group>"; };
+		19BD6A72F95893AC0AE0B3D9 /* IOSModelsInventoryWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSModelsInventoryWriter.swift; sourceTree = "<group>"; };
 		1A7DCB41F02A0973410A6027 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		1A8A61CE5C27E5BDC4EE04BA /* SavedVoicesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedVoicesViewModel.swift; sourceTree = "<group>"; };
 		1AEE16398D08C10B333F02D3 /* NativeMemoryPolicyResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMemoryPolicyResolver.swift; sourceTree = "<group>"; };
@@ -1095,6 +1097,7 @@
 				9D187C4B7DA7A21208083FA3 /* IOSGenerationVariationPreference.swift */,
 				4335217323465DDB7EB723E8 /* IOSInterruptionRecorder.swift */,
 				DC061E247067EDDB99401F09 /* IOSModelDeliverySupport.swift */,
+				19BD6A72F95893AC0AE0B3D9 /* IOSModelsInventoryWriter.swift */,
 				69C9C6278C7C7026DF5365CF /* IOSPullableDiagnosticsMirror.swift */,
 				3F2675499CA07A2901B0A6EA /* IOSSavedOutputsDestination.swift */,
 				43033F9668B23257EDC8EEE3 /* RuntimeReleaseCoordinator.swift */,
@@ -1863,6 +1866,7 @@
 				D9CD489105C5ADCF38E6EE96 /* IOSModelDeliverySupport.swift in Sources */,
 				1CBEFD2A5A49468100DA458F /* IOSModelDownloadCoordinator.swift in Sources */,
 				A523FA27DCB8DA8F86F04E56 /* IOSModelInstallerViewModel.swift in Sources */,
+				2386ED71C3DBDA3DB7BDFAFD /* IOSModelsInventoryWriter.swift in Sources */,
 				6F6FC142F3627E7B64EA863C /* IOSOnboardingCard.swift in Sources */,
 				0569D23D4DF51247B13A2600 /* IOSOnboardingFlow.swift in Sources */,
 				35F4D45D8E3E5025EF67588D /* IOSPlayerSheet.swift in Sources */,

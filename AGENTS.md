@@ -258,7 +258,7 @@ desktop-MCP harness is gone — see the testing runbook). Full MCP inventory and
 - **iOS on-device lanes** (`scripts/ios_device.sh`, one verb per lane): `test` / `crashes` /
   `profile` / `debug` / `review`. Inspect the resulting `.xcresult` / `.ips` via **`user-axiom`**
   MCP tools (`axiom_xcsym_*`, `axiom_xcprof_*`, `axiom_xclog_*`) or `axiom_get_agent` for
-  named agents. Full map: `docs/reference/ios-device-testing.md` §3. Also see
+  named agents. Full map: `docs/reference/ios-device-testing.md` § Lane map. Also see
   [`.agents/ios-engineer.md`](.agents/ios-engineer.md) and [`.cursor/rules/ios.mdc`](.cursor/rules/ios.mdc).
 - **macOS lanes** (`scripts/macos_test.sh`, one verb per lane): `models` / `test` / `journey` /
   `bench-ui` / `gate` / `crashes` / `profile` / `debug` / `review` / `xpc` / `uitest-doctor`. Lane map + XPC dimension:
@@ -351,12 +351,10 @@ the relevant role file path and the task; the subagent should read the role file
     (cold/warm relaunch, telemetry-flush markers).
   - Direct `xcodebuild test` without `-only-testing` runs the **entire** `VocelloMacUITests` target
     (smoke + journey + review + bench) — prefer the script lanes.
-- **iOS UI tests** (`VocelloiOSUITests`) — **paired physical iPhone only** via
-  `scripts/ios_device.sh`. Default gate: Smoke + Sheet + ColdGeneration (all Speed models
-  on device). GitHub CI runs compile-only for iOS.
-- **iOS UI-driven bench** — `scripts/ios_device.sh bench-ui` runs `VocelloiOSBenchUITests`
-  (full matrix through the real Studio UI; gate `scripts/check_ios_ui_bench.py`). Step-by-step
-  procedure for both platforms' UI benches: `docs/reference/testing-runbook.md` §3b.
+- **iOS on-device testing** — paired physical iPhone only via `scripts/ios_device.sh`.
+  Pre-merge: `scripts/ios_device.sh gate`. Operator guide (setup, daily workflow, lane map,
+  model policy): [`docs/reference/ios-device-testing.md`](docs/reference/ios-device-testing.md).
+  UI bench procedure: `docs/reference/testing-runbook.md` §3b. GitHub CI: compile-only for iOS.
 - **Compile-safety:** `scripts/build_foundation_targets.sh macos|ios`.
 - **Perf/quality gate:** the `vocello` CLI benchmark plus telemetry summarizer:
   ```sh

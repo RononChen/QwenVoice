@@ -114,8 +114,9 @@ Set `QVOICE_REQUIRE_TEST_MODELS=1` is automatic on script paths; bare `xcodebuil
 ### iOS device
 
 - Paired physical iPhone (never Simulator for real engine)
-- Speed model installed via Settings → Model Downloads (or prior autorun)
-- `scripts/ios_device.sh preflight` before bench/gate
+- Speed models verified: `scripts/ios_device.sh models check --strict` (headless inventory)
+- `scripts/ios_device.sh preflight` before bench/gate; optional `--strict-models`
+- Agent + MCP playbook: [`ios-device-testing.md` § Agent + MCP workflow](ios-device-testing.md#agent--mcp-workflow)
 
 ---
 
@@ -226,6 +227,36 @@ scripts/ios_device.sh bench --sim-device iphone15pro custom:speed:
 ```
 
 Pulls diagnostics from device; runs summarizer; exits non-zero if autorun status ≠ ok.
+
+### 4.7b iOS UI benchmark (Studio matrix)
+
+Same matrix semantics as macOS `bench-ui` (29 takes default). Step-by-step:
+[`testing-runbook.md` §3b](testing-runbook.md#3b-ui-driven-benchmark-lanes--step-by-step-any-agent-can-run-these).
+
+```sh
+scripts/ios_device.sh device-state
+scripts/ios_device.sh models check --strict
+scripts/ios_device.sh bench-ui --warm 1 --lengths medium --modes custom --label ios-bench-smoke
+scripts/ios_device.sh bench-ui --label ios-bench-full
+```
+
+Optional trace during matrix (single in-process attach):
+
+```sh
+scripts/ios_device.sh bench-ui --profile --profile-template "Time Profiler" --label ios-profile
+```
+
+Artifacts: `build/ios/bench-ui-<timestamp>/` (log, gate.log, optional `vocello.trace`).
+Post-run gate: `python3 scripts/check_ios_ui_bench.py build/ios-diagnostics --run-id …`.
+
+| Phase | Tool |
+|-------|------|
+| Trace capture | `bench-ui --profile` / `profile` lane |
+| Trace analysis | `axiom_xcprof_analyze` / `performance-profiler` |
+| Test failure | `axiom_get_agent` → `test-runner` on `build/ios/Logs/Test/*.xcresult` |
+| Crash post-mortem | `axiom_xcsym_crash` on `build/ios-diagnostics/**/crashes/` |
+
+Full MCP routing: [`ios-device-testing.md` § Agent + MCP workflow](ios-device-testing.md#agent--mcp-workflow).
 
 ### 4.8 macOS Instruments profile (signpost validation)
 

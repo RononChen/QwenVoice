@@ -26,7 +26,7 @@
 #   scripts/ios_device.sh shot [out.png]          # capture the iPhone Mirroring window (device screen) → PNG
 #   scripts/ios_device.sh pull [dest]             # pull the app-container diagnostics mirror
 #   scripts/ios_device.sh bench [spec] [--label "note"]
-#   scripts/ios_device.sh bench-ui [--modes m,..] [--lengths l,..] [--warm N] [--label "note"]
+#   scripts/ios_device.sh bench-ui [--modes m,..] [--lengths l,..] [--warm N] [--label "note"] [--profile]
 #                                                 # full-matrix UI-DRIVEN bench (XCUITest)
 #                                                 # build→install→autorun→pull→summarize
 #   scripts/ios_device.sh ui-test [--all|--cold|--download] [only]
@@ -35,8 +35,8 @@
 #   scripts/ios_device.sh debug [spec]             # attached launch + LLDB attach guidance (get-task-allow build)
 #   scripts/ios_device.sh logs [spec]              # attached launch teeing stdout → build/ios-logs/<run>.log
 #   scripts/ios_device.sh profile [spec]           # Instruments/xctrace trace of an autorun generation (burn-in-safe)
-#   scripts/ios_device.sh preflight [--cold]       # readiness (+ cold-model advisory)
-#   scripts/ios_device.sh models check             # which tiers need device models
+#   scripts/ios_device.sh preflight [--cold] [--strict-models]  # readiness (+ optional inventory gate)
+#   scripts/ios_device.sh models check [--strict]  # headless inventory pull (+ strict gate)
 #   scripts/ios_device.sh test [--all|--cold] [only] # ui-test + single verdict + build/ios/uitest-artifacts/
 #   scripts/ios_device.sh review [--baseline]        # on-device UI capture tour + baseline diff (burn-in-aware)
 #   scripts/ios_device.sh device-state [--json]    # interference probe: phone-in-use / call / mirror state
@@ -82,6 +82,7 @@ PROFILES_DIR="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
 . "$ROOT_DIR/scripts/lib/build_cache.sh"
 . "$ROOT_DIR/scripts/lib/xcresult_shots.sh"
 . "$ROOT_DIR/scripts/lib/ios_device_state.sh"
+. "$ROOT_DIR/scripts/lib/ios_test_models.sh"
 
 note() { printf '\033[0;36m==>\033[0m %s\n' "$*" >&2; }
 warn() { printf '\033[0;33m[warn]\033[0m %s\n' "$*" >&2; }
@@ -667,7 +668,9 @@ PY
 # Prereqs: all three Speed models installed (custom+design+clone by default).
 cmd_bench_ui() {
   require_team
-  local modes="custom,design,clone" lengths="short,medium,long" warm=3 label=""
+  local modes="custom,design,clone" lengths="short,medium,long" warm=3 label="" profile=0
+  local profile_template="${QVOICE_IOS_PROFILE_TEMPLATE:-Time Profiler}"
+  local skip_doctor=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --modes) modes="${2:-}"; shift 2 ;;
@@ -678,9 +681,39 @@ cmd_bench_ui() {
       --warm=*) warm="${1#*=}"; shift ;;
       --label) label="${2:-}"; shift 2 ;;
       --label=*) label="${1#*=}"; shift ;;
-      *) die "unknown bench-ui flag: $1 (try --modes, --lengths, --warm, --label)" ;;
+      --profile) profile=1; shift ;;
+      --profile-template) profile_template="${2:-Time Profiler}"; shift 2 ;;
+      --profile-template=*) profile_template="${1#*=}"; shift ;;
+      --skip-uitest-doctor) skip_doctor=1; shift ;;
+      -h|--help|help)
+        cat <<'EOF'
+bench-ui — on-device UI benchmark (VocelloiOSBenchUITests)
+
+  scripts/ios_device.sh bench-ui [--modes custom,design,clone] [--lengths short,medium,long]
+      [--warm 3] [--label NOTE] [--profile] [--profile-template "Time Profiler"]
+      [--skip-uitest-doctor]
+
+Dev smoke (3 takes):
+  scripts/ios_device.sh bench-ui --warm 1 --lengths medium --modes custom --label smoke
+EOF
+        return 0
+        ;;
+      *) die "unknown bench-ui flag: $1 (try --help)" ;;
     esac
   done
+
+  note "bench-ui step 0: device-state"
+  cmd_device_state || die "device-state not ready for bench-ui (see advice above)"
+
+  if (( skip_doctor == 0 )); then
+    note "bench-ui step 1: uitest doctor"
+    "$ROOT_DIR/scripts/ios_uitest_doctor.sh" || true
+    if _ios_uitest_gate1_open; then
+      die "Mac UI Automation still requires your login password each run — fix Gate 1 once:
+  scripts/enable_unattended_uitest.sh
+(or pass --skip-uitest-doctor if you accept the prompt)"
+    fi
+  fi
 
   ensure_device_ready
   local dev; dev="$(resolve_device)"
@@ -699,6 +732,20 @@ cmd_bench_ui() {
   export TEST_RUNNER_QVOICE_IOS_BENCH_MODES="$modes"
   export TEST_RUNNER_QVOICE_IOS_BENCH_LENGTHS="$lengths"
   export TEST_RUNNER_QVOICE_IOS_BENCH_WARM="$warm"
+
+  local profile_pid=""
+  if (( profile )); then
+    command -v xctrace >/dev/null 2>&1 \
+      || die "xctrace not found (install Xcode); or run profile lane separately"
+    local profile_duration="${QVOICE_IOS_BENCH_UI_PROFILE_DURATION:-2400}"
+    note "bench-ui: xctrace profile ($profile_template, up to ${profile_duration}s)"
+    xctrace record --device "$dev" --template "$profile_template" \
+      --attach "Vocello" --time-limit "${profile_duration}s" \
+      --output "$out_dir/vocello.trace" \
+      > "$out_dir/profile.log" 2>&1 &
+    profile_pid=$!
+    sleep 2
+  fi
 
   set +e
   local attempt=1 test_status=0
@@ -720,6 +767,17 @@ cmd_bench_ui() {
   set -e
   unset TEST_RUNNER_QVOICE_IOS_BENCH_RUN_ID TEST_RUNNER_QVOICE_IOS_BENCH_MODES \
         TEST_RUNNER_QVOICE_IOS_BENCH_LENGTHS TEST_RUNNER_QVOICE_IOS_BENCH_WARM
+
+  if [[ -n "$profile_pid" ]]; then
+    kill "$profile_pid" 2>/dev/null || true
+    wait "$profile_pid" 2>/dev/null || true
+    if [[ -d "$out_dir/vocello.trace" ]]; then
+      note "bench-ui profile trace → $out_dir/vocello.trace"
+      note "analyze: axiom_xcprof_analyze / open in Instruments"
+    else
+      warn "bench-ui: no trace produced (see $out_dir/profile.log)"
+    fi
+  fi
 
   if (( test_status != 0 )); then
     warn "bench-ui XCUITest exited $test_status — device state: $(probe_device_state 2>/dev/null || echo unknown)"
@@ -910,6 +968,21 @@ cmd_ui_test() {
       status=$?
       set -e
       (( status != 0 )) && all_ok=0
+    elif ((${#run_targets[@]} > 1)); then
+      local -a only_args=()
+      local target
+      for target in "${run_targets[@]}"; do
+        only_args+=( "-only-testing:$target" )
+      done
+      note "ui-test batch: ${#run_targets[@]} classes in one xcodebuild invocation"
+      set +e
+      _run_ui_test_once "$dev" "$log" "${only_args[@]}"
+      status=$?
+      set -e
+      (( status != 0 )) && all_ok=0
+      if _ui_test_log_needs_unlock_retry "$log"; then
+        all_ok=0
+      fi
     else
       local target
       for target in "${run_targets[@]}"; do
@@ -1116,10 +1189,12 @@ cmd_profile() {
 cmd_preflight() {
   local rc=0
   local cold=0
+  local strict_models=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --cold) cold=1; shift ;;
-      *) die "unknown preflight flag: $1 (try --cold)" ;;
+      --strict-models) strict_models=1; shift ;;
+      *) die "unknown preflight flag: $1 (try --cold, --strict-models)" ;;
     esac
   done
   note "on-device preflight"
@@ -1170,7 +1245,17 @@ PY
 
   note "unlock advisory: ui-test needs the iPhone UNLOCKED once (automation auth handshake); bench/launch/profile/crashes/logs work locked."
   note "models: default test/gate needs ALL Speed models on device (Custom + Design + Clone)."
-  note "  Vocello → Settings → Model Downloads (~6.9 GB). Mac cannot verify App Group files."
+  if (( strict_models )); then
+    ios_test_models_init "$ROOT_DIR"
+    if ! ios_models_inventory_pull 1; then
+      warn "  models: ✗ strict inventory failed (run: $0 models check --strict)"
+      rc=1
+    else
+      note "  models: OK (headless inventory verified all Speed tiers)"
+    fi
+  else
+    note "  run '$0 models check --strict' for headless verify (Mac cannot ls App Group directly)."
+  fi
   if (( cold == 1 )); then
     note "(--cold is an alias for ColdGeneration-only; default scope already includes it.)"
   fi
@@ -1180,13 +1265,34 @@ PY
 cmd_models() {
   local sub="${1:-check}"
   shift || true
+  ios_test_models_init "$ROOT_DIR"
   case "$sub" in
-    check|help|-h|--help)
-      note "iOS models live in the App Group on the paired iPhone — not on this Mac."
-      note "Default ui-test / gate (Smoke + Sheet + ColdGeneration): install ALL Speed models once:"
-      note "  pro_custom, pro_design, pro_clone — Vocello → Settings → Model Downloads (~6.9 GB)."
-      note "bench-ui also needs all three; clone cells need a saved voice enrolled on the phone."
-      note "OnDeviceDownload is opt-in (ui-test --download) — it uninstalls pro_custom in setUp."
+    check)
+      local strict=0 advisory=0
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --strict) strict=1; shift ;;
+          --advisory) advisory=1; shift ;;
+          *) die "unknown models check flag: $1 (try --strict, --advisory)" ;;
+        esac
+      done
+      if (( advisory )); then
+        ios_models_print_advisory
+        return 0
+      fi
+      ios_models_inventory_pull "$strict"
+      ;;
+    help|-h|--help)
+      cat <<'EOF'
+models — on-device model inventory (App Group on paired iPhone)
+
+  scripts/ios_device.sh models check           # headless inventory pull + table
+  scripts/ios_device.sh models check --strict  # exit 1 if any Speed tier missing
+  scripts/ios_device.sh models check --advisory # print install advice only (no device launch)
+
+Install missing weights on phone: Vocello → Settings → Model Downloads.
+Interim probe: bench "custom:speed:Model probe." (~1–3 min, locked phone OK).
+EOF
       ;;
     *)
       die "unknown models subcommand '$sub' (try: check)"
