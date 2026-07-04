@@ -266,22 +266,9 @@ struct RecordReferenceClipSheet: View {
     private func useClip() {
         guard let url = recorder.lastSavedURL else { return }
         reviewPlayer.stop()
-        let stable = stashRecording(url) ?? url
+        let stable = ReferenceClipRecordingStash.copyToStableTemp(url) ?? url
         onComplete(stable)
         dismiss()
-    }
-
-    private func stashRecording(_ url: URL) -> URL? {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("voice-enroll", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let dest = dir.appendingPathComponent("\(UUID().uuidString).wav", isDirectory: false)
-        do {
-            try FileManager.default.copyItem(at: url, to: dest)
-            return dest
-        } catch {
-            return nil
-        }
     }
 }
 

@@ -29,7 +29,7 @@ Three generation modes (Studio segmented control `generateSection_*`):
 
 - **Custom Voice** (`generateSection_custom`) — pick a built-in speaker + optional delivery.
 - **Voice Design** (`generateSection_design`) — describe a voice in natural language.
-- **Voice Cloning** (`generateSection_clone`) — use a reference clip (record/import or a saved voice).
+- **Voice Cloning** (`generateSection_clone`) — use a reference clip (record on-device or a saved voice).
 
 The UI is what this guide drives. For headless, no-UI generation see `IOSAutorunHarness`
 (`ios-device-testing.md` §1) — that path is for benchmarks, not this guide.
@@ -70,7 +70,7 @@ queryable without shadowing descendants (see §5).
 |---|---|
 | Custom | Voice (`"Voice: "` → voice picker) · Delivery (`"Delivery: "` → delivery picker) · Language (`"Language:"` → language picker) |
 | Design | Voice brief (`"Voice brief:"` → brief editor) · Delivery (`"Delivery: "`) · Language (`"Language:"`) |
-| Clone | Reference (`studioChip_reference` → reference/import) · Language (`"Language:"`) |
+| Clone | Reference (`studioChip_reference` → record or saved voice) · Language (`"Language:"`) |
 
 ### Bottom sheets — `Sources/iOS/Sheets/IOSBottomSheets.swift`
 
@@ -189,10 +189,11 @@ contract; there is no user-facing pause).
 - **Voice Design** — describe a voice in plain language (character, age, accent, gender,
   pitch); the model invents a new voice from that brief each call. Name gender + concrete
   pitch register to avoid underspecified results. The result can be saved and reused in Clone.
-- **Voice Cloning** — supply a reference clip (record in-app or import WAV/MP3/AIFF/M4A/FLAC/OGG;
-  ~5–10s clean clip), optionally with a transcript (auto-fillable via on-device speech
-  recognition). Clone cannot take a separate delivery instruction on current checkpoints —
-  pick a reference clip that already carries the delivery you want.
+- **Voice Cloning** — supply a reference clip (record in-app on this iPhone; ~10–20 s clean clip),
+  optionally with a transcript (auto-fillable via on-device speech
+  recognition). Saved voices from the Voices tab are reusable references. Clone cannot take a
+  separate delivery instruction on current checkpoints — pick a reference clip that already
+  carries the delivery you want.
 
 ### Speakers (Custom Voice) — `qwenvoice_contract.json`
 
@@ -275,8 +276,8 @@ present, else install the model via §3) → `button(labelPrefix:"Voice: ").tap(
 **(c) Design** — `generateSection_design`.tap() → `button(labelPrefix:"Voice brief:").tap()` →
 `voiceBrief_editor`.typeText("…") → `voiceBrief_confirm`.tap() → (model check) → compose → Generate.
 
-**(d) Clone** — `generateSection_clone`.tap() → choose/import a reference (or a saved voice
-from the Voices tab) → (model check) → compose → Generate.
+**(d) Clone** — `generateSection_clone`.tap() → record a reference or pick a saved voice
+(from the Voices tab) → (model check) → compose → Generate.
 
 **(e) History** — `rootTab_history`.tap() → (optional `historyModeFilter_*`) → `historyRowTap_<id>`.tap() (opens player).
 

@@ -5,14 +5,28 @@
 > Context: [post-mortem](post-mortem/2026-06-post-fable-development-hell.md) → four
 > audits (2026-07-01) → phased remediation. Onboarding: `[AGENTS.md](../AGENTS.md)`.
 >
-> **HANDOFF (2026-07-02 ~14:20, Fable 5 → Composer 2.5, same thread):** everything
-> through `761c1a4` is committed and pushed; the working tree should be clean apart
-> from this doc. One background run may still be in flight (§2 Step 1). Start at §2
-> and do the steps in order.
+> **HANDOFF (2026-07-03):** through `004800d` is committed and pushed on `main`.
+> The working tree has **uncommitted** iOS Clone reference-recording work:
+> `ReferenceClipRecordingStash.swift`, `IOSGenerateFlowViews.swift`,
+> `IOSGenerationModeViews.swift`, `IOSRecordingOverlay.swift`, `IOSBottomSheets.swift`,
+> `IOSRecordVoiceSheet.swift`, `RecordReferenceClipSheet.swift`, `ios-app-guide.md`,
+> plus `project.pbxproj`. Start at **§2 Step 4** (human design listening) or
+> **§2 Step A** (commit + on-phone verify clone fix) — maintainer choice.
 
-## 1. Current state (2026-07-02, `main` + uncommitted J1 closure)
+## 1. Current state (2026-07-03, `main` @ `004800d` + uncommitted clone fix)
 
-### Session update (Composer 2.5 pickup, 2026-07-03 ~00:30)
+### Session update (2026-07-03 afternoon)
+
+| Step | Status | Notes |
+| --- | --- | --- |
+| 1–3 macOS J1 + iOS bench | **PASS** | Same artifacts as ~00:30 table below; `004800d` pushed |
+| 4 design listening | **OWED (human)** | Maintainer listens to History design takes on phone |
+| 5a gates + macOS review | **PASS** | `gate-mac-gate-20260702-163644`; `mac-review-20260702-164903` |
+| 5b release train | **PENDING** | Version bump / tag / DMG — after Step 4 + clone fix committed |
+| Clone reference recording | **IN FLIGHT (uncommitted)** | Voices tab record works; Studio Clone path did not. Root cause: `IOSRecordingOverlay.onDisappear` deleted temp WAV before import. Fix: hoist recorder to `IOSGenerateContainerView`, `didHandOffClip` guard, deferred presentation (~350 ms after bottom-sheet dismiss), shared `ReferenceClipRecordingStash`; iOS-only "Import from Files" removed from clone reference sheet |
+| Clone fix verification | **PARTIAL** | `build_foundation_targets.sh ios` PASS; `ios_device.sh test` PASS once (`ios-test-20260703-005411`); maintainer still reported Clone record broken → second-pass fix applied; **not manually re-verified on physical phone**; one later test run hit device auth timeout (`com.apple.sharing.authentication error 12`) — environment, not compile |
+
+### Session update (2026-07-03 ~00:30) — bench + gate closure
 
 | Step | Status | Artifact |
 | --- | --- | --- |
@@ -23,21 +37,14 @@
 | 5 macOS gate+review | **PASS** | `gate-mac-gate-20260702-163644`; review `mac-review-20260702-164903` |
 | 5 iOS gate | **PASS** | `gate-ios-gate-20260703-003025` |
 
-**iOS bench fixes this session:** `ensure_mirror` auto-nudges Reprendre/Resume when devicectl is up but mirroring is paused; `_run_ui_test_once` restores caller errexit; bench clear hook dismisses inline player between warm takes; voice-brief starter path skips Confirm.
-
-### Session update (Composer 2.5 pickup, 2026-07-02 afternoon)
-
-| Step | Status | Artifact |
-| --- | --- | --- |
-| 1 macOS J1 verify | **PASS** | `build/macos/bench-ui-xpc-bench-20260702-155134/` → 29/29/29/29 |
-| 2 iOS bench-ui shakeout | **BLOCKED** | iPhone `6AE2516C…` state `unavailable` in devicectl — reconnect/unlock |
-| 3 iOS full matrix | **BLOCKED** | same |
-| 4 design listening | **OWED (human)** | maintainer listens to History design takes on phone |
-| 5 macOS gate+review | **PASS** | `gate-mac-gate-20260702-163644`; review captures `mac-review-20260702-164903` (8 PNG diffs — visual pass) |
-| 5 iOS gate | **BLOCKED** | needs phone |
+**iOS bench fixes (`004800d`):** mirror App Group diagnostics into devicectl-pullable Caches after each generation; `ensure_mirror` auto-nudges Reprendre/Resume when mirroring paused; bench-ui unlock retry; warm-take inline player dismiss between takes; voice-brief starter path skips Confirm.
 
 **J1 root cause (final):** warm flush timeout (12 s) << long-take generation time after player bar.
 Fix: `VocelloMacBenchUITests.telemetryFlushTimeout` + hard XCTFail; inline `await` app JSONL when hooks on.
+
+### Session update (2026-07-02 afternoon) — superseded
+
+Phone was `unavailable` in devicectl (Steps 2–3 and iOS gate BLOCKED). Resolved when phone reconnected; see ~00:30 table above for PASS artifacts.
 
 ### Done and verified
 
@@ -55,6 +62,7 @@ Fix: `VocelloMacBenchUITests.telemetryFlushTimeout` + hard XCTFail; inline `awai
 | Thermal policy          | `TTSEngineStore.startThermalObservation` — proactive warm blocked at serious/critical; generation never thermally blocked; `QVOICE_IOS_THERMAL_GATE=off`                                                           | `846721f`            |
 | UI P0/P1                | iOS batch REMOVED (decision) · tab lock RELAXED (decision) · ScrollView + Reduce Motion routing (iOS + macOS live re-read) · player scrubber/transcript VoiceOver ids · dead uiProfile fork removed                | `8b78470`, `e396b94` |
 | Decisions on record     | **1.7B variants only** (0.6B ruled out — Voice Design needs 1.7B) · iOS batch removed · tab lock relaxed · cold launch lands Studio→Custom                                                                         | `42aa64e`, `8f70f68` |
+| iOS UI-driven bench     | Full matrix 29/29; pullable telemetry mirror; gate lane closed                                                                                                                                    | `004800d`            |
 
 
 ### Also done: AppModel migration Phases 3b/5/6 (landed in `0df766b` + `411ce84`)
@@ -76,7 +84,7 @@ live Voices tab is `IOSVoicesView`). All protected identifiers survive verbatim
 dead branch's `savedVoiceMenu_*`/`savedVoiceDeleteConfirm_*`, unreferenced by tests.
 
 Compile-verified (`build_foundation_targets.sh ios` BUILD SUCCEEDED). On-device
-`scripts/ios_device.sh test` NOT yet run post-migration — fold into step A1 below.
+coverage via `gate-ios-gate-20260703-003025` PASS (includes default UI tests).
 
 ### Current performance reference (like-for-like lanes — NEVER mix)
 
@@ -91,116 +99,79 @@ Compile-verified (`build_foundation_targets.sh ios` BUILD SUCCEEDED). On-device
 
 ## 2. NEXT ACTIONS — do these IN ORDER (handout for the continuing model)
 
-> Written 2026-07-02 ~14:20 for the Composer 2.5 handoff. Everything up to commit
-> `761c1a4` is pushed. Do the steps below exactly; each has its own verification.
+> Updated 2026-07-03. Steps 1–3 and 5a are **COMPLETE** — do not re-run unless
+> regressing. Remaining: Step 4 (human), Step A (clone fix), Step 5b (release train).
 > If a step fails twice the same way, STOP and report — do not improvise new tools.
 
-### Step 1 — J1 verification (macOS, no phone needed)
+### Step 1 — J1 verification (macOS) — COMPLETE
 
-**Status: VERIFIED PASS (2026-07-02).** Run `j1-verify-timeout-fix` →
-`expected=29 engine=29 service=29 app=29 merged=29` + PASS
-(`build/macos/bench-ui-xpc-bench-20260702-155134/`).
+**Status: VERIFIED PASS (2026-07-02).** `expected=29 engine=29 service=29 app=29 merged=29` +
+PASS (`build/macos/bench-ui-xpc-bench-20260702-155134/`).
 
 Root cause was **not** row-loss from async writes alone — the bench driver's
 `waitForTelemetryFlush` used a 12 s warm timeout while `tapGenerateAndWaitForPlayer`
-returns at first-chunk (player bar). Warm **long** takes (#10 before design cold,
-#29 final) were still generating when the soft-failed flush let relaunch/terminate
-kill the app before `recordCompleted`. Fix: length-aware flush timeouts (60/120/300 s)
-+ hard XCTFail on flush timeout; kept inline `await` app JSONL write when UI-test
-hooks are on (`AppGenerationTimeline.recordCompleted` async).
+returns at first-chunk (player bar). Warm **long** takes were still generating when the
+soft-failed flush let relaunch/terminate kill the app before `recordCompleted`. Fix:
+length-aware flush timeouts (60/120/300 s) + hard XCTFail on flush timeout; inline
+`await` app JSONL write when UI-test hooks are on.
 
-If a future rerun fails the gate, use the triage tree below (do not revert the fixes):
+**If rerunning** and the gate fails, use this triage tree (historical — do not revert fixes):
 
-**Historical failure at handoff:** the `j1-verify-round3` run FAILED EARLY (log:
-`/tmp/bench-ui-j5.log`, artifacts `build/macos/bench-ui-xpc-bench-20260702-142137/`)
-with a NEW signature, not the J1 row loss: take #1 (custom/medium/cold) died at
-`VocelloMacUIQuery.clearScriptEditor` (line 111) — app launched fine, sidebar
-navigation worked, the editor was clicked, but `textInput_charCount` never appeared
-(3 retries) and the test failed at t≈56 s with 0 telemetry rows. Two possibilities:
+The `j1-verify-round3` run FAILED EARLY (log: `/tmp/bench-ui-j5.log`, artifacts
+`build/macos/bench-ui-xpc-bench-20260702-142137/`) with a composer flake signature
+(`textInput_charCount` never appeared). Rerun once on an idle machine (`pgrep -x xcodebuild`).
+If rows still missing after a normal run, filter JSONL by `recordedAt` and inspect
+svc/app gaps (see §3b J1 notes).
 
-- **Flake/environment** (a stray `sysmond service not found` appeared; earlier same-day
-  runs passed this step twice). → Rerun once:
-  `scripts/macos_test.sh bench-ui --label "j1-verify-round3b"` (idle machine first:
-  `pgrep -x xcodebuild`).
-- **Regression from `761c1a4`** (it touched `Sources/ContentView.swift` marker block +
-  made `MacUITestSurfaceMarkers` an `@Observable` class). If the rerun fails the same
-  way: run `scripts/macos_test.sh test` (smoke) — if smoke also fails around the
-  composer, inspect the ContentView `HiddenWindowMarkers` change first; `git revert`
-  of the ContentView/MacUITestSurfaceMarkers hunks is acceptable ONLY as a last resort
-  (it reintroduces frozen markers — J1 round 2 — so prefer a forward fix).
+### Step 2 — iOS bench-ui shakeout — COMPLETE
 
-When a rerun completes normally, judge the gate line:
+**Status: PASS (2026-07-03).** `build/ios/bench-ui-ios-bench-ui-20260703-000049/`.
 
-- `expected=29 engine=29 service=29 app=29 merged=29` + PASS → J1 is CLOSED. Update
-  this doc (§3b round-3 entry → "verified PASS <date>"), commit, push. Done.
-- Rows still missing → find which takes lost rows:
+### Step 3 — Full iOS UI-driven matrix — COMPLETE
 
-```sh
-cd "$HOME/Library/Application Support/QwenVoice-Debug/diagnostics" && python3 - <<'EOF'
-import json
-def ids(p):
-    out = {}
-    for line in open(p):
-        try:
-            r = json.loads(line); out[r["generationID"]] = r.get("recordedAt", "")
-        except Exception: pass
-    return out
-eng = ids("engine/generations.jsonl"); svc = ids("engine-service/generations.jsonl"); app = ids("app/generations.jsonl")
-for i, (g, t) in enumerate(sorted(eng.items(), key=lambda kv: kv[1]), 1):
-    f = ("" if g in svc else " NO-SVC") + ("" if g in app else " NO-APP")
-    if f: print(f"take#{i} {t} {g}{f}")
-EOF
-```
+**Status: PASS (2026-07-03).** `build/ios/bench-ui-ios-bench-ui-20260703-001546/` → 29/29
+engine gate; HISTORY rows appended. Closed in `004800d`.
 
-  Then apply the NEXT lever, already scoped: make
-  `GenerationTelemetryJSONLSink.write` synchronous (await, not detached) when
-  `QWENVOICE_UI_TEST_HOOKS=1` — touch ONLY the write scheduling, re-run the same
-  bench-ui command, expect 29/29/29/29. All prior J1 fixes are described in §3b; do
-  not revert them.
-
-### Step 2 — iOS bench-ui shakeout (needs the phone: mirror ACTIVE, unlocked)
-
-Preconditions and full procedure: `docs/reference/testing-runbook.md` §3b (iOS).
-Quick loop:
-
-```sh
-scripts/ios_device.sh device-state          # must print MIRROR_ACTIVE / exit 0
-scripts/ios_device.sh bench-ui --modes custom --lengths short --warm 1 --label shakeout
-```
-
-- PASS (gate prints per-cell row + PASS) → lane works; go to Step 3.
-- Install error `CoreDeviceError 3002` / `Connection interrupted` → phone
-  locked/unreachable; ask the user to unlock + keep the mirror active, retry ONCE.
-- A take times out → grep the log for `iosStudio_generationError`; model missing →
-  reinstall Custom Voice on the phone (a `gate` run uninstalls it — known behavior).
-
-### Step 3 — Full iOS UI-driven matrix (phone, ~40 min, thermal-sensitive)
-
-```sh
-scripts/ios_device.sh bench-ui --label "ios-ui-bench-baseline"
-```
-
-Clone cells auto-skip unless a saved voice is enrolled ON the phone (mic does not
-work through Mirroring — ask the user to enroll one via Voices → Save a new voice).
-On PASS: append one HISTORY.md row per mode cell (medium/warm) with the label, and
-record the run dir in this doc. Numbers should match §1b (RTF 1.6–1.9, 0 trims);
->5% RTF drop vs those references = investigate before committing anything.
-
-### Step 4 — Design-mode listening pass (HUMAN ears; cannot be automated)
+### Step 4 — Design-mode listening pass (HUMAN ears; cannot be automated) — OWED
 
 Takes live in the app's History on the phone. Ask the user to listen to the design
 takes for dropouts/clicks. If audible: file the defect with the chunkTimeline row
 (v5 telemetry localizes the silence window) BEFORE touching engine code.
 
-### Step 5 — Release train (Phase 5; only after Steps 1–4 are green)
+### Step A — Clone reference recording (before release) — IN FLIGHT
+
+Uncommitted fix for Studio → Clone → Reference → Record (Voices tab record already works).
+Verify on the **physical phone** — mic is unavailable through Mirroring.
 
 ```sh
-QWENVOICE_GATE_BENCH=1 scripts/macos_test.sh gate   # PASS required
-scripts/ios_device.sh gate                          # PASS required (attended)
-scripts/macos_test.sh review && scripts/ios_device.sh review   # diff vs baselines
+./scripts/regenerate_project.sh
+./scripts/build_foundation_targets.sh ios
+# rebuild/install on phone, then manual: Studio → Clone → Reference → Record → Use this clip → Generate
+scripts/ios_device.sh test    # retry if device auth flake (error 12)
+# commit + push when green
 ```
 
-Then follow `docs/reference/macos-release-qa.md` (version bump in `project.yml` →
+### Step 5 — Release train (Phase 5)
+
+#### 5a Pre-release gates — COMPLETE
+
+| Lane | Status | Artifact |
+| --- | --- | --- |
+| macOS gate | **PASS** | `gate-mac-gate-20260702-163644` |
+| macOS review | **PASS** | `mac-review-20260702-164903` (8 PNG diffs — visual pass) |
+| iOS gate | **PASS** | `gate-ios-gate-20260703-003025` |
+
+Optional re-gate after Step A lands:
+
+```sh
+QWENVOICE_GATE_BENCH=1 scripts/macos_test.sh gate
+scripts/ios_device.sh gate
+scripts/macos_test.sh review && scripts/ios_device.sh review
+```
+
+#### 5b Release train — PENDING (after Step 4 + Step A)
+
+Follow `docs/reference/macos-release-qa.md` (version bump in `project.yml` →
 `regenerate_project.sh` → tag → GitHub release triggers the DMG workflow). iOS
 TestFlight lane is optional (`archive-ios` manual dispatch).
 
@@ -257,29 +228,25 @@ recording/enrollment is NOT broken in the app — it works when operated directl
 phone (maintainer-confirmed same day). Never triage recording as an app defect from a
 mirror session, and never drive record/enroll flows via the mirror; that step is
 attended, on the physical phone.
+- **Reference clip handoff:** copy the recorded WAV to a stable temp path (`ReferenceClipRecordingStash`) **before** dismissing `IOSRecordingOverlay`. The overlay's `onDisappear` must not call `stopWithoutSaving` after a successful handoff — use `didHandOffClip` / `handOffClip(at:)`. Studio Clone hoists the recorder above the bottom sheet; defer fullScreenCover presentation (~350 ms) after bottom-panel dismiss to avoid presentation races.
 
-## 3b. Active work (2026-07-02 afternoon)
+## 3b. Active work (2026-07-03)
 
-- **iOS gate: PASS** (all 4 steps; all three Speed models installed on the phone).
-  iOS single-take benches green: custom RTF 1.89 / design 1.99 / clone 1.68, physFoot
-  2.4–3.2 GB, 0 trims, QC pass. Design dropout did NOT reproduce; the perceptual
-  listening pass on the History takes is still owed by the maintainer.
-- **"Recording broken" report RESOLVED — not an app defect.** The mic is unavailable
-  through iPhone Mirroring (see guardrail above); works on the physical phone.
-- **iOS UI-driven bench (`ios_device.sh bench-ui`) — NEW, shakeout in progress.**
-  Parts: `VocelloiOSBenchUITests` (matrix driver; corpus must stay identical to
-  `BenchMatrixSpec.corpus`), `IOSStudioBenchHooks` (env-gated markers + hidden
-  clear-script button), driver verb in `ios_device.sh`, gate
-  `scripts/check_ios_ui_bench.py` (expected count comes from the test's
-  `VOCELLO-BENCH-UI-MANIFEST ran=N` line — clone cells skip without a saved voice).
-  Shakeout command: `scripts/ios_device.sh bench-ui --modes custom --lengths short
-  --warm 1 --label shakeout`. If takes fail: check the marker ids exist (hooks env),
-  the keyboard-dismiss `\n` step, and `textInput_generateButton` hittability.
-- **macOS XPC bench-ui J1 — CLOSED (2026-07-02).** Root cause: 12 s warm flush
-  timeout vs long takes still generating after player bar; fix in
-  `VocelloMacBenchUITests.telemetryFlushTimeout` + hard fail on flush timeout;
-  inline `await` app JSONL write when hooks on. Verified:
-  `bench-ui-xpc-bench-20260702-155134` → 29/29/29/29 PASS.
+- **iOS UI-driven bench — CLOSED (`004800d`).** Full matrix 29/29 engine gate;
+  pullable telemetry mirror into devicectl Caches; shakeout + baseline runs PASS.
+  Parts: `VocelloiOSBenchUITests`, `IOSStudioBenchHooks`, `ios_device.sh bench-ui`,
+  `scripts/check_ios_ui_bench.py`.
+- **macOS XPC bench-ui J1 — CLOSED (2026-07-02).** `bench-ui-xpc-bench-20260702-155134`
+  → 29/29/29/29 PASS. Length-aware flush timeout + inline app JSONL when hooks on.
+- **iOS gate — PASS.** `gate-ios-gate-20260703-003025`. Design dropout did NOT
+  reproduce in benches; perceptual listening pass still owed (Step 4).
+- **Clone reference recording — IN FLIGHT (uncommitted).** Symptom: Voices tab
+  record/save works; Studio Clone → Reference → Record did not apply the clip.
+  Root cause: overlay deleted temp file on dismiss before import; nested recorder +
+  simultaneous sheet/fullScreenCover presentation. Fix landed locally; awaiting
+  on-phone verify + commit.
+- **"Recording broken through mirror" — RESOLVED (not an app defect).** Mic unavailable
+  via Mirroring; physical-phone operation confirmed separately.
 
 ## 4. Where everything lives (quick index)
 
@@ -295,6 +262,6 @@ attended, on the physical phone.
 | Bench procedure + like-for-like rules | `docs/reference/benchmarking-procedure.md` §7                                       |
 | Bench baselines                       | `benchmarks/baselines/*.json` (machine) + `benchmarks/baseline-*.md` (human)        |
 | iOS engine posture + records          | `docs/reference/ios-engine-optimization.md`                                         |
+| iOS app map + clone flow              | `docs/reference/ios-app-guide.md`                                                   |
 | MCP pilot state                       | `docs/reference/computer-use-mcp-pilot-log.md`                                      |
-
 

@@ -1079,13 +1079,13 @@ struct IOSVoiceCloningView: View {
     @Binding var selectedTab: IOSAppTab
     @Binding var draft: VoiceCloningDraft
     @Binding var pendingSavedVoiceHandoff: PendingVoiceCloningHandoff?
+    @Binding var isReferenceRecorderPresented: Bool
+    @Binding var pendingRecordedReferenceURL: URL?
 
     @State private var transcriptLoadError: String?
     @State private var hydratedSavedVoiceID: String?
-    @State private var isImporterPresented = false
     @State private var isTranscriptExpanded = false
     @State private var isScriptFocused = false
-    @State private var isRecorderPresented = false
 
     // Generation lifecycle moved to AppModel.cloneCoordinator (Phase 3b).
     private var coordinator: StudioGenerationCoordinator { appModel.cloneCoordinator }
@@ -1115,7 +1115,7 @@ struct IOSVoiceCloningView: View {
 
     private var referenceChipLabel: String {
         if let voice = selectedVoice { return voice.name }
-        if draft.referenceAudioPath != nil { return "Imported clip" }
+        if draft.referenceAudioPath != nil { return "Recorded clip" }
         return "Choose reference"
     }
 
@@ -1213,7 +1213,7 @@ struct IOSVoiceCloningView: View {
             return "Install \(cloneModel.name) in Settings."
         }
         if draft.referenceAudioPath == nil {
-            return "Choose a saved voice or import a recording. Imported clips are session-only. Tap Save to Saved Voices to keep one for next time."
+            return "Choose a saved voice or record a reference clip on this iPhone."
         }
         if let cloneContextStatus {
             switch cloneContextStatus {
@@ -1287,25 +1287,10 @@ struct IOSVoiceCloningView: View {
                 guard isActive else { return }
                 syncSavedVoiceSelectionState()
             }
-            .fileImporter(
-                isPresented: $isImporterPresented,
-                allowedContentTypes: [.audio, .wav, .mp3, .aiff, .mpeg4Audio]
-            ) { result in
-                switch result {
-                case .success(let url):
-                    applyImportedReferenceAudio(from: url)
-                case .failure(let error):
-                    coordinator.fail(error.localizedDescription)
-                }
-            }
-            .fullScreenCover(isPresented: $isRecorderPresented) {
-                IOSRecordingOverlay(
-                    onComplete: { url in
-                        isRecorderPresented = false
-                        applyRecordedReferenceAudio(at: url)
-                    },
-                    onCancel: { isRecorderPresented = false }
-                )
+            .onChange(of: pendingRecordedReferenceURL) { _, url in
+                guard let url else { return }
+                applyRecordedReferenceAudio(at: url)
+                pendingRecordedReferenceURL = nil
             }
     }
 
@@ -1412,13 +1397,14 @@ struct IOSVoiceCloningView: View {
                             dismiss()
                         }
                     ),
-                    onImportFromFiles: {
+                    onRequestRecord: {
                         dismiss()
-                        isImporterPresented = true
-                    },
-                    onRecorded: { url in
-                        applyRecordedReferenceAudio(at: url)
-                        dismiss()
+                        Task { @MainActor in
+                            // Present after the bottom panel + focus backdrop finish
+                            // dismissing — same-runloop presentation often drops the cover.
+                            try? await Task.sleep(for: .milliseconds(350))
+                            isReferenceRecorderPresented = true
+                        }
                     },
                     onDismiss: dismiss,
                     presentation: .edgeToEdge(
@@ -1718,33 +1704,6 @@ struct IOSVoiceCloningView: View {
             }
         case .clearStaleSelection:
             clearReference()
-        }
-    }
-
-    private func applyImportedReferenceAudio(from url: URL) {
-        // The `url` argument must originate from a `fileImporter` callback
-        // or another platform picker that hands out a security-scoped URL.
-        // `LocalDocumentIO.importReferenceAudio` wraps the read with
-        // `startAccessingSecurityScopedResource()` / `stopAccessing…`, so
-        // the scope must travel with the URL through the engine indirection
-        // (`ttsEngine.importReferenceAudio(from: url)` passes the URL by
-        // value, preserving its scope context). Do NOT reconstruct the URL
-        // from a `path` String before calling this — the rebuilt URL has
-        // no scope and the import will fail on iCloud / third-party
-        // providers.
-        do {
-            let imported = try ttsEngine.importReferenceAudio(from: url)
-            draft.referenceAudioPath = imported.materializedPath
-            draft.selectedSavedVoiceID = nil
-            transcriptLoadError = nil
-            hydratedSavedVoiceID = nil
-            coordinator.errorMessage = nil
-            if let transcriptSidecarURL = imported.transcriptSidecarURL,
-               let transcript = try? String(contentsOf: transcriptSidecarURL, encoding: .utf8) {
-                draft.referenceTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-        } catch {
-            coordinator.fail("Couldn't import the reference audio: \(error.localizedDescription)")
         }
     }
 }

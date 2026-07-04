@@ -1087,17 +1087,13 @@ struct IOSVoicePickerOption: Identifiable, Equatable {
 
 // MARK: - Reference clip picker
 
-/// Three sources for a clone reference clip: saved voices, an imported
-/// clip from Files, or a freshly recorded clip via IOSRecordingOverlay.
+/// Sources for a clone reference clip: record on-device or pick a saved voice.
 struct IOSReferenceClipSheet: View {
     let savedVoices: [IOSVoicePickerOption]
     @Binding var selectedSavedVoiceID: String?
-    var onImportFromFiles: () -> Void
-    var onRecorded: (URL) -> Void
+    var onRequestRecord: () -> Void
     var onDismiss: (() -> Void)?
     var presentation: IOSBottomSheetPresentationStyle = .system
-
-    @State private var isPresentingRecorder: Bool = false
 
     var body: some View {
         IOSBottomSheetSurface(
@@ -1130,34 +1126,15 @@ struct IOSReferenceClipSheet: View {
                 .padding(.bottom, 24)
             }
         }
-        .fullScreenCover(isPresented: $isPresentingRecorder) {
-            IOSRecordingOverlay(
-                onComplete: { url in
-                    isPresentingRecorder = false
-                    onRecorded(url)
-                },
-                onCancel: {
-                    isPresentingRecorder = false
-                }
-            )
-        }
     }
 
     private var sourcePicker: some View {
-        VStack(spacing: 10) {
-            sourceRow(
-                symbol: "mic.fill",
-                title: "Record new clip",
-                detail: "Capture a 10-20 second sample on this iPhone.",
-                action: { isPresentingRecorder = true }
-            )
-            sourceRow(
-                symbol: "doc.fill",
-                title: "Import from Files",
-                detail: "Pick a WAV, M4A, or MP3 file you own.",
-                action: onImportFromFiles
-            )
-        }
+        sourceRow(
+            symbol: "mic.fill",
+            title: "Record new clip",
+            detail: "Capture a 10-20 second sample on this iPhone.",
+            action: onRequestRecord
+        )
     }
 
     private func sourceRow(

@@ -15,6 +15,9 @@ struct IOSRecordingOverlay: View {
     var onCancel: () -> Void
 
     @StateObject private var recorder = ReferenceClipRecorder()
+    /// When true, the clip was handed to `onComplete` — skip `stopWithoutSaving` on
+    /// `.onDisappear` so the temp WAV survives until the caller stashes/imports it.
+    @State private var didHandOffClip = false
 
     @Environment(\.iosReduceMotionEnabled) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -49,6 +52,7 @@ struct IOSRecordingOverlay: View {
             }
         }
         .onDisappear {
+            guard !didHandOffClip else { return }
             recorder.stopWithoutSaving()
         }
         .alert("Microphone access denied", isPresented: $recorder.showsPermissionAlert) {
@@ -63,6 +67,11 @@ struct IOSRecordingOverlay: View {
         } message: {
             Text("Vocello needs the microphone to record reference clips. Enable it in Settings to continue.")
         }
+    }
+
+    private func handOffClip(at url: URL) {
+        didHandOffClip = true
+        onComplete(url)
     }
 
     // MARK: - Top bar
@@ -186,7 +195,7 @@ struct IOSRecordingOverlay: View {
                     isEnabled: true,
                     action: {
                         if let url = recorder.stopAndSave() {
-                            onComplete(url)
+                            handOffClip(at: url)
                         }
                     }
                 )
@@ -214,7 +223,7 @@ struct IOSRecordingOverlay: View {
                     isEnabled: canUse,
                     action: {
                         if let url = recorder.lastSavedURL {
-                            onComplete(url)
+                            handOffClip(at: url)
                         }
                     }
                 )

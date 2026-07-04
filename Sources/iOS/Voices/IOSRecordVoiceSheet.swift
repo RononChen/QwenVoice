@@ -38,7 +38,7 @@ struct IOSRecordVoiceSheet: View {
                         // The recorder deletes its temp WAV on `.onDisappear` (stopWithoutSaving),
                         // which fires the moment we switch to `.naming`. Copy it out FIRST so the
                         // file still exists when the user taps Save.
-                        let stable = stashRecording(url) ?? url
+                        let stable = ReferenceClipRecordingStash.copyToStableTemp(url) ?? url
                         capturedURL = stable
                         suggestedName = ""
                         transcript = ""
@@ -152,22 +152,6 @@ struct IOSRecordVoiceSheet: View {
             }
         } catch {
             enrollError = error.localizedDescription
-        }
-    }
-
-    /// Copy the just-finished recording into our own temp dir so the recorder's `.onDisappear`
-    /// cleanup can't delete it before enrollment. Returns the stable copy (or nil on failure →
-    /// caller falls back to the original URL).
-    private func stashRecording(_ url: URL) -> URL? {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("voice-enroll", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let dest = dir.appendingPathComponent("\(UUID().uuidString).wav", isDirectory: false)
-        do {
-            try FileManager.default.copyItem(at: url, to: dest)
-            return dest
-        } catch {
-            return nil
         }
     }
 

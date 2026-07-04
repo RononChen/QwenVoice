@@ -70,6 +70,7 @@ private enum IOSProactivePrefetchPolicy {
 }
 
 struct IOSGenerateContainerView: View {
+    @Environment(AppModel.self) private var appModel
     @EnvironmentObject private var audioPlayer: AudioPlayerViewModel
     @EnvironmentObject private var ttsEngine: TTSEngineStore
     @EnvironmentObject private var modelManager: ModelManagerViewModel
@@ -82,6 +83,11 @@ struct IOSGenerateContainerView: View {
     @Binding var voiceDesignDraft: VoiceDesignDraft
     @Binding var voiceCloningDraft: VoiceCloningDraft
     @Binding var pendingVoiceCloningHandoff: PendingVoiceCloningHandoff?
+
+    /// Hoisted above the bottom-panel overlay so Clone reference recording
+    /// doesn't race `AppModel.dismissBottomPanel()` presentation.
+    @State private var isCloneReferenceRecorderPresented = false
+    @State private var pendingCloneReferenceRecordingURL: URL?
 
     private var hasAnyInstalledModel: Bool {
         modelManager.statuses.values.contains { status in
@@ -131,7 +137,9 @@ struct IOSGenerateContainerView: View {
                         isActive: selectedSection == .clone,
                         selectedTab: $selectedTab,
                         draft: $voiceCloningDraft,
-                        pendingSavedVoiceHandoff: $pendingVoiceCloningHandoff
+                        pendingSavedVoiceHandoff: $pendingVoiceCloningHandoff,
+                        isReferenceRecorderPresented: $isCloneReferenceRecorderPresented,
+                        pendingRecordedReferenceURL: $pendingCloneReferenceRecordingURL
                     )
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -149,6 +157,20 @@ struct IOSGenerateContainerView: View {
         // Leaf presence marker (see `screenPresenceMarker`): keeps `screen_generateStudio`
         // queryable without shadowing the composer/pill ids beneath it.
         .screenPresenceMarker("screen_generateStudio")
+        .fullScreenCover(isPresented: $isCloneReferenceRecorderPresented) {
+            IOSRecordingOverlay(
+                onComplete: { url in
+                    guard let stable = ReferenceClipRecordingStash.copyToStableTemp(url) else {
+                        appModel.cloneCoordinator.fail("Couldn't save the reference recording.")
+                        isCloneReferenceRecorderPresented = false
+                        return
+                    }
+                    pendingCloneReferenceRecordingURL = stable
+                    isCloneReferenceRecorderPresented = false
+                },
+                onCancel: { isCloneReferenceRecorderPresented = false }
+            )
+        }
     }
 }
 
