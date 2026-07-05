@@ -1322,23 +1322,25 @@ Agents **must** follow these on every mirroir-driven iOS session. See also
 | **Stay on Studio for Custom params** | Voice / delivery / language / script / **Generate** change **only via chip row** on Studio → Custom. |
 | **Voices tab scope** | **Voices** only when **Studio tab is flaky** or cold-starting from Voices. **Never** between consecutive Custom generates. |
 | **Post-generate reset** | Next clip: **X → Dismiss confirm → stay on Studio**. Tap **X** as soon as it appears in OCR after generate completes — **X may drop out of OCR** if you change chips first while the old player is still showing. |
-| **Script replace** | Empty composer: `type_text` only. Non-empty: tap script line → `press_key` command+a → **delete** → `type_text`. **Avoid Cmd+A replace on iOS mirror** — can append/mangle (Jul 4). |
-| **Generate targeting** | Tap OCR label `Generate` only when visible and **y below chip row** (~584 vs ~481–536). If hidden: dismiss inline player first. |
+| **Script replace** | See [B.7 script entry protocol](#b7-multi-clip-reset-and-script-entry). **Never** `command+a` → `type_text` without **delete** on iOS mirror. |
+| **Generate targeting** | Tap OCR label `Generate` only when visible, **y below chip row**, and **`N / 150` with N > 0** (B.8). If hidden: run [B.7 dismiss poll](#b7-multi-clip-reset-and-script-entry) or reset. |
 | **Evidence optional** | `ios_device.sh shot` only when OCR fails or the user asks — not after every generate. |
 | **Auto-review** | Use `requestSmartModeApproval: true` on mirroir `tap` / `press_key` in agent smokes when Cursor blocks the call. |
 
 ### B.6 Custom Voice multi-clip state machine
 
 ```text
-IDLE (Generate visible, no inline player)
-  → tap composer → type script → tap Generate → GENERATING
+IDLE (Generate visible, no inline player; 0/150 or verified script)
+  → tap composer → type script → SCRIPT_VERIFY → tap Generate → GENERATING
 GENERATING
   → poll describe_screen until "Just now • Custom" + duration → PLAYER_INLINE
 PLAYER_INLINE
+  → DISMISS_POLL (up to 3× describe, 2 s apart, hunt X label)
   → tap X → DISMISS_CONFIRM → tap Dismiss → IDLE
+  → if no X after DISMISS_POLL → RESET (B.7)
 IDLE + change voice/delivery (stay on Studio)
   → voice chip → pick → Confirm → delivery chip → pick → Confirm → IDLE
-  → replace script → Generate → …
+  → tap composer → type script → SCRIPT_VERIFY → Generate → …
 VERIFY (optional, end of session only)
   → History tab → OCR top rows → done
 ```
@@ -1348,12 +1350,56 @@ VERIFY (optional, end of session only)
 | Transition | Why wrong |
 | --- | --- |
 | `PLAYER_INLINE → Voices tab` | Voice changes use Studio chip row, not Voices |
+| `PLAYER_INLINE → voice/delivery chip` before dismiss | **X** drops out of OCR |
 | `PLAYER_INLINE → Generate tap` without dismiss | Generate not in OCR while inline player shows |
+| `delivery Confirm → type_text` without composer tap | Text may not stick (G2) |
+| `type_text → Generate` without SCRIPT_VERIFY | Empty generate (`0/150`) |
+| `command+a → type_text` without delete on mirror | Mangles / 150/150 corruption (G2) |
+| `Custom segment tap` / `Design → Custom hop` as reset | Unreliable — use RESET (B.7) |
 | `any → tap` without prior `describe_screen` | Coordinate guess / stale state |
 | `unclear state → retry same tap` | Blind retry — re-OCR instead |
 | `GENERATING → fixed sleep 90–130 s` | Wastes time — poll every 5–8 s |
 
-**Efficiency target (3-clip smoke):** ≤15 UI actions per clip (observe + chip changes + script + generate + dismiss); zero illegal transitions.
+**Efficiency target (3-clip smoke):** ≤12 UI actions per clip; zero illegal transitions; ≤2 session resets (B.7).
+
+### B.7 Multi-clip reset and script entry
+
+#### After each generate (dismiss poll)
+
+1. Poll until `"Just now • Custom"` + duration (5–8 s interval, cap 120 s). Optional: `measure(action: "tap:Generate", until: "Just now", max_seconds: 120)`.
+2. **Within 6 s**, enter **DISMISS_POLL**: up to **3** `describe_screen` calls, **2 s** apart — hunt OCR label **`X`** only (~277, 574 when visible).
+3. If **X** found: tap **X** → tap **Dismiss** on confirm sheet → confirm **IDLE** (`Generate` in OCR, no player duration row).
+4. If **no X** after 3 polls: **RESET** (below) — do **not** change chips, Custom segment, or Design hop first.
+
+#### RESET (when dismiss poll fails or script verify fails twice)
+
+| Method | When | Command / tool |
+| --- | --- | --- |
+| **Primary (validated 2026-07-04)** | Any RESET after failed dismiss poll or script verify | `scripts/ios_device.sh launch` (~3 s; reliable on French macOS **Recopie de l'iPhone**) |
+| **Optional** | App Switcher card unambiguous | mirroir `reset_app` name=`Vocello` — **failed** on owner device (*Cannot locate 'Vocello' card*); re-test before preferring over `launch` |
+
+After RESET: `describe_screen` → confirm Studio → Custom, `0/150`, **Generate** visible.
+
+#### Script entry protocol (iOS mirror only — not macOS Peekaboo)
+
+| Composer OCR | Protocol |
+| --- | --- |
+| `0/150` (empty) | Tap composer line → `type_text` → **SCRIPT_VERIFY** (`N > 0`) |
+| Non-empty, replace | Tap script line → `command+a` → **`delete`** → `type_text` → **SCRIPT_VERIFY** |
+| SCRIPT_VERIFY fails once | Tap composer → `type_text` again → **SCRIPT_VERIFY** |
+| SCRIPT_VERIFY fails twice | **RESET** — do not loop Cmd+A |
+
+**Never:** `command+a` → `type_text` without **delete** between them.
+
+### B.8 Pre-action OCR gates (checklist)
+
+| Before action | OCR must contain |
+| --- | --- |
+| `type_text` | Composer coords from **prior** `describe_screen`; after delivery/voice Confirm, tap composer first |
+| `tap Generate` | Label `Generate`; **`N / 150` with N > 0**; no blocking inline player (or dismiss complete) |
+| `tap` voice/delivery chip | On Studio → Custom; sheet labels (`Voice`, `Delivery`) **absent** |
+| `tap` after sheet **Confirm** | Sheet closed — prior sheet title absent |
+| Recovery | **`describe_screen`** or **RESET** only — no tab detours except History at session end |
 
 ---
 
@@ -1387,3 +1433,5 @@ VERIFY (optional, end of session only)
 | 2026-07-04 | Agent | mirroir native driving: Appendix B, `.mirroir-mcp/` config, preflight script |
 | 2026-07-04 | Agent | Confirmed Generate **(173, 584)** + chip-row Y band; 3-clip Custom smoke validated on device |
 | 2026-07-04 | Agent | Appendix B.5 invariants + B.6 multi-clip state machine; agent-ui-driving rule |
+| 2026-07-04 | Agent | Appendix B.7 dismiss poll + RESET; B.8 OCR gates; script entry protocol (G1–G4) |
+| 2026-07-04 | Agent | B.7–B.8 third 3-clip validation (§10.2 pilot log); `launch` primary RESET; `reset_app` failed |

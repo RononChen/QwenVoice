@@ -134,8 +134,10 @@ Drive via **mirroir MCP** (not Peekaboo on the mirror) — **Appendix B.5–B.6*
 5. **Stay on Studio → Custom** for multi-clip smokes — change voice/delivery via chip row only.
 6. End-of-session optional: **History** tab to verify rows.
 
-**Custom generate smoke:** OCR **Generate** → `tap` → `measure` (or poll every 5–8 s) until
-*Just now* — then **X → Dismiss** before the next clip.
+**Custom generate smoke:** OCR **Generate** → verify **`N / 150` N > 0** (B.8) → `tap` → poll / `measure` until
+*Just now* → **DISMISS_POLL** for **X** (B.7) → next clip or `scripts/ios_device.sh launch` RESET.
+
+**iOS script entry (mirror):** type-only on `0/150`; replace uses cmd+a → **delete** → type — **not** macOS Peekaboo rules.
 
 **Evidence:** `scripts/ios_device.sh shot` **only** when `describe_screen` fails or the user asks.
 

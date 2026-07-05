@@ -282,4 +282,48 @@ Results: see **§10.1** below after validation rerun.
 - **Type-only** on empty composer (`0/150`) — avoid Cmd+A replace on iOS mirror (mangles text).
 - **Custom segment tap** sometimes resets to IDLE; unreliable when player persists — prefer relaunch.
 
-**Remaining friction:** **X** dismiss label is intermittent in OCR; relaunch is the reliable multi-clip reset when **X** is absent.
+**Remaining friction (G1–G4, addressed in B.7–B.8):**
+
+| Gap | Symptom | Doc fix |
+| --- | --- | --- |
+| **G1** | **X** dismiss label intermittent in OCR | B.7 DISMISS_POLL (3×) then RESET |
+| **G2** | Script mangling / type_text not sticking | B.7 script protocol; composer tap after sheets |
+| **G3** | Generate tapped at `0/150` | B.8 gate: N > 0 before Generate |
+| **G4** | Custom segment / Design hop recovery sprawl | B.7 RESET only; illegal transitions table |
+
+Remove **Custom segment tap** from recommended recovery (§10.1 workaround retired).
+
+### §10.2 Third validation (B.7–B.8)
+
+**Session:** `ios_mirroir_preflight.sh --native-only`; mirror 326×720; French macOS **Recopie de l'iPhone**; uncommitted B.7–B.8 docs; 22:13–22:16 local.
+
+| Clip | Voice / delivery | Script (abbrev) | Duration | Notes |
+| --- | --- | --- | --- | --- |
+| 1 | Aiden / NE | houseplant Wi-Fi | ~6 s | SCRIPT_VERIFY 85/150 → Generate; DISMISS_POLL **no X** → **`launch` RESET** |
+| 2 | Ryan / Happy | GPS → furniture store | ~5 s | **X + Dismiss** worked; type-only on prior 74/150 script (no Cmd+A) |
+| 3 | Ono Anna / Excited | smart fridge / salad | ~8 s | Cmd+A→delete **still mangled** 150/150 → **`launch` RESET**; Excited missed once → extra generate tap |
+
+| Metric | Clip 1 | Clip 2 | Clip 3 | Session | Target |
+| --- | --- | --- | --- | --- | --- |
+| Illegal transitions | 0 | 0 | 0 | **0** | 0 |
+| Voices tab opens | 0 | 0 | 0 | **0** | 0 |
+| Resets (`launch`) | 1 | 0 | 1 | **2** | ≤2 |
+| Empty Generate (`0/150`) | 0 | 0 | 0 | **0** | 0 |
+| UI actions (tap/type/describe, approx.) | ~11 | ~12 | ~18 | — | ≤12/clip |
+| Poll wait per generate | 8 s | 8 s | 8 s (+12 s retry) | — | <30 s idle |
+
+**History verified (top TODAY rows):** `ono_anna` 8.5 s, `ryan` 4.7 s, `aiden` 6.1 s.
+
+**B.7 outcomes:**
+
+- **DISMISS_POLL → RESET** when **X** absent (clip 1) — no Custom-segment / Voices detours.
+- **X + Dismiss** path when OCR shows **X** (clip 2) — preferred; leaves non-empty composer (acceptable before RESET or type-only if short).
+- **Script replace:** `command+a` → `delete` → `type_text` **still corrupts** on mirror (clip 3) — **RESET** after failed SCRIPT_VERIFY is correct; prefer **`0/150` type-only** between clips.
+- **`reset_app` name=`Vocello`:** failed pre-run (*Cannot locate 'Vocello' card in App Switcher unambiguously*). **`scripts/ios_device.sh launch`** (~3 s) used for all RESETs — document as **primary** on this mirror setup until `reset_app` is re-tested.
+
+**Remaining friction (post B.7–B.8):**
+
+| Issue | Mitigation |
+| --- | --- |
+| Delivery **Confirm** → Generate too fast | B.8: re-OCR after Confirm; chip must show new delivery (e.g. `EX ^`) before Generate |
+| Non-empty composer between clips without RESET | Use **RESET** or accept type-only append risk — do not Cmd+A replace on mirror |

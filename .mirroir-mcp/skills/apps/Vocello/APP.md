@@ -34,12 +34,17 @@ Four bottom tabs (always visible):
 ### Custom generate loop (agent)
 
 1. `describe_screen` → confirm `Custom`, script area, **Generate** label with coords.
-2. Tap composer → `type_text` script (≤150 chars).
-3. Dismiss keyboard if Generate obscured (`press_key` return or tap composer chrome).
-4. `tap` **Generate** coords from OCR (not NE chip).
-5. `measure` with `until: "Streaming preview"` or `"Just now"` OR poll `describe_screen` until inline player / complete card.
-6. **Immediately** if **X** appears in OCR: tap **X** → **Dismiss** → IDLE before changing chips (X may disappear if deferred).
-7. Verify in **History** tab (end of session only).
+2. Tap composer → `type_text` script (≤150 chars) → **verify `N / 150` with N > 0** (B.8).
+3. `tap` **Generate** coords from OCR (not NE chip).
+4. Poll / `measure` until `"Just now • Custom"` + duration.
+5. **DISMISS_POLL** — up to 3× `describe_screen` (2 s apart) for **X** → **Dismiss** → IDLE.
+6. If no **X**: `scripts/ios_device.sh launch` (B.7 RESET) — **never** Custom segment or Design hop. (`reset_app` failed on owner device 2026-07-04.)
+7. History tab verify once at session end.
+
+## Multi-clip reset (B.7)
+
+After each generate: dismiss poll → IDLE **or** RESET. Change voice/delivery via chips only.
+Script on empty composer: type-only + verify. Replace: cmd+a → **delete** → type → verify.
 
 ## Studio — Voice Design
 
@@ -100,18 +105,20 @@ Four bottom tabs (always visible):
 
 ## Driving invariants (mandatory)
 
-Full table: repo `docs/reference/ios-agent-ui-tour.md` Appendix **B.5**.
+Full table: repo `docs/reference/ios-agent-ui-tour.md` Appendix **B.5–B.8**.
 
 1. **O-A-V:** `describe_screen` → one action → `describe_screen`. No back-to-back taps.
 2. **OCR-only:** never tap from memory or prior-session coords.
 3. **Stay on Studio** for Custom voice/delivery/script changes — **never Voices tab between generates**.
-4. **Post-generate:** X → Dismiss confirm → IDLE on Studio before next clip.
-5. **Poll, don't sleep:** `measure` or describe_screen every 5–8 s (cap 120 s).
-6. **Generate:** OCR label only, y below chip row; dismiss inline player if hidden.
+4. **Dismiss poll:** after generate, 3× describe for **X** → Dismiss; else **`ios_device.sh launch`** (B.7 RESET).
+5. **Script verify:** `N / 150` with **N > 0** before **Generate**; empty composer = type-only.
+6. **Poll, don't sleep:** 5–8 s intervals (cap 120 s).
 
 ### Illegal transitions
 
-- `PLAYER_INLINE → Voices tab`
-- `PLAYER_INLINE → Generate` without dismiss
+- `PLAYER_INLINE → Voices tab` or chip change before dismiss
+- `PLAYER_INLINE → Generate` without dismiss / verify
+- `type_text → Generate` without `N > 0`
+- `command+a → type_text` without delete
+- `Custom segment` / `Design hop` as reset
 - `tap` without prior `describe_screen`
-- Fixed sleep >15 s while waiting for generate

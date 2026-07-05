@@ -89,8 +89,9 @@ Next (in Cursor Agent, same macOS Space as iPhone Mirroring):
   1. Restart Cursor if you just added permissions.json
   2. mirroir check_health  → must pass (Screen Recording + Accessibility for Cursor.app)
   3. mirroir describe_screen → OCR list with tap coords on Studio/Custom
-  4. Native loop: describe_screen → tap / type_text / measure (see ios-agent-ui-tour.md Appendix B)
-  5. If describe_screen fails: Allow Screen Recording prompt, same Space as mirror, ios_device.sh mirror
+  4. Native loop: describe_screen → tap / type_text / measure (see ios-agent-ui-tour.md Appendix B.5–B.8)
+  5. Multi-clip: B.7 dismiss poll → RESET if no X; B.8 gates before Generate
+  6. If describe_screen fails: Allow Screen Recording prompt, same Space as mirror, ios_device.sh mirror
 
 EOF
 
