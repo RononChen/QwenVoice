@@ -1226,7 +1226,7 @@ Gates are unchanged regardless of exploratory driver.
 ### B.1 Preflight (every session)
 
 ```bash
-scripts/ios_mirroir_preflight.sh           # device-state, mirror, vision-bridge calibrate
+scripts/ios_mirroir_preflight.sh --native-only   # skip vision-bridge when native OCR works
 scripts/install_mirroir_user_config.sh --merge-settings   # once per machine (permissions + OCR)
 ```
 
@@ -1281,7 +1281,7 @@ Ono Anna/Excited (14 s) — all via native `describe_screen` → `tap`/`type_tex
 - Use **only** when the **Studio** bottom tab is flaky or you are cold-starting from **Voices**.
 - **Voices → Studio Custom:** tap built-in speaker **row body** (e.g. Aiden), not ▶.
 - **Voices → Studio Clone:** tap saved voice **row body**, not ▶.
-- **Never** open **Voices** between consecutive Custom generates to change voice — use the Studio chip row (§B.5).
+- **Never** open **Voices** between consecutive Custom generates to change voice — use the Studio chip row ([B.5–B.8](#b5-driving-invariants-mandatory)).
 
 **Post-generate:** inline player card — tap body for full-screen player (§9.4); dismiss ✕ → **Dismiss** to regenerate (§B.6).
 

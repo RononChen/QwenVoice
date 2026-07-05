@@ -1,8 +1,14 @@
 # mobile-mcp iOS evaluation — Vocello
 
+> **Status (Jul 2026): DEFERRED.** WDA signing is blocked on the owner device. **Current
+> exploratory iOS driver:** mirroir native — validated in
+> [`computer-use-mcp-pilot-log.md`](computer-use-mcp-pilot-log.md) §10.2; procedures in
+> [`ios-agent-ui-tour.md`](ios-agent-ui-tour.md) Appendix B.5–B.8 and
+> [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md). Keep this doc for future WDA rollout.
+
 Research and rollout guide for [mobile-next/mobile-mcp](https://github.com/mobile-next/mobile-mcp)
-as the **primary agent-facing iOS driver** on a paired physical iPhone. Replaces mirroir +
-Peekaboo mirror-coordinate driving for agent UI work while keeping
+as a **future agent-facing iOS driver** on a paired physical iPhone. Would replace brittle
+mirror-coordinate driving; **mirroir native is validated today.** Keep
 [`scripts/ios_device.sh`](../../scripts/ios_device.sh) as build/install/pull/gate authority.
 
 Related: [on-device-ui-testing-research-report.md](on-device-ui-testing-research-report.md),
@@ -13,12 +19,12 @@ Related: [on-device-ui-testing-research-report.md](on-device-ui-testing-research
 
 ## Executive summary
 
-| Lane | Driver | Recommendation |
+| Lane | Driver | Recommendation (Jul 2026) |
 | --- | --- | --- |
 | Pre-merge gates (near term) | XCUITest `test` / `gate` | **Keep** |
-| UI bench matrix (XCUITest) | `bench-ui` | **Keep as fallback** |
-| Agent UI bench matrix | **mobile-mcp** (`bench-ui-mcp`) | **Adopt** (replaces `bench-ui-vision`) |
-| Exploratory Studio tours | **mobile-mcp** | **Adopt** |
+| UI bench matrix | XCUITest `bench-ui` | **Keep** |
+| Exploratory Studio tours | **mirroir native** | **Active** — see ios-agent-ui-tour Appendix B |
+| Agent UI bench matrix (future) | **mobile-mcp** (`bench-ui-mcp`) | **Deferred** (WDA signing) |
 | Engine / RTF proof | headless `bench` autorun | **Unchanged** |
 | Mirror observation | `ios_device.sh shot` | **Keep** (no taps) |
 | macOS exploratory | Peekaboo | **Unchanged** |
@@ -176,6 +182,6 @@ Compares per-cell RTF, audioQC, and row counts from pulled `generations.jsonl`. 
 
 | Date | Decision |
 | --- | --- |
-| 2026-07 | Adopt mobile-mcp as primary **agent** iOS driver; keep XCUITest gates near term |
-| 2026-07 | Deprecate mirroir+Peekaboo **UI driving**; mirror stays observation-only |
-| 2025-06 | Research report chose Appium path — superseded by packaged mobile-mcp pilot |
+| 2026-07 | **mirroir native** validated for exploratory smokes (pilot log §10.2); mobile-mcp **deferred** |
+| 2026-07 | mobile-mcp bench-ui-mcp planned when WDA signing unblocks |
+| 2025-06 | Research report chose Appium path — superseded by packaged mobile-mcp evaluation doc |

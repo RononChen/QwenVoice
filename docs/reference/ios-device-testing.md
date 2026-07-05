@@ -715,12 +715,12 @@ they do not replace XCUITest or drive regression matrices.
 | | `scripts/ios_device.sh models check --strict` | Before gate / `bench-ui` | Headless inventory pull; phone locked OK |
 | **Run gate** | `scripts/ios_device.sh gate` | Pre-merge | ~7–12 min; unlock once for step 2 |
 | **Run UI bench** | `scripts/ios_device.sh bench-ui --label "why"` | Engine/UI matrix (XCUITest) | ~20 min; clone voice on phone |
-| **Run agent UI bench** | `scripts/ios_device.sh bench-ui-mcp --agent-drive …` | Full matrix via **mobile-mcp** (WDA) | Playbook F; same gate as `bench-ui` |
+| **Run agent UI bench** | `scripts/ios_device.sh bench-ui-mcp --agent-drive …` | Full matrix via **mobile-mcp** (WDA) | Playbook F — **deferred**; use Playbook B (`bench-ui`) |
 | **Run vision UI bench (deprecated)** | `scripts/ios_device.sh bench-ui-vision --agent-drive …` | Legacy mirroir + Peekaboo | Playbook E — emergency only |
 | **Run headless bench** | `scripts/ios_device.sh bench "custom:speed:…"` | RTF/audioQC without XCUITest | Phone **locked OK**; unattended engine proof |
 | **Observe** | `scripts/ios_device.sh shot` | During long runs | Mac-side Mirroring capture — no agent taps |
 | | `mirroir` `describe_screen` | Exploratory QA / smokes | Primary agent driver (Jul 2026) |
-| | `mobile-mcp` `mobile_list_elements_on_screen` | Exploratory QA / bench-ui-mcp | WDA tree on real device |
+| | `mobile-mcp` `mobile_list_elements_on_screen` | Exploratory QA / bench-ui-mcp | **Deferred** — WDA signing blocked |
 | **Triage fail** | `axiom_get_agent` → `test-runner` | `test` / `bench-ui` xcresult | Artifact: `build/ios/Logs/Test/*.xcresult` |
 | | Read `build/ios/bench-ui-<runID>/bench-ui.log` | Stuck generate / manifest | Look for `iosStudio_generationError`, `VOCELLO-BENCH-UI-MANIFEST` |
 | | `python3 scripts/check_ios_ui_bench.py …` | Re-gate pulled telemetry | Invoked by `bench-ui`; re-run manually after fixes |
@@ -734,10 +734,16 @@ they do not replace XCUITest or drive regression matrices.
 - XcodeBuildMCP `*_sim`, `tap` / `snapshot_ui` on simulator
 - Axiom `xcui` / `simulator-tester`
 - mirroir / peekaboo **UI taps** during **XCUITest** `bench-ui`, **mobile-mcp** / WDA sessions, or `gate`
-- mobile-mcp / WDA during concurrent XCUITest attach (use `scripts/ios_mobile_mcp.sh lock`)
 
-**Allowed:** mobile-mcp for **`bench-ui-mcp --agent-drive`** and exploratory Studio tours (Playbook F).
-One automation owner per device session. mirroir/peekaboo for **observation** and macOS Peekaboo only.
+**Allowed (exploratory only, not during gates):**
+
+- **mirroir** native `describe_screen` → `tap` / `type_text` for Studio smokes — see Playbook D + [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md)
+- **Peekaboo** on macOS Vocello only
+- **Observation:** `ios_device.sh shot` anytime (no taps)
+
+**Deferred:** mobile-mcp **`bench-ui-mcp --agent-drive`** and Playbook F — WDA signing blocked; use XCUITest `bench-ui` for matrix.
+
+One automation owner per device session — do not mix XCUITest attach with agent taps.
 
 ### Playbook A — Pre-merge smoke (fast)
 
@@ -779,7 +785,7 @@ scripts/ios_device.sh bench --sim-device iphone15pro "clone:speed:…"  # memory
 
 ### Playbook E — Vision bench-ui matrix (DEPRECATED)
 
-> **Deprecated 2026-07** — use Playbook F (`bench-ui-mcp` + mobile-mcp). Kept for emergency fallback.
+> **Deprecated 2026-07** — use Playbook B (`bench-ui` XCUITest) for matrix; mirroir native for exploratory smokes. Emergency fallback only.
 
 Full UI matrix with mirroir + Peekaboo mirror coordinates (brittle). Same telemetry gate as XCUITest `bench-ui`.
 
@@ -789,9 +795,10 @@ scripts/ios_device.sh bench-ui-vision --agent-drive --warm 1 --lengths medium --
 
 See legacy steps in [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md) § vision bench-ui.
 
-### Playbook F — mobile-mcp exploratory + bench-ui-mcp
+### Playbook F — mobile-mcp exploratory + bench-ui-mcp (DEFERRED)
 
-Primary agent iOS driver: WDA accessibility tree on paired iPhone (never Simulator for MLX).
+> **Deferred 2026-07** — WDA signing blocked. Current exploratory driver: **mirroir** (Playbook D).
+> Full matrix: Playbook B (`bench-ui`). Re-enable when [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md) spike passes.
 
 ```sh
 scripts/ios_mobile_mcp.sh preflight

@@ -11,8 +11,10 @@ touching `Sources/iOS/`. All iOS UI tests and real-engine work run **on-device o
 > device lanes (`scripts/ios_device.sh`) in [`ios-device-testing.md`](ios-device-testing.md);
 > generation-engine internals in [`../ARCHITECTURE.md`](../ARCHITECTURE.md);
 > tone/delivery prompt-writing in [`../qwen_tone.md`](../qwen_tone.md).
-> For **mirroir / Peekaboo agent driving** (OCR + mirror coords), see the living
-> [`ios-agent-ui-tour.md`](ios-agent-ui-tour.md).
+> For **mirroir agent driving** (exploratory QA only — not gates), start with
+> [`ios-agent-ui-tour.md`](ios-agent-ui-tour.md) Appendix **B.5–B.8** and
+> [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md) § iOS procedure index.
+> This guide covers **XCUITest** identifiers and human-like test flows.
 
 ---
 
