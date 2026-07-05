@@ -247,6 +247,67 @@ Stateful Appium needs persistent server or [mcpkit](https://github.com/balakumar
 
 ---
 
+## Rule companion (`.cursor/rules/mcp-routing.mdc`)
+
+Expanded routing detail moved here from the always-applied rule to save tokens.
+
+### XcodeBuildMCP session discipline
+
+Read the **`xcodebuildmcp`** skill (`SKILL.md`) before first use. Enabled workflows (see
+[`.xcodebuildmcp/config.yaml`](../../.xcodebuildmcp/config.yaml)): `macos`, `device`,
+`debugging`, `project-discovery`. Reload MCP after editing that file.
+
+1. Call `session_show_defaults` before the first build/run/test in a session.
+2. Switch profiles with `session_use_defaults_profile`: `macos` (`QwenVoice`),
+   `ios-device` (set `deviceId` via `session_set_defaults`).
+3. Use `discover_projs` only when defaults are missing or wrong — never speculatively.
+
+**Vocello routing:** macOS — `./scripts/build.sh` primary; MCP `build_run_macos` / `test_macos`
+OK for quick checks. iOS — `scripts/ios_device.sh` for all UI tests and real-engine work;
+MCP `device` tools optional (profile `ios-device`). Post-run triage:
+[`ios-device-testing.md` § Agent + MCP workflow](ios-device-testing.md#agent--mcp-workflow).
+
+### Axiom MCP (`user-axiom`)
+
+Config key **`axiom`** in `~/.cursor/mcp.json`; invoke as **`user-axiom`** in `CallMcpTool`.
+
+**Discovery:** `axiom_get_catalog` → `axiom_read_skill` (prefer `sections` filter) →
+`axiom_get_agent` for auditors.
+
+**Auditors:** `concurrency-auditor`, `memory-auditor`, `swiftui-architecture-auditor`,
+`security-privacy-scanner`, `accessibility-auditor`, `screenshot-validator`, `crash-analyzer`,
+`build-fixer`, `test-runner`, `performance-profiler`.
+
+**Artifact analysis:**
+
+| Need | MCP tool |
+| --- | --- |
+| Crash symbolication | `axiom_xcsym_crash`, `axiom_xcsym_triage` |
+| Profile analysis | `axiom_xcprof_analyze`, `axiom_xcprof_compare` |
+| Console logs | `axiom_xclog_attach`, `axiom_xclog_show` |
+
+Do **not** drive iOS UI through Axiom `xcui` / `simulator-tester`.
+
+### Context7, browser, Hugging Face
+
+- **Context7:** GRDB, SwiftHuggingFace, React/Vite — `resolve-library-id` → `query-docs`. Not for refactoring or business logic.
+- **Website:** read `website/PRODUCT.md` + `website/DESIGN.md`; `chrome-devtools` or `cursor-ide-browser`; run `npm --prefix website run dev|preview` first.
+- **Hugging Face skills:** hub search + `hf` CLI for downloads.
+
+### UI review baselines
+
+After `macos_test.sh review` or `ios_device.sh review`, compare vs `docs/*-review-baselines/`
+using `axiom_get_agent` agent=`screenshot-validator` or manual visual pass.
+
+### Retired / off-limits
+
+- Agent/computer-use **shell** driving (`uitest.sh`, mirror coordinate hacks) — gone
+- **Peekaboo** + **mirroir** — exploratory QA only; gates unchanged
+- **Axiom Cursor plugin**, **`plugin-xcodebuildmcp-sentry`** — removed
+- iOS Simulator — off-limits ([`AGENTS.md`](../../AGENTS.md) Hard rules)
+
+---
+
 ## Tier A — macOS desktop MCPs (survey)
 
 | Project | Notes |
@@ -277,11 +338,7 @@ Mirror driving is **exploratory only** — brittle vs WDA/XCUITest ([research §
 
 ## Tier C — iPhone via WDA (mobile-mcp / Appium)
 
-**Preferred (2026-07):** [**mobile-mcp**](https://github.com/mobile-next/mobile-mcp) (`@mobilenext/mobile-mcp`) — packaged WDA + MCP tools (`mobile_list_elements_on_screen`, taps, typing). Real device only for Vocello MLX. Setup: [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md), preflight `scripts/ios_mobile_mcp.sh`.
-
-**Fallback:** Official **`appium/appium-mcp`**: heavier session ceremony; same WDA + `accessibilityIdentifier` surface if mobile-mcp spike fails.
-
-Mirror driving (Tier B) is **observation only** — do not extend for agent bench matrix.
+**Deferred (WDA signing):** [**mobile-mcp**](https://github.com/mobile-next/mobile-mcp) — packaged WDA + MCP tools. Real device only for Vocello MLX. Setup: [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md). **Current exploratory driver:** mirroir (Tier B).
 
 ---
 
@@ -317,8 +374,8 @@ Mirror driving (Tier B) is **observation only** — do not extend for agent benc
 | Capability | CC embedded | Cursor pilot |
 | --- | --- | --- |
 | Vision macOS loop | Built-in | Peekaboo |
-| iPhone UI drive (real device) | CC + Fable | **mobile-mcp** (WDA) |
-| iOS AX tree | No (mirror) | **mobile-mcp** / Appium WDA |
+| iPhone UI drive (real device) | CC + Fable | **mirroir** (exploratory) · **mobile-mcp** deferred |
+| iOS AX tree | No (mirror) | **mobile-mcp** / Appium WDA when unblocked |
 | Measurement shell | Deleted `uitest.sh` | **Restored** — `scripts/uitest_measure.sh` (2026-07-01) |
 | Zero setup | Yes | User `mcp.json` + TCC |
 

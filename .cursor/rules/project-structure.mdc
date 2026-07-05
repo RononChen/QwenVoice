@@ -28,8 +28,8 @@ When a doc disagrees with the code, the code wins. These invariants must hold fo
   release notes). Technical bundle IDs like `com.patricedery.vocello` are fine.
 - **The build is the typecheck.** No formatter/linter — follow existing Swift style, keep
   changes minimal, and preserve module boundaries.
-- **Commits:** Conventional Commits. Commit + push to `main` once a phase is complete and
-  verified (gates green); do not commit secrets or `.env`-style files.
+- **Commits:** Conventional Commits. Commit when the user asks or when project policy
+  explicitly requests it; verify gates green first. Do not commit secrets or `.env`-style files.
 - **macOS real-engine test fixtures:** `scripts/lib/test_models.sh` + `macos_test.sh models ensure`
   (details in [`.cursor/rules/testing.mdc`](mdc:.cursor/rules/testing.mdc) and the testing runbook).
 

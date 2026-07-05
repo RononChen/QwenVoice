@@ -3,130 +3,39 @@ description: Cursor MCP servers, plugins, and tool routing for Vocello (QwenVoic
 alwaysApply: true
 ---
 
-# MCP and plugin routing
+# MCP routing (summary)
 
-Development is **100% in Cursor**. Prefer **checked-in `scripts/*.sh`** for build/run/test
-(the deterministic local loop). Use MCPs to augment — not replace — those scripts.
+Development is **100% in Cursor**. **Scripts first** — MCPs augment, never replace gates.
 
-## Enabled MCP servers (current)
-
-| Server ID | Name | Use for |
-| --- | --- | --- |
-| `user-xcodebuildmcp` | xcodebuildmcp | Apple platform build/test/run via MCP tools (see scope below) |
-| `user-context7` | context7 | Library/SDK/CLI docs (`resolve-library-id` → `query-docs`) |
-| `plugin-chrome-devtools-mcp-chrome-devtools` | chrome-devtools | Website verification (`navigate_page`, `take_snapshot`, `take_screenshot`, …) |
-| `cursor-ide-browser` | cursor-ide-browser | In-IDE browser tab (`browser_navigate`, `browser_snapshot`, …) |
-| `plugin-huggingface-skills-huggingface-skills` | huggingface-skills | Hub model/dataset/paper lookup (`hub_repo_search`, `hub_repo_details`, …) |
-| `cursor-app-control` | cursor-app-control | Cursor IDE control (`open_resource`, `move_agent_to_root`, `rename_chat`, …) |
-| `peekaboo` | peekaboo | **User-global** macOS desktop automation (`see`, `image`, `click`, `type`, `hotkey`, …) — exploratory QA only |
-| `mirroir` | mirroir | **User-global** iPhone Mirroring (`describe_screen`, `tap`, `type_text`, `measure`, …). Requires [`.mirroir-mcp/permissions.json`](mdc:.mirroir-mcp/permissions.json) or `scripts/install_mirroir_user_config.sh` — defaults fail-closed (~11 read-only tools). French macOS: `~/.mirroir-mcp/settings.json` → `mirroringProcessName: "Recopie de l'iPhone"`. Preflight: `scripts/ios_mirroir_preflight.sh`. **Driving invariants:** [agent-ui-driving.mdc](mdc:.cursor/rules/agent-ui-driving.mdc) + [ios-agent-ui-tour.md](mdc:docs/reference/ios-agent-ui-tour.md) B.5–B.6. **Exploratory QA only** — gates stay `ios_device.sh gate`. |
-| `user-axiom` | axiom | Apple-platform skills, auditors, and CLI wrappers (`axiom_read_skill`, `axiom_get_agent`, `axiom_xcsym_*`, …). Config key **`axiom`** in `~/.cursor/mcp.json`; invoke as **`user-axiom`** in `CallMcpTool`. Launch: `npx -y axiom-mcp` ([install docs](https://charleswiltgen.github.io/Axiom/start/mcp-install)). |
+Invoke MCP tools with **`CallMcpTool`** (read each tool's JSON descriptor first). Use **Shell** for terminal commands.
 
 Configured in **`~/.cursor/mcp.json`** (not committed). Peekaboo and mirroir launch via
-`$HOME/.cursor/bin/mcp_stdio_wrapper.sh` (Cursor spawn env fix). Setup:
-[`docs/reference/computer-use-mcp-alternatives-cursor.md`](mdc:docs/reference/computer-use-mcp-alternatives-cursor.md),
-[`docs/reference/ios-agent-ui-tour.md`](mdc:docs/reference/ios-agent-ui-tour.md).
+`$HOME/.cursor/bin/mcp_stdio_wrapper.sh`.
 
-Invoke MCP tools with **`CallMcpTool`** (read each tool's JSON descriptor under the MCP
-filesystem first). Use the **Shell** tool for terminal commands — not a separate Bash tool.
+## Server quick-ref
 
-## XcodeBuildMCP (`user-xcodebuildmcp`)
-
-Read the **`xcodebuildmcp`** skill (`SKILL.md`) before first use.
-
-**Enabled workflows** (see repo [`.xcodebuildmcp/config.yaml`](mdc:.xcodebuildmcp/config.yaml)):
-`macos`, `device`, `debugging`, `project-discovery`.
-Reload the MCP server after editing that file (Cursor → Settings → MCP → xcodebuildmcp → Restart).
-
-Tools include `session_show_defaults`, `session_use_defaults_profile`, `build_macos`,
-`build_run_macos`, `test_macos`, `test_device`, `list_devices`, etc.
-
-**Session discipline (required):**
-
-1. Call `session_show_defaults` before the first build/run/test in a session.
-2. Switch profiles with `session_use_defaults_profile`: `macos` (`QwenVoice`),
-   `ios-device` (set `deviceId` via `session_set_defaults`).
-3. Use `discover_projs` only when defaults are missing or wrong — never speculatively.
-
-**Vocello routing:**
-
-- **macOS app (`QwenVoice` scheme):** `./scripts/build.sh` remains primary; MCP
-  `build_run_macos` / `test_macos` are OK for quick checks (`session_use_defaults_profile: macos`).
-- **iOS (`VocelloiOS`):** prefer `scripts/ios_device.sh` on a paired iPhone for all UI tests
-  and real-engine work. MCP `device` tools are optional helpers (profile `ios-device` + runtime
-  `deviceId`). **Never** use Simulator or simulator UI tools for iOS. Post-run triage playbook:
-  [`ios-device-testing.md` § Agent + MCP workflow](mdc:docs/reference/ios-device-testing.md#agent--mcp-workflow)
-  (`test-runner` on `build/ios/Logs/Test/*.xcresult`; `check_ios_ui_bench.py` on
-  `build/ios-diagnostics/`; `axiom_xcprof_analyze` on `bench-ui --profile` traces).
-
-## Context7 (`user-context7`)
-
-For GRDB, SwiftHuggingFace, React, Vite, and any non-Apple library docs — even when you
-think you know the API. Do **not** use for refactoring, business logic, or general CS.
-
-Steps: `resolve-library-id` → pick best `/org/project` match → `query-docs` with the full
-question. User rule: [`.cursor/rules/context7.mdc`](mdc:.cursor/rules/context7.mdc) (if
-present at user level, same policy applies).
-
-## Browser verification (website)
-
-For `website/`: read `website/PRODUCT.md` + `website/DESIGN.md`, then either:
-
-- **`chrome-devtools`** MCP — full DevTools (network, performance, Lighthouse), or
-- **`cursor-ide-browser`** MCP — lightweight in-IDE tab automation.
-
-Run `npm --prefix website run dev|preview` via Shell first.
-
-## Hugging Face (`plugin-huggingface-skills-huggingface-skills`)
-
-For model revision lookup, dataset metadata, and hub search. The **`hf` CLI** and Hugging
-Face skills remain valid for downloads and local model management.
-
-## Cursor app control (`cursor-app-control`)
-
-Use sparingly: `open_resource` to reveal files/terminals/URLs in Glass, `rename_chat` for
-conversation titles, `move_agent_to_root` after worktree switches. Do **not** use for
-build/test automation.
-
-## Axiom MCP (`axiom` / `user-axiom`)
-
-Apple-platform skills, auditors, and bundled CLI wrappers via **`user-axiom`** (`CallMcpTool`).
-Config key in `~/.cursor/mcp.json` is **`axiom`** (per [Axiom MCP install](https://charleswiltgen.github.io/Axiom/start/mcp-install)).
-
-**Discovery workflow (read tool schema first):**
-
-1. `axiom_get_catalog` or `axiom_search_skills` — browse / find skills
-2. `axiom_read_skill` — load skill content (prefer `sections` filter for token efficiency)
-3. `axiom_get_agent` — fetch auditor/agent instructions, then follow in-session or via Task
-   `generalPurpose` when scope is large
-
-**Auditors:** `axiom_get_agent` with agent names such as `concurrency-auditor`,
-`memory-auditor`, `swiftui-architecture-auditor`, `security-privacy-scanner`,
-`accessibility-auditor`, `screenshot-validator`, `crash-analyzer`, `build-fixer`,
-`test-runner`, `performance-profiler`.
-
-**Artifact analysis (prefer MCP tools over raw shell):**
-
-| Need | MCP tool |
+| Server | Use for |
 | --- | --- |
-| Crash symbolication | `axiom_xcsym_crash`, `axiom_xcsym_triage` |
-| Profile analysis | `axiom_xcprof_analyze`, `axiom_xcprof_compare` |
-| Console logs | `axiom_xclog_attach`, `axiom_xclog_show` |
+| `user-xcodebuildmcp` | macOS quick build/test; `ios-device` profile helper only — **`scripts/*.sh` primary** |
+| `user-context7` | Non-Apple library docs (`resolve-library-id` → `query-docs`) |
+| `user-axiom` | Apple skills, auditors, `axiom_xcsym_*` / `axiom_xcprof_*` / `axiom_xclog_*` |
+| `mirroir` | iOS exploratory QA only → [agent-ui-driving.mdc](mdc:.cursor/rules/agent-ui-driving.mdc) |
+| `peekaboo` | macOS exploratory QA only |
+| `plugin-chrome-devtools-mcp-chrome-devtools` / `cursor-ide-browser` | `website/` verification |
+| `plugin-huggingface-skills-huggingface-skills` | Hub model/dataset lookup |
+| `cursor-app-control` | IDE control (sparingly) |
 
-**Do not** drive app UI through Axiom `xcui` / `simulator-tester` for iOS — use
-deterministic XCUITest + `scripts/ios_device.sh`.
+**mirroir setup:** `scripts/install_mirroir_user_config.sh` + Cursor restart; preflight
+`scripts/ios_mirroir_preflight.sh`. French macOS: `~/.mirroir-mcp/settings.json` →
+`mirroringProcessName: "Recopie de l'iPhone"`. Driving: [ios-agent-ui-tour.md](mdc:docs/reference/ios-agent-ui-tour.md) Appendix **B.5–B.8**.
 
-## UI review baselines (vision diff)
+## Hard routing
 
-After `scripts/macos_test.sh review` or `scripts/ios_device.sh review`, compare captures
-vs `docs/*-review-baselines/` using `axiom_get_agent` agent=`screenshot-validator` or a
-manual visual pass. The retired `zai-mcp-server` `ui_diff_check` tool is no longer available.
+- **iOS:** never Simulator / sim MCP / Axiom `xcui` — [`AGENTS.md`](mdc:AGENTS.md) Hard rules
+- **Gates:** `macos_test.sh gate` / `ios_device.sh gate` — never agent-driven screen control
+- **xcodebuildmcp:** call `session_show_defaults` before first build/run/test in a session
 
-## Retired / off-limits
+## Full inventory
 
-- Agent/computer-use **shell** driving (`uitest.sh`, mirror coordinate hacks in `ios_device.sh`) — gone; see [`testing-runbook.md`](mdc:docs/reference/testing-runbook.md).
-- **User-global exploratory MCP** (Jul 2026 pilot): **`peekaboo`** (macOS Vocello.app) and **`mirroir`** (iPhone Mirroring on paired device) in `~/.cursor/mcp.json` — **exploratory QA only**; pre-merge gates remain `macos_test.sh gate` / `ios_device.sh gate`. Do not use mirroir for CI; do not resurrect mirror clicks in shell scripts.
-- **Axiom Cursor plugin** — removed; superseded by Axiom MCP (`axiom` / `user-axiom`). Do not
-  use `/axiom:*` slash commands, plugin skill paths, or plugin `bin/` routing.
-- **`plugin-xcodebuildmcp-sentry`** — removed; use `user-xcodebuildmcp`.
-- iOS Simulator for any Vocello test or agent workflow — off-limits (Hard rules in root [`AGENTS.md`](mdc:AGENTS.md)).
+Axiom auditors, XcodeBuildMCP session discipline, retired tools, setup steps:
+[`docs/reference/computer-use-mcp-alternatives-cursor.md`](mdc:docs/reference/computer-use-mcp-alternatives-cursor.md) (Rule companion section).
