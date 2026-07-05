@@ -285,7 +285,8 @@ desktop-MCP harness is gone — see the testing runbook). Full MCP inventory and
   (macOS Vocello: `see` → click/type/hotkey) and **`mirroir`** (real iPhone via Mirroring:
   `describe_screen` → `tap`). Config in `~/.cursor/mcp.json` + `$HOME/.cursor/bin/mcp_stdio_wrapper.sh`.
   [`docs/reference/computer-use-mcp-alternatives-cursor.md`](docs/reference/computer-use-mcp-alternatives-cursor.md),
-  [`docs/reference/computer-use-mcp-pilot-log.md`](docs/reference/computer-use-mcp-pilot-log.md).
+  [`docs/reference/computer-use-mcp-pilot-log.md`](docs/reference/computer-use-mcp-pilot-log.md),
+  [`docs/reference/ios-agent-ui-tour.md`](docs/reference/ios-agent-ui-tour.md).
   Gates unchanged: `macos_test.sh gate`, `ios_device.sh gate`; `ios_device.sh shot` observation-only.
 
 ## 10. Agent roles
@@ -414,7 +415,7 @@ regenerate the project after changing them.
 - [`docs/reference/macos-app-guide.md`](docs/reference/macos-app-guide.md) — **macOS UI**: app map + how to drive it in tests.
 - [`docs/reference/macos-testing.md`](docs/reference/macos-testing.md) — **macOS lanes**: test/debug/profile/review/xpc/gate + XPC lifecycle.
 - [`docs/reference/ui-test-surface.md`](docs/reference/ui-test-surface.md) — **generated** accessibilityIdentifier catalog (regenerate: `python3 scripts/generate_ui_test_surface.py`).
-- [`docs/reference/ui-smoke-runbooks.md`](docs/reference/ui-smoke-runbooks.md) — agent-driven exploratory smoke procedures (Peekaboo/mirroir + `scripts/uitest_measure.sh`).
+- [`docs/reference/ui-smoke-runbooks.md`](docs/reference/ui-smoke-runbooks.md) — agent-driven exploratory smoke procedures (mobile-mcp iOS + `scripts/uitest_measure.sh` macOS).
 - [`docs/reference/benchmarking-procedure.md`](docs/reference/benchmarking-procedure.md) — **bench runbook**: when/how to bench, platform lanes, like-for-like rules, JSON baselines, HISTORY ledger.
 - [`docs/reference/`](docs/reference/) — per-subsystem reading list:
   - `mlx-guide.md`, `qwen3-tts-guide.md`, `mimi-codec-guide.md`, `metal-guide.md`

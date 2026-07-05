@@ -28,7 +28,13 @@
 #   scripts/ios_device.sh bench [spec] [--label "note"]
 #   scripts/ios_device.sh bench-ui [--modes m,..] [--lengths l,..] [--warm N] [--label "note"] [--profile]
 #                                                 # full-matrix UI-DRIVEN bench (XCUITest)
-#                                                 # build→install→autorun→pull→summarize
+#   scripts/ios_device.sh bench-ui-mcp --agent-drive [--modes …] [--warm N] …
+#                                                 # agent bench via mobile-mcp + WDA (preferred)
+#   scripts/ios_device.sh bench-ui-vision --agent-drive [--modes …] …
+#                                                 # DEPRECATED: mirroir + Peekaboo mirror coords
+#   scripts/ios_device.sh vision-launch --run-id ID [--force-cold 0|1]
+#   scripts/ios_device.sh vision-now              # UTC timestamp for vision-bench-wait --since
+#   scripts/ios_device.sh vision-bench-wait --run-id ID --since TS [--timeout N]
 #   scripts/ios_device.sh ui-test [--all|--cold|--download] [only]
 #                                                 # device-safe UI tests (default: Smoke+Sheet+ColdGeneration; needs all Speed models)
 #   scripts/ios_device.sh crashes [--test]         # pull + symbolicate on-device crash/hang diagnostics (MetricKit)
@@ -83,6 +89,7 @@ PROFILES_DIR="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
 . "$ROOT_DIR/scripts/lib/xcresult_shots.sh"
 . "$ROOT_DIR/scripts/lib/ios_device_state.sh"
 . "$ROOT_DIR/scripts/lib/ios_test_models.sh"
+. "$ROOT_DIR/scripts/lib/ios_agent_bench_drive.sh"
 
 note() { printf '\033[0;36m==>\033[0m %s\n' "$*" >&2; }
 warn() { printf '\033[0;33m[warn]\033[0m %s\n' "$*" >&2; }
@@ -703,7 +710,7 @@ EOF
   done
 
   note "bench-ui step 0: device-state"
-  cmd_device_state || die "device-state not ready for bench-ui (see advice above)"
+  guard_device_state || die "device-state not ready for bench-ui (see advice above)"
 
   if (( skip_doctor == 0 )); then
     note "bench-ui step 1: uitest doctor"
@@ -810,6 +817,63 @@ EOF
     return 1
   fi
   note "bench-ui PASS · $out_dir"
+}
+
+# vision-now: UTC timestamp for vision-bench-wait --since (capture immediately before Generate).
+cmd_vision_now() {
+  date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+# vision-launch: relaunch Vocello with bench/vision env (no autorun).
+cmd_vision_launch() {
+  require_team
+  local run_id="" force_cold=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --run-id) run_id="${2:-}"; shift 2 ;;
+      --run-id=*) run_id="${1#*=}"; shift ;;
+      --force-cold) force_cold="${2:-1}"; shift 2 ;;
+      --force-cold=*) force_cold="${1#*=}"; shift ;;
+      *) die "unknown vision-launch flag: $1" ;;
+    esac
+  done
+  [[ -n "$run_id" ]] || die "vision-launch requires --run-id"
+
+  local dev; dev="$(resolve_device)"
+  note "vision-launch runID=$run_id forceCold=$force_cold"
+  local env_json
+  env_json="$(QV_RUNID="$run_id" QV_FORCE_COLD="$force_cold" python3 -c '
+import json, os
+env = {
+    "QWENVOICE_DEBUG": "1",
+    "QWENVOICE_UI_TEST_HOOKS": "1",
+    "QVOICE_IOS_SKIP_ONBOARDING": "1",
+    "QVOICE_MAC_BENCH_RUN_ID": os.environ["QV_RUNID"],
+    "QWENVOICE_BENCH_FORCE_COLD": "1" if os.environ.get("QV_FORCE_COLD", "0") in ("1", "true", "yes") else "0",
+}
+for k, v in os.environ.items():
+    if (k.startswith("QWENVOICE_") or k.startswith("QVOICE_")) and k not in env:
+        env[k] = v
+print(json.dumps(env))')"
+  xcrun devicectl device process launch --device "$dev" \
+    --terminate-existing -e "$env_json" "$BUNDLE_ID" >&2
+  sleep 2
+}
+
+# vision-bench-wait: delegate to lib helper (agent calls after tapping Generate).
+cmd_vision_bench_wait() {
+  "$ROOT_DIR/scripts/lib/ios_vision_bench_wait.sh" wait "$@"
+}
+
+# bench-ui-mcp: agent-driven matrix via mobile-mcp + WDA (preferred).
+cmd_bench_ui_mcp() {
+  _ios_agent_bench_ui mcp "$@"
+}
+
+# bench-ui-vision: DEPRECATED mirror-coordinate agent bench (mirroir + Peekaboo).
+cmd_bench_ui_vision() {
+  warn "bench-ui-vision is deprecated — prefer bench-ui-mcp (docs/reference/mobile-mcp-ios-evaluation.md)"
+  _ios_agent_bench_ui vision "$@"
 }
 
 UI_TEST_DEFAULT_CLASSES=(
@@ -968,13 +1032,13 @@ cmd_ui_test() {
       status=$?
       set -e
       (( status != 0 )) && all_ok=0
-    elif ((${#run_targets[@]} > 1)); then
+    elif ((${#run_targets[@]} > 1)) && [[ "${QVOICE_IOS_UITEST_BATCH:-}" == "1" ]]; then
       local -a only_args=()
       local target
       for target in "${run_targets[@]}"; do
         only_args+=( "-only-testing:$target" )
       done
-      note "ui-test batch: ${#run_targets[@]} classes in one xcodebuild invocation"
+      note "ui-test batch: ${#run_targets[@]} classes in one xcodebuild invocation (QVOICE_IOS_UITEST_BATCH=1; XCTest runs classes alphabetically)"
       set +e
       _run_ui_test_once "$dev" "$log" "${only_args[@]}"
       status=$?
@@ -983,7 +1047,7 @@ cmd_ui_test() {
       if _ui_test_log_needs_unlock_retry "$log"; then
         all_ok=0
       fi
-    else
+    elif ((${#run_targets[@]} >= 1)); then
       local target
       for target in "${run_targets[@]}"; do
         note "ui-test class: $target"
@@ -1580,7 +1644,7 @@ main() {
   # Auto-start iPhone Mirroring before any device-touching command (observation + keeps a
   # locked device reachable). `mirror` calls ensure_mirror itself; help/none skip it.
   case "$sub" in
-    doctor|build|install|launch|console|pull|bench|shot|crashes|debug|logs|profile) ensure_mirror ;;
+    doctor|build|install|launch|console|pull|bench|vision-launch|shot|crashes|debug|logs|profile) ensure_mirror ;;
   esac
   case "$sub" in
     doctor)  cmd_doctor "$@" ;;
@@ -1594,6 +1658,11 @@ main() {
     pull)    cmd_pull "$@" ;;
     bench)   cmd_bench "$@" ;;
     bench-ui) cmd_bench_ui "$@" ;;
+    bench-ui-mcp) cmd_bench_ui_mcp "$@" ;;
+    bench-ui-vision) cmd_bench_ui_vision "$@" ;;
+    vision-launch) cmd_vision_launch "$@" ;;
+    vision-now) cmd_vision_now "$@" ;;
+    vision-bench-wait) cmd_vision_bench_wait "$@" ;;
     ui-test) cmd_ui_test "$@" ;;
     crashes) cmd_crashes "$@" ;;
     debug)   cmd_debug "$@" ;;
@@ -1607,7 +1676,7 @@ main() {
     uitest-doctor) cmd_uitest_doctor "$@" ;;
     help|-h|--help)
       sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' >&2 ;;
-    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|mirror|device-state|shot|pull|bench|ui-test|uitest-doctor|crashes|debug|logs|profile|preflight|test|review|gate|models|help)" ;;
+    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|mirror|device-state|shot|pull|bench|bench-ui|bench-ui-mcp|bench-ui-vision|vision-launch|vision-now|vision-bench-wait|ui-test|uitest-doctor|crashes|debug|logs|profile|preflight|test|review|gate|models|help)" ;;
   esac
 }
 

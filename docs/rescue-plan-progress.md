@@ -248,6 +248,11 @@ attended, on the physical phone.
   Maintainer: Studio → Clone → Record on the **physical phone** — confirm naming sheet after Stop.
 - **"Recording broken through mirror" — RESOLVED (not an app defect).** Mic unavailable
   via Mirroring; physical-phone operation confirmed separately.
+- **iOS agent UI driving — mobile-mcp path (2026-07-04).** Primary agent driver is
+  **mobile-mcp** (WDA + accessibility tree): `bench-ui-mcp`, `scripts/ios_mobile_mcp.sh`,
+  [`docs/reference/mobile-mcp-ios-evaluation.md`](reference/mobile-mcp-ios-evaluation.md).
+  mirroir+Peekaboo **bench-ui-vision** deprecated (observation-only). Phase 1 WDA spike
+  blocked on operator setup — see `build/ios/mobile-mcp-spike/spike-result.json`.
 
 ## 4. Where everything lives (quick index)
 

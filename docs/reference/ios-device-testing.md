@@ -711,10 +711,13 @@ they do not replace XCUITest or drive regression matrices.
 | | `user-xcodebuildmcp` `session_show_defaults` → profile `ios-device` → `list_devices` | Agent session start | Optional; **`ios_device.sh` stays primary** for test/bench |
 | | `scripts/ios_device.sh models check --strict` | Before gate / `bench-ui` | Headless inventory pull; phone locked OK |
 | **Run gate** | `scripts/ios_device.sh gate` | Pre-merge | ~7–12 min; unlock once for step 2 |
-| **Run UI bench** | `scripts/ios_device.sh bench-ui --label "why"` | Engine/UI matrix before release | ~20 min; clone voice on phone; scope with `--modes` / `--warm 1` |
+| **Run UI bench** | `scripts/ios_device.sh bench-ui --label "why"` | Engine/UI matrix (XCUITest) | ~20 min; clone voice on phone |
+| **Run agent UI bench** | `scripts/ios_device.sh bench-ui-mcp --agent-drive …` | Full matrix via **mobile-mcp** (WDA) | Playbook F; same gate as `bench-ui` |
+| **Run vision UI bench (deprecated)** | `scripts/ios_device.sh bench-ui-vision --agent-drive …` | Legacy mirroir + Peekaboo | Playbook E — emergency only |
 | **Run headless bench** | `scripts/ios_device.sh bench "custom:speed:…"` | RTF/audioQC without XCUITest | Phone **locked OK**; unattended engine proof |
-| **Observe** | `scripts/ios_device.sh shot` | During long `bench-ui` | Mac-side Mirroring capture — no agent taps |
-| | `mirroir` `describe_screen` | Exploratory QA only | Mic unavailable; not for bench matrix |
+| **Observe** | `scripts/ios_device.sh shot` | During long runs | Mac-side Mirroring capture — no agent taps |
+| | `mirroir` `describe_screen` | Observation / OCR watch-along | **Not** primary UI input |
+| | `mobile-mcp` `mobile_list_elements_on_screen` | Exploratory QA / bench-ui-mcp | WDA tree on real device |
 | **Triage fail** | `axiom_get_agent` → `test-runner` | `test` / `bench-ui` xcresult | Artifact: `build/ios/Logs/Test/*.xcresult` |
 | | Read `build/ios/bench-ui-<runID>/bench-ui.log` | Stuck generate / manifest | Look for `iosStudio_generationError`, `VOCELLO-BENCH-UI-MANIFEST` |
 | | `python3 scripts/check_ios_ui_bench.py …` | Re-gate pulled telemetry | Invoked by `bench-ui`; re-run manually after fixes |
@@ -727,7 +730,11 @@ they do not replace XCUITest or drive regression matrices.
 
 - XcodeBuildMCP `*_sim`, `tap` / `snapshot_ui` on simulator
 - Axiom `xcui` / `simulator-tester`
-- mirroir / peekaboo driving during `bench-ui` or `gate`
+- mirroir / peekaboo **UI taps** during **XCUITest** `bench-ui`, **mobile-mcp** / WDA sessions, or `gate`
+- mobile-mcp / WDA during concurrent XCUITest attach (use `scripts/ios_mobile_mcp.sh lock`)
+
+**Allowed:** mobile-mcp for **`bench-ui-mcp --agent-drive`** and exploratory Studio tours (Playbook F).
+One automation owner per device session. mirroir/peekaboo for **observation** and macOS Peekaboo only.
 
 ### Playbook A — Pre-merge smoke (fast)
 
@@ -762,12 +769,55 @@ scripts/ios_device.sh bench "custom:speed:Bench smoke." --label "ios-rtf-check"
 scripts/ios_device.sh bench --sim-device iphone15pro "clone:speed:…"  # memory tier sim
 ```
 
-### Playbook D — Exploratory UI + measurement gap
+### Playbook D — Exploratory UI tour (no matrix)
 
-macOS uses Peekaboo + `uitest_measure.sh`. iOS today:
+- **Exploratory drive:** mirroir + [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md) § iOS Studio smoke
+- **Proof:** `gate` / `test --cold` / headless `bench`
 
-- **Exploratory drive:** mirroir + [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md) § iOS
-- **Proof:** still `gate` / `test --cold` / `bench-ui` — no iOS `verify-generation` yet
+### Playbook E — Vision bench-ui matrix (DEPRECATED)
+
+> **Deprecated 2026-07** — use Playbook F (`bench-ui-mcp` + mobile-mcp). Kept for emergency fallback.
+
+Full UI matrix with mirroir + Peekaboo mirror coordinates (brittle). Same telemetry gate as XCUITest `bench-ui`.
+
+```sh
+scripts/ios_device.sh bench-ui-vision --agent-drive --warm 1 --lengths medium --modes custom --label "vision-pilot"
+```
+
+See legacy steps in [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md) § vision bench-ui.
+
+### Playbook F — mobile-mcp exploratory + bench-ui-mcp
+
+Primary agent iOS driver: WDA accessibility tree on paired iPhone (never Simulator for MLX).
+
+```sh
+scripts/ios_mobile_mcp.sh preflight
+scripts/ios_device.sh device-state
+scripts/ios_device.sh models check --strict
+scripts/ios_device.sh bench-ui-mcp --agent-drive \
+  --warm 1 --lengths medium --modes custom --label "mcp-pilot"
+```
+
+**Exploratory tour:** `mobile_launch_app` → `mobile_list_elements_on_screen` after each Studio/Voices/History/Settings navigation. Build/install always via `scripts/ios_device.sh`.
+
+**Per take** (driver prints `MCP_BENCH_TAKE_BEGIN`):
+
+1. `mobile_list_elements_on_screen` — confirm Studio + mode
+2. Prepare mode per [`ios-app-guide.md`](ios-app-guide.md)
+3. Clear composer → type script → dismiss keyboard → tap `textInput_generateButton`
+4. `vision-bench-wait` → `touch take-N.done`
+
+**Gate comparison (before any gate swap):**
+
+```sh
+scripts/ios_mobile_mcp.sh compare-bench \
+  build/ios/bench-ui-<xcuitest-runID>/ \
+  build/ios/bench-ui-mcp-<mcp-runID>/
+```
+
+Full evaluation: [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md).
+
+**Artifacts:** `build/ios/bench-ui-mcp-<runID>/` (manifest, gate.log, session.env).
 
 ### Artifact map (where MCP tools look)
 
@@ -776,6 +826,8 @@ macOS uses Peekaboo + `uitest_measure.sh`. iOS today:
 | UI test xcresult | `build/ios/Logs/Test/*.xcresult` | `test-runner` |
 | Gate verdict | `build/ios/gate-<runID>/verdict.txt` | read in-session |
 | Bench-ui log + gate | `build/ios/bench-ui-<runID>/` | grep log; `check_ios_ui_bench.py` |
+| mobile-mcp bench-ui | `build/ios/bench-ui-mcp-<runID>/` | manifest; gate.log; `compare-bench` vs XCUITest |
+| Vision bench-ui (deprecated) | `build/ios/bench-ui-vision-<runID>/` | legacy only |
 | Pulled telemetry | `build/ios-diagnostics/` | summarizer; `check_ios_ui_bench.py` |
 | Model inventory | `build/ios-diagnostics/models-status.json` | `models check` |
 | Profile trace | `build/ios/profile-*.trace` or `bench-ui-*/vocello.trace` | `axiom_xcprof_analyze` |

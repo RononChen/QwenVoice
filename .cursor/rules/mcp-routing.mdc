@@ -24,7 +24,8 @@ Development is **100% in Cursor**. Prefer **checked-in `scripts/*.sh`** for buil
 
 Configured in **`~/.cursor/mcp.json`** (not committed). Peekaboo and mirroir launch via
 `$HOME/.cursor/bin/mcp_stdio_wrapper.sh` (Cursor spawn env fix). Setup:
-[`docs/reference/computer-use-mcp-alternatives-cursor.md`](mdc:docs/reference/computer-use-mcp-alternatives-cursor.md).
+[`docs/reference/computer-use-mcp-alternatives-cursor.md`](mdc:docs/reference/computer-use-mcp-alternatives-cursor.md),
+[`docs/reference/ios-agent-ui-tour.md`](mdc:docs/reference/ios-agent-ui-tour.md).
 
 Invoke MCP tools with **`CallMcpTool`** (read each tool's JSON descriptor under the MCP
 filesystem first). Use the **Shell** tool for terminal commands — not a separate Bash tool.

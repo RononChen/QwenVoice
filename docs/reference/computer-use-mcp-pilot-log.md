@@ -1,5 +1,9 @@
 # Computer-use MCP pilot log (2026-07-01)
 
+> **Reopened 2026-07-04 (evening):** **Peekaboo** + **mirroir** restored in `~/.cursor/mcp.json`
+> (Option 3 — macOS Peekaboo + iPhone mirroir). **mobile-mcp** deferred (WDA signing blocked).
+> §7 closure below is historical; current validation is §8.
+
 Pilot for **Option 1**: user-scoped **Peekaboo** (macOS) + **mirroir-mcp** (iPhone Mirroring) in `~/.cursor/mcp.json`, launched via `~/.cursor/bin/mcp_stdio_wrapper.sh`.
 
 **Regression gates unchanged:** `scripts/macos_test.sh gate`, `scripts/ios_device.sh gate`. Exploratory agent QA only — not CI.
@@ -100,3 +104,68 @@ Voice Design (Speed) install the hardened gate needs) → evidence via `ios_devi
 | mirroir connected | ✅ (11 tools) |
 | mirroir driving Vocello iOS | ⏳ blocked on Cursor restart for the localization fix |
 | Gates | Unchanged — XCUITest + script lanes remain authoritative |
+
+---
+
+## 7. Closure (2026-07-04)
+
+| Action | Status |
+| --- | --- |
+| Remove `peekaboo` + `mirroir` from `~/.cursor/mcp.json` | Done |
+| Add `mobile-mcp` (`@mobilenext/mobile-mcp@0.0.61`, telemetry off, stdio wrapper) | Done |
+| iOS agent UI | **mobile-mcp** + `bench-ui-mcp` — see [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md) |
+| macOS agent UI | Script gates + `uitest_measure.sh` + Axiom (Peekaboo no longer in MCP config) |
+
+---
+
+## 8. Full re-validation (2026-07-04 evening)
+
+After restoring **Peekaboo** + **mirroir** in `~/.cursor/mcp.json` (stdio wrapper unchanged).
+
+### Phase 1 — connectivity smoke
+
+| Check | Result |
+| --- | --- |
+| Peekaboo `permissions` | **Pass** — Screen Recording + Accessibility granted |
+| mirroir `check_health` | **Pass** — mirroring window 326×720, capture OK |
+| mirroir `status` | **Pass** — connected, mirroring active (not paused) |
+
+### Phase 2 — macOS full generate loop (Peekaboo)
+
+| Step | Result |
+| --- | --- |
+| `uitest_measure.sh prep` (debug-data mode) | Pass |
+| Peekaboo `see` (`PID:77904`) | Pass — **291 AX elements** (`screen_customVoice`, `textInput_*`, …) |
+| `click` editor + `type` 117-char script | Pass — `customVoice_readiness` → `ready=true` |
+| `hotkey cmd,return` (`app: Vocello`) | Pass |
+| `verify-generation custom` | **Pass** — WAV 392 KB, 8.08 s, `db_id=307` |
+| `streaming-preview-check` | **Pass** — 1 Live Engine Play, 0 underruns, 0 chunk gaps |
+| `finish` | Pass |
+
+### Phase 3 — iOS Studio tour (mirroir + Peekaboo mirror clicks)
+
+| Step | Result |
+| --- | --- |
+| `ios_device.sh device-state` | Pass |
+| `build` + `install` + `launch` | Pass |
+| `ios_vision_bridge.sh calibrate` | Pass — `Recopie de l'iPhone` rect 919,30,326,720 |
+| mirroir `describe_screen` (Studio / Custom) | Pass — segments + composer OCR |
+| Segment taps (Custom / Design / Clone) | **Pass** — distinct OCR per segment |
+| Tab: Settings (`to-global` + Peekaboo click y≈690) | **Pass** — VOICE MODELS, Storage, … |
+| Tab: Studio (label y≈619) | **Pass** — returned to composer |
+| Tab: History (label y≈618) | **Pass** — search + generation rows |
+| Tab: Voices | **Partial** — tab tap did not switch screen in this session |
+| `ios_device.sh shot` | Pass — `build/ios/mcp-tour-20260704-1910.png` |
+
+**iOS hybrid rule confirmed:** mirroir `describe_screen` → `ios_vision_bridge.sh to-global` → Peekaboo
+`click coords:` with `foreground: true`. Segment controls (top bar) are reliable; bottom tab bar may
+need label coords (y≈619–690) — icon-only taps at y≈719 were inconsistent.
+
+### Phase 3 summary
+
+| Goal | Status |
+| --- | --- |
+| Peekaboo + mirroir connected | ✅ |
+| macOS generate loop | ✅ (reproduced Jul 1 pilot) |
+| iOS mirroir perception + hybrid navigation | ✅ (segments + Settings/History; Voices flaky) |
+| Gates | Unchanged |

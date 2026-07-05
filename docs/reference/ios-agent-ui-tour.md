@@ -1,0 +1,1039 @@
+# iOS agent UI tour — living reference
+
+> **Purpose:** Human-guided map of the Vocello **iPhone** UI for **agent-driven** exploratory QA
+> (mirroir OCR + Peekaboo mirror clicks). Updated incrementally as the product owner walks through
+> the app.
+>
+> **Not a gate doc.** Pre-merge truth stays `scripts/ios_device.sh gate` + XCUITest identifiers in
+> [`ui-test-surface.md`](ui-test-surface.md). For identifier-level test authoring see
+> [`ios-app-guide.md`](ios-app-guide.md).
+>
+> **Driving stack:** mirroir `describe_screen` → [`scripts/lib/ios_vision_bridge.sh`](../../scripts/lib/ios_vision_bridge.sh)
+> `to-global` → Peekaboo `click coords:` (`foreground: true`). See
+> [`computer-use-mcp-pilot-log.md`](computer-use-mcp-pilot-log.md) §8.
+
+**Status:** in progress (guided tour started 2026-07-04)
+
+| Section | Status |
+| --- | --- |
+| Navigation hierarchy | Draft |
+| Studio — mode selector | Documented |
+| Studio — Custom Voice composer | Documented |
+| Studio — Voice Design | Documented |
+| Studio — Voice Cloning | Documented |
+| Voices tab | Documented |
+| History tab | Documented |
+| Settings tab | Documented |
+| Sheets / overlays | Partial |
+
+### Known product gaps (owner-confirmed)
+
+| Gap | Notes |
+| --- | --- |
+| **No delete for saved voices** | Clone references and Design-saved voices can be enrolled and reused, but there is **no UI** to remove them (Voices tab, Settings, swipe, etc.). List is **append-only** today. **Future work** — do not fail agent smokes hunting for delete. **Note:** History **can** delete individual **takes** (generated audio rows) — that does **not** remove the saved voice from Voices. |
+
+---
+
+## 1. Navigation hierarchy
+
+The app has **two levels** of navigation on the main surface:
+
+```text
+┌─────────────────────────────────────────┐
+│  [ Custom | Design | Clone ]  ← mode    │  only when Studio tab selected
+│                                         │
+│           (mode-specific content)       │
+│                                         │
+├─────────────────────────────────────────┤
+│ Studio │ Voices │ History │ Settings    │  bottom tab bar (always visible)
+└─────────────────────────────────────────┘
+```
+
+| Layer | User name | Agent notes |
+| --- | --- | --- |
+| **Bottom tab bar** | Studio · Voices · History · Settings | Primary navigation. Must be on **Studio** to see the generation mode selector. |
+| **Mode selector** | Custom · Design · Clone | Segmented control at top of Studio only. Switches compose mode; does **not** change bottom tab. |
+
+**Cold launch:** **Studio** tab + **Custom** mode (default).
+
+**mirroir OCR hints (2026-07-04 validation):** segment labels often appear around **y ≈ 108**; tab labels around **y ≈ 618–619**. Tab **icons** around **y ≈ 689–691** — label taps (y ≈ 619–690) were more reliable than icon-only taps for some tabs.
+
+---
+
+## 2. Studio — generation mode selector
+
+**When visible:** Only while **Studio** is the selected bottom tab.
+
+**What it is:** Pill-shaped segmented control — **Custom** | **Design** | **Clone**.
+
+| Segment | Default? | Summary |
+| --- | --- | --- |
+| **Custom** | Yes (boot state) | Built-in speaker + delivery + language; type script; Generate. |
+| **Design** | No | Natural-language voice brief + script. |
+| **Clone** | No | Reference voice + script. |
+
+**Visual reference (owner screenshot, 2026-07-04):**
+
+- Dark theme; selected segment has lighter pill background (**Custom** selected in capture).
+- Status bar above (time, signal, battery); Dynamic Island centered.
+
+**Agent understanding:** Tapping **Design** or **Clone** changes composer copy and bottom controls but stays on Studio tab. OCR after Clone tap showed e.g. *“Type the new text. The reference voice will speak it.”* and *“Voice cloning”*.
+
+---
+
+## 3. Studio — Custom Voice mode
+
+Default screen after launch. Screen marker: `screen_customVoice`. Mode segment:
+`generateSection_custom`.
+
+**Vertical layout (Custom mode):**
+
+```text
+┌─────────────────────────────────────────┐
+│  [ Custom | Design | Clone ]            │
+├─────────────────────────────────────────┤
+│                                         │
+│   Type or paste your script.            │  ← script composer (§3.1)
+│   (flexible multi-line editor)          │
+│                                         │
+│ Built-in voice                   0/150  │  ← meta row (inside composer pad)
+├─────────────────────────────────────────┤
+│  [ AI ]  [ NE ]  [ AU ]                 │  ← setup chips (§3.2)
+├─────────────────────────────────────────┤
+│  [ ✨ Generate ]  OR  generating bar    │  ← dock (§3.2, §3.7)
+│  OR  live/complete player card          │
+└─────────────────────────────────────────┘
+```
+
+**Keyboard:** overlays the bottom (chips + dock stay fixed underneath). Dismiss keyboard
+(Return/Done on keyboard) before mirroir/Peekaboo **Generate** taps if the CTA is obscured.
+
+### 3.1 Script text area
+
+**What it is:** The main **script composer** — tap here, then type (or paste) the lines you want
+the selected voice to **deliver**. This is the text that gets synthesized to speech.
+
+**Visual reference (owner screenshot, 2026-07-04):**
+
+- Large dark area filling most of Studio (between mode selector and meta row).
+- No card border — transparent composer on dark canvas.
+- Placeholder (empty state): **“Type or paste your script.”** in muted grey at top-left.
+
+| Property | Custom Voice |
+| --- | --- |
+| **Placeholder** | `Type or paste your script.` |
+| **Interaction** | **Tap to focus** → keyboard appears → type or paste |
+| **Character limit** | **150** characters on iOS Studio |
+| **Meta row** | **Built-in voice** (left) · **`N / 150`** counter (right) — lives **inside** composer pad, above chips |
+| **Over limit** | Counter turns **orange** when `N > 150`; warning via `textInput_limitMessage`; **Generate** disabled |
+| **XCUITest id** | `textInput_textEditor` |
+| **Counter id** | `textInput_lengthCount` |
+
+**Agent driving (mirroir + Peekaboo):**
+
+1. `describe_screen` — placeholder **`Type or paste your script.`** (validation ~**y ≈ 153** when empty).
+2. Tap **inside** the text area (center of field).
+3. Peekaboo `type` with `foreground: true`.
+4. Re-`describe_screen` — counter moves off `0/150`; **Generate** enables when other preconditions met (§3.6).
+
+**Note:** Voice Design and Clone reuse the same composer **pattern** but different placeholder copy
+(see §4, §5).
+
+### 3.2 Setup chips + dock
+
+Region below the composer: three equal-width **setup chips**, then the **dock** (primary CTA or
+player/generating UI).
+
+**Visual reference (owner screenshot, 2026-07-04):**
+
+```
+┌──────────────────────────────────────┐
+│  [👤 AI ▾]  [🎭 NE ▾]  [🌐 AU ▾]     │  Voice · Delivery · Language
+│  [ ✨ Generate          (dimmed) ]   │  or Install / Generating / Player
+└──────────────────────────────────────┘
+```
+
+| UI label | Meaning | Tap action | XCUITest id |
+| --- | --- | --- | --- |
+| **AI** | **Aiden** (default speaker), 2-letter abbrev | Opens **voice picker** (§3.5) | `studioChip_voice` (AX prefix `"Voice: "`) |
+| **NE** | **Neutral** delivery — see **§3.4** | Opens **delivery picker** | `studioChip_delivery` |
+| **AU** | **Auto** language — see **§3.3** | Opens **language picker** | `studioChip_language` |
+| **Generate** | Start synthesis | When enabled (§3.6) | `textInput_generateButton` |
+| **Install Custom Voice** | Model **not** on device | Jumps to **Settings** tab | `textInput_installModelButton` |
+
+**Important — `AI` is not “artificial intelligence”:** Short label for **Aiden**. mirroir OCR may
+read **`Al`** — same control.
+
+**During generation:** chips dim (**50% opacity**) and are **disabled** — config is locked for the
+in-flight take. Re-enabled after complete or cancel.
+
+**Agent smoke default:** **Aiden** already selected — no need to open voice picker for basic Custom generate.
+
+**mirroir OCR strings (2026-07-04):** `Built-in voice`, `0/150`, `Al`/`AI`, `NE ^`, `AU ^`, `Generate`,
+`Install Custom Voice`, `Generating`, `Rendering audio…`.
+
+### 3.3 Language chip — **AU** (shared: Custom · Design · Clone)
+
+Rightmost pill in the bottom chip row. **Identical in all three Studio modes.**
+
+**Visual reference (owner screenshot, 2026-07-04):**
+
+```
+┌─────────────────┐
+│  🌐  AU  ▾      │   ← globe icon + two-letter tag + chevron
+└─────────────────┘
+```
+
+| Property | Detail |
+| --- | --- |
+| **Globe icon** | Language / locale selector |
+| **AU** | **Auto** — **not** Australia. The UI abbreviates **“Auto”** to its first two letters: **A** + **U** (same rule as **AI** ← Aiden, **NE** ← Neutral). |
+| **Chevron (^)** | Opens the **language picker** sheet |
+| **Default** | Auto-detect language from the script text |
+| **After change** | Tag updates to the chosen language code — e.g. **EN** (English), **FR** (French), **ZH** (Chinese) |
+| **XCUITest id** | `studioChip_language` |
+| **Picker confirm** | `languagePicker_confirm`; rows `languagePicker_<rawValue>` |
+
+**Agent notes:**
+
+- For a basic smoke, **leave AU (Auto)** — no need to open the picker unless testing a fixed language.
+- mirroir OCR: look for **`AU ^`** or **`AU`** near the globe; chevron may appear as `^` on its own line.
+- Do **not** confuse **AU** with an accent/region; it means **automatic language detection**.
+
+---
+
+## 3.4 Delivery chip — **NE** + Delivery sheet (shared: Custom · Design · Clone)
+
+Middle pill in the bottom chip row. Controls **how the line is performed** (emotion, pace,
+pitch, timbre) — separate from **who** speaks (Custom **AI** / Design **+**) or **which language**
+(**AU**).
+
+**Chip (collapsed state):**
+
+```
+┌─────────────────┐
+│  🎭  NE  ▾      │   ← theater-masks icon + two-letter tag + chevron
+└─────────────────┘
+```
+
+| Property | Detail |
+| --- | --- |
+| **Masks icon** | Delivery / performance style |
+| **NE** | **Neutral** — default preset. First two letters of **“Neutral”**. |
+| **After preset change** | Chip shows preset abbrev — e.g. **Happy** → **HA**, **Sad** → **SA** |
+| **Chevron (^)** | Opens **Delivery** bottom sheet |
+| **XCUITest id** | `studioChip_delivery` |
+
+**Agent smokes:** leave **NE (Neutral)** unless the run is explicitly testing delivery.
+
+### Delivery sheet (preset picker)
+
+Opened from the **NE** (or **HA**, …) chip. Header: **Delivery** + **Confirm** (top right).
+
+**Visual reference (owner screenshot, 2026-07-04):**
+
+Two-column grid of **10 presets** (colored dot + name + subtitle):
+
+| Preset | Subtitle (on sheet) |
+| --- | --- |
+| **Neutral** ✓ | Default, even pacing |
+| **Happy** | Warm, bright, smiling |
+| **Sad** | Quiet, slower, somber |
+| **Angry** | Tense, sharp |
+| **Fearful** | Quiet, hesitant |
+| **Surprised** | Animated, pitch jumps |
+| **Excited** | Energetic, faster |
+| **Calm** | Slower, reassuring |
+| **Whisper** | Soft, close-mic breath |
+| **Dramatic** | Theatrical, projected |
+
+Tap a preset to select (checkmark). **Intensity** row below the grid:
+
+| Subtle | **Normal** (default) | Strong |
+
+- **Intensity applies only when a non-Neutral preset is selected** — row is dimmed/disabled for
+  Neutral.
+- Tap **Confirm** to commit (`deliveryPicker_confirm`).
+
+Preset cells: `deliveryPickerPreset_<id>` (e.g. `deliveryPickerPreset_happy`). Intensity:
+`deliveryPickerIntensity_subtle|normal|strong`.
+
+### Custom tone (free-text delivery instructions)
+
+Alternative to the preset grid. Button at bottom of Delivery sheet:
+
+**“Use a custom tone instead”** (`deliveryPickerSheet_customTone`)
+
+Opens a second screen — **Custom tone**:
+
+**Visual reference (owner screenshot, 2026-07-04):**
+
+| Element | Detail |
+| --- | --- |
+| **Back** (←) | Return to preset grid (`deliveryPickerSheet_customTone_back`) |
+| **Title** | Custom tone |
+| **Confirm** | Commit custom instruction (top right) |
+| **Text field** | Placeholder: *“e.g. An energetic news anchor, bright and fast”* |
+| **Hint** | *“Be specific: combine emotion, pace, pitch, and timbre.”* |
+| **Examples** | Starter lines (calm narrator, news anchor, whispered close-mic, gentle serious…) |
+| **Counter** | **0 / 500** — delivery instruction limit (not the 150-char script limit) |
+| **Editor id** | `deliveryPickerSheet_customTone_editor` |
+
+User writes **how** they want the delivery to sound in natural language; that instruction is
+sent to the model instead of a preset + intensity. After Confirm, the chip may show a custom
+label (abbrev from your text) rather than **NE** / **HA**.
+
+**Do not confuse with Voice Design brief:** Design mode’s **`+`** chip describes **who the voice
+is** (identity). **Custom tone** describes **how to perform** the script (delivery) — available
+in **all three** Studio modes from the Delivery sheet.
+
+**mirroir OCR hints:** `Delivery`, `Confirm`, preset names (`Neutral`, `Happy`, …),
+`Intensity`, `Subtle`, `Normal`, `Strong`, `Use a custom tone instead`, `Custom tone`,
+`0/500`, `Be specific`.
+
+### 3.5 Voice picker sheet (Custom only)
+
+Opened from the **AI** (voice) chip. Title: **Voice** · **Confirm** (top right) · **×** dismiss.
+
+| Element | Detail |
+| --- | --- |
+| **Search** | Filter built-in speakers by name |
+| **Language filter chips** | **All** · **English** · **Chinese** · … (from contract) | `voicePickerFilterChip_*` |
+| **Speaker rows** | Built-in Qwen3 speakers (Aiden, …) with subtitle + **EN** tag | `voicePickerRow_<id>` |
+| **Preview (▶)** per row | Plays bundled preview — **does not** select or close sheet | `voicePickerPreview_<id>` |
+| **Row tap** | **Provisional** selection (checkmark) — sheet stays open |
+| **Confirm** | Commits speaker → chip updates (e.g. **AI** → **SO** for another name) | `voicePicker_confirm` |
+
+**Language chip independence:** Picking a speaker does **not** pin **AU** — language still follows
+script detection (Auto) unless user sets language explicitly (§3.3).
+
+**Voices tab shortcut:** Tapping a **built-in** row in **Voices** jumps here with that speaker
+preselected (§6.3).
+
+**Agent smokes:** skip picker — **Aiden** default is enough for Custom generate.
+
+**mirroir OCR:** `Voice`, `Confirm`, `Aiden`, `English`, speaker names, `All`.
+
+### 3.6 Generate readiness (Custom)
+
+**Generate** enables only when **all** are true:
+
+| Precondition | If false |
+| --- | --- |
+| Script non-empty (after trim) | Generate dimmed (`0/150`) |
+| Script ≤ 150 chars | Over-limit warning; Generate dimmed |
+| **Custom Voice** model installed | Dock shows **Install Custom Voice** → Settings (§8.1) |
+| Engine ready (`ttsEngine.isReady`) | Generate dimmed / lifecycle toast |
+| No generation already in flight | Generate dimmed; chips locked |
+
+**Variation** (Settings) and **Autoplay** (Settings) affect output but do not gate the button.
+
+### 3.7 Generation lifecycle (Custom dock)
+
+After **Generate** tap, the dock cycles through states (same card morphs live → complete):
+
+```text
+  idle          generating         live                    complete
+  [Generate] →  [waveform bar]  →  [Streaming preview]  →  [inline player]
+                Generating          play/pause + stop       play/pause + dismiss
+                Rendering audio…    (autoplay if ON)        expand → full player
+```
+
+| State | Dock UI | IDs / OCR |
+| --- | --- | --- |
+| **Idle** | **Generate** (or **Install…** if model missing) | `textInput_generateButton` / `textInput_installModelButton` |
+| **Generating** (buffering) | Animated waveform + **Generating** · *Rendering audio…* + **stop** | `textInput_cancelButton` |
+| **Live preview** | Player card — **Streaming preview**, waveform progress, play/pause, **stop** | `studio_livePreviewPlayer`, `studio_livePreview_playPause`, `studio_livePreview_cancel` |
+| **Complete** | Same card morphed — finished take, play/pause, dismiss, tap to **expand** full player | `studio_inlinePlayer`, `studio_inlinePlayer_playPause` |
+| **Error** | **Generation failed** bar + retry | `textInput_generationError` |
+
+**Autoplay (Settings, default ON):** live preview starts playback as soon as enough audio is
+buffered — hear speech **before** generation finishes (§8.2).
+
+**Cancel / stop:** aborts in-flight generation; discards partial result; no History row.
+
+**Success:** take saved to **History**; optional **Saved outputs** folder copy (§8.2).
+
+**Custom has no “Save as voice”** on the complete card (Design-only affordance).
+
+---
+
+## 4. Studio — Voice Design mode
+
+Switch via top segment **Design**. Same overall Studio layout as Custom (script composer above,
+control strip below, **Generate** at bottom).
+
+### 4.1 Compared to Custom Voice
+
+| | **Custom** | **Design** |
+| --- | --- | --- |
+| **Strip header** | Built-in voice | **Designed voice** |
+| **First chip** | **AI** (Aiden) — built-in **speaker** picker | **+** (speech-bubble icon) — **voice brief** not set yet |
+| **First chip (set)** | Shows speaker abbrev (e.g. `AI`) | Shows first 2 letters of brief text (e.g. `WA` for “Warm…”) |
+| **Second chip** | **NE** — Delivery (Neutral) — see **§3.4** | **NE** — Delivery (same) |
+| **Third chip** | **AU** — Language (Auto) | **AU** — Language (same) |
+| **Script placeholder** | `Type or paste your script.` | `Type the lines you want this designed voice to say.` |
+| **Generate requires** | Script text only (+ model ready) | **Voice brief AND script text** (+ model ready) |
+
+**The big difference:** Custom picks an existing **built-in speaker** (Aiden by default). Design
+invents a voice from a **natural-language brief** you write first — the **`+`** chip means “add
+describe the voice” (opens **Voice brief** sheet). Until the brief is filled, **Generate** stays
+dimmed even if the script field has text.
+
+### 4.2 Bottom control strip (Design)
+
+**Visual reference (owner screenshot, 2026-07-04):**
+
+```
+┌──────────────────────────────────────┐
+│ Designed voice              0 / 150  │
+│  [💬 + ▾]  [🎭 NE ▾]  [🌐 AU ▾]      │
+│  [ ✨ Generate          (dimmed) ]   │
+└──────────────────────────────────────┘
+```
+
+| UI label | Meaning | Tap action | XCUITest id |
+| --- | --- | --- | --- |
+| **Designed voice** | Section title — voice will be **designed** from your brief | — | — |
+| **0 / 150** | Script character count (same 150 limit) | — | `textInput_lengthCount` |
+| **+** (bubble icon) | **Voice brief unset** — placeholder state | Opens **Voice brief** editor sheet | `studioChip_voiceBrief` |
+| *(abbrev e.g. WA)* | Brief is set — shows **prefix of brief text** | Re-open brief editor | `studioChip_voiceBrief` |
+| **NE** | Neutral delivery — see **§3.4** (same pill) | Delivery picker | `studioChip_delivery` |
+| **AU** | Auto language — see **§3.3** (same pill) | Language picker | `studioChip_language` |
+| **Generate** | Synthesize with designed voice | Needs **brief + script** | `textInput_generateButton` |
+
+### 4.3 Script text area (Design)
+
+Same interaction as Custom (**tap → type**), different placeholder:
+
+| Property | Value |
+| --- | --- |
+| **Placeholder** | `Type the lines you want this designed voice to say.` |
+| **XCUITest id** | `textInput_textEditor` (shared) |
+
+### 4.4 Voice brief sheet (first chip)
+
+Opened from the **`+`** / brief chip. User describes the voice in natural language (starters
+available). Confirm via `voiceBrief_confirm`. Until dismissed with a non-empty brief, Generate
+won’t enable.
+
+**Agent smoke minimum:** tap **`+`** → enter brief → confirm → type script → **Generate**.
+
+**Save → Clone:** After a successful Design generate, user can **save the voice**; it then appears in Clone’s **Reference clip** list (and Voices tab) for reuse — same pool as clone-enrolled references.
+
+**mirroir OCR hints:** `Designed voice`, `+` (or two-letter brief abbrev), `NE ^`, `AU ^`,
+`Type the lines you want this designed` (script placeholder).
+
+---
+
+## 5. Studio — Voice Cloning mode
+
+Switch via top segment **Clone**. Same Studio shell (script above, strip below, **Generate**).
+
+### 5.1 Compared to Custom and Design
+
+| | **Custom** | **Design** | **Clone** |
+| --- | --- | --- | --- |
+| **Strip header** | Built-in voice | Designed voice | **Voice cloning** |
+| **Chip count** | **3** (voice, delivery, language) | **3** (brief, delivery, language) | **2** (reference, language) — **no delivery chip** |
+| **First chip** | **AI** (Aiden) | **+** (voice brief) | **+** (waveform) — **reference unset** |
+| **First chip (set)** | Speaker abbrev | Brief abbrev | Saved-voice **initials** (e.g. **AD**) or **IM** (recorded clip) |
+| **Second chip** | **NE** delivery | **NE** delivery | — |
+| **Third chip** | **AU** language | **AU** language | **AU** language |
+| **Script placeholder** | Type or paste your script. | Type the lines you want this designed voice to say. | **Type the new text. The reference voice will speak it.** |
+| **Generate requires** | Script | Brief + script | **Reference + script** (+ reference transcript ready) |
+
+Clone does **not** expose delivery presets on iOS — performance comes from the **reference audio**, not NE/custom tone.
+
+### 5.2 Bottom control strip (Clone, empty reference)
+
+**Visual reference (owner screenshot, 2026-07-04):**
+
+```
+┌──────────────────────────────────────┐
+│ Voice cloning               0 / 150  │
+│  [〰️ + ▾]              [🌐 AU ▾]    │   ← two chips only
+│  [ ✨ Generate          (dimmed) ]   │
+└──────────────────────────────────────┘
+```
+
+| UI label | Meaning | Tap action | XCUITest id |
+| --- | --- | --- | --- |
+| **Voice cloning** | Section title | — | — |
+| **+** (waveform icon) | **No reference staged** | Opens **Reference clip** sheet | `studioChip_reference` |
+| **AU** | Auto language — §3.3 | Language picker | `studioChip_language` |
+| **Generate** | Clone synthesis | Needs reference + script | `textInput_generateButton` |
+
+**Note:** Clone **`+`** is **not** the same as Design **`+`**. Here it means **add reference audio** (record or pick saved voice), not voice brief.
+
+### 5.3 Script text area (Clone)
+
+| Property | Value |
+| --- | --- |
+| **Placeholder** | `Type the new text. The reference voice will speak it.` |
+| **Meaning** | New script spoken **in the reference voice’s timbre** — not the reference transcript repeated |
+| **XCUITest id** | `textInput_textEditor` |
+
+### 5.4 Reference clip sheet
+
+Opened from the **`+`** / reference chip. Title: **Reference clip** (× to close).
+
+**Visual reference (owner screenshot, 2026-07-04):**
+
+| Option | Detail |
+| --- | --- |
+| **Record new clip** | Mic icon — *“Capture a 10–20 second sample on this iPhone.”* Opens record flow (mic permission). |
+| **Saved voices** | List of enrolled voices on device; subtitle in UI shows *“Cloned reference”* for all rows (generic label — includes voices saved from **Design** too). |
+
+Tap a saved voice row to select (checkmark). Sheet dismisses; reference is staged.
+
+**Design → Clone path:** Generate in **Voice Design** → **Save as voice** → voice appears in **Saved voices** here and in the **Voices** tab → usable as Clone reference. Design also offers **Use in Clone** on the post-save banner to jump straight to Clone with that reference staged.
+
+**Agent smokes:** prefer picking an **existing saved voice** on device over **Record new clip** (no mic / record overlay driving).
+
+### 5.5 After reference is selected
+
+**Visual reference (owner screenshot, 2026-07-04):**
+
+- Left chip shows **initials** from the saved voice name — e.g. **AD** for *“A deep, low-pitched”* (first letter of first two words).
+- **AU** unchanged.
+- **Generate** enables once reference transcript is ready **and** script text is entered.
+
+Recorded/imported clip (no saved-voice name): chip abbrev **IM** (*“Recorded clip”* in AX).
+
+**Agent smoke minimum:** tap **`+`** → pick saved voice → type script → **Generate**.
+
+**mirroir OCR hints:** `Voice cloning`, `+` or `AD`, `AU ^`, `Type the new text`, `Reference clip`, `Record new clip`, `SAVED VOICES`.
+
+---
+
+## 6. Voices tab
+
+Second bottom tab (**people icon**). Library for **built-in speakers** and **saved voices**
+(enrolled references — including voices saved from Design). Not a compose screen; rows **route**
+into Studio.
+
+**Visual reference (owner screenshot, 2026-07-04):**
+
+```text
+┌─────────────────────────────────────────┐
+│  🔍 Search voices                        │
+│  [ All ]  Built-in   Saved              │  ← filter chips
+│                                         │
+│  YOUR SAVED VOICES                      │
+│  (AD) A deep, low-pitched  Cloned ref  ▶ │
+│  …                                      │
+│  ┌─ ─ Save a new voice ─ ─ ─ ─ ─ ─ ─ ┐  │
+│  │  Record a 10-20 s reference…     │  │
+│  └─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘  │
+│                                         │
+│  BUILT-IN SPEAKERS                      │
+│  (A) Aiden  English-native…    EN  ▶   │
+│  …                                      │
+├─────────────────────────────────────────┤
+│ Studio │ Voices │ History │ Settings    │
+└─────────────────────────────────────────┘
+```
+
+### 6.1 Chrome
+
+| Element | Purpose | XCUITest id |
+| --- | --- | --- |
+| **Search voices** | Filter list by name | `voicesSearchField` |
+| **All / Built-in / Saved** | Filter chips | `voicesFilter_all`, `voicesFilter_builtIn`, `voicesFilter_saved` |
+| Screen marker | — | `screen_voices` |
+
+### 6.2 Your saved voices
+
+Same pool as Clone **Reference clip** sheet (§5.4). Subtitle *“Cloned reference”* on every saved
+row — **generic label** (includes Design-saved voices, not clone-only).
+
+| Action | Result |
+| --- | --- |
+| **Tap row** (avatar + name area — **not** ▶) | Jump to **Studio → Clone** with that voice staged as reference |
+| **Play (▶)** | Preview the reference clip (player sheet) — does **not** select for Clone |
+| **Save a new voice** (dashed card) | Record → name → enroll flow (`voices_saveNewVoice`) — same 10–20 s clip as Clone record |
+
+**Owner example (2026-07-04):** Tap saved voice **Me** (not ▶) → **Studio** tab, **Clone** segment,
+reference chip shows **`ME`** (first two letters of the name), **AU** language chip, empty script
+(*“Type the new text. The reference voice will speak it.”*, `0/150`). Generate stays disabled until
+script is non-empty. Same handoff as picking **Me** from Clone’s Reference clip sheet.
+
+Rows: `voicesRow_saved_<id>`. Row body and ▶ are **separate buttons** in code — agents must tap
+left of ▶ (avatar/name) to navigate; ▶ only opens preview.
+
+**No delete:** saved voices (clone references and Design-saved) cannot be removed in the UI yet
+(see **Known product gaps** above).
+
+### 6.3 Built-in speakers
+
+Contract speakers (e.g. **Aiden**). Language tag pill on the right (**EN**, …).
+
+| Action | Result |
+| --- | --- |
+| **Tap row** | Jump to **Studio → Custom** with that speaker preselected |
+| **Play (▶)** | Bundled voice preview |
+
+Rows: `voicesRow_<speakerId>` (e.g. `voicesRow_aiden`).
+
+### 6.4 Agent notes
+
+- **Same saved list** as Clone reference picker — agent can enroll once, reuse from Voices or Clone.
+- Prefer **tap row** (not play) when staging Clone reference from this tab.
+- Bottom tab: label **Voices** @ y≈618–690 (see §1); was **flaky** from some screens in validation — use label coords from `describe_screen`.
+- **mirroir OCR:** `Search voices`, `All`, `Built-in`, `Saved`, `YOUR SAVED VOICES`, `BUILT-IN
+  SPEAKERS`, `Cloned reference`, `Save a new voice`, speaker names.
+
+---
+
+## 7. History tab
+
+Third bottom tab (**clock / arrow icon**). Log of **generated takes** (Custom, Design, Clone) —
+not the saved-voice library (§6). Each row is one synthesis result with transcript preview,
+mode-colored waveform thumbnail, and metadata.
+
+**Visual reference (owner screenshots, 2026-07-04):**
+
+```text
+┌─────────────────────────────────────────┐
+│  🔍 Search transcript or voice      🗑   │  ← trash = bulk clear menu
+│  [ All ]  Cust…   Desi…   Clone         │  ← mode filter chips (+ dots)
+│                                         │
+│  TODAY                                  │
+│  ▓▓ The morning train slipped…    …   │
+│     • aiden · Jul 4, 2026 · 6.1s       │
+│  ▓▓ Hello there                     …   │  ← … opens row menu
+│     • Moi · … · 1.2s                   │
+│  …                                      │
+├─────────────────────────────────────────┤
+│ Studio │ Voices │ History │ Settings    │
+└─────────────────────────────────────────┘
+```
+
+### 7.1 Chrome
+
+| Element | Purpose | XCUITest id |
+| --- | --- | --- |
+| **Search transcript or voice** | Filter by transcript text, voice name, or mode | `historySearchField` |
+| **Trash (circle)** | Bulk clear menu (disabled when empty) | `historyClearMenu` |
+| **All / Custom / Design / Clone** | Mode filter chips (colored dot per mode) | `historyModeFilter`, `historyModeFilter_<mode>` |
+| Screen marker | — | `screen_history` |
+
+**Bulk clear menu** (trash icon):
+
+| Option | Effect |
+| --- | --- |
+| **Clear History (Keep Audio Files)…** | Removes all history **rows** from the database; WAV files stay on disk | `historyClearKeepFiles` |
+| **Clear History and Delete Audio…** | Removes rows **and** deletes associated audio files (destructive) | `historyClearDeleteFiles` |
+
+Each option shows a confirmation alert before proceeding.
+
+### 7.2 History rows
+
+Grouped by date bucket: **Today**, **Yesterday**, **Previous 7 Days**, **Previous 30 Days**,
+**Earlier**.
+
+Each row shows:
+
+- **Waveform thumbnail** — tinted by mode (Custom = yellow-ish, Design = purple, Clone = orange)
+- **Transcript preview** — first lines of generated text
+- **Metadata line** — mode dot · **voice name** (or mode label) · date · **duration** (e.g. `6.1s`)
+
+| Action | Result |
+| --- | --- |
+| **Tap row body** (thumbnail + text) | Opens **full-screen player** sheet | `historyRowTap_<id>` |
+| **… (ellipsis menu)** | Row actions menu | `historyRowMenu_<id>` |
+| → **Play** | Same as row tap — opens player |
+| → **Save audio** | Share/export the WAV (system share sheet) |
+| → **Delete** | Confirm *“Delete this take?”* → removes **this history entry and its audio file** | `historyRowDeleteConfirm_<id>` |
+
+Container id: `historyRow_<id>`.
+
+**Important distinction:** deleting a **History take** does **not** delete the saved voice
+reference in **Voices** (§6). Clone row showing voice **Me** is a past generation; removing it
+does not un-enroll **Me** from saved voices.
+
+### 7.3 Empty / error states
+
+| State | Copy |
+| --- | --- |
+| No generations yet | *“No takes yet”* |
+| Filter/search no match | *“No matches”* |
+| Load failure | *“Couldn't load history”* + **Retry** (`historyRetryButton`) |
+
+### 7.4 Agent notes
+
+- **mirroir OCR:** `Search transcript or voice`, `All`, `Custom`/`Cust…`, `Design`/`Desi…`,
+  `Clone`, `TODAY`, transcript snippets, voice names, `…` ellipsis, trash menu strings.
+- Tap **row body** vs **…** — same split as Voices (§6): body → player; menu → Play / Save / Delete.
+- Bulk trash is top-right; per-row Delete is under **…** only.
+- Bottom tab: **History** label @ y≈618–690 (see §1).
+
+---
+
+## 8. Settings tab
+
+Fourth bottom tab (**gear icon**). Model downloads, app preferences, links, version footer.
+Scrollable — **Voice models** at top, then **Settings**, **About**, Vocello logo + version.
+
+**Visual reference (owner screenshots, 2026-07-04):**
+
+```text
+┌─────────────────────────────────────────┐
+│  VOICE MODELS                           │
+│  Custom Voice    1.7B · 2.31… · Active ✓🗑│
+│  Voice Design    1.7B · 2.31… · Active ✓🗑│
+│  Voice Cloning   1.7B · 2.34… · Active ✓🗑│
+│                                         │
+│  SETTINGS                               │
+│  Autoplay after generate          [ON]  │
+│  Variation              Expressive  ⇅   │
+│  Saved outputs    Keep in app (H…    ›  │
+│  Storage                    6.96 GB used│
+│  Reduce Motion                   [OFF]  │
+│  Reduce Transparency              [ON]  │
+│                                         │
+│  ABOUT                                  │
+│  Privacy Policy                      ›  │
+│  Open source & licenses              ›  │
+│  Open iOS Settings         Permissions ›│
+│                                         │
+│         [Vocello logo]                  │
+│         VERSION 2.0.0                   │
+├─────────────────────────────────────────┤
+│ Studio │ Voices │ History │ Settings    │
+└─────────────────────────────────────────┘
+```
+
+### 8.1 Voice models
+
+One row per generation mode — maps 1:1 to Studio segments (Custom / Design / Clone).
+
+| State | Subtitle (approx) | Right-side control |
+| --- | --- | --- |
+| **Installed** | `1.7B · … · 2.31 GB · **Active**` | Green **checkmark** + **trash** (`iosModelDelete_<id>`) |
+| **Not installed** | `1.7B · 4-bit · 2.31 GB` (no **Active**) | Gold **Install** button (`iosModelDownload_<id>`) |
+| **Downloading** | `… · **Downloading…**` (may truncate in OCR) | **Cancel** (`iosModelCancel_<id>`); progress bar below row (`iosModelProgress_<id>`) |
+| **Paused / interrupted** | **Paused** / **Interrupted** + progress | **Resume** or **Cancel** |
+| **Incomplete / error** | **Repair needed** / **Retry needed** | **Repair** / **Retry** |
+
+Row container: `iosModelRow_<id>`.
+
+**Owner example — after deleting Custom Voice (2026-07-04):**
+
+```text
+  Custom Voice     1.7B · 4-bit · 2.31 GB     [ Install ]
+  Voice Design     1.7B · … · 2.31… · Active    ✓  🗑
+  Voice Cloning    1.7B · … · 2.34… · Active    ✓  🗑
+```
+
+Custom row lost checkmark/trash and gained **Install**; Design and Clone unchanged. **Storage**
+total dropped by ~2.31 GB. **Studio → Custom** will prompt download until **Install** completes.
+
+**Owner example — Install tapped, download in progress (2026-07-04):**
+
+```text
+  Custom Voice     1.7B · … · 2.31… · Downloading…   [ Cancel ]
+  ▓░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+  33.5 MB / 2.31 GB
+  Voice Design     … · Active                          ✓  🗑
+  Voice Cloning    … · Active                          ✓  🗑
+```
+
+- Progress bar + byte counter appear **below** the row title line.
+- **Cancel** opens *“Cancel download?”* — **Cancel Download** (destructive, removes partial data) or
+  **Keep Download** (`iosModelCancelDownloadConfirmButton`).
+- When complete, row returns to **Active** + checkmark + trash; **Storage** increases.
+
+**Trash on installed row** opens a **Delete model?** bottom sheet — does **not** delete saved voice
+references in **Voices** (§6 gap).
+
+**Delete model sheet** (owner example: Custom Voice trash → 2026-07-04):
+
+```text
+┌─────────────────────────────────────────┐
+│  Delete model?                      ×   │
+│  🗑  Custom Voice                       │
+│     Frees 2.31 GB. You can reinstall    │
+│     later from Settings.                │
+│  [ Delete model ]  (red)                │
+│  [ Cancel ]                             │
+└─────────────────────────────────────────┘
+```
+
+| Control | Result |
+| --- | --- |
+| **×** / swipe dismiss | Close without deleting |
+| **Delete model** | Removes on-disk weights; row returns to **Install**; **Storage** total drops | `deleteModelSheet_confirm` |
+| **Cancel** | Dismiss sheet |
+
+Same sheet for all three model rows (Custom / Design / Clone). **Storage** row updates after
+delete (e.g. `6.96 GB` → lower).
+
+Studio routes here when a mode’s model is missing (`onInstallModel` → Settings tab).
+
+### 8.2 Settings (preferences)
+
+| Row | Type | Notes | XCUITest id |
+| --- | --- | --- | --- |
+| **Autoplay after generate** | Toggle (**default ON**) | When ON, starts **streaming preview** playback as soon as enough audio is buffered — hear output **before** generation finishes (lower time-to-first-audio). When OFF, generation still streams but user must tap play on the Studio live-preview card. Persists in `UserDefaults` key `autoPlay`. | `iosSettings_autoPlayToggle` |
+| **Variation** | Menu (**default Expressive**) | Controls **take-to-take variety** when you regenerate the same script — maps to talker sampling (temperature/top-p), **not** a quality ladder. **Expressive** = official checkpoint defaults (liveliest); **Balanced** / **Consistent** = steadier, more repeatable output. Stamped on every Studio generate (Custom / Design / Clone). Tap row → menu with checkmark on selection. | `iosSettings_variationRow` |
+| **Saved outputs** | Confirmation dialog | **Always** keeps clips internally for **History** playback. Optional **second copy** to a user-picked Files folder (incl. iCloud Drive). Default: *“Keep in app (History)”* — internal only, no export copy. | `iosSettings_savedOutputsRow` |
+
+**Saved outputs dialog** (tap row → 2026-07-04):
+
+```text
+  Saved outputs
+  Generated clips are always kept on this iPhone for History.
+  Optionally also copy each new clip to a folder you choose —
+  Files or iCloud Drive.
+
+  [ Keep in app (History) ]
+  [ Choose a Folder… ]
+```
+
+| Option | Effect |
+| --- | --- |
+| **Keep in app (History)** | Clears external folder bookmark; row shows truncated *“Keep in app (H…”* |
+| **Choose a Folder…** | System folder picker; row shows chosen folder name; each new generate **also copies** WAV there (best-effort, never blocks generation) |
+
+Export is **additive** — History and internal storage unchanged. Failed copy does not fail the take.
+
+| **Storage** | Info | Sum of **installed model** bytes (e.g. `6.96 GB used`) — read-only | `iosSettings_storageRow` |
+| **Reduce Motion** | Toggle (in-app) | Disables Vocello animations; stored in app prefs | `iosSettings_reduceMotionToggle` |
+| **Reduce Transparency** | Toggle (in-app) | Solid surfaces instead of glass; stored in app prefs | `iosSettings_reduceTransparencyToggle` |
+
+### 8.3 About
+
+| Row | Action |
+| --- | --- |
+| **Privacy Policy** | Opens `https://vocello.vercel.app/privacy` | `iosSettings_privacyPolicyRow` |
+| **Open source & licenses** | Opens GitHub repo | `iosSettings_openSourceRow` |
+| **Open iOS Settings** | Deep-links to system Settings (*Permissions* — mic/speech recovery) | `iosSettings_openIOSSettingsRow` |
+
+**Brand footer:** Vocello logo + **VERSION** label (`iosSettings_versionLabel`). Version string
+from build metadata (device may show e.g. `2.0.0`).
+
+### 8.4 Agent notes
+
+- **Do not confuse** model-row **trash** (§8.1) with saved-voice delete (none — see **Known product gaps**).
+- **Storage** row is not tappable — no storage browser on iOS.
+- **mirroir OCR:** `Voice models`, `Custom Voice`, `Voice Design`, `Voice Cloning`, `Active`,
+  `Autoplay`, `Variation`, `Expressive`, `Storage`, `GB used`, `About`, `Privacy Policy`,
+  `Open iOS Settings`, `VERSION`.
+- Bottom tab: **Settings** label @ y≈618–690 (see §1).
+
+---
+
+## 9. Sheets and overlays
+
+**What this section is:** A **cross-reference index** for UI that appears **on top of** the four main
+tabs — bottom sheets, full-screen covers, dialogs, and transient banners. Most Studio pickers are
+already documented inline (§3–§5, §8); §9 collects the rest and flags gaps.
+
+| Overlay | Where documented | Agent priority |
+| --- | --- | --- |
+| Language picker | **§3.3** | Low — leave **AU** for smokes |
+| Delivery picker + custom tone | **§3.4** | Low — leave **NE** for smokes |
+| Voice picker (Custom) | **§3.5** | Low — Aiden default |
+| Voice brief (Design) | **§4.4** (thin) | Medium — needed for Design smokes |
+| Reference clip (Clone) | **§5.4** | Medium — pick saved voice vs record |
+| Delete model confirmation | **§8.1** | Low |
+| Saved outputs dialog | **§8.2** | Low |
+| Cancel download dialog | **§8.1** | Low |
+| History row menu / bulk clear | **§7** | Low |
+| **Full-screen player** | **TODO** | Medium — History tap, inline player expand |
+| **Record + save voice** | **§9.3** | **Avoid** for agent smokes — mic/TCC; use saved voices |
+| **Save voice naming sheet** | **§9.3** | Part of record flow |
+| **First-run onboarding card** | **TODO** | Low — dismiss via Settings CTA |
+| Engine lifecycle toasts | **TODO** | Informational only |
+| System folder picker | **§8.2** | OS UI — agent rarely drives |
+
+### 9.1 Onboarding card (first run)
+
+When **no models** are installed, Studio shows a card:
+
+- Title: **Install your first voice**
+- Body: download Custom / Design / Clone models on-device
+- **Open Settings** → Settings tab (`onboarding_firstRunCard`, `onboarding_openSettings`)
+
+Dismiss by installing any model or navigating away.
+
+### 9.2 Voice brief sheet (Design)
+
+See **§4.4** — title **Voice brief**, 500-char editor, starter rows, **Confirm** disabled when
+empty (`voiceBrief_confirm`, `voiceBrief_editor`). Owner screenshot still optional.
+
+### 9.3 Record and save voice (full-screen + naming sheet)
+
+**Entry points:**
+
+| From | Action |
+| --- | --- |
+| **Voices** tab | **Save a new voice** dashed card (`voices_saveNewVoice`) |
+| **Clone** mode | Reference chip **`+`** → Reference clip sheet → **Record new clip** |
+
+Both launch the same **`IOSRecordVoiceSheet`** flow: record overlay → naming sheet → enroll →
+**Studio → Clone** with reference staged (Voices tab handoff uses the same enroll path).
+
+**Agent note:** Recording requires the **iPhone microphone on the physical device**. iPhone
+Mirroring from Mac **cannot** capture mic input (system may show *micro unavailable from Mac* —
+ignore for product docs; **do not** use mirroir/Peekaboo to drive record smokes). Prefer picking an
+**existing saved voice** (§5.4, §6.2).
+
+#### Phase A — Reference clip recorder (full-screen overlay)
+
+**Visual reference (owner screenshots, 2026-07-04):**
+
+```text
+┌─────────────────────────────────────────┐
+│                                    ×    │
+│         REFERENCE CLIP                  │
+│            00:00                        │
+│  Read 10-20 s of clean, natural speech. │
+│  Quiet room. One voice.                 │
+│         · · · · · · · ·                   │  ← level meter (live while recording)
+│      Tap Record to begin.               │
+│  [ 🎤 Record ]                          │
+└─────────────────────────────────────────┘
+```
+
+| State | Header | Status line | Bottom control |
+| --- | --- | --- | --- |
+| **Idle** | REFERENCE CLIP | *Tap Record to begin.* | **Record** (`iosRecord_start`) |
+| **Recording** | RECORDING | *Keep recording. 10 second minimum.* → *Sounds good…* → *Over 20 seconds…* | **Stop** (`iosRecord_stop`) |
+| **Captured** (after stop) | CAPTURED | — | **Retake** (`iosRecord_retake`) + **Use this clip** / **Need 10 s** (`iosRecord_use`) |
+
+| Element | Detail |
+| --- | --- |
+| **×** (top right) | Cancel — discard, close flow | `iosRecord_close` |
+| **Timer** | `MM:SS` — turns clone-tint when 10–20 s window met |
+| **Level meter** | Live mic amplitude while recording |
+| **Duration contract** | **10 s minimum**, **20 s maximum** recommended window |
+
+After **Stop** (or **Use this clip** when ≥10 s), overlay hands off WAV → auto-transcribe runs in
+background → **Save this voice** sheet appears.
+
+#### Phase B — Save this voice (bottom sheet)
+
+**Visual reference (owner screenshot, 2026-07-04):**
+
+```text
+┌─────────────────────────────────────────┐
+│  Save this voice                    ×   │
+│  ▶  ·····················  0:00  Ready │
+│  Name                                   │
+│  [ Name this voice                    ] │
+│  What you said  Auto-transcribed·optional│
+│  [ What you said in the recording     ] │
+│  [ ✓ Save voice ]                       │
+└─────────────────────────────────────────┘
+```
+
+| Field | Detail |
+| --- | --- |
+| **Clip review row** | Play/pause preview of recording; **Ready** badge |
+| **Name** | Required — placeholder *Name this voice* |
+| **What you said** | Auto-transcribed from clip (on-device); user may edit; optional but needed for Clone generate |
+| **Save voice** | Enabled when name non-empty; enrolls saved voice |
+
+On success: voice appears in **Voices** + **Reference clip** lists; caller navigates to **Clone**
+with reference staged. Quality warnings (clip too short/noisy) may show keep/re-record alert
+(`recordVoice_keepDespiteWarning`, `recordVoice_discardOnWarning`).
+
+**mirroir OCR:** `REFERENCE CLIP`, `RECORDING`, `Record`, `Stop`, `Retake`, `Use this clip`,
+`Save this voice`, `Name this voice`, `What you said`, `Save voice`, `Ready`.
+
+### 9.4 Still TODO
+
+| Overlay | Notes |
+| --- | --- |
+| **Full-screen player** | History row tap / inline player expand — play, scrubber, dismiss |
+| **Engine lifecycle toasts** | Transient *Preparing runtime* / *Model loading* — informational |
+| **System folder picker** | Saved outputs **Choose a Folder…** — OS UI |
+
+---
+
+## Appendix A — OCR ↔ intent cheat sheet
+
+| mirroir OCR (approx) | Agent should interpret as |
+| --- | --- |
+| `Custom` / `Design` / `Clone` @ y≈108 | Mode segment |
+| `Studio` / `Voices` / `History` / `Settings` @ y≈618 | Bottom tab label |
+| `Al`, `AI` + person icon | Voice chip (**Aiden** by default) |
+| `NE` + masks icon | Delivery chip — **Neutral** (default) |
+| `HA`, `SA`, … | Delivery chip after non-neutral preset selected |
+| `Delivery` + preset names | Delivery bottom sheet open |
+| `Use a custom tone instead` | Entry to custom delivery editor |
+| `Custom tone` + `0/500` | Custom delivery instruction screen |
+| `AU` + globe icon | Language chip — **Auto** detect (abbreviation of “Auto”, not Australia) |
+| `AU ^` | Language chip with chevron (tap target includes `^` in OCR) |
+| `EN`, `FR`, `ZH`, … | Language chip after user picked a fixed language |
+| `Generating` / `Rendering audio` | Custom mode in-flight (pre-preview) |
+| `Streaming preview` | Live preview player during generate |
+| `Install Custom Voice` | Model missing — routes to Settings |
+| `Voice` / `Confirm` | Custom voice picker sheet |
+| `Generate` | Generate CTA (check §3.6 readiness first) |
+| `Built-in voice` | Custom mode section header |
+| `0/150` | Empty script |
+| `Type or paste your script.` | Custom mode script composer (empty) |
+| `+` (bubble icon) | Design mode — **voice brief unset** (tap to add brief) |
+| Brief abbrev (2 letters) | Design mode — voice brief is set |
+| `Type the lines you want this designed` | Voice Design script composer (empty) |
+| `Designed voice` | Design mode section header |
+| `Voice cloning` | Clone mode section header |
+| `+` + waveform icon | Clone reference chip unset |
+| `AD`, `IM`, … | Clone reference chip set (initials or recorded clip) |
+| `Reference clip` | Clone reference picker sheet |
+| `Search voices` | Voices tab search field |
+| `YOUR SAVED VOICES` / `Cloned reference` | Saved voice section / row subtitle |
+| `Save a new voice` | Record-new-reference CTA on Voices tab |
+| `BUILT-IN SPEAKERS` | Built-in section header |
+| `Type the new text. The reference` | Clone script composer (empty) |
+| `Search transcript or voice` | History tab search field |
+| `TODAY` / `Yesterday` | History date section headers |
+| `…` (ellipsis on history row) | Per-row actions menu (Play / Save audio / Delete) |
+| `Clear History` / `Delete Everything` | Bulk clear confirmation alerts |
+| `Voice models` / `Active` | Settings model section / installed status |
+| `Autoplay after generate` | Settings autoplay toggle |
+| `Variation` / `Expressive` | Settings sampling variation menu |
+| `Balanced` / `Consistent` | Variation menu alternatives |
+| `Saved outputs` / `Keep in app` | Optional export-copy destination (History always kept) |
+| `Choose a Folder` | Pick Files/iCloud folder for extra WAV copies |
+| `REFERENCE CLIP` / `Record` | Record overlay — idle state |
+| `RECORDING` / `Stop` | Record overlay — capturing |
+| `Save this voice` / `Save voice` | Naming sheet after record |
+| `Name this voice` | Required voice name field |
+| `GB used` | Settings storage summary (model weights) |
+| `Open iOS Settings` / `Permissions` | Deep link to system Settings |
+| `Install` | Model row — weights not on device; tap to download |
+| `Downloading` / `MB / GB` | Model download in progress |
+| `Cancel download` | Confirm abort of in-progress model download |
+| `Delete model` / `Frees.*GB` | Delete model confirmation sheet |
+| `VERSION` | Settings footer version label |
+
+---
+
+## Appendix B — Change log
+
+| Date | Author | Change |
+| --- | --- | --- |
+| 2026-07-04 | Owner + agent | Initial doc: hierarchy, mode selector, Custom bottom strip; `AI` = Aiden |
+| 2026-07-04 | Owner | Custom script composer: tap-to-type, placeholder, 150-char limit |
+| 2026-07-04 | Owner | Voice Design strip vs Custom: `+` brief chip, dual readiness |
+| 2026-07-04 | Owner | Language chip **AU** = Auto (globe); not Australia |
+| 2026-07-04 | Owner | Delivery sheet + **Custom tone** (500-char performance instructions) |
+| 2026-07-04 | Owner | Clone mode: 2-chip strip, Reference clip sheet, **AD** initials; Design-saved → Clone ref |
+| 2026-07-04 | Owner | Voices tab: saved + built-in sections, filters, row tap → Studio handoff |
+| 2026-07-04 | Owner | Voices row tap example: **Me** → Studio Clone, chip **ME**, script empty |
+| 2026-07-04 | Owner | **Gap:** no delete for saved clone / Design voices — append-only list |
+| 2026-07-04 | Owner | History tab: search, mode filters, row tap → player, … menu, bulk trash |
+| 2026-07-04 | Owner | Settings tab: voice models, prefs, About links, version footer |
+| 2026-07-04 | Owner | Delete model sheet: Custom Voice trash → confirm, frees 2.31 GB |
+| 2026-07-04 | Owner | Post-delete: Custom Voice → **Install**; Design/Clone still **Active** |
+| 2026-07-04 | Owner | Install → download progress (`33.5 MB / 2.31 GB`), **Cancel** |
+| 2026-07-04 | Owner | **Autoplay after generate**: ON by default; gates streaming preview TTFA |
+| 2026-07-04 | Code | **Variation**: Expressive/Balanced/Consistent — sampling consistency, not quality |
+| 2026-07-04 | Owner | **Saved outputs**: History always kept; optional folder copy |
+| 2026-07-04 | Doc | Custom Voice §3 expanded: voice picker, readiness, lifecycle, install CTA |
+| 2026-07-04 | Owner | Record + save voice: REFERENCE CLIP overlay, Save this voice sheet |

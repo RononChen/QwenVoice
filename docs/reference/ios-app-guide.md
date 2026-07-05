@@ -11,6 +11,8 @@ touching `Sources/iOS/`. All iOS UI tests and real-engine work run **on-device o
 > device lanes (`scripts/ios_device.sh`) in [`ios-device-testing.md`](ios-device-testing.md);
 > generation-engine internals in [`../ARCHITECTURE.md`](../ARCHITECTURE.md);
 > tone/delivery prompt-writing in [`../qwen_tone.md`](../qwen_tone.md).
+> For **mirroir / Peekaboo agent driving** (OCR + mirror coords), see the living
+> [`ios-agent-ui-tour.md`](ios-agent-ui-tour.md).
 
 ---
 

@@ -231,9 +231,30 @@ These are execution venues, not authoring tools:
 
 ---
 
+### 4.8 mobile-mcp (2026-07 adoption path)
+
+**What it is:** [mobile-next/mobile-mcp](https://github.com/mobile-next/mobile-mcp) — npm MCP +
+`mobilecli` packaging WebDriverAgent + go-ios tunnel on **real devices**.
+
+**Why it supersedes the 2025 Appium pilot recommendation:**
+
+- Single agent-ergonomic MCP (`mobile_list_elements_on_screen`, typed input, screenshots)
+- Hits Vocello `accessibilityIdentifier` surface (same as XCUITest)
+- Replaces mirroir+Peekaboo **mirror-coordinate** bench driving (Playbook E deprecated)
+
+**Verdict:** **Primary iOS agent driver** for exploratory QA and `bench-ui-mcp`. Pre-merge
+**XCUITest gates unchanged** until WDA matrix parity proven via
+[`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md). iOS Simulator remains off-limits
+for MLX/engine work.
+
+**If spike fails:** fall back to **`appium/appium-mcp`** (same WDA stack), not mirror OCR.
+
+---
+
 ## 5. Recommended Architecture
 
-> **Historical only — not implemented.** The project adopted **Tier-A/B XCUITest** with a fake backend instead of Layer 2 (Appium/agent MCP). See [`testing-runbook.md`](testing-runbook.md).
+> **Historical only — partially superseded (2026-07).** Layer 2 pilot target is now **mobile-mcp**
+> (see [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md)). Layer 1 XCUITest gates remain.
 
 
 A layered strategy that preserves today’s reliable baseline while adding agent-driven capabilities:

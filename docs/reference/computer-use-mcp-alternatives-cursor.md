@@ -4,6 +4,8 @@ Research-backed replacement paths for Claude Code’s embedded `mcp__computer-us
 
 **Pilot adopted (2026-07-01):** user-scoped **Peekaboo** + **mirroir-mcp** via [`computer-use-mcp-pilot-log.md`](computer-use-mcp-pilot-log.md).
 
+**Current (2026-07-04 evening):** **Peekaboo** (macOS) + **mirroir** (iPhone Mirroring) in `~/.cursor/mcp.json` — re-validated in [`computer-use-mcp-pilot-log.md`](computer-use-mcp-pilot-log.md) §8. iOS agent UI map (living): [`ios-agent-ui-tour.md`](ios-agent-ui-tour.md). **mobile-mcp** deferred (WDA signing); see [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md).
+
 ---
 
 ## Critical framing
@@ -24,7 +26,62 @@ Claude Code computer-use was three layers:
 
 ---
 
-## User-scoped setup (pilot)
+## User-scoped setup (current — Peekaboo + mirroir)
+
+Config lives in **`~/.cursor/mcp.json`** (all projects). **Do not commit** this file or API keys to the repo.
+
+### 1. Stdio wrapper (Cursor spawn fix)
+
+Required because Cursor may set `ELECTRON_RUN_AS_NODE` and a broken PATH when spawning stdio MCP children.
+
+Create **`$HOME/.cursor/bin/mcp_stdio_wrapper.sh`** (if not already present):
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+unset ELECTRON_RUN_AS_NODE
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
+exec npx -y "$@"
+```
+
+```bash
+chmod +x "$HOME/.cursor/bin/mcp_stdio_wrapper.sh"
+```
+
+### 2. Merge into `~/.cursor/mcp.json`
+
+Add **peekaboo** + **mirroir** alongside existing servers (context7, xcodebuildmcp, axiom):
+
+```json
+"peekaboo": {
+  "command": "/Users/you/.cursor/bin/mcp_stdio_wrapper.sh",
+  "args": ["@steipete/peekaboo", "mcp"]
+},
+"mirroir": {
+  "command": "/Users/you/.cursor/bin/mcp_stdio_wrapper.sh",
+  "args": ["mirroir-mcp"]
+}
+```
+
+French macOS: `~/.mirroir-mcp/settings.json` → `{"mirroringProcessName": "Recopie de l'iPhone"}`.
+
+Cmd+Q and reopen Cursor after editing `mcp.json`.
+
+### Verify
+
+- Settings → MCP → **peekaboo** (~27 tools) + **mirroir** (~11 tools) Connected
+- Peekaboo `permissions`; mirroir `check_health` + `status`
+- Full validation log: [`computer-use-mcp-pilot-log.md`](computer-use-mcp-pilot-log.md) §8
+
+---
+
+## User-scoped setup (deferred — mobile-mcp)
+
+See [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md) for WDA prerequisites. Pin `@mobilenext/mobile-mcp@0.0.61` with `MOBILEMCP_DISABLE_TELEMETRY=1` when WDA signing is unblocked.
+
+---
+
+## User-scoped setup (reference — Peekaboo + mirroir detail)
 
 Config lives in **`~/.cursor/mcp.json`** (all projects). **Do not commit** this file or API keys to the repo.
 
@@ -109,12 +166,14 @@ Terminal sanity (optional): `"$HOME/.cursor/bin/mcp_stdio_wrapper.sh" @steipete/
 
 ## Recommended stacks
 
-### Option 1 — Recreate Fable exploratory loop (pilot)
+### Option 1 — Recreate Fable exploratory loop (RETIRED 2026-07-04)
 
 | Platform | MCP | Role |
 | --- | --- | --- |
-| macOS | [Peekaboo](https://github.com/steipete/Peekaboo) | AX + screenshot; `see` → `click`/`type`/`hotkey` |
-| iOS | [mirroir-mcp](https://github.com/jfarcand/mirroir-mcp) | iPhone Mirroring OCR + virtual HID |
+| macOS | [Peekaboo](https://github.com/steipete/Peekaboo) | ~~AX + screenshot~~ — removed from user config |
+| iOS | [mirroir-mcp](https://github.com/jfarcand/mirroir-mcp) | ~~Mirror OCR + HID~~ — removed from user config |
+
+**Superseded by:** [mobile-mcp](https://github.com/mobile-next/mobile-mcp) for iOS agent UI; macOS uses script gates + Axiom auditors.
 
 ### Option 2 — Precision + accessibility IDs
 
@@ -159,9 +218,13 @@ Mirror driving is **exploratory only** — brittle vs WDA/XCUITest ([research §
 
 ---
 
-## Tier C — iPhone via Appium/WDA
+## Tier C — iPhone via WDA (mobile-mcp / Appium)
 
-Official **`appium/appium-mcp`**: real-device prep, gestures, screenshots, optional vision — hits Vocello `accessibilityIdentifier` surface.
+**Preferred (2026-07):** [**mobile-mcp**](https://github.com/mobile-next/mobile-mcp) (`@mobilenext/mobile-mcp`) — packaged WDA + MCP tools (`mobile_list_elements_on_screen`, taps, typing). Real device only for Vocello MLX. Setup: [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md), preflight `scripts/ios_mobile_mcp.sh`.
+
+**Fallback:** Official **`appium/appium-mcp`**: heavier session ceremony; same WDA + `accessibilityIdentifier` surface if mobile-mcp spike fails.
+
+Mirror driving (Tier B) is **observation only** — do not extend for agent bench matrix.
 
 ---
 
@@ -181,10 +244,10 @@ Official **`appium/appium-mcp`**: real-device prep, gestures, screenshots, optio
 | Task | Use |
 | --- | --- |
 | macOS exploratory UI / ad-hoc settings tours | **Peekaboo** MCP (`see` first, then element IDs) |
-| iOS exploratory UI on real device | **mirroir** MCP (phone unlocked, Mirroring up; install via `ios_device.sh`) |
+| iOS exploratory UI + agent bench matrix | **mobile-mcp** (WDA tree; `bench-ui-mcp --agent-drive`) |
+| iOS observation (no taps) | `scripts/ios_device.sh shot` or `mobile_take_screenshot` |
 | macOS regression | `scripts/macos_test.sh gate` |
 | iOS regression | `scripts/ios_device.sh gate` |
-| iOS observation screenshot | `scripts/ios_device.sh shot` (no agent clicks in shell) |
 | Crash / profile / audit analysis | **Axiom MCP** (`user-axiom`: `axiom_xcsym_*`, `axiom_xcprof_*`, `axiom_get_agent`) |
 | Deterministic bench timing / generation verification | `scripts/uitest_measure.sh` (verify-generation, streaming-preview-check, bench-compare) — no MCP replaces it |
 
@@ -195,8 +258,8 @@ Official **`appium/appium-mcp`**: real-device prep, gestures, screenshots, optio
 | Capability | CC embedded | Cursor pilot |
 | --- | --- | --- |
 | Vision macOS loop | Built-in | Peekaboo |
-| iPhone Mirroring drive | CC + Fable | mirroir-mcp |
-| iOS AX tree | No (mirror) | Appium (Option 2) |
+| iPhone UI drive (real device) | CC + Fable | **mobile-mcp** (WDA) |
+| iOS AX tree | No (mirror) | **mobile-mcp** / Appium WDA |
 | Measurement shell | Deleted `uitest.sh` | **Restored** — `scripts/uitest_measure.sh` (2026-07-01) |
 | Zero setup | Yes | User `mcp.json` + TCC |
 
@@ -206,6 +269,7 @@ Official **`appium/appium-mcp`**: real-device prep, gestures, screenshots, optio
 
 - [Peekaboo MCP](https://peekaboo.sh/MCP.html) · [GitHub](https://github.com/steipete/Peekaboo)
 - [mirroir-mcp](https://github.com/jfarcand/mirroir-mcp) · [mirroir.dev](https://mirroir.dev)
+- [mobile-mcp](https://github.com/mobile-next/mobile-mcp) · [evaluation doc](mobile-mcp-ios-evaluation.md)
 - [appium/appium-mcp](https://github.com/appium/appium-mcp)
 - [Cursor cloud computer use](https://cursor.com/blog/agent-computer-use)
 - [Post-mortem §2.8](../post-mortem/2026-06-post-fable-development-hell.md)

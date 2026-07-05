@@ -1,9 +1,9 @@
 # UI smoke runbooks — agent-driven exploratory loops
 
-Per-mode smoke procedures for **agent-driven** UI validation in Cursor, pairing the
-exploratory MCPs (**Peekaboo** on macOS, **mirroir** on iOS — see
-[`computer-use-mcp-alternatives-cursor.md`](computer-use-mcp-alternatives-cursor.md)) with the
+Per-mode smoke procedures for **agent-driven** UI validation in Cursor, pairing
+**mobile-mcp** on iOS (WDA accessibility tree) and **script + Axiom** on macOS with the
 **deterministic measurement shell** [`scripts/uitest_measure.sh`](../../scripts/uitest_measure.sh).
+See [`computer-use-mcp-alternatives-cursor.md`](computer-use-mcp-alternatives-cursor.md).
 
 Successor to the per-mode smoke runbooks deleted at `6d1cca4`. The core design rule
 survives: **measurement never depends on how the agent clicked.** Pass/fail comes from
@@ -82,7 +82,29 @@ Peekaboo driving pattern (precision-first, vision to confirm):
 
 ---
 
-## iOS — mirroir Studio smoke (real device over iPhone Mirroring)
+## iOS — Studio smoke via mobile-mcp (DEPRECATED mirroir section below)
+
+Device prep:
+
+```sh
+scripts/ios_mobile_mcp.sh preflight
+scripts/ios_device.sh build && scripts/ios_device.sh install
+scripts/ios_device.sh launch
+```
+
+Drive via **mobile-mcp**:
+
+1. `mobile_list_available_devices` — confirm paired iPhone
+2. `mobile_launch_app` → `com.patricedery.vocello`
+3. `mobile_list_elements_on_screen` — find tabs and mode segments by identifier
+4. Tour: Studio → Voices → History → Settings; re-list elements after each navigation
+5. Evidence: `mobile_take_screenshot` or `scripts/ios_device.sh shot`
+
+See [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md) and Playbook F in [`ios-device-testing.md`](ios-device-testing.md).
+
+---
+
+## iOS — mirroir Studio smoke (RETIRED 2026-07-04)
 
 Device prep (phone **unlocked**, Mirroring connected):
 
@@ -101,10 +123,122 @@ Drive via mirroir MCP:
 4. Evidence: `scripts/ios_device.sh shot build/<name>.png` (observation lane) or the
    mirroir screenshot tool.
 
-**Generation verification on iOS** is NOT done by mirror-driving — use the deterministic
-lanes: `scripts/ios_device.sh gate` (headless autorun step) or
-`scripts/ios_device.sh test --cold` (ColdGeneration XCUITest). Mirror taps are for
-exploratory UX review only; the sentinel/telemetry files are the ground truth.
+**Generation verification on iOS** for ad-hoc smokes: `scripts/ios_device.sh gate` (headless
+autorun) or `scripts/ios_device.sh test --cold`. For the **full UI matrix**, use
+[`bench-ui-mcp`](#ios--mobile-mcp-bench-ui-matrix-preferred) (same telemetry gate as
+XCUITest `bench-ui`).
+
+### iOS exploratory (mobile-mcp — preferred)
+
+1. `scripts/ios_mobile_mcp.sh preflight` — WDA + mutex
+2. `mobile_list_available_devices` → `scripts/ios_device.sh install`
+3. `mobile_launch_app` → `com.patricedery.vocello`
+4. `mobile_list_elements_on_screen` after each navigation (tabs, mode segments)
+5. Evidence: `scripts/ios_device.sh shot` or `mobile_take_screenshot`
+
+See [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md) and Playbook F in
+[`ios-device-testing.md`](ios-device-testing.md).
+
+---
+
+## iOS — mobile-mcp bench-ui matrix (preferred)
+
+Agent-driven full-matrix bench: **mobile-mcp** drives via WDA accessibility tree; **shell proves**
+via pulled `generations.jsonl` + `check_ios_ui_bench.py`.
+
+### Session prep
+
+```sh
+scripts/ios_device.sh device-state
+scripts/ios_mobile_mcp.sh preflight
+scripts/ios_device.sh bench-ui-mcp --agent-drive \
+  --warm 1 --lengths medium --modes custom --label "mcp-pilot"
+```
+
+The driver prints `MCP_BENCH_TAKE_BEGIN` blocks and waits for `take-N.done` after each take.
+
+### Hybrid MCP loop (every take)
+
+1. **Preflight once:** `scripts/ios_mobile_mcp.sh preflight` + `lock` (driver acquires lock)
+2. **Perceive:** `mobile_list_elements_on_screen` — find `generateSection_*`, `textInput_*`
+3. **Act:** element tap / `mobile_type_keys` — **not** mirror coordinates
+4. **Measure:** `SINCE=$(scripts/ios_device.sh vision-now)` before Generate; after tap,
+   `scripts/ios_device.sh vision-bench-wait --run-id … --since "$SINCE"`
+5. **Signal:** `touch build/ios/bench-ui-mcp-<runID>/take-N.done`
+
+Workflow map: [`ios-app-guide.md`](ios-app-guide.md).
+
+---
+
+## iOS — vision bench-ui matrix (DEPRECATED)
+
+> **Deprecated 2026-07** — use [mobile-mcp bench-ui](#ios--mobile-mcp-bench-ui-matrix-preferred) instead.
+> Retained for emergency fallback only.
+
+Human-like full-matrix bench: **mirroir sees**, **Peekaboo clicks/types** on the Mac-side
+Mirroring window, **shell proves** via pulled `generations.jsonl`.
+
+### Session prep
+
+```sh
+scripts/ios_device.sh device-state          # exit 0
+scripts/ios_device.sh models check --strict
+scripts/ios_device.sh bench-ui-vision --agent-drive \
+  --warm 1 --lengths medium --modes custom --label "vision-pilot"
+```
+
+The driver prints `VISION_BENCH_TAKE_BEGIN` blocks and waits for `take-N.done` after each take.
+
+### Hybrid MCP loop (every take)
+
+1. **Calibrate once** (driver does this): `scripts/lib/ios_vision_bridge.sh calibrate`
+2. **Perceive:** mirroir `check_health` → `describe_screen` (OCR + window-relative tap coords)
+3. **Transform:** `scripts/lib/ios_vision_bridge.sh to-global X Y` → screen coords for Peekaboo
+4. **Act:** Peekaboo `window` focus (Mirroring app name from `mirror-app-name`) → `click coords:` with `foreground: true` → `type` for script text
+5. **Confirm:** `describe_screen` again — verify tab/mode/keyboard state before Generate
+6. **Measure:** capture `SINCE=$(scripts/ios_device.sh vision-now)` **before** Generate; after tap,
+   `scripts/ios_device.sh vision-bench-wait --run-id … --since "$SINCE" --timeout …`
+7. **Signal:** `touch build/ios/bench-ui-vision-<runID>/take-N.done`
+
+Workflow map: [`ios-app-guide.md`](ios-app-guide.md) (tabs, `generateSection_*`, chips, sheets).
+
+### Per-mode preparation (semantic)
+
+| Mode | Vision check | Steps |
+| --- | --- | --- |
+| **custom** | OCR: `Custom` segment + composer | Tap Custom → clear script → type corpus text |
+| **design** | `Voice brief:` chip | Tap chip → starter row or type brief once per warm session → type script |
+| **clone** | Saved voice on device (`models check` → `cloneVoicesEnrolled`) | Voices tab → first saved card → handoff to Clone (no mic over mirror) |
+
+### Clear composer
+
+- OCR tap **`bench clear script`** (`QWENVOICE_UI_TEST_HOOKS=1` — driver sets via `vision-launch`)
+- Fallback: tap editor → Peekaboo `hotkey cmd,a` + delete, then type
+
+### Keyboard + Generate
+
+- Tap composer → Peekaboo `type` with `foreground: true`, human `--wpm 120`
+- Press `{return}` / Done to dismiss keyboard (**required** before Generate)
+- Tap `Generate` via transformed coords; never tap while keyboard is visible
+
+### Coordinate bridge
+
+```sh
+scripts/lib/ios_vision_bridge.sh calibrate build/ios/vision-bridge.json
+scripts/lib/ios_vision_bridge.sh to-global 120 450   # → gx,gy for Peekaboo click
+```
+
+Recalibrate if taps miss (window moved/resized). French macOS: `~/.mirroir-mcp/settings.json` →
+`mirroringProcessName`.
+
+### Pilot vs full matrix
+
+| Scope | Command | Takes (approx) |
+| --- | --- | --- |
+| Pilot | `--warm 1 --lengths medium --modes custom` | 2 (cold + warm medium) |
+| Full | default flags | ~29 |
+
+Gate: same `scripts/check_ios_ui_bench.py` as XCUITest `bench-ui` (driver runs at end).
 
 ---
 
@@ -116,5 +250,6 @@ exploratory UX review only; the sentinel/telemetry files are the ground truth.
 | WAV/DB mismatch | Inspect `$ART/result.json` reason; `scripts/uitest_measure.sh db "SELECT id,mode,audioPath,duration FROM generations ORDER BY createdAt DESC LIMIT 3"` |
 | Preview underrun/chunk gap | `streaming-preview-check` output names the failing signpost; escalate to the backend-mlx role |
 | Focus stolen mid-run | `scripts/uitest_measure.sh activate`, re-`see`, continue |
-| mirroir taps landing wrong | Re-run `describe_screen` (window may have moved); check Mirroring window wasn't resized |
+| mirroir taps landing wrong | Re-run `describe_screen`; `scripts/lib/ios_vision_bridge.sh calibrate`; Peekaboo `window` focus Mirroring app |
+| vision-bench-wait timeout | `ios_device.sh pull`; grep `engine/generations.jsonl` for `benchRunID`; check mirror still active (`device-state`) |
 | Run died mid-flight for no code reason | `scripts/ios_device.sh device-state` — phone in use / call / mirror paused are named verdicts; bench sentinels also carry `interruptions` events |
