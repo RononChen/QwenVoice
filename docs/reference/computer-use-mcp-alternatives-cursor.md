@@ -67,11 +67,11 @@ French macOS: `~/.mirroir-mcp/settings.json` → `{"mirroringProcessName": "Reco
 
 Cmd+Q and reopen Cursor after editing `mcp.json`.
 
-### Verify
+### Verify (quick)
 
-- Settings → MCP → **peekaboo** (~27 tools) + **mirroir** (~11 tools) Connected
-- Peekaboo `permissions`; mirroir `check_health` + `status`
-- Full validation log: [`computer-use-mcp-pilot-log.md`](computer-use-mcp-pilot-log.md) §8
+- Settings → MCP → **peekaboo** (~27 tools) + **mirroir** (**~25+** after `install_mirroir_user_config.sh`) Connected
+- mirroir `check_health` + `describe_screen`
+- Full setup: sections 3–6 below · log: [`computer-use-mcp-pilot-log.md`](computer-use-mcp-pilot-log.md) §8–§9
 
 ---
 
@@ -126,10 +126,88 @@ Use your expanded home path in the JSON file (JSON does not expand `$HOME` — s
 
 | Permission | Peekaboo | mirroir |
 | --- | --- | --- |
-| Accessibility | Input, AX tree | tap/type |
-| Screen Recording | `image`, `see` | screenshot, OCR |
+| Accessibility | Input, AX tree | `tap`, `type_text`, `scroll_to`, … |
+| Screen Recording | `image`, `see` | `screenshot`, `describe_screen` OCR |
 
-Grant to **Cursor.app**, not Terminal. Cmd+Q and reopen Cursor after editing `mcp.json`.
+Grant to **Cursor.app**, not Terminal. Cmd+Q and reopen Cursor after editing `mcp.json` or mirroir permissions.
+
+### 4. mirroir permissions.json (required for iOS driving)
+
+mirroir-mcp is **fail-closed by default** — without `permissions.json` only **~11 read-only tools**
+appear (`describe_screen`, `check_health`, …). **`tap` and `type_text` are hidden.**
+
+**Install from repo (recommended):**
+
+```bash
+scripts/install_mirroir_user_config.sh --merge-settings
+# Restart Cursor (Cmd+Q)
+```
+
+This copies [`.mirroir-mcp/permissions.json`](../../.mirroir-mcp/permissions.json) to
+`~/.mirroir-mcp/` and merges OCR settings into `~/.mirroir-mcp/settings.json` (preserves
+`mirroringProcessName` on French macOS).
+
+Or create `~/.mirroir-mcp/permissions.json` manually:
+
+```json
+{
+  "allow": [
+    "tap", "double_tap", "long_press", "swipe", "drag",
+    "type_text", "press_key", "scroll_to", "measure",
+    "press_home", "press_back", "launch_app", "reset_app"
+  ],
+  "deny": ["shake", "set_network", "generate_skill"],
+  "skipElements": ["Delete", "Delete Everything", "Delete model", "Clear History"]
+}
+```
+
+After restart, Settings → MCP → **mirroir** should expose **~25+ tools** (not ~11).
+Reference: [mirroir permissions.md](https://github.com/jfarcand/mirroir-mcp/blob/main/docs/permissions.md).
+
+### 5. mirroir settings (OCR + localized macOS)
+
+Project-local [`.mirroir-mcp/settings.json`](../../.mirroir-mcp/settings.json) forces deterministic OCR:
+
+```json
+{
+  "screenDescriberMode": "ocr",
+  "ocrMinImageWidth": 600,
+  "ocrLanguages": ["en-US"],
+  "describeScreenOmitScreenshot": true
+}
+```
+
+French macOS — add to **`~/.mirroir-mcp/settings.json`** (typographic apostrophe):
+
+```json
+{ "mirroringProcessName": "Recopie de l'iPhone" }
+```
+
+Restart Cursor after settings changes. Full reference:
+[mirroir configuration](https://github.com/jfarcand/mirroir-mcp/blob/main/docs/configuration.md).
+
+### 6. iOS driving loop (native — preferred)
+
+**Do not** use Peekaboo clicks on the mirror window when mirroir `tap` is available.
+
+```text
+describe_screen → tap / type_text / measure → describe_screen …
+```
+
+Preflight: [`scripts/ios_mirroir_preflight.sh`](../../scripts/ios_mirroir_preflight.sh).
+Vocello app map: [`.mirroir-mcp/skills/apps/Vocello/APP.md`](../../.mirroir-mcp/skills/apps/Vocello/APP.md).
+Agent tour: [`ios-agent-ui-tour.md`](ios-agent-ui-tour.md) Appendix B.
+
+| macOS Space | Put iPhone Mirroring in the **same Space** as Cursor — capture/tap fail across Spaces. |
+| Generate miss | Always take **Generate** coords from OCR — chip row is ~30–40 px above the bar. |
+| `describe_screen` fail | `ios_device.sh shot` still works — fix TCC; legacy Peekaboo+bridge is fallback only. |
+
+### Verify
+
+- Settings → MCP → **peekaboo** (~27 tools) + **mirroir** (**~25+** tools after permissions.json) Connected
+- Agent chat: mirroir `check_health` + `describe_screen` on Studio/Custom
+- `scripts/ios_mirroir_preflight.sh`
+- Full validation log: [`computer-use-mcp-pilot-log.md`](computer-use-mcp-pilot-log.md) §8–§9
 
 ### TCC repeat-prompt quirk
 
@@ -138,42 +216,21 @@ macOS may show a Screen Recording prompt from Cursor **even when Cursor is alrea
 - The MCP spawn chain (`npx` → Node → Peekaboo/mirroir) triggers a fresh Allow tied to the in-app tool call.
 - Peekaboo may route capture through **Peekaboo Bridge** — grant the Bridge host if it appears ([Peekaboo permissions](https://peekaboo.sh/permissions.html)).
 
-**Fix:** Click **Allow** when the prompt appears during an Agent tool call, Cmd+Q Cursor, reopen, confirm Settings → Tools & MCP shows green for `peekaboo` and `mirroir`. Run `peekaboo permissions status --all-sources` in Terminal if still stuck.
-
-### mirroir on localized macOS (e.g. French)
-
-mirroir-mcp locates the Mirroring window by process name **"iPhone Mirroring"**; localized
-systems rename it (French: **"Recopie de l'iPhone"**) and every tool fails with
-*"'iphone' is not open"*. Fix once in `~/.mirroir-mcp/settings.json`:
-
-```json
-{ "mirroringProcessName": "Recopie de l'iPhone" }
-```
-
-(Use the exact localized name from `System Events`, including the typographic apostrophe.)
-Restart Cursor so the MCP server re-reads settings. Reference:
-[mirroir configuration](https://github.com/jfarcand/mirroir-mcp/blob/main/docs/configuration.md).
-
-### Verify
-
-- Settings → MCP → **peekaboo** + **mirroir** Connected
-- Agent chat: Peekaboo `list` or `permissions`; mirroir `status` or `check_health`
-- Second tool call in same turn — confirms session not SIGKILL’d mid-flight
-
-Terminal sanity (optional): `"$HOME/.cursor/bin/mcp_stdio_wrapper.sh" @steipete/peekaboo permissions status`
+**Fix:** Click **Allow** when the prompt appears during an Agent tool call, Cmd+Q Cursor, reopen, confirm Settings → Tools & MCP shows green for `peekaboo` and `mirroir`. Run `peekaboo permissions status --all-sources` in Terminal if still stuck. Tail `~/.mirroir-mcp/debug.log` if `describe_screen` still fails.
 
 ---
 
 ## Recommended stacks
 
-### Option 1 — Recreate Fable exploratory loop (RETIRED 2026-07-04)
+### Option 1 — Peekaboo (macOS) + mirroir (iOS) — **current pilot**
 
 | Platform | MCP | Role |
 | --- | --- | --- |
-| macOS | [Peekaboo](https://github.com/steipete/Peekaboo) | ~~AX + screenshot~~ — removed from user config |
-| iOS | [mirroir-mcp](https://github.com/jfarcand/mirroir-mcp) | ~~Mirror OCR + HID~~ — removed from user config |
+| macOS | [Peekaboo](https://github.com/steipete/Peekaboo) | AX + `see` → click/type on Vocello.app |
+| iOS | [mirroir-mcp](https://github.com/jfarcand/mirroir-mcp) | `describe_screen` → `tap` / `type_text` on mirror |
 
-**Superseded by:** [mobile-mcp](https://github.com/mobile-next/mobile-mcp) for iOS agent UI; macOS uses script gates + Axiom auditors.
+Setup: sections 1–6 above · [`ios-agent-ui-tour.md`](ios-agent-ui-tour.md) Appendix B.
+**mobile-mcp** (WDA) remains deferred — see [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md).
 
 ### Option 2 — Precision + accessibility IDs
 
@@ -244,12 +301,14 @@ Mirror driving (Tier B) is **observation only** — do not extend for agent benc
 | Task | Use |
 | --- | --- |
 | macOS exploratory UI / ad-hoc settings tours | **Peekaboo** MCP (`see` first, then element IDs) |
-| iOS exploratory UI + agent bench matrix | **mobile-mcp** (WDA tree; `bench-ui-mcp --agent-drive`) |
-| iOS observation (no taps) | `scripts/ios_device.sh shot` or `mobile_take_screenshot` |
+| iOS exploratory UI (mirror) | **mirroir** native `describe_screen` → `tap` / `type_text` / `measure` — [Appendix B](ios-agent-ui-tour.md#appendix-b--mirroir-agent-driving-loop) |
+| iOS mirroir preflight | `scripts/ios_mirroir_preflight.sh` · `scripts/install_mirroir_user_config.sh` |
+| iOS observation (no taps) | `scripts/ios_device.sh shot` |
+| iOS regression / bench matrix | `scripts/ios_device.sh gate` · `bench-ui` (XCUITest — not mirroir) |
 | macOS regression | `scripts/macos_test.sh gate` |
-| iOS regression | `scripts/ios_device.sh gate` |
-| Crash / profile / audit analysis | **Axiom MCP** (`user-axiom`: `axiom_xcsym_*`, `axiom_xcprof_*`, `axiom_get_agent`) |
-| Deterministic bench timing / generation verification | `scripts/uitest_measure.sh` (verify-generation, streaming-preview-check, bench-compare) — no MCP replaces it |
+| Crash / profile / audit analysis | **Axiom MCP** (`user-axiom`) |
+| Deterministic generation verification | `scripts/uitest_measure.sh` (macOS); History + duration on iOS |
+| WDA agent path (deferred) | [mobile-mcp](mobile-mcp-ios-evaluation.md) when signing unblocked |
 
 ---
 

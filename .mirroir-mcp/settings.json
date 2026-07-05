@@ -1,0 +1,8 @@
+{
+  "screenDescriberMode": "ocr",
+  "ocrMinImageWidth": 600,
+  "ocrLanguages": ["en-US"],
+  "describeScreenOmitScreenshot": true,
+  "ocrRecognitionLevel": "accurate",
+  "ocrLanguageCorrection": true
+}

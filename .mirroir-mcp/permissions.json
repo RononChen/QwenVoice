@@ -1,0 +1,31 @@
+{
+  "allow": [
+    "tap",
+    "double_tap",
+    "long_press",
+    "swipe",
+    "drag",
+    "type_text",
+    "press_key",
+    "scroll_to",
+    "measure",
+    "press_home",
+    "press_back",
+    "press_app_switcher",
+    "spotlight",
+    "launch_app",
+    "open_url",
+    "reset_app"
+  ],
+  "deny": ["shake", "set_network", "generate_skill"],
+  "blockedApps": [],
+  "skipElements": [
+    "Delete",
+    "Delete Everything",
+    "Delete model",
+    "Delete this take",
+    "Clear History",
+    "Frees",
+    "Cancel download"
+  ]
+}

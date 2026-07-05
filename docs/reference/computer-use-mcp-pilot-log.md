@@ -169,3 +169,49 @@ need label coords (y≈619–690) — icon-only taps at y≈719 were inconsisten
 | macOS generate loop | ✅ (reproduced Jul 1 pilot) |
 | iOS mirroir perception + hybrid navigation | ✅ (segments + Settings/History; Voices flaky) |
 | Gates | Unchanged |
+
+---
+
+## 9. mirroir hardening (2026-07-04 evening)
+
+Research: [mirroir-mcp](https://github.com/jfarcand/mirroir-mcp) docs + failed agent generate session (0/3 clips).
+
+### Root causes (agent session)
+
+| Issue | Cause |
+| --- | --- |
+| `describe_screen` / `check_health` capture fail | TCC / cross-Space / paused mirror — while `ios_device.sh shot` still worked |
+| Only ~11 mirroir tools | **fail-closed** default — no `permissions.json` → `tap`/`type_text` hidden |
+| Peekaboo hybrid coord miss | Generate tap hit **NE** chip (~30–40 px) — no OCR anchor |
+| Bottom **Studio** tab taps | Flaky — **Aiden row** shortcut worked |
+
+### Repo changes (implemented)
+
+| Artifact | Purpose |
+| --- | --- |
+| [`.mirroir-mcp/permissions.json`](../../.mirroir-mcp/permissions.json) | Expose tap/type/measure; skip destructive labels |
+| [`.mirroir-mcp/settings.json`](../../.mirroir-mcp/settings.json) | Force OCR mode, `en-US` |
+| [`.mirroir-mcp/skills/apps/Vocello/APP.md`](../../.mirroir-mcp/skills/apps/Vocello/APP.md) | mirroir exploration context |
+| [`scripts/install_mirroir_user_config.sh`](../../scripts/install_mirroir_user_config.sh) | Copy permissions + merge settings to `~/.mirroir-mcp/` |
+| [`scripts/ios_mirroir_preflight.sh`](../../scripts/ios_mirroir_preflight.sh) | device-state, mirror, bridge calibrate |
+| [`ios-agent-ui-tour.md`](ios-agent-ui-tour.md) Appendix B | Native driving loop (preferred over Peekaboo hybrid) |
+
+### Operator steps (once per machine)
+
+```bash
+scripts/install_mirroir_user_config.sh --merge-settings
+# Cmd+Q Cursor → reopen
+scripts/ios_mirroir_preflight.sh --doctor
+# In Agent: mirroir check_health → describe_screen on Studio/Custom
+```
+
+**Driving rule:** `describe_screen` → **`mirroir tap`** (not Peekaboo on mirror). Peekaboo stays **macOS Vocello only**.
+
+### Next validation
+
+| Step | Expected |
+| --- | --- |
+| mirroir tool count | ~25+ after permissions + Cursor restart |
+| `check_health` | Pass — window 326×720, capture OK |
+| Custom generate smoke | OCR **Generate** coords → tap → `measure` until player |
+| 3 funny clips retry | Native loop only |

@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# mirroir + iPhone Mirroring preflight for agent-driven Vocello iOS UI work.
+#
+# Usage: scripts/ios_mirroir_preflight.sh [--doctor]
+#
+# Checks device/mirror readiness, project mirroir config, and vision-bridge calibration.
+# Does NOT replace ios_device.sh gate — exploratory QA only.
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RUN_DOCTOR=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --doctor) RUN_DOCTOR=1; shift ;;
+    -h|--help)
+      sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
+  esac
+done
+
+note() { printf '\033[0;36m==>\033[0m %s\n' "$*" >&2; }
+warn() { printf '\033[0;33m[warn]\033[0m %s\n' "$*" >&2; }
+ok()   { printf '\033[0;32m[ok]\033[0m %s\n' "$*" >&2; }
+fail() { printf '\033[0;31m[fail]\033[0m %s\n' "$*" >&2; }
+
+note "Vocello iOS mirroir preflight"
+
+# Project-local mirroir config (committed in repo)
+PROJECT_MIRROIR="$ROOT_DIR/.mirroir-mcp"
+GLOBAL_MIRROIR="$HOME/.mirroir-mcp"
+
+if [[ -f "$PROJECT_MIRROIR/permissions.json" ]]; then
+  ok "project permissions.json present"
+else
+  warn "missing $PROJECT_MIRROIR/permissions.json — mirroir defaults to read-only tools"
+fi
+
+if [[ -f "$PROJECT_MIRROIR/settings.json" ]]; then
+  ok "project settings.json present (OCR mode)"
+else
+  warn "missing $PROJECT_MIRROIR/settings.json"
+fi
+
+if [[ -f "$GLOBAL_MIRROIR/settings.json" ]]; then
+  ok "global ~/.mirroir-mcp/settings.json present"
+else
+  warn "no ~/.mirroir-mcp/settings.json — English macOS OK; French needs mirroringProcessName override"
+fi
+
+if [[ -f "$GLOBAL_MIRROIR/permissions.json" ]] || [[ -f "$PROJECT_MIRROIR/permissions.json" ]]; then
+  ok "mirroir mutating tools configured (restart Cursor after first install)"
+else
+  fail "no permissions.json — only ~11 read-only mirroir tools; add .mirroir-mcp/permissions.json"
+fi
+
+note "device + mirror"
+"$ROOT_DIR/scripts/ios_device.sh" device-state
+"$ROOT_DIR/scripts/ios_device.sh" mirror
+
+note "vision bridge (Peekaboo fallback only — prefer mirroir tap when OCR works)"
+"$ROOT_DIR/scripts/lib/ios_vision_bridge.sh" calibrate "$ROOT_DIR/build/ios/vision-bridge.json"
+
+if [[ "$RUN_DOCTOR" -eq 1 ]]; then
+  note "mirroir doctor (optional CLI check)"
+  if command -v mirroir >/dev/null 2>&1; then
+    mirroir doctor || warn "mirroir doctor reported issues"
+  elif command -v npx >/dev/null 2>&1; then
+    npx -y mirroir-mcp doctor 2>/dev/null || warn "mirroir doctor unavailable via npx"
+  else
+    warn "mirroir CLI not found — skip or: brew tap jfarcand/tap && brew install mirroir-mcp"
+  fi
+fi
+
+cat >&2 <<EOF
+
+Next (in Cursor Agent, same macOS Space as iPhone Mirroring):
+  1. Restart Cursor if you just added permissions.json
+  2. mirroir check_health  → must pass (Screen Recording + Accessibility for Cursor.app)
+  3. mirroir describe_screen → OCR list with tap coords on Studio/Custom
+  4. Native loop: describe_screen → tap / type_text / measure (see ios-agent-ui-tour.md Appendix B)
+  5. If describe_screen fails: Allow Screen Recording prompt, same Space as mirror, ios_device.sh mirror
+
+EOF
+
+ok "preflight complete"

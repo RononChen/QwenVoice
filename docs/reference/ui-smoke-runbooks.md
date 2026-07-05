@@ -104,7 +104,32 @@ See [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md) and Playbook 
 
 ---
 
-## iOS — mirroir Studio smoke (RETIRED 2026-07-04)
+## iOS — mirroir Studio smoke (native — preferred)
+
+Preflight:
+
+```sh
+scripts/install_mirroir_user_config.sh --merge-settings   # once; restart Cursor
+scripts/ios_mirroir_preflight.sh
+scripts/ios_device.sh launch
+```
+
+Drive via **mirroir MCP** (not Peekaboo on the mirror):
+
+1. `check_health` — must pass (Screen Recording + Accessibility for Cursor.app).
+2. `describe_screen` — OCR + **window-relative** tap coordinates.
+3. `tap` / `type_text` / `measure` — see [`ios-agent-ui-tour.md`](ios-agent-ui-tour.md) Appendix B.
+4. Tour: Studio segments → Voices (row shortcuts if tab flaky) → History → Settings.
+5. Evidence: `scripts/ios_device.sh shot build/<name>.png` if OCR capture fails.
+
+**Custom generate smoke:** OCR **Generate** label → `tap` → `measure` until *Streaming preview* /
+*Just now* → verify History row.
+
+Legacy Peekaboo + `ios_vision_bridge.sh` — fallback only when `describe_screen` fails.
+
+---
+
+## iOS — mirroir Studio smoke (RETIRED hybrid — 2026-07-04)
 
 Device prep (phone **unlocked**, Mirroring connected):
 

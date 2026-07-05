@@ -1,16 +1,21 @@
 # iOS agent UI tour — living reference
 
 > **Purpose:** Human-guided map of the Vocello **iPhone** UI for **agent-driven** exploratory QA
-> (mirroir OCR + Peekaboo mirror clicks). Updated incrementally as the product owner walks through
+> via **mirroir-mcp** (iPhone Mirroring). Updated incrementally as the product owner walks through
 > the app.
 >
 > **Not a gate doc.** Pre-merge truth stays `scripts/ios_device.sh gate` + XCUITest identifiers in
 > [`ui-test-surface.md`](ui-test-surface.md). For identifier-level test authoring see
 > [`ios-app-guide.md`](ios-app-guide.md).
 >
-> **Driving stack:** mirroir `describe_screen` → [`scripts/lib/ios_vision_bridge.sh`](../../scripts/lib/ios_vision_bridge.sh)
-> `to-global` → Peekaboo `click coords:` (`foreground: true`). See
-> [`computer-use-mcp-pilot-log.md`](computer-use-mcp-pilot-log.md) §8.
+> **Driving stack (primary):** mirroir **`describe_screen`** → **`tap`** / **`type_text`** /
+> **`measure`** (window-relative coords). Preflight:
+> [`scripts/ios_mirroir_preflight.sh`](../../scripts/ios_mirroir_preflight.sh). App context:
+> [`.mirroir-mcp/skills/apps/Vocello/APP.md`](../../.mirroir-mcp/skills/apps/Vocello/APP.md).
+>
+> **Fallback (legacy):** if `describe_screen` capture fails, observe with `ios_device.sh shot` and
+> optional Peekaboo global clicks via [`ios_vision_bridge.sh`](../../scripts/lib/ios_vision_bridge.sh)
+> — higher coord error; see [Appendix B](#appendix-b--mirroir-agent-driving-loop).
 
 **Status:** **Phase 1 complete** (owner-guided tour + quiz, 2026-07-04). Agent-ready for
 exploratory UI smokes, debugging, and bench **procedure** on the paired device. Remaining gaps are
@@ -42,8 +47,11 @@ optional only (engine lifecycle toasts) — not blockers for Custom/Clone smokes
 | **Full bench matrix** | Procedure known | Run via `scripts/ios_device.sh bench-ui`; clone cells need saved voice on device; gates ≠ mirroir |
 | **Pre-merge gates** | Scripts only | `scripts/ios_device.sh gate` — not agent-driven |
 
-**Driving stack validated:** mirroir + Peekaboo + `ios_vision_bridge.sh` (see pilot log §8).
-**Known flaky tap:** Voices tab label coords (§1, §6).
+**Driving stack:** mirroir native **`tap`/`type_text`** when `check_health` + `describe_screen` pass
+(project [`.mirroir-mcp/permissions.json`](../../.mirroir-mcp/permissions.json)). Preflight:
+`scripts/ios_mirroir_preflight.sh`.
+**Known flaky tap:** Voices bottom-tab label (§1, §6) — use built-in row shortcut to Studio.
+**If OCR down:** `ios_device.sh shot` + vision-bridge fallback (Appendix B.3).
 
 ### Known product gaps (owner-confirmed)
 
@@ -190,6 +198,18 @@ in-flight take. Re-enabled after complete or cancel.
 
 **mirroir OCR strings (2026-07-04):** `Built-in voice`, `0/150`, `Al`/`AI`, `NE ^`, `AU ^`, `Generate`,
 `Install Custom Voice`, `Generating`, `Rendering audio…`.
+
+**Confirmed tap coords (native mirroir, iPhone 17 Pro, 326×720 window, 2026-07-04 — always re-OCR before tap):**
+
+| Control | OCR label | Window coords (pt) | Notes |
+| --- | --- | --- | --- |
+| **Generate** | `Generate` | **(173, 584)** | Idle dock only; **below** chip row (~y 481–536). Validated on 3 consecutive Custom generates. |
+| Voice chip | `AI`, `RY`, `ON`, … + `^` | left chip **x ≈ 67–77**, **y ≈ 481–536** | Opens voice picker |
+| Delivery chip | `NE`, `HA`, `EX`, … + `^` | middle chip **x ≈ 164–179**, **y ≈ 481–536** | Opens delivery sheet |
+| Language chip | `EN ^`, `AU ^` | right chip **x ≈ 269**, **y ≈ 481–536** | |
+| Script composer | first script line | **(156, 153)** | Tap → `press_key` command+a → `type_text` to replace |
+| Delivery **Confirm** | `Confirm` | **(263, 162)** | Same Y as voice picker Confirm |
+| Inline player **✕** | `X` | **(277, 574)** | Then **Dismiss** at **(163, 466)** if confirm sheet appears |
 
 ### 3.3 Language chip — **AU** (shared: Custom · Design · Clone)
 
@@ -1138,7 +1158,10 @@ follow the **source** of the audio.
 | `Dismiss this clip` | Confirm clearing complete player card |
 | `Install Custom Voice` | Model missing — routes to Settings |
 | `Voice` / `Confirm` | Custom voice picker sheet |
-| `Generate` | Generate CTA (check §3.6 readiness first) |
+| `Generate` @ **(173, 584)** | Generate CTA when idle (check §3.6 readiness; re-OCR each session) |
+| Chip row @ **y ≈ 481–536** | Voice / delivery / language pills — **above** Generate; do not tap NE Y for Generate |
+| `ON`, `RY`, `EX`, … + `^` | Voice or delivery chip after non-default selection |
+| `X` @ **(277, 574)** | Dismiss inline player; confirm **Dismiss** @ **(163, 466)** |
 | `Built-in voice` | Custom mode section header |
 | `0/150` | Empty script |
 | `Type or paste your script.` | Custom mode script composer (empty) |
@@ -1183,7 +1206,82 @@ follow the **source** of the audio.
 
 ---
 
-## Appendix B — Change log
+## Appendix B — mirroir agent driving loop
+
+Native iOS UI driving uses [mirroir-mcp](https://github.com/jfarcand/mirroir-mcp) only (no Peekaboo on
+the mirror). Coordinates from **`describe_screen`** are **window-relative points** — pass them
+directly to **`tap`**.
+
+### B.1 Preflight (every session)
+
+```bash
+scripts/ios_mirroir_preflight.sh           # device-state, mirror, vision-bridge calibrate
+scripts/install_mirroir_user_config.sh --merge-settings   # once per machine (permissions + OCR)
+```
+
+In Cursor (same **macOS Space** as Recopie de l'iPhone / iPhone Mirroring):
+
+1. **Restart Cursor** after first `permissions.json` install (mirroir defaults fail-closed → ~11 tools).
+2. `check_health` → must pass (Screen Recording + Accessibility for **Cursor.app**).
+3. `describe_screen` (`omit_screenshot: true` OK) → element list + coords on Studio/Custom.
+4. `scripts/ios_device.sh launch` if Vocello not foreground on device.
+
+| Failure | Fix |
+| --- | --- |
+| Screen capture failed | Allow Screen Recording prompt; same Space as mirror; `ios_device.sh mirror` |
+| `'iphone' not open` | French macOS: `mirroringProcessName` in `~/.mirroir-mcp/settings.json` |
+| Only ~11 mirroir tools | Run `install_mirroir_user_config.sh`; restart Cursor |
+| Paused / welcome mirror | `ios_device.sh mirror` nudges Resume |
+
+### B.2 Custom Voice generate smoke (native)
+
+| Step | mirroir tool | Notes |
+| --- | --- | --- |
+| 1 | `describe_screen` | Confirm `Generate`, script placeholder, mode segment |
+| 2 | `tap` composer coords | From OCR *Type or paste your script* |
+| 3 | `type_text` | ≤150 chars; disable iOS autocorrect on test phone if needed |
+| 4 | `press_key` return or tap chrome | Dismiss keyboard if **Generate** obscured |
+| 5 | `tap` **Generate** coords | From OCR — **below** chip row; never guess NE chip Y. Validated: **(173, 584)** on iPhone 17 Pro (326×720). |
+| 6 | `measure` or poll `describe_screen` | Until `"Just now • Custom"` + duration (e.g. `0:09`) or `"Streaming preview"`; allow up to ~120 s |
+| 7 | History tab | `describe_screen` → tap **History** @ y≈618; verify new rows with voice + duration |
+
+**Validated 3-clip smoke (2026-07-04, post-permissions restart):** Aiden/NE (5 s), Ryan/Happy (9 s),
+Ono Anna/Excited (14 s) — all via native `describe_screen` → `tap`/`type_text`; History showed
+`aiden`, `ryan`, `ono_anna` with matching transcripts.
+
+**Navigation shortcuts when bottom tabs flake:**
+
+- **Voices → Studio Custom:** tap built-in speaker **row body** (e.g. Aiden), not ▶.
+- **Voices → Studio Clone:** tap saved voice **row body**, not ▶.
+
+**Post-generate:** inline player card — tap body for full-screen player (§9.4); dismiss ✕ to regenerate.
+
+### B.3 Legacy fallback (Peekaboo + vision bridge)
+
+Use only when **`describe_screen` / `screenshot` fail** but `ios_device.sh shot` shows the phone UI:
+
+1. `scripts/lib/ios_vision_bridge.sh calibrate`
+2. Estimate mirror-local coords from shot (or pilot approximations in §1).
+3. `to-global X Y` → Peekaboo `click coords:` `foreground: true`
+4. Peekaboo `type` for script text
+
+**Higher error rate** (~30–40 px misses on 326×720 window) — e.g. **Generate** tap opening **Delivery**.
+Prefer fixing mirroir capture over this path.
+
+### B.4 Vocello mirroir assets (repo)
+
+| Path | Role |
+| --- | --- |
+| [`.mirroir-mcp/permissions.json`](../../.mirroir-mcp/permissions.json) | Allow `tap`, `type_text`, `measure`, … |
+| [`.mirroir-mcp/settings.json`](../../.mirroir-mcp/settings.json) | Force OCR mode, `en-US` |
+| [`.mirroir-mcp/skills/apps/Vocello/APP.md`](../../.mirroir-mcp/skills/apps/Vocello/APP.md) | Exploration / agent context |
+| [`computer-use-mcp-alternatives-cursor.md`](computer-use-mcp-alternatives-cursor.md) | Full MCP + TCC setup |
+
+Optional: install YOLO `.mlmodelc` in `~/.mirroir-mcp/models/` for tab-bar icon detection ([mirroir docs](https://github.com/jfarcand/mirroir-mcp/blob/main/docs/configuration.md)).
+
+---
+
+## Appendix C — Change log
 
 | Date | Author | Change |
 | --- | --- | --- |
@@ -1210,3 +1308,5 @@ follow the **source** of the audio.
 | 2026-07-04 | Owner | Post-generate UI: inline player card (Clone *Hello*, AD ref, Just now · Clone) |
 | 2026-07-04 | Owner | Voice brief sheet: *Young man* → chip **YO**, starters, 500-char limit |
 | 2026-07-04 | Owner | Voices ▶ → full-screen player (*Me*, Saved voice · 0:03, VOICE CLONING) |
+| 2026-07-04 | Agent | mirroir native driving: Appendix B, `.mirroir-mcp/` config, preflight script |
+| 2026-07-04 | Agent | Confirmed Generate **(173, 584)** + chip-row Y band; 3-clip Custom smoke validated on device |

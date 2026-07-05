@@ -282,8 +282,10 @@ desktop-MCP harness is gone — see the testing runbook). Full MCP inventory and
   website`; see `website/AGENTS.md`. **Cursor IDE** (reveal file, rename chat, worktree moves) →
   `cursor-app-control` MCP — sparingly.
 - **Exploratory desktop / mirrored-iPhone UI (user-global MCP, not repo gates)** → **`peekaboo`**
-  (macOS Vocello: `see` → click/type/hotkey) and **`mirroir`** (real iPhone via Mirroring:
-  `describe_screen` → `tap`). Config in `~/.cursor/mcp.json` + `$HOME/.cursor/bin/mcp_stdio_wrapper.sh`.
+  (macOS Vocello: `see` → click/type/hotkey) and **`mirroir`** (iPhone: `describe_screen` →
+  `tap` / `type_text` — requires `scripts/install_mirroir_user_config.sh` + Cursor restart).
+  Preflight: `scripts/ios_mirroir_preflight.sh`. Config in `~/.cursor/mcp.json` +
+  `$HOME/.cursor/bin/mcp_stdio_wrapper.sh`.
   [`docs/reference/computer-use-mcp-alternatives-cursor.md`](docs/reference/computer-use-mcp-alternatives-cursor.md),
   [`docs/reference/computer-use-mcp-pilot-log.md`](docs/reference/computer-use-mcp-pilot-log.md),
   [`docs/reference/ios-agent-ui-tour.md`](docs/reference/ios-agent-ui-tour.md).

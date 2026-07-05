@@ -19,7 +19,7 @@ Development is **100% in Cursor**. Prefer **checked-in `scripts/*.sh`** for buil
 | `plugin-huggingface-skills-huggingface-skills` | huggingface-skills | Hub model/dataset/paper lookup (`hub_repo_search`, `hub_repo_details`, …) |
 | `cursor-app-control` | cursor-app-control | Cursor IDE control (`open_resource`, `move_agent_to_root`, `rename_chat`, …) |
 | `peekaboo` | peekaboo | **User-global** macOS desktop automation (`see`, `image`, `click`, `type`, `hotkey`, …) — exploratory QA only |
-| `mirroir` | mirroir | **User-global** iPhone Mirroring drive (`describe_screen`, `tap`, `swipe`, …) — exploratory QA on real device. French macOS needs `~/.mirroir-mcp/settings.json` → `mirroringProcessName: "Recopie de l'iPhone"` (pilot log §5) |
+| `mirroir` | mirroir | **User-global** iPhone Mirroring (`describe_screen`, `tap`, `type_text`, `measure`, …). Requires [`.mirroir-mcp/permissions.json`](mdc:.mirroir-mcp/permissions.json) or `scripts/install_mirroir_user_config.sh` — defaults fail-closed (~11 read-only tools). French macOS: `~/.mirroir-mcp/settings.json` → `mirroringProcessName: "Recopie de l'iPhone"`. Preflight: `scripts/ios_mirroir_preflight.sh`. **Exploratory QA only** — gates stay `ios_device.sh gate`. |
 | `user-axiom` | axiom | Apple-platform skills, auditors, and CLI wrappers (`axiom_read_skill`, `axiom_get_agent`, `axiom_xcsym_*`, …). Config key **`axiom`** in `~/.cursor/mcp.json`; invoke as **`user-axiom`** in `CallMcpTool`. Launch: `npx -y axiom-mcp` ([install docs](https://charleswiltgen.github.io/Axiom/start/mcp-install)). |
 
 Configured in **`~/.cursor/mcp.json`** (not committed). Peekaboo and mirroir launch via
