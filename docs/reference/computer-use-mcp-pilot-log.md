@@ -250,26 +250,36 @@ Results: see **§10.1** below after validation rerun.
 
 ### §10.1 Validation rerun results (2026-07-04, B.5–B.6 rules)
 
-**Session:** `ios_mirroir_preflight.sh --native-only`; mirror resumed; Studio → Custom.
+**Session:** `ios_mirroir_preflight.sh --native-only`; mirror active; commit `3b7fc12`.
+
+#### First rerun (pre-commit, partial)
 
 | Metric | Clip 1 | Clip 2 | Clip 3 | Target |
 | --- | --- | --- | --- | --- |
 | Illegal transitions | 0 | 0 | — | 0 |
 | Voices tab opens | 0 | 0 | — | 0 |
-| Poll wait (not fixed sleep) | ~8 s | — | — | <30 s idle |
-| UI actions (tap/type/press) | 4 | 10+ (incomplete) | — | ≤15/clip |
-| describe_screen calls | 4 | 6+ | — | — |
-| Outcome | **PASS** (Aiden/NE, ~4 s) | **BLOCKED** | — | 3/3 |
+| Outcome | **PASS** | **BLOCKED** (X OCR) | — | 3/3 |
 
-**Clip 1 (efficient):** History → Studio (O-A-V) → composer → script → Generate → poll 8 s →
-`Just now • Custom` + `0:04`. No Voices tab, no fixed 130 s sleep, no screenshot.
+#### Second rerun (post-commit push, 22:00 session)
 
-**Clip 2 (blocked):** Stay-on-Studio path worked (RY chip → Happy via delivery sheet → script
-replace). **Generate not in OCR** while clip 1 inline player remained; **X** dismiss label
-intermittent (visible once at `(277, 573)` after voice pick, absent afterward). Esc / player-body
-tap did not surface **X** or **Generate**.
+| Clip | Voice / delivery | Script (abbrev) | Duration | Notes |
+| --- | --- | --- | --- | --- |
+| 1 | Aiden / NE | houseplant Wi-Fi | ~5 s | Generate → 8 s poll → **X + Dismiss** worked once |
+| 2 | Ryan / Happy | GPS → furniture store | ~5 s | Clean relaunch; type-only (no Cmd+A); 0 illegal transitions |
+| 3 | Ono Anna / Excited | smart fridge / salad | ~7 s | Relaunch between clips; History verified |
 
-**Follow-up doc fix:** B.5 — dismiss inline player **immediately** after generate poll, before chip
-changes (X drops from OCR otherwise).
+| Metric | Result | Target |
+| --- | --- | --- |
+| Illegal transitions | **0** | 0 |
+| Voices tab opens mid-session | **0** | 0 |
+| Poll wait per generate | **8–10 s** (not fixed 130 s) | <30 s idle |
+| History top-3 rows | ono_anna 6.6s, ryan 4.6s, aiden 4.7s | match |
 
-**Clips 2–3:** Re-run when maintainer available — dismiss player right after each generate poll.
+**Practical workarounds validated:**
+
+- **Dismiss immediately** when **X** appears in OCR after generate (B.5).
+- **`ios_device.sh launch`** between clips when **X** drops from OCR and inline player blocks **Generate**.
+- **Type-only** on empty composer (`0/150`) — avoid Cmd+A replace on iOS mirror (mangles text).
+- **Custom segment tap** sometimes resets to IDLE; unreliable when player persists — prefer relaunch.
+
+**Remaining friction:** **X** dismiss label is intermittent in OCR; relaunch is the reliable multi-clip reset when **X** is absent.

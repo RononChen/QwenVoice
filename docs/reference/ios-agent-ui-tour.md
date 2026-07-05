@@ -1322,7 +1322,7 @@ Agents **must** follow these on every mirroir-driven iOS session. See also
 | **Stay on Studio for Custom params** | Voice / delivery / language / script / **Generate** change **only via chip row** on Studio → Custom. |
 | **Voices tab scope** | **Voices** only when **Studio tab is flaky** or cold-starting from Voices. **Never** between consecutive Custom generates. |
 | **Post-generate reset** | Next clip: **X → Dismiss confirm → stay on Studio**. Tap **X** as soon as it appears in OCR after generate completes — **X may drop out of OCR** if you change chips first while the old player is still showing. |
-| **Script replace** | Tap script line → `press_key` command+a (with Auto-review approval) → `type_text`. Do not append. |
+| **Script replace** | Empty composer: `type_text` only. Non-empty: tap script line → `press_key` command+a → **delete** → `type_text`. **Avoid Cmd+A replace on iOS mirror** — can append/mangle (Jul 4). |
 | **Generate targeting** | Tap OCR label `Generate` only when visible and **y below chip row** (~584 vs ~481–536). If hidden: dismiss inline player first. |
 | **Evidence optional** | `ios_device.sh shot` only when OCR fails or the user asks — not after every generate. |
 | **Auto-review** | Use `requestSmartModeApproval: true` on mirroir `tap` / `press_key` in agent smokes when Cursor blocks the call. |
