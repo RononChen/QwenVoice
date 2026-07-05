@@ -1,0 +1,40 @@
+---
+description: Observe-Act-Verify discipline for agent-driven Vocello UI (mirroir iOS + Peekaboo macOS)
+alwaysApply: true
+---
+
+# Agent UI driving (exploratory QA only)
+
+**Not gates.** Pre-merge regression stays `scripts/macos_test.sh gate` and
+`scripts/ios_device.sh gate`. Agent MCP driving is exploratory smoke / owner tours only.
+
+## Three-line contract
+
+1. **Observe → act once → verify** — never back-to-back taps without a fresh screen read.
+2. **OCR / accessibility ids only** — iOS: mirroir `describe_screen` coords; macOS: Peekaboo `see` element ids.
+3. **Poll, don't sleep** — no fixed waits >15 s; use `measure` or re-observe every 5–8 s (cap 120 s).
+
+## iOS (mirroir native)
+
+Authoritative loop: [`docs/reference/ios-agent-ui-tour.md`](mdc:docs/reference/ios-agent-ui-tour.md) Appendix **B.5–B.6**.
+
+- Preflight: `scripts/ios_mirroir_preflight.sh` (`--native-only` when Peekaboo fallback not needed).
+- Permissions: `scripts/install_mirroir_user_config.sh` + Cursor restart (~27 mirroir tools, not ~11).
+- **Stay on Studio → Custom** for voice/delivery/script between generates — **never Voices tab** for param changes.
+- Post-generate reset: **X → Dismiss** → stay on Studio.
+- `requestSmartModeApproval: true` on `tap` / `press_key` when Auto-review blocks.
+- Evidence (`ios_device.sh shot`) only when OCR fails or user asks.
+
+Context map: [`.mirroir-mcp/skills/apps/Vocello/APP.md`](mdc:.mirroir-mcp/skills/apps/Vocello/APP.md).
+
+## macOS (Peekaboo + uitest_measure)
+
+Runbook: [`docs/reference/ui-smoke-runbooks.md`](mdc:docs/reference/ui-smoke-runbooks.md).
+
+- Skeleton: `uitest_measure.sh prep` → Peekaboo drive → `verify-generation` → `finish`.
+- Prefer `see` by `accessibilityIdentifier`; re-`see` after each step and picker open.
+- Keyboard-first script replace: Cmd+A, Delete, type.
+
+## When unclear
+
+`describe_screen` / `see` only — do not switch tabs or guess coordinates.

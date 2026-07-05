@@ -13,6 +13,9 @@ drives the UI like a human.
 **These runbooks are exploratory QA, not gates.** Regression gates stay
 `scripts/macos_test.sh gate` and `scripts/ios_device.sh gate`.
 
+**Driving discipline:** [`.cursor/rules/agent-ui-driving.mdc`](../../.cursor/rules/agent-ui-driving.mdc)
+— **Observe → act once → verify** on every step; OCR/AX ids only; poll don't sleep.
+
 Identifier reference: [`ui-test-surface.md`](ui-test-surface.md) (generated catalog).
 
 ---
@@ -33,17 +36,24 @@ scripts/uitest_measure.sh verify-generation <mode> --artifacts-dir "$ART" --sinc
 scripts/uitest_measure.sh streaming-preview-check --since "$T0" --artifacts-dir "$ART"  # optional
 ```
 
-Peekaboo driving pattern (precision-first, vision to confirm):
+Peekaboo driving pattern (**O-A-V loop** — match iOS mirroir discipline in Appendix B.5):
 
-1. `see` with `app: Vocello` — AX map with element ids; Vocello's
-   `accessibilityIdentifier`s appear on the mapped elements.
-2. Prefer clicking by element id from `see`; fall back to `image` + click-by-sight for
-   visually ambiguous controls.
-3. Keyboard-first where possible: `Cmd+Return` = Generate, `Cmd+A` + `Delete` to replace
-   script text. SwiftUI Picker menus re-anchor after the first open — re-`see` before the
-   second interaction with any picker.
-4. Re-`see` (or `image`) after each step to confirm state; watch `*_readiness` markers
-   (`ready=true` in the element value).
+1. **`see`** with `app: Vocello` — observe AX map (`accessibilityIdentifier`s on elements).
+2. **Act once** — click by element id from `see`; keyboard-first script replace (Cmd+A, Delete, type).
+3. **`see` again** — verify state before the next action. No back-to-back clicks.
+4. SwiftUI pickers re-anchor after first open — re-`see` before the second picker interaction.
+5. Watch `*_readiness` markers (`ready=true` in element value) before Generate.
+6. **Generate wait:** re-`see` every few seconds for player bar — no multi-minute fixed sleeps.
+7. Fallback: `image` + click-by-sight only when AX id missing.
+
+### macOS — Custom Voice multi-clip (O-A-V)
+
+Same skeleton as single-clip; between clips on Studio → Custom:
+
+- **Do not** navigate away from Custom Voice screen.
+- Replace script via keyboard (Cmd+A, Delete, type).
+- Cmd+Return to generate; re-`see` until player appears.
+- Dismiss/clear player if it blocks Generate before the next clip.
 
 ## macOS — Custom Voice smoke
 
@@ -110,20 +120,24 @@ Preflight:
 
 ```sh
 scripts/install_mirroir_user_config.sh --merge-settings   # once; restart Cursor
-scripts/ios_mirroir_preflight.sh
+scripts/ios_mirroir_preflight.sh --native-only              # skip vision-bridge when native OCR works
 scripts/ios_device.sh launch
 ```
 
-Drive via **mirroir MCP** (not Peekaboo on the mirror):
+Drive via **mirroir MCP** (not Peekaboo on the mirror) — **Appendix B.5–B.6** in
+[`ios-agent-ui-tour.md`](ios-agent-ui-tour.md):
 
 1. `check_health` — must pass (Screen Recording + Accessibility for Cursor.app).
-2. `describe_screen` — OCR + **window-relative** tap coordinates.
-3. `tap` / `type_text` / `measure` — see [`ios-agent-ui-tour.md`](ios-agent-ui-tour.md) Appendix B.
-4. Tour: Studio segments → Voices (row shortcuts if tab flaky) → History → Settings.
-5. Evidence: `scripts/ios_device.sh shot build/<name>.png` if OCR capture fails.
+2. **`describe_screen`** — observe OCR + window-relative coords.
+3. **One action** — `tap` / `type_text` / `measure`.
+4. **`describe_screen`** — verify transition. Repeat (O-A-V loop).
+5. **Stay on Studio → Custom** for multi-clip smokes — change voice/delivery via chip row only.
+6. End-of-session optional: **History** tab to verify rows.
 
-**Custom generate smoke:** OCR **Generate** label → `tap` → `measure` until *Streaming preview* /
-*Just now* → verify History row.
+**Custom generate smoke:** OCR **Generate** → `tap` → `measure` (or poll every 5–8 s) until
+*Just now* — then **X → Dismiss** before the next clip.
+
+**Evidence:** `scripts/ios_device.sh shot` **only** when `describe_screen` fails or the user asks.
 
 Legacy Peekaboo + `ios_vision_bridge.sh` — fallback only when `describe_screen` fails.
 

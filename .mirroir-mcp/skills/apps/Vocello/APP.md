@@ -38,7 +38,8 @@ Four bottom tabs (always visible):
 3. Dismiss keyboard if Generate obscured (`press_key` return or tap composer chrome).
 4. `tap` **Generate** coords from OCR (not NE chip).
 5. `measure` with `until: "Streaming preview"` or `"Just now"` OR poll `describe_screen` until inline player / complete card.
-6. Verify in **History** tab (deterministic); listening pass for tone (human).
+6. **Immediately** if **X** appears in OCR: tap **X** → **Dismiss** → IDLE before changing chips (X may disappear if deferred).
+7. Verify in **History** tab (end of session only).
 
 ## Studio — Voice Design
 
@@ -93,6 +94,24 @@ Four bottom tabs (always visible):
 
 ## Tips
 
-- Tab **labels** (~y 619–690) more reliable than icons alone; **Voices** tab often flaky — use row shortcuts.
+- Tab **labels** (~y 619–690) more reliable than icons alone; **Voices** tab often flaky — use row shortcuts **only for tab recovery** (§Driving invariants).
 - Coordinates are **window-relative points** from `describe_screen` — use mirroir **`tap`**, not Peekaboo, when permissions enabled.
 - Fallback observation: `scripts/ios_device.sh shot` if `describe_screen` capture fails (TCC / Space / paused mirror).
+
+## Driving invariants (mandatory)
+
+Full table: repo `docs/reference/ios-agent-ui-tour.md` Appendix **B.5**.
+
+1. **O-A-V:** `describe_screen` → one action → `describe_screen`. No back-to-back taps.
+2. **OCR-only:** never tap from memory or prior-session coords.
+3. **Stay on Studio** for Custom voice/delivery/script changes — **never Voices tab between generates**.
+4. **Post-generate:** X → Dismiss confirm → IDLE on Studio before next clip.
+5. **Poll, don't sleep:** `measure` or describe_screen every 5–8 s (cap 120 s).
+6. **Generate:** OCR label only, y below chip row; dismiss inline player if hidden.
+
+### Illegal transitions
+
+- `PLAYER_INLINE → Voices tab`
+- `PLAYER_INLINE → Generate` without dismiss
+- `tap` without prior `describe_screen`
+- Fixed sleep >15 s while waiting for generate

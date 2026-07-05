@@ -1212,6 +1212,16 @@ Native iOS UI driving uses [mirroir-mcp](https://github.com/jfarcand/mirroir-mcp
 the mirror). Coordinates from **`describe_screen`** are **window-relative points** — pass them
 directly to **`tap`**.
 
+**Driver choice (2026-07-04):**
+
+| Need | Driver |
+| --- | --- |
+| Exploratory smokes, owner tours, ad-hoc generate | **mirroir native** (this appendix) + [B.5 invariants](#b5-driving-invariants-mandatory) |
+| Full UI bench matrix (future) | **mobile-mcp** WDA AX tree — see [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md) |
+| Pre-merge regression | **`scripts/ios_device.sh gate`** (XCUITest) — not agent-driven |
+
+Gates are unchanged regardless of exploratory driver.
+
 ### B.1 Preflight (every session)
 
 ```bash
@@ -1242,19 +1252,37 @@ In Cursor (same **macOS Space** as Recopie de l'iPhone / iPhone Mirroring):
 | 3 | `type_text` | ≤150 chars; disable iOS autocorrect on test phone if needed |
 | 4 | `press_key` return or tap chrome | Dismiss keyboard if **Generate** obscured |
 | 5 | `tap` **Generate** coords | From OCR — **below** chip row; never guess NE chip Y. Validated: **(173, 584)** on iPhone 17 Pro (326×720). |
-| 6 | `measure` or poll `describe_screen` | Until `"Just now • Custom"` + duration (e.g. `0:09`) or `"Streaming preview"`; allow up to ~120 s |
-| 7 | History tab | `describe_screen` → tap **History** @ y≈618; verify new rows with voice + duration |
+| 6 | `measure` or poll `describe_screen` | See [measure example](#b2-measure-example) below; poll every 5–8 s (cap 120 s). **No fixed sleeps >15 s.** |
+| 7 | History tab (optional) | End-of-session verify only — tap **History** @ y≈618; confirm new rows with voice + duration |
+
+#### B.2 measure example
+
+Single-clip generate (action + wait in one call):
+
+```text
+measure(
+  action: "tap:Generate",
+  until: "Just now",
+  max_seconds: 120,
+  name: "custom-generate"
+)
+```
+
+Multi-clip runs: tap **Generate** separately, then poll `describe_screen` every 5–8 s until
+`"Just now • Custom"` and a duration (e.g. `0:09`) appear — never a single 90–130 s sleep.
 
 **Validated 3-clip smoke (2026-07-04, post-permissions restart):** Aiden/NE (5 s), Ryan/Happy (9 s),
 Ono Anna/Excited (14 s) — all via native `describe_screen` → `tap`/`type_text`; History showed
 `aiden`, `ryan`, `ono_anna` with matching transcripts.
 
-**Navigation shortcuts when bottom tabs flake:**
+**Voices → Studio handoff (tab recovery only — not mid-session param changes):**
 
+- Use **only** when the **Studio** bottom tab is flaky or you are cold-starting from **Voices**.
 - **Voices → Studio Custom:** tap built-in speaker **row body** (e.g. Aiden), not ▶.
 - **Voices → Studio Clone:** tap saved voice **row body**, not ▶.
+- **Never** open **Voices** between consecutive Custom generates to change voice — use the Studio chip row (§B.5).
 
-**Post-generate:** inline player card — tap body for full-screen player (§9.4); dismiss ✕ to regenerate.
+**Post-generate:** inline player card — tap body for full-screen player (§9.4); dismiss ✕ → **Dismiss** to regenerate (§B.6).
 
 ### B.3 Legacy fallback (Peekaboo + vision bridge)
 
@@ -1278,6 +1306,54 @@ Prefer fixing mirroir capture over this path.
 | [`computer-use-mcp-alternatives-cursor.md`](computer-use-mcp-alternatives-cursor.md) | Full MCP + TCC setup |
 
 Optional: install YOLO `.mlmodelc` in `~/.mirroir-mcp/models/` for tab-bar icon detection ([mirroir docs](https://github.com/jfarcand/mirroir-mcp/blob/main/docs/configuration.md)).
+
+### B.5 Driving invariants (mandatory)
+
+Agents **must** follow these on every mirroir-driven iOS session. See also
+[`.cursor/rules/agent-ui-driving.mdc`](../../.cursor/rules/agent-ui-driving.mdc).
+
+| Rule | Rationale |
+| --- | --- |
+| **O-A-V loop** | Every mutation: `describe_screen` → **one** action → `describe_screen` to confirm. No back-to-back taps. |
+| **OCR-only coords** | Never tap from memory, icon estimates, or prior-session coords. Re-OCR after dismiss sheets, keyboard, or tab change. |
+| **One recovery path** | If state unclear: `describe_screen` only — not “try another tab.” |
+| **No blind retry** | If a tap did not change OCR: do not repeat the same coords; re-OCR and pick the label. |
+| **Poll, don't sleep** | Use `measure` or `describe_screen` every 5–8 s (cap 120 s). Ban fixed sleeps >15 s except cold model load. |
+| **Stay on Studio for Custom params** | Voice / delivery / language / script / **Generate** change **only via chip row** on Studio → Custom. |
+| **Voices tab scope** | **Voices** only when **Studio tab is flaky** or cold-starting from Voices. **Never** between consecutive Custom generates. |
+| **Post-generate reset** | Next clip: **X → Dismiss confirm → stay on Studio**. Tap **X** as soon as it appears in OCR after generate completes — **X may drop out of OCR** if you change chips first while the old player is still showing. |
+| **Script replace** | Tap script line → `press_key` command+a (with Auto-review approval) → `type_text`. Do not append. |
+| **Generate targeting** | Tap OCR label `Generate` only when visible and **y below chip row** (~584 vs ~481–536). If hidden: dismiss inline player first. |
+| **Evidence optional** | `ios_device.sh shot` only when OCR fails or the user asks — not after every generate. |
+| **Auto-review** | Use `requestSmartModeApproval: true` on mirroir `tap` / `press_key` in agent smokes when Cursor blocks the call. |
+
+### B.6 Custom Voice multi-clip state machine
+
+```text
+IDLE (Generate visible, no inline player)
+  → tap composer → type script → tap Generate → GENERATING
+GENERATING
+  → poll describe_screen until "Just now • Custom" + duration → PLAYER_INLINE
+PLAYER_INLINE
+  → tap X → DISMISS_CONFIRM → tap Dismiss → IDLE
+IDLE + change voice/delivery (stay on Studio)
+  → voice chip → pick → Confirm → delivery chip → pick → Confirm → IDLE
+  → replace script → Generate → …
+VERIFY (optional, end of session only)
+  → History tab → OCR top rows → done
+```
+
+**Illegal transitions** (observed Jul 4 — do not repeat):
+
+| Transition | Why wrong |
+| --- | --- |
+| `PLAYER_INLINE → Voices tab` | Voice changes use Studio chip row, not Voices |
+| `PLAYER_INLINE → Generate tap` without dismiss | Generate not in OCR while inline player shows |
+| `any → tap` without prior `describe_screen` | Coordinate guess / stale state |
+| `unclear state → retry same tap` | Blind retry — re-OCR instead |
+| `GENERATING → fixed sleep 90–130 s` | Wastes time — poll every 5–8 s |
+
+**Efficiency target (3-clip smoke):** ≤15 UI actions per clip (observe + chip changes + script + generate + dismiss); zero illegal transitions.
 
 ---
 
@@ -1310,3 +1386,4 @@ Optional: install YOLO `.mlmodelc` in `~/.mirroir-mcp/models/` for tab-bar icon 
 | 2026-07-04 | Owner | Voices ▶ → full-screen player (*Me*, Saved voice · 0:03, VOICE CLONING) |
 | 2026-07-04 | Agent | mirroir native driving: Appendix B, `.mirroir-mcp/` config, preflight script |
 | 2026-07-04 | Agent | Confirmed Generate **(173, 584)** + chip-row Y band; 3-clip Custom smoke validated on device |
+| 2026-07-04 | Agent | Appendix B.5 invariants + B.6 multi-clip state machine; agent-ui-driving rule |

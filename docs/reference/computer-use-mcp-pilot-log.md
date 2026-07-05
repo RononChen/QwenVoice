@@ -215,3 +215,61 @@ scripts/ios_mirroir_preflight.sh --doctor
 | `check_health` | Pass — window 326×720, capture OK |
 | Custom generate smoke | OCR **Generate** coords → tap → `measure` until player |
 | 3 funny clips retry | Native loop only |
+
+---
+
+## 10. Anti-patterns and efficiency remediation (2026-07-04 night)
+
+Follow-up to the **post-restart 3-clip Custom smoke** (3/3 success, ~20–30% wasted actions).
+Invariants codified in [`ios-agent-ui-tour.md`](ios-agent-ui-tour.md) Appendix **B.5–B.6** and
+[`.cursor/rules/agent-ui-driving.mdc`](../../.cursor/rules/agent-ui-driving.mdc).
+
+### Observed anti-patterns (Jul 4 run)
+
+| Anti-pattern | Cost | Fix |
+| --- | --- | --- |
+| Tap coords without OCR (e.g. guessed dismiss) | Wrong state / recovery taps | **OCR-only** — B.5 |
+| **Voices tab ×2** mid-Studio between clips | +4–6 taps | **Stay on Studio** — B.5 / B.6 |
+| **130 s fixed sleep** after 5 s clip | ~125 s wasted | **Poll / measure** every 5–8 s |
+| Duplicate `ios_device.sh mirror` | Redundant setup | Preflight once |
+| Screenshot + read image unprompted | Context noise | Evidence only on OCR fail |
+| `press_key` without Auto-review approval | Failed round-trip | `requestSmartModeApproval` upfront |
+
+### Validation acceptance (3-clip Custom smoke, native mirroir)
+
+Re-run under B.5–B.6 rules and record:
+
+| Metric | Target |
+| --- | --- |
+| Illegal transitions | **0** (see B.6 table) |
+| UI actions per clip | **≤15** (describe_screen + tap/type + dismiss) |
+| Idle wait per generate | **<30 s** wall-clock beyond actual TTS (poll, don't sleep) |
+| Voices tab opens mid-session | **0** |
+
+Results: see **§10.1** below after validation rerun.
+
+### §10.1 Validation rerun results (2026-07-04, B.5–B.6 rules)
+
+**Session:** `ios_mirroir_preflight.sh --native-only`; mirror resumed; Studio → Custom.
+
+| Metric | Clip 1 | Clip 2 | Clip 3 | Target |
+| --- | --- | --- | --- | --- |
+| Illegal transitions | 0 | 0 | — | 0 |
+| Voices tab opens | 0 | 0 | — | 0 |
+| Poll wait (not fixed sleep) | ~8 s | — | — | <30 s idle |
+| UI actions (tap/type/press) | 4 | 10+ (incomplete) | — | ≤15/clip |
+| describe_screen calls | 4 | 6+ | — | — |
+| Outcome | **PASS** (Aiden/NE, ~4 s) | **BLOCKED** | — | 3/3 |
+
+**Clip 1 (efficient):** History → Studio (O-A-V) → composer → script → Generate → poll 8 s →
+`Just now • Custom` + `0:04`. No Voices tab, no fixed 130 s sleep, no screenshot.
+
+**Clip 2 (blocked):** Stay-on-Studio path worked (RY chip → Happy via delivery sheet → script
+replace). **Generate not in OCR** while clip 1 inline player remained; **X** dismiss label
+intermittent (visible once at `(277, 573)` after voice pick, absent afterward). Esc / player-body
+tap did not surface **X** or **Generate**.
+
+**Follow-up doc fix:** B.5 — dismiss inline player **immediately** after generate poll, before chip
+changes (X drops from OCR otherwise).
+
+**Clips 2–3:** Re-run when maintainer available — dismiss player right after each generate poll.

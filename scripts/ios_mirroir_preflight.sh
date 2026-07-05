@@ -1,21 +1,25 @@
 #!/usr/bin/env bash
 # mirroir + iPhone Mirroring preflight for agent-driven Vocello iOS UI work.
 #
-# Usage: scripts/ios_mirroir_preflight.sh [--doctor]
+# Usage: scripts/ios_mirroir_preflight.sh [--doctor] [--native-only]
 #
 # Checks device/mirror readiness, project mirroir config, and vision-bridge calibration.
 # Does NOT replace ios_device.sh gate — exploratory QA only.
+#
+# --native-only  Skip vision-bridge calibrate (Peekaboo fallback not needed this session).
 
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_DOCTOR=0
+NATIVE_ONLY=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --doctor) RUN_DOCTOR=1; shift ;;
+    --native-only) NATIVE_ONLY=1; shift ;;
     -h|--help)
-      sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
@@ -52,7 +56,7 @@ else
 fi
 
 if [[ -f "$GLOBAL_MIRROIR/permissions.json" ]] || [[ -f "$PROJECT_MIRROIR/permissions.json" ]]; then
-  ok "mirroir mutating tools configured (restart Cursor after first install)"
+  ok "mirroir mutating tools configured (restart Cursor after first install; expect ~27 tools, not ~11)"
 else
   fail "no permissions.json — only ~11 read-only mirroir tools; add .mirroir-mcp/permissions.json"
 fi
@@ -61,8 +65,12 @@ note "device + mirror"
 "$ROOT_DIR/scripts/ios_device.sh" device-state
 "$ROOT_DIR/scripts/ios_device.sh" mirror
 
-note "vision bridge (Peekaboo fallback only — prefer mirroir tap when OCR works)"
-"$ROOT_DIR/scripts/lib/ios_vision_bridge.sh" calibrate "$ROOT_DIR/build/ios/vision-bridge.json"
+if [[ "$NATIVE_ONLY" -eq 1 ]]; then
+  note "vision bridge skipped (--native-only; use Peekaboo fallback only if describe_screen fails)"
+else
+  note "vision bridge (Peekaboo fallback only — prefer mirroir tap when OCR works)"
+  "$ROOT_DIR/scripts/lib/ios_vision_bridge.sh" calibrate "$ROOT_DIR/build/ios/vision-bridge.json"
+fi
 
 if [[ "$RUN_DOCTOR" -eq 1 ]]; then
   note "mirroir doctor (optional CLI check)"
