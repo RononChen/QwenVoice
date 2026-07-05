@@ -209,7 +209,9 @@ in-flight take. Re-enabled after complete or cancel.
 | Language chip | `EN ^`, `AU ^` | right chip **x ≈ 269**, **y ≈ 481–536** | |
 | Script composer | first script line | **(156, 153)** | Tap → `press_key` command+a → `type_text` to replace |
 | Delivery **Confirm** | `Confirm` | **(263, 162)** | Same Y as voice picker Confirm |
-| Inline player **✕** | `X` | **(277, 574)** | Then **Dismiss** at **(163, 466)** if confirm sheet appears |
+| Inline player **✕** | `X` | **(277, 574)** | Then **Dismiss** at **(163, 466)** if confirm sheet appears. Design: **X** may be OCR-hidden when **Save as voice** visible — History → Studio tab hop first (B.7). |
+| Design **Save as voice** | `Save as voice` | **(163, 576)** | Enroll designed voice for Clone — not dismiss/export |
+| Design share (illegal) | `*` | **(~240, 534)** | Opens iOS share sheet — do not use for dismiss |
 
 ### 3.3 Language chip — **AU** (shared: Custom · Design · Clone)
 
@@ -417,6 +419,15 @@ After **Generate** tap, the dock cycles through states (same card morphs live �
 Same card morphs from **live preview** → **complete** (one view identity — no swap). **Voice Design**
 complete card may also show **Save as voice** (`studio_inlinePlayer_saveAsVoice`); **Clone** and
 **Custom** use bookmark/download/dismiss only.
+
+**Agent notes — Design complete card (validated §10.3, 2026-07-04):**
+
+| Control | OCR / coords | Action |
+| --- | --- | --- |
+| **Save as voice** | `Save as voice` @ y ≈ 576 | Persists designed voice → **Saved voices** + Clone Reference clip pool (§5.4). **Not** dismiss. Optional — only when the run needs that voice as a Clone reference later. |
+| **Share / export** | `*` or bookmark icon @ x ≈ 240, y ≈ 534 | Opens **iOS share sheet** — **illegal dismiss target** (G5). |
+| **✕ Dismiss** | `X` @ **(276–277, 574)** when visible | Same confirm sheet as Custom/Clone. **Often absent from OCR** when **Save as voice** row is showing — see [B.7 Design dismiss recovery](#b7-multi-clip-reset-and-script-entry). |
+| **Save Generated Voice sheet** | `Save Generated Voice` + **X** @ (286, 121) | Opens if dismiss coord is tapped while **Save as voice** is prominent — close **X**; do not tap **Save voice** unless saving. |
 
 **Autoplay (Settings, default ON):** live preview starts playback as soon as enough audio is
 buffered — hear speech **before** generation finishes (§8.2).
@@ -1154,7 +1165,9 @@ follow the **source** of the audio.
 | `EN`, `FR`, `ZH`, … | Language chip after user picked a fixed language |
 | `Generating` / `Rendering audio` | Custom mode in-flight (pre-preview) |
 | `Streaming preview` | Live preview player during generate |
-| `Just now · Clone` | Complete inline player subtitle (mode label) |
+| `Just now · Custom` / `Just now · Design` / `Just now · Clone` | Complete inline player subtitle (mode label) — poll target after Generate |
+| `Save as voice` | Design complete card — persist voice for Clone (§5.4); not dismiss |
+| `Save Generated Voice` | Full-screen save sheet — close **X** top-right unless enrolling |
 | `Dismiss this clip` | Confirm clearing complete player card |
 | `Install Custom Voice` | Model missing — routes to Settings |
 | `Voice` / `Confirm` | Custom voice picker sheet |
@@ -1357,50 +1370,88 @@ VERIFY (optional, end of session only)
 | `type_text → Generate` without SCRIPT_VERIFY | Empty generate (`0/150`) |
 | `command+a → type_text` without delete on mirror | Mangles / 150/150 corruption (G2) |
 | `Custom segment tap` / `Design → Custom hop` as reset | Unreliable — use RESET (B.7) |
+| `Design PLAYER_INLINE → tap share *` | Opens iOS share sheet — not dismiss (G5) |
+| `Design PLAYER_INLINE → tap Save as voice` | Opens save flow — only when enrolling voice for Clone |
 | `any → tap` without prior `describe_screen` | Coordinate guess / stale state |
 | `unclear state → retry same tap` | Blind retry — re-OCR instead |
 | `GENERATING → fixed sleep 90–130 s` | Wastes time — poll every 5–8 s |
 
-**Efficiency target (3-clip smoke):** ≤12 UI actions per clip; zero illegal transitions; ≤2 session resets (B.7).
+**Efficiency targets (B.7):**
+
+| Smoke | Clips | Actions/clip | Session resets |
+| --- | --- | --- | --- |
+| Custom-only (3-clip) | 3 | ≤12 | ≤2 |
+| Multi-mode (9-clip) | 9 | Custom ~12; Design ~16; Clone ~14 | ≤4 |
+
+Zero illegal transitions on all smokes.
+
+### B.6b Voice Design multi-clip (segment **Design**)
+
+Same O-A-V loop as B.6; differences:
+
+- **Mode segment:** tap **Design** @ y ≈ 108 — stay on **Studio** tab.
+- **Readiness:** brief chip set (not `+`) **and** `N / 150` with N > 0 before Generate.
+- **Per clip:** `+` or brief chip → Voice brief sheet → type or starter → **Confirm** → composer → script → Generate.
+- **Poll:** `"Just now • Design"` + duration.
+- **Dismiss:** DISMISS_POLL for **X** — when **Save as voice** @ y ≈ 576 hides **X**, tap **History** → **Studio** (allowed soft recovery), re-OCR, then **X @ (276, 574)**. **Never** tap share `*` @ ~(240, 534).
+- **Design → Clone persistence (optional):** tap **Save as voice** after generate to enroll voice in Reference clip pool — skip when reusing a pre-enrolled saved voice.
+
+### B.6c Voice Cloning multi-clip (segment **Clone**)
+
+- **Mode segment:** tap **Clone** @ y ≈ 108 — stay on **Studio** tab.
+- **Reference (once per block):** left chip **`+`** → **Reference clip** sheet → pick first **SAVED VOICES** row (e.g. **AD**) — sheet dismisses; chip shows initials. Reuse same chip for CL2–CL3.
+- **Do not** tap **Record new clip** (mic unavailable through mirror).
+- **Poll:** `"Just now • Clone"` + duration.
+- **Dismiss:** same **X → Dismiss** path as Custom (reliable in OCR).
+
+**Between mode blocks:** `launch` RESET recommended (clears inline player + stale composer). Tap target segment after RESET.
 
 ### B.7 Multi-clip reset and script entry
 
 #### After each generate (dismiss poll)
 
-1. Poll until `"Just now • Custom"` + duration (5–8 s interval, cap 120 s). Optional: `measure(action: "tap:Generate", until: "Just now", max_seconds: 120)`.
-2. **Within 6 s**, enter **DISMISS_POLL**: up to **3** `describe_screen` calls, **2 s** apart — hunt OCR label **`X`** only (~277, 574 when visible).
+1. Poll until `"Just now • {Custom|Design|Clone}"` + duration (5–8 s interval, cap 120 s). Optional: `measure(action: "tap:Generate", until: "Just now", max_seconds: 120)`.
+2. **Within 6 s**, enter **DISMISS_POLL**: up to **3** `describe_screen` calls, **2 s** apart — hunt OCR label **`X`** only (~276–277, 574 when visible).
 3. If **X** found: tap **X** → tap **Dismiss** on confirm sheet → confirm **IDLE** (`Generate` in OCR, no player duration row).
-4. If **no X** after 3 polls: **RESET** (below) — do **not** change chips, Custom segment, or Design hop first.
+4. If **no X** after 3 polls (common on **Design** when **Save as voice** shows): **History tab → Studio tab** → re-OCR → retry **X** once. If still no **X**: **RESET** (below).
+5. Do **not** change chips, Custom segment, or mode hop as reset — except the allowed **History → Studio** hop in step 4.
 
 #### RESET (when dismiss poll fails or script verify fails twice)
 
 | Method | When | Command / tool |
 | --- | --- | --- |
-| **Primary (validated 2026-07-04)** | Any RESET after failed dismiss poll or script verify | `scripts/ios_device.sh launch` (~3 s; reliable on French macOS **Recopie de l'iPhone**) |
-| **Optional** | App Switcher card unambiguous | mirroir `reset_app` name=`Vocello` — **failed** on owner device (*Cannot locate 'Vocello' card*); re-test before preferring over `launch` |
+| **Primary** | Mirror connected; dismiss/script recovery | `scripts/ios_device.sh launch` (~3 s; French macOS **Recopie de l'iPhone**) |
+| **Fallback** | `launch` failed (mirror disconnect) or corrupt `150/150` composer | mirroir `launch_app` name=`Vocello` via Spotlight |
+| **Optional** | App Switcher card unambiguous | mirroir `reset_app` name=`Vocello` — **failed** on owner device (*Cannot locate 'Vocello' card*); re-test before preferring |
 
-After RESET: `describe_screen` → confirm Studio → Custom, `0/150`, **Generate** visible.
+After RESET: `describe_screen` → confirm **Studio** → target mode segment, `0/150`, **Generate** visible (Design: brief chip set if continuing same block).
 
 #### Script entry protocol (iOS mirror only — not macOS Peekaboo)
 
 | Composer OCR | Protocol |
 | --- | --- |
 | `0/150` (empty) | Tap composer line → `type_text` → **SCRIPT_VERIFY** (`N > 0`) |
-| Non-empty, replace | Tap script line → `command+a` → **`delete`** → `type_text` → **SCRIPT_VERIFY** |
+| Non-empty, replace | Tap script line → `command+a` → **`delete`** (×1–3 if needed) → `type_text` → **SCRIPT_VERIFY** |
+| Counter shows `150/150` or merged garbage | Tap composer → `command+a` → **`delete` ×3** → verify `0/150` → type-only — or **RESET** |
 | SCRIPT_VERIFY fails once | Tap composer → `type_text` again → **SCRIPT_VERIFY** |
 | SCRIPT_VERIFY fails twice | **RESET** — do not loop Cmd+A |
 
-**Never:** `command+a` → `type_text` without **delete** between them.
+**Never:** `command+a` → `type_text` without **delete** between them. Prefer **type-only on `0/150`** over replace when possible (between-clip Custom/Clone).
+
+**Special characters:** mirroir `type_text` may skip unmapped keys (e.g. em dash **—**) — verify counter after type; use ASCII hyphen if needed.
 
 ### B.8 Pre-action OCR gates (checklist)
 
 | Before action | OCR must contain |
 | --- | --- |
 | `type_text` | Composer coords from **prior** `describe_screen`; after delivery/voice Confirm, tap composer first |
-| `tap Generate` | Label `Generate`; **`N / 150` with N > 0**; no blocking inline player (or dismiss complete) |
-| `tap` voice/delivery chip | On Studio → Custom; sheet labels (`Voice`, `Delivery`) **absent** |
-| `tap` after sheet **Confirm** | Sheet closed — prior sheet title absent |
-| Recovery | **`describe_screen`** or **RESET** only — no tab detours except History at session end |
+| `tap Generate` | Label `Generate`; **`N / 150` with N > 0**; Design also needs brief chip ≠ `+`; no blocking inline player |
+| `tap` voice/delivery chip | On Studio → **Custom**; sheet labels (`Voice`, `Delivery`) **absent** |
+| `tap` brief chip (`+` / abbrev) | On Studio → **Design**; `Voice brief` sheet absent before tap |
+| `tap` reference chip (`+` / initials) | On Studio → **Clone**; pick saved voice — not **Record new clip** |
+| `tap` after sheet **Confirm** | Sheet closed — prior sheet title absent; re-OCR delivery/voice chip shows new abbrev (e.g. `EX ^`) |
+| `tap` Design player controls | **Not** share `*` or **Save as voice** for dismiss — **X** only (B.7) |
+| Recovery | **`describe_screen`**, **History → Studio** (Design dismiss only), or **RESET** — no Voices-tab param detours |
 
 ---
 
@@ -1436,3 +1487,5 @@ After RESET: `describe_screen` → confirm Studio → Custom, `0/150`, **Generat
 | 2026-07-04 | Agent | Appendix B.5 invariants + B.6 multi-clip state machine; agent-ui-driving rule |
 | 2026-07-04 | Agent | Appendix B.7 dismiss poll + RESET; B.8 OCR gates; script entry protocol (G1–G4) |
 | 2026-07-04 | Agent | B.7–B.8 third 3-clip validation (§10.2 pilot log); `launch` primary RESET; `reset_app` failed |
+| 2026-07-04 | Agent | §10.3 nine-clip multi-mode smoke (3× Custom, 3× Design, 3× Clone); Design dismiss via History→Studio; **Save as voice** noted for Design→Clone persistence |
+| 2026-07-04 | Agent | B.6b/B.6c Design + Clone multi-clip; B.7 Design dismiss recovery, triple-delete, `launch_app` fallback; B.8 mode gates |

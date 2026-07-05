@@ -97,6 +97,7 @@ Same skeleton as single-clip; between clips on Studio → Custom:
 | Need | Doc / script |
 | --- | --- |
 | **Exploratory smokes (agent)** | This file § mirroir Studio smoke + [`ios-agent-ui-tour.md`](ios-agent-ui-tour.md) Appendix B |
+| **9-clip multi-mode smoke** | This file § multi-mode below + pilot log §10.3 |
 | **Driving invariants (always on)** | [`.cursor/rules/agent-ui-driving.mdc`](../../.cursor/rules/agent-ui-driving.mdc) |
 | **App map + XCTest ids** | [`ios-app-guide.md`](ios-app-guide.md) |
 | **Device lanes / gates** | [`ios-device-testing.md`](ios-device-testing.md) Playbooks A–D |
@@ -123,13 +124,19 @@ Drive via **mirroir MCP** (not Peekaboo on the mirror) — **Appendix B.5–B.8*
 2. **`describe_screen`** — observe OCR + window-relative coords.
 3. **One action** — `tap` / `type_text` / `measure`.
 4. **`describe_screen`** — verify transition. Repeat (O-A-V loop).
-5. **Stay on Studio → Custom** for multi-clip smokes — change voice/delivery via chip row only.
-6. End-of-session optional: **History** tab to verify rows.
+5. **Stay on Studio** for multi-clip smokes — **Custom**, **Design**, or **Clone** segment @ y ≈ 108; chip row for params. **Never Voices tab** mid-block.
+6. End-of-session: **History** tab to verify rows (also allowed **History → Studio** for Design dismiss recovery — B.7).
 
 **Custom generate smoke:** OCR **Generate** → verify **`N / 150` N > 0** (B.8) → `tap` → poll / `measure` until
-*Just now* → **DISMISS_POLL** for **X** (B.7) → next clip or `scripts/ios_device.sh launch` RESET.
+*Just now • Custom* → **DISMISS_POLL** for **X** (B.7) → next clip or RESET.
 
-**iOS script entry (mirror):** type-only on `0/150`; replace uses cmd+a → **delete** → type — **not** macOS Peekaboo rules.
+**Design generate smoke:** segment **Design** → **`+`** brief chip → type brief → **Confirm** → script → Generate → poll *Just now • Design* → dismiss per B.7 (may need **History → Studio**). Optional **Save as voice** to enroll for Clone.
+
+**Clone generate smoke:** segment **Clone** → **`+`** reference chip → pick **SAVED VOICES** row (once) → script → Generate → poll *Just now • Clone* → **X + Dismiss**. Reuse same reference chip for multi-clip.
+
+**Multi-mode 9-clip smoke (exploratory):** 3× Custom → 3× Design → 3× Clone; `launch` RESET between blocks; History verify 9 TODAY rows. Validated [`computer-use-mcp-pilot-log.md`](computer-use-mcp-pilot-log.md) §10.3.
+
+**iOS script entry (mirror):** type-only on `0/150`; replace uses cmd+a → **delete** (×3 if `150/150` corruption) → type — **not** macOS Peekaboo rules.
 
 **Evidence:** `scripts/ios_device.sh shot` **only** when `describe_screen` fails or the user asks.
 

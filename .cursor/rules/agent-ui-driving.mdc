@@ -20,10 +20,12 @@ Authoritative loop: [`docs/reference/ios-agent-ui-tour.md`](mdc:docs/reference/i
 
 - Preflight: `scripts/ios_mirroir_preflight.sh` (`--native-only` when Peekaboo fallback not needed).
 - Permissions: `scripts/install_mirroir_user_config.sh` + Cursor restart (~27 mirroir tools, not ~11).
-- **Stay on Studio → Custom** for voice/delivery/script between generates — **never Voices tab** for param changes.
-- **After generate:** DISMISS_POLL (3× describe for **X**) → Dismiss → IDLE; else `scripts/ios_device.sh launch` (B.7 RESET; `reset_app` unreliable on owner mirror).
-- **Script (mirror only):** empty composer → type-only + verify `N > 0`; replace → cmd+a → **delete** → type. **Never** cmd+a → type without delete.
-- **Generate gate:** OCR `Generate` **and** `N / 150` with N > 0 (B.8).
+- **Stay on Studio** for multi-clip smokes — switch mode via segment (**Custom | Design | Clone** @ y ≈ 108). Change params via chip row only — **never Voices tab** mid-block.
+- **After generate:** DISMISS_POLL (3× describe for **X**) → Dismiss → IDLE. **Design:** if **X** missing when **Save as voice** shows, **History → Studio** then retry **X** — never tap share `*`.
+- **Design → Clone (optional):** **Save as voice** after generate enrolls the designed voice for Clone reference; pre-enrolled saved voices skip this.
+- **RESET:** `scripts/ios_device.sh launch` primary; mirroir `launch_app` Vocello fallback if launch fails or composer stuck at `150/150`.
+- **Script (mirror only):** type-only on `0/150`; replace → cmd+a → **delete** (×3 if corrupted) → type. **Never** cmd+a → type without delete.
+- **Generate gate:** OCR `Generate` **and** `N / 150` with N > 0; Design also needs brief chip set (B.8).
 - `requestSmartModeApproval: true` on `tap` / `press_key` when Auto-review blocks.
 - Evidence (`ios_device.sh shot`) only when OCR fails or user asks.
 

@@ -251,7 +251,8 @@ attended, on the physical phone.
 - **iOS agent UI driving — mirroir native (2026-07-04).** Validated exploratory driver:
   **mirroir** (`describe_screen` → `tap` / `type_text`) per
   [`docs/reference/ios-agent-ui-tour.md`](reference/ios-agent-ui-tour.md) Appendix B.5–B.8 and
-  [`computer-use-mcp-pilot-log.md`](reference/computer-use-mcp-pilot-log.md) §10.2.
+  [`computer-use-mcp-pilot-log.md`](reference/computer-use-mcp-pilot-log.md) §10.2–§10.3 (nine-clip
+  multi-mode Custom/Design/Clone validated 2026-07-04).
   **mobile-mcp** (WDA) remains **deferred** — see
   [`docs/reference/mobile-mcp-ios-evaluation.md`](reference/mobile-mcp-ios-evaluation.md).
 

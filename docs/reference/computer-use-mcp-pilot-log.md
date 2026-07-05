@@ -327,3 +327,73 @@ Remove **Custom segment tap** from recommended recovery (§10.1 workaround retir
 | --- | --- |
 | Delivery **Confirm** → Generate too fast | B.8: re-OCR after Confirm; chip must show new delivery (e.g. `EX ^`) before Generate |
 | Non-empty composer between clips without RESET | Use **RESET** or accept type-only append risk — do not Cmd+A replace on mirror |
+
+### §10.3 Nine-clip multi-mode validation (B.5–B.8)
+
+**Session:** 2026-07-04, ~22:57–23:15 local; `ios_mirroir_preflight.sh --native-only` **PASS**; mirror **326×720**; French macOS **Recopie de l'iPhone**; `scripts/ios_device.sh device-state` **PASS** (MIRROR_ACTIVE); `models check --strict` **PASS** (pro_custom / pro_design / pro_clone Speed; **5** clone voices enrolled). Clone reference: first saved voice **AD** (*A deep, low-pitched*) — pre-enrolled, not Design-saved this session.
+
+#### Results
+
+| # | Mode | Voice / brief / ref | Script (abbrev) | Duration | Pass |
+| --- | --- | --- | --- | --- | --- |
+| C1 | Custom | Aiden / NE | houseplant Wi-Fi independence | 5 s | **PASS** |
+| C2 | Custom | Ryan / Happy | GPS → furniture store | 6 s | **PASS** |
+| C3 | Custom | Ono Anna / Excited | smart fridge / salad wallpaper | 5 s | **PASS** |
+| D1 | Design | grumpy pirate brief | treasure map → parking lot | 6 s | **PASS** |
+| D2 | Design | sports announcer brief | laundry turn / folding table | 5.5 s | **PASS** |
+| D3 | Design | meditation guru brief | breathe / toaster enlightenment | 4.9 s | **PASS** |
+| CL1 | Clone | **AD** (*A deep, low-pitched*) | elevator stand-up comedy warning | 5.0 s | **PASS** |
+| CL2 | Clone | **AD** (same ref) | clone answers emails / meeting invites | 7.4 s | **PASS** |
+| CL3 | Clone | **AD** (same ref) | rock-paper-scissors identity dispute | 6.5 s | **PASS** |
+
+**History verified (TODAY, top 9 session rows):** three Clone (`A deep, lo…` 6.5 s / 7.4 s / 5.0 s), three Design (`A calm m…` 4.9 s, `An overen…` 5.5 s, `A grumpy…` 6.2 s), three Custom (`ono_anna` 5.4 s, `ryan` 5.7 s, `aiden` 5.2 s) — **9/9** with transcripts + durations.
+
+#### Metrics vs targets (B.7)
+
+| Metric | Result | Target |
+| --- | --- | --- |
+| Clips completed | **9/9** | 9/9 |
+| Illegal transitions | **0** | 0 |
+| Voices-tab detours (mid-block param changes) | **0** | 0 |
+| Resets (`launch` / `launch_app`) | **3** (1× `ios_device.sh launch` failed; 2× mirroir `launch_app` Vocello) | ≤4 |
+| Empty Generate (`0/150`) | **0** | 0 |
+| Avg actions per clip (approx.) | Custom ~12; Design ~16; Clone ~14 | ≤15 |
+
+#### What went well
+
+- **Custom block** end-to-end with **X → Dismiss confirm** when OCR shows **X**; voice/delivery sheet **Confirm** + SCRIPT_VERIFY before Generate.
+- **Mode segment switches** (Custom / Design / Clone @ y ≈ 108) without leaving **Studio** tab.
+- **Design brief sheet:** type brief → **Confirm** → chip abbrev (e.g. `AN`, `A`) + script → Generate.
+- **Clone reference reuse:** pick **AD** once in Reference clip sheet; chip persisted for CL2–CL3 without re-opening sheet.
+- **History → Studio tab hop** surfaces **X** on Design inline player when **Save as voice** row hides dismiss affordance.
+- **Triple-delete recovery** after G2 corruption restored `0/150` without full app relaunch (D3, CL2).
+
+#### What didn't / friction (G1–G4 + new)
+
+| Gap | Symptom | Mapping |
+| --- | --- | --- |
+| **G1** | **X** absent on Design complete card when **Save as voice** visible | DISMISS_POLL miss → **History → Studio** then **X @ (276, 574)** |
+| **G2** | `command+a` → `delete` → `type_text` merges old + new script (`150/150`) | D3 prep, CL2 — use **triple-delete** or **`launch_app` RESET**; type-only on `0/150` |
+| **G3** | — | No empty Generate taps this session |
+| **G4** | — | No Custom-segment / Voices-tab recovery sprawl |
+| **G5 (new)** | Design player **share** icon OCR `*` @ ~(240, 534) opens **iOS share sheet** — not dismiss | Avoid; use **X** coord only |
+| **G6 (new)** | Tap **(277, 574)** while **Save as voice** prominent opened **Save Generated Voice** sheet | Close **X @ (286, 121)**; do not confuse with dismiss |
+| **G7 (new)** | `type_text` skipped em dash (—) in D2 sports script | Use ASCII hyphen or verify counter after type |
+| **Ops** | `ios_device.sh launch` failed once (mirror disconnect); `reset_app` Vocello still refuses App Switcher card | **`launch_app` Vocello** via Spotlight worked as fallback RESET |
+
+**User note (Design → Clone):** persist a designed voice for Clone reuse via inline **Save as voice** (not share/export). This session used a **pre-enrolled** clone reference (**AD**); no Design voices were saved.
+
+#### Per-mode notes
+
+| Mode | Relative difficulty | Notes |
+| --- | --- | --- |
+| **Custom** | Lowest | Familiar from §10.1–§10.2; dismiss path reliable when **X** in OCR |
+| **Design** | Highest | Brief sheet + dual readiness; post-generate UI differs (**Save as voice** vs bookmark/dismiss); dismiss needs tab hop or patience for **X** |
+| **Clone** | Medium | Reference pick once; generation ~5–7 s; G2 on script replace between clips |
+
+#### Recommendations
+
+1. **Appendix B.7:** add Design-specific dismiss — when **Save as voice** @ y ≈ 576 and **X** missing, **History → Studio** then **X @ (276, 574)** before next clip.
+2. **Appendix B.8 / OCR table:** mark Design **share** (`*`) and **Save as voice** as **non-dismiss** targets; document **Save as voice** → enrolled voice for Clone (§5.4 pool).
+3. **Script protocol:** prefer **triple-delete** over single delete after Cmd+A when corruption detected; **`launch_app`** when counter stuck at `150/150`.
+4. Re-test **`reset_app` Vocello** and **`ios_device.sh launch`** mirror-disconnect recovery on owner device.
