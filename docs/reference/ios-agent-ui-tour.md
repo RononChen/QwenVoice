@@ -1216,8 +1216,9 @@ directly to **`tap`**.
 
 | Need | Driver |
 | --- | --- |
-| Exploratory smokes, owner tours, ad-hoc generate | **mirroir native** (this appendix) + [B.5 invariants](#b5-driving-invariants-mandatory) |
-| Full UI bench matrix (future) | **mobile-mcp** WDA AX tree — see [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md) |
+| Exploratory smokes, owner tours, ad-hoc generate | **mirroir native** (this appendix) + [B.5–B.8](#b5-driving-invariants-mandatory) |
+| Full UI bench matrix | **XCUITest** `scripts/ios_device.sh bench-ui` — not agent-driven |
+| Future WDA agent bench (deferred) | **mobile-mcp** — see [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md) |
 | Pre-merge regression | **`scripts/ios_device.sh gate`** (XCUITest) — not agent-driven |
 
 Gates are unchanged regardless of exploratory driver.

@@ -1,9 +1,9 @@
 # UI smoke runbooks — agent-driven exploratory loops
 
 Per-mode smoke procedures for **agent-driven** UI validation in Cursor, pairing
-**mobile-mcp** on iOS (WDA accessibility tree) and **script + Axiom** on macOS with the
-**deterministic measurement shell** [`scripts/uitest_measure.sh`](../../scripts/uitest_measure.sh).
+**mirroir** on iOS (native iPhone Mirroring OCR) and **Peekaboo + uitest_measure** on macOS.
 See [`computer-use-mcp-alternatives-cursor.md`](computer-use-mcp-alternatives-cursor.md).
+**mobile-mcp** (WDA) remains **deferred** — see [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md).
 
 Successor to the per-mode smoke runbooks deleted at `6d1cca4`. The core design rule
 survives: **measurement never depends on how the agent clicked.** Pass/fail comes from
@@ -92,29 +92,7 @@ Same skeleton as single-clip; between clips on Studio → Custom:
 
 ---
 
-## iOS — Studio smoke via mobile-mcp (DEPRECATED mirroir section below)
-
-Device prep:
-
-```sh
-scripts/ios_mobile_mcp.sh preflight
-scripts/ios_device.sh build && scripts/ios_device.sh install
-scripts/ios_device.sh launch
-```
-
-Drive via **mobile-mcp**:
-
-1. `mobile_list_available_devices` — confirm paired iPhone
-2. `mobile_launch_app` → `com.patricedery.vocello`
-3. `mobile_list_elements_on_screen` — find tabs and mode segments by identifier
-4. Tour: Studio → Voices → History → Settings; re-list elements after each navigation
-5. Evidence: `mobile_take_screenshot` or `scripts/ios_device.sh shot`
-
-See [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md) and Playbook F in [`ios-device-testing.md`](ios-device-testing.md).
-
----
-
-## iOS — mirroir Studio smoke (native — preferred)
+## iOS — mirroir Studio smoke (primary)
 
 Preflight:
 
@@ -124,7 +102,7 @@ scripts/ios_mirroir_preflight.sh --native-only              # skip vision-bridge
 scripts/ios_device.sh launch
 ```
 
-Drive via **mirroir MCP** (not Peekaboo on the mirror) — **Appendix B.5–B.6** in
+Drive via **mirroir MCP** (not Peekaboo on the mirror) — **Appendix B.5–B.8** in
 [`ios-agent-ui-tour.md`](ios-agent-ui-tour.md):
 
 1. `check_health` — must pass (Screen Recording + Accessibility for Cursor.app).
@@ -166,10 +144,11 @@ Drive via mirroir MCP:
 
 **Generation verification on iOS** for ad-hoc smokes: `scripts/ios_device.sh gate` (headless
 autorun) or `scripts/ios_device.sh test --cold`. For the **full UI matrix**, use
-[`bench-ui-mcp`](#ios--mobile-mcp-bench-ui-matrix-preferred) (same telemetry gate as
-XCUITest `bench-ui`).
+XCUITest `scripts/ios_device.sh bench-ui` (not agent-driven).
 
-### iOS exploratory (mobile-mcp — preferred)
+### iOS exploratory (mobile-mcp — deferred)
+
+> **Deferred 2026-07** — WDA signing blocked. Use [mirroir smoke](#ios--mirroir-studio-smoke-primary) for exploratory QA.
 
 1. `scripts/ios_mobile_mcp.sh preflight` — WDA + mutex
 2. `mobile_list_available_devices` → `scripts/ios_device.sh install`
@@ -182,10 +161,9 @@ See [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md) and Playbook 
 
 ---
 
-## iOS — mobile-mcp bench-ui matrix (preferred)
-
-Agent-driven full-matrix bench: **mobile-mcp** drives via WDA accessibility tree; **shell proves**
-via pulled `generations.jsonl` + `check_ios_ui_bench.py`.
+## iOS — mobile-mcp bench-ui matrix (deferred)
+> **Deferred 2026-07** — use XCUITest `bench-ui` for matrix; mirroir for exploratory smokes.
+> Retained for when WDA signing unblocks.
 
 ### Session prep
 

@@ -698,6 +698,9 @@ See [diagram 2 — CI vs local verification](#diagram-ci-local).
 
 ## Agent + MCP workflow
 
+> **Current exploratory iOS driver (Jul 2026):** **mirroir native** — validated in
+> [`computer-use-mcp-pilot-log.md`](computer-use-mcp-pilot-log.md) §10.2. mobile-mcp deferred.
+
 See [diagram 11 — Agent session flow](#diagram-agent-mcp). **Principle:** `scripts/ios_device.sh`
 runs all gates (`gate`, `test`, `bench-ui`). MCPs augment preflight, observation, and triage —
 they do not replace XCUITest or drive regression matrices.
@@ -716,7 +719,7 @@ they do not replace XCUITest or drive regression matrices.
 | **Run vision UI bench (deprecated)** | `scripts/ios_device.sh bench-ui-vision --agent-drive …` | Legacy mirroir + Peekaboo | Playbook E — emergency only |
 | **Run headless bench** | `scripts/ios_device.sh bench "custom:speed:…"` | RTF/audioQC without XCUITest | Phone **locked OK**; unattended engine proof |
 | **Observe** | `scripts/ios_device.sh shot` | During long runs | Mac-side Mirroring capture — no agent taps |
-| | `mirroir` `describe_screen` | Observation / OCR watch-along | **Not** primary UI input |
+| | `mirroir` `describe_screen` | Exploratory QA / smokes | Primary agent driver (Jul 2026) |
 | | `mobile-mcp` `mobile_list_elements_on_screen` | Exploratory QA / bench-ui-mcp | WDA tree on real device |
 | **Triage fail** | `axiom_get_agent` → `test-runner` | `test` / `bench-ui` xcresult | Artifact: `build/ios/Logs/Test/*.xcresult` |
 | | Read `build/ios/bench-ui-<runID>/bench-ui.log` | Stuck generate / manifest | Look for `iosStudio_generationError`, `VOCELLO-BENCH-UI-MANIFEST` |
