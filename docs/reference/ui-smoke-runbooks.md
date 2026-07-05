@@ -100,9 +100,10 @@ Same skeleton as single-clip; between clips on Studio → Custom:
 | **9-clip multi-mode smoke** | This file § multi-mode below + pilot log §10.3 |
 | **Driving invariants (always on)** | [`.cursor/rules/agent-ui-driving.mdc`](../../.cursor/rules/agent-ui-driving.mdc) |
 | **App map + XCTest ids** | [`ios-app-guide.md`](ios-app-guide.md) |
-| **Device lanes / gates** | [`ios-device-testing.md`](ios-device-testing.md) Playbooks A–D |
+| **Device lanes / gates** | [`ios-device-testing.md`](ios-device-testing.md) Playbooks A–G |
 | **Preflight** | `scripts/ios_mirroir_preflight.sh --native-only` |
-| **Full UI matrix** | XCUITest `scripts/ios_device.sh bench-ui` — **not** agent-driven |
+| **Full UI matrix (unattended)** | XCUITest `scripts/ios_device.sh bench-ui` |
+| **Full UI matrix (agent)** | `scripts/ios_device.sh bench-ui-mirroir --agent-drive` — Appendix **B.6d** |
 | **mobile-mcp (WDA)** | **Deferred** — [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md) |
 
 ---
@@ -140,7 +141,35 @@ Drive via **mirroir MCP** (not Peekaboo on the mirror) — **Appendix B.5–B.8*
 
 **Evidence:** `scripts/ios_device.sh shot` **only** when `describe_screen` fails or the user asks.
 
-**Generation proof (not agent-driven):** `scripts/ios_device.sh gate`, `test --cold`, or headless `bench` — for ad-hoc smokes after mirroir driving. **Full UI matrix:** XCUITest `scripts/ios_device.sh bench-ui`.
+**Generation proof (not agent-driven):** `scripts/ios_device.sh gate`, `test --cold`, or headless `bench` — for ad-hoc smokes after mirroir driving. **Full UI matrix:** XCUITest `bench-ui` (unattended) or agent `bench-ui-mirroir --agent-drive` (B.6d).
+
+Legacy Peekaboo + `ios_vision_bridge.sh` — fallback only when `describe_screen` fails.
+
+---
+
+## iOS — mirroir UI bench (agent matrix)
+
+Distinct from [exploratory smokes](#ios--mirroir-studio-smoke-primary): same 29-take matrix as XCUITest `bench-ui`, driven by **native mirroir** with shell orchestration and `check_ios_ui_bench.py` gate. Authoritative procedure: [`ios-agent-ui-tour.md`](ios-agent-ui-tour.md) Appendix **B.6d**; benchmarking context: [`benchmarking-procedure.md`](benchmarking-procedure.md) §4.7c.
+
+```sh
+scripts/ios_device.sh device-state
+scripts/ios_mirroir_preflight.sh --native-only
+scripts/ios_device.sh models check --strict
+scripts/ios_device.sh bench-ui-mirroir --agent-drive \
+  --warm 1 --lengths medium --modes custom --label mirroir-bench-pilot
+```
+
+Shell prints **`MIRROIR_BENCH_TAKE_BEGIN`** per take and blocks until agent `touch take-N.done`. Per take:
+
+1. Mode prep when `needsModePrep=1` (Custom / Design / Clone segment + sheets per B.6d)
+2. Tap OCR **`Clear script`** (`iosStudio_benchClearScript`) — or `vision-launch` fallback
+3. Type **corpus from take JSON** → SCRIPT_VERIFY `N > 0`
+4. `SINCE=$(scripts/ios_device.sh vision-now)` → tap **Generate** → `vision-bench-wait --run-id … --since "$SINCE"`
+5. `touch build/ios/bench-ui-mirroir-<runID>/take-N.done`
+
+**Completion proof:** telemetry via `vision-bench-wait` (not OCR `"Just now"`). **Design dismiss not required** between warm takes when Clear script succeeds. **Illegal during bench:** Design share `*`, **Save as voice**, Voices tab mid-matrix.
+
+**Do not** mix agent mirroir taps with XCUITest `bench-ui` on the same device session.
 
 Legacy Peekaboo + `ios_vision_bridge.sh` — fallback only when `describe_screen` fails.
 
@@ -198,8 +227,7 @@ Workflow map: [`ios-app-guide.md`](ios-app-guide.md).
 
 ## iOS — vision bench-ui matrix (DEPRECATED)
 
-> **Deprecated 2026-07** — use XCUITest [`scripts/ios_device.sh bench-ui`](../../scripts/ios_device.sh) for the matrix; mirroir for exploratory smokes only.
-> Retained for emergency fallback only.
+> **Deprecated 2026-07** — superseded by [`bench-ui-mirroir --agent-drive`](#ios--mirroir-ui-bench-agent-matrix) (native mirroir) or XCUITest `bench-ui`. Emergency fallback only.
 
 Human-like full-matrix bench: **mirroir sees**, **Peekaboo clicks/types** on the Mac-side
 Mirroring window, **shell proves** via pulled `generations.jsonl`.

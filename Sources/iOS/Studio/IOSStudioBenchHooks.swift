@@ -2,7 +2,7 @@ import SwiftUI
 import QwenVoiceCore
 
 /// Debug-only accessibility hooks for the UI-driven on-device bench
-/// (`VocelloiOSBenchUITests` via `scripts/ios_device.sh bench-ui`) — the iOS
+/// (`VocelloiOSBenchUITests` / `bench-ui-mirroir` via `scripts/ios_device.sh`) — the iOS
 /// counterpart of macOS `MacUITestSurfaceMarkers`.
 ///
 /// Rendered by `StudioScreen` only when `QWENVOICE_UI_TEST_HOOKS=1` is in the
@@ -15,9 +15,9 @@ import QwenVoiceCore
 ///   polling player chrome, which stays visible between takes.
 /// - `iosStudio_generationError` — the active mode's error message ("none" when
 ///   clear) so a failed take aborts the wait immediately instead of timing out.
-/// - `iosStudio_benchClearScript` — a hidden button that clears all three mode
-///   drafts, giving warm in-session takes a deterministic composer without
-///   fighting UITextView text selection.
+/// - `iosStudio_benchClearScript` — clears all three mode drafts and dismisses
+///   the inline player. OCR-visible **Clear script** label for mirroir agent bench;
+///   XCUITest taps the same control by accessibility id.
 struct IOSStudioBenchHooks: View {
     @Environment(AppModel.self) private var appModel
 
@@ -30,26 +30,31 @@ struct IOSStudioBenchHooks: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 2) {
             marker(value: lastCompletedValue, identifier: "iosStudio_lastGenerationComplete")
             marker(value: errorValue, identifier: "iosStudio_generationError")
             Button {
-                appModel.customVoiceDraft.text = ""
-                appModel.voiceDesignDraft.text = ""
-                appModel.voiceCloningDraft.text = ""
-                // Warm in-session takes reuse one launch; dismiss the inline
-                // player so the dock returns to the Generate CTA for the next take.
-                for mode in [GenerationMode.custom, .design, .clone] {
-                    appModel.coordinator(for: mode).dismissInlinePlayer()
-                }
+                clearAllDraftsAndDismissPlayer()
             } label: {
-                Color.clear.frame(width: 8, height: 8)
+                Text("Clear script")
+                    .font(.caption2)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(.ultraThinMaterial, in: Capsule())
             }
             .accessibilityIdentifier("iosStudio_benchClearScript")
-            .accessibilityLabel("bench clear script")
+            .accessibilityLabel("Clear script")
         }
-        .opacity(0.011)
-        .allowsHitTesting(true)
+        .padding(4)
+    }
+
+    private func clearAllDraftsAndDismissPlayer() {
+        appModel.customVoiceDraft.text = ""
+        appModel.voiceDesignDraft.text = ""
+        appModel.voiceCloningDraft.text = ""
+        for mode in [GenerationMode.custom, .design, .clone] {
+            appModel.coordinator(for: mode).dismissInlinePlayer()
+        }
     }
 
     /// Newest completed take across the three coordinators. Each take writes a
@@ -58,7 +63,6 @@ struct IOSStudioBenchHooks: View {
         if let item = appModel.coordinator(for: appModel.studioMode.mode).lastCompletedOutput {
             return item.audioURL.lastPathComponent
         }
-        // Fall back to any mode (handoffs can land takes outside the visible mode).
         for mode in [GenerationMode.custom, .design, .clone] {
             if let item = appModel.coordinator(for: mode).lastCompletedOutput {
                 return item.audioURL.lastPathComponent
@@ -80,5 +84,6 @@ struct IOSStudioBenchHooks: View {
             .accessibilityValue(value)
             .accessibilityIdentifier(identifier)
             .accessibilityHidden(false)
+            .opacity(0.011)
     }
 }

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Shared agent-driven iOS UI bench loop (mobile-mcp or deprecated vision driver).
+# Shared agent-driven iOS UI bench loop (mirroir, mobile-mcp, or deprecated vision driver).
 # Sourced by scripts/ios_device.sh — do not execute directly.
 
 # _ios_agent_bench_ui <driver> [flags...]
-# driver: mcp | vision
+# driver: mirroir | mcp | vision
 _ios_agent_bench_ui() {
-  local driver="${1:?driver required (mcp|vision)}"; shift
+  local driver="${1:?driver required (mirroir|mcp|vision)}"; shift
   require_team
 
   local modes="custom,design,clone" lengths="short,medium,long" warm=3 label="" profile=0 agent_drive=0
   local profile_template="${QVOICE_IOS_PROFILE_TEMPLATE:-Time Profiler}"
-  local skip_doctor=0 skip_mcp_preflight=0
+  local skip_doctor=0 skip_mcp_preflight=0 skip_mirroir_preflight=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --modes) modes="${2:-}"; shift 2 ;;
@@ -27,8 +27,23 @@ _ios_agent_bench_ui() {
       --agent-drive) agent_drive=1; shift ;;
       --skip-uitest-doctor) skip_doctor=1; shift ;;
       --skip-mcp-preflight) skip_mcp_preflight=1; shift ;;
+      --skip-mirroir-preflight) skip_mirroir_preflight=1; shift ;;
       -h|--help|help)
-        if [[ "$driver" == "mcp" ]]; then
+        if [[ "$driver" == "mirroir" ]]; then
+          cat <<'EOF'
+bench-ui-mirroir — agent-driven UI benchmark (native mirroir OCR + tap/type_text)
+
+  scripts/ios_device.sh bench-ui-mirroir --agent-drive [--modes …] [--lengths …]
+      [--warm N] [--label NOTE] [--skip-mirroir-preflight]
+
+Requires --agent-drive: agent uses mirroir describe_screen → tap/type_text per take,
+then vision-bench-wait for telemetry proof. See docs/reference/ios-agent-ui-tour.md Appendix B.6d.
+
+Pilot:
+  scripts/ios_mirroir_preflight.sh --native-only
+  scripts/ios_device.sh bench-ui-mirroir --agent-drive --warm 1 --lengths medium --modes custom --label mirroir-pilot
+EOF
+        elif [[ "$driver" == "mcp" ]]; then
           cat <<'EOF'
 bench-ui-mcp — agent-driven UI benchmark (mobile-mcp + WDA accessibility tree)
 
@@ -44,11 +59,11 @@ Pilot:
 EOF
         else
           cat <<'EOF'
-bench-ui-vision — DEPRECATED: mirroir + Peekaboo mirror-coordinate bench
+bench-ui-vision — DEPRECATED: Peekaboo mirror-coordinate bench
 
   scripts/ios_device.sh bench-ui-vision --agent-drive …
 
-Prefer bench-ui-mcp. See docs/reference/mobile-mcp-ios-evaluation.md.
+Superseded by bench-ui-mirroir. See docs/reference/ios-agent-ui-tour.md Appendix B.6d.
 EOF
         fi
         return 0
@@ -61,11 +76,19 @@ EOF
 
   local lane_name="bench-ui-$driver"
   local run_prefix="ios-bench-ui-$driver"
-  local take_begin="MCP_BENCH_TAKE_BEGIN"
-  [[ "$driver" == "vision" ]] && take_begin="VISION_BENCH_TAKE_BEGIN"
+  local take_begin="MIRROIR_BENCH_TAKE_BEGIN"
+  case "$driver" in
+    mcp) take_begin="MCP_BENCH_TAKE_BEGIN" ;;
+    vision) take_begin="VISION_BENCH_TAKE_BEGIN" ;;
+  esac
 
   note "$lane_name step 0: device-state"
   guard_device_state || die "device-state not ready for $lane_name"
+
+  if [[ "$driver" == "mirroir" && "$skip_mirroir_preflight" -eq 0 ]]; then
+    note "$lane_name step 0b: mirroir preflight (--native-only)"
+    "$ROOT_DIR/scripts/ios_mirroir_preflight.sh" --native-only || die "mirroir preflight failed"
+  fi
 
   if [[ "$driver" == "mcp" && "$skip_mcp_preflight" -eq 0 ]]; then
     note "$lane_name step 0b: mobile-mcp preflight"
@@ -115,6 +138,7 @@ EOF
   local ran=0 skipped_clone=0
   local take_idx=0
   local warm_session_mode=""
+  local mode_prep_done=""
 
   note "$lane_name: $planned planned takes — agent drive begins"
   {
@@ -146,9 +170,11 @@ EOF
     if [[ "$force_cold" == "True" || "$force_cold" == "true" || "$force_cold" == "1" ]]; then
       cmd_vision_launch --run-id "$run_id" --force-cold 1
       warm_session_mode=""
+      mode_prep_done=""
     elif [[ "$warm_session_mode" != "$mode" ]]; then
       cmd_vision_launch --run-id "$run_id" --force-cold 0
       warm_session_mode="$mode"
+      mode_prep_done=""
     fi
 
     local take_file="$out_dir/take-${take_idx}.json"
@@ -156,8 +182,35 @@ EOF
     local done_file="$out_dir/take-${take_idx}.done"
     rm -f "$done_file"
 
+    local needs_mode_prep=0
+    if [[ "$mode_prep_done" != *"|${mode}|"* ]]; then
+      needs_mode_prep=1
+    fi
+
     note "── ${take_begin} $((take_idx + 1))/$planned: $take_label ──"
-    if [[ "$driver" == "mcp" ]]; then
+    if [[ "$driver" == "mirroir" ]]; then
+      cat <<EOF | tee -a "$log" >&2
+${take_begin}
+$(cat "$take_file")
+needsModePrep=$needs_mode_prep
+doneFile=$done_file
+Agent steps (mirroir native — docs/reference/ios-agent-ui-tour.md Appendix B.6d):
+  1. describe_screen — confirm Studio tab + segment ($mode)
+  2. Mode prep (if needsModePrep=1):
+     custom: tap Custom @ y≈108
+     design: tap Design @ y≈108; if + brief chip, tap first STARTING POINTS row or type bench brief + Confirm
+     clone: tap Clone @ y≈108; tap + reference chip; pick first SAVED VOICES row
+  3. Tap OCR "Clear script" (iosStudio_benchClearScript) — or vision-launch --run-id $run_id --force-cold 0 if missing
+  4. Tap composer → type_text (script from take JSON above) → SCRIPT_VERIFY N>0
+  5. SINCE=\$(scripts/ios_device.sh vision-now)  # BEFORE Generate
+  6. Tap Generate @ OCR ~(173, 584)
+  7. scripts/ios_device.sh vision-bench-wait --run-id $run_id --since "\$SINCE" --timeout $timeout
+  8. touch $done_file
+EOF
+      if (( needs_mode_prep == 1 )); then
+        mode_prep_done="${mode_prep_done}|${mode}|"
+      fi
+    elif [[ "$driver" == "mcp" ]]; then
       cat <<EOF | tee -a "$log" >&2
 ${take_begin}
 $(cat "$take_file")
@@ -175,7 +228,7 @@ EOF
 ${take_begin}
 $(cat "$take_file")
 bridge: $QVOICE_IOS_VISION_BRIDGE
-Agent steps (DEPRECATED vision):
+Agent steps (DEPRECATED vision — prefer bench-ui-mirroir):
   1. mirroir describe_screen — confirm Studio + mode ($mode)
   2. Prepare mode per docs/reference/ios-app-guide.md
   3. Clear composer

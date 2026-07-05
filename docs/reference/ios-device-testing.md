@@ -715,7 +715,8 @@ they do not replace XCUITest or drive regression matrices.
 | | `scripts/ios_device.sh models check --strict` | Before gate / `bench-ui` | Headless inventory pull; phone locked OK |
 | **Run gate** | `scripts/ios_device.sh gate` | Pre-merge | ~7–12 min; unlock once for step 2 |
 | **Run UI bench** | `scripts/ios_device.sh bench-ui --label "why"` | Engine/UI matrix (XCUITest) | ~20 min; clone voice on phone |
-| **Run agent UI bench** | `scripts/ios_device.sh bench-ui-mcp --agent-drive …` | Full matrix via **mobile-mcp** (WDA) | Playbook F — **deferred**; use Playbook B (`bench-ui`) |
+| **Run agent UI bench** | `scripts/ios_device.sh bench-ui-mirroir --agent-drive …` | Full matrix via **mirroir** native | Playbook G — pilot/exploratory; same gate as `bench-ui` |
+| **Run agent UI bench (deferred)** | `scripts/ios_device.sh bench-ui-mcp --agent-drive …` | Full matrix via **mobile-mcp** (WDA) | Playbook F — **deferred**; WDA signing blocked |
 | **Run vision UI bench (deprecated)** | `scripts/ios_device.sh bench-ui-vision --agent-drive …` | Legacy mirroir + Peekaboo | Playbook E — emergency only |
 | **Run headless bench** | `scripts/ios_device.sh bench "custom:speed:…"` | RTF/audioQC without XCUITest | Phone **locked OK**; unattended engine proof |
 | **Observe** | `scripts/ios_device.sh shot` | During long runs | Mac-side Mirroring capture — no agent taps |
@@ -741,7 +742,7 @@ they do not replace XCUITest or drive regression matrices.
 - **Peekaboo** on macOS Vocello only
 - **Observation:** `ios_device.sh shot` anytime (no taps)
 
-**Deferred:** mobile-mcp **`bench-ui-mcp --agent-drive`** and Playbook F — WDA signing blocked; use XCUITest `bench-ui` for matrix.
+**Deferred:** mobile-mcp **`bench-ui-mcp --agent-drive`** and Playbook F — WDA signing blocked. **Agent matrix:** Playbook G (`bench-ui-mirroir`). **Unattended matrix:** Playbook B (`bench-ui`).
 
 One automation owner per device session — do not mix XCUITest attach with agent taps.
 
@@ -782,6 +783,22 @@ scripts/ios_device.sh bench --sim-device iphone15pro "clone:speed:…"  # memory
 
 - **Exploratory drive:** mirroir + [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md) § iOS Studio smoke
 - **Proof:** `gate` / `test --cold` / headless `bench`
+
+### Playbook G — mirroir agent UI bench (`bench-ui-mirroir`)
+
+Agent-driven full matrix through the real Studio UI via native mirroir. Same manifest, telemetry, and gate as Playbook B (`bench-ui`). **Not a pre-merge gate** until pilot-stable. Procedure: [`ios-agent-ui-tour.md`](ios-agent-ui-tour.md) Appendix **B.6d**; runbook: [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md) § mirroir UI bench.
+
+```sh
+scripts/ios_device.sh device-state
+scripts/ios_mirroir_preflight.sh --native-only
+scripts/ios_device.sh models check --strict
+scripts/ios_device.sh bench-ui-mirroir --agent-drive \
+  --warm 1 --lengths medium --modes custom --label mirroir-bench-pilot
+```
+
+**During run:** agent drives mirroir O-A-V per shell `MIRROIR_BENCH_TAKE_BEGIN`; shell blocks on `take-N.done`. Requires **`QWENVOICE_UI_TEST_HOOKS=1`** (driver sets via `vision-launch`) for OCR **`Clear script`** affordance.
+
+**After run:** PASS → `build/ios/bench-ui-mirroir-<runID>/gate.log`; FAIL → grep for generation errors; re-run `check_ios_ui_bench.py`.
 
 ### Playbook E — Vision bench-ui matrix (DEPRECATED)
 
@@ -838,6 +855,7 @@ Full evaluation: [`mobile-mcp-ios-evaluation.md`](mobile-mcp-ios-evaluation.md).
 | Bench-ui log + gate | `build/ios/bench-ui-<runID>/` | grep log; `check_ios_ui_bench.py` |
 | mobile-mcp bench-ui | `build/ios/bench-ui-mcp-<runID>/` | manifest; gate.log; `compare-bench` vs XCUITest |
 | Vision bench-ui (deprecated) | `build/ios/bench-ui-vision-<runID>/` | legacy only |
+| mirroir agent bench-ui | `build/ios/bench-ui-mirroir-<runID>/` | manifest; gate.log; `compare-bench` vs XCUITest |
 | Pulled telemetry | `build/ios-diagnostics/` | summarizer; `check_ios_ui_bench.py` |
 | Model inventory | `build/ios-diagnostics/models-status.json` | `models check` |
 | Profile trace | `build/ios/profile-*.trace` or `bench-ui-*/vocello.trace` | `axiom_xcprof_analyze` |

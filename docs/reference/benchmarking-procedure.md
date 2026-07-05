@@ -70,7 +70,8 @@ UIstall column      —                       yes                    yes
 | **macOS XPC UI bench** | `scripts/macos_test.sh bench-ui` | Out-of-process engine | Full release matrix through real app + XPC; merged 3-layer telemetry |
 | **macOS profile** | `scripts/macos_test.sh profile` | In-process via CLI inside trace | Instruments / os_signpost validation |
 | **iOS device** | `scripts/ios_device.sh bench` | In-process | iPhone tier, Jetsam, on-device RTF (headless autorun, single take) |
-| **iOS UI bench** | `scripts/ios_device.sh bench-ui` | In-process | Full release matrix through the real Studio UI on the iPhone; gate `scripts/check_ios_ui_bench.py` (engine layer only — no XPC on iOS) |
+| **iOS UI bench** | `scripts/ios_device.sh bench-ui` | In-process | Full release matrix through the real Studio UI on the iPhone (XCUITest); gate `scripts/check_ios_ui_bench.py` |
+| **iOS agent UI bench** | `scripts/ios_device.sh bench-ui-mirroir --agent-drive` | In-process | Same matrix + gate via mirroir agent; see §4.7c |
 
 **Important:** CLI bench numbers are **not** identical to macOS XPC UI numbers. Compare like with
 like (CLI vs CLI, UI vs UI). Use CLI for backend optimization; use UI/XPC for integration regressions.
@@ -228,7 +229,7 @@ scripts/ios_device.sh bench --sim-device iphone15pro custom:speed:
 
 Pulls diagnostics from device; runs summarizer; exits non-zero if autorun status ≠ ok.
 
-### 4.7b iOS UI benchmark (Studio matrix)
+### 4.7b iOS UI benchmark (Studio matrix — XCUITest, unattended)
 
 Same matrix semantics as macOS `bench-ui` (29 takes default). Step-by-step:
 [`testing-runbook.md` §3b](testing-runbook.md#3b-ui-driven-benchmark-lanes--step-by-step-any-agent-can-run-these).
@@ -240,6 +241,8 @@ scripts/ios_device.sh bench-ui --warm 1 --lengths medium --modes custom --label 
 scripts/ios_device.sh bench-ui --label ios-bench-full
 ```
 
+Requires phone **unlocked once** for XCUITest automation handshake. Do **not** touch the phone or mirroir-tap during the run.
+
 Optional trace during matrix (single in-process attach):
 
 ```sh
@@ -248,6 +251,29 @@ scripts/ios_device.sh bench-ui --profile --profile-template "Time Profiler" --la
 
 Artifacts: `build/ios/bench-ui-<timestamp>/` (log, gate.log, optional `vocello.trace`).
 Post-run gate: `python3 scripts/check_ios_ui_bench.py build/ios-diagnostics --run-id …`.
+
+### 4.7c iOS UI benchmark (mirroir agent — `bench-ui-mirroir`)
+
+Agent-driven matrix through the **real Studio UI** via native mirroir; same matrix manifest and telemetry gate as §4.7b. Procedure: [`ios-agent-ui-tour.md`](ios-agent-ui-tour.md) Appendix **B.6d**.
+
+```sh
+scripts/ios_device.sh device-state
+scripts/ios_mirroir_preflight.sh --native-only
+scripts/ios_device.sh models check --strict
+scripts/ios_device.sh bench-ui-mirroir --agent-drive \
+  --warm 1 --lengths medium --modes custom --label mirroir-bench-pilot
+```
+
+Shell prints **`MIRROIR_BENCH_TAKE_BEGIN`** per take; agent completes mirroir O-A-V steps and `touch take-N.done`. Completion proof: `vision-bench-wait` (not OCR `"Just now"`).
+
+| iOS UI bench lane | Driver | When |
+| --- | --- | --- |
+| **`bench-ui`** | XCUITest | Unattended full matrix; pre-release when agent unavailable |
+| **`bench-ui-mirroir --agent-drive`** | mirroir native | Agent session; pilot/exploratory matrix |
+| **`bench-ui-mcp --agent-drive`** | mobile-mcp WDA | Deferred (signing) |
+| **`bench-ui-vision --agent-drive`** | Peekaboo coords | Deprecated — use `bench-ui-mirroir` |
+
+**iOS engine RTF without UI friction:** use headless §4.7 (`ios_device.sh bench`), not UI bench lanes.
 
 | Phase | Tool |
 |-------|------|

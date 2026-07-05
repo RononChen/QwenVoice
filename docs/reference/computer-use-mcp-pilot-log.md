@@ -397,3 +397,82 @@ Remove **Custom segment tap** from recommended recovery (§10.1 workaround retir
 2. **Appendix B.8 / OCR table:** mark Design **share** (`*`) and **Save as voice** as **non-dismiss** targets; document **Save as voice** → enrolled voice for Clone (§5.4 pool).
 3. **Script protocol:** prefer **triple-delete** over single delete after Cmd+A when corruption detected; **`launch_app`** when counter stuck at `150/150`.
 4. Re-test **`reset_app` Vocello** and **`ios_device.sh launch`** mirror-disconnect recovery on owner device.
+
+### §10.4 mirroir agent UI bench pilot (`bench-ui-mirroir`)
+
+**Session:** 2026-07-05, ~12:08–12:17 local; implementation + infrastructure validation pass; **full agent-driven take loop not completed** in this Cursor agent session (mirroir MCP could not attach to mirror window).
+
+#### Infrastructure validated
+
+| Check | Result |
+| --- | --- |
+| `scripts/ios_device.sh bench-ui-mirroir --agent-drive` wired | **PASS** — dispatches `_ios_agent_bench_ui mirroir` |
+| Matrix manifest (custom/medium/warm 1) | **PASS** — 2 takes (`custom/medium/cold#0`, `custom/medium/warm#0`) in `manifest.json` |
+| `models check --strict` | **PASS** — all Speed tiers + 5 clone voices |
+| `vision-launch --run-id … --force-cold 1` | **PASS** — sets `QWENVOICE_UI_TEST_HOOKS=1` + bench runID |
+| iOS build + install (Clear script hook) | **PASS** — `IOSStudioBenchHooks` OCR **Clear script** capsule @ top-leading |
+| Docs (B.6d, §4.7c, Playbook G, runbooks) | **PASS** — committed with lane |
+
+#### Agent session blocker
+
+| Tool | Result |
+| --- | --- |
+| `mirroir check_health` (MCP) | **FAIL** — `'iphone' process is not running`; screen capture failed |
+| `mirroir list_targets` (MCP) | `iphone (active): notRunning (no window)` |
+| `mirroir describe_screen` (MCP) | **FAIL** — `Target 'iphone' is not running` |
+| `mirroir doctor` (CLI) | **PASS** — 326×720 portrait, permissions OK |
+| `ios_device.sh device-state` | **PASS** — MIRROR_ACTIVE |
+
+**Likely cause:** Cursor mirroir MCP server stale vs French macOS process name (**Recopie de l'iPhone**). Added `mirroringProcessName` to repo `.mirroir-mcp/settings.json`; **Cursor MCP restart** required before agent can drive. Same macOS Space as mirror window also required.
+
+#### Bench driver observation
+
+Shell reached **2 planned takes — agent drive begins** and wrote `manifest.json` + `session.env` under `build/ios/bench-ui-mirroir-ios-bench-ui-mirroir-20260705-121207/`. **`MIRROIR_BENCH_TAKE_BEGIN` blocks were not consumed** — agent could not tap/type; background shell sessions terminated before take loop output when run from agent tooling (attended owner session recommended).
+
+#### Gate parity (deferred → **completed 2026-07-05 ~12:28**)
+
+Full **2/2 take PASS** with `check_ios_ui_bench.py`:
+
+```sh
+scripts/ios_device.sh device-state
+scripts/ios_mirroir_preflight.sh --native-only
+# Restart Cursor MCP if describe_screen still fails
+scripts/ios_device.sh bench-ui-mirroir --agent-drive \
+  --warm 1 --lengths medium --modes custom --label mirroir-bench-pilot
+```
+
+Per take: B.6d loop → `vision-bench-wait` → `touch take-N.done`. Optional compare: matching subset via XCUITest `bench-ui` (Phase C).
+
+#### Pilot results (2026-07-05 ~12:27–12:29)
+
+**Session:** mirroir MCP healthy after reconnect; `runID=ios-bench-ui-mirroir-20260705-122747`. Agent drove B.6d manually (orchestrator shell blocked in background during xcodebuild — same per-take steps).
+
+| Take | Mode | Warm | Clear script | Generate | vision-bench-wait | Gate |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | custom/medium | cold | n/a (empty launch) | PASS (111/150) | PASS ~4.7 s | — |
+| 2 | custom/medium | warm | **PASS** (0/150, player dismissed) | PASS | PASS ~4.5 s | — |
+
+**Gate:** `check_ios_ui_bench.py --run-id ios-bench-ui-mirroir-20260705-122747 --expected 2` → **PASS** (custom medium cold n=2 QC=pass).
+
+**Validated:** OCR **Clear script** @ ~(64, 106); warm take reset without dismiss poll or `vision-launch` fallback; telemetry proof via `vision-bench-wait` (not OCR "Just now").
+
+#### Phase B multi-mode pilot (2026-07-05 ~12:36–12:48)
+
+**Session:** `runID=ios-bench-ui-mirroir-20260705-123609`; `--modes custom,design,clone --lengths medium --warm 1` → **5 takes** (clone block warm-only per matrix).
+
+| Take | Label | Mode prep | Clear script | Generate | Telemetry |
+| --- | --- | --- | --- | --- | --- |
+| 0 | custom/medium/cold#0 | Custom (cold launch) | n/a | PASS | PASS |
+| 1 | custom/medium/warm#0 | — | PASS | PASS | PASS |
+| 2 | design/medium/cold#0 | Design + STARTING POINTS brief | n/a | PASS (~7 s UI) | PASS (row poll; `vision-bench-wait` hung — no timestamps on rows) |
+| 3 | design/medium/warm#0 | brief chip retained | PASS | PASS | PASS (row poll) |
+| 4 | clone/medium/warm#0 | Clone + **AD** reference | n/a | PASS | PASS (row poll) |
+
+**Gate:** `check_ios_ui_bench.py --run-id ios-bench-ui-mirroir-20260705-123609 --expected 5` → **PASS** (custom n=2, design n=2, clone n=1; QC=pass).
+
+**Friction:** Design take 2 — `vision-bench-wait` timed out when row count >1 and `createdAt` missing on telemetry rows; row-count poll workaround used for takes 2–4. Clone reference pick: first tap landed on Custom; re-open sheet + tap row body → **AD ^** chip staged correctly.
+ after `.mirroir-mcp/settings.json` `mirroringProcessName` change; verify `describe_screen` shows **Clear script** on Studio with hooks enabled.
+2. Run pilot **interactively** (not backgrounded) — shell blocks on `take-N.done`; agent drives mirroir O-A-V in same session.
+3. Confirm **Clear script** OCR tap clears composer + dismisses inline player on warm take #2 before typing bench corpus.
+4. After 2/2 PASS, expand to `--modes custom,design,clone` (Phase B).
+

@@ -28,10 +28,12 @@
 #   scripts/ios_device.sh bench [spec] [--label "note"]
 #   scripts/ios_device.sh bench-ui [--modes m,..] [--lengths l,..] [--warm N] [--label "note"] [--profile]
 #                                                 # full-matrix UI-DRIVEN bench (XCUITest)
+#   scripts/ios_device.sh bench-ui-mirroir --agent-drive [--modes …] [--warm N] …
+#                                                 # agent bench via native mirroir (preferred agent path)
 #   scripts/ios_device.sh bench-ui-mcp --agent-drive [--modes …] [--warm N] …
-#                                                 # agent bench via mobile-mcp + WDA (preferred)
+#                                                 # agent bench via mobile-mcp + WDA (deferred)
 #   scripts/ios_device.sh bench-ui-vision --agent-drive [--modes …] …
-#                                                 # DEPRECATED: mirroir + Peekaboo mirror coords
+#                                                 # DEPRECATED: Peekaboo mirror coords — use bench-ui-mirroir
 #   scripts/ios_device.sh vision-launch --run-id ID [--force-cold 0|1]
 #   scripts/ios_device.sh vision-now              # UTC timestamp for vision-bench-wait --since
 #   scripts/ios_device.sh vision-bench-wait --run-id ID --since TS [--timeout N]
@@ -865,14 +867,19 @@ cmd_vision_bench_wait() {
   "$ROOT_DIR/scripts/lib/ios_vision_bench_wait.sh" wait "$@"
 }
 
-# bench-ui-mcp: agent-driven matrix via mobile-mcp + WDA (preferred).
+# bench-ui-mirroir: agent-driven matrix via native mirroir OCR + tap/type_text.
+cmd_bench_ui_mirroir() {
+  _ios_agent_bench_ui mirroir "$@"
+}
+
+# bench-ui-mcp: agent-driven matrix via mobile-mcp + WDA (deferred).
 cmd_bench_ui_mcp() {
   _ios_agent_bench_ui mcp "$@"
 }
 
-# bench-ui-vision: DEPRECATED mirror-coordinate agent bench (mirroir + Peekaboo).
+# bench-ui-vision: DEPRECATED Peekaboo mirror-coordinate agent bench.
 cmd_bench_ui_vision() {
-  warn "bench-ui-vision is deprecated — prefer bench-ui-mcp (docs/reference/mobile-mcp-ios-evaluation.md)"
+  warn "bench-ui-vision is deprecated — use bench-ui-mirroir (docs/reference/ios-agent-ui-tour.md Appendix B.6d)"
   _ios_agent_bench_ui vision "$@"
 }
 
@@ -1658,6 +1665,7 @@ main() {
     pull)    cmd_pull "$@" ;;
     bench)   cmd_bench "$@" ;;
     bench-ui) cmd_bench_ui "$@" ;;
+    bench-ui-mirroir) cmd_bench_ui_mirroir "$@" ;;
     bench-ui-mcp) cmd_bench_ui_mcp "$@" ;;
     bench-ui-vision) cmd_bench_ui_vision "$@" ;;
     vision-launch) cmd_vision_launch "$@" ;;
@@ -1676,7 +1684,7 @@ main() {
     uitest-doctor) cmd_uitest_doctor "$@" ;;
     help|-h|--help)
       sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' >&2 ;;
-    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|mirror|device-state|shot|pull|bench|bench-ui|bench-ui-mcp|bench-ui-vision|vision-launch|vision-now|vision-bench-wait|ui-test|uitest-doctor|crashes|debug|logs|profile|preflight|test|review|gate|models|help)" ;;
+    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|mirror|device-state|shot|pull|bench|bench-ui|bench-ui-mirroir|bench-ui-mcp|bench-ui-vision|vision-launch|vision-now|vision-bench-wait|ui-test|uitest-doctor|crashes|debug|logs|profile|preflight|test|review|gate|models|help)" ;;
   esac
 }
 

@@ -1,4 +1,5 @@
 {
+  "mirroringProcessName": "Recopie de l'iPhone",
   "screenDescriberMode": "ocr",
   "ocrMinImageWidth": 600,
   "ocrLanguages": ["en-US"],
