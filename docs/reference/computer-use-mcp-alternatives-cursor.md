@@ -65,6 +65,11 @@ Add **peekaboo** + **mirroir** alongside existing servers (context7, xcodebuildm
 
 French macOS: `~/.mirroir-mcp/settings.json` → `{"mirroringProcessName": "Recopie de l'iPhone"}`.
 
+**Shell vs mirroir parity:** `scripts/ios_device.sh device-state` uses bundle ID for process
+discovery; mirroir MCP uses `mirroringProcessName` for Accessibility. If shell probe passes but
+`check_health` fails: (1) restart Cursor MCP after settings change, (2) same macOS Space as mirror,
+(3) run `scripts/ios_mirroir_preflight.sh --native-only`. See [`ios-device-probe.md`](ios-device-probe.md).
+
 Cmd+Q and reopen Cursor after editing `mcp.json`.
 
 ### Verify (quick)

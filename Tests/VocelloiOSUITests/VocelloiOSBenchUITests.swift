@@ -220,6 +220,7 @@ final class VocelloiOSBenchUITests: XCTestCase {
 
     private func runTake(_ take: Take, timeout: TimeInterval) throws {
         let label = "\(take.mode)/\(take.length)/\(take.warmState)#\(take.rep)"
+        print("[bench-ui] take \(label) begin")
 
         clearScript()
         typeScript(take.text)
@@ -261,21 +262,65 @@ final class VocelloiOSBenchUITests: XCTestCase {
         XCTAssertTrue(clear.waitForExistence(timeout: 10), "bench clear hook should exist (QWENVOICE_UI_TEST_HOOKS=1)")
         // 1×1 hidden control: coordinate-tap its center for reliability.
         clear.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        // Hidden hook may steal focus briefly; let the composer settle before typing.
+        usleep(300_000)
     }
 
-    private func typeScript(_ text: String) {
-        let editor: XCUIElement
+    private func resolveScriptEditor() -> XCUIElement {
         let byID = app.descendants(matching: .any)["textInput_textEditor"].firstMatch
         if byID.waitForExistence(timeout: 8) {
-            editor = byID
-        } else {
-            editor = app.textViews.firstMatch
-            XCTAssertTrue(editor.waitForExistence(timeout: 10), "Studio text editor should exist")
+            return byID
         }
-        editor.tap()
-        app.typeText(text)
+        let editor = app.textViews.firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 10), "Studio text editor should exist")
+        return editor
+    }
+
+    private func scriptLengthCountElement() -> XCUIElement {
+        app.descendants(matching: .any)["textInput_lengthCount"].firstMatch
+    }
+
+    private func scriptLanded(in lengthCount: XCUIElement) -> Bool {
+        if lengthCount.exists {
+            let label = (lengthCount.value as? String) ?? lengthCount.label
+            // iOS composer meta: "42 / 150" (see IOSStudioCanvas.composerPad).
+            if let leading = label.split(separator: "/").first?
+                .trimmingCharacters(in: .whitespaces),
+                let count = Int(leading) {
+                return count > 0
+            }
+            return !label.isEmpty && !label.hasPrefix("0")
+        }
+        // Fallback when the meta row is not exposed: Generate enables once script is non-empty.
+        let generate = app.descendants(matching: .any)["textInput_generateButton"].firstMatch
+        return generate.exists && generate.isEnabled
+    }
+
+    /// Focus the composer and type the bench corpus. Uses `editor.typeText` (not
+    /// `app.typeText`) and verifies `textInput_lengthCount` — the iOS counterpart
+    /// of macOS `textInput_charCount` / `focusAndTypeScript`.
+    private func typeScript(_ text: String) {
+        let editor = resolveScriptEditor()
+        let lengthCount = scriptLengthCountElement()
+        let focusPoint = CGVector(dx: 0.5, dy: 0.35)
+
+        for attempt in 1...3 {
+            editor.coordinate(withNormalizedOffset: focusPoint).tap()
+            if !app.keyboards.element.waitForExistence(timeout: 3) {
+                editor.coordinate(withNormalizedOffset: focusPoint).doubleTap()
+            }
+            _ = app.keyboards.element.waitForExistence(timeout: 5)
+            editor.typeText(text)
+            if scriptLanded(in: lengthCount) { break }
+            if attempt == 3 {
+                XCTFail("script did not land in composer after \(attempt) focus attempts")
+                return
+            }
+            clearScript()
+        }
+
         // Return is configured as Done → dismisses the keyboard so the CTA is tappable.
-        app.typeText("\n")
+        editor.typeText("\n")
         _ = app.keyboards.element.waitForNonExistence(timeout: 10)
     }
 

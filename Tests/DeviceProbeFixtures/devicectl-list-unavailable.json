@@ -1,0 +1,17 @@
+{
+  "result": {
+    "devices": [
+      {
+        "identifier": "00000000-0000-0000-0000-000000000001",
+        "deviceProperties": {
+          "name": "iPhone 17 Pro"
+        },
+        "connectionProperties": {
+          "tunnelState": "disconnected",
+          "pairingState": "paired",
+          "transportType": "localNetwork"
+        }
+      }
+    ]
+  }
+}

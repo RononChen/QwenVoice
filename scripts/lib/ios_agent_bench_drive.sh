@@ -82,8 +82,9 @@ EOF
     vision) take_begin="VISION_BENCH_TAKE_BEGIN" ;;
   esac
 
-  note "$lane_name step 0: device-state"
-  guard_device_state || die "device-state not ready for $lane_name"
+  note "$lane_name step 0: device-state watch"
+  "$ROOT_DIR/scripts/ios_device.sh" device-state watch --interval 2 --count 3 \
+    || die "device-state not ready for $lane_name"
 
   if [[ "$driver" == "mirroir" && "$skip_mirroir_preflight" -eq 0 ]]; then
     note "$lane_name step 0b: mirroir preflight (--native-only)"

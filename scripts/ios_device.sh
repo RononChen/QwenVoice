@@ -47,7 +47,8 @@
 #   scripts/ios_device.sh models check [--strict]  # headless inventory pull (+ strict gate)
 #   scripts/ios_device.sh test [--all|--cold] [only] # ui-test + single verdict + build/ios/uitest-artifacts/
 #   scripts/ios_device.sh review [--baseline]        # on-device UI capture tour + baseline diff (burn-in-aware)
-#   scripts/ios_device.sh device-state [--json]    # interference probe: phone-in-use / call / mirror state
+#   scripts/ios_device.sh device-state [--json|--json-v2] [watch [--interval N] [--count N]]
+#                                                 # interference probe: phone-in-use / call / mirror state
 #   scripts/ios_device.sh uitest-doctor [--enable-gate1]  # Mac Gate 1 + iPhone unlock advisory
 #   scripts/ios_device.sh gate                 # pre-merge gate: preflight → test → generation → crashes → verdict
 #                                              # (generation needs Speed on device; QVOICE_GATE_SKIP_GENERATION=1 to skip)
@@ -97,7 +98,11 @@ note() { printf '\033[0;36m==>\033[0m %s\n' "$*" >&2; }
 warn() { printf '\033[0;33m[warn]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[0;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
 
-MIRROR_APP="iPhone Mirroring"   # bundle com.apple.ScreenContinuity
+MIRROR_APP="iPhone Mirroring"   # bundle com.apple.ScreenContinuity; display name via mirror_app_display_name
+
+_coredevice_reachable() {
+  python3 "$ROOT_DIR/scripts/lib/ios_coredevice_probe.py" reachable ${1:+--device "$1"} >/dev/null 2>&1
+}
 
 # Auto-start macOS iPhone Mirroring for OBSERVATION before on-device work: the phone stays
 # locked + screen-dark (OLED-safe) and you watch live on the Mac. KEY: iPhone Mirroring
@@ -111,8 +116,9 @@ MIRROR_APP="iPhone Mirroring"   # bundle com.apple.ScreenContinuity
 _nudge_mirror_resume() {
   local state; state="$(probe_device_state 2>/dev/null || true)"
   [[ "${state%%|*}" == "MIRROR_CONNECTING" ]] || return 0
+  local app_name; app_name="$(mirror_app_display_name)"
   note "mirroring session paused — nudging Resume (Reprendre)…"
-  osascript -e "tell application \"$MIRROR_APP\" to activate" \
+  osascript -e "tell application \"$app_name\" to activate" \
             -e 'delay 0.5' \
             -e 'tell application "System Events" to keystroke return' >/dev/null 2>&1 || true
   sleep 2
@@ -121,20 +127,21 @@ _nudge_mirror_resume() {
 ensure_mirror() {
   [[ "${QVOICE_IOS_NO_MIRROR:-}" == "1" ]] && return 0
   local max_wait="${1:-30}"
-  if pgrep -fq "iPhone Mirroring" 2>/dev/null \
-     && xcrun devicectl list devices 2>/dev/null | grep -qi "available"; then
+  local app_name; app_name="$(mirror_app_display_name)"
+  if mirror_process_running 2>/dev/null && _coredevice_reachable; then
     _nudge_mirror_resume
     local post; post="$(probe_device_state 2>/dev/null || true)"
     [[ "${post%%|*}" != "MIRROR_CONNECTING" ]] && return 0
     note "device reachable but mirroring still paused — waiting for Resume to take effect…"
   fi
   note "starting iPhone Mirroring (observation; keeps a locked device reachable, OLED-safe)…"
-  open -a "$MIRROR_APP" >/dev/null 2>&1 || warn "could not launch iPhone Mirroring ($MIRROR_APP)"
+  open -a "$app_name" >/dev/null 2>&1 || open -a "$MIRROR_APP" >/dev/null 2>&1 \
+    || warn "could not launch iPhone Mirroring ($app_name)"
   local waited=0
   local sleep_s=3
   local nudged=0
   while (( waited < max_wait )); do
-    if xcrun devicectl list devices 2>/dev/null | grep -qi "available"; then
+    if _coredevice_reachable; then
       _nudge_mirror_resume
       local post; post="$(probe_device_state 2>/dev/null || true)"
       [[ "${post%%|*}" != "MIRROR_CONNECTING" ]] || continue
@@ -155,7 +162,7 @@ ensure_mirror() {
     sleep "$sleep_s"; waited=$((waited + sleep_s))
     if (( sleep_s < 6 )); then sleep_s=$((sleep_s + 1)); fi
   done
-  warn "device not 'available' yet — LOCK your iPhone (or wait for Auto-Lock) so iPhone Mirroring connects, then re-run."
+  warn "device not reachable yet — LOCK your iPhone (or wait for Auto-Lock) so iPhone Mirroring connects, then re-run."
   warn "$(probe_device_state 2>/dev/null || true)"
 }
 
@@ -200,13 +207,23 @@ PY
   state="$(probe_device_state "$dev" 2>/dev/null || true)"
   verdict="${state%%|*}"
   case "$verdict" in
-    CALL_ACTIVE)
-      die "a phone call is active on the iPhone (${state#*|}) — finish/decline it, then re-run"
+    CALL_ACTIVE|PROBE_DEGRADED|MIRROR_DISCONNECTED|DEVICE_UNREACHABLE)
+      die "device-state $verdict (${state#*|}) — $(device_state_advice "$verdict")"
       ;;
     PHONE_IN_USE)
       warn "iPhone is currently in use (${state#*|}) — fine if that's you doing the unlock handshake; otherwise lock the phone or the run will fail"
       ;;
   esac
+
+  local auto_json ready
+  auto_json="$(python3 "$ROOT_DIR/scripts/lib/ios_coredevice_probe.py" automation \
+    --device "$dev" --verdict "$verdict" --lane xcuitest 2>/dev/null || echo '{}')"
+  ready="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("readyForXCUITest", True))' <<<"$auto_json")"
+  if [[ "$ready" == "False" ]]; then
+    local blockers
+    blockers="$(python3 -c 'import json,sys; print(", ".join(json.load(sys.stdin).get("blockers",[])))' <<<"$auto_json")"
+    warn "automation not fully ready ($blockers) — unlock iPhone once before XCUITest attach if device_locked is listed"
+  fi
 
   note "XCUITest preflight OK on $dev — unlock the iPhone once before tests start (automation auth handshake). bench/launch work with a locked phone."
 }
@@ -214,14 +231,51 @@ PY
 # mirror: start/foreground iPhone Mirroring + confirm the device is reachable (manual use).
 cmd_mirror() { ensure_mirror; }
 
-# device-state [--json]: one-shot interference probe (see scripts/lib/ios_device_state.sh).
+# device-state [--json|--json-v2] [watch [--interval N] [--count N]]
 # Exit codes: 0 MIRROR_ACTIVE · 10 PHONE_IN_USE · 11 CALL_ACTIVE · 12 MIRROR_CONNECTING ·
-# 13 MIRROR_DISCONNECTED · 14 DEVICE_UNREACHABLE. Use before/around expensive lanes to
-# fail doomed runs fast instead of timing out.
+# 13 MIRROR_DISCONNECTED · 14 DEVICE_UNREACHABLE · 15 PROBE_DEGRADED · 16 DEVICE_LOCKED.
 cmd_device_state() {
-  local as_json=0
-  [[ "${1:-}" == "--json" ]] && as_json=1
+  local as_json=0 json_v2=0 watch=0 interval=2 count=3 lane=xcuitest
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --json) as_json=1; shift ;;
+      --json-v2) as_json=1; json_v2=1; shift ;;
+      watch) watch=1; shift ;;
+      --interval) interval="${2:?}"; shift 2 ;;
+      --count) count="${2:?}"; shift 2 ;;
+      --lane) lane="${2:?}"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
   local dev; dev="$(resolve_device 2>/dev/null || true)"
+
+  if (( watch )); then
+    local line verdict detail
+    line="$(probe_device_state_watch "$dev" "$interval" "$count" "$lane")"
+    verdict="${line%%|*}"
+    detail="${line#*|}"
+    if (( as_json && json_v2 )); then
+      probe_device_state_json "$dev" "$lane"
+    elif (( as_json )); then
+      VERDICT="$verdict" DETAIL="$detail" ADVICE="$(device_state_advice "$verdict")" python3 -c '
+import json, os
+print(json.dumps({"verdict": os.environ["VERDICT"], "detail": os.environ["DETAIL"], "advice": os.environ["ADVICE"], "probeVersion": 1}))'
+    else
+      note "device state (watch): $verdict — $detail"
+      note "  $(device_state_advice "$verdict")"
+    fi
+    exit "$(device_state_exit_code "$verdict")"
+  fi
+
+  if (( as_json && json_v2 )); then
+    probe_device_state_json "$dev" "$lane"
+    local line verdict
+    line="$(probe_device_state "$dev")"
+    verdict="${line%%|*}"
+    exit "$(device_state_exit_code "$verdict")"
+  fi
+
   local line verdict detail
   line="$(probe_device_state "$dev")"
   verdict="${line%%|*}"
@@ -233,6 +287,7 @@ print(json.dumps({
     "verdict": os.environ["VERDICT"],
     "detail": os.environ["DETAIL"],
     "advice": os.environ["ADVICE"],
+    "probeVersion": 1,
 }))'
   else
     note "device state: $verdict — $detail"
@@ -253,30 +308,21 @@ cmd_shot() {
   command -v screencapture >/dev/null 2>&1 || die "screencapture not found (macOS only)"
   mkdir -p "$(dirname "$out")"
 
-  # Bring Mirroring frontmost so the captured region isn't occluded by another window.
-  open -a "$MIRROR_APP" >/dev/null 2>&1 || true
-  osascript -e "tell application \"$MIRROR_APP\" to activate" >/dev/null 2>&1 || true
+  local app_name; app_name="$(mirror_app_display_name)"
+  open -a "$app_name" >/dev/null 2>&1 || open -a "$MIRROR_APP" >/dev/null 2>&1 || true
+  osascript -e "tell application \"$app_name\" to activate" >/dev/null 2>&1 || true
   sleep 0.6
 
-  # Read the Mirroring window's screen rect (points, top-left origin — same space screencapture -R uses).
-  local rect
-  rect="$(osascript <<'OSA' 2>/dev/null || true
-tell application "System Events"
-  if not (exists process "iPhone Mirroring") then return ""
-  tell process "iPhone Mirroring"
-    if (count of windows) is 0 then return ""
-    set p to position of window 1
-    set s to size of window 1
-    -- Coerce each number to text BEFORE concatenating; `integer & ","` builds a list, not a string.
-    set x to ((item 1 of p) as integer) as text
-    set y to ((item 2 of p) as integer) as text
-    set w to ((item 1 of s) as integer) as text
-    set h to ((item 2 of s) as integer) as text
-    return x & "," & y & "," & w & "," & h
-  end tell
-end tell
-OSA
-)"
+  local rect window_id
+  rect="$(mirror_window_rect)"
+  if [[ -z "$rect" ]] && window_id="$(mirror_window_id 2>/dev/null || true)" && [[ -n "$window_id" ]]; then
+    note "capturing iPhone Mirroring window id=$window_id → $out"
+    screencapture -x -o -l "$window_id" "$out" \
+      || die "screencapture failed — grant Screen Recording permission to this terminal"
+    [[ -s "$out" ]] || die "screencapture produced an empty file"
+    printf '%s\n' "$out"
+    return 0
+  fi
 
   [[ -n "$rect" ]] || die "couldn't read the iPhone Mirroring window — open + connect it first ('$0 mirror', showing the device), and grant Automation permission if prompted"
 
@@ -711,7 +757,8 @@ EOF
     esac
   done
 
-  note "bench-ui step 0: device-state"
+  note "bench-ui step 0: mirror + device-state"
+  ensure_mirror 60
   guard_device_state || die "device-state not ready for bench-ui (see advice above)"
 
   if (( skip_doctor == 0 )); then
@@ -756,18 +803,26 @@ EOF
     sleep 2
   fi
 
+  note "ATTENDED HANDSHAKE: first XCUITest attach today may need the iPhone unlocked nearby (~30s) — approve any automation prompt when it appears."
+
   set +e
   local attempt=1 test_status=0
   while (( attempt <= 2 )); do
     if (( attempt > 1 )); then
-      warn "retrying bench-ui after unlock/auth failure — unlock the iPhone, dismiss any automation prompt, then wait…"
+      if _ui_test_log_needs_transient_retry "$log"; then
+        warn "retrying bench-ui after transient XCUITest flake — ensure Vocello is foreground on the phone, then wait…"
+      elif _ui_test_log_needs_unlock_retry "$log"; then
+        warn "retrying bench-ui after unlock/auth failure — unlock the iPhone, dismiss any automation prompt, then wait…"
+      else
+        warn "retrying bench-ui after test failure — waiting before second attempt…"
+      fi
       sleep 8
       : >"$log"
     fi
     _run_ui_test_once "$dev" "$log" -only-testing:"VocelloiOSUITests/VocelloiOSBenchUITests/testFullMatrix"
     test_status=$?
     if (( test_status == 0 )); then break; fi
-    if (( attempt == 1 )) && _ui_test_log_needs_unlock_retry "$log"; then
+    if (( attempt == 1 )) && { _ui_test_log_needs_unlock_retry "$log" || _ui_test_log_needs_transient_retry "$log"; }; then
       attempt=$((attempt + 1))
       continue
     fi
@@ -921,6 +976,13 @@ _ui_test_log_needs_unlock_retry() {
   local log="$1"
   grep -qiE \
     'Unlock iPhone|ApproveFailed|device locked|was not, or could not be, unlocked|Unable to launch.*unlocked|SFAuthenticationErrorCodeApproveFailedToPost|Failed to initialize for UI testing|authentication error 12|Timed out waiting for response|Échec d.authentification|authentification' \
+    "$log"
+}
+
+_ui_test_log_needs_transient_retry() {
+  local log="$1"
+  grep -qiE \
+    'Failed to synthesize event|Neither element nor any descendant has keyboard focus|is not hittable|interrupting its neighbour|script did not land in composer' \
     "$log"
 }
 

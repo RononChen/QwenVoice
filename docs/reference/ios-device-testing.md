@@ -622,19 +622,29 @@ authoritative single-run record; JSONL is append-only and accumulates across run
 
 ## Interference states (fail doomed runs fast)
 
-`scripts/lib/ios_device_state.sh` OCR-classifies the Mirroring window (French + English).
+Layered probe: CoreDevice JSON + bundle-ID mirroring process + Vision OCR. Full reference:
+[`ios-device-probe.md`](ios-device-probe.md).
 
 | Lane | Reaction |
 | --- | --- |
-| `ensure_device_ready` (ui-test/gate) | `CALL_ACTIVE` → abort. `PHONE_IN_USE` → warn (unlock handshake). |
-| `bench` / gate generation polls | `CALL_ACTIVE` / mirror dead / unreachable → abort; `PHONE_IN_USE` ×2 (~20 s) → abort. |
-| `ui-test` retry | Before retry: probe; in-use/call → die with cause named. |
+| `ensure_device_ready` (ui-test/gate) | `CALL_ACTIVE` / `PROBE_DEGRADED` / mirror dead → abort. `PHONE_IN_USE` → warn (unlock handshake). |
+| `bench` / gate generation polls | `CALL_ACTIVE` / mirror dead / unreachable / degraded → abort; `PHONE_IN_USE` ×2 (~20 s) → abort. |
+| `ui-test` retry | Before retry: probe; in-use/call/degraded → die with cause named. |
 | `ensure_mirror` | Paused session gets one Resume nudge (activate + Return). |
+| Agent bench (`bench-ui-mirroir`) | `device-state watch` (2/3 hysteresis) before takes. |
 
-Probe: `scripts/ios_device.sh device-state [--json]` (exit code = verdict).
+```sh
+scripts/ios_device.sh device-state              # legacy line + exit code
+scripts/ios_device.sh device-state --json-v2    # structured sub-signals
+scripts/ios_device.sh device-state watch --interval 2 --count 3
+```
 
 Exit codes: `0` MIRROR_ACTIVE · `10` PHONE_IN_USE · `11` CALL_ACTIVE · `12` MIRROR_CONNECTING ·
-`13` MIRROR_DISCONNECTED · `14` DEVICE_UNREACHABLE.
+`13` MIRROR_DISCONNECTED · `14` DEVICE_UNREACHABLE · `15` PROBE_DEGRADED · `16` DEVICE_LOCKED (advisory).
+
+**Lock vs in-use:** mirroring wants a **locked** phone (`lockState` → `device_locked` blocker for
+XCUITest only). `PHONE_IN_USE` means the mirror session paused because the phone was unlocked or
+used directly.
 
 Autorun harness stamps `interruptions: [{type, atMS}]` into `autorun-done.json` via
 `IOSInterruptionRecorder` (calls + app lifecycle).
@@ -709,12 +719,12 @@ they do not replace XCUITest or drive regression matrices.
 
 | Phase | Tool | When | iOS-specific notes |
 | --- | --- | --- | --- |
-| **Preflight** | `scripts/ios_device.sh device-state` | Before `bench-ui` / long runs | Exit 0 = `MIRROR_ACTIVE`; abort if call / mirror dead |
+| **Preflight** | `scripts/ios_device.sh device-state` | Before `bench-ui` / long runs | Exit 0 = `MIRROR_ACTIVE` (mirror up — **still unlock phone once** for first XCUITest attach). `--json-v2` for lock/automation sub-signals. See [`ios-device-probe.md`](ios-device-probe.md) |
 | | `scripts/ios_device.sh uitest-doctor` | Before any XCUITest | Mac Gate 1 + unlock guidance |
 | | `user-xcodebuildmcp` `session_show_defaults` → profile `ios-device` → `list_devices` | Agent session start | Optional; **`ios_device.sh` stays primary** for test/bench |
 | | `scripts/ios_device.sh models check --strict` | Before gate / `bench-ui` | Headless inventory pull; phone locked OK |
 | **Run gate** | `scripts/ios_device.sh gate` | Pre-merge | ~7–12 min; unlock once for step 2 |
-| **Run UI bench** | `scripts/ios_device.sh bench-ui --label "why"` | Engine/UI matrix (XCUITest) | ~20 min; clone voice on phone |
+| **Run UI bench** | `scripts/ios_device.sh bench-ui --label "why"` | Engine/UI matrix (XCUITest) | ~10 min full matrix; `ensure_mirror` + attended unlock; clone voice on phone; retries auth + transient keyboard flakes |
 | **Run agent UI bench** | `scripts/ios_device.sh bench-ui-mirroir --agent-drive …` | Full matrix via **mirroir** native | Playbook G — pilot/exploratory; same gate as `bench-ui` |
 | **Run agent UI bench (deferred)** | `scripts/ios_device.sh bench-ui-mcp --agent-drive …` | Full matrix via **mobile-mcp** (WDA) | Playbook F — **deferred**; WDA signing blocked |
 | **Run vision UI bench (deprecated)** | `scripts/ios_device.sh bench-ui-vision --agent-drive …` | Legacy mirroir + Peekaboo | Playbook E — emergency only |

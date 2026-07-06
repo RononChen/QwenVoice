@@ -1,0 +1,259 @@
+#!/usr/bin/env python3
+"""CoreDevice probe helpers for ios_device_state.sh — devicectl JSON + lockState."""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+
+def _run_devicectl(args: list[str], timeout: int = 30) -> tuple[int, str, str]:
+    try:
+        proc = subprocess.run(
+            ["xcrun", "devicectl", *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return proc.returncode, proc.stdout, proc.stderr
+    except FileNotFoundError:
+        return 127, "", "xcrun not found"
+    except subprocess.TimeoutExpired:
+        return 124, "", "devicectl timed out"
+
+
+def _load_json_output(path: Path) -> dict[str, Any]:
+    with path.open(encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def list_devices_json() -> dict[str, Any]:
+    tmp = Path("/tmp") / f"devicectl-list-{Path(__file__).stem}.json"
+    code, _, err = _run_devicectl(["list", "devices", "--json-output", str(tmp)])
+    if code != 0 or not tmp.is_file():
+        return {"error": err.strip() or f"devicectl list failed (exit {code})"}
+    try:
+        return _load_json_output(tmp)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _devices(data: dict[str, Any]) -> list[dict[str, Any]]:
+    return (data.get("result") or {}).get("devices") or []
+
+
+def _connected(d: dict[str, Any]) -> bool:
+    cp = d.get("connectionProperties") or {}
+    tunnel = cp.get("tunnelState", "")
+    pairing = cp.get("pairingState", "")
+    return pairing == "paired" or tunnel in ("connected", "available")
+
+
+def _reachable(d: dict[str, Any]) -> bool:
+    cp = d.get("connectionProperties") or {}
+    return cp.get("tunnelState", "") in ("connected", "available")
+
+
+def pick_device(data: dict[str, Any], device_id: str | None = None) -> dict[str, Any] | None:
+    devs = _devices(data)
+    if device_id:
+        for d in devs:
+            if d.get("identifier") == device_id:
+                return d
+        return None
+    cands = [d for d in devs if _connected(d)]
+    if not cands:
+        return None
+    preferred = "iPhone 17 Pro"
+    for d in cands:
+        props = d.get("deviceProperties") or {}
+        if props.get("name") == preferred:
+            return d
+    if len(cands) == 1:
+        return cands[0]
+    return cands[0]
+
+
+def summarize_device(d: dict[str, Any]) -> dict[str, Any]:
+    cp = d.get("connectionProperties") or {}
+    props = d.get("deviceProperties") or {}
+    tunnel = cp.get("tunnelState", "")
+    pairing = cp.get("pairingState", "")
+    reachable = _reachable(d)
+    return {
+        "identifier": d.get("identifier"),
+        "name": props.get("name"),
+        "tunnelState": tunnel,
+        "pairingState": pairing,
+        "transportType": cp.get("transportType"),
+        "availableForDevelopment": reachable,
+    }
+
+
+def query_lock_state(device_id: str) -> dict[str, Any]:
+    tmp = Path("/tmp") / f"devicectl-lock-{Path(__file__).stem}.json"
+    code, _, err = _run_devicectl(
+        ["device", "info", "lockState", "--device", device_id, "--json-output", str(tmp)]
+    )
+    if code != 0 or not tmp.is_file():
+        return {"state": "unknown", "error": (err or f"exit {code}").strip()}
+    try:
+        raw = _load_json_output(tmp)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+    result = raw.get("result") or raw
+    lock = result.get("lockState") or result
+    unlocked = lock.get("unlockedSinceBoot")
+    passcode = lock.get("passcodeRequired")
+    if unlocked is None and passcode is None:
+        return {"state": "unknown", "raw": result}
+    return {
+        "state": "known",
+        "unlockedSinceBoot": bool(unlocked) if unlocked is not None else None,
+        "passcodeRequired": bool(passcode) if passcode is not None else None,
+        "deviceLocked": unlocked is False,
+    }
+
+
+def probe_coredevice(device_id: str | None = None) -> dict[str, Any]:
+    data = list_devices_json()
+    if "error" in data:
+        return {"reachable": False, "error": data["error"]}
+    dev = pick_device(data, device_id)
+    if not dev:
+        return {"reachable": False, "error": "no matching device"}
+    summary = summarize_device(dev)
+    out: dict[str, Any] = {"reachable": _reachable(dev), **summary}
+    ident = summary.get("identifier")
+    if ident:
+        out["lock"] = query_lock_state(str(ident))
+    return out
+
+
+def mac_gate1_open() -> bool:
+    try:
+        proc = subprocess.run(
+            ["automationmodetool"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        out = proc.stdout + proc.stderr
+        return "requires user authentication" in out.lower()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def automation_blockers(
+    *,
+    verdict: str,
+    coredevice: dict[str, Any],
+    lane: str = "xcuitest",
+) -> tuple[bool, list[str]]:
+    blockers: list[str] = []
+    if verdict == "PROBE_DEGRADED":
+        blockers.append("probe_degraded")
+    if verdict in ("MIRROR_DISCONNECTED", "DEVICE_UNREACHABLE"):
+        blockers.append("mirror_disconnected")
+    if verdict == "PHONE_IN_USE":
+        blockers.append("phone_in_use")
+    if verdict == "CALL_ACTIVE":
+        blockers.append("call_active")
+    if verdict == "MIRROR_CONNECTING":
+        blockers.append("mirror_connecting")
+
+    lock = coredevice.get("lock") or {}
+    if lock.get("deviceLocked") is True and lane == "xcuitest":
+        blockers.append("device_locked")
+    if mac_gate1_open():
+        blockers.append("mac_gate1_open")
+
+    ready = len(blockers) == 0
+    if lane == "bench":
+        # Headless bench ignores lock + mac gate1 for mirror session readiness.
+        bench_blockers = [b for b in blockers if b not in ("device_locked", "mac_gate1_open")]
+        ready = len(bench_blockers) == 0
+        return ready, bench_blockers
+    return ready, blockers
+
+
+def main() -> int:
+    if len(sys.argv) < 2:
+        print("usage: ios_coredevice_probe.py list|reachable|lock-state|probe [--device ID]", file=sys.stderr)
+        return 2
+
+    cmd = sys.argv[1]
+    device_id = None
+    args = sys.argv[2:]
+    if "--device" in args:
+        idx = args.index("--device")
+        if idx + 1 < len(args):
+            device_id = args[idx + 1]
+
+    if cmd == "list":
+        data = list_devices_json()
+        dev = pick_device(data, device_id)
+        if not dev:
+            print(json.dumps({"reachable": False, "error": "device not found"}))
+            return 1
+        print(json.dumps(summarize_device(dev), indent=2))
+        return 0
+
+    if cmd == "reachable":
+        data = list_devices_json()
+        dev = pick_device(data, device_id)
+        if dev and _reachable(dev):
+            return 0
+        return 1
+
+    if cmd == "lock-state":
+        if not device_id:
+            data = list_devices_json()
+            dev = pick_device(data, None)
+            device_id = (dev or {}).get("identifier")
+        if not device_id:
+            print(json.dumps({"state": "unknown", "error": "no device"}))
+            return 1
+        print(json.dumps(query_lock_state(str(device_id)), indent=2))
+        return 0
+
+    if cmd == "probe":
+        print(json.dumps(probe_coredevice(device_id), indent=2))
+        return 0
+
+    if cmd == "automation":
+        lane = "xcuitest"
+        verdict = "MIRROR_ACTIVE"
+        core: dict[str, Any] = {}
+        i = 2
+        while i < len(sys.argv):
+            if sys.argv[i] == "--lane" and i + 1 < len(sys.argv):
+                lane = sys.argv[i + 1]
+                i += 2
+            elif sys.argv[i] == "--verdict" and i + 1 < len(sys.argv):
+                verdict = sys.argv[i + 1]
+                i += 2
+            elif sys.argv[i] == "--core-json" and i + 1 < len(sys.argv):
+                core = json.loads(sys.argv[i + 1])
+                i += 2
+            elif sys.argv[i] == "--device" and i + 1 < len(sys.argv):
+                device_id = sys.argv[i + 1]
+                i += 2
+            else:
+                i += 1
+        if not core:
+            core = probe_coredevice(device_id)
+        ready, blockers = automation_blockers(verdict=verdict, coredevice=core, lane=lane)
+        print(json.dumps({"readyForXCUITest": ready, "blockers": blockers}, indent=2))
+        return 0
+
+    print(f"unknown command: {cmd}", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -62,3 +62,6 @@ reference ledger, not an auto-compared baseline gate.
 | 2026-07-03 | 6601032 | design/pro_design/warm/medium | 1.72 | 21.45 | - | 3052 | 0 | pass | ios-ui-bench-baseline | - |
 | 2026-07-03 | 6601032 | custom/pro_custom/warm/medium | 1.71 | 21.40 | - | 2615 | 0 | pass | ios-ui-bench-baseline | - |
 | 2026-07-03 | 6601032 | clone/pro_clone/warm/medium | 0.91 | 11.37 | - | 3364 | 0 | pass | ios-ui-bench-baseline | - |
+| 2026-07-05 | a250ec1 | custom/pro_custom/warm/medium | 1.74 | 21.7 | - | 2626 | 0 | pass,warn | ios-bench-full device-state+typeScript fix | ios-bench-ui-20260705-200615 |
+| 2026-07-05 | a250ec1 | design/pro_design/warm/medium | 1.84 | 23.0 | - | 3053 | 0 | pass | ios-bench-full device-state+typeScript fix | ios-bench-ui-20260705-200615 |
+| 2026-07-05 | a250ec1 | clone/pro_clone/warm/medium | 1.58 | 19.7 | - | 3268 | 0 | pass | ios-bench-full device-state+typeScript fix | ios-bench-ui-20260705-200615 |

@@ -33,7 +33,6 @@ fail() { printf '\033[0;31m[fail]\033[0m %s\n' "$*" >&2; }
 
 note "Vocello iOS mirroir preflight"
 
-# Project-local mirroir config (committed in repo)
 PROJECT_MIRROIR="$ROOT_DIR/.mirroir-mcp"
 GLOBAL_MIRROIR="$HOME/.mirroir-mcp"
 
@@ -55,15 +54,50 @@ else
   warn "no ~/.mirroir-mcp/settings.json — English macOS OK; French needs mirroringProcessName override"
 fi
 
+# MCP vs shell parity: mirroringProcessName should match between global and repo settings.
+_global_name="" _project_name=""
+if [[ -f "$GLOBAL_MIRROIR/settings.json" ]]; then
+  _global_name="$(python3 -c 'import json; print(json.load(open("'"$GLOBAL_MIRROIR/settings.json"'")).get("mirroringProcessName") or "")' 2>/dev/null || true)"
+fi
+if [[ -f "$PROJECT_MIRROIR/settings.json" ]]; then
+  _project_name="$(python3 -c 'import json; print(json.load(open("'"$PROJECT_MIRROIR/settings.json"'")).get("mirroringProcessName") or "")' 2>/dev/null || true)"
+fi
+if [[ -n "$_global_name" && -n "$_project_name" ]]; then
+  _same="$(GLOBAL="$_global_name" PROJECT="$_project_name" python3 <<'PY'
+import os
+def norm(s):
+    for ch in ("\u2019", "\u2018", "\u02bc", "\u2032"):
+        s = s.replace(ch, "'")
+    return s
+print("1" if norm(os.environ["GLOBAL"]) == norm(os.environ["PROJECT"]) else "0")
+PY
+)" || _same=0
+  if [[ "$_same" != "1" ]]; then
+    warn "mirroringProcessName mismatch: global='$_global_name' vs project='$_project_name' — restart Cursor MCP after fixing"
+  fi
+elif [[ -n "$_project_name" && ! -f "$GLOBAL_MIRROIR/settings.json" ]]; then
+  warn "repo has mirroringProcessName='$_project_name' but no ~/.mirroir-mcp/settings.json — copy or merge for mirroir MCP check_health"
+fi
+
 if [[ -f "$GLOBAL_MIRROIR/permissions.json" ]] || [[ -f "$PROJECT_MIRROIR/permissions.json" ]]; then
   ok "mirroir mutating tools configured (restart Cursor after first install; expect ~27 tools, not ~11)"
 else
   fail "no permissions.json — only ~11 read-only mirroir tools; add .mirroir-mcp/permissions.json"
 fi
 
-note "device + mirror"
-"$ROOT_DIR/scripts/ios_device.sh" device-state
+note "device + mirror (watch probe)"
+"$ROOT_DIR/scripts/ios_device.sh" device-state watch --interval 2 --count 3
 "$ROOT_DIR/scripts/ios_device.sh" mirror
+
+note "structured probe (--json-v2)"
+if json_v2="$("$ROOT_DIR/scripts/ios_device.sh" device-state --json-v2 2>/dev/null || true)"; then
+  bounds_h="$(python3 -c 'import json,sys; b=(json.load(sys.stdin).get("signals") or {}).get("mirror",{}).get("bounds") or {}; print(int(b.get("h") or 0))' <<<"$json_v2" 2>/dev/null || echo 0)"
+  if (( bounds_h > 0 && bounds_h < 600 )); then
+    warn "mirror window height ${bounds_h}px — expected ~720 when connected; check same macOS Space as Cursor"
+  elif (( bounds_h >= 600 )); then
+    ok "mirror bounds height ${bounds_h}px"
+  fi
+fi
 
 if [[ "$NATIVE_ONLY" -eq 1 ]]; then
   note "vision bridge skipped (--native-only; use Peekaboo fallback only if describe_screen fails)"
@@ -86,12 +120,13 @@ fi
 cat >&2 <<EOF
 
 Next (in Cursor Agent, same macOS Space as iPhone Mirroring):
-  1. Restart Cursor if you just added permissions.json
+  1. Restart Cursor if you just added permissions.json or changed mirroringProcessName
   2. mirroir check_health  → must pass (Screen Recording + Accessibility for Cursor.app)
   3. mirroir describe_screen → OCR list with tap coords on Studio/Custom
   4. Native loop: describe_screen → tap / type_text / measure (see ios-agent-ui-tour.md Appendix B.5–B.8)
   5. Multi-clip: B.7 dismiss poll → RESET if no X; B.8 gates before Generate
   6. If describe_screen fails: Allow Screen Recording prompt, same Space as mirror, ios_device.sh mirror
+  7. If check_health fails but device-state passes: restart mirroir MCP + verify mirroringProcessName
 
 EOF
 

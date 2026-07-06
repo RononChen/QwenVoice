@@ -14,49 +14,18 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BRIDGE_DEFAULT="$ROOT_DIR/build/ios/vision-bridge.json"
+. "$ROOT_DIR/scripts/lib/ios_mirror_discovery.sh"
 
 note() { printf '\033[0;36m==>\033[0m %s\n' "$*" >&2; }
 warn() { printf '\033[0;33m[warn]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[0;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
 
 ios_vision_mirror_app_name() {
-  local settings="$HOME/.mirroir-mcp/settings.json"
-  if [[ -f "$settings" ]]; then
-    local name
-    name="$(python3 - "$settings" <<'PY'
-import json, sys
-try:
-    data = json.load(open(sys.argv[1]))
-    print(data.get("mirroringProcessName") or "")
-except Exception:
-    print("")
-PY
-)" || true
-    if [[ -n "$name" ]]; then
-      printf '%s\n' "$name"
-      return 0
-    fi
-  fi
-  printf '%s\n' "iPhone Mirroring"
+  mirror_app_display_name
 }
 
 ios_vision_window_rect() {
-  local app_name="$1"
-  osascript <<OSA 2>/dev/null || true
-tell application "System Events"
-  if not (exists process "$app_name") then return ""
-  tell process "$app_name"
-    if (count of windows) is 0 then return ""
-    set p to position of window 1
-    set s to size of window 1
-    set x to ((item 1 of p) as integer) as text
-    set y to ((item 2 of p) as integer) as text
-    set w to ((item 1 of s) as integer) as text
-    set h to ((item 2 of s) as integer) as text
-    return x & "," & y & "," & w & "," & h
-  end tell
-end tell
-OSA
+  mirror_window_rect
 }
 
 cmd_calibrate() {
@@ -68,7 +37,7 @@ cmd_calibrate() {
   sleep 0.6
 
   local rect
-  rect="$(ios_vision_window_rect "$app_name")"
+  rect="$(ios_vision_window_rect)"
   [[ -n "$rect" ]] || die "could not read Mirroring window for '$app_name' — run: scripts/ios_device.sh mirror"
 
   mkdir -p "$(dirname "$out")"

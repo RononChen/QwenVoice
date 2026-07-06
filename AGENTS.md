@@ -130,6 +130,7 @@ Dispatch large work via Cursor `Task`; pass the role file path.
 | [`docs/reference/ui-smoke-runbooks.md`](docs/reference/ui-smoke-runbooks.md) | exploratory smokes |
 | [`docs/reference/ui-test-surface.md`](docs/reference/ui-test-surface.md) | accessibilityIdentifier catalog |
 | [`docs/reference/benchmarking-procedure.md`](docs/reference/benchmarking-procedure.md) | bench protocol |
+| [`docs/reference/ios-device-probe.md`](docs/reference/ios-device-probe.md) | layered device-state / mirror probe |
 | [`docs/reference/`](docs/reference/) | subsystem guides |
 
 ## Release & security (summary)
