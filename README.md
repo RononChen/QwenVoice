@@ -129,12 +129,16 @@ Useful checks:
 ./scripts/build_foundation_targets.sh macos
 ./scripts/build_foundation_targets.sh ios
 scripts/macos_test.sh models ensure   # one-time Speed model for macOS UI/bench tests
-scripts/macos_test.sh test            # macOS UI smoke (12 tests; -only-testing scoped via script)
-scripts/ios_device.sh ui-test         # on-device iOS UI-flow smoke (requires paired iPhone)
-scripts/ios_device.sh bench-ui        # on-device full-matrix benchmark driven through the real UI
-scripts/ios_device.sh device-state    # interference probe: phone-in-use / call / mirror state
-scripts/ios_device.sh gate            # iOS pre-merge gate (tests + headless generation + crash check)
+scripts/macos_test.sh test            # macOS UI smoke (12 tests)
+scripts/macos_test.sh gate            # macOS pre-merge gate
+scripts/ios_device.sh test            # iOS UI smoke (paired iPhone; default suites)
+scripts/ios_device.sh bench-ui        # iOS full-matrix UI bench (XCUITest)
+scripts/ios_device.sh lang-bench --subset quick --label "…"  # language hint + output bench
+scripts/ios_device.sh device-state      # interference probe: phone-in-use / call / mirror state
+scripts/ios_device.sh gate              # iOS pre-merge gate (XCUITest + headless generation + crashes)
 ```
+
+On-device testing runbook: [`docs/reference/testing-runbook.md`](docs/reference/testing-runbook.md). Exploratory agent QA (mirroir / Peekaboo) is **not** a gate — see [`docs/reference/ui-smoke-runbooks.md`](docs/reference/ui-smoke-runbooks.md).
 
 More technical detail:
 

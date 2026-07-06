@@ -13,11 +13,13 @@ If anything here disagrees with the code, the code wins — fix this file.
 > drive a generation, then read the JSONL this system writes + aggregate with
 > `summarize_generation_telemetry.py`. Benchmarking + output‑quality checks are **first‑class**:
 > committed benchmark/QC scripts, baselines, and summaries are permitted (bounded by the
-> `benchmarks/` cap). The **retired** surface is agent/computer-use UI driving (replaced by
-> deterministic XCUITest). iOS UI tests and real-engine generation run **on-device only** via
-> `scripts/ios_device.sh`; GitHub CI (`.github/workflows/ci.yml`) is **compile-only** for iOS
-> (`build-for-testing`, no XCUITest). See [`testing-runbook.md`](testing-runbook.md) and
-> [`ios-device-testing.md`](ios-device-testing.md).
+> `benchmarks/` cap). **Pre-merge gates** use deterministic XCUITest + headless scripts only
+> (never agent screen control). **Exploratory** agent UI driving (mirroir on iOS, Peekaboo on
+> macOS) is restored for non-gate smokes — see [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md) and
+> [`.cursor/rules/agent-ui-driving.mdc`](../../.cursor/rules/agent-ui-driving.mdc). iOS UI tests
+> and real-engine generation run **on-device only** via `scripts/ios_device.sh`; GitHub CI
+> (`.github/workflows/ci.yml`) is **compile-only** for iOS (`build-for-testing`, no XCUITest).
+> See [`testing-runbook.md`](testing-runbook.md) and [`ios-device-testing.md`](ios-device-testing.md).
 
 ---
 

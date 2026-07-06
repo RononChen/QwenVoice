@@ -91,9 +91,21 @@ note "device + mirror (watch probe)"
 
 note "structured probe (--json-v2)"
 if json_v2="$("$ROOT_DIR/scripts/ios_device.sh" device-state --json-v2 2>/dev/null || true)"; then
+  bounds_line="$(python3 -c '
+import json, sys
+j = json.load(sys.stdin)
+b = (j.get("signals") or {}).get("mirror", {}).get("bounds") or {}
+if b.get("w"):
+    print("{},{},{},{}".format(int(b.get("x", 0)), int(b.get("y", 0)), int(b.get("w", 0)), int(b.get("h", 0))))
+' <<<"$json_v2" 2>/dev/null || true)"
   bounds_h="$(python3 -c 'import json,sys; b=(json.load(sys.stdin).get("signals") or {}).get("mirror",{}).get("bounds") or {}; print(int(b.get("h") or 0))' <<<"$json_v2" 2>/dev/null || echo 0)"
-  if (( bounds_h > 0 && bounds_h < 600 )); then
-    warn "mirror window height ${bounds_h}px — expected ~720 when connected; check same macOS Space as Cursor"
+  if [[ -n "$bounds_line" ]]; then
+    ok "mirrorBounds: $bounds_line (window origin x,y,w,h — recalibrate vision bridge after move/resize)"
+  fi
+  if (( bounds_h > 0 && bounds_h < 400 )); then
+    warn "mirror window height ${bounds_h}px — very small; OCR tap targets may be tight (min useful ~400px)"
+  elif (( bounds_h > 0 && bounds_h < 600 )); then
+    ok "mirror bounds height ${bounds_h}px (compact window — coords differ from 326×720 reference; re-OCR)"
   elif (( bounds_h >= 600 )); then
     ok "mirror bounds height ${bounds_h}px"
   fi

@@ -297,7 +297,9 @@ Official guidance: **explicit language tokens outperform `auto`**. Vocello there
 
 **Unit tests:** `Tests/VocelloCoreTests/` covers `Qwen3SupportedLanguage.normalized`, `PromptLanguageDetector`, `LanguageSelectionPresentation`, and the `qwenLanguageHint` matrix. Run on macOS with `scripts/macos_test.sh core-test` (also step 3 of `scripts/macos_test.sh gate`).
 
-**Headless hint bench (Phase 2):** `config/language-bench-matrix.json` + `scripts/ios_device.sh lang-bench` (device) or `scripts/macos_test.sh lang-bench` (CLI). Gated by `scripts/check_language_hints.py` on `notes.languageHint`. See `docs/reference/language-bench.md`.
+**Headless hint bench (Phase 2):** `config/language-bench-matrix.json` + `scripts/ios_device.sh lang-bench` (device) or `scripts/macos_test.sh lang-bench` (CLI). Gated by `scripts/check_language_hints.py` on `notes.languageHint`.
+
+**Output round-trip (Phase 3, iOS device only):** same matrix; after synthesis, locale-locked on-device Speech ASR verifies transcript language and WER via `scripts/check_language_output.py`. Requires on-device Speech assets for non-EN/FR locales (iOS Settings → dictation languages + Wi‑Fi download). See [`language-bench.md`](language-bench.md).
 
 ### 7.3 Dialects and accents
 

@@ -84,7 +84,9 @@ The app has **two levels** of navigation on the main surface:
 
 **Cold launch:** **Studio** tab + **Custom** mode (default).
 
-**mirroir OCR hints (2026-07-04 validation):** segment labels often appear around **y ≈ 108**; tab labels around **y ≈ 618–619**. Tab **icons** around **y ≈ 689–691** — label taps (y ≈ 619–690) were more reliable than icon-only taps for some tabs.
+**mirroir OCR hints (2026-07-06, 218×486 window):** segment labels **y ≈ 84**; tab labels **y ≈ 406**.
+Prior validation at 326×720: segments **y ≈ 108**; tab labels **y ≈ 618–619**; tab icons **y ≈ 689–691**.
+Label taps remain more reliable than icon-only taps. **Always re-OCR after move/resize** — coords scale with mirror window height.
 
 ---
 
@@ -159,7 +161,7 @@ the selected voice to **deliver**. This is the text that gets synthesized to spe
 
 **Agent driving (mirroir + Peekaboo):**
 
-1. `describe_screen` — placeholder **`Type or paste your script.`** (validation ~**y ≈ 153** when empty).
+1. `describe_screen` — placeholder **`Type or paste your script.`** (validation ~**y ≈ 113** at 218×486 window; ~153 at 326×720).
 2. Tap **inside** the text area (center of field).
 3. Peekaboo `type` with `foreground: true`.
 4. Re-`describe_screen` — counter moves off `0/150`; **Generate** enables when other preconditions met (§3.6).
@@ -200,19 +202,24 @@ in-flight take. Re-enabled after complete or cancel.
 **mirroir OCR strings (2026-07-04):** `Built-in voice`, `0/150`, `Al`/`AI`, `NE ^`, `AU ^`, `Generate`,
 `Install Custom Voice`, `Generating`, `Rendering audio…`.
 
-**Confirmed tap coords (native mirroir, iPhone 17 Pro, 326×720 window, 2026-07-04 — always re-OCR before tap):**
+**Confirmed tap coords (native mirroir, iPhone 17 Pro — always re-OCR before tap):**
 
-| Control | OCR label | Window coords (pt) | Notes |
+| Window | Calibrated | Generate | Chip row Y | Tab labels Y | Segments Y |
+| --- | --- | --- | --- | --- | --- |
+| **218×486** (left edge, 2026-07-06) | `1062,132,218,486` | **(114, 394)** | **363** | **406** | **84** |
+| 326×720 (2026-07-04) | `919,30,326,720` | (173, 584) | 481–536 | 618–619 | 108 |
+
+| Control | OCR label | Window coords (218×486) | Notes |
 | --- | --- | --- | --- |
-| **Generate** | `Generate` | **(173, 584)** | Idle dock only; **below** chip row (~y 481–536). Validated on 3 consecutive Custom generates. |
-| Voice chip | `AI`, `RY`, `ON`, … + `^` | left chip **x ≈ 67–77**, **y ≈ 481–536** | Opens voice picker |
-| Delivery chip | `NE`, `HA`, `EX`, … + `^` | middle chip **x ≈ 164–179**, **y ≈ 481–536** | Opens delivery sheet |
-| Language chip | `EN ^`, `AU ^` | right chip **x ≈ 269**, **y ≈ 481–536** | |
-| Script composer | first script line | **(156, 153)** | Tap → `press_key` command+a → `type_text` to replace |
-| Delivery **Confirm** | `Confirm` | **(263, 162)** | Same Y as voice picker Confirm |
-| Inline player **✕** | `X` | **(277, 574)** | Then **Dismiss** at **(163, 466)** if confirm sheet appears. Design: **X** may be OCR-hidden when **Save as voice** visible — History → Studio tab hop first (B.7). |
-| Design **Save as voice** | `Save as voice` | **(163, 576)** | Enroll designed voice for Clone — not dismiss/export |
-| Design share (illegal) | `*` | **(~240, 534)** | Opens iOS share sheet — do not use for dismiss |
+| **Generate** | `Generate` | **(114, 394)** | Idle dock only; **below** chip row (~y 363). Validated 2026-07-06. |
+| Voice chip | `Al ^`, `AI ^`, … | left **x ≈ 53**, **y ≈ 363** | Opens voice picker |
+| Delivery chip | `NE ^`, … | middle **x ≈ 119**, **y ≈ 363** | Opens delivery sheet |
+| Language chip | `AU ^`, `EN ^` | right **x ≈ 178**, **y ≈ 363** | |
+| Script composer | placeholder line | **(79, 113)** | Tap → `press_key` command+a → `type_text` to replace |
+| Delivery **Confirm** | `Confirm` | re-OCR | Same Y as voice picker Confirm |
+| Inline player **✕** | `X` | **~(185, 387)** | Scaled from 326×720; re-OCR. Confirm **Dismiss** ~**(109, 315)**. |
+| Design **Save as voice** | `Save as voice` | **~(109, 389)** | Scaled estimate — re-OCR |
+| Design share (illegal) | `*` | **~(160, 361)** | Opens iOS share sheet — do not use for dismiss |
 
 ### 3.3 Language chip — **AU** (shared: Custom · Design · Clone)
 
@@ -1172,10 +1179,10 @@ follow the **source** of the audio.
 | `Dismiss this clip` | Confirm clearing complete player card |
 | `Install Custom Voice` | Model missing — routes to Settings |
 | `Voice` / `Confirm` | Custom voice picker sheet |
-| `Generate` @ **(173, 584)** | Generate CTA when idle (check §3.6 readiness; re-OCR each session) |
-| Chip row @ **y ≈ 481–536** | Voice / delivery / language pills — **above** Generate; do not tap NE Y for Generate |
+| `Generate` @ **(114, 394)** | Generate CTA when idle at 218×486 — re-OCR each session |
+| Chip row @ **y ≈ 363** | Voice / delivery / language pills — **above** Generate; do not tap NE Y for Generate |
 | `ON`, `RY`, `EX`, … + `^` | Voice or delivery chip after non-default selection |
-| `X` @ **(277, 574)** | Dismiss inline player; confirm **Dismiss** @ **(163, 466)** |
+| `X` @ **~(185, 387)** | Dismiss inline player at 218×486; confirm **Dismiss** ~**(109, 315)** — re-OCR |
 | `Built-in voice` | Custom mode section header |
 | `0/150` | Empty script |
 | `Type or paste your script.` | Custom mode script composer (empty) |
@@ -1267,9 +1274,9 @@ In Cursor (same **macOS Space** as Recopie de l'iPhone / iPhone Mirroring):
 | 2 | `tap` composer coords | From OCR *Type or paste your script* |
 | 3 | `type_text` | ≤150 chars; disable iOS autocorrect on test phone if needed |
 | 4 | `press_key` return or tap chrome | Dismiss keyboard if **Generate** obscured |
-| 5 | `tap` **Generate** coords | From OCR — **below** chip row; never guess NE chip Y. Validated: **(173, 584)** on iPhone 17 Pro (326×720). |
+| 5 | `tap` **Generate** coords | From OCR — **below** chip row; never guess NE chip Y. Validated **(114, 394)** at 218×486 (2026-07-06); was (173, 584) at 326×720. |
 | 6 | `measure` or poll `describe_screen` | See [measure example](#b2-measure-example) below; poll every 5–8 s (cap 120 s). **No fixed sleeps >15 s.** |
-| 7 | History tab (optional) | End-of-session verify only — tap **History** @ y≈618; confirm new rows with voice + duration |
+| 7 | History tab (optional) | End-of-session verify only — tap **History** @ y≈406 (218×486) or y≈618 (326×720); confirm new rows with voice + duration |
 
 #### B.2 measure example
 
@@ -1391,7 +1398,7 @@ Zero illegal transitions on all smokes.
 
 Same O-A-V loop as B.6; differences:
 
-- **Mode segment:** tap **Design** @ y ≈ 108 — stay on **Studio** tab.
+- **Mode segment:** tap **Design** @ y ≈ 84 (218×486) or y ≈ 108 (326×720) — stay on **Studio** tab.
 - **Readiness:** brief chip set (not `+`) **and** `N / 150` with N > 0 before Generate.
 - **Per clip:** `+` or brief chip → Voice brief sheet → type or starter → **Confirm** → composer → script → Generate.
 - **Poll:** `"Just now • Design"` + duration.
@@ -1400,7 +1407,7 @@ Same O-A-V loop as B.6; differences:
 
 ### B.6c Voice Cloning multi-clip (segment **Clone**)
 
-- **Mode segment:** tap **Clone** @ y ≈ 108 — stay on **Studio** tab.
+- **Mode segment:** tap **Clone** @ y ≈ 84 (218×486) or y ≈ 108 (326×720) — stay on **Studio** tab.
 - **Reference (once per block):** left chip **`+`** → **Reference clip** sheet → pick first **SAVED VOICES** row (e.g. **AD**) — sheet dismisses; chip shows initials. Reuse same chip for CL2–CL3.
 - **Do not** tap **Record new clip** (mic unavailable through mirror).
 - **Poll:** `"Just now • Clone"` + duration.
@@ -1433,13 +1440,13 @@ Shell prints **`MIRROIR_BENCH_TAKE_BEGIN`** blocks and blocks until agent `touch
 1. Read take JSON from shell output (`mode`, `length`, `warmState`, `text`, `needsModePrep`).
 2. Shell already ran `vision-launch` when cold or mode block changes (`QWENVOICE_UI_TEST_HOOKS=1`).
 3. **Mode prep** (when `needsModePrep=1`):
-   - **custom:** tap **Custom** @ y ≈ 108
+   - **custom:** tap **Custom** @ y ≈ 84 (218×486) or y ≈ 108 (326×720)
    - **design:** tap **Design**; if **`+`** brief chip, tap first **STARTING POINTS** row (same as XCTest `voiceBrief_starter_0`) or type *A warm, calm middle-aged male narrator with a clear, measured pace.* → **Confirm**
    - **clone:** tap **Clone**; **`+`** → **Reference clip** → first **SAVED VOICES** row; reuse chip for warm clone takes
 4. Tap OCR **`Clear script`** (top-leading overlay, `iosStudio_benchClearScript`) — clears drafts + dismisses inline player. Fallback: `scripts/ios_device.sh vision-launch --run-id <ID> --force-cold 0`
 5. Tap composer → `type_text` with **corpus from take JSON** (not ad-hoc smoke scripts) → **SCRIPT_VERIFY** `N > 0`
 6. `SINCE=$(scripts/ios_device.sh vision-now)` — **before** Generate
-7. Tap **Generate** @ OCR ~(173, 584)
+7. Tap **Generate** @ OCR — e.g. **(114, 394)** at 218×486; re-OCR each session
 8. `scripts/ios_device.sh vision-bench-wait --run-id <ID> --since "$SINCE" --timeout <from take>`
 9. `touch build/ios/bench-ui-mirroir-<runID>/take-N.done`
 
@@ -1465,7 +1472,7 @@ Shell prints **`MIRROIR_BENCH_TAKE_BEGIN`** blocks and blocks until agent `touch
 #### After each generate (dismiss poll)
 
 1. Poll until `"Just now • {Custom|Design|Clone}"` + duration (5–8 s interval, cap 120 s). Optional: `measure(action: "tap:Generate", until: "Just now", max_seconds: 120)`.
-2. **Within 6 s**, enter **DISMISS_POLL**: up to **3** `describe_screen` calls, **2 s** apart — hunt OCR label **`X`** only (~276–277, 574 when visible).
+2. **Within 6 s**, enter **DISMISS_POLL**: up to **3** `describe_screen` calls, **2 s** apart — hunt OCR label **`X`** only (e.g. ~185,387 at 218×486; ~277,574 at 326×720).
 3. If **X** found: tap **X** → tap **Dismiss** on confirm sheet → confirm **IDLE** (`Generate` in OCR, no player duration row).
 4. If **no X** after 3 polls (common on **Design** when **Save as voice** shows): **History tab → Studio tab** → re-OCR → retry **X** once. If still no **X**: **RESET** (below).
 5. Do **not** change chips, Custom segment, or mode hop as reset — except the allowed **History → Studio** hop in step 4.
@@ -1537,7 +1544,8 @@ After RESET: `describe_screen` → confirm **Studio** → target mode segment, `
 | 2026-07-04 | Owner | Voice brief sheet: *Young man* → chip **YO**, starters, 500-char limit |
 | 2026-07-04 | Owner | Voices ▶ → full-screen player (*Me*, Saved voice · 0:03, VOICE CLONING) |
 | 2026-07-04 | Agent | mirroir native driving: Appendix B, `.mirroir-mcp/` config, preflight script |
-| 2026-07-04 | Agent | Confirmed Generate **(173, 584)** + chip-row Y band; 3-clip Custom smoke validated on device |
+| 2026-07-06 | Agent | Left-edge **218×486** mirror recalibration: Generate **(114,394)**, chips y≈363, tabs y≈406, segments y≈84; vision-bridge policy + preflight mirrorBounds |
+| 2026-07-04 | Agent | Confirmed Generate **(173, 584)** + chip-row Y band at 326×720; 3-clip Custom smoke validated on device |
 | 2026-07-04 | Agent | Appendix B.5 invariants + B.6 multi-clip state machine; agent-ui-driving rule |
 | 2026-07-04 | Agent | Appendix B.7 dismiss poll + RESET; B.8 OCR gates; script entry protocol (G1–G4) |
 | 2026-07-04 | Agent | B.7–B.8 third 3-clip validation (§10.2 pilot log); `launch` primary RESET; `reset_app` failed |

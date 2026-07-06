@@ -107,6 +107,15 @@ graph.)
 | `VocelloMacUITests` | bundle.ui-testing | macOS | `VocelloMacUITests` | `com.qwenvoice.app.uitests` | macOS XCUITest: smoke, journey, review catalog, XPC bench matrix (real engine). |
 | `VocelloiOSUITests` | bundle.ui-testing | iOS | `VocelloiOSUITests` | `com.patricedery.vocello.uitests` | iOS XCUITest on paired iPhone only (real in-process engine). |
 
+### Testing lanes (see [`docs/reference/testing-runbook.md`](reference/testing-runbook.md))
+
+| Layer | macOS | iOS | Pre-merge gate? |
+| --- | --- | --- | --- |
+| **Gate** | `macos_test.sh gate` | `ios_device.sh gate` | Yes |
+| **UI regression** | XCUITest smoke/journey/bench-ui/review | XCUITest test/bench-ui/review | Used by gate (smoke) |
+| **Headless engine** | `vocello bench`, `lang-bench` | `bench`, `lang-bench` autorun | Optional in gate |
+| **Agent exploratory** | Peekaboo + `uitest_measure.sh` | mirroir MCP + tour doc | Never |
+
 **Two schemes**: `QwenVoice` (macOS app + `VocelloMacUITests`) and `VocelloiOS`
 (iOS app + `VocelloiOSUITests`). A single shippable config, **`Release`**, is
 the only config — there is no `Debug` config and no `DEBUG` symbol.

@@ -107,7 +107,11 @@ Voice Design (Speed) install the hardened gate needs) → evidence via `ios_devi
 
 ---
 
-## 7. Closure (2026-07-04)
+## 7. Closure (2026-07-04) — **historical / superseded by §8**
+
+> **Do not treat this section as current.** Same-day evening work in **§8** restored Peekaboo +
+> mirroir for exploratory QA; mobile-mcp `bench-ui-mcp` remains **deferred**. Current lanes:
+> [`testing-runbook.md`](testing-runbook.md) harness matrix.
 
 | Action | Status |
 | --- | --- |
@@ -148,7 +152,7 @@ After restoring **Peekaboo** + **mirroir** in `~/.cursor/mcp.json` (stdio wrappe
 | --- | --- |
 | `ios_device.sh device-state` | Pass |
 | `build` + `install` + `launch` | Pass |
-| `ios_vision_bridge.sh calibrate` | Pass — `Recopie de l'iPhone` rect 919,30,326,720 |
+| `ios_vision_bridge.sh calibrate` | Pass — `Recopie de l'iPhone` rect 919,30,326,720 (2026-07-04); **1062,132,218,486** left-edge compact window (2026-07-06). Policy: any fixed position per session + mandatory `calibrate` after move/resize — not centered. |
 | mirroir `describe_screen` (Studio / Custom) | Pass — segments + composer OCR |
 | Segment taps (Custom / Design / Clone) | **Pass** — distinct OCR per segment |
 | Tab: Settings (`to-global` + Peekaboo click y≈690) | **Pass** — VOICE MODELS, Storage, … |

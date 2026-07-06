@@ -1,11 +1,13 @@
 # On-Device iOS UI-Driven Testing: Tools, Plugins & MCPs Research Report
 
 > **⚠️ Historical research only (superseded twice).** Do not follow recommendations below.
-> **Current strategy** (see **[`testing-runbook.md`](testing-runbook.md)**): on-device XCUITest only
-> via `scripts/ios_device.sh`; the fake backend and iOS Simulator test tier were **removed**
-> (commit `4793260`); GitHub CI is compile-only for iOS (`build-for-testing`, no XCUITest).
-> The conclusion below held up — we did **not** adopt Appium or any agent/MCP UI driver.
-> This file is kept only to record the options that were evaluated and why they were rejected.
+> **Current strategy** (see **[`testing-runbook.md`](testing-runbook.md)**): **pre-merge gates** =
+> on-device XCUITest + headless scripts via `scripts/ios_device.sh` / `scripts/macos_test.sh`
+> (never agent screen control). **Exploratory** agent QA uses **mirroir native** on iOS (Jul 2026)
+> and Peekaboo + `uitest_measure.sh` on macOS — see [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md).
+> The fake backend and iOS Simulator test tier were **removed** (commit `4793260`); GitHub CI is
+> compile-only for iOS (`build-for-testing`, no XCUITest). We did **not** adopt Appium; mobile-mcp
+> remains **deferred**. This file records options evaluated and rejected.
 >
 > **Scope:** Evaluate tools and MCPs that can *drive* UI tests on a physical iOS device for the Vocello/QwenVoice project. The report covers native Apple frameworks, open-source cross-platform tools, AI-native alternatives, device-cloud options, and MCP-based integrations. Per project instructions, **no installation or configuration was performed** — this is research and recommendations only.
 

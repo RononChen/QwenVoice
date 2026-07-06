@@ -7,10 +7,14 @@
 >
 > **HANDOFF (2026-07-06):** Language-path Phases 1–3 quick subset **PASS** on device
 > (`ios-lang-bench-20260706-112319`: hint 7/7, output 6/6 + negative control hint-only).
+> Full matrix `ios-lang-bench-20260706-135146`: **hint 19/19 PASS**, **output 7/18 FAIL**
+> (DE/ES/ZH/JA `transcription_failed` — on-device Speech assets still pending Wi‑Fi download;
+> keyboards + dictation langs configured via mirroir 2026-07-06). Re-run output gate after assets
+> finish downloading on Wi‑Fi. Mirror workflow report implemented (left-edge 218×486 recalibration).
 > Start at **§2 Step 4** (human design listening) or **§2 Step A** (manual clone record verify),
-> then **§2 Step 5b** (release). Optional: `lang-bench --subset full` (19 cells).
+> then **§2 Step 5b** (release).
 
-## 1. Current state (2026-07-05, `main` + this commit)
+## 1. Current state (2026-07-06, `main`)
 
 ### Session update (2026-07-05 late) — language-path verification Phases 1–2
 
@@ -18,7 +22,7 @@
 | --- | --- | --- |
 | Phase 1 — `VocelloCoreTests` | **LANDED** | 20 macOS unit tests: `qwenLanguageHint`, `PromptLanguageDetector`, `LanguageSelectionPresentation`; `scripts/macos_test.sh core-test`; gate step 3 |
 | Phase 2 — lang-bench + hint gate | **LANDED + quick PASS** | Device `ios-lang-bench-20260706-110143` 7/7 hints; `check_language_hints.py` accepts `finishReason=eos` |
-| Phase 2 — device validation (full) | **OWED** | `scripts/ios_device.sh lang-bench --subset full` |
+| Phase 2 — device validation (full) | **hint PASS / output BLOCKED** | `ios-lang-bench-20260706-135146`: hint 19/19; output 7/18 — DE/ES/ZH/JA need Speech Wi‑Fi assets |
 | Phase 3 — Speech round-trip | **LANDED + quick PASS** | Locale-locked ASR (`transcribeForVerification`), stored `pass` in sentinel; device `ios-lang-bench-20260706-112319` output 6/6; negative control `skipOutputVerification` |
 | Phase 4 — UI integration tests | **NOT STARTED** | Picker → marker → telemetry wiring |
 

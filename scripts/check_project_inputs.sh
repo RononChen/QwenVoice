@@ -181,5 +181,6 @@ fi
 
 "$SCRIPT_DIR/check_backend_resource_contract.sh" --project
 "$SCRIPT_DIR/check_qwen3_backend_only.sh"
+"$SCRIPT_DIR/check_doc_harness_drift.sh"
 
 echo "==> Project inputs are clean."

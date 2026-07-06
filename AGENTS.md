@@ -59,20 +59,23 @@ scripts/macos_test.sh gate
 
 **Verify:** exit 0; no new `.ips` during the run (gate-fatal).
 
-### Language-path verification (Phases 1–2)
+### Language-path verification (Phases 1–3)
 
 ```sh
 scripts/macos_test.sh core-test                              # Phase 1 — macOS unit tests (no models)
 python3 scripts/test_check_language_hints.py                 # offline hint-gate fixtures
-scripts/macos_test.sh lang-bench --subset quick              # Phase 2 — macOS CLI (needs models)
-scripts/ios_device.sh lang-bench --subset quick --label "…"  # Phase 2 — on-device (needs Speed)
+python3 scripts/test_check_language_output.py                # offline output-gate fixtures
+scripts/macos_test.sh lang-bench --subset quick              # Phase 2 — macOS CLI hint gate (needs models)
+scripts/ios_device.sh lang-bench --subset quick --label "…"  # Phases 2–3 — on-device hint + output (needs Speed)
+scripts/ios_device.sh lang-bench --subset full --label "…"   # full 19-cell matrix (hint + output gates)
 ```
 
-**Verify:** core-test + offline fixtures exit 0; lang-bench prints `PASS` and
+**Verify:** core-test + offline fixtures exit 0; lang-bench prints `hint_gate=PASS` and
 `check_language_hints.py` matches `notes.languageHint` to
-`config/language-bench-matrix.json`. Runbook:
-[`docs/reference/language-bench.md`](docs/reference/language-bench.md). Phase 3 (in-app Speech
-round-trip) not yet implemented.
+`config/language-bench-matrix.json`. Phase 3 adds locale-locked ASR output verification via
+`check_language_output.py` (on-device Speech assets required for DE/ES/ZH/JA — install dictation
+languages in iOS Settings and wait for Wi‑Fi asset download). Runbook:
+[`docs/reference/language-bench.md`](docs/reference/language-bench.md).
 
 ### Pre-merge — iOS
 
@@ -150,7 +153,7 @@ Dispatch large work via Cursor `Task`; pass the role file path.
 | [`docs/reference/ios-agent-ui-tour.md`](docs/reference/ios-agent-ui-tour.md) | mirroir driving (Appendix B) |
 | [`docs/reference/ui-smoke-runbooks.md`](docs/reference/ui-smoke-runbooks.md) | exploratory smokes |
 | [`docs/reference/ui-test-surface.md`](docs/reference/ui-test-surface.md) | accessibilityIdentifier catalog |
-| [`docs/reference/language-bench.md`](docs/reference/language-bench.md) | language hint bench (Phases 1–2) |
+| [`docs/reference/language-bench.md`](docs/reference/language-bench.md) | language hint + output bench (Phases 1–3) |
 | [`docs/reference/benchmarking-procedure.md`](docs/reference/benchmarking-procedure.md) | bench protocol |
 | [`docs/reference/ios-device-probe.md`](docs/reference/ios-device-probe.md) | layered device-state / mirror probe |
 | [`docs/reference/`](docs/reference/) | subsystem guides |

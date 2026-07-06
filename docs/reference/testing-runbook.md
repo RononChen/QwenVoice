@@ -1,13 +1,17 @@
 # Testing runbook (Vocello / QwenVoice)
 
-> **Single source of truth for how Vocello is tested.** Regression gates are run by the
-> checked-in `scripts/*.sh` + `xcodebuild` and by `.github/workflows/ci.yml` — never by an
-> agent driving the screen. Separate from the gates, **exploratory agent-driven UI QA**
-> exists again (Jul 2026): Peekaboo/mirroir MCPs drive the UI while the deterministic
-> measurement shell [`scripts/uitest_measure.sh`](../../scripts/uitest_measure.sh) verifies
-> results from OSSignposts + `history.sqlite` + the WAV on disk — see
-> [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md). Measurement never depends on how the UI
-> was driven.
+> **Single source of truth for how Vocello is tested.** When docs disagree, authority order is:
+> **`Sources/` → `scripts/*.sh` → this file → [`AGENTS.md`](../../AGENTS.md) → other docs.**
+> Historical context only: [`docs/post-mortem/`](../post-mortem/),
+> [`docs/releases/`](../releases/), [`on-device-ui-testing-research-report.md`](on-device-ui-testing-research-report.md).
+>
+> Regression gates are run by the checked-in `scripts/*.sh` + `xcodebuild` and by
+> `.github/workflows/ci.yml` — **never** by an agent driving the screen. Separate from the
+> gates, **exploratory agent-driven UI QA** exists again (Jul 2026): **mirroir native** on iOS
+> (`describe_screen` → `tap`); **Peekaboo** on macOS — while the deterministic measurement shell
+> [`scripts/uitest_measure.sh`](../../scripts/uitest_measure.sh) verifies results from
+> OSSignposts + `history.sqlite` + the WAV on disk — see [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md).
+> Measurement never depends on how the UI was driven.
 >
 > Subsystem deep-dives: [`ios-device-testing.md`](ios-device-testing.md),
 > [`macos-testing.md`](macos-testing.md), [`telemetry-and-benchmarking.md`](telemetry-and-benchmarking.md),
@@ -140,10 +144,34 @@ gated afterwards). Follow these procedures literally.
 
 ### Agent-driven exploratory UI QA (not a gate)
 
-Peekaboo (macOS app) and the Mirroring window recipes (iOS) remain for exploratory QA
-only — procedures in [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md); measurement always
-goes through `scripts/uitest_measure.sh`, never through screenshots alone. The iPhone
-mic is unavailable through Mirroring — recording/enroll flows are attended, on the phone.
+| Platform | Driver | Entry | Gate? |
+| --- | --- | --- | --- |
+| **iOS** | **mirroir native** (`describe_screen` → `tap` / `type_text`) | [`ios-agent-ui-tour.md`](ios-agent-ui-tour.md) Appendix B; `scripts/ios_mirroir_preflight.sh` | **Never** |
+| **iOS agent matrix** | mirroir + `bench-ui-mirroir --agent-drive` | [`ios-device-testing.md`](ios-device-testing.md) Playbook G | **Never** |
+| **macOS** | Peekaboo + `uitest_measure.sh` | [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md) | **Never** |
+
+**Mirror observation (iOS):** `scripts/ios_device.sh mirror` / `shot` / `device-state` keep the
+CoreDevice tunnel alive and capture evidence — **no taps**. Mirror window may sit anywhere on the
+display; run `scripts/lib/ios_vision_bridge.sh calibrate` after move/resize (Peekaboo iOS fallback
+only — deprecated when mirroir OCR works). iPhone mic is unavailable through Mirroring —
+recording/enroll flows are attended, on the phone.
+
+**Retired / deferred agent lanes:** `bench-ui-vision` (deprecated Peekaboo mirror coords),
+`bench-ui-mcp` (deferred WDA), deleted `scripts/uitest.sh` (use `uitest_measure.sh` on macOS).
+
+### Harness matrix (canonical)
+
+| Layer | iOS | macOS | Pre-merge gate? |
+| --- | --- | --- | --- |
+| **Gate** | `ios_device.sh gate` (XCUITest + headless generation + crashes) | `macos_test.sh gate` (models + core-test + XCUITest + crashes) | **Yes** |
+| **UI smoke** | `ios_device.sh test` / `ui-test` | `macos_test.sh test` | Used by gate |
+| **UI matrix** | `ios_device.sh bench-ui` (XCUITest) | `macos_test.sh bench-ui` (XCUITest) | No |
+| **Lang verification** | `ios_device.sh lang-bench` (hint + output) | `macos_test.sh lang-bench` (hint) | No |
+| **Headless engine** | `ios_device.sh bench` | `vocello bench` / `macos_test.sh profile` | Optional in gate |
+| **Agent exploratory** | mirroir + tour doc | Peekaboo + `uitest_measure.sh` | **Never** |
+| **Mirror infra** | `mirror` / `shot` / `device-state` | — | Support only |
+
+Other docs should **link here** for lane semantics instead of re-describing the matrix.
 
 ### Compile-safety (fast, no run)
 ```sh

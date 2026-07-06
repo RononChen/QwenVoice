@@ -45,6 +45,7 @@ Before changing iOS UI or behavior, read:
   - `scripts/ios_device.sh crashes`
   - `scripts/ios_device.sh review [--baseline]`
   - `scripts/ios_device.sh gate`
+- **Exploratory agent QA (not gates):** mirroir native driving — [`docs/reference/ios-agent-ui-tour.md`](../docs/reference/ios-agent-ui-tour.md) Appendix B; preflight `scripts/ios_mirroir_preflight.sh`. Unattended UI matrix stays XCUITest `bench-ui`; agent matrix is `bench-ui-mirroir --agent-drive`. See [`testing-runbook.md`](../docs/reference/testing-runbook.md) harness matrix.
 - **Read-only investigation** → Task tool with `subagent_type: "explore"`.
 - **On-device only** — `user-xcodebuildmcp` profile `ios-device` + runtime `deviceId`, but prefer
   `scripts/ios_device.sh`. See [`.xcodebuildmcp/config.yaml`](../.xcodebuildmcp/config.yaml).

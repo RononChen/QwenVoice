@@ -125,7 +125,7 @@ Drive via **mirroir MCP** (not Peekaboo on the mirror) — **Appendix B.5–B.8*
 2. **`describe_screen`** — observe OCR + window-relative coords.
 3. **One action** — `tap` / `type_text` / `measure`.
 4. **`describe_screen`** — verify transition. Repeat (O-A-V loop).
-5. **Stay on Studio** for multi-clip smokes — **Custom**, **Design**, or **Clone** segment @ y ≈ 108; chip row for params. **Never Voices tab** mid-block.
+5. **Stay on Studio** for multi-clip smokes — **Custom**, **Design**, or **Clone** segment @ y ≈ 84 (218×486 window) or y ≈ 108 (326×720) — see tour doc calibration table; chip row for params. **Never Voices tab** mid-block.
 6. End-of-session: **History** tab to verify rows (also allowed **History → Studio** for Design dismiss recovery — B.7).
 
 **Custom generate smoke:** OCR **Generate** → verify **`N / 150` N > 0** (B.8) → `tap` → poll / `measure` until
@@ -225,9 +225,9 @@ Workflow map: [`ios-app-guide.md`](ios-app-guide.md).
 
 ---
 
-## iOS — vision bench-ui matrix (DEPRECATED)
+## iOS — vision bench-ui matrix (DEPRECATED — historical reference)
 
-> **Deprecated 2026-07** — superseded by [`bench-ui-mirroir --agent-drive`](#ios--mirroir-ui-bench-agent-matrix) (native mirroir) or XCUITest `bench-ui`. Emergency fallback only.
+> **Deprecated 2026-07 — do not run for new work.** Superseded by [`bench-ui-mirroir --agent-drive`](#ios--mirroir-ui-bench-agent-matrix) (native mirroir) or XCUITest `bench-ui`. Kept only so agents recognize the old lane name if it appears in logs.
 
 Human-like full-matrix bench: **mirroir sees**, **Peekaboo clicks/types** on the Mac-side
 Mirroring window, **shell proves** via pulled `generations.jsonl`.

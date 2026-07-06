@@ -20,7 +20,7 @@ Authoritative loop: [`docs/reference/ios-agent-ui-tour.md`](mdc:docs/reference/i
 
 - Preflight: `scripts/ios_mirroir_preflight.sh` (`--native-only` when Peekaboo fallback not needed).
 - Permissions: `scripts/install_mirroir_user_config.sh` + Cursor restart (~27 mirroir tools, not ~11).
-- **Stay on Studio** for multi-clip smokes — switch mode via segment (**Custom | Design | Clone** @ y ≈ 108). Change params via chip row only — **never Voices tab** mid-block.
+- **Stay on Studio** for multi-clip smokes — switch mode via segment (**Custom | Design | Clone** @ y ≈ 84 on 218×486 window, y ≈ 108 on 326×720 — see tour doc calibration table). Change params via chip row only — **never Voices tab** mid-block.
 - **After generate:** DISMISS_POLL (3× describe for **X**) → Dismiss → IDLE. **Design:** if **X** missing when **Save as voice** shows, **History → Studio** then retry **X** — never tap share `*`.
 - **Design → Clone (optional):** **Save as voice** after generate enrolls the designed voice for Clone reference; pre-enrolled saved voices skip this.
 - **RESET:** `scripts/ios_device.sh launch` primary; mirroir `launch_app` Vocello fallback if launch fails or composer stuck at `150/150`.

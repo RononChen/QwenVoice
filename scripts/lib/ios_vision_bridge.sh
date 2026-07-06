@@ -8,7 +8,8 @@
 #   scripts/lib/ios_vision_bridge.sh bridge-path
 #
 # Calibration uses macOS Accessibility (System Events) — same window rect as ios_device.sh shot.
-# Agents: run calibrate once per session, then mirroir describe_screen → to-global → Peekaboo click.
+# Mirror window may be placed anywhere (left edge, corner, any size); run calibrate at the
+# start of each mirroring session and again after any move or resize.
 
 set -euo pipefail
 

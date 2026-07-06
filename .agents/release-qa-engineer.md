@@ -69,6 +69,13 @@ scripts/macos_test.sh bench-ui --label xpc-bench-full
 python3 scripts/check_macos_xpc_bench.py ~/Library/Application\ Support/QwenVoice-Debug/diagnostics \
   --run-id xpc-bench-YYYYMMDD-HHMMSS
 
+# Language-path verification (optional pre-release; see docs/reference/language-bench.md)
+scripts/macos_test.sh core-test
+scripts/macos_test.sh lang-bench --subset quick
+scripts/ios_device.sh lang-bench --subset quick --label "release-QA"
+# Full 19-cell iOS matrix: scripts/ios_device.sh lang-bench --subset full --label "…"
+# Status + blockers: docs/rescue-plan-progress.md
+
 # Human journey + review (optional pre-release)
 scripts/macos_test.sh journey
 scripts/macos_test.sh review --subset resting
