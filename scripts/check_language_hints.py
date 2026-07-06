@@ -63,12 +63,18 @@ def qc_verdict(row: dict[str, Any]) -> str:
 
 def finish_ok(row: dict[str, Any]) -> bool:
     reason = row.get("finishReason")
-    if reason in (None, "completed", "complete", "done"):
+    if reason is None:
         return True
-    if isinstance(reason, str) and reason.lower() in {"completed", "complete", "done", "ok"}:
+    if not isinstance(reason, str):
+        return False
+    normalized = reason.lower()
+    # `eos` is the canonical successful stop for Qwen3 streaming generations.
+    if normalized in {"eos", "completed", "complete", "done", "ok"}:
         return True
-    # Some rows omit finishReason on success — treat missing as ok when audioQC passes.
-    return reason is None
+    if normalized in {"failed", "cancelled", "canceled", "superseded"}:
+        return False
+    # Unknown reasons: treat as ok when audioQC passed (lang bench is hint-focused).
+    return True
 
 
 def read_engine_rows(diag: str, run_id: str) -> list[dict[str, Any]]:
