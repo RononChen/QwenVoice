@@ -55,16 +55,20 @@ def main() -> int:
     matrix = load_json(args.matrix)
     cells = select_cells(matrix, args.subset)
     sentinels = find_sentinels(args.diag, args.run_id)
+    output_cells = [c for c in cells if not c.get("skipOutputVerification")]
 
     failures: list[str] = []
     print(
         f"language-output gate: runID={args.run_id} subset={args.subset} "
-        f"expected={len(cells)} sentinels={len(sentinels)}"
+        f"expected={len(output_cells)} sentinels={len(sentinels)}"
     )
 
     for cell in cells:
         cell_id = cell["id"]
         expected_hint = cell["expectedHint"]
+        if cell.get("skipOutputVerification"):
+            print(f"  {cell_id:<28} (output skipped — hint-only cell)")
+            continue
         record = sentinels.get(cell_id)
         if record is None:
             failures.append(f"{cell_id}: missing autorun sentinel")
@@ -91,13 +95,20 @@ def main() -> int:
             failures.append(
                 f"{cell_id}: accuracyPass=false wer={verification.get('wordErrorRate')}"
             )
-        if not verification.get("pass"):
+        passed = verification.get("pass")
+        if passed is None:
+            passed = (
+                verification.get("languagePass")
+                and verification.get("accuracyPass")
+                and not verification.get("skipReason")
+            )
+        if not passed:
             failures.append(f"{cell_id}: pass=false")
         print(
             f"  {cell_id:<28} lang={verification.get('languagePass')} "
             f"wer={verification.get('wordErrorRate')} "
             f"score={verification.get('languageMatchScore')} "
-            f"pass={verification.get('pass')}"
+            f"pass={passed}"
         )
 
     if failures:

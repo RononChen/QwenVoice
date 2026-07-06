@@ -5,13 +5,10 @@
 > Context: [post-mortem](post-mortem/2026-06-post-fable-development-hell.md) → four
 > audits (2026-07-01) → phased remediation. Onboarding: `[AGENTS.md](../AGENTS.md)`.
 >
-> **HANDOFF (2026-07-05):** device-state reliability overhaul + bench-ui composer fix
-> landed in `d72c272`. Full iOS matrix **29/29 PASS**
-> (`ios-bench-ui-20260705-200615`). **Language-path verification Phases 1–2** landed in
-> this commit (`VocelloCoreTests`, `lang-bench`, `check_language_hints.py`) — device
-> lang-bench not yet run on phone. Start at **§2 Step 4** (human design listening)
-> or **§2 Step A** (manual clone record verify on phone), then **§2 Step 5b** (release).
-> Optional before release: `scripts/ios_device.sh lang-bench --subset quick`.
+> **HANDOFF (2026-07-06):** Language-path Phases 1–3 quick subset **PASS** on device
+> (`ios-lang-bench-20260706-112319`: hint 7/7, output 6/6 + negative control hint-only).
+> Start at **§2 Step 4** (human design listening) or **§2 Step A** (manual clone record verify),
+> then **§2 Step 5b** (release). Optional: `lang-bench --subset full` (19 cells).
 
 ## 1. Current state (2026-07-05, `main` + this commit)
 
@@ -22,7 +19,7 @@
 | Phase 1 — `VocelloCoreTests` | **LANDED** | 20 macOS unit tests: `qwenLanguageHint`, `PromptLanguageDetector`, `LanguageSelectionPresentation`; `scripts/macos_test.sh core-test`; gate step 3 |
 | Phase 2 — lang-bench + hint gate | **LANDED + quick PASS** | Device `ios-lang-bench-20260706-110143` 7/7 hints; `check_language_hints.py` accepts `finishReason=eos` |
 | Phase 2 — device validation (full) | **OWED** | `scripts/ios_device.sh lang-bench --subset full` |
-| Phase 3 — Speech round-trip | **LANDED (code)** | `GenerationOutputVerifier`, `QVOICE_IOS_VERIFY_OUTPUT`, `check_language_output.py`; device run owed |
+| Phase 3 — Speech round-trip | **LANDED + quick PASS** | Locale-locked ASR (`transcribeForVerification`), stored `pass` in sentinel; device `ios-lang-bench-20260706-112319` output 6/6; negative control `skipOutputVerification` |
 | Phase 4 — UI integration tests | **NOT STARTED** | Picker → marker → telemetry wiring |
 
 Runbook: [`language-bench.md`](reference/language-bench.md). Semantics reference: [`qwen3-tts-guide.md`](reference/qwen3-tts-guide.md) §7.

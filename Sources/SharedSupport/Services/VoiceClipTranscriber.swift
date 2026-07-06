@@ -106,6 +106,23 @@ enum VoiceClipTranscriber {
         return (best.text, language)
     }
 
+    /// Bench output verification: transcribe with the **expected** language's on-device
+    /// recognizer only. Avoids picking French ASR for English synthesis on FR-primary devices.
+    static func transcribeForVerification(
+        url: URL,
+        expectedLanguage: Qwen3SupportedLanguage
+    ) async -> String? {
+        guard expectedLanguage != .auto else { return nil }
+        guard await requestAuthorization() else { return nil }
+
+        for candidate in candidateLocales() where candidate.language == expectedLanguage {
+            if let pass = await recognize(url: url, locale: candidate.locale) {
+                return pass.text
+            }
+        }
+        return nil
+    }
+
     /// One on-device-capable locale per Qwen language, the user's preferred languages first.
     private static func candidateLocales() -> [(locale: Locale, language: Qwen3SupportedLanguage)] {
         let preferred = Locale.preferredLanguages

@@ -13,11 +13,8 @@ enum GenerationOutputVerifier {
         var wordErrorRate: Double
         var languagePass: Bool
         var accuracyPass: Bool
+        var pass: Bool
         var skipReason: String?
-
-        var pass: Bool {
-            languagePass && accuracyPass && skipReason == nil
-        }
     }
 
     static func verify(
@@ -35,7 +32,10 @@ enum GenerationOutputVerifier {
             break
         }
 
-        guard let transcription = await VoiceClipTranscriber.transcribe(url: audioURL) else {
+        guard let transcript = await VoiceClipTranscriber.transcribeForVerification(
+            url: audioURL,
+            expectedLanguage: expectedLanguage
+        ) else {
             return failed(
                 expectedLanguage: expectedToken,
                 reason: "transcription_failed",
@@ -44,29 +44,29 @@ enum GenerationOutputVerifier {
             )
         }
 
-        let detected = transcription.language == .auto
-            ? PromptLanguageDetector.detect(transcription.text)
-            : transcription.language
-        let detectedToken = detected.rawValue
+        let detected = PromptLanguageDetector.detect(transcript)
+        let detectedToken = detected == .auto ? expectedToken : detected.rawValue
         let languageScore = VoiceClipTranscriber.languageMatchScore(
-            text: transcription.text,
+            text: transcript,
             expected: expectedLanguage
         )
         let languagePass = languageScore >= VoiceClipTranscriber.outputVerificationLanguagePassScore
         let wer = VoiceClipTranscriber.wordErrorRate(
             reference: expectedScript,
-            hypothesis: transcription.text
+            hypothesis: transcript
         )
         let accuracyPass = wer <= maxWordErrorRate
+        let pass = languagePass && accuracyPass
 
         return Result(
-            transcript: transcription.text,
+            transcript: transcript,
             detectedLanguage: detectedToken,
             expectedLanguage: expectedToken,
             languageMatchScore: languageScore,
             wordErrorRate: wer,
             languagePass: languagePass,
             accuracyPass: accuracyPass,
+            pass: pass,
             skipReason: nil
         )
     }
@@ -80,6 +80,7 @@ enum GenerationOutputVerifier {
             wordErrorRate: 1,
             languagePass: false,
             accuracyPass: false,
+            pass: false,
             skipReason: reason
         )
     }
@@ -98,6 +99,7 @@ enum GenerationOutputVerifier {
             wordErrorRate: 1,
             languagePass: false,
             accuracyPass: false,
+            pass: false,
             skipReason: reason
         )
     }

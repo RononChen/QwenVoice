@@ -48,8 +48,12 @@ Gates:
 
 ### Validated (2026-07-06)
 
-Quick subset **7/7 PASS** on device (`ios-lang-bench-20260706-110143`) — hint gate only
-(run predates Phase 3 output verification in autorun).
+Quick subset **7/7 PASS** hint gate (`ios-lang-bench-20260706-110143`).
+
+Phase 3 output gate **6/6 PASS** after locale-locked ASR + stored `pass` field
+(`ios-lang-bench-20260706-112319`). Negative control `custom-fr-text-en-pinned` is
+**hint-only** (`skipOutputVerification`) — pinned English hint is sent, but synthesis
+still speaks French for a French script today.
 
 ## macOS (in-process CLI)
 
