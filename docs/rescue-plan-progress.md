@@ -20,9 +20,9 @@
 | Step | Status | Notes |
 | --- | --- | --- |
 | Phase 1 — `VocelloCoreTests` | **LANDED** | 20 macOS unit tests: `qwenLanguageHint`, `PromptLanguageDetector`, `LanguageSelectionPresentation`; `scripts/macos_test.sh core-test`; gate step 3 |
-| Phase 2 — lang-bench + hint gate | **LANDED (code)** | `config/language-bench-{corpus,matrix}.json`; `QVOICE_IOS_AUTORUN_LANG`; `ios_device.sh lang-bench`; `macos_test.sh lang-bench`; `check_language_hints.py`; offline `test_check_language_hints.py` |
-| Phase 2 — device validation | **OWED** | Run `scripts/ios_device.sh lang-bench --subset quick` on paired iPhone (Custom Speed required) |
-| Phase 3 — Speech round-trip | **NOT STARTED** | In-app output language + WER gate (no human ears) |
+| Phase 2 — lang-bench + hint gate | **LANDED + quick PASS** | Device `ios-lang-bench-20260706-110143` 7/7 hints; `check_language_hints.py` accepts `finishReason=eos` |
+| Phase 2 — device validation (full) | **OWED** | `scripts/ios_device.sh lang-bench --subset full` |
+| Phase 3 — Speech round-trip | **LANDED (code)** | `GenerationOutputVerifier`, `QVOICE_IOS_VERIFY_OUTPUT`, `check_language_output.py`; device run owed |
 | Phase 4 — UI integration tests | **NOT STARTED** | Picker → marker → telemetry wiring |
 
 Runbook: [`language-bench.md`](reference/language-bench.md). Semantics reference: [`qwen3-tts-guide.md`](reference/qwen3-tts-guide.md) §7.

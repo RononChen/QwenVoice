@@ -540,13 +540,19 @@ Punctuation-aware pause budget avoids false positives on natural delivery.
 
 `scripts/prosody_quality_gate.py`, `scripts/delivery_adherence.py` on bench WAVs when using `--delivery`.
 
-### Layer 2.5 — Language hint contract (Phase 2, optional)
+### Layer 2.5 — Language hint contract (Phase 2)
 
 Headless matrix (`scripts/ios_device.sh lang-bench` or `scripts/macos_test.sh lang-bench`)
 stamps `notes.languageHint` (resolved Qwen3 token, not raw UI picker). Gate with
 `scripts/check_language_hints.py` against `config/language-bench-matrix.json`.
 Offline fixture self-test: `python3 scripts/test_check_language_hints.py`.
-Does **not** verify spoken output — see [`language-bench.md`](language-bench.md).
+
+### Layer 2.6 — Output language + WER (Phase 3, iOS autorun)
+
+When `QVOICE_IOS_VERIFY_OUTPUT=1`, the app transcribes each bench WAV in-process (Speech)
+and stamps `outputVerification` on `autorun-done.json`. Gate with
+`scripts/check_language_output.py`. Requires Speech Recognition permission on the phone once.
+Skip with `QVOICE_LANG_BENCH_SKIP_OUTPUT=1`. See [`language-bench.md`](language-bench.md).
 
 ### Layer 3 — Listening pass (mandatory pre-merge for engine)
 

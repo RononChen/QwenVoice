@@ -689,6 +689,12 @@ cmd_lang_bench() {
   cmd_install
 
   export QVOICE_MAC_BENCH_RUN_ID="$run_id"
+  if [[ "${QVOICE_LANG_BENCH_SKIP_OUTPUT:-0}" != "1" ]]; then
+    export QVOICE_IOS_VERIFY_OUTPUT=1
+    note "lang-bench: output verification ON (Speech — grant once in Settings if needed)"
+  else
+    unset QVOICE_IOS_VERIFY_OUTPUT
+  fi
   note "lang-bench: runID=$run_id subset=$subset → $artifacts"
 
   local cell_json cell_count=0 cell_fail=0
@@ -746,7 +752,7 @@ for cell in cells:
 PY
 )
 
-  unset QVOICE_LAUNCH_RUN_ID QVOICE_MAC_BENCH_RUN_ID QVOICE_MAC_BENCH_CELL QVOICE_IOS_AUTORUN_LANG
+  unset QVOICE_LAUNCH_RUN_ID QVOICE_MAC_BENCH_RUN_ID QVOICE_MAC_BENCH_CELL QVOICE_IOS_AUTORUN_LANG QVOICE_IOS_VERIFY_OUTPUT
 
   [[ "$cell_count" -gt 0 ]] || die "lang-bench: no cells for subset=$subset"
 
@@ -757,10 +763,16 @@ PY
   note "lang-bench: pulled $cell_count cells ($cell_fail autorun failures) — hint gate"
   cp -R "$dest" "$artifacts/diagnostics" 2>/dev/null || true
 
-  local gate_st=0 hint_st=0
+  local gate_st=0 hint_st=0 output_st=0
   python3 "$ROOT_DIR/scripts/check_language_hints.py" "$diag" \
     --run-id "$run_id" --matrix "$matrix" --corpus "$corpus" --subset "$subset" \
     | tee "$artifacts/hint-gate.txt" || hint_st=$?
+
+  if [[ "${QVOICE_LANG_BENCH_SKIP_OUTPUT:-0}" != "1" ]]; then
+    python3 "$ROOT_DIR/scripts/check_language_output.py" "$diag" \
+      --run-id "$run_id" --matrix "$matrix" --subset "$subset" \
+      | tee "$artifacts/output-gate.txt" || output_st=$?
+  fi
 
   python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$diag" \
     ${label:+--label "$label"} >"$artifacts/summary.txt" 2>&1 || true
@@ -768,9 +780,14 @@ PY
   {
     echo "lang-bench runID=$run_id subset=$subset cells=$cell_count autorun_fail=$cell_fail"
     echo "hint_gate=$([[ $hint_st -eq 0 ]] && echo PASS || echo FAIL)"
+    if [[ "${QVOICE_LANG_BENCH_SKIP_OUTPUT:-0}" != "1" ]]; then
+      echo "output_gate=$([[ $output_st -eq 0 ]] && echo PASS || echo FAIL)"
+    else
+      echo "output_gate=SKIPPED"
+    fi
   } | tee "$artifacts/verdict.txt"
 
-  if (( cell_fail > 0 || hint_st != 0 )); then
+  if (( cell_fail > 0 || hint_st != 0 || output_st != 0 )); then
     die "lang-bench FAIL · $artifacts"
   fi
   note "lang-bench PASS · $artifacts"

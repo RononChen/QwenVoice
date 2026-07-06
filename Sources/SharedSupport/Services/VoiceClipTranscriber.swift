@@ -70,6 +70,10 @@ enum VoiceClipTranscriber {
 
     /// Score at/above which we accept a candidate's language as the detected one.
     private static let confidentLanguageScore = 0.5
+    /// Exposed for generation-output verification (bench/autorun).
+    static let outputVerificationLanguagePassScore = 0.5
+    /// Default WER ceiling for short bench scripts (~8 words).
+    static let outputVerificationDefaultMaxWordErrorRate = 0.15
     /// Score at/above which we stop trying further candidates (a clear match).
     private static let earlyExitScore = 0.85
     /// Below this, the transcript looks like noise → don't fill it.
@@ -140,7 +144,7 @@ enum VoiceClipTranscriber {
 
     /// NaturalLanguage probability mass that the text is in `expected` (handles script/region
     /// variants like zh-Hans/zh-Hant, pt-BR/pt-PT by collapsing to the base language code).
-    private static func languageMatchScore(text: String, expected: Qwen3SupportedLanguage) -> Double {
+    static func languageMatchScore(text: String, expected: Qwen3SupportedLanguage) -> Double {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return 0 }
         let recognizer = NLLanguageRecognizer()
@@ -154,6 +158,40 @@ enum VoiceClipTranscriber {
             }
         }
         return score
+    }
+
+    /// Word-level WER for bench output verification (normalized lowercase tokens).
+    static func wordErrorRate(reference: String, hypothesis: String) -> Double {
+        let ref = normalizedTokens(reference)
+        let hyp = normalizedTokens(hypothesis)
+        guard !ref.isEmpty else { return hyp.isEmpty ? 0 : 1 }
+        let distance = levenshteinDistance(ref, hyp)
+        return Double(distance) / Double(ref.count)
+    }
+
+    private static func normalizedTokens(_ text: String) -> [String] {
+        text
+            .folding(options: .diacriticInsensitive, locale: .current)
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+    }
+
+    private static func levenshteinDistance(_ lhs: [String], _ rhs: [String]) -> Int {
+        if lhs.isEmpty { return rhs.count }
+        if rhs.isEmpty { return lhs.count }
+        var previous = Array(0 ... rhs.count)
+        for (i, left) in lhs.enumerated() {
+            var current = [i + 1]
+            for (j, right) in rhs.enumerated() {
+                let insertion = previous[j + 1] + 1
+                let deletion = current[j] + 1
+                let substitution = previous[j] + (left == right ? 0 : 1)
+                current.append(min(insertion, deletion, substitution))
+            }
+            previous = current
+        }
+        return previous[rhs.count]
     }
 
     private static func recognize(url: URL, locale: Locale) async -> (text: String, confidence: Float)? {

@@ -591,6 +591,7 @@ Fires only when `QVOICE_IOS_AUTORUN` is set — inert on normal user launch.
 | --- | --- |
 | `QVOICE_IOS_AUTORUN` | `<mode>:<variant>:<text>`. `mode ∈ custom\|design\|clone`, `variant ∈ speed\|quality`. |
 | `QVOICE_IOS_AUTORUN_LANG` | Optional UI language hint (`english`, `french`, `auto`, …). Omitted = Auto. Set by `lang-bench`. |
+| `QVOICE_IOS_VERIFY_OUTPUT` | When `1`, autorun transcribes output WAV (Speech) and stamps `outputVerification` on the sentinel. On by default for `lang-bench`. |
 | `QWENVOICE_DEBUG=1` | Engine telemetry JSONL (runtime-gated, not `#if DEBUG`). |
 | `QVOICE_IOS_DEVICE_RUN_ID` | Tags run; sentinel at `diagnostics/<runID>/autorun-done.json`. |
 | `QVOICE_MAC_BENCH_RUN_ID` / `QVOICE_MAC_BENCH_CELL` | Bench metadata stamped into `notes.benchRunID` / `notes.benchCell` (lang-bench + UI bench). |

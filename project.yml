@@ -400,6 +400,7 @@ targets:
     sources:
       - path: Tests/VocelloCoreTests
       - path: Sources/SharedSupport/Services/LanguageSelectionPresentation.swift
+      - path: Sources/SharedSupport/Services/VoiceClipTranscriber.swift
     dependencies:
       - target: QwenVoiceCore
     settings:

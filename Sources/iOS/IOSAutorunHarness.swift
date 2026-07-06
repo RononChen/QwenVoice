@@ -23,6 +23,10 @@ import UIKit
 /// equivalent (`english`, `french`, `auto`, …) on the generation request. Omitted
 /// behaves like Auto. `scripts/ios_device.sh lang-bench` sets it per matrix cell.
 ///
+/// When `QVOICE_IOS_VERIFY_OUTPUT=1`, after a successful generation the harness
+/// transcribes the output WAV in-process (Speech) and stamps `outputVerification`
+/// on the autorun sentinel for `scripts/check_language_output.py`.
+///
 /// The harness drives the same in-process `TTSEngineStore.generate(_:)` the UI uses —
 /// no UI interaction — then writes `diagnostics/<runID>/autorun-done.json`. It never
 /// calls `exit()`; the app stays up so the script can pull the diagnostics container.
@@ -31,6 +35,7 @@ enum IOSAutorunHarness {
     private static let environmentKey = "QVOICE_IOS_AUTORUN"
     private static let runIDKey = "QVOICE_IOS_DEVICE_RUN_ID"
     private static let languageEnvKey = "QVOICE_IOS_AUTORUN_LANG"
+    private static let verifyOutputEnvKey = "QVOICE_IOS_VERIFY_OUTPUT"
 
     /// Default benchmark sentence — long enough to exercise streaming chunking,
     /// free of any personal/sensitive content.
@@ -187,6 +192,22 @@ enum IOSAutorunHarness {
                 format: "[autorun] ✓ %.2fs audio · rtf=%.2f · finish=%@",
                 result.durationSeconds, rtf, result.finishReason?.rawValue ?? "?"
             ))
+
+            if shouldVerifyOutput,
+               let resolvedHint = record.resolvedLanguageHint,
+               let expectedLanguage = resolvedLanguageHint(for: resolvedHint) {
+                let verification = await GenerationOutputVerifier.verify(
+                    audioURL: URL(fileURLWithPath: result.audioPath),
+                    expectedScript: spec.text,
+                    expectedLanguage: expectedLanguage
+                )
+                record.outputVerification = verification
+                print(
+                    "[autorun] output verify pass=\(verification.pass) "
+                    + "lang=\(verification.languagePass) wer=\(String(format: "%.2f", verification.wordErrorRate)) "
+                    + "score=\(String(format: "%.2f", verification.languageMatchScore))"
+                )
+            }
         } catch is CancellationError {
             record.status = "error"
             record.error = "cancelled"
@@ -281,6 +302,15 @@ enum IOSAutorunHarness {
             return nil
         }
         return raw
+    }
+
+    private static var shouldVerifyOutput: Bool {
+        ProcessInfo.processInfo.environment[verifyOutputEnvKey] == "1"
+    }
+
+    private static func resolvedLanguageHint(for rawHint: String) -> Qwen3SupportedLanguage? {
+        let normalized = Qwen3SupportedLanguage.normalized(rawHint)
+        return normalized == .auto ? nil : normalized
     }
 
     // MARK: - Paths & sentinel
@@ -378,6 +408,7 @@ enum IOSAutorunHarness {
         var realtimeFactor: Double?
         var finishReason: String?
         var error: String?
+        var outputVerification: GenerationOutputVerifier.Result?
         /// Calls + lifecycle transitions observed during the run (see
         /// `IOSInterruptionRecorder`) — explains doomed runs. Omitted when clean.
         var interruptions: [IOSInterruptionRecorder.Event]?

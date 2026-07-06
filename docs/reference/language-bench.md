@@ -1,7 +1,9 @@
-# Language bench (Phase 2 — hint contract)
+# Language bench (Phases 2–3)
 
-Headless matrix that verifies **UI language selection → resolved `notes.languageHint`**
-in engine telemetry. No ASR / no human listening — hint resolution only.
+Headless matrix for the Qwen3 language path:
+
+1. **Phase 2 — hint contract:** UI hint → resolved `notes.languageHint` in engine telemetry.
+2. **Phase 3 — output verification:** in-app Speech transcription + language score + WER vs script.
 
 ## Config
 
@@ -17,9 +19,18 @@ Cells tagged `"quick": true` form the **quick** subset (English + French + negat
 
 Requires Custom Voice **Speed** installed on the paired iPhone.
 
+**Speech Recognition:** Phase 3 transcribes each output WAV in the app process. Grant
+**Settings → Privacy → Speech Recognition → Vocello** once before the first output-gated run.
+
 ```sh
 scripts/ios_device.sh lang-bench --subset quick --label "lang-smoke"
 scripts/ios_device.sh lang-bench --subset full --label "lang-full"
+```
+
+Skip output verification (hint gate only):
+
+```sh
+QVOICE_LANG_BENCH_SKIP_OUTPUT=1 scripts/ios_device.sh lang-bench --subset quick
 ```
 
 Per cell the driver sets:
@@ -28,8 +39,17 @@ Per cell the driver sets:
 - `QVOICE_MAC_BENCH_CELL` — matrix cell id
 - `QVOICE_IOS_AUTORUN_LANG` — UI hint (`english`, `french`, …; omitted for Auto)
 - `QVOICE_IOS_AUTORUN` — `mode:speed:<script>`
+- `QVOICE_IOS_VERIFY_OUTPUT=1` — Speech round-trip (default unless skipped)
 
-Gate: `scripts/check_language_hints.py` on pulled `engine/generations.jsonl`.
+Gates:
+
+- `scripts/check_language_hints.py` — `engine/generations.jsonl`
+- `scripts/check_language_output.py` — `autorun-done.json` → `outputVerification`
+
+### Validated (2026-07-06)
+
+Quick subset **7/7 PASS** on device (`ios-lang-bench-20260706-110143`) — hint gate only
+(run predates Phase 3 output verification in autorun).
 
 ## macOS (in-process CLI)
 
@@ -39,10 +59,11 @@ Requires test models (`scripts/macos_test.sh models ensure`).
 scripts/macos_test.sh lang-bench --subset quick
 ```
 
-Uses `QWENVOICE_DEBUG=1`, `vocello generate --language …`, and the same gate script against
-`~/Library/Application Support/QwenVoice-Debug/diagnostics/`.
+Uses `QWENVOICE_DEBUG=1`, `vocello generate --language …`, and the hint gate against
+`~/Library/Application Support/QwenVoice-Debug/diagnostics/`. CLI Speech is **not** used
+(TCC); output verification is iOS autorun only.
 
-## Offline gate test
+## Offline gate tests
 
 ```sh
 python3 scripts/test_check_language_hints.py
