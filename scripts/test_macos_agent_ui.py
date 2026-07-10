@@ -3,6 +3,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
 
@@ -262,7 +263,9 @@ class ContractTests(unittest.TestCase):
     def test_ci_accepts_compatible_toolchain_point_release(self):
         current = HARNESS.toolchain_identity()
         recorded = {
-            "xcode": current["xcode"].replace("Xcode 26.6", "Xcode 26.5"),
+            "xcode": re.sub(
+                r"(Xcode\s+\d+)(?:\.\d+)*", r"\1.999", current["xcode"], count=1
+            ),
             "swift": current["swift"],
         }
         recorded["digest"] = hashlib.sha256(
