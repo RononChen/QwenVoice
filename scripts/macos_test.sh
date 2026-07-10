@@ -395,7 +395,11 @@ cmd_test() {
       mkdir -p "$runtime_resources"
       rm -rf "$runtime_resources/mlx-swift_Cmlx.bundle"
       cp -R "$mlx_bundle" "$runtime_resources/"
-      swift test --package-path "$runtime_package" --skip-build \
+      # Partition-invariance is a full-float determinism contract. Disabling
+      # TF32 also avoids MLX's NAX float32 GEMM path, whose runtime-compiled
+      # kernel is not accepted by the Metal compiler bundled with Xcode 26.5
+      # on GitHub's macOS 26 runner. No test is skipped or moved off Metal.
+      MLX_ENABLE_TF32=0 swift test --package-path "$runtime_package" --skip-build \
         --filter Qwen3RuntimeTests \
         > "$artifacts/runtime.log" 2>&1 || runtime_st=$?
     else
