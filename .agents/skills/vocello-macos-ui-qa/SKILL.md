@@ -151,9 +151,12 @@ Only attest a passing, current report. Full evidence stays under
 Schema-v2 attestation stores independent `quick`, `full`, and `benchmark`
 entries. Attesting one suite preserves another only when source, build-input,
 and toolchain identities match. Local validation also checks the raw SHA-256 of
-the exact executable Computer Use drove. CI rebuilds `build/Vocello.app` and
-checks source/build/toolchain identity, but intentionally does not compare its
-ad-hoc-signed executable hash with the locally signed executable.
+the exact executable Computer Use drove. CI rebuilds `build/Vocello.app`,
+recomputes source/build identity from tracked plus non-ignored untracked files,
+and requires an internally valid toolchain identity from the same Xcode/Swift
+major generations. Point-release drift between the local Mac and hosted runner
+is accepted. CI intentionally does not compare its ad-hoc-signed executable
+hash with the locally signed executable.
 
 When `requiredRuntimeChecks` contains `telemetry-overhead`, run this after the
 final tracked edit and before the UI attestations:

@@ -1,5 +1,7 @@
 import argparse
+import hashlib
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -91,6 +93,11 @@ class ProbeValidationTests(unittest.TestCase):
 
 
 class ContractTests(unittest.TestCase):
+    def test_source_fingerprint_excludes_ignored_machine_state(self):
+        paths = [path.as_posix() for path in HARNESS.relative_files()]
+        self.assertFalse(any("__pycache__" in path for path in paths))
+        self.assertFalse(any(path.endswith(".DS_Store") for path in paths))
+
     def test_benchmark_manifest_matches_the_29_take_contract(self):
         manifest = HARNESS.benchmark_manifest()
         self.assertEqual(len(manifest), 29)
@@ -251,6 +258,18 @@ class ContractTests(unittest.TestCase):
         }
         errors = HARNESS.validate_attestation(attestation, [], [], ci=True)
         self.assertIn("attestation toolchain identity is stale", errors)
+
+    def test_ci_accepts_compatible_toolchain_point_release(self):
+        current = HARNESS.toolchain_identity()
+        recorded = {
+            "xcode": current["xcode"].replace("Xcode 26.6", "Xcode 26.5"),
+            "swift": current["swift"],
+        }
+        recorded["digest"] = hashlib.sha256(
+            json.dumps(recorded, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        self.assertTrue(HARNESS.toolchain_identity_matches(recorded, current, ci=True))
+        self.assertFalse(HARNESS.toolchain_identity_matches(recorded, current, ci=False))
 
 
 class TelemetryOverheadMathTests(unittest.TestCase):

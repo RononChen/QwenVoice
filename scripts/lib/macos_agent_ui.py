@@ -233,13 +233,23 @@ def relative_files(*, build_inputs_only: bool = False) -> list[Path]:
         "third_party_patches/mlx-audio-swift/Sources",
         "third_party_patches/mlx-audio-swift/Tests",
     ]
+    # Fingerprints must be reproducible in a clean checkout while still
+    # covering newly created, uncommitted source files. Asking Git for cached
+    # and non-ignored untracked files excludes local .DS_Store, __pycache__,
+    # and other ignored machine state that previously made CI attestations
+    # disagree with the same source tree.
+    repository_files = {
+        Path(value)
+        for value in run(
+            ["/usr/bin/git", "ls-files", "--cached", "--others", "--exclude-standard"]
+        ).stdout.splitlines()
+        if value
+    }
     paths: set[Path] = set()
-    for root_name in include_roots:
-        root = ROOT / root_name
-        if root.is_file():
-            paths.add(Path(root_name))
-        elif root.is_dir():
-            paths.update(path.relative_to(ROOT) for path in root.rglob("*") if path.is_file())
+    for path in repository_files:
+        value = path.as_posix()
+        if any(value == root or value.startswith(f"{root}/") for root in include_roots):
+            paths.add(path)
     for name in ("project.yml", "Package.resolved", "AGENTS.md"):
         if (ROOT / name).is_file():
             paths.add(Path(name))
@@ -277,6 +287,41 @@ def toolchain_identity() -> dict:
         json.dumps(values, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     return values
+
+
+def toolchain_identity_is_valid(identity: dict) -> bool:
+    xcode = identity.get("xcode")
+    swift = identity.get("swift")
+    digest = identity.get("digest")
+    if not all(isinstance(value, str) and value for value in (xcode, swift, digest)):
+        return False
+    expected = hashlib.sha256(
+        json.dumps({"xcode": xcode, "swift": swift}, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return digest == expected
+
+
+def toolchain_identity_matches(recorded: dict, current: dict, *, ci: bool) -> bool:
+    if not toolchain_identity_is_valid(recorded):
+        return False
+    if not ci:
+        return recorded == current
+
+    # Local Computer Use and GitHub builds can use different point releases
+    # of the same supported Xcode/Swift generation. CI verifies a genuine,
+    # internally consistent identity and compatible majors; it does not make
+    # local evidence impossible merely because the hosted image trails by a
+    # point release (for example Xcode 26.5 versus 26.6).
+    recorded_xcode = re.search(r"\bXcode\s+(\d+)", recorded["xcode"])
+    current_xcode = re.search(r"\bXcode\s+(\d+)", current["xcode"])
+    recorded_swift = re.search(r"\bSwift version\s+(\d+)", recorded["swift"])
+    current_swift = re.search(r"\bSwift version\s+(\d+)", current["swift"])
+    if not all((recorded_xcode, current_xcode, recorded_swift, current_swift)):
+        return False
+    return (
+        recorded_xcode.group(1) == current_xcode.group(1)
+        and recorded_swift.group(1) == current_swift.group(1)
+    )
 
 
 def executable_identity() -> dict:
@@ -1214,7 +1259,9 @@ def validate_attestation(attestation: dict, required_suites: list[str], required
         errors.append("attestation source fingerprint is stale")
     if attestation.get("buildInputFingerprint") != fingerprint(build_inputs_only=True):
         errors.append("attestation build-input fingerprint is stale")
-    if attestation.get("toolchainIdentity") != toolchain_identity():
+    if not toolchain_identity_matches(
+        attestation.get("toolchainIdentity") or {}, toolchain_identity(), ci=ci
+    ):
         errors.append("attestation toolchain identity is stale")
     entries = attestation.get("entries") or {}
     for required in required_suites:

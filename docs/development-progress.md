@@ -30,9 +30,10 @@ required to continue.
 | Telemetry overhead/parity | **PASS** | Schema-v2 `telemetry-overhead` runtime check; seeded PCM parity and thresholds passed on 2026-07-10 |
 | macOS deterministic lane | **PASS** | `scripts/macos_test.sh test` on 2026-07-10 |
 | Exact macOS app build | **PASS** | `./scripts/build.sh build`; current signed bundle is `build/Vocello.app` |
-| Harness regressions | **PASS** | 19 `scripts/test_macos_agent_ui.py` tests on 2026-07-10 |
+| Harness regressions | **PASS** | 21 `scripts/test_macos_agent_ui.py` tests on 2026-07-10 |
 | Project-input/document drift | **PASS** | `./scripts/check_project_inputs.sh` on 2026-07-10 |
 | iOS shared compile safety | **PASS** | `./scripts/build_foundation_targets.sh ios` with the physical-device SDK on 2026-07-10 |
+| GitHub checkpoint run | **Expected evidence failure** | Deterministic macOS tests, exact-path app build, and iOS device-SDK compile passed; final CI validation correctly requires the pending `full` report |
 | Computer Use full suite | **Pending** | `qa/macos-ui-attestation.json` has no `full` entry |
 | Computer Use benchmark | **Pending** | No `benchmark` entry; all ordered 29 takes remain to be driven and validated |
 | Destructive suite | **Implemented, not executed** | Static authorization and disposable-root safeguards only; attended opt-in required |

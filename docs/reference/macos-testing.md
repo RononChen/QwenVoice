@@ -155,9 +155,11 @@ scripts/macos_test.sh gate
 
 The gate runs project-input checks, builds, deterministic tests and crash checks, then calls the
 impact classifier. It unions every matched suite and runtime check. Headless CI builds the exact
-app path and validates schema/source/build/toolchain identity, but it does not claim to execute
-Computer Use or compare its ad-hoc-signed binary hash with the locally signed executable. Local
-validation still requires the exact executable SHA used for Computer Use.
+app path, recomputes source/build identity from repository files, and validates a self-consistent
+toolchain identity with compatible Xcode/Swift major versions. Point releases may differ between
+the local Mac and hosted runner. CI does not claim to execute Computer Use or compare its
+ad-hoc-signed binary hash with the locally signed executable. Local validation still requires the
+exact executable SHA used for Computer Use.
 
 ## XPC and crash diagnostics
 
