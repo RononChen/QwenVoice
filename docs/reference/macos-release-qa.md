@@ -7,6 +7,11 @@ The standing pre-release procedure for a macOS (Vocello.app / DMG) release. Firs
 for v2.1.0 (2026-06-09); rerun the automated gates for every release and the interactive matrix for
 releases that touched UI/engine surfaces. If this doc disagrees with the code, the code wins.
 
+This is a release-only gate, not a commit, push, pull-request, ordinary-merge, or ordinary-CI
+check. Missing Computer Use/model evidence may block a macOS package but must never block
+preserving or sharing development work. iOS frontend evidence is not required for a macOS package;
+the iOS archive/TestFlight lane enforces its own iOS evidence independently.
+
 > For the macOS testing/debugging/profile/review lanes + the one-command `gate`, see
 > [`macos-testing.md`](macos-testing.md). For the macOS app map + test-driving, see
 > [`macos-app-guide.md`](macos-app-guide.md).
@@ -21,21 +26,23 @@ releases that touched UI/engine surfaces. If this doc disagrees with the code, t
    ```
 2. **Deterministic tests + Computer Use frontend acceptance** (always):
    ```sh
-   scripts/macos_test.sh models ensure   # one-time per machine (~6.9 GB Speed trio; idempotent)
    scripts/macos_test.sh test            # Core + XPC transport + owned Qwen3 runtime + harness
    scripts/macos_agent_ui.sh impact      # read requiredSuites + requiredRuntimeChecks
-   scripts/macos_test.sh telemetry-overhead  # when listed
-   # Invoke every listed $vocello-macos-ui-qa suite; full and benchmark are independent.
+   # Invoke $vocello-macos-ui-qa full first; its visible model-readiness scenario is mandatory.
    scripts/macos_test.sh ui-report --suite full
+   scripts/macos_test.sh telemetry-overhead  # when listed; refuses without current full evidence
+   # Invoke benchmark independently when listed.
    scripts/macos_test.sh gate
    ```
+   If the visible Settings state is incomplete, stop and run `scripts/macos_test.sh models ensure`
+   only as an explicit repair/bootstrap action, then start a fresh full UI run.
    Computer Use is the sole macOS frontend driver and targets the exact `build/Vocello.app`.
    The full report covers Custom/Design/Clone, playback, History/Voices/Settings, batch,
    reference import, XPC recovery, and semantic visual/accessibility review. It only passes when
    typed XPC/backend probes, the matching History row, readable WAV, fingerprints, and cleanup pass.
 3. **Engine regression net** (when any engine/Sources change since the last green bench):
    ```sh
-   scripts/macos_test.sh models ensure   # Speed trio + clone voice A_warm_elderly_woman
+   # Requires the current full UI model-readiness proof; repair with models ensure only if needed.
    QWENVOICE_DEBUG=1 ./build/vocello bench --modes custom,design,clone \
      --variants speed --lengths short,medium,long \
      --warm 3 --voice A_warm_elderly_woman --label "release-QA" --ledger

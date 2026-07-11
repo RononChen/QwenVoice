@@ -76,8 +76,10 @@ class CheckLanguageHintsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as diag:
             write_fixture(diag, run_id)
             path = os.path.join(diag, "engine", "generations.jsonl")
-            text = open(path, encoding="utf-8").read().replace('"languageHint": "english"', '"languageHint": "french"', 1)
-            open(path, "w", encoding="utf-8").write(text)
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read().replace('"languageHint": "english"', '"languageHint": "french"', 1)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
             proc = subprocess.run(
                 [
                     sys.executable,

@@ -106,20 +106,24 @@ graph.)
 | `QwenVoiceEngineService` | xpc-service | macOS | `QwenVoiceEngineService` | `com.qwenvoice.app.engine-service` | Out-of-process engine host for crash isolation + memory containment. |
 | `VocelloCoreTests` | bundle.unit-test | macOS | `VocelloCoreTests` | `com.qwenvoice.core.tests` | Core semantics, typed telemetry compatibility, and atomic/readable output contracts. |
 | `VocelloEngineIntegrationTests` | bundle.unit-test | macOS | `VocelloEngineIntegrationTests` | `com.qwenvoice.engine-integration.tests` | Injectable XPC client/transport lifecycle and correlation contracts; never launches frontend UI. |
-| `VocelloiOSUITests` | bundle.ui-testing | iOS | `VocelloiOSUITests` | `com.patricedery.vocello.uitests` | iOS XCUITest on paired iPhone only (real in-process engine). |
 
 ### Testing lanes (see [`docs/reference/testing-runbook.md`](reference/testing-runbook.md))
 
-| Layer | macOS | iOS | Pre-merge gate? |
+| Layer | macOS | iOS | Development publishing policy |
 | --- | --- | --- | --- |
-| **Gate** | `macos_test.sh gate` | `ios_device.sh gate` | Yes |
-| **UI regression** | `$vocello-macos-ui-qa` Computer Use + independent schema-v2 attestations | XCUITest test/bench-ui/review | Requirement-set selected on macOS; used by iOS gate |
-| **Middle/backend deterministic** | Core + XPC integration + `Qwen3RuntimeTests` | Core/on-device engine lanes | Yes on macOS |
-| **Headless engine** | `vocello bench`, `lang-bench` | `bench`, `lang-bench` autorun | Optional in gate |
-| **Agent exploratory** | Same Computer Use operator, but only structured quick/full/benchmark reports count | mirroir MCP + tour doc | macOS reports can gate; iOS exploration cannot |
+| **Deterministic verification** | Core + XPC integration + `Qwen3RuntimeTests` + app build | Project-input checks + physical-device SDK compile | Required by ordinary CI; sufficient for commit, push, pull request, and merge |
+| **UI impact** | `macos_agent_ui.sh impact` | `ios_agent_ui.sh impact` | Advisory only |
+| **Strict frontend gate** | `macos_test.sh gate` | `ios_device.sh gate` | Explicit acceptance and matching-platform release only |
+| **UI regression** | `$vocello-macos-ui-qa` Computer Use + independent schema-v2 attestations | `$vocello-ios-ui-qa` Computer Use through iPhone Mirroring | Never required to preserve or share development work |
+| **Headless engine** | `vocello bench`, `lang-bench` | `bench`, `lang-bench` autorun | Explicit performance/release QA |
+| **Exploratory review** | Same Computer Use operator, but only structured quick/full/benchmark reports count | Same Computer Use operator with live mirror screenshots | Structured reports feed platform release gates |
+
+Release evidence is platform-specific: a macOS package requires macOS frontend evidence, while an
+iOS archive/TestFlight build requires iOS frontend evidence. Neither platform blocks the other's
+artifact.
 
 **Two schemes**: `QwenVoice` (macOS app + deterministic unit/integration tests) and `VocelloiOS`
-(iOS app + `VocelloiOSUITests`). A single shippable config, **`Release`**, is
+(iOS app). A single shippable config, **`Release`**, is
 the only config — there is no `Debug` config and no `DEBUG` symbol.
 
 ### Key layering rule
@@ -765,7 +769,7 @@ Most-frequent imports across `Sources/**/*.swift`:
 
 ## 17. Related documents
 
-- [`development-progress.md`](development-progress.md) — active checkpoint: implemented work, verified gates, pending Computer Use evidence, and Codex resume route.
+- [`development-progress.md`](development-progress.md) — active checkpoint: implemented work, deterministic development status, pending release-only Computer Use evidence, and Codex resume route.
 - [`project-map.html`](project-map.html) — canonical interactive project map: product features, build graph, runtime flows, source ownership, dependencies, contracts, and Codex routes.
 - [`AGENTS.md`](../AGENTS.md) — repo operating manual: build, conventions, engine invariants, dependency pinning, release/QA.
 - [`README.md`](../README.md) — product overview + install.

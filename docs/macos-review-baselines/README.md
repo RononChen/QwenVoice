@@ -13,7 +13,7 @@ scripts/macos_test.sh review --report <full-run>
 
 The report gates layout, copy, truncation, visibility, enabled state and accessibility semantics.
 Screenshots live in the ignored run directory and can be compared with these references manually,
-but a pixel delta is never the merge verdict.
+but a pixel delta is never the frontend-acceptance verdict.
 
 ## Capture keys
 

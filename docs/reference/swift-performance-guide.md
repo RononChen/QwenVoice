@@ -318,9 +318,11 @@ The prewarm slot gate in `NativeEngineRuntime` is a project-specific invariant. 
 
 ---
 
-## 10. Checklist for performance changes
+## 10. Promotion/release checklist for performance changes
 
-Before committing a Swift performance change:
+Ordinary development commits, pushes, pull requests, and merges use deterministic verification and
+do not wait for models, a device, Computer Use, or UI evidence. Before promoting or releasing a
+Swift performance change, complete the deeper checklist:
 
 - [ ] Build the change optimized (`scripts/release.sh` or `-O` xcodebuild), not just `-Onone`.
 - [ ] Run the relevant benchmark (`vocello bench`, `scripts/ios_device.sh bench`, or a targeted Instruments profile).

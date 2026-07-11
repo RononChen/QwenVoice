@@ -22,7 +22,13 @@ import sqlite3
 import subprocess
 import sys
 import time
+from urllib.parse import unquote, urlparse
 import wave
+
+LIB_DIR = Path(__file__).resolve().parent
+if str(LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(LIB_DIR))
+from computer_use_routing import new_service_crash_reports, routing_status, service_crash_reports
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -36,11 +42,17 @@ IMPACT = ROOT / "config" / "macos-test-impact.json"
 RISK = ROOT / "config" / "backend-risk-spine.json"
 ATTESTATION = ROOT / "qa" / "macos-ui-attestation.json"
 CURRENT = BUILD_ROOT / "current-run.json"
+WARM_DIAGNOSTIC = BUILD_ROOT / "warm-diagnostic.json"
 BENCH_TAKE_FILE = Path("/tmp/vocello-bench-current-take.json")
 BUNDLE_ID = "com.qwenvoice.app"
+DEBUG_BUNDLE_ID = "com.qwenvoice.app.debug"
 DEBUG_KEY = "QwenVoice.DebugModeEnabled"
 APP_PROCESS = "Vocello"
 SERVICE_PROCESS = "QwenVoiceEngineService"
+LSREGISTER = Path(
+    "/System/Library/Frameworks/CoreServices.framework/Frameworks/"
+    "LaunchServices.framework/Support/lsregister"
+)
 SEVERITIES = ("blocker", "major", "minor", "note")
 SUITES = ("quick", "full", "benchmark", "destructive")
 ATTESTABLE_SUITES = ("quick", "full", "benchmark")
@@ -49,6 +61,7 @@ SUITE_SATISFIERS = {
     "full": {"full"},
     "benchmark": {"benchmark"},
 }
+INITIAL_SIDEBAR_ITEMS = ("custom", "history", "settings")
 
 
 class HarnessError(RuntimeError):
@@ -102,6 +115,55 @@ def process_ids(name: str) -> list[int]:
     return [int(line) for line in result.stdout.splitlines() if line.strip().isdigit()]
 
 
+def process_executable(pid: int) -> str | None:
+    result = run(["/bin/ps", "-p", str(pid), "-o", "command="], check=False)
+    command = result.stdout.strip()
+    return command.split(maxsplit=1)[0] if command else None
+
+
+def app_process_records() -> list[dict]:
+    expected = APP_BINARY.resolve()
+    records = []
+    for pid in process_ids(APP_PROCESS):
+        executable = process_executable(pid)
+        try:
+            exact = Path(executable).resolve() == expected if executable else False
+        except OSError:
+            exact = False
+        records.append({"pid": pid, "executable": executable, "exactPath": exact})
+    return records
+
+
+def exact_single_app_running() -> bool:
+    records = app_process_records()
+    return len(records) == 1 and records[0]["exactPath"] is True
+
+
+def parse_launch_services_app_records(output: str, bundle_id: str = BUNDLE_ID) -> list[dict]:
+    records = []
+    for block in output.split("\n--------------------------------------------------------------------------------\n"):
+        identifier = re.search(r"^identifier:\s+(.+?)\s*$", block, re.MULTILINE)
+        path_match = re.search(r"^path:\s+(.+?\.app)(?:\s+\(0x[0-9a-fA-F]+\))?\s*$", block, re.MULTILINE)
+        if not identifier or not path_match or identifier.group(1).strip('"') != bundle_id:
+            continue
+        path = Path(path_match.group(1))
+        try:
+            exact = path.resolve() == APP.resolve()
+        except OSError:
+            exact = False
+        records.append({"path": str(path), "exists": path.is_dir(), "exactPath": exact})
+    return sorted(records, key=lambda item: item["path"])
+
+
+def launch_services_app_records() -> list[dict]:
+    if not LSREGISTER.is_file():
+        return []
+    result = run([str(LSREGISTER), "-dump"], check=False)
+    if result.returncode != 0:
+        return []
+    return parse_launch_services_app_records(result.stdout)
+
+
 def terminate_process(name: str) -> None:
     pids = process_ids(name)
     for pid in pids:
@@ -127,15 +189,25 @@ def set_debug_flag() -> None:
     run(["/usr/bin/defaults", "write", BUNDLE_ID, DEBUG_KEY, "-bool", "true"])
 
 
-def cleanup_processes() -> None:
+def cleanup_processes(*, clear_persisted_debug_flag: bool = True) -> None:
     terminate_process(APP_PROCESS)
     terminate_process(SERVICE_PROCESS)
-    clear_debug_flag()
+    if clear_persisted_debug_flag:
+        clear_debug_flag()
 
 
-def exact_launch_command(run_id: str, app_support_root: Path, *, force_cold: bool = False) -> list[str]:
+def exact_launch_command(
+    run_id: str,
+    app_support_root: Path,
+    *,
+    force_cold: bool = False,
+    initial_sidebar_item: str = "custom",
+) -> list[str]:
+    if initial_sidebar_item not in INITIAL_SIDEBAR_ITEMS:
+        raise HarnessError(f"unsupported initial sidebar item: {initial_sidebar_item}")
     launch = [
         "/usr/bin/open", "-n", "--env", "QWENVOICE_DEBUG=1",
+        "--env", f"QWENVOICE_INITIAL_SIDEBAR_ITEM={initial_sidebar_item}",
         "--env", "QWENVOICE_NATIVE_TELEMETRY_MODE=verbose",
         "--env", f"QWENVOICE_APP_SUPPORT_DIR={app_support_root}",
         "--env", f"QVOICE_MAC_BENCH_RUN_ID={run_id}",
@@ -147,17 +219,120 @@ def exact_launch_command(run_id: str, app_support_root: Path, *, force_cold: boo
     return launch
 
 
-def launch_exact_app(run_id: str, app_support_root: Path, *, force_cold: bool = False) -> int:
-    launch = exact_launch_command(run_id, app_support_root, force_cold=force_cold)
+def computer_use_service_identity(routing: dict) -> dict:
+    processes = routing.get("computerUseServiceProcesses") or []
+    if len(processes) != 1:
+        raise HarnessError(f"expected one Computer Use service process, found {processes}")
+    process = processes[0]
+    return {
+        "pid": process.get("pid"),
+        "executable": process.get("executable"),
+        "version": process.get("version") or process.get("helperVersion") or routing.get("helperVersion"),
+        "build": process.get("build") or process.get("helperBuild") or routing.get("helperBuild"),
+        "uuid": process.get("uuid") or process.get("helperUUID") or routing.get("helperUUID"),
+        "sha256": process.get("sha256") or process.get("executableSHA256") or process.get("helperSHA256") or routing.get("helperSHA256"),
+    }
+
+
+def routing_ready(routing: dict, *, diagnostic: bool = False) -> bool:
+    key = "readyForDiagnostic" if diagnostic else "readyForSuite"
+    return bool(routing.get(key, routing.get("ready", False)))
+
+
+def routing_failure_messages(routing: dict, *, diagnostic: bool = False) -> list[str]:
+    base = routing.get("routingErrors") if diagnostic else routing.get("errors")
+    messages = list(base or [])
+    if not diagnostic and not routing.get("errors"):
+        messages.extend(routing.get("suiteBlockers") or [])
+    if not routing_ready(routing, diagnostic=diagnostic) and not messages:
+        messages.append(
+            "Computer Use is not ready for the bounded diagnostic"
+            if diagnostic
+            else "Computer Use is not ready for a normal UI suite"
+        )
+    return list(dict.fromkeys(messages))
+
+
+def require_same_computer_use_service(expected: dict, routing: dict) -> dict:
+    actual = computer_use_service_identity(routing)
+    if actual != expected:
+        raise HarnessError(
+            "Computer Use service identity changed during the operation: "
+            f"expected {expected}, found {actual}"
+        )
+    return actual
+
+
+def report_computer_use_service_identity(report: dict) -> dict:
+    evidence = ((report.get("environment") or {}).get("computerUse") or {})
+    return {
+        "pid": evidence.get("servicePID"),
+        "executable": evidence.get("servicePath"),
+        "version": evidence.get("serviceVersion"),
+        "build": evidence.get("serviceBuild"),
+        "uuid": evidence.get("serviceUUID"),
+        "sha256": evidence.get("serviceSHA256"),
+    }
+
+
+def stable_exact_app_pid(
+    *,
+    timeout_seconds: float = 15.0,
+    stable_seconds: float = 3.0,
+    crash_baseline: list[dict] | None = None,
+) -> int:
+    deadline = time.monotonic() + timeout_seconds
+    stable_pid: int | None = None
+    stable_since: float | None = None
+    while time.monotonic() < deadline:
+        if crash_baseline is not None:
+            delta = new_service_crash_reports(crash_baseline)
+            if delta:
+                raise HarnessError(
+                    "Computer Use service crashed while Vocello was stabilizing: "
+                    + ", ".join(item["path"] for item in delta)
+                )
+        records = app_process_records()
+        if len(records) > 1 or any(not record["exactPath"] for record in records):
+            raise HarnessError(f"unexpected Vocello process ownership during launch: {records}")
+        if len(records) == 1:
+            pid = int(records[0]["pid"])
+            if pid != stable_pid:
+                stable_pid = pid
+                stable_since = time.monotonic()
+            elif stable_since is not None and time.monotonic() - stable_since >= stable_seconds:
+                return pid
+        else:
+            stable_pid = None
+            stable_since = None
+        time.sleep(0.1)
+    raise HarnessError(
+        f"expected one exact-path {APP_PROCESS} process stable for {stable_seconds:.1f}s; "
+        f"found {app_process_records()}"
+    )
+
+
+def launch_exact_app(
+    run_id: str,
+    app_support_root: Path,
+    *,
+    force_cold: bool = False,
+    initial_sidebar_item: str = "custom",
+    crash_baseline: list[dict] | None = None,
+    clear_persisted_debug_flag_on_failure: bool = True,
+) -> int:
+    launch = exact_launch_command(
+        run_id,
+        app_support_root,
+        force_cold=force_cold,
+        initial_sidebar_item=initial_sidebar_item,
+    )
     run(launch)
-    deadline = time.monotonic() + 15
-    while time.monotonic() < deadline and len(process_ids(APP_PROCESS)) != 1:
-        time.sleep(0.25)
-    pids = process_ids(APP_PROCESS)
-    if len(pids) != 1:
-        cleanup_processes()
-        raise HarnessError(f"expected one {APP_PROCESS} process after exact-path launch, found {pids}")
-    return pids[0]
+    try:
+        return stable_exact_app_pid(crash_baseline=crash_baseline)
+    except HarnessError:
+        cleanup_processes(clear_persisted_debug_flag=clear_persisted_debug_flag_on_failure)
+        raise
 
 
 def benchmark_scenario() -> dict:
@@ -248,7 +423,7 @@ def relative_files(*, build_inputs_only: bool = False) -> list[Path]:
     paths: set[Path] = set()
     for path in repository_files:
         value = path.as_posix()
-        if any(value == root or value.startswith(f"{root}/") for root in include_roots):
+        if (ROOT / path).is_file() and any(value == root or value.startswith(f"{root}/") for root in include_roots):
             paths.add(path)
     for name in ("project.yml", "Package.resolved", "AGENTS.md"):
         if (ROOT / name).is_file():
@@ -418,14 +593,6 @@ def validate_config() -> list[str]:
         if item.get("status") == "implemented" and item.get("remaining"):
             errors.append(f"risk item {item.get('id')} is implemented but remaining is non-empty")
 
-    source_text = "\n".join(
-        path.read_text(errors="ignore")
-        for path in (ROOT / "Sources").rglob("*.swift")
-    )
-    dynamic_prefixes = {
-        prefix for prefix in re.findall(r'"([A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]*)', source_text)
-        if prefix.endswith("_")
-    }
     for scenario in scenarios.get("scenarios", []):
         if "restorationPolicy" not in scenario:
             errors.append(f"scenario {scenario.get('id')} is missing restorationPolicy")
@@ -434,20 +601,33 @@ def validate_config() -> list[str]:
         if "requiresActionTimeConfirmation" not in scenario:
             errors.append(f"scenario {scenario.get('id')} is missing requiresActionTimeConfirmation")
         for step in scenario.get("steps", []):
-            target = step.get("target") or step.get("targetPrefix")
             for required in ("semanticResult", "deterministicPostcondition", "restorationPolicy", "timeoutSeconds", "confirmation"):
                 if required not in step:
                     errors.append(f"scenario {scenario.get('id')} step {step.get('id')} is missing {required}")
             if not step.get("id"):
                 errors.append(f"scenario {scenario.get('id')} contains a step without an id")
-            target_is_dynamic = bool(target and any(target.startswith(prefix) for prefix in dynamic_prefixes))
-            if target and target not in {"system-file-panel", "harness:xpc-kill", "harness:verify-probes"} and target not in source_text and not target_is_dynamic:
-                errors.append(f"scenario {scenario['id']} target not found in source: {target}")
     return errors
 
 
 def cmd_doctor(args: argparse.Namespace) -> None:
     errors = validate_config()
+    routing = routing_status()
+    repository_ready = all(path.is_file() for path in (SCENARIOS, IMPACT, RISK)) and sys.version_info >= (3, 10) and shutil.which("sqlite3") is not None and not errors
+    app_ready = APP.is_dir() and APP_BINARY.is_file()
+    app_processes = app_process_records()
+    process_ownership_ready = not app_processes or (
+        len(app_processes) == 1 and app_processes[0]["exactPath"] is True
+    )
+    app_registrations = launch_services_app_records()
+    duplicate_app_registration = len(app_registrations) > 1
+    wrong_path_app_registration = any(not record["exactPath"] for record in app_registrations)
+    # Launch Services and Computer Use may retain multiple records for installed
+    # and build-product copies. Exact-path targeting plus live process ownership
+    # is the gate; registration duplication remains diagnostic evidence.
+    app_registration_ready = any(
+        record["exactPath"] is True and record["exists"] is True
+        for record in app_registrations
+    )
     checks = {
         "appBundle": APP.is_dir(),
         "appBinary": APP_BINARY.is_file(),
@@ -457,11 +637,98 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         "python": sys.version_info >= (3, 10),
         "sqlite": shutil.which("sqlite3") is not None,
         "configErrors": errors,
+        "routingErrors": routing.get("routingErrors") or [],
         "suite": args.suite,
+        "repositoryReady": repository_ready,
+        "appReady": app_ready,
+        "appProcesses": app_processes,
+        "processOwnershipReady": process_ownership_ready,
+        "vocelloLaunchServicesRegistrations": app_registrations,
+        "duplicateVocelloRegistrationDetected": duplicate_app_registration,
+        "wrongPathVocelloRegistrationDetected": wrong_path_app_registration,
+        "appRegistrationReady": app_registration_ready,
+        "computerUseRequired": True,
+        "computerUseServiceProcesses": routing["computerUseServiceProcesses"],
+        "computerUseServiceRunning": routing["computerUseServiceRunning"],
+        "computerUseServicePathVerified": routing["computerUseServicePathVerified"],
+        "appBundledSourceApp": routing["appBundledSourceApp"],
+        "installedPluginCacheSourceApp": routing["installedPluginCacheSourceApp"],
+        "desktopManagedRuntimeApp": routing["desktopManagedRuntimeApp"],
+        "sourceRuntimeIdentityMatch": routing["sourceRuntimeIdentityMatch"],
+        "desktopManagedRuntimeRunning": routing["desktopManagedRuntimeRunning"],
+        "pluginFallbackRunning": routing["pluginFallbackRunning"],
+        "duplicateRuntimeDetected": routing["duplicateRuntimeDetected"],
+        "routingStatus": routing["routingStatus"],
+        "routingExpectationSource": routing["routingExpectationSource"],
+        "macOSVersion": routing["macOSVersion"],
+        "desktopVersion": routing["desktopVersion"],
+        "pluginVersion": routing["pluginVersion"],
+        "helperVersion": routing["helperVersion"],
+        "dyldCompatibilityFailure": routing["dyldCompatibilityFailure"],
+        "crashClassification": routing["crashClassification"],
+        "computerUseConfigEntries": routing["computerUseConfigEntries"],
+        "pluginManagedEntryPresent": routing["pluginManagedEntryPresent"],
+        "commandConfiguredEntryPresent": routing["commandConfiguredEntryPresent"],
+        "staleCommandPathPresent": routing["staleCommandPathPresent"],
+        "duplicateTransportDefinitionPresent": routing["duplicateTransportDefinitionPresent"],
+        "mcpClientProcessCount": routing["mcpClientProcessCount"],
+        "turnEndedClientCount": routing["turnEndedClientCount"],
+        "nodeReplProcessCount": routing["nodeReplProcessCount"],
+        "stdioAppServerCount": routing["stdioAppServerCount"],
+        "zombieChildCount": routing["zombieChildCount"],
+        "staleClientSetDetected": routing["staleClientSetDetected"],
+        "computerUsePluginInstalled": routing.get("computerUsePluginInstalled"),
+        "computerUsePluginEnabled": routing.get("computerUsePluginEnabled"),
+        "computerUsePluginVersion": routing.get("computerUsePluginVersion"),
+        "computerUsePluginInventoryCachePath": routing.get("computerUsePluginInventoryCachePath"),
+        "installedPluginInventoryCacheRoot": routing.get("installedPluginInventoryCacheRoot"),
+        "installedPluginInventoryCacheApp": routing.get("installedPluginInventoryCacheApp"),
+        "pluginInventoryCachePathConsistent": routing.get("pluginInventoryCachePathConsistent"),
+        "computerUseBundledContentVariant": routing.get("computerUseBundledContentVariant"),
+        "computerUseUsesNodeRepl": routing.get("computerUseUsesNodeRepl"),
+        "nodeReplServerDeclared": routing.get("nodeReplServerDeclared"),
+        "nodeReplServerEnabled": routing.get("nodeReplServerEnabled"),
+        "nodeReplServerCommand": routing.get("nodeReplServerCommand"),
+        "nodeReplServerArgs": routing.get("nodeReplServerArgs"),
+        "expectedNodeReplCommand": routing.get("expectedNodeReplCommand"),
+        "nodeReplServerCommandMatchesDesktop": routing.get("nodeReplServerCommandMatchesDesktop"),
+        "nodeReplConfiguredSourceMatchesInventoryCache": routing.get("nodeReplConfiguredSourceMatchesInventoryCache"),
+        "computerUseManifestServerDeclared": routing.get("computerUseManifestServerDeclared"),
+        "computerUseManifestMirrorEntryPresent": routing.get("computerUseManifestMirrorEntryPresent"),
+        "computerUseManifestMirrorEnabled": routing.get("computerUseManifestMirrorEnabled"),
+        "computerUseManifestMirrorConflicting": routing.get("computerUseManifestMirrorConflicting"),
+        "computerUseServerAvailable": routing.get("computerUseServerAvailable"),
+        "computerUseServerDeclared": routing.get("computerUseServerDeclared"),
+        "computerUseServerEnabled": routing.get("computerUseServerEnabled"),
+        "computerUseSkillPath": routing.get("computerUseSkillPath"),
+        "computerUseSkillInstalled": routing.get("computerUseSkillInstalled"),
+        "computerUseSkillExpectedAvailable": routing.get("computerUseSkillExpectedAvailable"),
+        "computerUseWrapperPath": routing.get("computerUseWrapperPath"),
+        "computerUseWrapperAvailable": routing.get("computerUseWrapperAvailable"),
+        "computerUseWrapperSHA256": routing.get("computerUseWrapperSHA256"),
+        "computerUseProcessFamilies": routing.get("computerUseProcessFamilies"),
+        "notificationClientProcessCount": routing.get("notificationClientProcessCount"),
+        "helperBuild": routing.get("helperBuild"),
+        "helperUUID": routing.get("helperUUID"),
+        "helperSHA256": routing.get("helperSHA256"),
+        "knownBadHelperDetected": routing.get("knownBadHelperDetected"),
+        "knownBadHelperRule": routing.get("knownBadHelperRule"),
+        "latestCurrentHelperCrash": routing.get("latestCurrentHelperCrash"),
+        "routingReady": routing.get("routingReady"),
+        "routingReadyForDiagnostic": routing.get("readyForDiagnostic"),
+        "routingReadyForSuite": routing.get("readyForSuite"),
+        "suiteBlockers": routing.get("suiteBlockers") or [],
     }
-    checks["ready"] = all(
-        checks[key] for key in ("appBundle", "appBinary", "scenarioContract", "impactContract", "riskContract", "python", "sqlite")
-    ) and not errors
+    common_ready = (
+        repository_ready
+        and app_ready
+        and process_ownership_ready
+        and app_registration_ready
+    )
+    checks["readyForDiagnostic"] = common_ready and routing_ready(routing, diagnostic=True)
+    checks["readyForSuite"] = common_ready and routing_ready(routing)
+    checks["readyForSession"] = checks["readyForSuite"]
+    checks["ready"] = checks["readyForSuite"]
     if args.json:
         print(json.dumps(checks, indent=2, sort_keys=True))
     else:
@@ -469,6 +736,25 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             print(f"{key}: {value}")
     if not checks["ready"]:
         raise HarnessError("doctor found blocking problems")
+
+
+def cmd_routing_audit(_: argparse.Namespace) -> None:
+    result = routing_status()
+    print(json.dumps(result, indent=2, sort_keys=True))
+    if not result.get("routingReady", result.get("ready", False)):
+        raise HarnessError("Computer Use routing audit failed")
+
+
+def require_computer_use_session(report: dict | None = None, *, diagnostic: bool = False) -> dict:
+    routing = routing_status()
+    errors = routing_failure_messages(routing, diagnostic=diagnostic)
+    if report is not None:
+        delta = new_service_crash_reports(report.get("computerUseCrashReportsAtStart") or [])
+        if delta:
+            errors.append("new SkyComputerUseService crash report detected: " + ", ".join(item["path"] for item in delta))
+    if errors:
+        raise HarnessError("Computer Use session is not safe: " + "; ".join(errors))
+    return routing
 
 
 def reset_runtime_state(root: Path) -> None:
@@ -497,9 +783,16 @@ def snapshot_state(directory: Path, root: Path) -> dict:
     state_dir = directory / "state-snapshot"
     state_dir.mkdir(parents=True, exist_ok=True)
     preferences = state_dir / "preferences.plist"
+    debug_preferences = state_dir / "debug-preferences.plist"
     exported = run(["/usr/bin/defaults", "export", BUNDLE_ID, str(preferences)], check=False)
     if exported.returncode != 0:
         preferences.unlink(missing_ok=True)
+    debug_exported = run(
+        ["/usr/bin/defaults", "export", DEBUG_BUNDLE_ID, str(debug_preferences)],
+        check=False,
+    )
+    if debug_exported.returncode != 0:
+        debug_preferences.unlink(missing_ok=True)
     voices = root / "voices"
     voices_snapshot = state_dir / "voices"
     if voices.is_dir():
@@ -507,6 +800,8 @@ def snapshot_state(directory: Path, root: Path) -> dict:
     return {
         "preferencesExisted": preferences.is_file(),
         "preferencesPath": str(preferences),
+        "debugPreferencesExisted": debug_preferences.is_file(),
+        "debugPreferencesPath": str(debug_preferences),
         "voicesExisted": voices.is_dir(),
         "voicesPath": str(voices_snapshot),
         "restored": False,
@@ -524,6 +819,12 @@ def restore_state(report: dict) -> None:
         run(["/usr/bin/defaults", "import", BUNDLE_ID, str(preferences)], check=False)
     else:
         run(["/usr/bin/defaults", "delete", BUNDLE_ID], check=False)
+    if "debugPreferencesExisted" in snapshot:
+        debug_preferences = Path(snapshot.get("debugPreferencesPath", ""))
+        if snapshot.get("debugPreferencesExisted") and debug_preferences.is_file():
+            run(["/usr/bin/defaults", "import", DEBUG_BUNDLE_ID, str(debug_preferences)], check=False)
+        else:
+            run(["/usr/bin/defaults", "delete", DEBUG_BUNDLE_ID], check=False)
     root = report_support_root(report)
     voices = root / "voices"
     voices_snapshot = Path(snapshot.get("voicesPath", ""))
@@ -557,11 +858,17 @@ def cmd_start(args: argparse.Namespace) -> None:
         raise HarnessError("destructive suite requires --allow-destructive and action-time Computer Use confirmations")
     if not APP_BINARY.is_file():
         raise HarnessError(f"app not built at {APP}; run scripts/build.sh build")
+    routing = routing_status()
+    if not routing_ready(routing):
+        raise HarnessError(
+            "Computer Use is not ready for a normal UI suite: "
+            + "; ".join(routing_failure_messages(routing))
+        )
     errors = validate_config()
     if errors:
         raise HarnessError("invalid QA contracts: " + "; ".join(errors))
 
-    cleanup_processes()
+    cleanup_processes(clear_persisted_debug_flag=False)
     run_id = f"mac-ui-{args.suite}-{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}"
     directory = BUILD_ROOT / run_id
     directory.mkdir(parents=True, exist_ok=False)
@@ -571,6 +878,8 @@ def cmd_start(args: argparse.Namespace) -> None:
     reset_runtime_state(root)
     set_debug_flag()
     started = utc_now()
+    computer_use_identity = computer_use_service_identity(routing)
+    crash_baseline = service_crash_reports()
     report = {
         "schemaVersion": 2,
         "runID": run_id,
@@ -588,6 +897,26 @@ def cmd_start(args: argparse.Namespace) -> None:
             "os": run(["/usr/bin/sw_vers", "-productVersion"]).stdout.strip(),
             "architecture": run(["/usr/bin/uname", "-m"]).stdout.strip(),
             "appSupportRoot": str(root),
+            "computerUse": {
+                "pluginInstalled": routing.get("computerUsePluginInstalled"),
+                "pluginEnabled": routing.get("computerUsePluginEnabled"),
+                "pluginVersion": routing.get("computerUsePluginVersion") or routing.get("pluginVersion"),
+                "serverDeclared": routing.get("computerUseServerDeclared"),
+                "serverEnabled": routing.get("computerUseServerEnabled"),
+                "skillInstalled": routing.get("computerUseSkillInstalled"),
+                "skillExpectedAvailable": routing.get("computerUseSkillExpectedAvailable"),
+                "skillPath": routing.get("computerUseSkillPath"),
+                "wrapperAvailable": routing.get("computerUseWrapperAvailable"),
+                "wrapperPath": routing.get("computerUseWrapperPath"),
+                "wrapperSHA256": routing.get("computerUseWrapperSHA256"),
+                "servicePath": computer_use_identity.get("executable"),
+                "servicePID": computer_use_identity.get("pid"),
+                "serviceVersion": computer_use_identity.get("version"),
+                "serviceBuild": computer_use_identity.get("build"),
+                "serviceUUID": computer_use_identity.get("uuid"),
+                "serviceSHA256": computer_use_identity.get("sha256"),
+                "verifiedAt": started,
+            },
             "disposableAppSupport": args.suite == "destructive",
             "toolchain": toolchain_identity(),
         },
@@ -597,6 +926,8 @@ def cmd_start(args: argparse.Namespace) -> None:
         "deterministicAssertions": [],
         "probeVerdict": "missing",
         "cleanupVerdict": "pending",
+        "computerUseCrashReportsAtStart": crash_baseline,
+        "computerUseCrashDelta": [],
     }
     if args.suite == "benchmark":
         manifest = benchmark_manifest()
@@ -611,7 +942,14 @@ def cmd_start(args: argparse.Namespace) -> None:
     append_jsonl(directory / "events.jsonl", {"timestamp": started, "event": "run-started", "suite": args.suite})
 
     try:
-        report["appPID"] = launch_exact_app(run_id, root)
+        report["appPID"] = launch_exact_app(
+            run_id,
+            root,
+            initial_sidebar_item="custom",
+            crash_baseline=crash_baseline,
+        )
+        post_launch_routing = require_computer_use_session(report)
+        require_same_computer_use_service(computer_use_identity, post_launch_routing)
     except HarnessError:
         restore_state(report)
         report["status"] = "blocked"
@@ -620,6 +958,307 @@ def cmd_start(args: argparse.Namespace) -> None:
         raise
     store_run(directory, report)
     print(json.dumps({"runID": run_id, "runDirectory": str(directory), "appPath": str(APP), "appPID": report["appPID"]}, indent=2))
+
+
+def diagnostic_plugin_evidence(routing: dict) -> dict:
+    return {
+        "installed": routing.get("computerUsePluginInstalled"),
+        "enabled": routing.get("computerUsePluginEnabled"),
+        "version": routing.get("computerUsePluginVersion") or routing.get("pluginVersion"),
+        "inventoryCachePath": routing.get("computerUsePluginInventoryCachePath"),
+        "installedInventoryCacheRoot": routing.get("installedPluginInventoryCacheRoot"),
+        "installedInventoryCacheApp": routing.get("installedPluginInventoryCacheApp"),
+        "inventoryCachePathConsistent": routing.get("pluginInventoryCachePathConsistent"),
+        "bundledContentVariant": routing.get("computerUseBundledContentVariant"),
+        "usesNodeRepl": routing.get("computerUseUsesNodeRepl"),
+        "nodeReplServerDeclared": routing.get("nodeReplServerDeclared"),
+        "nodeReplServerEnabled": routing.get("nodeReplServerEnabled"),
+        "nodeReplServerCommand": routing.get("nodeReplServerCommand"),
+        "nodeReplServerArgs": routing.get("nodeReplServerArgs"),
+        "expectedNodeReplCommand": routing.get("expectedNodeReplCommand"),
+        "nodeReplServerCommandMatchesDesktop": routing.get("nodeReplServerCommandMatchesDesktop"),
+        "nodeReplSourceMatchesInventoryCache": routing.get("nodeReplConfiguredSourceMatchesInventoryCache"),
+        "manifestServerDeclared": routing.get("computerUseManifestServerDeclared"),
+        "manifestMirrorEntryPresent": routing.get("computerUseManifestMirrorEntryPresent"),
+        "manifestMirrorEnabled": routing.get("computerUseManifestMirrorEnabled"),
+        "manifestMirrorConflicting": routing.get("computerUseManifestMirrorConflicting"),
+        "serverAvailable": routing.get("computerUseServerAvailable"),
+        "serverDeclared": routing.get("computerUseServerDeclared"),
+        "serverEnabled": routing.get("computerUseServerEnabled"),
+        "skillInstalled": routing.get("computerUseSkillInstalled"),
+        "skillExpectedAvailable": routing.get("computerUseSkillExpectedAvailable"),
+        "skillPath": routing.get("computerUseSkillPath"),
+        "wrapperAvailable": routing.get("computerUseWrapperAvailable"),
+        "wrapperPath": routing.get("computerUseWrapperPath"),
+        "wrapperSHA256": routing.get("computerUseWrapperSHA256"),
+    }
+
+
+def prepare_warm_diagnostic(args: argparse.Namespace) -> None:
+    if not APP_BINARY.is_file():
+        raise HarnessError(f"app not built at {APP}; run scripts/build.sh build")
+    if app_process_records():
+        raise HarnessError(
+            "warm diagnostic refuses a pre-existing Vocello process; switch Computer Use to Finder, "
+            "then terminate the existing exact-path app before preparing"
+        )
+    if WARM_DIAGNOSTIC.is_file():
+        previous = read_json(WARM_DIAGNOSTIC)
+        if previous.get("status") in {"preparing", "prepared"}:
+            raise HarnessError(
+                f"warm diagnostic {previous.get('diagnosticID')} is still active; verify or abort it first"
+            )
+
+    routing = require_computer_use_session(diagnostic=True)
+    if routing.get("knownBadHelperDetected") and not args.acknowledge_known_bad_helper:
+        raise HarnessError(
+            "this helper is blocked for normal suites; the bounded diagnostic requires "
+            "--acknowledge-known-bad-helper"
+        )
+
+    diagnostic_id = f"mac-ui-warm-diagnostic-{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    crash_baseline = service_crash_reports()
+    helper = computer_use_service_identity(routing)
+    report = {
+        "schemaVersion": 1,
+        "diagnosticOnly": True,
+        "attestable": False,
+        "diagnosticID": diagnostic_id,
+        "status": "preparing",
+        "createdAt": utc_now(),
+        "updatedAt": utc_now(),
+        "initialSidebarItem": args.initial_screen,
+        "observationBudget": 1,
+        "observationsConsumed": 0,
+        "verificationVerdict": "pending",
+        "cleanupVerdict": "pending",
+        "appPath": str(APP),
+        "appBinarySHA256": sha256(APP_BINARY),
+        "sourceFingerprint": fingerprint(),
+        "computerUsePlugin": diagnostic_plugin_evidence(routing),
+        "computerUseService": helper,
+        "knownBadHelperDetected": bool(routing.get("knownBadHelperDetected")),
+        "knownBadHelperRule": routing.get("knownBadHelperRule"),
+        "computerUseCrashReportsAtStart": crash_baseline,
+        "computerUseCrashDelta": [],
+    }
+    write_json(WARM_DIAGNOSTIC, report)
+    try:
+        report["appPID"] = launch_exact_app(
+            diagnostic_id,
+            DEBUG_ROOT,
+            initial_sidebar_item=args.initial_screen,
+            crash_baseline=crash_baseline,
+            clear_persisted_debug_flag_on_failure=False,
+        )
+        post_launch_routing = require_computer_use_session(report, diagnostic=True)
+        require_same_computer_use_service(helper, post_launch_routing)
+    except HarnessError as exc:
+        report["status"] = "blocked"
+        report["verificationVerdict"] = "blocked"
+        report["updatedAt"] = utc_now()
+        report["failure"] = str(exc)
+        report["computerUseCrashDelta"] = new_service_crash_reports(crash_baseline)
+        write_json(WARM_DIAGNOSTIC, report)
+        raise
+
+    report["status"] = "prepared"
+    report["updatedAt"] = utc_now()
+    write_json(WARM_DIAGNOSTIC, report)
+    print(json.dumps({
+        "diagnosticID": diagnostic_id,
+        "status": "prepared",
+        "diagnosticOnly": True,
+        "attestable": False,
+        "appPath": str(APP),
+        "appPID": report["appPID"],
+        "initialSidebarItem": args.initial_screen,
+        "observationBudget": 1,
+        "next": (
+            "Perform exactly one Computer Use observation, record its non-sensitive metadata while "
+            "the screenshot exists, then run warm-diagnostic --phase verify."
+        ),
+    }, indent=2))
+
+
+def record_warm_diagnostic_observation(args: argparse.Namespace) -> None:
+    report = read_json(WARM_DIAGNOSTIC)
+    if report.get("status") != "prepared" or report.get("observationsConsumed") != 0:
+        raise HarnessError(
+            f"warm diagnostic cannot record an observation: status={report.get('status')}"
+        )
+    if report.get("observationEvidence"):
+        raise HarnessError("warm diagnostic observation evidence has already been recorded")
+
+    observed_app = Path(args.app_path).expanduser().resolve()
+    if observed_app != APP.resolve():
+        raise HarnessError(f"observation app must be the exact build path {APP}")
+    if args.accessibility_length <= 0:
+        raise HarnessError("observation accessibility length must be positive")
+    if args.window_count <= 0:
+        raise HarnessError("observation must report at least one visible window")
+
+    if not args.screenshot_url:
+        raise HarnessError("observation screenshot URL is required")
+    parsed = urlparse(args.screenshot_url)
+    if parsed.scheme != "file":
+        raise HarnessError("observation screenshot must be a file URL returned by Computer Use")
+    screenshot = Path(unquote(parsed.path))
+    if not screenshot.is_file():
+        raise HarnessError("Computer Use screenshot file is no longer available; record it before cleanup")
+    screenshot_size = screenshot.stat().st_size
+    if screenshot_size <= 0:
+        raise HarnessError("Computer Use screenshot is empty")
+
+    report["observationEvidence"] = {
+        "observedAt": utc_now(),
+        "appPath": str(APP),
+        "accessibilityTextLength": args.accessibility_length,
+        "visibleWindowCount": args.window_count,
+        "screenshotAvailable": True,
+        "screenshotByteCount": screenshot_size,
+        "screenshotSHA256": sha256(screenshot),
+    }
+    report["updatedAt"] = utc_now()
+    write_json(WARM_DIAGNOSTIC, report)
+    print(json.dumps({
+        "diagnosticID": report.get("diagnosticID"),
+        "status": report.get("status"),
+        "diagnosticOnly": True,
+        "attestable": False,
+        "observationEvidence": report["observationEvidence"],
+        "next": "Run warm-diagnostic --phase verify exactly once.",
+    }, indent=2))
+
+
+def verify_warm_diagnostic() -> None:
+    report = read_json(WARM_DIAGNOSTIC)
+    if report.get("status") != "prepared" or report.get("observationsConsumed") != 0:
+        raise HarnessError(
+            f"warm diagnostic is not awaiting its single observation: status={report.get('status')}"
+        )
+    if not report.get("observationEvidence"):
+        raise HarnessError(
+            "warm diagnostic observation metadata is missing; run --phase record-observation "
+            "immediately after the single Computer Use response"
+        )
+    try:
+        routing = require_computer_use_session(report, diagnostic=True)
+        require_same_computer_use_service(report.get("computerUseService") or {}, routing)
+        records = app_process_records()
+        if (
+            len(records) != 1
+            or records[0].get("pid") != report.get("appPID")
+            or records[0].get("exactPath") is not True
+        ):
+            raise HarnessError(
+                "Vocello process identity changed during the single observation: "
+                f"expected PID {report.get('appPID')}, found {records}"
+            )
+    except HarnessError as exc:
+        report["status"] = "failed"
+        report["verificationVerdict"] = "fail"
+        report["updatedAt"] = utc_now()
+        report["failure"] = str(exc)
+        report["computerUseCrashDelta"] = new_service_crash_reports(
+            report.get("computerUseCrashReportsAtStart") or []
+        )
+        write_json(WARM_DIAGNOSTIC, report)
+        raise
+
+    report["status"] = "verified"
+    report["verificationVerdict"] = "pass"
+    report["updatedAt"] = utc_now()
+    report["observationsConsumed"] = 1
+    report["computerUseCrashDelta"] = []
+    write_json(WARM_DIAGNOSTIC, report)
+    print(json.dumps({
+        "diagnosticID": report["diagnosticID"],
+        "status": "verified",
+        "diagnosticOnly": True,
+        "attestable": False,
+        "observationBudget": 1,
+        "observationsConsumed": 1,
+        "next": "Target Finder in Computer Use, then run warm-diagnostic --phase abort to close Vocello.",
+    }, indent=2))
+
+
+def abort_warm_diagnostic() -> None:
+    report = read_json(WARM_DIAGNOSTIC)
+    prior_status = report.get("status")
+    verification_verdict = report.get("verificationVerdict")
+    if verification_verdict is None:
+        verification_verdict = (
+            "pass"
+            if prior_status in {"verified", "aborted"} and report.get("observationsConsumed") == 1
+            else "fail" if prior_status in {"failed", "blocked"} else "pending"
+        )
+    cleanup_errors: list[str] = []
+    expected_pid = report.get("appPID")
+    records = app_process_records()
+    for record in records:
+        if not record.get("exactPath") or record.get("pid") != expected_pid:
+            cleanup_errors.append(
+                "refusing diagnostic cleanup because Vocello process identity changed: "
+                f"expected PID {expected_pid}, found {records}"
+            )
+            break
+    if records and not cleanup_errors:
+        try:
+            os.kill(int(expected_pid), signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        deadline = time.monotonic() + 5
+        while process_ids(APP_PROCESS) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        if process_ids(APP_PROCESS):
+            cleanup_errors.append("exact-path Vocello did not terminate during diagnostic cleanup")
+    terminate_process(SERVICE_PROCESS)
+
+    crash_delta = new_service_crash_reports(report.get("computerUseCrashReportsAtStart") or [])
+    report["computerUseCrashDelta"] = crash_delta
+    try:
+        final_routing = require_computer_use_session(report, diagnostic=True)
+        report["computerUseServiceAtCleanup"] = computer_use_service_identity(final_routing)
+        require_same_computer_use_service(report.get("computerUseService") or {}, final_routing)
+    except HarnessError as exc:
+        cleanup_errors.append(str(exc))
+
+    report["priorStatus"] = prior_status
+    report["verificationVerdict"] = verification_verdict
+    report["cleanupVerdict"] = "fail" if cleanup_errors else "pass"
+    report["cleanupErrors"] = cleanup_errors
+    report["status"] = (
+        "cleaned"
+        if verification_verdict == "pass" and not cleanup_errors
+        else "failed"
+    )
+    report["completedAt"] = utc_now()
+    report["updatedAt"] = utc_now()
+    write_json(WARM_DIAGNOSTIC, report)
+    print(json.dumps({
+        "diagnosticID": report.get("diagnosticID"),
+        "status": report["status"],
+        "diagnosticOnly": True,
+        "attestable": False,
+        "verificationVerdict": report["verificationVerdict"],
+        "cleanupVerdict": report["cleanupVerdict"],
+        "computerUseCrashDelta": crash_delta,
+        "errors": cleanup_errors,
+    }, indent=2))
+    if cleanup_errors:
+        raise HarnessError("warm diagnostic cleanup found blocking problems")
+
+
+def cmd_warm_diagnostic(args: argparse.Namespace) -> None:
+    if args.phase == "prepare":
+        prepare_warm_diagnostic(args)
+    elif args.phase == "record-observation":
+        record_warm_diagnostic_observation(args)
+    elif args.phase == "verify":
+        verify_warm_diagnostic()
+    else:
+        abort_warm_diagnostic()
 
 
 def cmd_benchmark_manifest(_: argparse.Namespace) -> None:
@@ -637,6 +1276,8 @@ def cmd_benchmark_manifest(_: argparse.Namespace) -> None:
 
 def cmd_benchmark_take(args: argparse.Namespace) -> None:
     directory, report = load_run(args.run)
+    routing = require_computer_use_session(report)
+    require_same_computer_use_service(report_computer_use_service_identity(report), routing)
     if report.get("suite") != "benchmark":
         raise HarnessError("benchmark-take requires a benchmark run")
     manifest = benchmark_manifest()
@@ -659,9 +1300,18 @@ def cmd_benchmark_take(args: argparse.Namespace) -> None:
             terminate_process(SERVICE_PROCESS)
             set_debug_flag()
             report["appPID"] = launch_exact_app(
-                report["runID"], report_support_root(report), force_cold=True
+                report["runID"],
+                report_support_root(report),
+                force_cold=True,
+                initial_sidebar_item="custom",
+                crash_baseline=report.get("computerUseCrashReportsAtStart") or [],
             )
-        elif len(process_ids(APP_PROCESS)) != 1:
+            post_launch_routing = require_computer_use_session(report)
+            require_same_computer_use_service(
+                report_computer_use_service_identity(report),
+                post_launch_routing,
+            )
+        elif not exact_single_app_running():
             raise HarnessError("warm benchmark take requires the existing exact-path app process")
         cell = f"{take['mode']}/{take['length']}/{take['warmState']}#{take['repetition']}"
         write_json(BENCH_TAKE_FILE, {
@@ -723,6 +1373,7 @@ def cmd_now(_: argparse.Namespace) -> None:
 
 def cmd_checkpoint(args: argparse.Namespace) -> None:
     directory, report = load_run(args.run)
+    require_computer_use_session(report)
     entry = {
         "status": args.status,
         "message": args.message,
@@ -796,6 +1447,7 @@ def wav_metadata(path: Path) -> dict:
 
 def cmd_verify_history(args: argparse.Namespace) -> None:
     directory, report = load_run(args.run)
+    require_computer_use_session(report)
     row = latest_history(report_db(report), parse_since(args.since), args.mode, args.text)
     if row is None:
         raise HarnessError("no matching history row after --since")
@@ -807,6 +1459,7 @@ def cmd_verify_history(args: argparse.Namespace) -> None:
 
 def cmd_verify_generation(args: argparse.Namespace) -> None:
     directory, report = load_run(args.run)
+    require_computer_use_session(report)
     since = parse_since(args.since)
     deadline = time.monotonic() + args.timeout
     row = None
@@ -958,6 +1611,7 @@ def validate_probe_rows(engine_rows: list[dict], transport_rows: list[dict]) -> 
 
 def cmd_verify_probes(args: argparse.Namespace) -> None:
     directory, report = load_run(args.run)
+    require_computer_use_session(report)
     deadline = time.monotonic() + args.timeout
     while True:
         engine_rows = run_rows(report, "engine")
@@ -993,6 +1647,7 @@ def cmd_xpc_status(_: argparse.Namespace) -> None:
 
 
 def cmd_xpc_kill(_: argparse.Namespace) -> None:
+    require_computer_use_session()
     pids = process_ids(SERVICE_PROCESS)
     if not pids:
         raise HarnessError("engine service is not running")
@@ -1042,9 +1697,14 @@ def cmd_finish(args: argparse.Namespace) -> None:
     severe = counts["blocker"] + counts["major"]
     scenarios = read_json(SCENARIOS).get("suites", {}).get(report.get("suite"), {}).get("includes", [])
     scenarios_ok = all((report.get("scenarios", {}).get(scenario) or {}).get("status") == "pass" for scenario in scenarios)
+    crash_delta = new_service_crash_reports(report.get("computerUseCrashReportsAtStart") or [])
+    final_routing = routing_status()
+    report["computerUseCrashDelta"] = crash_delta
+    report["computerUseFinalRouting"] = final_routing
+    computer_use_ok = not crash_delta and routing_ready(final_routing)
     requested = args.status
     final = requested
-    if requested == "pass" and (severe or report.get("probeVerdict") != "pass" or not cleanup_ok or not scenarios_ok):
+    if requested == "pass" and (severe or report.get("probeVerdict") != "pass" or not cleanup_ok or not scenarios_ok or not computer_use_ok):
         final = "fail"
     completed = utc_now()
     report["status"] = final
@@ -1082,6 +1742,11 @@ def validate_report(report: dict, *, required_suite: str | None = None, current_
         errors.append("probe verdict is not pass")
     if report.get("cleanupVerdict") != "pass":
         errors.append("cleanup verdict is not pass")
+    if report.get("computerUseCrashDelta"):
+        errors.append("Computer Use service crashed during the run")
+    final_routing = report.get("computerUseFinalRouting") or {}
+    if final_routing and not routing_ready(final_routing):
+        errors.append("Computer Use routing was not healthy when the run finished")
     counts = issue_counts(report)
     if counts["blocker"] or counts["major"]:
         errors.append("report contains blocker or major issues")
@@ -1316,6 +1981,47 @@ def cmd_impact(args: argparse.Namespace) -> None:
             raise HarnessError("Computer Use attestation required: " + "; ".join(errors))
 
 
+def cmd_release_check(args: argparse.Namespace) -> None:
+    attestation = read_json(ATTESTATION)
+    errors = validate_attestation(
+        attestation,
+        ["full", "benchmark"],
+        ["telemetry-overhead"],
+        ci=args.ci,
+    )
+    result = {
+        "schemaVersion": 1,
+        "status": "pass" if not errors else "fail",
+        "requiredSuites": ["full", "benchmark"],
+        "requiredRuntimeChecks": ["telemetry-overhead"],
+        "review": "pass" if not errors and (attestation.get("entries") or {}).get("full") else "fail",
+        "benchUI": "pass" if not errors and (attestation.get("entries") or {}).get("benchmark") else "fail",
+        "errors": errors,
+    }
+    print(json.dumps(result, indent=2))
+    if errors:
+        raise HarnessError("release frontend readiness failed: " + "; ".join(errors))
+
+
+def cmd_model_readiness_check(args: argparse.Namespace) -> None:
+    """Require current full UI evidence before any non-UI generation lane."""
+    attestation = read_json(ATTESTATION)
+    errors = validate_attestation(attestation, ["full"], [], ci=args.ci)
+    result = {
+        "schemaVersion": 1,
+        "status": "pass" if not errors else "fail",
+        "requiredSuite": "full",
+        "requiredScenario": "model-readiness",
+        "evidencePolicy": "visible-computer-use-settings",
+        "errors": errors,
+    }
+    print(json.dumps(result, indent=2))
+    if errors:
+        raise HarnessError(
+            "visible model readiness is required before generation: " + "; ".join(errors)
+        )
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser()
     sub = root.add_subparsers(dest="command", required=True)
@@ -1325,10 +2031,27 @@ def parser() -> argparse.ArgumentParser:
     doctor.add_argument("--json", action="store_true")
     doctor.set_defaults(func=cmd_doctor)
 
+    routing = sub.add_parser("routing-audit")
+    routing.set_defaults(func=cmd_routing_audit)
+
     start = sub.add_parser("start")
     start.add_argument("--suite", choices=("quick", "full", "benchmark", "destructive"), required=True)
     start.add_argument("--allow-destructive", action="store_true")
     start.set_defaults(func=cmd_start)
+
+    diagnostic = sub.add_parser("warm-diagnostic")
+    diagnostic.add_argument(
+        "--phase",
+        choices=("prepare", "record-observation", "verify", "abort"),
+        required=True,
+    )
+    diagnostic.add_argument("--initial-screen", choices=INITIAL_SIDEBAR_ITEMS, default="history")
+    diagnostic.add_argument("--acknowledge-known-bad-helper", action="store_true")
+    diagnostic.add_argument("--app-path", default=str(APP))
+    diagnostic.add_argument("--accessibility-length", type=int, default=0)
+    diagnostic.add_argument("--window-count", type=int, default=0)
+    diagnostic.add_argument("--screenshot-url")
+    diagnostic.set_defaults(func=cmd_warm_diagnostic)
 
     now = sub.add_parser("now")
     now.set_defaults(func=cmd_now)
@@ -1414,6 +2137,14 @@ def parser() -> argparse.ArgumentParser:
     impact.add_argument("--check", action="store_true")
     impact.add_argument("--ci", action="store_true", help="skip local signed executable hash comparison")
     impact.set_defaults(func=cmd_impact)
+
+    release_check = sub.add_parser("release-check")
+    release_check.add_argument("--ci", action="store_true")
+    release_check.set_defaults(func=cmd_release_check)
+
+    model_readiness = sub.add_parser("model-readiness-check")
+    model_readiness.add_argument("--ci", action="store_true")
+    model_readiness.set_defaults(func=cmd_model_readiness_check)
     return root
 
 

@@ -1,6 +1,6 @@
 ---
 name: vocello-macos-ui-qa
-description: Run blocking macOS frontend acceptance for Vocello through Codex Computer Use, with deterministic history, WAV, XPC transport, backend telemetry, report, and attestation checks. Use for macOS UI journeys, semantic visual/accessibility review, XPC UI recovery, UI-driven generation benchmarks, release UI acceptance, or whenever scripts/macos_agent_ui.sh impact requires quick, full, or benchmark evidence.
+description: Run explicit macOS frontend or release acceptance for Vocello through Codex Computer Use, with deterministic history, WAV, XPC transport, backend telemetry, report, and attestation checks. Use when the user requests macOS UI journeys, semantic visual/accessibility review, XPC UI recovery, UI-driven generation benchmarks, or macOS release acceptance. Impact output is advisory during ordinary development and does not trigger this skill by itself.
 ---
 
 # Vocello macOS UI QA
@@ -8,7 +8,41 @@ description: Run blocking macOS frontend acceptance for Vocello through Codex Co
 Drive the frontend only through the installed `computer-use` skill. Use
 `scripts/macos_agent_ui.sh` for lifecycle and truth below the UI.
 
+## Active helper block
+
+Do not invoke `quick`, `full`, `benchmark`, or `destructive` with Computer Use helper
+`26.708.1000366 (1000366)`, UUID `61C0…9236`. Four controlled Vocello captures produced the same
+accessibility bounds trap. A passing doctor, live service, or Finder capture does not clear this
+normal-suite block. Read
+[`docs/reference/computer-use-failure-analysis.md`](../../../docs/reference/computer-use-failure-analysis.md)
+and the [upstream differential](https://github.com/openai/codex/issues/32293#issuecomment-4940886542).
+
+That helper may be used only for one explicitly requested diagnostic observation:
+
+1. Confirm the plugin is installed and enabled, then start a fresh task and require its Computer
+   Use server and skill to be available.
+2. Record the helper version/UUID/hash, sole supported runtime process, and crash-report baseline.
+3. Capture Finder once.
+4. Run `scripts/macos_agent_ui.sh warm-diagnostic --phase prepare --initial-screen history
+   --acknowledge-known-bad-helper`. It refuses a pre-existing app and launches only the exact path.
+5. Require one stable window, then observe the exact path once.
+6. While the returned screenshot file still exists, record only its hash/size and the non-sensitive
+   AX/window counts with `warm-diagnostic --phase record-observation`; never store the AX text or
+   temporary screenshot path.
+7. Run `scripts/macos_agent_ui.sh warm-diagnostic --phase verify` once. Stop after the response or
+   native-pipe closure. Do not retry, interact, relaunch, call a display name or bundle ID, start a
+   harness run, generate, or attest.
+8. Target Finder, then run `scripts/macos_agent_ui.sh warm-diagnostic --phase abort`. Require
+   separate passing `verificationVerdict` and `cleanupVerdict`; cleanup never erases a failure.
+
+Normal suites remain blocked until the failure analysis' complete resumption protocol passes and
+that document is updated. The remaining sections describe the normal workflow after unblocking.
+
 ## Select the suite
+
+Do not invoke this skill merely to commit, push, open a pull request, or satisfy ordinary CI.
+During development, `impact` reports later frontend scope only. Use the selected suites when
+frontend acceptance is explicitly requested or before a macOS release.
 
 - Use `quick` for ordinary macOS view, copy, or layout changes.
 - Use `full` for generation coordination, playback, persistence, XPC,
@@ -35,13 +69,71 @@ Read both `requiredSuites` and `requiredRuntimeChecks`. Requirements are sets:
 ## Start safely
 
 1. Read `config/macos-ui-scenarios.json` completely.
-2. Run `scripts/build.sh build` if `build/Vocello.app` is stale or absent.
-3. Run `scripts/macos_agent_ui.sh doctor --suite <suite> --json`.
-4. Run `scripts/macos_agent_ui.sh start --suite <suite>` and retain its
-   `runID`, `runDirectory`, and exact `appPath`.
-5. Use the exact absolute `build/Vocello.app` path for every Computer Use call.
-   Never target `Vocello` by name or `com.qwenvoice.app` by bundle ID; multiple
-   registered builds may share those values.
+2. Verify the bundled plugin is installed and enabled and start a new Codex task. Confirm the task
+   exposes both its Computer Use server and skill. These states are separate from a live helper
+   process. Then read the installed OpenAI `computer-use` skill completely and derive the plugin
+   root from that skill's current absolute path; never hardcode a cache version.
+3. In the installed Node REPL, load the plugin-owned `scripts/computer-use-client.mjs` wrapper as
+   instructed by the installed skill. Confirm the expected `sky` API, then call
+   `sky.list_apps()`.
+   When the plugin manifest declares `bundledContentVariant=node-repl`, the enabled Node REPL is
+   the active server and a disabled manifest-shaped Computer Use entry is an inert plugin mirror.
+   Never enable that mirror; the routing audit treats it as a conflicting second transport.
+   The plugin-cache app is the installed source. For ChatGPT Desktop `26.707.41301`, the observed
+   desktop-managed runtime copy is `~/.codex/computer-use/Codex Computer Use.app`. After bootstrap,
+   the routing audit requires the app-bundled source, installed plugin source, and runtime copy to
+   have matching identifiers, versions, signatures, requirements, and executable hashes, and
+   requires the sole live service to use the build-scoped expected path. A live plugin-cache helper
+   is a session-fatal fallback route, but is not by itself declared the native crash's root cause.
+   macOS may show a separate **bypass the system private window picker** consent even when
+   **Privacy & Security > Screen & System Audio Recording > Codex Computer Use** is already on.
+   Treat each newly launched Computer Use helper as an attended authorization checkpoint:
+   ask the user to click **Allow/Autoriser**, then retry from one fresh Node REPL session. Do not
+   toggle the persistent Screen Recording permission, repeatedly restart the helper, or loop on
+   `get_app_state` while the consent is outstanding. If the same consent immediately recurs after
+   approval, stop the suite as a plugin/macOS capability failure and record the service version;
+   repeated retries only reproduce the prompt.
+4. Run `scripts/build.sh build` if `build/Vocello.app` is stale or absent.
+5. Run `scripts/macos_agent_ui.sh routing-audit`, then
+   `scripts/macos_agent_ui.sh doctor --suite <suite> --json`. Continue only when the audit passes
+   and `repositoryReady`, `appReady`, `appRegistrationReady`, `computerUseServiceRunning`,
+   `computerUseServicePathVerified`, and `readyForSession` are true.
+   `vocelloLaunchServicesRegistrations` must include the exact `build/Vocello.app`. Duplicate
+   registrations remain diagnostic because Computer Use retains them even after physical isolation;
+   never select by display name or bundle identifier. Duplicate or wrong-path *running processes*
+   remain session-fatal. Never unregister or delete an installed app or build product automatically.
+6. Call `sky.get_app_state({ app: "Finder" })` to move any active capture away from Vocello, then
+   run `scripts/macos_agent_ui.sh start --suite <suite>`. Retain its `runID`, `runDirectory`, and
+   exact `appPath`.
+7. Call `sky.get_app_state()` with the exact absolute app path and require non-empty accessibility
+   text plus a screenshot URL. Record this live observation in the run's first scenario. If the
+   bundled service closes its native pipe, stop the suite, record every running `Vocello`
+   executable path, and clean up. Do not retry by display name or bundle identifier: Launch
+   Services may resolve either selector to another registered build and open a second app instance.
+8. Use the exact absolute `build/Vocello.app` path for every later Computer Use call. Before each
+   scenario and after every cold relaunch, require exactly one running `Vocello` process and require
+   its executable to be `build/Vocello.app/Contents/MacOS/Vocello`.
+
+Every checkpoint and deterministic verification rechecks the desktop-managed helper and the run's
+`SkyComputerUseService` crash-report delta. Stop after either failure; do not relaunch Vocello or
+retry through another selector.
+
+Before any harness action that terminates or cold-relaunches Vocello, first call
+`sky.get_app_state({ app: "Finder" })`. This moves Computer Use's active capture away from the
+Vocello window so window teardown does not invalidate the native pipe. Apply the same rule before
+`start`, cleanup, and each cold `benchmark-take --phase begin`. After relaunch, verify the sole
+exact-path process before targeting Vocello again.
+
+Stop before scenario execution if bootstrap, application discovery, accessibility text, screenshot
+capture, exact-path identity, or service-path verification fails. A doctor result based only on
+repository contracts is never sufficient.
+
+Before the first generation, open Settings and complete the required `model-readiness` scenario.
+Custom, Design, and Clone Speed must visibly report installed/ready, Generate must be enabled, and
+a saved clone voice must be visible. `scripts/macos_test.sh models ensure` is repair/bootstrap only;
+normal suites never download or silently repair models. A prior take, filesystem inventory, or
+headless check cannot replace the visible observation. If readiness fails, stop the run, repair
+outside it, then begin a fresh run and inspect the visible states again before generating.
 
 If the run is interrupted, call `scripts/macos_agent_ui.sh cleanup` before any
 new start.
@@ -57,7 +149,7 @@ the action-time Computer Use confirmations.
 
 For every logical action:
 
-1. Call `get_app_state` for the exact app path.
+1. Call `get_app_state` using the exact app selector established during bootstrap.
 2. Find the target by current accessibility identifier and derive a fresh
    `element_index`.
 3. Perform one logical action.
@@ -159,7 +251,7 @@ is accepted. CI intentionally does not compare its ad-hoc-signed executable
 hash with the locally signed executable.
 
 When `requiredRuntimeChecks` contains `telemetry-overhead`, run this after the
-final tracked edit and before the UI attestations:
+current full UI attestation and before final release readiness:
 
 ```sh
 scripts/macos_test.sh telemetry-overhead
@@ -168,4 +260,6 @@ scripts/macos_test.sh telemetry-overhead
 It runs one warm-up plus five seeded Custom/Speed/medium warm takes in off,
 lightweight, and verbose modes. PCM must match exactly; median RTF and TTFC
 regressions are capped at 5% and 10%. The compact verdict is merged into the
-schema-v2 attestation without replacing valid suite entries.
+schema-v2 attestation without replacing valid suite entries. The command refuses
+to generate unless the current full attestation already proves the visible
+`model-readiness` scenario and performs only a read-only model integrity check.

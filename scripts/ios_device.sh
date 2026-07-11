@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # On-device iPhone build/test driver for Vocello — CoreDevice via `devicectl`.
-# iPhone Mirroring is used for observation and to keep a locked device reachable to
-# CoreDevice; `ui-test` additionally requires the phone unlocked once for the XCUITest
-# automation auth handshake (bench/launch work with a locked phone).
+# iOS frontend automation is driven by bundled Computer Use through iPhone Mirroring.
+# Repository scripts own build, launch, telemetry, crash, report, and attestation proof.
 #
 # Pairs with IOSAutorunHarness (Sources/iOS/IOSAutorunHarness.swift): `bench`
 # launches the app with QVOICE_IOS_AUTORUN set, the in-app harness runs one
@@ -22,47 +21,24 @@
 #   scripts/ios_device.sh install                 # install the built app
 #   scripts/ios_device.sh launch [spec]           # launch (with autorun if spec given)
 #   scripts/ios_device.sh console [spec]          # attached launch, stream [autorun] stdout live
-#   scripts/ios_device.sh mirror                  # start iPhone Mirroring + confirm device reachable
-#   scripts/ios_device.sh shot [out.png]          # capture the iPhone Mirroring window (device screen) → PNG
 #   scripts/ios_device.sh pull [dest]             # pull the app-container diagnostics mirror
 #   scripts/ios_device.sh bench [spec] [--label "note"]
 #   scripts/ios_device.sh lang-bench [--subset quick|full] [--label "note"]
 #                                                 # headless language-hint matrix (autorun)
-#   scripts/ios_device.sh bench-ui [--modes m,..] [--lengths l,..] [--warm N] [--label "note"] [--profile]
-#                                                 # full-matrix UI-DRIVEN bench (XCUITest)
-#   scripts/ios_device.sh measure-prep [--run-id ID] [--force-cold 0|1]
-#                                                 # launch Vocello for agent smokes (debug env + run id)
-#   scripts/ios_device.sh measure-now             # UTC timestamp — capture before tapping Generate
-#   scripts/ios_device.sh measure-wait --run-id ID --since TS [--timeout N]
-#                                                 # poll pulled telemetry for one generation
-#   scripts/ios_device.sh measure-verify --run-id ID --since TS [--artifacts-dir DIR] [--timeout N]
-#                                                 # wait + pull + write result.json (agent smokes)
-#   scripts/ios_device.sh vision-launch --run-id ID [--force-cold 0|1]  # alias of measure-prep internals
-#   scripts/ios_device.sh vision-now              # alias of measure-now
-#   scripts/ios_device.sh vision-bench-wait --run-id ID --since TS [--timeout N]  # alias of measure-wait
-#   scripts/ios_device.sh bench-ui-mirroir …      # DEPRECATED — use bench-ui (XCUITest matrix)
-#   scripts/ios_device.sh bench-ui-mcp --agent-drive …  # deferred (WDA signing)
-#   scripts/ios_device.sh bench-ui-vision --agent-drive …  # DEPRECATED Peekaboo mirror coords
-#   scripts/ios_device.sh ui-test [--all|--cold|--download] [only]
-#                                                 # device-safe UI tests (default: Smoke+Sheet+ColdGeneration; needs all Speed models)
+#   scripts/ios_device.sh bench-ui [--report <run>] # validate Computer Use benchmark evidence
+#   scripts/ios_device.sh ui-test [--suite quick|full] [--report <run>]
+#                                                 # validate Computer Use UI evidence
 #   scripts/ios_device.sh crashes [--test]         # pull + symbolicate on-device crash/hang diagnostics (MetricKit)
 #   scripts/ios_device.sh debug [spec]             # attached launch + LLDB attach guidance (get-task-allow build)
 #   scripts/ios_device.sh logs [spec]              # attached launch teeing stdout → build/ios-logs/<run>.log
 #   scripts/ios_device.sh profile [spec]           # Instruments/xctrace trace of an autorun generation (burn-in-safe)
-#   scripts/ios_device.sh preflight [--cold] [--strict-models]  # readiness (+ optional inventory gate)
-#   scripts/ios_device.sh models check [--strict]  # headless inventory pull (+ strict gate)
-#   scripts/ios_device.sh test [--all|--cold] [only] # ui-test + single verdict + build/ios/uitest-artifacts/
-#   scripts/ios_device.sh review [--baseline]        # on-device UI capture tour + baseline diff (burn-in-aware)
+#   scripts/ios_device.sh preflight [--cold]       # device/build readiness; models are reviewed in Settings
+#   scripts/ios_device.sh test [--report <run>]      # validate quick Computer Use evidence
+#   scripts/ios_device.sh review [--report <run>]    # validate full Computer Use semantic review
 #   scripts/ios_device.sh device-state [--json|--json-v2] [watch [--interval N] [--count N]]
-#                                                 # interference probe: phone-in-use / call / mirror state
-#   scripts/ios_device.sh uitest-doctor [--enable-gate1]  # Mac Gate 1 + iPhone unlock advisory
+#                                                 # reachability and Computer Use mirror readiness
 #   scripts/ios_device.sh gate                 # pre-merge gate: preflight → test → generation → crashes → verdict
 #                                              # (generation needs Speed on device; QVOICE_GATE_SKIP_GENERATION=1 to skip)
-#
-# Observation: every device command auto-starts macOS iPhone Mirroring (watch on the Mac;
-# the phone stays locked + screen-dark, OLED-safe; mirroring also keeps a LOCKED device
-# reachable to devicectl). Opt out with QVOICE_IOS_NO_MIRROR=1. Lock the phone once per
-# session (Apple has no Mac-side lock CLI) or rely on Auto-Lock.
 #
 # Autorun spec: <mode>:<variant>:<text> (default custom:speed:<built-in sentence>).
 #   mode ∈ custom|design|clone, variant ∈ speed|quality (iPhone is speed-only).
@@ -74,7 +50,6 @@
 #                                (otherwise automatic, with auto-fallback to manual)
 #   QVOICE_IOS_DEVICE_ID         (optional) devicectl device id/name/udid; else auto
 #   QVOICE_IOS_BENCH_TIMEOUT     (optional) bench sentinel timeout seconds (default 300)
-#   QVOICE_IOS_NO_MIRROR         (optional) set to 1 to skip auto-starting iPhone Mirroring
 
 set -euo pipefail
 
@@ -85,8 +60,7 @@ SCHEME="VocelloiOS"
 CONFIG="Release"
 BUNDLE_ID="com.patricedery.vocello"
 APP_GROUP="group.com.patricedery.vocello.shared"
-# Single shared iOS DerivedData tree: device (iphoneos) + simulator (build-for-testing)
-# builds coexist here with one SourcePackages, so iOS build trees don't multiply.
+# Single shared physical-device iOS DerivedData tree.
 # Swept/reclaimed by scripts/clean_build_caches.sh (--aggressive) + build.sh's prune.
 DERIVED="$ROOT_DIR/build/ios"
 APP_PATH="$DERIVED/Build/Products/Release-iphoneos/Vocello.app"
@@ -95,153 +69,16 @@ PROFILES_DIR="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
 
 # Reuse the shared storage-bloat advisory (warn-only; never deletes).
 . "$ROOT_DIR/scripts/lib/build_cache.sh"
-. "$ROOT_DIR/scripts/lib/xcresult_shots.sh"
 . "$ROOT_DIR/scripts/lib/ios_device_state.sh"
-. "$ROOT_DIR/scripts/lib/ios_test_models.sh"
-. "$ROOT_DIR/scripts/lib/ios_agent_bench_drive.sh"
 
 note() { printf '\033[0;36m==>\033[0m %s\n' "$*" >&2; }
 warn() { printf '\033[0;33m[warn]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[0;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
 
-MIRROR_APP="iPhone Mirroring"   # bundle com.apple.ScreenContinuity; display name via mirror_app_display_name
-
-_coredevice_reachable() {
-  python3 "$ROOT_DIR/scripts/lib/ios_coredevice_probe.py" reachable ${1:+--device "$1"} >/dev/null 2>&1
-}
-
-# Auto-start macOS iPhone Mirroring for OBSERVATION before on-device work: the phone stays
-# locked + screen-dark (OLED-safe) and you watch live on the Mac. KEY: iPhone Mirroring
-# sustains the CoreDevice tunnel, so a LOCKED device stays `devicectl`-reachable (a
-# locked phone WITHOUT mirroring drops to "unavailable"). Idempotent + fast when already up.
-# Opt out with QVOICE_IOS_NO_MIRROR=1. (Locking the phone itself is an Apple security
-# boundary — no Mac-side CLI does it — so lock once per session, it then stays locked while
-# mirroring, or rely on the phone's Auto-Lock; iPhone Mirroring reconnects on auto-lock.)
-# Nudge a paused Mirroring session ("Connection paused / Reprendre / Resume").
-# The overlay is macOS chrome; activate + Return presses the default Resume button.
-_nudge_mirror_resume() {
-  local state; state="$(probe_device_state 2>/dev/null || true)"
-  [[ "${state%%|*}" == "MIRROR_CONNECTING" ]] || return 0
-  local app_name; app_name="$(mirror_app_display_name)"
-  note "mirroring session paused — nudging Resume (Reprendre)…"
-  osascript -e "tell application \"$app_name\" to activate" \
-            -e 'delay 0.5' \
-            -e 'tell application "System Events" to keystroke return' >/dev/null 2>&1 || true
-  sleep 2
-}
-
-ensure_mirror() {
-  [[ "${QVOICE_IOS_NO_MIRROR:-}" == "1" ]] && return 0
-  local max_wait="${1:-30}"
-  local app_name; app_name="$(mirror_app_display_name)"
-  if mirror_process_running 2>/dev/null && _coredevice_reachable; then
-    _nudge_mirror_resume
-    local post; post="$(probe_device_state 2>/dev/null || true)"
-    [[ "${post%%|*}" != "MIRROR_CONNECTING" ]] && return 0
-    note "device reachable but mirroring still paused — waiting for Resume to take effect…"
-  fi
-  note "starting iPhone Mirroring (observation; keeps a locked device reachable, OLED-safe)…"
-  open -a "$app_name" >/dev/null 2>&1 || open -a "$MIRROR_APP" >/dev/null 2>&1 \
-    || warn "could not launch iPhone Mirroring ($app_name)"
-  local waited=0
-  local sleep_s=3
-  local nudged=0
-  while (( waited < max_wait )); do
-    if _coredevice_reachable; then
-      _nudge_mirror_resume
-      local post; post="$(probe_device_state 2>/dev/null || true)"
-      [[ "${post%%|*}" != "MIRROR_CONNECTING" ]] || continue
-      note "iPhone Mirroring up; device reachable."
-      return 0
-    fi
-    # A paused session ("Connection paused / Resume") never reconnects on its
-    # own — nudge it once. The pause overlay is macOS chrome (not mirrored iOS
-    # content) and Resume is its default button, so activate + Return presses
-    # it without any coordinate driving.
-    if (( nudged == 0 )); then
-      local state; state="$(probe_device_state 2>/dev/null || true)"
-      if [[ "${state%%|*}" == "MIRROR_CONNECTING" ]]; then
-        _nudge_mirror_resume
-        nudged=1
-      fi
-    fi
-    sleep "$sleep_s"; waited=$((waited + sleep_s))
-    if (( sleep_s < 6 )); then sleep_s=$((sleep_s + 1)); fi
-  done
-  warn "device not reachable yet — LOCK your iPhone (or wait for Auto-Lock) so iPhone Mirroring connects, then re-run."
-  warn "$(probe_device_state 2>/dev/null || true)"
-}
-
-# Strict preflight for XCUITest: mirroring + devicectl availability + unlock guidance.
-ensure_device_ready() {
-  [[ "${QVOICE_IOS_NO_MIRROR:-}" == "1" ]] || ensure_mirror 60
-  local dev
-  dev="$(resolve_device)" || die "could not resolve a target device"
-  local tmp; tmp="$(mktemp)"
-  if ! xcrun devicectl list devices --json-output "$tmp" >/dev/null 2>&1; then
-    rm -f "$tmp"
-    die "devicectl could not list devices — connect USB, trust this Mac, enable Developer Mode, and confirm iPhone Mirroring is connected"
-  fi
-  if ! python3 - "$tmp" "$dev" <<'PY'
-import json, sys
-data = json.load(open(sys.argv[1]))
-target = sys.argv[2]
-devs = (data.get("result") or {}).get("devices") or []
-match = next((d for d in devs if d.get("identifier") == target), None)
-if not match:
-    sys.exit(2)
-cp = match.get("connectionProperties") or {}
-tunnel = cp.get("tunnelState", "")
-pairing = cp.get("pairingState", "")
-if tunnel not in ("connected", "available") and pairing != "paired":
-    sys.exit(3)
-PY
-  then
-    local code=$?
-    rm -f "$tmp"
-    [[ $code -eq 2 ]] && die "target device $dev not found in devicectl list"
-    [[ $code -eq 3 ]] && die "device $dev is not reachable — unlock iPhone once, confirm USB trust + iPhone Mirroring, then re-run ui-test"
-    die "device readiness check failed (exit $code)"
-  fi
-  rm -f "$tmp"
-
-  # Interference probe. CALL_ACTIVE is always fatal (a call dooms any lane).
-  # PHONE_IN_USE only warns here: the XCUITest auth handshake legitimately
-  # NEEDS the phone unlocked once, so "in use" right before ui-test may be the
-  # operator doing exactly that.
-  local state verdict
-  state="$(probe_device_state "$dev" 2>/dev/null || true)"
-  verdict="${state%%|*}"
-  case "$verdict" in
-    CALL_ACTIVE|PROBE_DEGRADED|MIRROR_DISCONNECTED|DEVICE_UNREACHABLE)
-      die "device-state $verdict (${state#*|}) — $(device_state_advice "$verdict")"
-      ;;
-    PHONE_IN_USE)
-      warn "iPhone is currently in use (${state#*|}) — fine if that's you doing the unlock handshake; otherwise lock the phone or the run will fail"
-      ;;
-  esac
-
-  local auto_json ready
-  auto_json="$(python3 "$ROOT_DIR/scripts/lib/ios_coredevice_probe.py" automation \
-    --device "$dev" --verdict "$verdict" --lane xcuitest 2>/dev/null || echo '{}')"
-  ready="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("readyForXCUITest", True))' <<<"$auto_json")"
-  if [[ "$ready" == "False" ]]; then
-    local blockers
-    blockers="$(python3 -c 'import json,sys; print(", ".join(json.load(sys.stdin).get("blockers",[])))' <<<"$auto_json")"
-    warn "automation not fully ready ($blockers) — unlock iPhone once before XCUITest attach if device_locked is listed"
-  fi
-
-  note "XCUITest preflight OK on $dev — unlock the iPhone once before tests start (automation auth handshake). bench/launch work with a locked phone."
-}
-
-# mirror: start/foreground iPhone Mirroring + confirm the device is reachable (manual use).
-cmd_mirror() { ensure_mirror; }
-
 # device-state [--json|--json-v2] [watch [--interval N] [--count N]]
-# Exit codes: 0 MIRROR_ACTIVE · 10 PHONE_IN_USE · 11 CALL_ACTIVE · 12 MIRROR_CONNECTING ·
-# 13 MIRROR_DISCONNECTED · 14 DEVICE_UNREACHABLE · 15 PROBE_DEGRADED · 16 DEVICE_LOCKED.
+# Exit codes: 0 READY · 10 MIRROR_UNAVAILABLE · 14 DEVICE_UNREACHABLE.
 cmd_device_state() {
-  local as_json=0 json_v2=0 watch=0 interval=2 count=3 lane=xcuitest
+  local as_json=0 json_v2=0 watch=0 interval=2 count=3 lane=computer-use
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --json) as_json=1; shift ;;
@@ -300,43 +137,6 @@ print(json.dumps({
     note "  $(device_state_advice "$verdict")"
   fi
   exit "$(device_state_exit_code "$verdict")"
-}
-
-# shot [out.png]: capture the iPhone Mirroring window (the live device screen) to a PNG, for
-# visual UI review on REAL hardware. devicectl has no screenshot and this Mac has no
-# libimobiledevice, so we screencapture the Mirroring window region.
-# NOT pixel-exact (includes the Mirroring chrome / device bezel at window scale) — it's for judging
-# layout / color / spacing. We CAPTURE only; navigating across screens is done by tapping the phone
-# (coordinate-based mirror-DRIVING stays deprecated). First run may prompt for Screen Recording +
-# Automation permission for the controlling terminal (System Settings → Privacy & Security).
-cmd_shot() {
-  local out="${1:-$ROOT_DIR/build/device-shot.png}"
-  command -v screencapture >/dev/null 2>&1 || die "screencapture not found (macOS only)"
-  mkdir -p "$(dirname "$out")"
-
-  local app_name; app_name="$(mirror_app_display_name)"
-  open -a "$app_name" >/dev/null 2>&1 || open -a "$MIRROR_APP" >/dev/null 2>&1 || true
-  osascript -e "tell application \"$app_name\" to activate" >/dev/null 2>&1 || true
-  sleep 0.6
-
-  local rect window_id
-  rect="$(mirror_window_rect)"
-  if [[ -z "$rect" ]] && window_id="$(mirror_window_id 2>/dev/null || true)" && [[ -n "$window_id" ]]; then
-    note "capturing iPhone Mirroring window id=$window_id → $out"
-    screencapture -x -o -l "$window_id" "$out" \
-      || die "screencapture failed — grant Screen Recording permission to this terminal"
-    [[ -s "$out" ]] || die "screencapture produced an empty file"
-    printf '%s\n' "$out"
-    return 0
-  fi
-
-  [[ -n "$rect" ]] || die "couldn't read the iPhone Mirroring window — open + connect it first ('$0 mirror', showing the device), and grant Automation permission if prompted"
-
-  note "capturing iPhone Mirroring window [$rect] → $out"
-  screencapture -x -R "$rect" "$out" \
-    || die "screencapture failed — grant Screen Recording permission to this terminal (System Settings → Privacy & Security → Screen Recording), then retry"
-  [[ -s "$out" ]] || die "screencapture produced an empty file — check Screen Recording permission"
-  printf '%s\n' "$out"
 }
 
 # ─── Code signing (all values DERIVED AT RUNTIME; never hardcoded/committed) ──────
@@ -640,16 +440,8 @@ wait_autorun_sentinel() {
     state="$(probe_device_state 2>/dev/null || true)"
     verdict="${state%%|*}"
     case "$verdict" in
-      CALL_ACTIVE|MIRROR_DISCONNECTED|DEVICE_UNREACHABLE)
+      MIRROR_UNAVAILABLE|DEVICE_UNREACHABLE)
         die "run doomed at ${waited}s — $verdict: $(device_state_advice "$verdict") (${state#*|})"
-        ;;
-      PHONE_IN_USE)
-        interference_streak=$((interference_streak + 1))
-        interference_state="$state"
-        if (( interference_streak >= 2 )); then
-          die "run doomed at ${waited}s — PHONE_IN_USE for ${interference_streak} consecutive checks: $(device_state_advice PHONE_IN_USE) (${interference_state#*|})"
-        fi
-        warn "iPhone appears in use (${state#*|}) — will abort if it persists"
         ;;
       *)
         interference_streak=0
@@ -799,7 +591,7 @@ PY
 
 cmd_bench() {
   require_team
-  note "bench requires Custom Voice (Speed) on device — install once via Settings → Model Downloads if autorun fails (see: $0 models check)"
+  note "bench requires Custom Voice (Speed) on device — confirm it in Settings → Model Downloads before generation"
   local spec="custom:speed:" label=""
   # parse: first non-flag arg = spec; --label "note"; --sim-device <profile>
   while [[ $# -gt 0 ]]; do
@@ -837,22 +629,13 @@ cmd_bench() {
       break
     fi
     # Interference probe: abort fast instead of polling to the full timeout.
-    # Two consecutive hits (≈20 s) tolerate a brief glance at the phone; a call
-    # or a dead mirror session dooms the run immediately.
+    # Competing UI ownership or a disconnected device dooms the run immediately.
     local state verdict
     state="$(probe_device_state 2>/dev/null || true)"
     verdict="${state%%|*}"
     case "$verdict" in
-      CALL_ACTIVE|MIRROR_DISCONNECTED|DEVICE_UNREACHABLE)
+      MIRROR_UNAVAILABLE|DEVICE_UNREACHABLE)
         die "run doomed at ${waited}s — $verdict: $(device_state_advice "$verdict") (${state#*|})"
-        ;;
-      PHONE_IN_USE)
-        interference_streak=$((interference_streak + 1))
-        interference_state="$state"
-        if (( interference_streak >= 2 )); then
-          die "run doomed at ${waited}s — PHONE_IN_USE for ${interference_streak} consecutive checks: $(device_state_advice PHONE_IN_USE) (${interference_state#*|})"
-        fi
-        warn "iPhone appears in use (${state#*|}) — will abort if it persists"
         ;;
       *)
         interference_streak=0
@@ -897,491 +680,11 @@ PY
   python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("status")=="ok" else 1)' "$sentinel"
 }
 
-# bench-ui [--modes m1,m2] [--lengths l1,l2] [--warm N] [--label "note"]:
-# full-matrix UI-DRIVEN on-device benchmark (VocelloiOSBenchUITests) — the iOS
-# counterpart of `scripts/macos_test.sh bench-ui`. Drives the real Studio UI per
-# take; the engine's durable telemetry rows (stamped notes.benchRunID) are pulled
-# and gated by scripts/check_ios_ui_bench.py against the take count the test
-# reports in its VOCELLO-BENCH-UI-MANIFEST line (clone cells are skipped when no
-# saved voice exists on the device — enroll one on the phone; the mic is NOT
-# available through iPhone Mirroring).
-# Prereqs: all three Speed models installed (custom+design+clone by default).
-cmd_bench_ui() {
-  require_team
-  local modes="custom,design,clone" lengths="short,medium,long" warm=3 label="" profile=0
-  local profile_template="${QVOICE_IOS_PROFILE_TEMPLATE:-Time Profiler}"
-  local skip_doctor=0
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --modes) modes="${2:-}"; shift 2 ;;
-      --modes=*) modes="${1#*=}"; shift ;;
-      --lengths) lengths="${2:-}"; shift 2 ;;
-      --lengths=*) lengths="${1#*=}"; shift ;;
-      --warm) warm="${2:-3}"; shift 2 ;;
-      --warm=*) warm="${1#*=}"; shift ;;
-      --label) label="${2:-}"; shift 2 ;;
-      --label=*) label="${1#*=}"; shift ;;
-      --profile) profile=1; shift ;;
-      --profile-template) profile_template="${2:-Time Profiler}"; shift 2 ;;
-      --profile-template=*) profile_template="${1#*=}"; shift ;;
-      --skip-uitest-doctor) skip_doctor=1; shift ;;
-      -h|--help|help)
-        cat <<'EOF'
-bench-ui — on-device UI benchmark (VocelloiOSBenchUITests)
-
-  scripts/ios_device.sh bench-ui [--modes custom,design,clone] [--lengths short,medium,long]
-      [--warm 3] [--label NOTE] [--profile] [--profile-template "Time Profiler"]
-      [--skip-uitest-doctor]
-
-Dev smoke (3 takes):
-  scripts/ios_device.sh bench-ui --warm 1 --lengths medium --modes custom --label smoke
-EOF
-        return 0
-        ;;
-      *) die "unknown bench-ui flag: $1 (try --help)" ;;
-    esac
-  done
-
-  note "bench-ui step 0: mirror + device-state"
-  ensure_mirror 60
-  guard_device_state || die "device-state not ready for bench-ui (see advice above)"
-
-  if (( skip_doctor == 0 )); then
-    note "bench-ui step 1: uitest doctor"
-    "$ROOT_DIR/scripts/ios_uitest_doctor.sh" || true
-    if _ios_uitest_gate1_open; then
-      die "Mac UI Automation still requires your login password each run — fix Gate 1 once:
-  scripts/enable_unattended_uitest.sh
-(or pass --skip-uitest-doctor if you accept the prompt)"
-    fi
-  fi
-
-  ensure_device_ready
-  local dev; dev="$(resolve_device)"
-  local run_id="ios-bench-ui-$(date +%Y%m%d-%H%M%S)"
-  local out_dir="$ROOT_DIR/build/ios/bench-ui-$run_id"
-  mkdir -p "$out_dir"
-  local log="$out_dir/bench-ui.log"
-
-  note "bench-ui: matrix modes=$modes lengths=$lengths warm=$warm runID=$run_id"
-  _ui_test_build_for_testing "$dev"
-  note "installing host app before XCUITest attach"
-  xcrun devicectl device install app --device "$dev" "$APP_PATH"
-
-  # TEST_RUNNER_-prefixed env reaches the on-device runner process.
-  export TEST_RUNNER_QVOICE_IOS_BENCH_RUN_ID="$run_id"
-  export TEST_RUNNER_QVOICE_IOS_BENCH_MODES="$modes"
-  export TEST_RUNNER_QVOICE_IOS_BENCH_LENGTHS="$lengths"
-  export TEST_RUNNER_QVOICE_IOS_BENCH_WARM="$warm"
-
-  local profile_pid=""
-  if (( profile )); then
-    command -v xctrace >/dev/null 2>&1 \
-      || die "xctrace not found (install Xcode); or run profile lane separately"
-    local profile_duration="${QVOICE_IOS_BENCH_UI_PROFILE_DURATION:-2400}"
-    note "bench-ui: xctrace profile ($profile_template, up to ${profile_duration}s)"
-    xctrace record --device "$dev" --template "$profile_template" \
-      --attach "Vocello" --time-limit "${profile_duration}s" \
-      --output "$out_dir/vocello.trace" \
-      > "$out_dir/profile.log" 2>&1 &
-    profile_pid=$!
-    sleep 2
-  fi
-
-  note "ATTENDED HANDSHAKE: first XCUITest attach today may need the iPhone unlocked nearby (~30s) — approve any automation prompt when it appears."
-
-  set +e
-  local attempt=1 test_status=0
-  while (( attempt <= 2 )); do
-    if (( attempt > 1 )); then
-      if _ui_test_log_needs_transient_retry "$log"; then
-        warn "retrying bench-ui after transient XCUITest flake — ensure Vocello is foreground on the phone, then wait…"
-      elif _ui_test_log_needs_unlock_retry "$log"; then
-        warn "retrying bench-ui after unlock/auth failure — unlock the iPhone, dismiss any automation prompt, then wait…"
-      else
-        warn "retrying bench-ui after test failure — waiting before second attempt…"
-      fi
-      sleep 8
-      : >"$log"
-    fi
-    _run_ui_test_once "$dev" "$log" -only-testing:"VocelloiOSUITests/VocelloiOSBenchUITests/testFullMatrix"
-    test_status=$?
-    if (( test_status == 0 )); then break; fi
-    if (( attempt == 1 )) && { _ui_test_log_needs_unlock_retry "$log" || _ui_test_log_needs_transient_retry "$log"; }; then
-      attempt=$((attempt + 1))
-      continue
-    fi
-    break
-  done
-  set -e
-  unset TEST_RUNNER_QVOICE_IOS_BENCH_RUN_ID TEST_RUNNER_QVOICE_IOS_BENCH_MODES \
-        TEST_RUNNER_QVOICE_IOS_BENCH_LENGTHS TEST_RUNNER_QVOICE_IOS_BENCH_WARM
-
-  if [[ -n "$profile_pid" ]]; then
-    kill "$profile_pid" 2>/dev/null || true
-    wait "$profile_pid" 2>/dev/null || true
-    if [[ -d "$out_dir/vocello.trace" ]]; then
-      note "bench-ui profile trace → $out_dir/vocello.trace"
-      note "analyze: axiom_xcprof_analyze / open in Instruments"
-    else
-      warn "bench-ui: no trace produced (see $out_dir/profile.log)"
-    fi
-  fi
-
-  if (( test_status != 0 )); then
-    warn "bench-ui XCUITest exited $test_status — device state: $(probe_device_state 2>/dev/null || echo unknown)"
-  fi
-
-  # The manifest line is the authoritative take count (accounts for skipped clone).
-  local ran
-  ran="$(grep -oE 'VOCELLO-BENCH-UI-MANIFEST ran=[0-9]+' "$log" | tail -1 | grep -oE '[0-9]+' || true)"
-  [[ -n "$ran" ]] || die "bench-ui: no manifest line in the test log — the matrix never ran (see $log)"
-  note "bench-ui: test reported $ran takes"
-
-  local dest="$ROOT_DIR/build/ios-diagnostics"
-  rm -rf "$dest"
-  cmd_pull "$dest" >/dev/null || die "could not pull diagnostics after bench-ui"
-  local diag="$dest"
-  local engine_jsonl; engine_jsonl="$(find "$dest" -path '*/engine/generations.jsonl' 2>/dev/null | head -1)"
-  [[ -n "$engine_jsonl" ]] && diag="$(dirname "$(dirname "$engine_jsonl")")"
-
-  note "── telemetry summary (engine decode / RTF / audioQC / RAM) ──"
-  python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$diag" \
-    ${label:+--label "$label"} >&2 || warn "summarizer found no engine rows"
-
-  note "── bench-ui gate ──"
-  local gate_status=0
-  python3 "$ROOT_DIR/scripts/check_ios_ui_bench.py" "$diag" \
-    --run-id "$run_id" --expected "$ran" | tee "$out_dir/gate.log" || gate_status=1
-
-  if (( test_status != 0 || gate_status != 0 )); then
-    warn "bench-ui FAIL (xcodebuild=$test_status gate=$gate_status) · $out_dir"
-    return 1
-  fi
-  note "bench-ui PASS · $out_dir"
-}
-
-# vision-now: UTC timestamp for measure-wait --since (capture immediately before Generate).
-cmd_vision_now() {
-  date -u +"%Y-%m-%dT%H:%M:%SZ"
-}
-
-# measure-*: drive-agnostic iOS smoke measurement (mirroir exploratory QA).
-cmd_measure_now() {
-  date -u +"%Y-%m-%dT%H:%M:%SZ"
-}
-
-cmd_measure_prep() {
-  . "$ROOT_DIR/scripts/lib/ios_measure.sh"
-  ios_measure_prep "$@"
-}
-
-cmd_measure_wait() {
-  . "$ROOT_DIR/scripts/lib/ios_measure.sh"
-  ios_measure_wait "$@"
-}
-
-cmd_measure_verify() {
-  . "$ROOT_DIR/scripts/lib/ios_measure.sh"
-  ios_measure_verify "$@"
-}
-
-cmd_measure_artifacts_dir() {
-  . "$ROOT_DIR/scripts/lib/ios_measure.sh"
-  ios_measure_artifacts_dir "$@"
-}
-
-# vision-launch: relaunch Vocello with bench/vision env (no autorun).
-cmd_vision_launch() {
-  require_team
-  local run_id="" force_cold=0
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --run-id) run_id="${2:-}"; shift 2 ;;
-      --run-id=*) run_id="${1#*=}"; shift ;;
-      --force-cold) force_cold="${2:-1}"; shift 2 ;;
-      --force-cold=*) force_cold="${1#*=}"; shift ;;
-      *) die "unknown vision-launch flag: $1" ;;
-    esac
-  done
-  [[ -n "$run_id" ]] || die "vision-launch requires --run-id"
-
-  local dev; dev="$(resolve_device)"
-  note "vision-launch runID=$run_id forceCold=$force_cold"
-  local env_json
-  env_json="$(QV_RUNID="$run_id" QV_FORCE_COLD="$force_cold" python3 -c '
-import json, os
-env = {
-    "QWENVOICE_DEBUG": "1",
-    "QWENVOICE_UI_TEST_HOOKS": "1",
-    "QVOICE_IOS_SKIP_ONBOARDING": "1",
-    "QVOICE_MAC_BENCH_RUN_ID": os.environ["QV_RUNID"],
-    "QWENVOICE_BENCH_FORCE_COLD": "1" if os.environ.get("QV_FORCE_COLD", "0") in ("1", "true", "yes") else "0",
-}
-for k, v in os.environ.items():
-    if (k.startswith("QWENVOICE_") or k.startswith("QVOICE_")) and k not in env:
-        env[k] = v
-print(json.dumps(env))')"
-  xcrun devicectl device process launch --device "$dev" \
-    --terminate-existing -e "$env_json" "$BUNDLE_ID" >&2
-  sleep 2
-}
-
-# vision-bench-wait: delegate to lib helper (agent calls after tapping Generate).
-cmd_vision_bench_wait() {
-  "$ROOT_DIR/scripts/lib/ios_vision_bench_wait.sh" wait "$@"
-}
-
-# bench-ui-mirroir: DEPRECATED — full matrix is XCUITest bench-ui only.
-cmd_bench_ui_mirroir() {
-  die "bench-ui-mirroir is deprecated (2026-07) — use scripts/ios_device.sh bench-ui for the UI matrix. Exploratory smokes: mirroir 1-clip + measure-* (docs/reference/ui-smoke-runbooks.md). Historical: docs/reference/computer-use-mcp-pilot-log.md §Archived agent bench."
-}
-
-# bench-ui-mcp: agent-driven matrix via mobile-mcp + WDA (deferred).
-cmd_bench_ui_mcp() {
-  _ios_agent_bench_ui mcp "$@"
-}
-
-# bench-ui-vision: DEPRECATED Peekaboo mirror-coordinate agent bench.
-cmd_bench_ui_vision() {
-  die "bench-ui-vision is deprecated — use scripts/ios_device.sh bench-ui for the UI matrix. Exploratory smokes: mirroir + measure-* (docs/reference/ui-smoke-runbooks.md)."
-}
-
-UI_TEST_DEFAULT_CLASSES=(
-  "VocelloiOSUITests/VocelloiOSSmokeUITests"
-  "VocelloiOSUITests/VocelloiOSSheetUITests"
-  "VocelloiOSUITests/VocelloiOSColdGenerationUITests"
-)
-UI_TEST_DOWNLOAD_CLASSES=(
-  "VocelloiOSUITests/VocelloiOSOnDeviceDownloadUITests"
-)
-UI_TEST_COLD_CLASSES=(
-  "VocelloiOSUITests/VocelloiOSColdGenerationUITests"
-)
-
-_ui_test_build_for_testing() {
-  local dev="$1"
-  require_team
-  local team; team="$(derive_team)"
-  note "building $SCHEME + VocelloiOSUITests for testing on $dev"
-  mkdir -p "$DERIVED"
-  local log="$DERIVED/device-uitest-build.log"
-  local mode="auto"
-  [[ "${QVOICE_IOS_MANUAL_SIGN:-}" == "1" ]] && mode="manual"
-  build_sign_args "$mode" "$team"
-  set +e
-  xcodebuild build-for-testing \
-    -project "$PROJECT" -scheme "$SCHEME" -configuration "$CONFIG" \
-    -destination "id=$dev" -derivedDataPath "$DERIVED" \
-    "${SIGN_ARGS[@]}" \
-    SWIFT_OPTIMIZATION_LEVEL=-Onone \
-    2>&1 | tee "$log"
-  local st=${PIPESTATUS[0]}; set -e
-  [[ $st -eq 0 ]] || die "build-for-testing failed (see $log)"
-  [[ -d "$APP_PATH" ]] || die "build-for-testing finished but $APP_PATH is missing"
-}
-
-_ui_test_log_needs_unlock_retry() {
-  local log="$1"
-  grep -qiE \
-    'Unlock iPhone|ApproveFailed|device locked|was not, or could not be, unlocked|Unable to launch.*unlocked|SFAuthenticationErrorCodeApproveFailedToPost|Failed to initialize for UI testing|authentication error 12|Timed out waiting for response|Échec d.authentification|authentification' \
-    "$log"
-}
-
-_ui_test_log_needs_transient_retry() {
-  local log="$1"
-  grep -qiE \
-    'Failed to synthesize event|Neither element nor any descendant has keyboard focus|is not hittable|interrupting its neighbour|script did not land in composer' \
-    "$log"
-}
-
-_ios_uitest_gate1_open() {
-  command -v automationmodetool >/dev/null 2>&1 \
-    && automationmodetool 2>&1 | grep -q 'requires user authentication'
-}
-
-cmd_uitest_doctor() {
-  exec "$ROOT_DIR/scripts/ios_uitest_doctor.sh" "$@"
-}
-
-_ui_test_latest_xcresult() {
-  find "$DERIVED/Logs/Test" -name '*.xcresult' -type d 2>/dev/null | sort | tail -1
-}
-
-_run_ui_test_once() {
-  local dev="$1"
-  local log="$2"
-  shift 2
-  local -a only_args=( "$@" )
-  local errexit_was=0
-  [[ $- == *e* ]] && errexit_was=1
-  set +e
-  if [[ -s "$log" ]]; then
-    xcodebuild test-without-building \
-      -project "$PROJECT" -scheme "$SCHEME" -configuration "$CONFIG" \
-      -destination "id=$dev" -derivedDataPath "$DERIVED" \
-      -allowProvisioningUpdates \
-      DEVELOPMENT_TEAM="$QWENVOICE_DEVELOPMENT_TEAM" CODE_SIGN_STYLE=Automatic \
-      ${only_args[@]+"${only_args[@]}"} \
-      2>&1 | tee -a "$log"
-  else
-    xcodebuild test-without-building \
-      -project "$PROJECT" -scheme "$SCHEME" -configuration "$CONFIG" \
-      -destination "id=$dev" -derivedDataPath "$DERIVED" \
-      -allowProvisioningUpdates \
-      DEVELOPMENT_TEAM="$QWENVOICE_DEVELOPMENT_TEAM" CODE_SIGN_STYLE=Automatic \
-      ${only_args[@]+"${only_args[@]}"} \
-      2>&1 | tee "$log"
-  fi
-  local status=${PIPESTATUS[0]}
-  if (( errexit_was )); then set -e; else set +e; fi
-  return "$status"
-}
-
-# ui-test [--all|--cold|--download] [only]: run VocelloiOSUITests on the device (signed XCUITest).
-# Default scope is Smoke + Sheet + ColdGeneration (all three Speed models must be installed
-# on device first). OnDeviceDownload is opt-in via --download (it uninstalls pro_custom).
-# Optional [only] scopes to one class or method.
-cmd_ui_test() {
-  require_team
-  local scope="default"
-  local only=""
-  local skip_doctor=0
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --all) scope="all"; shift ;;
-      --cold) scope="cold"; shift ;;
-      --download) scope="download"; shift ;;
-      --skip-uitest-doctor) skip_doctor=1; shift ;;
-      -*) die "unknown ui-test flag: $1 (try --all, --cold, --download, --skip-uitest-doctor, or a VocelloiOSUITests/… target)" ;;
-      *) only="$1"; shift ;;
-    esac
-  done
-
-  if (( skip_doctor == 0 )); then
-    note "ui-test step 0: uitest doctor"
-    "$ROOT_DIR/scripts/ios_uitest_doctor.sh" || true
-    if _ios_uitest_gate1_open; then
-      die "Mac UI Automation still requires your login password each run — fix Gate 1 once:
-  scripts/enable_unattended_uitest.sh
-(or pass --skip-uitest-doctor if you accept the prompt)"
-    fi
-  fi
-
-  ensure_device_ready
-  local dev; dev="$(resolve_device)"
-  note "running VocelloiOSUITests on device $dev (scope: ${only:-$scope})"
-  mkdir -p "$DERIVED"
-  export UI_TEST_SCREENSHOT_DIR="$DERIVED/uitest-screenshots"
-  local log="$DERIVED/device-uitest.log"
-
-  _ui_test_build_for_testing "$dev"
-  note "installing host app before XCUITest attach"
-  xcrun devicectl device install app --device "$dev" "$APP_PATH"
-
-  local attempt=1
-  local status=0
-  local all_ok=1
-  local -a run_targets=()
-  if [[ -n "$only" ]]; then
-    run_targets=( "$only" )
-  elif [[ "$scope" == "default" ]]; then
-    run_targets=( "${UI_TEST_DEFAULT_CLASSES[@]}" )
-  elif [[ "$scope" == "cold" ]]; then
-    run_targets=( "${UI_TEST_COLD_CLASSES[@]}" )
-  elif [[ "$scope" == "download" ]]; then
-    run_targets=( "${UI_TEST_DOWNLOAD_CLASSES[@]}" )
-  else
-    run_targets=( "" )
-  fi
-
-  while (( attempt <= 2 )); do
-    if (( attempt > 1 )); then
-      warn "retrying ui-test after unlock/auth failure — unlock the iPhone, dismiss any automation prompt, then wait…"
-      sleep 8
-      : >"$log"
-    fi
-    status=0
-    all_ok=1
-    : >"$log"
-    if ((${#run_targets[@]} == 0)); then
-      set +e
-      _run_ui_test_once "$dev" "$log"
-      status=$?
-      set -e
-      (( status != 0 )) && all_ok=0
-    elif ((${#run_targets[@]} > 1)) && [[ "${QVOICE_IOS_UITEST_BATCH:-}" == "1" ]]; then
-      local -a only_args=()
-      local target
-      for target in "${run_targets[@]}"; do
-        only_args+=( "-only-testing:$target" )
-      done
-      note "ui-test batch: ${#run_targets[@]} classes in one xcodebuild invocation (QVOICE_IOS_UITEST_BATCH=1; XCTest runs classes alphabetically)"
-      set +e
-      _run_ui_test_once "$dev" "$log" "${only_args[@]}"
-      status=$?
-      set -e
-      (( status != 0 )) && all_ok=0
-      if _ui_test_log_needs_unlock_retry "$log"; then
-        all_ok=0
-      fi
-    elif ((${#run_targets[@]} >= 1)); then
-      local target
-      for target in "${run_targets[@]}"; do
-        note "ui-test class: $target"
-        set +e
-        _run_ui_test_once "$dev" "$log" -only-testing:"$target"
-        local one=$?
-        set -e
-        if (( one != 0 )); then
-          all_ok=0
-          status=$one
-          break
-        fi
-        if _ui_test_log_needs_unlock_retry "$log"; then
-          all_ok=0
-          break
-        fi
-      done
-    fi
-    if (( all_ok == 1 )) && grep -qE '\*\* TEST (EXECUTE )?SUCCEEDED \*\*' "$log"; then
-      note "device UI tests PASSED"
-      return 0
-    fi
-    if (( attempt == 1 )) && _ui_test_log_needs_unlock_retry "$log"; then
-      # Before burning a second multi-minute attempt: if the phone is actively
-      # in use or on a call, the retry is doomed — name the cause and stop.
-      local state verdict
-      state="$(probe_device_state "$dev" 2>/dev/null || true)"
-      verdict="${state%%|*}"
-      case "$verdict" in
-        CALL_ACTIVE|PHONE_IN_USE)
-          die "not retrying — $verdict: $(device_state_advice "$verdict") (${state#*|})"
-          ;;
-      esac
-      attempt=$((attempt + 1))
-      continue
-    fi
-    break
-  done
-
-  local xcresult; xcresult="$(_ui_test_latest_xcresult || true)"
-  [[ -n "$xcresult" ]] && warn "xcresult bundle: $xcresult"
-  warn "ui-test log: $log"
-  [[ -d "$UI_TEST_SCREENSHOT_DIR" ]] && warn "screenshots: $UI_TEST_SCREENSHOT_DIR"
-  warn "device state at failure: $(probe_device_state "$dev" 2>/dev/null || echo unknown)"
-  die "device UI tests did not report TEST SUCCEEDED (exit ${status:-1}; see $log)"
-}
-
-# crashes [--test]: pull + symbolicate on-device crash/hang diagnostics (MetricKit
-# `MXDiagnosticPayload` + the NSException fast path from IOSCrashObserver) against the
-# build's preserved dSYM. `--test` deliberately crashes the app (QVOICE_IOS_CRASH_TEST=1)
-# then relaunches so the observer flushes the payload — to verify the whole
-# capture→pull→symbolicate lane end-to-end. Burns-in safe (headless; phone can stay locked).
+# UI benchmark reports are created by `$vocello-ios-ui-qa benchmark` and validated by the
+# public `bench-ui` override near the dispatcher.
 cmd_crashes() {
   local test_mode=0
   [[ "${1:-}" == "--test" ]] && test_mode=1
-  ensure_mirror
   local dev; dev="$(resolve_device)"
 
   if [[ $test_mode -eq 1 ]]; then
@@ -1414,15 +717,15 @@ cmd_crashes() {
     return 0
   fi
 
-  note "── symbolication (via xcsym when on PATH; else user-axiom axiom_xcsym_crash) ──"
+  note "── symbolication (optional xcsym when on PATH; otherwise Xcode Organizer) ──"
   local f
   for f in "$crash_dir"/*; do
     [[ -f "$f" ]] || continue
     if command -v xcsym >/dev/null 2>&1; then
       xcsym crash "$f" --dsym "$dsym" 2>&1 || warn "xcsym failed on $(basename "$f")"
     else
-      warn "xcsym not on PATH — use user-axiom MCP tool axiom_xcsym_crash, or:"
-      warn "  xcsym crash \"$f\" --dsym \"$dsym\"   (or axiom_get_agent crash-analyzer)"
+      warn "xcsym not on PATH — use Xcode Organizer, or consult \$axiom-tools before installing xcsym:"
+      warn "  xcsym crash \"$f\" --dsym \"$dsym\""
     fi
   done
 }
@@ -1455,7 +758,6 @@ cmd_debug() {
 cmd_logs() {
   local spec="${1:-custom:speed:Log capture autorun.}"
   [[ "$spec" == *:* ]] || spec="custom:speed:$spec"
-  ensure_mirror
   local dev; dev="$(resolve_device)"
   local run_id="ios-logs-$(date +%Y%m%d-%H%M%S)"
   local out="$ROOT_DIR/build/ios-logs/${run_id}.log"
@@ -1488,9 +790,8 @@ cmd_profile() {
   local template="${QVOICE_IOS_PROFILE_TEMPLATE:-Time Profiler}"
   local duration="${QVOICE_IOS_PROFILE_DURATION:-90}"
   local dev; dev="$(resolve_device)"
-  ensure_mirror
   command -v xctrace >/dev/null 2>&1 \
-    || die "xctrace not found (install Xcode); or user-axiom axiom_xcprof_analyze / axiom_get_agent performance-profiler"
+    || die "xctrace not found — install Xcode and use Instruments for native profiling"
 
   [[ -d "$APP_PATH" ]] || cmd_build
   cmd_install >/dev/null
@@ -1509,7 +810,7 @@ cmd_profile() {
   [[ -d "$trace" ]] || die "no trace produced at $trace"
 
   note "trace → $trace"
-  note "analyze: open in Instruments, or axiom_xcprof_analyze / axiom_get_agent performance-profiler / xcprof analyze \"$trace\""
+  note "analyze: open in Instruments, or use optional: xcprof analyze \"$trace\""
 
   local dest="$ROOT_DIR/build/ios-diagnostics"
   rm -rf "$dest"
@@ -1523,24 +824,18 @@ cmd_profile() {
   printf '%s\n' "$trace"
 }
 
-# preflight: one-shot readiness check for on-device work — iPhone Mirroring up, device
-# reachable, signing team derivable, app + dSYM built. Fails fast (exit non-zero) with
-# what's missing. A LOCKED phone can't be auto-detected from the Mac (a locked +
-# mirroring device stays 'available' to devicectl), so this prints the unlock advisory
-# for ui-test up front instead of guessing.
+# preflight: physical-device reachability, Computer Use mirror surface, signing, app, and dSYM.
+# It fails fast with concrete remediation.
 cmd_preflight() {
   local rc=0
   local cold=0
-  local strict_models=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --cold) cold=1; shift ;;
-      --strict-models) strict_models=1; shift ;;
-      *) die "unknown preflight flag: $1 (try --cold, --strict-models)" ;;
+      *) die "unknown preflight flag: $1 (try --cold)" ;;
     esac
   done
   note "on-device preflight"
-  ensure_mirror 60
 
   local dev; dev="$(resolve_device 2>/dev/null)" || dev=""
   if [[ -z "$dev" ]]; then warn "  device: ✗ none resolved"; rc=1; else printf '  device: %s\n' "$dev" >&2; fi
@@ -1565,6 +860,7 @@ PY
       warn "  reachability: ✗ devicectl list failed"; rc=1
     fi
     rm -f "$tmp"
+    if ! guard_device_state "$dev" computer-use; then rc=1; fi
   fi
 
   local team; team="$(derive_team 2>/dev/null)"
@@ -1585,292 +881,15 @@ PY
     warn "  app: ✗ not built (run: $0 build)"; rc=1
   fi
 
-  note "unlock advisory: ui-test needs the iPhone UNLOCKED once (automation auth handshake); bench/launch/profile/crashes/logs work locked."
-  note "models: default test/gate needs ALL Speed models on device (Custom + Design + Clone)."
-  if (( strict_models )); then
-    ios_test_models_init "$ROOT_DIR"
-    if ! ios_models_inventory_pull 1; then
-      warn "  models: ✗ strict inventory failed (run: $0 models check --strict)"
-      rc=1
-    else
-      note "  models: OK (headless inventory verified all Speed tiers)"
-    fi
-  else
-    note "  run '$0 models check --strict' for headless verify (Mac cannot ls App Group directly)."
-  fi
+  note "UI surface: keep iPhone Mirroring connected while bundled Computer Use drives acceptance."
+  note "models: Computer Use must confirm Custom, Design, and Clone Speed in Settings before generation."
   if (( cold == 1 )); then
     note "(--cold is an alias for ColdGeneration-only; default scope already includes it.)"
   fi
   (( rc == 0 )) && note "preflight OK" || die "preflight not ready (see above)"
 }
 
-cmd_models() {
-  local sub="${1:-check}"
-  shift || true
-  ios_test_models_init "$ROOT_DIR"
-  case "$sub" in
-    check)
-      local strict=0 advisory=0
-      while [[ $# -gt 0 ]]; do
-        case "$1" in
-          --strict) strict=1; shift ;;
-          --advisory) advisory=1; shift ;;
-          *) die "unknown models check flag: $1 (try --strict, --advisory)" ;;
-        esac
-      done
-      if (( advisory )); then
-        ios_models_print_advisory
-        return 0
-      fi
-      ios_models_inventory_pull "$strict"
-      ;;
-    help|-h|--help)
-      cat <<'EOF'
-models — on-device model inventory (App Group on paired iPhone)
-
-  scripts/ios_device.sh models check           # headless inventory pull + table
-  scripts/ios_device.sh models check --strict  # exit 1 if any Speed tier missing
-  scripts/ios_device.sh models check --advisory # print install advice only (no device launch)
-
-Install missing weights on phone: Vocello → Settings → Model Downloads.
-Interim probe: bench "custom:speed:Model probe." (~1–3 min, locked phone OK).
-EOF
-      ;;
-    *)
-      die "unknown models subcommand '$sub' (try: check)"
-      ;;
-  esac
-}
-
 # Fail when ColdGeneration was skipped because the Speed model is missing on device.
-_ios_check_cold_generation_model_skip() {
-  local xcresult="$1"
-  [[ -n "$xcresult" && -d "$xcresult" ]] || return 1
-  local json
-  json="$(xcrun xcresulttool get test-results tests --format json --path "$xcresult" 2>/dev/null || true)"
-  [[ -n "$json" ]] || return 1
-  printf '%s' "$json" | grep -q "Speed model not installed"
-}
-
-# test [--all|--cold] [only]: run VocelloiOSUITests on-device and emit a single verdict +
-# gather artifacts under build/ios/uitest-artifacts/<runID>/. Thin wrapper over ui-test
-# (same scope flags) run in a subshell so its `die` is captured, plus a best-effort
-# xcresulttool summary. Screenshots land via the test app's UI_TEST_SCREENSHOT_DIR. For
-# deep .xcresult analysis: user-axiom axiom_get_agent test-runner.
-cmd_test() {
-  require_team
-  local run_id="ios-test-$(date +%Y%m%d-%H%M%S)"
-  local artifacts="$ROOT_DIR/build/ios/uitest-artifacts/$run_id"
-  mkdir -p "$artifacts"
-  local cold=0
-  local -a ui_args=()
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --cold) cold=1; ui_args+=("$1"); shift ;;
-      --download) ui_args+=("--download"); shift ;;
-      --all) ui_args+=("$1"); shift ;;
-      -*) die "unknown test flag: $1" ;;
-      *) ui_args+=("$1"); shift ;;
-    esac
-  done
-
-  # Subshell: cmd_ui_test's `die` (exit) must not kill this function before we parse.
-  # ${ui_args[@]+…}: bash 3.2 + set -u errors on expanding an EMPTY array.
-  set +e
-  ( cmd_ui_test ${ui_args[@]+"${ui_args[@]}"} )
-  local st=$?
-  set -e
-
-  local xcresult; xcresult="$(_ui_test_latest_xcresult || true)"
-  {
-    echo "xcresult: ${xcresult:-<none>}"
-    echo "exit: $st"
-    if [[ -n "$xcresult" && -d "$xcresult" ]]; then
-      xcrun xcresulttool get test-results summary --format json --path "$xcresult" 2>/dev/null \
-        || echo "(xcresulttool summary unavailable — open the .xcresult in Xcode)"
-    fi
-  } >"$artifacts/verdict.json"
-  cat "$artifacts/verdict.json" >&2
-
-  if _ios_check_cold_generation_model_skip "$xcresult"; then
-    die "ColdGeneration skipped — install all Speed models on device (Custom + Design + Clone). See: $0 models check"
-  fi
-
-  local shots="$DERIVED/uitest-screenshots"
-  [[ -d "$shots" ]] && cp -R "$shots" "$artifacts/screenshots" 2>/dev/null || true
-
-  if (( st == 0 )); then
-    note "test verdict: PASS · artifacts → $artifacts"
-  else
-    warn "test verdict: FAIL (exit $st) · artifacts → $artifacts"
-    exit "$st"
-  fi
-}
-
-# review [--baseline]: capture on-device screenshots of the key screens (XCUITest tour:
-# VocelloiOSReviewTourUITests) for visual review + baseline diffing. Burns-in aware — the
-# tour opens each sheet only long enough to capture, then dismisses it. Captures land in
-# build/ios/review-shots/<run>/; committed baselines live in docs/ios-review-baselines/.
-# `--baseline` seeds/updates baselines from this run. The perceptual diff is a vision-MCP
-# step (screenshot-validator / manual visual pass); this verb captures + does a
-# file-level baseline check and prints the pairs to diff.
-cmd_review() {
-  require_team
-  local baseline_mode=0
-  [[ "${1:-}" == "--baseline" ]] && baseline_mode=1
-
-  local run_id="ios-review-$(date +%Y%m%d-%H%M%S)"
-  local shots="$ROOT_DIR/build/ios/review-shots/$run_id"
-  local baselines="$ROOT_DIR/docs/ios-review-baselines"
-  mkdir -p "$shots" "$baselines"
-
-  note "review: capturing the on-device UI tour (runID=$run_id)"
-  set +e
-  ( cmd_ui_test "VocelloiOSUITests/VocelloiOSReviewTourUITests" )
-  local st=$?
-  set -e
-
-  local src="$DERIVED/uitest-screenshots"
-  [[ -d "$src" ]] && cp -R "$src/." "$shots/" 2>/dev/null || true
-  # Fallback: on-device runners cannot write Mac paths — recover the tour captures
-  # from the .xcresult attachments instead.
-  if ! ls "$shots"/*.png >/dev/null 2>&1; then
-    local xcresult; xcresult="$(_ui_test_latest_xcresult || true)"
-    if [[ -n "$xcresult" ]]; then
-      export_xcresult_shots "$xcresult" "$shots" "review-" >/dev/null 2>&1 \
-        && note "captures recovered from xcresult attachments" \
-        || true
-    fi
-  fi
-  note "captures → $shots"
-
-  if (( baseline_mode == 1 )); then
-    if ls "$shots"/*.png >/dev/null 2>&1; then
-      cp "$shots"/*.png "$baselines/"
-      note "baselines seeded/updated → $baselines (review + git add + commit)"
-    else
-      warn "no PNGs in $shots to seed"
-    fi
-    return "$st"
-  fi
-
-  note "── baseline pairs (perceptual diff via vision MCP) ──"
-  local any=0 png name
-  for png in "$shots"/*.png; do
-    [[ -f "$png" ]] || continue
-    any=1
-    name="$(basename "$png")"
-    if [[ -f "$baselines/$name" ]]; then
-      printf '  DIFF  %s\n' "$name" >&2
-      printf '        actual:   %s\n' "$png" >&2
-      printf '        baseline: %s\n' "$baselines/$name" >&2
-    else
-      printf '  NEW   %s  (no baseline — run: %s review --baseline)\n' "$name" "$0" >&2
-    fi
-  done
-  (( any == 0 )) && warn "no captures produced (did the tour run?)"
-  note "diff each pair with user-axiom axiom_get_agent screenshot-validator or a manual visual pass (expected=baseline, actual=capture)."
-
-  (( st == 0 )) && note "review tour OK" || warn "review tour had failures (exit $st)"
-  return "$st"
-}
-
-# gate: one-command on-device pre-merge gate — preflight → test (default scope) → crashes
-# (crash-delta check is GATE-FATAL) → a single PASS/FAIL verdict + per-step logs +
-# a verdict.txt under build/ios/gate-<run>/. Burns-in safe. Deeper dives (profile, review,
-# bench/listening-pass) are separate verbs — run them pre-release, not on every merge.
-#
-# Generation step prerequisite: all Speed models installed on the device
-# (Settings → Model Downloads). Uses Custom Voice (Speed) headless autorun.
-# Escape hatch: QVOICE_GATE_SKIP_GENERATION=1.
-cmd_gate() {
-  require_team
-  local run_id="ios-gate-$(date +%Y%m%d-%H%M%S)"
-  local gate_dir="$ROOT_DIR/build/ios/gate-$run_id"
-  mkdir -p "$gate_dir"
-  local verdict="$gate_dir/verdict.txt"
-  local overall=0
-  local skip_generation="${QVOICE_GATE_SKIP_GENERATION:-0}"
-  local total=4
-  [[ "$skip_generation" == "1" ]] && total=3
-
-  { echo "Vocello on-device gate — $run_id"; echo; } | tee "$verdict"
-
-  # Snapshot pre-existing on-device crash payload names so the final check can
-  # fail ONLY on crashes that appear during this gate run (the device keeps old
-  # payloads across runs). Pull may fail when no diagnostics exist yet — fine.
-  local crash_baseline="$gate_dir/crash-baseline.txt"
-  {
-    local pre_pull="$gate_dir/.pre-diagnostics"
-    if ( cmd_pull "$pre_pull" ) >/dev/null 2>&1; then
-      find "$pre_pull" -path '*/crashes/*' -type f -exec basename {} \; 2>/dev/null | sort
-    fi
-    rm -rf "$pre_pull"
-  } > "$crash_baseline" || true
-
-  note "gate 1/$total: preflight"
-  if ( cmd_preflight ) >>"$gate_dir/preflight.log" 2>&1; then
-    echo "preflight: PASS" | tee -a "$verdict"
-  else
-    echo "preflight: FAIL (see preflight.log)" | tee -a "$verdict"; overall=1
-  fi
-
-  note "gate 2/$total: test (default scope)"
-  if ( cmd_test ) >>"$gate_dir/test.log" 2>&1; then
-    echo "test: PASS" | tee -a "$verdict"
-  else
-    echo "test: FAIL (see test.log; device state: $(probe_device_state 2>/dev/null || echo unknown))" | tee -a "$verdict"; overall=1
-  fi
-
-  if [[ "$skip_generation" != "1" ]]; then
-    note "gate 3/$total: generation (headless autorun; real engine)"
-    if _gate_generation_check "$gate_dir" >>"$gate_dir/generation.log" 2>&1; then
-      echo "generation: PASS (see generation.log)" | tee -a "$verdict"
-    else
-      echo "generation: FAIL (see generation.log — needs all Speed models on device: $0 models check)" | tee -a "$verdict"
-      overall=1
-    fi
-  else
-    note "generation step skipped (QVOICE_GATE_SKIP_GENERATION=1)"
-    echo "generation: SKIPPED (QVOICE_GATE_SKIP_GENERATION=1)" | tee -a "$verdict"
-  fi
-
-  note "gate $total/$total: crashes (GATE-FATAL on new payloads)"
-  if ( cmd_crashes ) >>"$gate_dir/crashes.log" 2>&1; then
-    local crash_after="$gate_dir/crash-after.txt"
-    find "$ROOT_DIR/build/ios-diagnostics" -path '*/crashes/*' -type f -exec basename {} \; 2>/dev/null | sort > "$crash_after" || true
-    local new_crashes
-    new_crashes="$(comm -13 "$crash_baseline" "$crash_after" 2>/dev/null || true)"
-    if [[ -n "$new_crashes" ]]; then
-      echo "crashes: FAIL — new payload(s) during this gate run:" | tee -a "$verdict"
-      echo "$new_crashes" | sed 's/^/    /' | tee -a "$verdict"
-      overall=1
-    else
-      echo "crashes: PASS (no new payloads)" | tee -a "$verdict"
-    fi
-  else
-    echo "crashes: FAIL (check errored — see crashes.log)" | tee -a "$verdict"
-    overall=1
-  fi
-
-  echo | tee -a "$verdict"
-  if (( overall == 0 )); then
-    echo "GATE: PASS" | tee -a "$verdict"
-    note "gate PASS · $gate_dir"
-  else
-    echo "GATE: FAIL" | tee -a "$verdict"
-    warn "gate FAIL · $gate_dir"
-  fi
-  cat "$verdict" >&2
-  exit "$overall"
-}
-
-# Slim headless generation check for the gate: reuse the app the test step just
-# installed (no rebuild), launch with a bounded autorun spec, poll the sentinel,
-# and pass/fail on its status. Same mechanism as `bench` minus build/install/summary.
-#
-# Headless Custom Voice (Speed) generation — default gate assumes all Speed models
-# are installed on device (OnDeviceDownload is opt-in and not in default scope).
 _gate_generation_check() {
   local gate_dir="$1"
   [[ -d "$APP_PATH" ]] || cmd_install >/dev/null 2>&1 || true
@@ -1891,16 +910,9 @@ _gate_generation_check() {
     state="$(probe_device_state 2>/dev/null || true)"
     verdict="${state%%|*}"
     case "$verdict" in
-      CALL_ACTIVE|MIRROR_DISCONNECTED|DEVICE_UNREACHABLE)
+      MIRROR_UNAVAILABLE|DEVICE_UNREACHABLE)
         echo "aborted at ${waited}s — $verdict: $(device_state_advice "$verdict")"
         return 1
-        ;;
-      PHONE_IN_USE)
-        interference_streak=$((interference_streak + 1))
-        if (( interference_streak >= 2 )); then
-          echo "aborted at ${waited}s — PHONE_IN_USE persisted: $(device_state_advice PHONE_IN_USE)"
-          return 1
-        fi
         ;;
       *) interference_streak=0 ;;
     esac
@@ -1917,37 +929,99 @@ sys.exit(0 if r.get("status") == "ok" else 1)
 PY
 }
 
+# Public iOS UI lanes are Computer Use report validators. The older XCTest implementation remains
+# compiled for migration safety but is not dispatched by supported commands.
+_cmd_ios_computer_use_report() {
+  local suite="$1"; shift
+  local report=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --report) report="${2:-}"; shift 2 ;;
+      --report=*) report="${1#*=}"; shift ;;
+      -h|--help|help)
+        echo "Validate bundled Computer Use evidence: scripts/ios_device.sh ${suite/quick/ui-test} [--report <run>]" >&2
+        return 0
+        ;;
+      *) die "unknown Computer Use report flag: $1" ;;
+    esac
+  done
+  local -a args=(validate-report --suite "$suite")
+  [[ -n "$report" ]] && args+=(--run "$report")
+  "$ROOT_DIR/scripts/ios_agent_ui.sh" "${args[@]}"
+}
+
+cmd_ui_test() {
+  local suite="quick" report=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --suite) suite="${2:-quick}"; shift 2 ;;
+      --suite=*) suite="${1#*=}"; shift ;;
+      --all) suite="full"; shift ;;
+      --report) report="${2:-}"; shift 2 ;;
+      --report=*) report="${1#*=}"; shift ;;
+      -h|--help|help)
+        echo "ui-test — validate iOS Computer Use quick/full report" >&2
+        return 0
+        ;;
+      *) die "unknown ui-test flag: $1" ;;
+    esac
+  done
+  [[ "$suite" == "quick" || "$suite" == "full" ]] || die "ui-test suite must be quick or full"
+  local -a args=()
+  [[ -n "$report" ]] && args+=(--report "$report")
+  _cmd_ios_computer_use_report "$suite" "${args[@]}"
+}
+
+cmd_test() { _cmd_ios_computer_use_report quick "$@"; }
+cmd_review() { _cmd_ios_computer_use_report full "$@"; }
+cmd_bench_ui() { _cmd_ios_computer_use_report benchmark "$@"; }
+
+cmd_gate() {
+  local run_id="ios-gate-$(date +%Y%m%d-%H%M%S)"
+  local gate_dir="$ROOT_DIR/build/ios/$run_id"
+  local verdict="$gate_dir/verdict.txt"
+  mkdir -p "$gate_dir"
+  note "iOS Computer Use gate: project inputs"
+  "$ROOT_DIR/scripts/check_project_inputs.sh" >"$gate_dir/inputs.log" 2>&1 \
+    || { echo "project-inputs: FAIL" | tee "$verdict"; return 1; }
+  echo "project-inputs: PASS" | tee "$verdict"
+  note "iOS Computer Use gate: physical-device preflight"
+  cmd_preflight >"$gate_dir/preflight.log" 2>&1 \
+    || { echo "preflight: FAIL" | tee -a "$verdict"; return 1; }
+  echo "preflight: PASS" | tee -a "$verdict"
+  note "iOS Computer Use gate: impact-selected attestation"
+  "$ROOT_DIR/scripts/ios_agent_ui.sh" impact --check >"$gate_dir/ui-attestation.log" 2>&1 \
+    || { echo "computer-use: FAIL" | tee -a "$verdict"; return 1; }
+  echo "computer-use: PASS" | tee -a "$verdict"
+  note "iOS Computer Use gate: headless generation"
+  if [[ "${QVOICE_GATE_SKIP_GENERATION:-0}" == "1" ]]; then
+    echo "generation: SKIPPED" | tee -a "$verdict"
+  elif _gate_generation_check "$gate_dir" >"$gate_dir/generation.log" 2>&1; then
+    echo "generation: PASS" | tee -a "$verdict"
+  else
+    echo "generation: FAIL" | tee -a "$verdict"; return 1
+  fi
+  note "iOS Computer Use gate: crashes"
+  cmd_crashes >"$gate_dir/crashes.log" 2>&1 \
+    || { echo "crashes: FAIL" | tee -a "$verdict"; return 1; }
+  echo "crashes: PASS" | tee -a "$verdict"
+  echo "GATE: PASS" | tee -a "$verdict"
+  note "iOS gate PASS · $gate_dir"
+}
+
 main() {
   local sub="${1:-help}"; shift || true
-  # Auto-start iPhone Mirroring before any device-touching command (observation + keeps a
-  # locked device reachable). `mirror` calls ensure_mirror itself; help/none skip it.
-  case "$sub" in
-    doctor|build|install|launch|console|pull|bench|lang-bench|vision-launch|measure-prep|measure-verify|shot|crashes|debug|logs|profile) ensure_mirror ;;
-  esac
   case "$sub" in
     doctor)  cmd_doctor "$@" ;;
     build)   cmd_build "$@" ;;
     install) cmd_install "$@" ;;
     launch)  cmd_launch "$@" ;;
     console) cmd_console "$@" ;;
-    mirror)  cmd_mirror "$@" ;;
     device-state) cmd_device_state "$@" ;;
-    shot)    cmd_shot "$@" ;;
     pull)    cmd_pull "$@" ;;
     bench)   cmd_bench "$@" ;;
     lang-bench) cmd_lang_bench "$@" ;;
     bench-ui) cmd_bench_ui "$@" ;;
-    bench-ui-mirroir) cmd_bench_ui_mirroir "$@" ;;
-    bench-ui-mcp) cmd_bench_ui_mcp "$@" ;;
-    bench-ui-vision) cmd_bench_ui_vision "$@" ;;
-    vision-launch) cmd_vision_launch "$@" ;;
-    vision-now) cmd_vision_now "$@" ;;
-    vision-bench-wait) cmd_vision_bench_wait "$@" ;;
-    measure-prep) cmd_measure_prep "$@" ;;
-    measure-now) cmd_measure_now "$@" ;;
-    measure-wait) cmd_measure_wait "$@" ;;
-    measure-verify) cmd_measure_verify "$@" ;;
-    measure-artifacts-dir) cmd_measure_artifacts_dir "$@" ;;
     ui-test) cmd_ui_test "$@" ;;
     crashes) cmd_crashes "$@" ;;
     debug)   cmd_debug "$@" ;;
@@ -1957,11 +1031,9 @@ main() {
     test)      cmd_test "$@" ;;
     review)    cmd_review "$@" ;;
     gate)      cmd_gate "$@" ;;
-    models)    cmd_models "$@" ;;
-    uitest-doctor) cmd_uitest_doctor "$@" ;;
     help|-h|--help)
       sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' >&2 ;;
-    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|mirror|device-state|shot|pull|bench|lang-bench|bench-ui|measure-prep|measure-now|measure-wait|measure-verify|measure-artifacts-dir|vision-launch|vision-now|vision-bench-wait|ui-test|uitest-doctor|crashes|debug|logs|profile|preflight|test|review|gate|models|help)" ;;
+    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|device-state|pull|bench|lang-bench|bench-ui|ui-test|crashes|debug|logs|profile|preflight|test|review|gate|help)" ;;
   esac
 }
 

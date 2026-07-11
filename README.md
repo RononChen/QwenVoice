@@ -128,20 +128,28 @@ Useful checks:
 ./scripts/check_project_inputs.sh
 ./scripts/build_foundation_targets.sh macos
 ./scripts/build_foundation_targets.sh ios
-scripts/macos_test.sh models ensure   # one-time Speed model for macOS UI/bench tests
+scripts/macos_test.sh models ensure   # explicit repair/bootstrap only when visible Settings readiness fails
 scripts/macos_test.sh test            # deterministic Core + XPC + Qwen3 runtime tests (no UI)
-scripts/macos_agent_ui.sh impact      # selects none / quick / full / benchmark evidence
+scripts/macos_agent_ui.sh impact      # advisory frontend scope; never blocks development publishing
 # In Codex: invoke $vocello-macos-ui-qa <selected-suite>
 scripts/macos_test.sh ui-report --suite full  # validate Computer Use + typed probes
-scripts/macos_test.sh gate            # macOS pre-merge gate
-scripts/ios_device.sh test            # iOS UI smoke (paired iPhone; default suites)
-scripts/ios_device.sh bench-ui        # iOS full-matrix UI bench (XCUITest)
+scripts/macos_test.sh gate            # strict explicit macOS frontend/release acceptance
+scripts/ios_agent_ui.sh impact        # advisory iOS frontend scope
+# In Codex: invoke $vocello-ios-ui-qa <selected-suite>
+scripts/ios_device.sh test            # validate quick iOS Computer Use evidence
+scripts/ios_device.sh bench-ui        # validate 29-take Computer Use benchmark
 scripts/ios_device.sh lang-bench --subset quick --label "…"  # language hint + output bench
-scripts/ios_device.sh device-state      # interference probe: phone-in-use / call / mirror state
-scripts/ios_device.sh gate              # iOS pre-merge gate (XCUITest + headless generation + crashes)
+scripts/ios_device.sh device-state      # physical-device reachability/unlock/interference probe
+scripts/ios_device.sh gate              # strict explicit iOS frontend/release acceptance
 ```
 
-Testing runbook: [`docs/reference/testing-runbook.md`](docs/reference/testing-runbook.md). macOS frontend acceptance is driven by the repository Codex Computer Use skill and can gate through its typed attestation; iOS mirroir remains exploratory while physical-device XCUITest stays authoritative. See [`docs/reference/ui-smoke-runbooks.md`](docs/reference/ui-smoke-runbooks.md).
+Testing runbook: [`docs/reference/testing-runbook.md`](docs/reference/testing-runbook.md). Bundled Computer Use drives both macOS and iOS frontend acceptance; the iOS skill operates the paired physical phone through iPhone Mirroring while scripts validate device telemetry and attestations. See [`docs/reference/ui-smoke-runbooks.md`](docs/reference/ui-smoke-runbooks.md).
+
+Commits, pushes, pull requests, and ordinary merges use deterministic verification only. Missing
+Computer Use, model, physical-device, or UI-attestation evidence never blocks preserving or sharing
+development work. Frontend impact reports are advisory until explicit acceptance or release;
+macOS releases require only macOS UI evidence, while iOS archive/TestFlight requires only iOS UI
+evidence.
 
 More technical detail:
 
@@ -155,14 +163,15 @@ More technical detail:
 ## Development checkpoint
 
 Active development on `main` is completing the macOS Computer Use frontend and typed runtime-probe
-overhaul. Deterministic tests and telemetry overhead/parity are green; fresh full and 29-take
-benchmark Computer Use attestations remain required before the work is release-ready. Maintainers
+overhaul. Deterministic tests are the ordinary development and CI requirement; fresh full and
+29-take benchmark Computer Use attestations remain required only before the corresponding release
+is ready. Maintainers
 and new Codex sessions should start with [`AGENTS.md`](AGENTS.md), then follow the exact checkpoint
 and reinstall/resume sequence in [`docs/development-progress.md`](docs/development-progress.md).
 
 ## Command-line tool (`vocello`)
 
-Vocello ships a headless command-line tool, `vocello`, built from source alongside the app (it is not part of the app download). It drives the same local Swift + MLX engine in-process — no Python, no bundled weights — and serves two roles: scriptable local generation from the terminal, and the deterministic driver for the perf/quality benchmarks. Models install via the app (Settings → Model downloads) or `vocello models install <id>` into the shared `~/Library/Application Support/QwenVoice/models` store. For macOS test fixtures (debug symlink), run `scripts/macos_test.sh models ensure` once.
+Vocello ships a headless command-line tool, `vocello`, built from source alongside the app (it is not part of the app download). It drives the same local Swift + MLX engine in-process — no Python, no bundled weights — and serves two roles: scriptable local generation from the terminal, and the deterministic driver for the perf/quality benchmarks. Models install via the app (Settings → Model downloads) or `vocello models install <id>` into the shared `~/Library/Application Support/QwenVoice/models` store. For macOS test fixtures, use `scripts/macos_test.sh models ensure` only as explicit repair/bootstrap; normal generation gates require visible Settings readiness and never invoke it automatically.
 
 ```sh
 ./scripts/build.sh cli                 # build build/vocello

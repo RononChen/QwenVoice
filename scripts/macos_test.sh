@@ -13,7 +13,7 @@
 #   scripts/macos_test.sh lang-bench [--subset quick|full] [--label "note"]
 #                                                 # headless macOS language-hint matrix (vocello CLI)
 #   scripts/macos_test.sh test                      # Core + XPC transport + Qwen3 runtime tests (no UI)
-#   scripts/macos_test.sh telemetry-overhead        # seeded off/lightweight/verbose PCM + RTF/TTFC gate
+#   scripts/macos_test.sh telemetry-overhead        # seeded PCM + RTF/TTFC; requires current full UI model-readiness evidence
 #   scripts/macos_test.sh ui-report --suite quick|full|benchmark [--report <run-dir>]
 #   scripts/macos_test.sh crashes [--test]          # collect + xcsym-symbolicate .ips (app + XPC service)
 #   scripts/macos_test.sh debug                     # LLDB attach guidance (app + XPC service PID)
@@ -23,6 +23,7 @@
 #   scripts/macos_test.sh xpc                       # XPC lifecycle: retirement/relaunch + crash isolation
 #   scripts/macos_test.sh gate                      # models → inputs → build_foundation → test → crashes
 #                                                    # optional: QWENVOICE_GATE_BENCH=1 adds bounded vocello bench
+#   scripts/macos_test.sh release-readiness         # unconditional deterministic + full + benchmark + telemetry gate
 #   scripts/macos_test.sh models check|ensure|install  # test model fixture (Speed variant)
 #   scripts/macos_test.sh help
 
@@ -44,6 +45,26 @@ warn() { printf '\033[0;33m[warn]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[0;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
 
 ensure_app() { [[ -d "$APP_BUNDLE" ]] || "$SCRIPT_DIR/build.sh" build; }
+
+# Xcode 26.6 can finish compilation and then wait indefinitely before spawning
+# `xctest` for hostless macOS bundles. Keep Xcode responsible for compilation,
+# then execute the built deterministic bundles directly through the native runner.
+build_mac_test_bundles() {
+  local log_path="$1"
+  xcodebuild build-for-testing -project "$ROOT_DIR/QwenVoice.xcodeproj" -scheme QwenVoice \
+    -configuration Release -destination 'platform=macOS,arch=arm64' \
+    -derivedDataPath "$ROOT_DIR/build/DerivedData" \
+    CODE_SIGN_IDENTITY="-" ENABLE_TESTABILITY=YES \
+    > "$log_path" 2>&1
+}
+
+run_mac_test_bundle() {
+  local bundle_name="$1" log_path="$2"
+  local products="$ROOT_DIR/build/DerivedData/Build/Products/Release"
+  local bundle="$products/$bundle_name.xctest"
+  [[ -d "$bundle" ]] || { echo "missing test bundle: $bundle" > "$log_path"; return 1; }
+  DYLD_FRAMEWORK_PATH="$products" xcrun xctest "$bundle" > "$log_path" 2>&1
+}
 
 # crashes [--test]: collect macOS .ips crash reports (app + XPC service) from
 # ~/Library/Logs/DiagnosticReports and symbolicate against the preserved build dSYMs.
@@ -80,14 +101,14 @@ cmd_crashes() {
   note "collected $n crash report(s) → $dest"
 
   [[ -d "$DSYM_DIR" ]] || { warn "no preserved dSYMs at $DSYM_DIR — run: scripts/build.sh build"; return 0; }
-  note "── symbolication (via xcsym when on PATH; else user-axiom axiom_xcsym_crash) ──"
+  note "── symbolication (optional xcsym when on PATH; otherwise Xcode Organizer) ──"
   for f in "$dest"/*.ips; do
     [[ -f "$f" ]] || continue
     if command -v xcsym >/dev/null 2>&1; then
       xcsym crash "$f" --dsym-dir "$DSYM_DIR" 2>&1 || warn "xcsym failed on $(basename "$f")"
     else
-      warn "xcsym not on PATH — use user-axiom MCP tool axiom_xcsym_crash, or:"
-      warn "  xcsym crash \"$f\" --dsym-dir \"$DSYM_DIR\"   (or axiom_get_agent crash-analyzer)"
+      warn "xcsym not on PATH — use Xcode Organizer, or consult \$axiom-tools before installing xcsym:"
+      warn "  xcsym crash \"$f\" --dsym-dir \"$DSYM_DIR\""
     fi
   done
 }
@@ -150,7 +171,7 @@ cmd_profile() {
   local variant="${rest%%:*}"
   local template="${QVOICE_MAC_PROFILE_TEMPLATE:-Time Profiler}"
   local duration="${QVOICE_MAC_PROFILE_DURATION:-90}"
-  command -v xctrace >/dev/null 2>&1 || die "xctrace not found (install Xcode); or user-axiom axiom_xcprof_analyze / axiom_get_agent performance-profiler"
+  command -v xctrace >/dev/null 2>&1 || die "xctrace not found — install Xcode and use Instruments for native profiling"
   ensure_mac_test_models --require
   local trace="$ROOT_DIR/build/macos/profile-$(date +%Y%m%d-%H%M%S).trace"
   mkdir -p "$(dirname "$trace")"
@@ -174,7 +195,7 @@ cmd_profile() {
   wait "$xcpid" || true
   [[ -d "$trace" ]] || die "no trace produced at $trace"
   note "trace → $trace"
-  note "analyze: open in Instruments, or: axiom_xcprof_analyze / axiom_get_agent performance-profiler / xcprof analyze \"$trace\""
+  note "analyze: open in Instruments, or use optional: xcprof analyze \"$trace\""
   note "XPC service profile (production path): launch app, 'xctrace record --attach QwenVoiceEngineService', generate via UI."
 }
 
@@ -244,13 +265,13 @@ EOF
 cmd_core_test() {
   note "core-test: VocelloCoreTests (QwenVoiceCore language semantics, no models)"
   set +e
-  xcodebuild test -project "$ROOT_DIR/QwenVoice.xcodeproj" -scheme QwenVoice \
-    -configuration Release -destination 'platform=macOS,arch=arm64' \
-    -derivedDataPath "$ROOT_DIR/build/DerivedData" \
-    CODE_SIGN_IDENTITY="-" ENABLE_TESTABILITY=YES \
-    -only-testing:VocelloCoreTests \
-    > "$ROOT_DIR/build/macos/core-test.log" 2>&1
-  local st=$?
+  local build_st=0 st=0
+  build_mac_test_bundles "$ROOT_DIR/build/macos/core-test-build.log" || build_st=$?
+  if (( build_st == 0 )); then
+    run_mac_test_bundle VocelloCoreTests "$ROOT_DIR/build/macos/core-test.log" || st=$?
+  else
+    st="$build_st"
+  fi
   set -e
   if (( st == 0 )); then
     note "core-test PASS"
@@ -364,24 +385,22 @@ cmd_test() {
   local run_id="mac-test-$(date +%Y%m%d-%H%M%S)"
   local artifacts="$ROOT_DIR/build/macos/test-artifacts/$run_id"
   mkdir -p "$artifacts"
-  local core_st=0 transport_st=0 runtime_st=0 harness_st=0
+  local test_build_st=0 core_st=0 transport_st=0 runtime_st=0 harness_st=0
 
-  note "test: VocelloCoreTests"
+  note "test: compile deterministic macOS test bundles"
   set +e
-  xcodebuild test -project "$ROOT_DIR/QwenVoice.xcodeproj" -scheme QwenVoice \
-    -configuration Release -destination 'platform=macOS,arch=arm64' \
-    -derivedDataPath "$ROOT_DIR/build/DerivedData" \
-    CODE_SIGN_IDENTITY="-" ENABLE_TESTABILITY=YES \
-    -only-testing:VocelloCoreTests \
-    > "$artifacts/core.log" 2>&1 || core_st=$?
+  build_mac_test_bundles "$artifacts/xcode-test-build.log" || test_build_st=$?
 
-  note "test: VocelloEngineIntegrationTests (injectable XPC transport)"
-  xcodebuild test -project "$ROOT_DIR/QwenVoice.xcodeproj" -scheme QwenVoice \
-    -configuration Release -destination 'platform=macOS,arch=arm64' \
-    -derivedDataPath "$ROOT_DIR/build/DerivedData" \
-    CODE_SIGN_IDENTITY="-" ENABLE_TESTABILITY=YES \
-    -only-testing:VocelloEngineIntegrationTests \
-    > "$artifacts/transport.log" 2>&1 || transport_st=$?
+  if (( test_build_st == 0 )); then
+    note "test: VocelloCoreTests"
+    run_mac_test_bundle VocelloCoreTests "$artifacts/core.log" || core_st=$?
+
+    note "test: VocelloEngineIntegrationTests (injectable XPC transport)"
+    run_mac_test_bundle VocelloEngineIntegrationTests "$artifacts/transport.log" || transport_st=$?
+  else
+    core_st="$test_build_st"
+    transport_st="$test_build_st"
+  fi
 
   note "test: Qwen3RuntimeTests (owned vendored runtime, seeded Metal fixture)"
   local runtime_package="$ROOT_DIR/third_party_patches/mlx-audio-swift"
@@ -412,11 +431,13 @@ cmd_test() {
   fi
 
   note "test: Computer Use harness contracts"
-  python3 -m unittest "$ROOT_DIR/scripts/test_macos_agent_ui.py" \
+  python3 -m unittest \
+    "$ROOT_DIR/scripts/test_computer_use_routing.py" \
+    "$ROOT_DIR/scripts/test_macos_agent_ui.py" \
     > "$artifacts/harness.log" 2>&1 || harness_st=$?
   set -e
-  printf 'core=%s\ntransport=%s\nruntime=%s\nharness=%s\n' \
-    "$core_st" "$transport_st" "$runtime_st" "$harness_st" \
+  printf 'test_build=%s\ncore=%s\ntransport=%s\nruntime=%s\nharness=%s\n' \
+    "$test_build_st" "$core_st" "$transport_st" "$runtime_st" "$harness_st" \
     > "$artifacts/verdict.txt"
   cat "$artifacts/verdict.txt" >&2
   if (( core_st == 0 && transport_st == 0 && runtime_st == 0 && harness_st == 0 )); then
@@ -428,7 +449,11 @@ cmd_test() {
 }
 
 cmd_telemetry_overhead() {
-  ensure_mac_test_models --require
+  # This lane performs real generation. A current full Computer Use report is
+  # the durable proof that Settings visibly showed every required model ready,
+  # Generate enabled, and the clone fixture present before generation began.
+  "$SCRIPT_DIR/macos_agent_ui.sh" model-readiness-check >/dev/null
+  check_mac_test_models --strict
   "$SCRIPT_DIR/build.sh" cli >/dev/null
   local verdict_path
   note "telemetry-overhead: Custom/Speed/medium, seed-fixed, warm-up×1 + measured×5 per mode"
@@ -635,8 +660,8 @@ cmd_gate() {
   local crash_marker="$gate_dir/.crash-marker"
   touch "$crash_marker"
 
-  note "gate step 0/$total_steps: ensure test models (pro_custom_speed in debug context)"
-  if ensure_mac_test_models --require >>"$gate_dir/models.log" 2>&1; then
+  note "gate step 0/$total_steps: verify test models without repair or download"
+  if ( check_mac_test_models --strict ) >>"$gate_dir/models.log" 2>&1; then
     echo "models: PASS" | tee -a "$verdict"
   else
     echo "models: FAIL (see models.log)" | tee -a "$verdict"; overall=1
@@ -706,6 +731,55 @@ cmd_gate() {
   exit "$overall"
 }
 
+cmd_release_readiness() {
+  local ci=0
+  if [[ "${1:-}" == "--ci" ]]; then ci=1; shift; fi
+  [[ $# -eq 0 ]] || die "release-readiness accepts only --ci"
+  local run_id="release-readiness-$(date +%Y%m%d-%H%M%S)"
+  local out="$ROOT_DIR/build/macos/$run_id"
+  local crash_marker="$out/.crash-marker"
+  mkdir -p "$out"
+  touch "$crash_marker"
+
+  note "release readiness: project inputs"
+  "$SCRIPT_DIR/check_project_inputs.sh" 2>&1 | tee "$out/project-inputs.log"
+
+  note "release readiness: exact-path app build"
+  "$SCRIPT_DIR/build.sh" build 2>&1 | tee "$out/build.log"
+
+  note "release readiness: visible Settings model-readiness prerequisite"
+  local -a model_readiness_args=(model-readiness-check)
+  (( ci )) && model_readiness_args+=(--ci)
+  "$SCRIPT_DIR/macos_agent_ui.sh" "${model_readiness_args[@]}" 2>&1 | tee "$out/model-readiness.json"
+
+  note "release readiness: read-only model integrity"
+  ( check_mac_test_models --strict ) 2>&1 | tee "$out/models.log"
+
+  note "release readiness: deterministic macOS tests"
+  cmd_test 2>&1 | tee "$out/tests.log"
+
+  note "release readiness: crash delta"
+  cmd_crashes 2>&1 | tee "$out/crashes.log"
+  local diagnostic_root="$HOME/Library/Logs/DiagnosticReports" new_ips
+  new_ips="$(find "$diagnostic_root" \( -name 'Vocello-*.ips' -o -name 'QwenVoiceEngineService-*.ips' -o -name '*engine-service*.ips' \) -newer "$crash_marker" 2>/dev/null || true)"
+  [[ -z "$new_ips" ]] || die "release readiness found new crash reports: $new_ips"
+
+  if (( ci == 0 )); then
+    note "release readiness: telemetry overhead"
+    cmd_telemetry_overhead 2>&1 | tee "$out/telemetry-overhead.log"
+  else
+    note "release readiness: validate committed telemetry-overhead attestation"
+  fi
+
+  note "release readiness: independent full review and benchmark UI attestations"
+  local -a release_args=(release-check)
+  (( ci )) && release_args+=(--ci)
+  "$SCRIPT_DIR/macos_agent_ui.sh" "${release_args[@]}" | tee "$out/frontend-readiness.json"
+
+  printf 'RELEASE READINESS: PASS\n' | tee "$out/verdict.txt"
+  note "release readiness PASS · $out"
+}
+
 main() {
   local sub="${1:-help}"; shift || true
   case "$sub" in
@@ -723,11 +797,12 @@ main() {
     review)    cmd_review "$@" ;;
     xpc)       cmd_xpc "$@" ;;
     gate)      cmd_gate "$@" ;;
+    release-readiness) cmd_release_readiness "$@" ;;
     models)    cmd_models "$@" ;;
     help|-h|--help)
       sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' >&2
       ;;
-    *) die "unknown subcommand '$sub' (try: preflight|core-test|lang-bench|test|telemetry-overhead|ui-report|bench-ui|crashes|debug|logs|profile|review|xpc|gate|models|help)" ;;
+    *) die "unknown subcommand '$sub' (try: preflight|core-test|lang-bench|test|telemetry-overhead|ui-report|bench-ui|crashes|debug|logs|profile|review|xpc|gate|release-readiness|models|help)" ;;
   esac
 }
 

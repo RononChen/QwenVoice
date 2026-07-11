@@ -22,7 +22,11 @@ peaks**, **first-chunk latency**, or **audio quality**:
 - MLX / vendored Qwen3-TTS or Mimi codec
 - Memory policy, streaming interval, idle-unload, XPC lifecycle
 - Model load path, prewarm, clone conditioning
-- Before merging engine-adjacent work or cutting a macOS/iOS release
+- Before explicitly promoting engine-adjacent work or cutting a macOS/iOS release
+
+Benchmarks that require models, listening, a device, or Computer Use are not prerequisites for a
+commit, push, pull request, ordinary merge, or ordinary CI run. They remain strict promotion and
+release evidence when requested.
 
 ### What “good” means
 
@@ -70,7 +74,7 @@ UIstall column      —                       yes                    yes
 | **macOS XPC UI bench** | `scripts/macos_test.sh bench-ui` | Out-of-process engine | Full release matrix through real app + XPC; merged 3-layer telemetry |
 | **macOS profile** | `scripts/macos_test.sh profile` | In-process via CLI inside trace | Instruments / os_signpost validation |
 | **iOS device** | `scripts/ios_device.sh bench` | In-process | iPhone tier, Jetsam, on-device RTF (headless autorun, single take) |
-| **iOS UI bench** | `scripts/ios_device.sh bench-ui` | In-process | Full release matrix through the real Studio UI on the iPhone (XCUITest); gate `scripts/check_ios_ui_bench.py` |
+| **iOS UI bench** | `$vocello-ios-ui-qa benchmark` + `scripts/ios_device.sh bench-ui` | In-process | Full release matrix through Computer Use on the mirrored physical iPhone; telemetry gated per take |
 
 **Important:** CLI bench numbers are **not** identical to macOS XPC UI numbers. Compare like with
 like (CLI vs CLI, UI vs UI). Use CLI for backend optimization; use UI/XPC for integration regressions.
@@ -114,8 +118,8 @@ Set `QVOICE_REQUIRE_TEST_MODELS=1` is automatic on script paths; bare `xcodebuil
 ### iOS device
 
 - Paired physical iPhone (never Simulator for real engine)
-- Speed models verified: `scripts/ios_device.sh models check --strict` (headless inventory)
-- `scripts/ios_device.sh preflight` before bench/gate; optional `--strict-models`
+- Speed models visibly verified in Settings through Computer Use
+- `scripts/ios_device.sh preflight` before bench/gate
 - Agent + MCP playbook: [`ios-device-testing.md` § Agent + MCP workflow](ios-device-testing.md#agent--mcp-workflow)
 
 ---
@@ -228,19 +232,21 @@ scripts/ios_device.sh bench --sim-device iphone15pro custom:speed:
 
 Pulls diagnostics from device; runs summarizer; exits non-zero if autorun status ≠ ok.
 
-### 4.7b iOS UI benchmark (Studio matrix — XCUITest, unattended)
+### 4.7b iOS UI benchmark (Studio matrix — Computer Use)
 
 Same matrix semantics as macOS `bench-ui` (29 takes default). Step-by-step:
 [`testing-runbook.md` §3b](testing-runbook.md#3b-ui-driven-benchmark-lanes--step-by-step-any-agent-can-run-these).
 
 ```sh
 scripts/ios_device.sh device-state
-scripts/ios_device.sh models check --strict
+# Verify Custom, Design, and Clone Speed in Settings through Computer Use.
 scripts/ios_device.sh bench-ui --warm 1 --lengths medium --modes custom --label ios-bench-smoke
 scripts/ios_device.sh bench-ui --label ios-bench-full
 ```
 
-Requires phone **unlocked once** for XCUITest automation handshake. Do **not** touch the phone or mirroir-tap during the run.
+Requires an active iPhone Mirroring session and a passing
+`scripts/ios_agent_ui.sh doctor --suite benchmark --json`. Computer Use must remain the sole UI
+operator during the run.
 
 Optional trace during matrix (single in-process attach):
 
@@ -248,32 +254,23 @@ Optional trace during matrix (single in-process attach):
 scripts/ios_device.sh bench-ui --profile --profile-template "Time Profiler" --label ios-profile
 ```
 
-Artifacts: `build/ios/bench-ui-<timestamp>/` (log, gate.log, optional `vocello.trace`).
-Post-run gate: `python3 scripts/check_ios_ui_bench.py build/ios-diagnostics --run-id …`.
+Artifacts: `build/ios/agent-ui/<run>/` (report, checkpoints, issues, and optional trace references).
+Post-run gate: `scripts/ios_agent_ui.sh validate-report --suite benchmark --report <report.json>`.
 
-### 4.7c iOS UI benchmark (deprecated agent lanes — historical)
+### 4.7c iOS benchmark ownership
 
-> **Retired 2026-07.** Full matrix = XCUITest `bench-ui` only (§4.7b). Agent smokes use
-> mirroir + `measure-*`. Historical `bench-ui-mirroir` procedure:
-> [`computer-use-mcp-pilot-log.md`](computer-use-mcp-pilot-log.md) §Archived agent bench.
-
-| iOS UI bench lane | Driver | When |
-| --- | --- | --- |
-| **`bench-ui`** | XCUITest | **Only** supported full matrix lane |
-| **`bench-ui-mirroir --agent-drive`** | mirroir native | **Deprecated** — retired 2026-07 |
-| **`bench-ui-mcp --agent-drive`** | mobile-mcp WDA | Deferred (signing) |
-| **`bench-ui-vision --agent-drive`** | Peekaboo coords | Deprecated |
-
-**iOS engine RTF without UI friction:** use headless §4.7 (`ios_device.sh bench`), not UI bench lanes.
+`bench-ui` validates the only supported UI matrix, driven by `$vocello-ios-ui-qa` through bundled
+Computer Use. For engine RTF without UI friction, use the headless §4.7 `ios_device.sh bench` lane.
 
 | Phase | Tool |
 |-------|------|
 | Trace capture | `bench-ui --profile` / `profile` lane |
-| Trace analysis | `axiom_xcprof_analyze` / `performance-profiler` |
-| Test failure | `axiom_get_agent` → `test-runner` on `build/ios/Logs/Test/*.xcresult` |
-| Crash post-mortem | `axiom_xcsym_crash` on `build/ios-diagnostics/**/crashes/` |
+| Trace analysis | Instruments / `xcrun xctrace`; optional `xcprof` on `PATH` |
+| UI failure | `build/ios/agent-ui/<run>/report.json` and saved mirror screenshots |
+| Crash post-mortem | Xcode Organizer; optional `xcsym` on `PATH` |
 
-Full MCP routing: [`ios-device-testing.md` § Agent + MCP workflow](ios-device-testing.md#agent--mcp-workflow).
+Use `$axiom-tools` for workflow selection. Shared XcodeBuildMCP routing is documented in
+[`ios-device-testing.md`](ios-device-testing.md#shared-xcodebuildmcp).
 
 ### 4.8 macOS Instruments profile (signpost validation)
 
@@ -348,8 +345,8 @@ Artifacts live under `build/macos/agent-ui/<run-id>/`; the tracked attestation c
 fingerprints, verdicts, issue counts, evidence digest, and cleanup result.
 
 The benchmark attestation is independent: it never satisfies a required full semantic report.
-Likewise, full never satisfies benchmark. For telemetry/backend changes, run the seeded overhead
-parity lane before attesting the UI matrix:
+Likewise, full never satisfies benchmark. For telemetry/backend changes, first complete and attest
+the full UI suite, including visible `model-readiness`, then run the seeded overhead parity lane:
 
 ```sh
 scripts/macos_test.sh telemetry-overhead
@@ -357,6 +354,7 @@ scripts/macos_test.sh telemetry-overhead
 
 This uses `vocello bench --seed` with one warm-up and five measured warm takes per telemetry mode,
 requires identical PCM, and gates median RTF/TTFC at 5% (lightweight) and 10% (verbose) versus off.
+It refuses to generate without current full UI evidence and never repairs or downloads models.
 
 Post-run gate:
 
@@ -559,7 +557,7 @@ and stamps `outputVerification` on `autorun-done.json`. Gate with
 `scripts/check_language_output.py`. Requires Speech Recognition permission on the phone once.
 Skip with `QVOICE_LANG_BENCH_SKIP_OUTPUT=1`. See [`language-bench.md`](language-bench.md).
 
-### Layer 3 — Listening pass (mandatory pre-merge for engine)
+### Layer 3 — Listening pass (mandatory for engine promotion/release)
 
 Play takes; judge timbre, prosody, artifacts. Record verdict in snapshot note or HISTORY.md.
 
@@ -592,9 +590,9 @@ Auto-pruned: `generations.jsonl` ~8 MB cap; verbose sidecars newest-48 / 64 MB.
 
 ### CI / automation
 
-- `.github/workflows/ci.yml` — `ios-compile-check` (compile-only; no XCUITest, no bench)
-- `.github/workflows/release.yml` — packaging; **no bench**
-- Pre-merge: `scripts/macos_test.sh gate` — UI smoke + models; **no bench**
+- `.github/workflows/ci.yml` — `ios-compile-check` (compile-only; no attended UI, no bench)
+- `.github/workflows/release.yml` — platform-specific packaging after its strict frontend evidence
+- Explicit frontend acceptance: `scripts/macos_test.sh gate` — UI smoke + models; **no bench**
 
 Engine regression net remains **manual local** until a self-hosted macOS bench job exists.
 

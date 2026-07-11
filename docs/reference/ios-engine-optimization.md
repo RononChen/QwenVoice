@@ -263,8 +263,9 @@ around lazy ops, not per-stage GPU attribution (OPTIMIZATION.md §A).
 
 The reference-free `audioQC` verdict (per engine row; `pass` / `warn` / `fail:flags` —
 nonfinite/clipping/clicks/dropout/near_silent) is the **objective tripwire**, not the perceptual gate.
-The **mandatory pre-merge listening pass** over the fixed corpus is the real gate (`vocello review` /
-by ear; audio never ships).
+The **mandatory promotion/release listening pass** over the fixed corpus is the real perceptual
+gate (`vocello review` / by ear; audio never ships). It does not block preserving or sharing an
+ordinary development checkpoint.
 
 - **`dropout` is punctuation-aware** (OPTIMIZATION.md §B/§C, `ac86b8a`). The original ~586 ms
   "dropout" was root-caused as the model's **natural prosodic pauses** at sentence/comma boundaries on
@@ -284,11 +285,9 @@ by ear; audio never ships).
 | commit | date | what it changed / achieved |
 |---|---|---|
 | `b77c08e` | 2026-05-28 | Reverted the floor-8GB 6 GB + iPhonePro 5 GB hard `Memory.memoryLimit` (spurious OOM downgrades); back to no-hard-limit. |
-| `f4b2da0` | 2026-06-02 | Hybrid on-device test method: the `QVOICE_IOS_AUTORUN` headless harness + `VocelloiOSUITests` smoke. |
 | `7822a8a` | 2026-06-01 | **In-process engine** — run the TTS engine in the app, not the ExtensionKit extension (the unlock). |
 | `17e0b87` | 2026-06-02 | **Clone in-process works** on device: opened the proactive-warm gate, gated clone on the measured entitled per-app limit (≥4.5 GB), primed the reference. |
 | `43a3b68` | 2026-06-02 | Runtime-gated the on-device experimentation knobs so they work on Release builds (no `#if DEBUG`). |
-| `0d3f5b5` | 2026-06-02 | Auto-start iPhone Mirroring for observation on every device command (OLED-safe; keeps a locked device devicectl-reachable). |
 | `e6258e2` | 2026-06-02 | Fixed the in-process memory-context **double-count** (was counting the app twice and inflating the band). |
 | `30c3792` | 2026-06-02 | Stopped embedding the dormant extension (`.appex` no longer in the bundle). |
 | `aed617c` | 2026-06-02 | **Removed the dead `VocelloEngineExtension` target entirely** (~2,000 LOC dead code). |

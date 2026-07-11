@@ -1,8 +1,9 @@
 # XcodeBuildMCP configuration for the Vocello (QwenVoice) monorepo.
 # Docs: https://xcodebuildmcp.com/docs/configuration
 #
-# After editing enabledWorkflows, reload the xcodebuildmcp MCP server in Cursor
-# (Settings → MCP → xcodebuildmcp → Restart) so new tools appear.
+# OpenAI Build iOS Apps supplies this repository's one shared XcodeBuildMCP server;
+# Build macOS Apps consumes the same server. After editing, start a fresh Codex/ChatGPT
+# Desktop task or reload the owning plugin. Never configure a second instance.
 schemaVersion: 1
 enabledWorkflows:
   - macos              # Vocello.app: build_macos, build_run_macos, test_macos, …
@@ -25,5 +26,5 @@ sessionDefaultsProfiles:
     platform: iOS
     bundleId: com.patricedery.vocello
     arch: arm64
-    # deviceId: set at runtime via session_set_defaults (never commit UDIDs).
+    # Physical-device ID is set at runtime via session_set_defaults and never committed.
     # Prefer scripts/ios_device.sh for all iOS UI tests and real-engine work.

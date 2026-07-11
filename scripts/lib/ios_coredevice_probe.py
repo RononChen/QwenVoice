@@ -54,7 +54,17 @@ def _connected(d: dict[str, Any]) -> bool:
 
 def _reachable(d: dict[str, Any]) -> bool:
     cp = d.get("connectionProperties") or {}
-    return cp.get("tunnelState", "") in ("connected", "available")
+    if cp.get("tunnelState", "") in ("connected", "available"):
+        return True
+    # A paired network device may expose Connect to Device while its tunnel is
+    # intentionally lazy. devicectl acquires that tunnel on the first operation.
+    capabilities = d.get("capabilities") or []
+    can_connect = any(
+        item.get("featureIdentifier") == "com.apple.coredevice.feature.connectdevice"
+        for item in capabilities
+        if isinstance(item, dict)
+    )
+    return cp.get("pairingState") == "paired" and can_connect
 
 
 def pick_device(data: dict[str, Any], device_id: str | None = None) -> dict[str, Any] | None:
@@ -134,51 +144,19 @@ def probe_coredevice(device_id: str | None = None) -> dict[str, Any]:
     return out
 
 
-def mac_gate1_open() -> bool:
-    try:
-        proc = subprocess.run(
-            ["automationmodetool"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        out = proc.stdout + proc.stderr
-        return "requires user authentication" in out.lower()
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
-
-
 def automation_blockers(
     *,
     verdict: str,
     coredevice: dict[str, Any],
-    lane: str = "xcuitest",
+    lane: str = "computer-use",
 ) -> tuple[bool, list[str]]:
     blockers: list[str] = []
-    if verdict == "PROBE_DEGRADED":
-        blockers.append("probe_degraded")
-    if verdict in ("MIRROR_DISCONNECTED", "DEVICE_UNREACHABLE"):
-        blockers.append("mirror_disconnected")
-    if verdict == "PHONE_IN_USE":
-        blockers.append("phone_in_use")
-    if verdict == "CALL_ACTIVE":
-        blockers.append("call_active")
-    if verdict == "MIRROR_CONNECTING":
-        blockers.append("mirror_connecting")
+    if verdict == "DEVICE_UNREACHABLE":
+        blockers.append("device_unreachable")
+    if verdict == "MIRROR_UNAVAILABLE":
+        blockers.append("mirror_unavailable")
 
-    lock = coredevice.get("lock") or {}
-    if lock.get("deviceLocked") is True and lane == "xcuitest":
-        blockers.append("device_locked")
-    if mac_gate1_open():
-        blockers.append("mac_gate1_open")
-
-    ready = len(blockers) == 0
-    if lane == "bench":
-        # Headless bench ignores lock + mac gate1 for mirror session readiness.
-        bench_blockers = [b for b in blockers if b not in ("device_locked", "mac_gate1_open")]
-        ready = len(bench_blockers) == 0
-        return ready, bench_blockers
-    return ready, blockers
+    return len(blockers) == 0, blockers
 
 
 def main() -> int:
@@ -226,8 +204,8 @@ def main() -> int:
         return 0
 
     if cmd == "automation":
-        lane = "xcuitest"
-        verdict = "MIRROR_ACTIVE"
+        lane = "computer-use"
+        verdict = "READY"
         core: dict[str, Any] = {}
         i = 2
         while i < len(sys.argv):
@@ -248,7 +226,7 @@ def main() -> int:
         if not core:
             core = probe_coredevice(device_id)
         ready, blockers = automation_blockers(verdict=verdict, coredevice=core, lane=lane)
-        print(json.dumps({"readyForXCUITest": ready, "blockers": blockers}, indent=2))
+        print(json.dumps({"readyForAutomation": ready, "blockers": blockers}, indent=2))
         return 0
 
     print(f"unknown command: {cmd}", file=sys.stderr)

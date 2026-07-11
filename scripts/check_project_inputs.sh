@@ -18,9 +18,18 @@ REQUIRED_SURFACES=(
     "scripts/check_backend_resource_contract.sh"
     "scripts/regenerate_project.sh"
     "scripts/build_foundation_targets.sh"
+    "scripts/ios_agent_ui.sh"
+    "scripts/lib/computer_use_routing.py"
+    "scripts/lib/ios_agent_ui.py"
+    "scripts/test_computer_use_routing.py"
+    "scripts/test_check_language_output.py"
     "scripts/release.sh"
     "Sources/Resources/qwenvoice_contract.json"
     "config/apple-platform-capability-matrix.json"
+    "config/ios-ui-scenarios.json"
+    "config/ios-test-impact.json"
+    "qa/ios-ui-attestation.json"
+    ".xcodebuildmcp/config.yaml"
     "project.yml"
 )
 
@@ -31,11 +40,8 @@ for required_surface in "${REQUIRED_SURFACES[@]}"; do
     fi
 done
 
-# iOS device tooling + a thin XCUITest smoke were RE-ENABLED (maintainer decision,
-# 2026-06-01): the hybrid headless-harness + XCUITest method replaced the retired
-# screen-mirror UI-driving workflow (see .agents/ios-engineer.md "Testing" +
-# docs/reference/ios-device-testing.md). The device driver (scripts/ios_device.sh),
-# the VocelloiOSUITests smoke bundle, and the iOS test trees are all allowed again.
+# iOS device tooling and bundled Computer Use are first-class. `scripts/ios_device.sh` owns
+# physical-device operations; `scripts/ios_agent_ui.sh` owns UI evidence and attestations.
 # The owned Qwen3 runtime now has one curated direct test target. Broad upstream
 # multi-model tests remain prohibited; only this exact directory is allowed.
 VENDOR_TEST_ROOT="$PROJECT_DIR/third_party_patches/mlx-audio-swift/Tests"
@@ -47,9 +53,9 @@ if [ -d "$VENDOR_TEST_ROOT" ]; then
         exit 1
     fi
 fi
-# NOTE: benchmarking, output-quality, AND iOS device/test surfaces are first-class
+# NOTE: benchmarking, output-quality, AND iOS device/Computer Use surfaces are first-class
 # here (runtime telemetry, scripts/summarize_generation_telemetry.py, benchmarks/,
-# in-engine audioQC, scripts/ios_device.sh, the VocelloiOSUITests smoke). Committed
+# in-engine audioQC, scripts/ios_device.sh, and the iOS Computer Use skill). Committed
 # benchmark/QC scripts + baselines are allowed (bounded by the benchmarks/ cap below).
 
 # General hygiene bans only (kept): vendored upstream tests, stale macOS-15 product /
@@ -63,6 +69,19 @@ PROHIBITED_REFERENCE_PATTERNS=(
     "scripts/check_qwen3_backend_only\.py"
     "scripts/check_ios_catalog\.py"
     "scripts/refresh_readme_screenshots\.py"
+    "VocelloiOSUITests"
+    "ios_uitest_doctor"
+    "enable_unattended_uitest"
+    "xcresult_shots"
+    "IOSStudioBenchHooks"
+    "check_ios_ui_bench"
+    "ios_vision_bench_matrix"
+    "ios_test_models"
+    "IOSModelsInventoryWriter"
+    "generate_ui_test_surface"
+    "ui-test-surface"
+    "record-capability"
+    "computer-use-capability"
 )
 
 for removed_pattern in "${PROHIBITED_REFERENCE_PATTERNS[@]}"; do
@@ -73,6 +92,7 @@ for removed_pattern in "${PROHIBITED_REFERENCE_PATTERNS[@]}"; do
             --glob '!build/**' \
             --glob '!scratch/**' \
             --glob '!**/scripts/check_project_inputs.sh' \
+            --glob '!**/scripts/check_doc_harness_drift.sh' \
             >/tmp/qwenvoice_removed_reference_grep 2>/dev/null; then
             echo "error: removed test/benchmark reference is still present:" >&2
             cat /tmp/qwenvoice_removed_reference_grep >&2
@@ -81,6 +101,7 @@ for removed_pattern in "${PROHIBITED_REFERENCE_PATTERNS[@]}"; do
         fi
     elif git -C "$PROJECT_DIR" grep -nE "$removed_pattern" -- \
         ':!:scripts/check_project_inputs.sh' \
+        ':!:scripts/check_doc_harness_drift.sh' \
         ':!:build/**' \
         >/tmp/qwenvoice_removed_reference_grep 2>/dev/null; then
         echo "error: removed test/benchmark reference is still present:" >&2
@@ -89,6 +110,29 @@ for removed_pattern in "${PROHIBITED_REFERENCE_PATTERNS[@]}"; do
         exit 1
     fi
     rm -f /tmp/qwenvoice_removed_reference_grep
+done
+
+XCODE_MCP_CONFIG="$PROJECT_DIR/.xcodebuildmcp/config.yaml"
+if grep -niE 'simulator|ui-automation|ios-sim|^[[:space:]]*(deviceId|device_id|udid):' "$XCODE_MCP_CONFIG" >/tmp/qwenvoice_xcode_mcp_forbidden; then
+    echo "error: .xcodebuildmcp/config.yaml contains a prohibited destination, workflow, or committed device identifier:" >&2
+    cat /tmp/qwenvoice_xcode_mcp_forbidden >&2
+    rm -f /tmp/qwenvoice_xcode_mcp_forbidden
+    exit 1
+fi
+rm -f /tmp/qwenvoice_xcode_mcp_forbidden
+
+actual_workflows="$(sed -n '/^enabledWorkflows:/,/^activeSessionDefaultsProfile:/p' "$XCODE_MCP_CONFIG" \
+    | sed -n 's/^[[:space:]]*-[[:space:]]*\([^#[:space:]]*\).*/\1/p' | sort | tr '\n' ' ')"
+expected_workflows="debugging device macos project-discovery "
+if [ "$actual_workflows" != "$expected_workflows" ]; then
+    echo "error: unexpected XcodeBuildMCP workflows: $actual_workflows" >&2
+    echo "expected: $expected_workflows" >&2
+    exit 1
+fi
+
+for profile in macos ios-device; do
+    grep -qE "^[[:space:]]{2}${profile}:$" "$XCODE_MCP_CONFIG" \
+        || { echo "error: missing XcodeBuildMCP profile: $profile" >&2; exit 1; }
 done
 
 GENERATION_PREWARM_PATH="$PROJECT_DIR/Sources/Views/Generate"

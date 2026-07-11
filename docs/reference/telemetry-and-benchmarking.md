@@ -16,8 +16,8 @@ If anything here disagrees with the code, the code wins — fix this file.
 > `benchmarks/` cap). macOS frontend acceptance is driven only by the repository
 > `$vocello-macos-ui-qa` Computer Use skill; deterministic history/WAV/XPC/backend probes make its
 > structured attestation gate-bearing. iOS UI tests and real-engine generation remain
-> **on-device only** via `scripts/ios_device.sh`; mirroir is exploratory and GitHub CI
-> (`.github/workflows/ci.yml`) is **compile-only** for iOS (`build-for-testing`, no XCUITest).
+> **on-device only**; `$vocello-ios-ui-qa` drives the phone through bundled Computer Use and
+> iPhone Mirroring. GitHub CI is compile-only for iOS.
 > See [`testing-runbook.md`](testing-runbook.md) and [`ios-device-testing.md`](ios-device-testing.md).
 
 ---
@@ -71,6 +71,10 @@ overhead lane verifies that optimization and waveform parity:
 ```sh
 scripts/macos_test.sh telemetry-overhead
 ```
+
+This is a real generation lane. It requires a current full Computer Use attestation whose visible
+Settings `model-readiness` scenario passed, then performs a read-only model integrity check. It
+never invokes `models ensure`, downloads weights, or bootstraps a clone fixture.
 
 It applies one fixed `vocello bench --seed`, one warm-up and five measured
 Custom/Speed/medium warm takes per mode. PCM SHA-256 must match across off,
@@ -462,7 +466,7 @@ package does — and records — its own cold load**. Leave it unset for normal 
 2. Type the fixed script; `cmd+Return`; wait for "Ready" / the inline Player.
 3. That first run is the **cold** sample (`warmState=cold`). Repeat ×3 for the **warm** samples.
    macOS: `$vocello-macos-ui-qa benchmark` drives the exact app and the shell harness joins typed
-   app/XPC/backend rows before accepting the take. iOS: `VocelloiOSUITests` drives real generation on a paired iPhone via
+   app/XPC/backend rows before accepting the take. iOS: bundled Computer Use drives real generation on a paired iPhone via
    `scripts/ios_device.sh` (see [`testing-runbook.md`](testing-runbook.md)).
 
 **Storage‑safe order (disk‑tight machines):** process one cell at a time — download that package
@@ -612,12 +616,12 @@ dropouts, garbled words, "sounds worse"). Two layers, increasing in what they ca
    weights; calibrate one from a labeled corpus with `scripts/prosody_calibration.py`, then pass it to
    `vocello bench --delivery --prosody-profile path/to/profile.json`. The built-in profile is used when
    none is supplied.
-3. **Listening pass — mandatory before merging a backend change.** No automated check judges subtle
+3. **Listening pass — mandatory before promoting or releasing a backend change.** No automated check judges subtle
    perceptual quality (timbre, prosody, naturalness). Play each take and listen for hiccups/artifacts;
    record the verdict in the snapshot / `HISTORY.md` note. The objective `audioQC` + prosody gates are
    fast tripwires, not substitutes for ears.
 
-Workflow: run the corpus → any `QC=fail` is a hard stop (investigate before merging) → inspect prosody
+Workflow: run the corpus → any `QC=fail` is a hard stop for promotion/release → inspect prosody
 gate output → do the manual listening pass → record pass/fail. (The in-engine `audioQC` is the harness-free
 default; committed quality-check scripts/baselines under `benchmarks/` are also permitted.)
 

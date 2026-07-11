@@ -2,19 +2,18 @@
 
 A consolidated map of the Vocello iOS app: what every screen/element/option does (user
 view) and how to drive it in tests like a human (identifier/label → action → expected).
-Use this to author accurate, human-like XCUITest flows and to understand the app before
-touching `Sources/iOS/`. All iOS UI tests and real-engine work run **on-device only** via
-`scripts/ios_device.sh` — MLX cannot initialize on the iOS Simulator.
+Use this to author accurate, human-like Computer Use flows and to understand the app before
+touching `Sources/iOS/`. All iOS UI work runs on a paired physical device through iPhone
+Mirroring; MLX cannot initialize on the iOS Simulator.
 
 > **Where this fits:** this is the canonical "what the app is + how to drive it" reference.
 > The testing strategy lives in [`testing-runbook.md`](testing-runbook.md);
 > device lanes (`scripts/ios_device.sh`) in [`ios-device-testing.md`](ios-device-testing.md);
 > generation-engine internals in [`../ARCHITECTURE.md`](../ARCHITECTURE.md);
 > tone/delivery prompt-writing in [`../qwen_tone.md`](../qwen_tone.md).
-> For **mirroir agent driving** (exploratory QA only — not gates), start with
-> [`ios-agent-ui-tour.md`](ios-agent-ui-tour.md) Appendix **B.5–B.8** and
-> [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md) § iOS procedure index.
-> This guide covers **XCUITest** identifiers and human-like test flows.
+> The compact UI state map is [`ios-ui-reference.md`](ios-ui-reference.md), and the frontend
+> acceptance index is [`ui-smoke-runbooks.md`](ui-smoke-runbooks.md). Bundled Computer Use through
+> iPhone Mirroring is the only iOS automation driver.
 
 ---
 
@@ -164,16 +163,13 @@ The composer's primary CTA reflects model readiness:
 So "is this mode ready to generate?" is **test-readable from the Studio surface**: if
 `textInput_installModelButton` is present, the model isn't installed.
 
-### Human rule (and test preconditions)
+### Human and Computer Use preconditions
 
-**Always confirm the mode's model is installed before composing/generating.** In a test:
-either pre-install via Settings, or assert the readiness signal (`textInput_generateButton`
-present) before typing/tapping Generate. `VocelloiOSColdGenerationUITests` skips when the
-Speed model isn't installed; `VocelloiOSOnDeviceDownloadUITests` drives the
-install→cancel lifecycle (it uninstalls `pro_custom` in `setUp` — that is the test's
-contract; there is no user-facing pause).
+**Always confirm the mode's model is installed before composing/generating.** The current mirror
+screenshot must show Generate rather than Install. Destructive install/cancel/delete actions are
+outside normal suites and require action-time confirmation.
 
-### Driving sequences (from `VocelloiOSOnDeviceDownloadUITests`)
+### Model lifecycle sequence
 
 - **Install:** Settings → `iosModelDownload_<id>`.tap() → (wait for complete → `iosModelDelete_<id>`).
 - **Cancel:** `iosModelDownload_<id>`.tap() → `iosModelCancel_<id>`.tap() →
@@ -229,85 +225,31 @@ Italian. The instruction/brief language is independent of the spoken-text langua
 
 ---
 
-## 5. Driving the UI like a human (test guide)
+## 5. Driving through Computer Use
 
-### Helper toolkit — `Tests/VocelloiOSUITests/VocelloUITestApp.swift` (shared coordinator)
+The mirror accessibility tree exposes only window chrome. `$vocello-ios-ui-qa` therefore observes
+the current device screenshot, locates the target visually, clicks its current center in app-local
+coordinates, and immediately re-observes. Coordinates are never reused across states or committed
+as a table.
 
-| Helper | Use |
-|---|---|
-| `retainIfNeeded()` / `release()` / `forceTerminate()` | Warm-session lifecycle (one app across warm tests); cold-gen `forceTerminate()`s for a fresh launch |
-| `resetToStudio()` | Per-test reset: Studio tab + dismiss any stuck sheet |
-| `element(id)` | Broad query (`app.descendants(matching:.any)[id]`) — use sparingly |
-| `button(id)` | Cheap `app.buttons[id]` — tabs/plain buttons |
-| `button(labelPrefix:)` | Optional fallback for selector pills when label is more stable than id |
-| `firstElement(prefix:)` / `firstElement(prefix:excludingIdentifier:)` | Picker rows (`voicePickerRow_*`, `languagePicker_*`) |
-| `waitFor(id, timeout:)` | Existence wait |
-| `waitForConfirmationButton(id, timeout:)` | Poll for a confirm-dialog button (SwiftUI attach lag) |
-| `dismissOnboardingIfPresent(timeout:)` | First-run onboarding (skip/CTA) |
-| `captureScreenshot(named:)` | Attach to `.xcresult` (+ disk if `UI_TEST_SCREENSHOT_DIR` set) |
-| `isSelectedEventually(e)` | Poll `isSelected` (the trait updates a beat after tap) |
+Canonical flows remain:
 
-Env knobs (warm tests set these via `VocelloUITestApp.launch()`):
-- `QVOICE_IOS_SKIP_ONBOARDING=1` — skip first-run onboarding.
-- `QWENVOICE_DEBUG=1` — telemetry on (cold-gen sets this).
+- Onboarding → Studio: advance or skip until the Studio tabs and composer are visible.
+- Custom: select Custom, confirm model readiness, configure voice/delivery/language, compose,
+  Generate, verify the completed player, then run `ios_agent_ui.sh verify-generation`.
+- Design: select Design, enter a voice brief, compose, Generate, and verify telemetry.
+- Clone: select Clone, choose a saved reference, compose, Generate, and verify telemetry.
+- History: open the History tab, find the generated take, and replay it.
+- Settings: review model and preference state; restore any reversible preference change.
 
-### Per-element driving map (identifier/label → action → expected)
+Gotchas:
 
-| Element | Drive via | Action | Expected / gotcha |
-|---|---|---|---|
-| Tab | `button("rootTab_*")` | tap | assert via `isSelectedEventually` (async) |
-| Mode segment | `element("generateSection_*")` | tap | keeps id; cold-launch may lag → fall back to label `"Custom"` |
-| Selector pill | `element("studioChip_*")` or `button(labelPrefix:)` | tap | opens a sheet → wait for `*_confirm` or `bottomSheet_close` |
-| Voice row | `firstElement(prefix:"voicePickerRow_", excludingIdentifier: current)` | tap | **provisional** — sheet stays open |
-| Preview | `firstElement(prefix:"voicePickerPreview_")` | tap | plays audio, no select/close |
-| Picker confirm | `element("voicePicker_confirm"/"languagePicker_confirm"/"deliveryPicker_confirm")` | tap | commits + dismisses |
-| Custom tone | `element("deliveryPickerSheet_customTone")` → `_editor`.tap().typeText() | type | counter `_charCount` updates (`/500`) |
-| Voice brief | `element("voiceBrief_editor")`.tap().typeText() | type | confirm `voiceBrief_confirm` |
-| Composer | `element("textInput_textEditor")` | tap/type | `typeText("\n")` to dismiss keyboard before Generate |
-| **Generate** | `element("textInput_generateButton")` — only when model installed | tap | wait for `studio_inlinePlayer` (cold gen: ≤120s) |
-| **Install (model missing)** | `textInput_installModelButton` | tap | routes to Settings download |
-| Model install/cancel/… | `iosModel{Download,Cancel,Resume,Retry,Delete,Repair}_<id>` | per §3 | confirms via `waitForConfirmationButton` |
-
-### Canonical flows (each generation flow starts with a model-readiness check)
-
-**(a) Onboarding → Studio** — `dismissOnboardingIfPresent()` → assert `rootTab_studio` + `screen_generateStudio`.
-
-**(b) Custom** — `element("generateSection_custom").tap()` → (confirm `textInput_generateButton`
-present, else install the model via §3) → `button(labelPrefix:"Voice: ").tap()` → pick row →
-`voicePicker_confirm`.tap() → (optional language/delivery) → composer.typeText("…") →
-`\n` to dismiss keyboard → tap Generate → wait for completion.
-
-**(c) Design** — `generateSection_design`.tap() → `button(labelPrefix:"Voice brief:").tap()` →
-`voiceBrief_editor`.typeText("…") → `voiceBrief_confirm`.tap() → (model check) → compose → Generate.
-
-**(d) Clone** — `generateSection_clone`.tap() → `studioChip_reference`.tap() → **Record new clip**
-(`iosRecord_start` → record ≥10 s → `iosRecord_stop` → naming sheet → Save) **on the physical iPhone**
-(not via Mirroring — the device mic is unavailable through Mirroring). Expect the Reference chip to
-show the **saved voice name** after enroll; transcript is filled during the naming sheet when Speech
-permission is granted. Alternatively pick a saved voice from the list → (model check) → compose → Generate.
-
-**(e) History** — `rootTab_history`.tap() → (optional `historyModeFilter_*`) → `historyRowTap_<id>`.tap() (opens player).
-
-**(f) Install a model** — `rootTab_settings`.tap() → `iosModelDownload_<id>`.tap() → wait for `iosModelDelete_<id>`.
-
-### Gotchas
-
-1. **Screen presence marker** — `screen_generateStudio` is attached via `screenPresenceMarker(_:)`
-   (a 1pt leaf), so `studioChip_*`, `textInput_*`, and `textInput_generateButton` are
-   directly queryable. Inside sheets, ids always work.
-2. **Confirm-gating** — selecting a picker row is provisional; always tap the `*_confirm` header to commit + dismiss.
-3. **Async selection** — `isSelected` lags a tap; poll with `isSelectedEventually`.
-4. **Dismiss keyboard before Generate** — the composer's Return key is "Done"; `typeText("\n")` then wait for the keyboard to vanish before tapping Generate.
-5. **Cold-launch segment lag** — `generateSection_*` may resolve slowly after a cold launch; fall back to label matching.
-6. **Confirm-dialog timing** — SwiftUI attach lags; use `waitForConfirmationButton`.
-7. **On-device only** — all iOS UI tests run on a paired iPhone via `scripts/ios_device.sh`.
-   ColdGeneration and OnDeviceDownload self-launch fresh app instances when needed.
-8. **Unlock once** — XCUITest needs the iPhone unlocked once for the automation auth handshake (`preflight` surfaces this); then it can lock again.
-9. **Clone reference recording** — present `IOSRecordVoiceSheet` from `RootView` via `AppModel`
-   (same enroll flow as Voices tab: record → Stop → naming sheet with transcript → Save).
-   Record on the **physical phone**; Mirroring cannot drive mic capture. Virtual mic for
-   automation: `QWENVOICE_FAKE_MIC_WAV` with an **on-device** path — see
-   [`ios-device-testing.md`](ios-device-testing.md) §3.
+1. Picker selection is provisional until its visible Confirm action is activated.
+2. Dismiss the keyboard before Generate when it obscures the button.
+3. Wait for cold model loading rather than repeating a click.
+4. Save a new screenshot after every semantic state transition.
+5. Recording and destructive model lifecycle actions require attended confirmation and are outside
+   ordinary quick/full/benchmark suites.
 
 ---
 

@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import tempfile
 import unittest
+from unittest import mock
 
 
 MODULE_PATH = Path(__file__).parent / "lib" / "macos_agent_ui.py"
@@ -94,6 +95,26 @@ class ProbeValidationTests(unittest.TestCase):
 
 
 class ContractTests(unittest.TestCase):
+    def test_launch_services_records_identify_duplicate_wrong_path_bundles(self):
+        output = """
+--------------------------------------------------------------------------------
+bundle id:                  Vocello
+path:                       /Applications/Vocello.app (0x123)
+identifier:                 com.qwenvoice.app
+--------------------------------------------------------------------------------
+bundle id:                  Vocello
+path:                       /Users/patricedery/Coding_Projects/QwenVoice/build/Vocello.app (0x456)
+identifier:                 com.qwenvoice.app
+--------------------------------------------------------------------------------
+bundle id:                  Unrelated
+path:                       /Applications/Other.app (0x789)
+identifier:                 com.example.other
+"""
+        records = HARNESS.parse_launch_services_app_records(output)
+        self.assertEqual(len(records), 2)
+        self.assertEqual(sum(record["exactPath"] for record in records), 1)
+        self.assertTrue(any(record["path"] == "/Applications/Vocello.app" for record in records))
+
     def test_source_fingerprint_excludes_ignored_machine_state(self):
         paths = [path.as_posix() for path in HARNESS.relative_files()]
         self.assertFalse(any("__pycache__" in path for path in paths))
@@ -236,6 +257,292 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(command[-1], str(HARNESS.APP))
         self.assertNotIn(HARNESS.BUNDLE_ID, command)
         self.assertIn("QWENVOICE_APP_SUPPORT_DIR=/tmp/disposable", command)
+        self.assertIn("QWENVOICE_INITIAL_SIDEBAR_ITEM=custom", command)
+
+        diagnostic = HARNESS.exact_launch_command(
+            "fixture",
+            Path("/tmp/disposable"),
+            initial_sidebar_item="history",
+        )
+        self.assertIn("QWENVOICE_INITIAL_SIDEBAR_ITEM=history", diagnostic)
+
+    def test_exact_launch_rejects_arbitrary_initial_screen(self):
+        with self.assertRaises(HARNESS.HarnessError):
+            HARNESS.exact_launch_command(
+                "fixture",
+                Path("/tmp/disposable"),
+                initial_sidebar_item="voiceDesign",
+            )
+
+    def test_normal_start_rejects_known_bad_helper(self):
+        routing = {
+            "readyForSuite": False,
+            "ready": False,
+            "errors": [],
+            "suiteBlockers": ["helper fingerprint is blocked for normal UI suites"],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "Vocello"
+            binary.write_bytes(b"fixture")
+            args = argparse.Namespace(suite="quick", allow_destructive=False)
+            with mock.patch.object(HARNESS, "APP_BINARY", binary), mock.patch.object(
+                HARNESS, "routing_status", return_value=routing
+            ):
+                with self.assertRaisesRegex(HARNESS.HarnessError, "blocked for normal UI suites"):
+                    HARNESS.cmd_start(args)
+
+    def test_known_bad_warm_diagnostic_requires_explicit_acknowledgement(self):
+        routing = {
+            "readyForDiagnostic": True,
+            "ready": False,
+            "errors": [],
+            "knownBadHelperDetected": True,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "Vocello"
+            binary.write_bytes(b"fixture")
+            state = Path(directory) / "warm.json"
+            args = argparse.Namespace(
+                initial_screen="history",
+                acknowledge_known_bad_helper=False,
+            )
+            with mock.patch.object(HARNESS, "APP_BINARY", binary), mock.patch.object(
+                HARNESS, "WARM_DIAGNOSTIC", state
+            ), mock.patch.object(HARNESS, "app_process_records", return_value=[]), mock.patch.object(
+                HARNESS, "routing_status", return_value=routing
+            ):
+                with self.assertRaisesRegex(HARNESS.HarnessError, "acknowledge-known-bad-helper"):
+                    HARNESS.prepare_warm_diagnostic(args)
+
+    def test_stable_app_poll_requires_one_unchanged_exact_pid(self):
+        record = {"pid": 42, "executable": str(HARNESS.APP_BINARY), "exactPath": True}
+        with mock.patch.object(HARNESS, "app_process_records", return_value=[record]), mock.patch.object(
+            HARNESS, "new_service_crash_reports", return_value=[]
+        ), mock.patch.object(HARNESS.time, "sleep"):
+            self.assertEqual(
+                HARNESS.stable_exact_app_pid(
+                    timeout_seconds=1,
+                    stable_seconds=0,
+                    crash_baseline=[],
+                ),
+                42,
+            )
+
+    def test_stable_app_poll_fails_immediately_for_duplicate_or_crash(self):
+        exact = {"pid": 42, "executable": str(HARNESS.APP_BINARY), "exactPath": True}
+        duplicate = {"pid": 43, "executable": "/Applications/Vocello.app", "exactPath": False}
+        with mock.patch.object(HARNESS, "app_process_records", return_value=[exact, duplicate]):
+            with self.assertRaisesRegex(HARNESS.HarnessError, "unexpected Vocello process ownership"):
+                HARNESS.stable_exact_app_pid(timeout_seconds=1, stable_seconds=0)
+        with mock.patch.object(HARNESS, "new_service_crash_reports", return_value=[{"path": "new.ips"}]):
+            with self.assertRaisesRegex(HARNESS.HarnessError, "crashed while Vocello was stabilizing"):
+                HARNESS.stable_exact_app_pid(
+                    timeout_seconds=1,
+                    stable_seconds=0,
+                    crash_baseline=[],
+                )
+
+    def test_warm_diagnostic_verify_never_relaunches_and_is_not_attestable(self):
+        helper = {
+            "pid": 7,
+            "executable": "/managed/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
+            "version": "26.708.1000366",
+            "build": "1000366",
+            "uuid": "61C0",
+            "sha256": "helper-hash",
+        }
+        routing = {
+            "readyForDiagnostic": True,
+            "errors": [],
+            "computerUseServiceProcesses": [{
+                "pid": 7,
+                "executable": helper["executable"],
+                "version": helper["version"],
+                "build": helper["build"],
+                "uuid": helper["uuid"],
+                "sha256": helper["sha256"],
+            }],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "warm.json"
+            binary = Path(directory) / "Vocello"
+            binary.write_bytes(b"fixture")
+            HARNESS.write_json(state, {
+                "schemaVersion": 1,
+                "diagnosticOnly": True,
+                "attestable": False,
+                "diagnosticID": "fixture",
+                "status": "prepared",
+                "observationsConsumed": 0,
+                "observationEvidence": {
+                    "accessibilityTextLength": 100,
+                    "visibleWindowCount": 1,
+                    "screenshotAvailable": True,
+                },
+                "appPID": 42,
+                "computerUseService": helper,
+                "computerUseCrashReportsAtStart": [],
+            })
+            app_record = {"pid": 42, "executable": str(binary.resolve()), "exactPath": True}
+            with mock.patch.object(HARNESS, "WARM_DIAGNOSTIC", state), mock.patch.object(
+                HARNESS, "APP_BINARY", binary
+            ), mock.patch.object(HARNESS, "routing_status", return_value=routing), mock.patch.object(
+                HARNESS, "app_process_records", return_value=[app_record]
+            ), mock.patch.object(HARNESS, "new_service_crash_reports", return_value=[]), mock.patch.object(
+                HARNESS, "run"
+            ) as run_mock:
+                HARNESS.verify_warm_diagnostic()
+                run_mock.assert_not_called()
+            verified = HARNESS.read_json(state)
+            self.assertEqual(verified["status"], "verified")
+            self.assertTrue(verified["diagnosticOnly"])
+            self.assertFalse(verified["attestable"])
+            self.assertEqual(verified["observationsConsumed"], 1)
+
+    def test_warm_diagnostic_records_non_sensitive_observation_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "warm.json"
+            screenshot = Path(directory) / "capture.jpeg"
+            screenshot.write_bytes(b"diagnostic-image")
+            HARNESS.write_json(state, {
+                "diagnosticID": "fixture",
+                "diagnosticOnly": True,
+                "attestable": False,
+                "status": "prepared",
+                "observationsConsumed": 0,
+            })
+            args = argparse.Namespace(
+                app_path=str(HARNESS.APP),
+                accessibility_length=1815,
+                window_count=1,
+                screenshot_url=screenshot.as_uri(),
+            )
+            with mock.patch.object(HARNESS, "WARM_DIAGNOSTIC", state):
+                HARNESS.record_warm_diagnostic_observation(args)
+            evidence = HARNESS.read_json(state)["observationEvidence"]
+            self.assertEqual(evidence["accessibilityTextLength"], 1815)
+            self.assertEqual(evidence["visibleWindowCount"], 1)
+            self.assertEqual(evidence["screenshotByteCount"], len(b"diagnostic-image"))
+            self.assertEqual(evidence["screenshotSHA256"], hashlib.sha256(b"diagnostic-image").hexdigest())
+            self.assertNotIn(str(screenshot), json.dumps(evidence))
+
+    def test_warm_diagnostic_cleanup_preserves_verification_and_debug_preference(self):
+        helper = {
+            "pid": 7,
+            "executable": "/managed/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
+            "version": "26.708.1000366",
+            "build": "1000366",
+            "uuid": "61C0",
+            "sha256": "helper-hash",
+        }
+        routing = {"computerUseServiceProcesses": [helper]}
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "warm.json"
+            HARNESS.write_json(state, {
+                "diagnosticID": "fixture",
+                "diagnosticOnly": True,
+                "attestable": False,
+                "status": "verified",
+                "verificationVerdict": "pass",
+                "observationsConsumed": 1,
+                "appPID": 42,
+                "computerUseService": helper,
+                "computerUseCrashReportsAtStart": [],
+            })
+            with mock.patch.object(HARNESS, "WARM_DIAGNOSTIC", state), mock.patch.object(
+                HARNESS, "app_process_records", return_value=[]
+            ), mock.patch.object(HARNESS, "terminate_process"), mock.patch.object(
+                HARNESS, "clear_debug_flag"
+            ) as clear_debug, mock.patch.object(
+                HARNESS, "require_computer_use_session", return_value=routing
+            ), mock.patch.object(HARNESS, "new_service_crash_reports", return_value=[]):
+                HARNESS.abort_warm_diagnostic()
+                clear_debug.assert_not_called()
+            cleaned = HARNESS.read_json(state)
+            self.assertEqual(cleaned["status"], "cleaned")
+            self.assertEqual(cleaned["verificationVerdict"], "pass")
+            self.assertEqual(cleaned["cleanupVerdict"], "pass")
+
+    def test_warm_diagnostic_cleanup_records_late_helper_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "warm.json"
+            HARNESS.write_json(state, {
+                "diagnosticID": "fixture",
+                "diagnosticOnly": True,
+                "attestable": False,
+                "status": "verified",
+                "verificationVerdict": "pass",
+                "observationsConsumed": 1,
+                "appPID": 42,
+                "computerUseService": {"pid": 7},
+                "computerUseCrashReportsAtStart": [],
+            })
+            crash = {"path": "/tmp/SkyComputerUseService-new.ips"}
+            with mock.patch.object(HARNESS, "WARM_DIAGNOSTIC", state), mock.patch.object(
+                HARNESS, "app_process_records", return_value=[]
+            ), mock.patch.object(HARNESS, "terminate_process"), mock.patch.object(
+                HARNESS, "new_service_crash_reports", return_value=[crash]
+            ), mock.patch.object(
+                HARNESS,
+                "require_computer_use_session",
+                side_effect=HARNESS.HarnessError("new helper crash"),
+            ):
+                with self.assertRaisesRegex(HARNESS.HarnessError, "cleanup found blocking problems"):
+                    HARNESS.abort_warm_diagnostic()
+            failed = HARNESS.read_json(state)
+            self.assertEqual(failed["status"], "failed")
+            self.assertEqual(failed["verificationVerdict"], "pass")
+            self.assertEqual(failed["cleanupVerdict"], "fail")
+            self.assertEqual(failed["computerUseCrashDelta"], [crash])
+
+    def test_computer_use_skill_prohibits_ambiguous_vocello_selectors(self):
+        skill = (HARNESS.ROOT / ".agents" / "skills" / "vocello-macos-ui-qa" / "SKILL.md").read_text()
+        self.assertIn("Do not retry by display name or bundle identifier", skill)
+        self.assertNotIn("use the display name `Vocello` as the selector", skill)
+
+    def test_diagnostic_evidence_distinguishes_node_repl_from_manifest_mirror(self):
+        evidence = HARNESS.diagnostic_plugin_evidence({
+            "computerUsePluginInstalled": True,
+            "computerUsePluginEnabled": True,
+            "computerUsePluginVersion": "1.0.1000366",
+            "computerUseBundledContentVariant": "node-repl",
+            "computerUseUsesNodeRepl": True,
+            "nodeReplServerDeclared": True,
+            "nodeReplServerEnabled": True,
+            "nodeReplServerCommand": "/Applications/ChatGPT.app/node_repl",
+            "nodeReplServerArgs": [],
+            "computerUseManifestServerDeclared": True,
+            "computerUseManifestMirrorEntryPresent": True,
+            "computerUseManifestMirrorEnabled": False,
+            "computerUseManifestMirrorConflicting": False,
+            "computerUseServerAvailable": True,
+        })
+        self.assertEqual(evidence["bundledContentVariant"], "node-repl")
+        self.assertTrue(evidence["usesNodeRepl"])
+        self.assertTrue(evidence["nodeReplServerEnabled"])
+        self.assertFalse(evidence["manifestMirrorEnabled"])
+        self.assertFalse(evidence["manifestMirrorConflicting"])
+        self.assertTrue(evidence["serverAvailable"])
+
+    def test_model_readiness_check_requires_current_full_ui_evidence(self):
+        args = argparse.Namespace(ci=False)
+        with mock.patch.object(HARNESS, "read_json", return_value={}), mock.patch.object(
+            HARNESS,
+            "validate_attestation",
+            return_value=["missing valid full Computer Use evidence"],
+        ) as validate:
+            with self.assertRaisesRegex(HARNESS.HarnessError, "visible model readiness"):
+                HARNESS.cmd_model_readiness_check(args)
+        validate.assert_called_once_with({}, ["full"], [], ci=False)
+
+    def test_model_readiness_check_accepts_valid_full_ui_evidence(self):
+        args = argparse.Namespace(ci=False)
+        attestation = {"schemaVersion": 2, "entries": {"full": {"status": "pass"}}}
+        with mock.patch.object(HARNESS, "read_json", return_value=attestation), mock.patch.object(
+            HARNESS, "validate_attestation", return_value=[]
+        ) as validate:
+            HARNESS.cmd_model_readiness_check(args)
+        validate.assert_called_once_with(attestation, ["full"], [], ci=False)
 
     def test_destructive_root_is_disposable_and_not_shared(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -247,6 +554,44 @@ class ContractTests(unittest.TestCase):
             self.assertNotEqual(root, HARNESS.PRODUCTION_ROOT.resolve())
             self.assertFalse((root / "models").is_symlink())
             self.assertFalse((root / "voices").is_symlink())
+
+    def test_state_snapshot_restores_production_and_debug_preferences(self):
+        commands = []
+
+        def fake_run(command, **_kwargs):
+            commands.append(command)
+            if len(command) >= 4 and command[1] == "export":
+                Path(command[3]).write_bytes(b"plist")
+            return argparse.Namespace(returncode=0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as directory:
+            run_directory = Path(directory) / "run"
+            support_root = Path(directory) / "support"
+            run_directory.mkdir()
+            support_root.mkdir()
+            with mock.patch.object(HARNESS, "run", side_effect=fake_run):
+                snapshot = HARNESS.snapshot_state(run_directory, support_root)
+                self.assertTrue(snapshot["preferencesExisted"])
+                self.assertTrue(snapshot["debugPreferencesExisted"])
+                report = {
+                    "environment": {"appSupportRoot": str(support_root)},
+                    "stateSnapshot": snapshot,
+                }
+                HARNESS.restore_state(report)
+
+        self.assertIn(
+            ["/usr/bin/defaults", "import", HARNESS.BUNDLE_ID, snapshot["preferencesPath"]],
+            commands,
+        )
+        self.assertIn(
+            [
+                "/usr/bin/defaults",
+                "import",
+                HARNESS.DEBUG_BUNDLE_ID,
+                snapshot["debugPreferencesPath"],
+            ],
+            commands,
+        )
 
     def test_stale_toolchain_identity_invalidates_attestation(self):
         attestation = {

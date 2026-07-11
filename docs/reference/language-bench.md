@@ -40,9 +40,8 @@ when hint gate and synthesis succeed.
    lorsque l'iPhone sera connecté au Wi‑Fi*).
 4. **Re-run** after assets finish: `scripts/ios_device.sh lang-bench --subset full --label "lang-full-output-v3"`.
 
-Agent-driven setup (exploratory): mirroir native taps in Settings — see
-[`ios-agent-ui-tour.md`](ios-agent-ui-tour.md) is for Vocello UI; Settings flows are ad-hoc OCR.
-Prefer manual confirmation on device for speech-pack readiness.
+Confirm Speech assets manually in Settings on the physical device before running the matrix.
+Vocello UI expectations remain documented in [`ios-ui-reference.md`](ios-ui-reference.md).
 
 ```sh
 scripts/ios_device.sh lang-bench --subset quick --label "lang-smoke"
