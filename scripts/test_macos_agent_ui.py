@@ -96,14 +96,14 @@ class ProbeValidationTests(unittest.TestCase):
 
 class ContractTests(unittest.TestCase):
     def test_launch_services_records_identify_duplicate_wrong_path_bundles(self):
-        output = """
+        output = f"""
 --------------------------------------------------------------------------------
 bundle id:                  Vocello
 path:                       /Applications/Vocello.app (0x123)
 identifier:                 com.qwenvoice.app
 --------------------------------------------------------------------------------
 bundle id:                  Vocello
-path:                       /Users/patricedery/Coding_Projects/QwenVoice/build/Vocello.app (0x456)
+path:                       {HARNESS.APP} (0x456)
 identifier:                 com.qwenvoice.app
 --------------------------------------------------------------------------------
 bundle id:                  Unrelated
