@@ -2,13 +2,12 @@ name: CI
 
 # Pre-merge CI for Vocello (QwenVoice).
 #
-# iOS: compile-only on GitHub-hosted runners — `build-for-testing` against the device SDK
-# (no Simulator, no XCUITest). Real iOS UI tests run on a paired iPhone via
-# `scripts/ios_device.sh gate` locally before merge.
+# iOS: compile-only on GitHub-hosted runners against the device SDK. Real iOS UI acceptance runs
+# through bundled Computer Use and iPhone Mirroring on a paired physical device.
 #
-# macOS CI runs deterministic Core/XPC/runtime/harness tests and validates any impact-required
-# Computer Use attestation. It never claims to drive frontend UI; that report is produced locally
-# by the repository Codex skill against the exact build/Vocello.app.
+# Ordinary CI is deterministic-only: project inputs, macOS Core/XPC/runtime/harness tests and
+# builds, plus the iOS device-SDK compile check. Frontend impact is classified and reported for
+# planning, but Computer Use evidence is required only by platform release workflows.
 #
 # Toolchain pinning mirrors release.yml: Xcode 26, XcodeGen + xcbeautify via Homebrew,
 # SPM versions inherited from the committed Package.resolved.
@@ -18,6 +17,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      base_ref:
+        description: 'Commit or checkpoint tag used for impact comparison'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -45,11 +49,12 @@ jobs:
           xcodebuild -version
           swift --version
 
-      - name: Install XcodeGen + xcbeautify
+      - name: Install deterministic tooling
         run: |
-          brew install xcodegen xcbeautify
+          brew install xcodegen xcbeautify ripgrep
           xcodegen --version
           xcbeautify --version
+          rg --version
 
       - name: Cache SwiftPM dependencies
         uses: actions/cache@v4
@@ -64,10 +69,10 @@ jobs:
       - name: Regenerate Xcode project
         run: ./scripts/regenerate_project.sh
 
-      - name: Build VocelloiOS + VocelloiOSUITests for testing
+      - name: Build VocelloiOS for physical-device SDK
         run: |
           set -euo pipefail
-          xcodebuild build-for-testing \
+          xcodebuild build \
             -project QwenVoice.xcodeproj \
             -scheme VocelloiOS \
             -configuration Release \
@@ -76,7 +81,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO | xcbeautify
 
   macos-deterministic-tests:
-    name: macOS deterministic tests + UI attestation validation
+    name: macOS deterministic tests + advisory UI impact
     runs-on: macos-26
     timeout-minutes: 60
     steps:
@@ -93,22 +98,58 @@ jobs:
             sudo xcode-select -s /Applications/Xcode_26.0.app
           fi
 
-      - name: Install XcodeGen + xcbeautify
-        run: brew install xcodegen xcbeautify
+      - name: Install deterministic tooling
+        run: |
+          brew install xcodegen xcbeautify ripgrep
+          xcodegen --version
+          xcbeautify --version
+          rg --version
 
       - name: Regenerate Xcode project
         run: ./scripts/regenerate_project.sh
 
+      - name: Check project inputs
+        run: ./scripts/check_project_inputs.sh
+
       - name: Run deterministic macOS tests
         run: scripts/macos_test.sh test
 
-      - name: Build exact-path app for attestation fingerprinting
+      - name: Build macOS app
         run: ./scripts/build.sh build
 
-      - name: Validate impact-selected Computer Use attestation
+      - name: Report advisory frontend impact
         env:
-          QVOICE_BASE_REF: ${{ github.event.pull_request.base.sha || 'HEAD^' }}
-        run: scripts/macos_agent_ui.sh impact --check --ci
+          QVOICE_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'push' && github.event.before || inputs.base_ref }}
+        run: |
+          set -euo pipefail
+          impact_dir="build/ci/frontend-impact"
+          mkdir -p "$impact_dir"
+          scripts/macos_agent_ui.sh impact > "$impact_dir/macos.json"
+          scripts/ios_agent_ui.sh impact > "$impact_dir/ios.json"
+
+          {
+            echo "## Advisory frontend impact"
+            echo
+            echo "These reports help plan explicit frontend QA. They do not require Computer Use attestations for commits, pushes, pull requests, or ordinary merges."
+            echo
+            echo "### macOS"
+            echo '```json'
+            cat "$impact_dir/macos.json"
+            echo '```'
+            echo
+            echo "### iOS"
+            echo '```json'
+            cat "$impact_dir/ios.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload advisory frontend impact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-impact-advisory
+          path: build/ci/frontend-impact/
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload xcresult on failure
         if: failure()

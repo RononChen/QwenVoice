@@ -40,13 +40,19 @@ Before changing macOS app or XPC code, read:
   - `scripts/macos_test.sh models check|ensure|test|gate|crashes|debug|logs|profile|ui-report|review|xpc`
   - `scripts/macos_agent_ui.sh doctor|impact|verify-probes|validate-report|attest`
   - `./scripts/regenerate_project.sh` after `project.yml` changes
-- Use relevant installed macOS Codex skills for SwiftUI/AppKit structure, builds, test triage,
-  telemetry, performance, signing, or packaging after reading the selected skill. Shell scripts
-  remain the source of truth for gates.
+- Use OpenAI Build macOS Apps skills for SwiftUI/AppKit structure, build/run/debug, test triage,
+  telemetry, signing, and packaging after reading the selected skill. Shell scripts remain the
+  source of truth for gates.
+- Build iOS Apps supplies the one shared XcodeBuildMCP server. Build macOS Apps may consume it for
+  optional macOS project discovery, build, run, and debug operations: call
+  `session_show_defaults`, select the `macos` profile, and return to repository scripts for final
+  verification. Never configure a second XcodeBuildMCP server.
 - Use authoritative Apple documentation where current framework behavior matters and the GitHub
   integration for repository/CI context.
-- For macOS frontend work, invoke the repository skill `$vocello-macos-ui-qa` for every suite
-  listed by `scripts/macos_agent_ui.sh impact`. Requirements are independent sets, not a rank.
+- During ordinary development, `scripts/macos_agent_ui.sh impact` is an advisory description of
+  later frontend scope; missing evidence never blocks committing, pushing, opening a pull request,
+  or merging. For explicitly requested macOS frontend acceptance and macOS release work, invoke
+  `$vocello-macos-ui-qa` for every listed suite. Requirements are independent sets, not a rank.
   Computer Use is the sole UI driver; the skill's
   structured report and typed probes are the gate evidence. Never add a macOS XCUITest target.
 
@@ -60,9 +66,10 @@ Before changing macOS app or XPC code, read:
 # macOS smoke tests (models ensure symlinks QwenVoice-Debug/models → canonical store)
 scripts/macos_test.sh models ensure   # one-time per machine
 scripts/macos_test.sh test
-scripts/macos_agent_ui.sh impact
-# Invoke $vocello-macos-ui-qa quick|full|benchmark when required.
-scripts/macos_test.sh gate
+scripts/macos_agent_ui.sh impact      # advisory during development
+# Explicit frontend acceptance / macOS release only:
+# invoke $vocello-macos-ui-qa quick|full|benchmark as selected.
+scripts/macos_test.sh gate            # strict acceptance, not a development-publishing check
 
 # XPC lifecycle / crash isolation
 scripts/macos_test.sh xpc status
@@ -77,6 +84,9 @@ scripts/macos_test.sh review [--report <run>]
   drain on `Task.detached(.utility)`; only `lastPublishedEvent` hops to `MainActor`.
 - **Service retirement is expected.** When `shutdownWhenIdle` retires the service, the client
   marks it `expectedRetirement` — no error UI, no auto-reconnect. It lazily relaunches on next use.
+- **Terminating sessions remain terminating.** `EngineServiceHost.isStillTerminatingSession`
+  must treat `activeSession == nil` as still terminating so teardown cleanup cannot be skipped
+  after the active session clears.
 - **Single envelope method.** The XPC wire protocol is one `perform(_:withReply:)` carrying an
   `EngineCommand`. Do not add ad-hoc XPC methods.
 - **Liquid Glass is gated.** `QW_UI_LIQUID` compilation condition controls Liquid Glass surfaces.

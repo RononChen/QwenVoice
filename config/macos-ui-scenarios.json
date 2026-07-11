@@ -7,9 +7,9 @@
     "destructive": "disposable-app-support-only"
   },
   "suites": {
-    "quick": {"budgetMinutes": 10, "includes": ["launch-and-navigation", "custom-generation", "semantic-review"]},
-    "full": {"budgetMinutes": 40, "includes": ["launch-and-navigation", "custom-generation", "semantic-review", "design-generation", "clone-generation", "batch-generation", "history-and-voices", "settings-round-trip", "reference-import", "xpc-recovery"]},
-    "benchmark": {"budgetMinutes": null, "includes": ["generation-matrix"]},
+    "quick": {"budgetMinutes": 10, "includes": ["launch-and-navigation", "model-readiness", "custom-generation", "semantic-review"]},
+    "full": {"budgetMinutes": 40, "includes": ["launch-and-navigation", "model-readiness", "custom-generation", "semantic-review", "design-generation", "clone-generation", "batch-generation", "history-and-voices", "settings-round-trip", "reference-import", "xpc-recovery"]},
+    "benchmark": {"budgetMinutes": null, "includes": ["model-readiness", "generation-matrix"]},
     "destructive": {"budgetMinutes": null, "requiresExplicitAuthorization": true, "requiresDisposableAppSupport": true, "includes": ["history-deletion", "voice-deletion", "model-lifecycle"]}
   },
   "scenarios": [
@@ -24,6 +24,18 @@
         {"id": "nav-history", "action": "activate", "target": "sidebar_history", "semanticResult": "screen_history visible", "deterministicPostcondition": "history-database-readable", "restorationPolicy": "none", "timeoutSeconds": 10, "confirmation": "none"},
         {"id": "nav-voices", "action": "activate", "target": "sidebar_voices", "semanticResult": "screen_voices visible", "deterministicPostcondition": "saved-voice-root-readable", "restorationPolicy": "restore-saved-voices", "timeoutSeconds": 10, "confirmation": "none"},
         {"id": "nav-settings", "action": "activate", "target": "sidebar_settings", "semanticResult": "screen_settings visible", "deterministicPostcondition": "preferences-domain-readable", "restorationPolicy": "restore-preferences", "timeoutSeconds": 10, "confirmation": "none"}
+      ],
+      "probeAssertions": []
+    },
+    {
+      "id": "model-readiness", "title": "Visible model and clone-fixture readiness", "destructive": false,
+      "timeoutSeconds": 120, "requiresActionTimeConfirmation": false, "restorationPolicy": "restore-snapshot",
+      "steps": [
+        {"id": "open-settings", "action": "activate", "target": "sidebar_settings", "semanticResult": "Settings model downloads are visible", "deterministicPostcondition": "exact-path-app-process-count=1", "restorationPolicy": "none", "timeoutSeconds": 20, "confirmation": "none"},
+        {"id": "custom-ready", "action": "observe", "target": "settings_packageStatus_pro_custom_speed", "semanticResult": "Custom Speed visibly reports installed and ready", "deterministicPostcondition": "ui-readiness-checkpoint-recorded", "restorationPolicy": "none", "timeoutSeconds": 20, "confirmation": "none"},
+        {"id": "design-ready", "action": "observe", "target": "settings_packageStatus_pro_design_speed", "semanticResult": "Design Speed visibly reports installed and ready", "deterministicPostcondition": "ui-readiness-checkpoint-recorded", "restorationPolicy": "none", "timeoutSeconds": 20, "confirmation": "none"},
+        {"id": "clone-ready", "action": "observe", "target": "settings_packageStatus_pro_clone_speed", "semanticResult": "Clone Speed visibly reports installed and ready", "deterministicPostcondition": "ui-readiness-checkpoint-recorded", "restorationPolicy": "none", "timeoutSeconds": 20, "confirmation": "none"},
+        {"id": "clone-voice-ready", "action": "observeFirst", "targetPrefix": "voicesRow_", "semanticResult": "A saved clone voice is visible before Clone or benchmark generation", "deterministicPostcondition": "ui-readiness-checkpoint-recorded", "restorationPolicy": "restore-saved-voices", "timeoutSeconds": 20, "confirmation": "none"}
       ],
       "probeAssertions": []
     },

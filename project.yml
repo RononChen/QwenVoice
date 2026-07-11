@@ -51,13 +51,13 @@ schemes:
     build:
       targets:
         VocelloiOS: all
-        VocelloiOSUITests: [test]
     run:
       config: Release
+    # Keep an explicit empty Test action: XcodeGen 2.45.4 traps while writing a
+    # shared scheme that omits the action after its former UI-test target is removed.
     test:
       config: Release
-      targets:
-        - VocelloiOSUITests
+      targets: []
     profile:
       config: Release
     analyze:
@@ -401,6 +401,7 @@ targets:
       - path: Tests/VocelloCoreTests
       - path: Sources/SharedSupport/Services/LanguageSelectionPresentation.swift
       - path: Sources/SharedSupport/Services/VoiceClipTranscriber.swift
+      - path: Sources/Services/InitialSidebarItemOverride.swift
     dependencies:
       - target: QwenVoiceCore
     settings:
@@ -433,30 +434,3 @@ targets:
         MACOSX_DEPLOYMENT_TARGET: "26.0"
         CODE_SIGN_IDENTITY: "-"
         GENERATE_INFOPLIST_FILE: YES
-
-  # UI driving — see docs/reference/ios-device-testing.md. Runs on a paired physical
-  # device via: xcodebuild test -scheme VocelloiOS -destination 'id=<UDID>'.
-  VocelloiOSUITests:
-    type: bundle.ui-testing
-    platform: iOS
-    sources:
-      - path: Tests/VocelloiOSUITests
-    dependencies:
-      - target: VocelloiOS
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.patricedery.vocello.uitests
-        PRODUCT_NAME: VocelloiOSUITests
-        PRODUCT_MODULE_NAME: VocelloiOSUITests
-        TEST_TARGET_NAME: VocelloiOS
-        SWIFT_VERSION: "6"
-        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
-        CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: $(QWENVOICE_DEVELOPMENT_TEAM)
-        GENERATE_INFOPLIST_FILE: YES
-        TARGETED_DEVICE_FAMILY: "1"
-        SUPPORTS_MACCATALYST: NO
-        # UI tests are inherently main-thread bound and touch Objective-C XCTest/XCUIAutomation
-        # APIs that are annotated @MainActor. Use minimal concurrency checking so the test code
-        # can stay focused on flows instead of actor isolation boilerplate.
-        SWIFT_STRICT_CONCURRENCY: minimal

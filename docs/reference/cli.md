@@ -205,7 +205,9 @@ installed; a saved clone voice when clone is in the matrix.
 
 The deterministic `audioQC` gate, `scripts/prosody_quality_gate.py`, and
 `scripts/delivery_adherence.py` provide automated gating for bench runs.
-**Manual listening by ear** remains mandatory before merging any engine-adjacent change.
+**Manual listening by ear** remains mandatory before explicitly promoting or releasing an
+engine-adjacent change; it does not block an ordinary development commit, push, pull request, or
+merge.
 
 ## Examples
 

@@ -180,8 +180,8 @@ struct ContentView: View {
         let launchSidebarOverride = AppLaunchConfiguration.current.initialSidebarItem
         self.launchSidebarOverride = launchSidebarOverride
 
-        // When a launch override is active (UI tests / debug screen pinning) we
-        // ignore the persisted sidebar + VC reference state so test runs stay
+        // When a runtime debug launch override is active (Computer Use screen pinning) we
+        // ignore the persisted sidebar + VC reference state so diagnostic runs stay
         // hermetic. The override-less case reads through AppDefaults directly
         // because @AppStorage isn't materialised inside `init` yet.
         let initialSelection: SidebarItem
@@ -388,8 +388,8 @@ struct ContentView: View {
             self.protectedLaunchOverride = nil
         }
         // Persist the selection so the next cold launch restores the last
-        // sidebar item. Skipped under launch-override (UI tests) to keep
-        // test runs hermetic.
+        // sidebar item. Skipped under a runtime debug launch override to keep
+        // diagnostic runs hermetic.
         if launchSidebarOverride == nil, let newValue {
             persistedSidebarItem = newValue
         }

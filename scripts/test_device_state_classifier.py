@@ -32,40 +32,54 @@ class CoreDeviceProbeTests(unittest.TestCase):
         summary = probe.summarize_device(dev)
         self.assertFalse(summary["availableForDevelopment"])
 
+    def test_paired_network_device_with_connect_capability_is_reachable(self) -> None:
+        device = {
+            "identifier": "device",
+            "connectionProperties": {
+                "tunnelState": "disconnected",
+                "pairingState": "paired",
+                "transportType": "localNetwork",
+            },
+            "capabilities": [
+                {"featureIdentifier": "com.apple.coredevice.feature.connectdevice"}
+            ],
+        }
+        self.assertTrue(probe.summarize_device(device)["availableForDevelopment"])
+
     def test_lock_state_locked_fixture_shape(self) -> None:
         raw = json.loads((FIXTURES / "lockState-locked.json").read_text())
         lock = raw["result"]["lockState"]
         self.assertFalse(lock["unlockedSinceBoot"])
         self.assertTrue(lock["passcodeRequired"])
 
-    def test_automation_blockers_xcuitest_locked(self) -> None:
+    def test_computer_use_readiness_does_not_use_lock_state(self) -> None:
         core = {
             "reachable": True,
             "lock": {"state": "known", "deviceLocked": True, "unlockedSinceBoot": False},
         }
         ready, blockers = probe.automation_blockers(
-            verdict="MIRROR_ACTIVE", coredevice=core, lane="xcuitest"
+            verdict="READY", coredevice=core, lane="computer-use"
         )
-        self.assertFalse(ready)
-        self.assertIn("device_locked", blockers)
+        self.assertTrue(ready)
+        self.assertEqual(blockers, [])
 
-    def test_automation_blockers_bench_ignores_lock(self) -> None:
+    def test_headless_lane_does_not_use_lock_state(self) -> None:
         core = {
             "reachable": True,
             "lock": {"state": "known", "deviceLocked": True},
         }
         ready, blockers = probe.automation_blockers(
-            verdict="MIRROR_ACTIVE", coredevice=core, lane="bench"
+            verdict="READY", coredevice=core, lane="bench"
         )
         self.assertTrue(ready)
-        self.assertNotIn("device_locked", blockers)
+        self.assertEqual(blockers, [])
 
-    def test_automation_probe_degraded(self) -> None:
+    def test_automation_mirror_unavailable(self) -> None:
         ready, blockers = probe.automation_blockers(
-            verdict="PROBE_DEGRADED", coredevice={"reachable": True}, lane="bench"
+            verdict="MIRROR_UNAVAILABLE", coredevice={"reachable": True}, lane="computer-use"
         )
         self.assertFalse(ready)
-        self.assertIn("probe_degraded", blockers)
+        self.assertIn("mirror_unavailable", blockers)
 
 
 if __name__ == "__main__":

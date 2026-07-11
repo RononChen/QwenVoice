@@ -24,17 +24,6 @@ struct QVoiceiOSApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
-        if IOSModelsInventoryWriter.isRequested {
-            let seed = QVoiceiOSApp.modelAssetStoreSeed()
-            MainActor.assumeIsolated {
-                do {
-                    try IOSModelsInventoryWriter.runAndExit(storeVersionSeed: seed)
-                } catch {
-                    IOSModelsInventoryWriter.writeFailure(error, storeVersionSeed: seed)
-                }
-            }
-            fatalError("IOSModelsInventoryWriter.runAndExit must terminate the process")
-        }
         _deps = StateObject(wrappedValue: IOSAppDependenciesContainer())
         configureAudioSession()
         configureNativeRuntimeMemoryCacheIfNeeded()

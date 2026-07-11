@@ -54,12 +54,6 @@ struct SettingsView: View {
     @State private var showDebugToggledAlert = false
     @State private var debugModeNowEnabled = false
 
-    // Empty FocusState declared so SwiftUI doesn't assert a
-    // default tracked focus target on the form. Combined with
-    // the first-responder reset below, this keeps the page
-    // ring-free until the user explicitly Tabs into a control.
-    @FocusState private var settingsFieldFocus: String?
-
     init(highlightedMode: Binding<GenerationMode?>, showsNavigationTitle: Bool = true) {
         _highlightedMode = highlightedMode
         self.showsNavigationTitle = showsNavigationTitle
@@ -210,14 +204,6 @@ struct SettingsView: View {
                 outputDirectoryIssue = AudioService.configuredOutputDirectoryIssue()
                 await viewModel.refresh()
                 focusHighlighted(using: proxy)
-
-                // Clear the first popup's auto-assigned focus so
-                // Settings doesn't open with a keyboard-focus ring.
-                // System Settings on macOS waits for Tab; we mirror
-                // that. Pressing Tab still surfaces the ring on the
-                // next focus target — accessibility intact.
-                try? await Task.sleep(nanoseconds: 50_000_000)
-                NSApp.keyWindow?.makeFirstResponder(nil)
             }
             .onChange(of: highlightedMode) { _, _ in
                 focusHighlighted(using: proxy)

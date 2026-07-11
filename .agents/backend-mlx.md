@@ -35,14 +35,20 @@ Before changing anything in this layer, read:
   - `scripts/build_foundation_targets.sh macos|ios` for compile-safety.
   - `scripts/build.sh cli` to build `vocello`.
   - `QWENVOICE_DEBUG=1 ./build/vocello bench …` for perf/quality gates.
-- Use relevant installed Codex skills/plugins for Swift, MLX, profiling, or GitHub work only
-  after reading their instructions. Where none applies, inspect the vendored source and use
-  authoritative Apple, package, or Hugging Face documentation.
+- Use `$swift-mlx` and `$swift-mlx-lm` for MLX/MLX LM implementation guidance. Use the relevant
+  Axiom Swift, concurrency, and performance skills for language, isolation, and profiling
+  decisions. Read each selected skill before use.
+- Skills guide implementation and diagnosis; shell builds, tests, benchmarks, and their artifacts
+  remain authoritative. Where no skill applies, inspect vendored source and authoritative Apple,
+  package, or Hugging Face documentation.
 - Browser and Computer Use may support exploratory inspection, but never replace benchmarks,
   compile checks, or physical-device iOS gates.
-- Runtime-affecting macOS changes additionally require every suite and runtime check returned by
-  `scripts/macos_agent_ui.sh impact`. Full and benchmark are independent; telemetry-affecting work
-  also runs `scripts/macos_test.sh telemetry-overhead`. Frontend observations do not prove backend completion;
+- `scripts/macos_agent_ui.sh impact` is advisory during development: use it to identify later
+  frontend scope, but never withhold a commit, push, pull request, or ordinary merge because UI,
+  model, or device evidence is absent. Explicit frontend acceptance and macOS release work require
+  every returned suite and runtime check. Full and benchmark are independent; telemetry-affecting
+  release work also runs `scripts/macos_test.sh telemetry-overhead` after the current full UI
+  attestation proves visible model readiness. Frontend observations do not prove backend completion;
   `verify-probes` must join typed app/XPC/backend rows by `generationID`.
 
 ## Build / test commands

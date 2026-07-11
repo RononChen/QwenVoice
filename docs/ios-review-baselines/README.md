@@ -1,44 +1,15 @@
-# iOS UI review baselines
+# iOS UI visual references
 
-Committed PNG baselines for on-device UI review (Phase 5 of the testing overhaul). Each
-file is a screenshot of one canonical screen, captured by
-`VocelloiOSReviewTourUITests.testCaptureReviewScreens` and named with a stable key.
+These PNGs are known-good content references for canonical Vocello iPhone states. They are not
+pixel-equality gates because current evidence is captured through bundled Computer Use and iPhone
+Mirroring, whose window chrome and scaling may differ.
 
-## Workflow
+Use `$vocello-ios-ui-qa full` to reach Studio Custom/Design/Clone, the voice sheet, Settings,
+History, and Voices. Save current screenshots under `build/ios/agent-ui/<run>/screenshots/`, compare
+content semantically, and record findings in the report.
 
-```sh
-# 1. Capture the current on-device UI into build/ios/review-shots/<run>/ (XCUITest tour).
-scripts/ios_device.sh review
+Update a reference only when the UI change is intentional and separately reviewed. Never crop or
+transform a live screenshot merely to force a match.
 
-# 2. Seed/update the committed baselines from a known-good run, then review + commit.
-scripts/ios_device.sh review --baseline
-git add docs/ios-review-baselines && git commit
-```
-
-On a normal `review` run, the verb prints each capture with its baseline pair (or `NEW`
-when no baseline exists yet). The **perceptual diff** is a vision-MCP step — run it on
-each `(baseline, actual)` pair:
-
-- **`user-axiom`** `axiom_get_agent` agent=`screenshot-validator`, or
-- the `impeccable` skill for a deeper UI pass.
-
-Update a baseline only when the UI change is intentional; a diff that flags an
-unintended delta is the signal that caught a regression.
-
-## Capture keys
-
-`review-studio-custom`, `review-studio-design`, `review-studio-clone`, `review-sheet-voice`,
-`review-settings`, `review-history`, `review-voices`.
-
-## Rules
-
-- **On-device only** for this review tour (real engine; the Simulator is not used
-  for baseline capture). UI smoke runs on a paired iPhone via `scripts/ios_device.sh`;
-  see [`docs/reference/testing-runbook.md`](../reference/testing-runbook.md).
-- **Burn-in aware:** the tour opens each sheet only long enough to capture, then dismisses
-  it (capture-and-dismiss) — never dwell on a static high-contrast screen.
-- **Accessibility:** the tour is also a reachability pass — every screen/sheet is reached
-  by tapping a real, hittable, identified control, so a green capture run implies the
-  surface is navigable with assistive tech. Dynamic Type at the largest content size is a
-  future addition (needs app-side `preferredContentSizeCategory` plumbing).
-- Screenshots include only Vocello UI (XCUITest `app.screenshot()` — no Mirroring chrome).
+The iOS Simulator is not used. Computer Use must operate a paired physical iPhone through iPhone
+Mirroring; scripts validate device telemetry separately.
