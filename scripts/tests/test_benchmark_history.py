@@ -678,7 +678,7 @@ class BenchmarkHistoryTests(unittest.TestCase):
     def test_privacy_and_unknown_fields_are_rejected(self) -> None:
         cases = [
             ("deviceName", "Patrice phone"),
-            ("label", "/Users/person/private/run"),
+            ("label", "/Users/example/private/run"),
             ("label", "private/run"),
             ("label", "person@example.com"),
             ("label", "https://example.com/run"),
@@ -714,7 +714,7 @@ class BenchmarkHistoryTests(unittest.TestCase):
         self.assertEqual(path, second)
         self.assertEqual(before, second.read_bytes())
         with self.assertRaises(history.HistoryError):
-            history.annotate("macos-bench-20260712-120000", "pass", "/Users/person/review")
+            history.annotate("macos-bench-20260712-120000", "pass", "/Users/example/review")
 
     def test_registry_tree_rejects_unknown_files_directories_and_kinds(self) -> None:
         cases = [
