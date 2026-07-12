@@ -6,6 +6,7 @@ valid, usable profile.
 """
 import json
 import hashlib
+import importlib.util
 import math
 import os
 import subprocess
@@ -92,6 +93,7 @@ class ProsodyCalibrationTests(unittest.TestCase):
                 f.write(json.dumps(entry) + "\n")
         return labels_path
 
+    @unittest.skipUnless(importlib.util.find_spec("numpy"), "requires optional NumPy analysis dependency")
     def test_cli_emits_valid_profile(self):
         labels = self._generate_corpus()
         out = os.path.join(self.dir, "profile.json")
@@ -110,6 +112,7 @@ class ProsodyCalibrationTests(unittest.TestCase):
         for key in ["monotone_f0_std_hz", "pause_max_seconds", "pause_ratio_max"]:
             self.assertIn(key, profile["thresholds"])
 
+    @unittest.skipUnless(importlib.util.find_spec("numpy"), "requires optional NumPy analysis dependency")
     def test_calibrated_profile_flags_bad_clips(self):
         labels = self._generate_corpus()
         out = os.path.join(self.dir, "profile.json")

@@ -26,11 +26,15 @@ import secrets
 import subprocess
 import sys
 
-import numpy as np
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from analyze_prosody import analyze
 from prosody_profile import builtin_profile, save_profile, SCHEMA_VERSION
+
+
+def analyze(path):
+    """Load the optional NumPy analyzer only for an actual calibration run."""
+    from analyze_prosody import analyze as analyze_wav
+
+    return analyze_wav(path)
 
 
 # Map threshold key -> (metric key, direction) where direction "low" means the
@@ -115,6 +119,8 @@ def percentile_value(values, q):
     """Return the q-th percentile of a list of floats, or nan if empty."""
     if not values:
         return math.nan
+    import numpy as np
+
     return float(np.percentile(np.array(values, dtype=float), q))
 
 

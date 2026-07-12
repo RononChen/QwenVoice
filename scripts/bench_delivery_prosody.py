@@ -29,8 +29,14 @@ from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from analyze_prosody import analyze
 from prosody_profile import builtin_profile, delivery_weight, load_profile
+
+
+def analyze(path: str) -> dict[str, Any]:
+    """Load the optional NumPy analyzer only when signal analysis is requested."""
+    from analyze_prosody import analyze as analyze_wav
+
+    return analyze_wav(path)
 
 
 def parse_filename(name: str) -> dict[str, Any] | None:
