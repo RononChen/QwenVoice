@@ -1,5 +1,13 @@
 # Corrected QwenVoice / `mlx-audio-swift` Backend Report Series
 
+> **Historical snapshot.** This series is pinned to Vocello commit
+> `05bd2b6d24b3f43351f3b388622a72d8f0d6ecce` and the upstream revisions listed below. It is
+> retained as research evidence, not as the current runtime, telemetry, or benchmark contract.
+> Several findings were resolved after the snapshot. For current behavior, start with
+> [`docs/reference/telemetry-and-benchmarking.md`](../docs/reference/telemetry-and-benchmarking.md),
+> [`docs/reference/benchmarking-procedure.md`](../docs/reference/benchmarking-procedure.md), and the
+> generated [`benchmarks/HISTORY.md`](../benchmarks/HISTORY.md).
+
 
 - **QwenVoice/Vocello:** `05bd2b6d24b3f43351f3b388622a72d8f0d6ecce`
 - **Recorded upstream import baseline:** `fcbd04daa1bfebe881932f630af2ba6ce9af3274` (`v0.1.2`)

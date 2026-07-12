@@ -218,7 +218,7 @@ class VocelloiOSUITestCase: XCTestCase {
 
     /// Uses only visible production state: enabled Generate before the action,
     /// the completed inline player after it, and no visible generation error.
-    func generateAndWaitForCompletedPlayer(timeout: TimeInterval) {
+    func generateAndWaitForCompletedPlayer(timeout: TimeInterval) -> String {
         let generate = element("textInput_generateButton")
         let cancel = element("textInput_cancelButton")
         let livePlayer = element("studio_livePreview_playPause")
@@ -253,6 +253,14 @@ class VocelloiOSUITestCase: XCTestCase {
                 completedPlayer.exists && !livePlayer.exists && !cancel.exists && !generationError.exists
             }
         )
+        let prefix = "studio_inlinePlayer_generation_"
+        let identifiedCard = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix))
+            .firstMatch
+        XCTAssertTrue(VocelloUIWait.exists(identifiedCard, timeout: 10))
+        let generationID = String(identifiedCard.identifier.dropFirst(prefix.count))
+        XCTAssertNotNil(UUID(uuidString: generationID), "Completed player must expose its genuine generation UUID")
+        return generationID
     }
 
     /// Clears a completed take through its visible production controls, then

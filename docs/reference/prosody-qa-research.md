@@ -85,7 +85,7 @@ Final choice: **numpy + stdlib `wave`** (zero new dependencies, tiny memory). Ha
 
 - **`scripts/delivery_adherence.py`** — now computes paired deltas on the richer prosody feature set and reports `prosodyEffect` + `prosodyPosRate` alongside the existing arousal score. Added `--data-dir` for non-default model locations.
 - **`scripts/summarize_generation_telemetry.py`** — reads `bench-prosody.json` and renders `prosN`, `prosEff`, `dF0Std`, `dRateCV`, `dPauseR`, `dRough` in the delivery-cells table.
-- **`Sources/VocelloCLI/BenchCommand.swift`** — `vocello bench --delivery` now automatically invokes `scripts/bench_delivery_prosody.py` after aggregation.
+- **`Sources/VocelloCLI/BenchCommand.swift`** — `vocello bench --delivery` invokes `scripts/bench_delivery_prosody.py` from the immutable current-run manifest **before** final aggregation, so the summary includes the delivery block and stale `--keep` WAVs cannot enter it.
 
 ### Usage
 
@@ -100,7 +100,9 @@ scripts/delivery_adherence.py --presets happy,excited --seeds 4 --data-dir ~/Lib
 build/vocello bench --delivery happy,calm --modes custom,design
 ```
 
-Manual listening remains the optional final review layer; it is not used for automated gates.
+Manual listening is independent of the automated gates. It remains mandatory for an explicit
+engine promotion or release quality decision, and optional for ordinary diagnostics and
+development publishing.
 
 ### Calibration note
 

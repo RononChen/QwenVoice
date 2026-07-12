@@ -61,17 +61,19 @@ Before changing macOS app or XPC code, read:
 ./scripts/build.sh build
 ./scripts/build.sh run
 
-# macOS smoke tests (models ensure symlinks QwenVoice-Debug/models → canonical store)
-scripts/macos_test.sh models ensure   # one-time per machine
+# Deterministic macOS tests do not require a model-readiness bootstrap.
 scripts/macos_test.sh test
+
+# Explicit macOS fixture repair/bootstrap only after visible Settings readiness fails.
+# This symlinks QwenVoice-Debug/models → the canonical store; restart the UI lane afterward.
+scripts/macos_test.sh models ensure
+
 # Explicit frontend acceptance only:
 scripts/ui_test.sh macos smoke
 scripts/ui_test.sh macos benchmark
 scripts/macos_test.sh gate            # deterministic macOS platform gate
 
 # XPC lifecycle / crash isolation is included in the deterministic test and gate lanes.
-scripts/macos_test.sh test
-
 ```
 
 ## Invariants (do not regress)

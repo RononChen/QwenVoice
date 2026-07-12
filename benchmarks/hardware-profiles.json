@@ -1,0 +1,29 @@
+{
+  "profiles": [
+    {
+      "canonical": true,
+      "chip": "Apple M2",
+      "cpuCores": 8,
+      "efficiencyCores": 4,
+      "id": "mac-mini-m2-8gb",
+      "marketingName": "Mac mini (M2, 8 GB)",
+      "memoryBytes": 8589934592,
+      "modelIdentifier": "Mac14,3",
+      "performanceCores": 4,
+      "platform": "macos"
+    },
+    {
+      "canonical": true,
+      "chip": "Apple A19 Pro",
+      "cpuCores": 6,
+      "efficiencyCores": 4,
+      "id": "iphone-17-pro",
+      "marketingName": "iPhone 17 Pro",
+      "memoryBytes": 12884901888,
+      "modelIdentifier": "iPhone18,1",
+      "performanceCores": 2,
+      "platform": "ios"
+    }
+  ],
+  "schemaVersion": 1
+}

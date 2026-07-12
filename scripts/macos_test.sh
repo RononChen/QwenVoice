@@ -9,14 +9,14 @@
 # usage:
 #   scripts/macos_test.sh preflight [--strict-models]  # Xcode + app + dSYMs + XPC + model status
 #   scripts/macos_test.sh core-test                 # VocelloCoreTests (language semantics, no models)
-#   scripts/macos_test.sh lang-bench [--subset quick|full] [--label "note"]
+#   scripts/macos_test.sh lang-bench [--subset quick|full] [--label RUN_ID]
 #                                                 # headless macOS language-hint matrix (vocello CLI)
 #   scripts/macos_test.sh test                      # Core + XPC transport + Qwen3 runtime tests (no UI)
 #   scripts/macos_test.sh telemetry-overhead        # seeded PCM + RTF/TTFC (explicit, model-dependent)
 #   scripts/macos_test.sh crashes [--test]          # collect + xcsym-symbolicate .ips (app + XPC service)
 #   scripts/macos_test.sh debug                     # LLDB attach guidance (app + XPC service PID)
 #   scripts/macos_test.sh logs                      # retained os_log → build/macos-logs/<run>.log
-#   scripts/macos_test.sh profile [spec]            # models ensure → xctrace vocello bench
+#   scripts/macos_test.sh profile [spec]            # read-only model check → xctrace vocello bench
 #   scripts/macos_test.sh gate                      # inputs → build_foundation → test → crashes
 #                                                    # optional: QWENVOICE_GATE_BENCH=1 adds bounded vocello bench
 #   scripts/macos_test.sh release-readiness         # deterministic packaging gate (no UI)
@@ -39,6 +39,44 @@ DSYM_DIR="$ROOT_DIR/build/macos/dsyms"
 note() { printf '\033[0;36m==>\033[0m %s\n' "$*" >&2; }
 warn() { printf '\033[0;33m[warn]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[0;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
+
+validate_benchmark_label() {
+  local value="$1"
+  [[ -z "$value" || "$value" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$ ]] \
+    || die "--label must be an opaque 1-96 character ID using letters, digits, dot, underscore, or hyphen"
+}
+
+benchmark_nonce() {
+  python3 -c 'import secrets; print(secrets.token_hex(4))'
+}
+
+string_sha256() {
+  VALUE="$1" python3 -c 'import hashlib,os; print(hashlib.sha256(os.environ["VALUE"].encode()).hexdigest())'
+}
+
+capture_benchmark_source() {
+  local artifacts="$1"
+  python3 "$SCRIPT_DIR/publish_benchmark_history.py" snapshot \
+    --output "$artifacts/benchmark-source.json" --crash-scope macos >/dev/null \
+    || die "could not capture pre-run benchmark provenance"
+}
+
+require_profile_model() {
+  local mode="$1" variant="$2"
+  case "$mode" in custom|design|clone) ;; *) die "profile mode must be custom, design, or clone" ;; esac
+  case "$variant" in speed|quality) ;; *) die "profile variant must be speed or quality" ;; esac
+  require_mac_benchmark_models "pro_${mode}_${variant}"
+  [[ "$mode" != "clone" ]] || require_mac_benchmark_clone_fixture
+}
+
+record_benchmark_history() {
+  local artifacts="$1"
+  python3 "$SCRIPT_DIR/benchmark_history.py" record --artifact-dir "$artifacts" || {
+    warn "benchmark passed, but history publication failed; evidence is preserved in $artifacts"
+    warn "repair: python3 scripts/benchmark_history.py record --artifact-dir '$artifacts'"
+    return 1
+  }
+}
 
 ensure_app() { [[ -d "$APP_BUNDLE" ]] || "$SCRIPT_DIR/build.sh" build; }
 
@@ -146,50 +184,69 @@ cmd_logs() {
 # profile [spec]: Instruments/xctrace trace of a headless generation via the `vocello` CLI
 # (engine IN-PROCESS — the deterministic engine profile; the same engine code runs in the
 # XPC service). The engine emits OSSignpost intervals under subsystem com.qwenvoice.app,
-# category 'performance'. Default template 'Time Profiler'; override with
-# QVOICE_MAC_PROFILE_TEMPLATE ('Allocations', …) and QVOICE_MAC_PROFILE_DURATION (seconds,
-# default 90). Produces build/macos/profile-<ts>.trace. (To profile the XPC service
+# category 'performance'. The lane always records CPU Profiler and os_signpost in one
+# trace; QVOICE_MAC_PROFILE_DURATION controls the capture window (seconds, default 90).
+# Produces build/macos/profiles/<run-id>/<run-id>.trace. (To profile the XPC service
 # specifically — the production path — launch the app, 'xctrace record --attach
 # QwenVoiceEngineService', and generate via the UI; see macos-testing.md.)
 cmd_profile() {
-  local allow_bench_fail=0
-  if [[ "${1:-}" == "--allow-bench-fail" ]]; then
-    allow_bench_fail=1
-    shift
-  fi
-  if [[ "${QVOICE_MAC_PROFILE_ALLOW_BENCH_FAIL:-0}" == "1" ]]; then
-    allow_bench_fail=1
-  fi
   local spec="${1:-custom:speed:Profile headless generation.}"
   [[ "$spec" == *:* ]] || spec="custom:speed:$spec"
   local mode="${spec%%:*}"
   local rest="${spec#*:}"
   local variant="${rest%%:*}"
-  local template="${QVOICE_MAC_PROFILE_TEMPLATE:-Time Profiler}"
+  local cpu_instrument="CPU Profiler"
+  local capture_instruments="$cpu_instrument + os_signpost"
   local duration="${QVOICE_MAC_PROFILE_DURATION:-90}"
+  [[ "$duration" =~ ^[1-9][0-9]*$ ]] || die "QVOICE_MAC_PROFILE_DURATION must be a positive whole number of seconds"
   command -v xctrace >/dev/null 2>&1 || die "xctrace not found — install Xcode and use Instruments for native profiling"
-  ensure_mac_test_models --require
-  local trace="$ROOT_DIR/build/macos/profile-$(date +%Y%m%d-%H%M%S).trace"
-  mkdir -p "$(dirname "$trace")"
-  note "profile: template='$template', ${duration}s, vocello bench (mode=$mode variant=$variant) — engine in-process"
-  note "(engine OSSignpost intervals: subsystem $BUNDLE_ID, category 'performance')"
-  # Start the tracer FIRST (attach mode waits for 'vocello') so it captures from launch.
-  xcrun xctrace record --template "$template" --attach "vocello" \
-    --time-limit "${duration}s" --output "$trace" &
-  local xcpid=$!
-  sleep 2
-  local bench_rc=0
-  QWENVOICE_DEBUG=1 "$ROOT_DIR/build/vocello" bench --modes "$mode" --variants "$variant" \
-    --lengths medium --warm 1 --label "profile" >&2 || bench_rc=$?
-  if (( bench_rc != 0 )); then
-    if (( allow_bench_fail )); then
-      warn "vocello bench returned non-zero (exit $bench_rc; trace may still be useful)"
-    else
-      die "vocello bench failed (exit $bench_rc); set QVOICE_MAC_PROFILE_ALLOW_BENCH_FAIL=1 or pass --allow-bench-fail to continue"
-    fi
+  # Rebuild immediately before provenance capture so the recorded source and
+  # executable identity cannot describe a stale CLI binary.
+  "$SCRIPT_DIR/build.sh" cli >/dev/null
+  require_profile_model "$mode" "$variant"
+  local run_id
+  run_id="mac-profile-$(date -u +%Y%m%d-%H%M%S)-$(benchmark_nonce)"
+  local artifacts="$ROOT_DIR/build/macos/profiles/$run_id"
+  local runtime="$artifacts/runtime"
+  local trace="$artifacts/$run_id.trace"
+  local toc="$artifacts/trace-toc.xml"
+  mkdir -p "$runtime"
+  ln -s "$(debug_models_dir)" "$runtime/models"
+  if [[ -d "$HOME/Library/Application Support/QwenVoice-Debug/voices" ]]; then
+    ln -s "$HOME/Library/Application Support/QwenVoice-Debug/voices" "$runtime/voices"
   fi
-  wait "$xcpid" || true
+  capture_benchmark_source "$artifacts"
+  note "profile: instruments='$capture_instruments', ${duration}s, vocello bench (mode=$mode variant=$variant) — engine in-process"
+  note "(engine OSSignpost intervals: subsystem com.qwenvoice.engine, category 'runtime')"
+  # Launch through Instruments so the exact CLI process is traced from its first instruction.
+  # `--no-summary` prevents the child engine lane from publishing a second, non-instrumented record.
+  xcrun xctrace record --instrument "$cpu_instrument" --instrument os_signpost \
+    --time-limit "${duration}s" --no-prompt \
+    --output "$trace" --env QWENVOICE_DEBUG=1 --launch -- \
+    "$ROOT_DIR/build/vocello" bench --modes "$mode" --variants "$variant" \
+    --lengths medium --warm 1 --run-id "$run_id" --label "instrument-profile" \
+    --data-dir "$runtime" --no-summary \
+    >"$artifacts/xctrace.log" 2>&1 \
+    || die "xctrace or its launched vocello benchmark failed (see $artifacts/xctrace.log)"
   [[ -d "$trace" ]] || die "no trace produced at $trace"
+  xcrun xctrace export --input "$trace" --toc --output "$toc" \
+    >"$artifacts/xctrace-export.log" 2>&1 \
+    || die "trace table-of-contents validation failed (see $artifacts/xctrace-export.log)"
+  [[ -s "$toc" ]] || die "trace table-of-contents export is empty"
+  python3 "$SCRIPT_DIR/publish_benchmark_history.py" profile \
+    --artifact-dir "$artifacts" --snapshot "$artifacts/benchmark-source.json" \
+    --platform macos --run-id "$run_id" \
+    --results "$runtime/diagnostics/bench-results.json" \
+    --diagnostics "$runtime/diagnostics" --output-dir "$runtime/outputs/bench" \
+    --trace "$trace" --toc "$toc" --template "$capture_instruments" --duration "$duration" \
+    --target-process vocello --defer-record \
+    || die "profile passed but evidence validation failed; artifacts are preserved in $artifacts"
+  python3 "$SCRIPT_DIR/summarize_generation_telemetry.py" "$runtime/diagnostics" \
+    --run-id "$run_id" --evidence-manifest "$artifacts/benchmark-evidence.json" \
+    --engine-only --label "instrument-profile" >&2 \
+    || die "profile evidence was valid but its frozen telemetry summary failed"
+  record_benchmark_history "$artifacts" >/dev/null \
+    || die "profile history publication failed"
   note "trace → $trace"
   note "analyze: open in Instruments, or use optional: xcprof analyze \"$trace\""
   note "XPC service profile (production path): launch app, 'xctrace record --attach QwenVoiceEngineService', generate via UI."
@@ -285,23 +342,42 @@ cmd_lang_bench() {
       --subset=*) subset="${1#*=}"; shift ;;
       --label) label="${2:-}"; shift 2 ;;
       --label=*) label="${1#*=}"; shift ;;
-      *) die "unknown lang-bench arg '$1' (try --subset quick|full --label \"note\")" ;;
+      *) die "unknown lang-bench arg '$1' (try --subset quick|full --label lang-check-v1)" ;;
     esac
   done
+  validate_benchmark_label "$label"
   [[ "$subset" == "quick" || "$subset" == "full" ]] || die "--subset must be quick or full"
 
   local matrix="$ROOT_DIR/config/language-bench-matrix.json"
   local corpus="$ROOT_DIR/config/language-bench-corpus.json"
   [[ -f "$matrix" && -f "$corpus" ]] || die "missing language bench config"
 
-  ensure_mac_test_models --require
   "$SCRIPT_DIR/build.sh" cli >/dev/null
 
-  local run_id="mac-lang-bench-$(date +%Y%m%d-%H%M%S)"
+  # Resolve the exact model set selected by this language matrix before the
+  # first generation. The check is read-only; downloads remain an explicit
+  # `models ensure` repair action.
+  while IFS= read -r model_id; do
+    [[ -n "$model_id" ]] || continue
+    require_mac_benchmark_models "$model_id"
+  done < <(python3 - "$matrix" "$subset" <<'PY'
+import json, sys
+matrix, subset = json.load(open(sys.argv[1])), sys.argv[2]
+cells = matrix["cells"] if subset == "full" else [c for c in matrix["cells"] if c.get("quick")]
+for model_id in sorted({f"pro_{cell['mode']}_{cell.get('variant', 'speed')}" for cell in cells}):
+    print(model_id)
+PY
+)
+
+  local run_id
+  run_id="mac-lang-bench-$(date -u +%Y%m%d-%H%M%S)-$(benchmark_nonce)"
   local artifacts="$ROOT_DIR/build/macos/lang-bench-$run_id"
+  local started_at
+  started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   local diag_root
   diag_root="${HOME}/Library/Application Support/QwenVoice-Debug/diagnostics"
   mkdir -p "$artifacts"
+  capture_benchmark_source "$artifacts"
 
   export QWENVOICE_DEBUG=1
   export QVOICE_MAC_BENCH_RUN_ID="$run_id"
@@ -311,27 +387,28 @@ cmd_lang_bench() {
   while IFS= read -r cell_json; do
     [[ -n "$cell_json" ]] || continue
     cell_count=$((cell_count + 1))
-    local cell_id mode ui_hint text lang_args
+    local cell_id mode variant ui_hint text
     cell_id="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"])["id"])')"
     mode="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"])["mode"])')"
+    variant="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"]).get("variant","speed"))')"
     ui_hint="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"]).get("uiHint","auto"))')"
     text="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"])["script"], end="")')"
     export QVOICE_MAC_BENCH_CELL="$cell_id"
-    lang_args=()
-    if [[ "$ui_hint" != "auto" ]]; then
-      lang_args=(--language "$ui_hint")
-    fi
-    note "lang-bench cell $cell_count: $cell_id ($mode, uiHint=$ui_hint)"
-    set +e
+    local -a generate_command=(
+      "$ROOT_DIR/build/vocello" generate --mode "$mode" --variant "$variant"
+    )
     if [[ "$mode" == "design" ]]; then
-      "$ROOT_DIR/build/vocello" generate --mode design --variant speed \
-        --voice-brief "$voice_brief" --text "$text" "${lang_args[@]}" \
-        >>"$artifacts/generate.log" 2>&1
-    else
-      "$ROOT_DIR/build/vocello" generate --mode custom --variant speed \
-        --text "$text" "${lang_args[@]}" \
-        >>"$artifacts/generate.log" 2>&1
+      generate_command+=(--voice-brief "$voice_brief")
+    elif [[ "$mode" != "custom" ]]; then
+      die "lang-bench cell $cell_id: unsupported mode '$mode'"
     fi
+    generate_command+=(--text "$text")
+    if [[ "$ui_hint" != "auto" ]]; then
+      generate_command+=(--language "$ui_hint")
+    fi
+    note "lang-bench cell $cell_count: $cell_id ($mode/$variant, uiHint=$ui_hint)"
+    set +e
+    "${generate_command[@]}" >>"$artifacts/generate.log" 2>&1
     st=$?
     set -e
     if (( st != 0 )); then
@@ -361,9 +438,6 @@ PY
     --run-id "$run_id" --matrix "$matrix" --corpus "$corpus" --subset "$subset" \
     | tee "$artifacts/hint-gate.txt" || hint_st=$?
 
-  python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$diag_root" \
-    ${label:+--label "$label"} >"$artifacts/summary.txt" 2>&1 || true
-
   {
     echo "lang-bench runID=$run_id subset=$subset cells=$cell_count generate_fail=$cell_fail"
     echo "hint_gate=$([[ $hint_st -eq 0 ]] && echo PASS || echo FAIL)"
@@ -372,6 +446,20 @@ PY
   if (( cell_fail > 0 || hint_st != 0 )); then
     die "lang-bench FAIL · $artifacts"
   fi
+  python3 "$SCRIPT_DIR/publish_benchmark_history.py" language \
+    --artifact-dir "$artifacts" --snapshot "$artifacts/benchmark-source.json" \
+    --platform macos --run-id "$run_id" --diagnostics "$diag_root" \
+    --matrix "$matrix" --corpus "$corpus" --subset "$subset" \
+    --output-gate not-performed --started-at "$started_at" \
+    --design-fixture-digest "$(string_sha256 "$voice_brief")" --defer-record \
+    ${label:+--label "$label"} \
+    || die "language benchmark passed but evidence validation failed; artifacts are preserved in $artifacts"
+  python3 "$SCRIPT_DIR/summarize_generation_telemetry.py" "$diag_root" \
+    --run-id "$run_id" --evidence-manifest "$artifacts/benchmark-evidence.json" \
+    --engine-only ${label:+--label "$label"} >"$artifacts/summary.txt" 2>&1 \
+    || die "language evidence was valid but its frozen telemetry summary failed"
+  record_benchmark_history "$artifacts" >/dev/null \
+    || die "language history publication failed"
   note "lang-bench PASS · $artifacts"
 }
 
@@ -445,7 +533,7 @@ cmd_telemetry_overhead() {
   check_mac_test_models --strict
   "$SCRIPT_DIR/build.sh" cli >/dev/null
   local verdict_path
-  note "telemetry-overhead: Custom/Speed/medium, seed-fixed, warm-up×1 + measured×5 per mode"
+  note "telemetry-overhead: 3 counterbalanced rotations; warm-up×1 + measured×2 per mode/rotation"
   verdict_path="$(python3 "$SCRIPT_DIR/telemetry_overhead.py" "$@")" \
     || die "telemetry-overhead FAIL (raw evidence under build/macos/telemetry-overhead)"
   [[ -f "$verdict_path" ]] || die "telemetry-overhead verdict missing: $verdict_path"
@@ -461,45 +549,24 @@ GATE_BENCH_BASELINE="$ROOT_DIR/benchmarks/baselines/mac-gate-bench.json"
 run_gate_bench() {
   local gate_dir="$1"
   local log="$gate_dir/bench.log"
+  local run_id="mac-gate-bench-$(date -u +%Y%m%d-%H%M%S)-$(benchmark_nonce)"
+  local artifacts="$gate_dir/engine-benchmark"
+  local runtime="$artifacts/runtime"
+  local run_diag="$runtime/diagnostics"
   note "gate bench: custom/speed/medium warm×1 (engine in-process)"
   "$ROOT_DIR/scripts/build.sh" cli >>"$log" 2>&1 || return 1
-  local diag
-  diag="$(python3 - <<'PY'
-import os
-print(os.path.expanduser("~/Library/Application Support/QwenVoice-Debug/diagnostics"))
-PY
-)"
-  # Timestamp marker to isolate THIS run's rows for audioQC + baseline compare.
-  # (The engine JSONL is size-capped and auto-prunes oldest-first, so line-count
-  # deltas are unreliable — filter by recordedAt instead.)
-  local engine_jsonl="$diag/engine/generations.jsonl"
-  local since_utc
-  since_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  require_mac_benchmark_models pro_custom_speed >>"$log" 2>&1 || return 1
+  mkdir -p "$runtime"
+  ln -s "$(debug_models_dir)" "$runtime/models"
+  capture_benchmark_source "$artifacts"
 
   QWENVOICE_DEBUG=1 "$ROOT_DIR/build/vocello" bench --modes custom --variants speed \
-    --lengths medium --warm 1 --label "mac-gate-bench" --force >>"$log" 2>&1 || return 1
-
-  # Isolate the new rows into a private diagnostics tree for deterministic analysis.
-  local run_diag="$gate_dir/bench-diag"
-  mkdir -p "$run_diag/engine"
-  [[ -f "$engine_jsonl" ]] || { echo "gate bench: no engine/generations.jsonl" >>"$log"; return 1; }
-  SINCE="$since_utc" python3 - "$engine_jsonl" > "$run_diag/engine/generations.jsonl" <<'PY'
-import json, os, sys
-since = os.environ["SINCE"]
-for line in open(sys.argv[1], encoding="utf-8"):
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        row = json.loads(line)
-    except json.JSONDecodeError:
-        continue
-    if (row.get("recordedAt") or "") >= since:
-        print(line)
-PY
-  [[ -s "$run_diag/engine/generations.jsonl" ]] || { echo "gate bench: bench produced no new telemetry rows" >>"$log"; return 1; }
-
-  python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$run_diag" --label "mac-gate-bench" >>"$log" 2>&1 || return 1
+    --lengths medium --warm 1 --run-id "$run_id" --label "mac-gate-bench" \
+    --data-dir "$runtime" --force --no-summary >>"$log" 2>&1 || return 1
+  [[ -s "$run_diag/engine/generations.jsonl" ]] \
+    || { echo "gate bench: bench produced no run-scoped telemetry rows" >>"$log"; return 1; }
+  [[ -s "$run_diag/bench-results.json" ]] \
+    || { echo "gate bench: missing bench-results.json" >>"$log"; return 1; }
 
   # audioQC must pass on every row of THIS run.
   python3 - "$run_diag/engine/generations.jsonl" <<'PY' >>"$log" 2>&1 || return 1
@@ -519,10 +586,24 @@ if fails:
 print("gate bench: audioQC pass on all rows")
 PY
 
+  # Freeze the exact validated take selection before any human summary or
+  # comparison. The parent gate records it only after every gate step passes.
+  python3 "$SCRIPT_DIR/publish_benchmark_history.py" engine \
+    --artifact-dir "$artifacts" --snapshot "$artifacts/benchmark-source.json" \
+    --platform macos --run-id "$run_id" \
+    --results "$run_diag/bench-results.json" --diagnostics "$run_diag" \
+    --output-dir "$runtime/outputs/bench" --label "mac-gate-bench" --defer-record \
+    >>"$log" 2>&1 || return 1
+
+  python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$run_diag" \
+    --run-id "$run_id" --evidence-manifest "$artifacts/benchmark-evidence.json" \
+    --engine-only --label "mac-gate-bench" >>"$log" 2>&1 || return 1
+
   # Regression compare vs the committed baseline (exit 2 on >5% regression).
   if [[ -f "$GATE_BENCH_BASELINE" ]]; then
     if ! python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$run_diag" \
-        --compare-baseline "$GATE_BENCH_BASELINE" >>"$log" 2>&1; then
+        --run-id "$run_id" --evidence-manifest "$artifacts/benchmark-evidence.json" \
+        --engine-only --compare-baseline "$GATE_BENCH_BASELINE" >>"$log" 2>&1; then
       echo "gate bench: REGRESSION vs $GATE_BENCH_BASELINE (see bench.log)" >>"$log"
       return 1
     fi
@@ -594,6 +675,15 @@ cmd_gate() {
       echo "bench: PASS (see bench.log)" | tee -a "$verdict"
     else
       echo "bench: FAIL (see bench.log)" | tee -a "$verdict"; overall=1
+    fi
+  fi
+
+  if (( overall == 0 && gate_bench )); then
+    if record_benchmark_history "$gate_dir/engine-benchmark" >>"$gate_dir/bench.log" 2>&1; then
+      echo "history: PASS" | tee -a "$verdict"
+    else
+      echo "history: FAIL (see bench.log)" | tee -a "$verdict"
+      overall=1
     fi
   fi
 

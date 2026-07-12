@@ -96,6 +96,64 @@ out="$(rg -n --pcre2 "$release_ui_gate_pattern" AGENTS.md README.md .agents docs
   "${excludes[@]}" 2>/dev/null || true)"
 [[ -z "$out" ]] || fail "release packaging must remain independent of XCUITest evidence:\n$out"
 
+# Pinned research may retain obsolete procedures only when every directly
+# openable report identifies itself before the historical body begins.
+python3 - <<'PY'
+from pathlib import Path
+
+reports = sorted(Path("QwenVoice_MLXAudio_Corrected_Report_Series_2026-07-10").glob("*.md"))
+reports.append(Path("docs/reference/backend-optimization-research-report.md"))
+errors = []
+for path in reports:
+    opening = "\n".join(path.read_text(encoding="utf-8").splitlines()[:10])
+    if "Historical snapshot" not in opening:
+        errors.append(f"{path}: missing opening historical-snapshot notice")
+if errors:
+    raise SystemExit("\n".join(errors))
+PY
+
+# Current guidance uses the typed playback-scheduled and heartbeat metrics. Keep
+# the retired display names in compatibility code and historical evidence only.
+# Likewise, an iOS Instruments profile is its own run; it cannot be described as
+# executing during a UI/headless benchmark matrix.
+python3 - <<'PY'
+from pathlib import Path
+import re
+
+files = [
+    Path("AGENTS.md"),
+    Path("README.md"),
+    Path("benchmarks/README.md"),
+    Path("docs/project-map.html"),
+    Path("Sources/VocelloCLI/BenchCommand.swift"),  # built-in `vocello bench --help`
+]
+files.extend(Path(".agents").rglob("*.md"))
+files.extend(
+    path
+    for path in Path("docs").rglob("*.md")
+    if "releases" not in path.parts
+    and path != Path("docs/reference/backend-optimization-research-report.md")
+)
+
+retired_metrics = re.compile(r"\b(?:TTFA|UIstall)\b")
+profile_during_matrix = re.compile(
+    r"(?:scripts/)?ios_device\.sh\s+profile\b[^\n]*(?:during|inside|within)\b[^\n]*(?:benchmark|matrix)\b",
+    re.IGNORECASE,
+)
+errors = []
+for path in files:
+    text = path.read_text(encoding="utf-8")
+    for pattern, label in (
+        (retired_metrics, "retired telemetry display name"),
+        (profile_during_matrix, "iOS profile incorrectly described as running during a benchmark matrix"),
+    ):
+        for match in pattern.finditer(text):
+            line = text.count("\n", 0, match.start()) + 1
+            errors.append(f"{path}:{line}: {label}: {match.group(0)}")
+if errors:
+    raise SystemExit("\n".join(errors))
+PY
+
 hidden_hook_pattern='HiddenAccessibilityMarker|QWENVOICE_UI_TEST_HOOKS|QWENVOICE_FAKE_MIC_WAV|QVOICE_IOS_SKIP_ONBOARDING|QVOICE_IOS_TEST_CUSTOM_TEXT|screenPresenceMarker|MacUITestSurfaceMarkers|IOSStudioBenchHooks|IOSPreviewRuntime|IOSPreviewCaptureBridge|QVOICE_PREVIEW_|mainWindow_(?:ready|activeScreen|disabledSidebarItems|lastGenerationComplete|lastTelemetryFlushed|composeReady)|iosStudio_(?:lastGenerationComplete|generationError|benchClearScript)'
 out="$(rg -n "$hidden_hook_pattern" Sources Tests scripts docs project.yml \
   --glob '!scripts/check_test_workflows.sh' 2>/dev/null || true)"
@@ -218,18 +276,22 @@ out="$(rg -n -i 'platform=iOS Simulator|build_run_sim|test_sim|launch_sim' \
   --glob '!scripts/check_test_workflows.sh' 2>/dev/null || true)"
 [[ -z "$out" ]] || fail "active Simulator workflow returned:\n$out"
 
-# Validate relative Markdown links so deleted harness documents cannot remain referenced.
+# Validate relative Markdown links in active guidance so deleted harness documents
+# cannot remain referenced. Immutable release notes, dated baselines, the legacy
+# ledger, and pinned research bodies remain historical evidence rather than live
+# operator instructions.
 python3 - <<'PY'
 from pathlib import Path
 import re
 
-roots = [Path('AGENTS.md'), Path('README.md'), Path('.agents'), Path('benchmarks'), Path('docs')]
-files = []
-for root in roots:
-    if root.is_file():
-        files.append(root)
-    elif root.is_dir():
-        files.extend(root.rglob('*.md'))
+files = [Path("AGENTS.md"), Path("README.md"), Path("benchmarks/README.md")]
+files.extend(Path(".agents").rglob("*.md"))
+files.extend(
+    path
+    for path in Path("docs").rglob("*.md")
+    if "releases" not in path.parts
+    and path != Path("docs/reference/backend-optimization-research-report.md")
+)
 
 errors = []
 pattern = re.compile(r'\[[^\]]*\]\(([^)]+)\)')
@@ -273,16 +335,29 @@ python3 - <<'PY'
 from pathlib import Path
 import re
 
-roots = [Path("AGENTS.md"), Path("README.md"), Path(".agents"), Path("docs/reference")]
+roots = [
+    Path("AGENTS.md"),
+    Path("README.md"),
+    Path(".agents"),
+    Path("docs/reference"),
+    Path("benchmarks/README.md"),
+    Path("docs/project-map.html"),
+]
 files = []
 for root in roots:
-    files.extend([root] if root.is_file() else root.rglob("*.md"))
+    candidates = [root] if root.is_file() else root.rglob("*.md")
+    files.extend(
+        path
+        for path in candidates
+        if path != Path("docs/reference/backend-optimization-research-report.md")
+    )
 allowed = {
     "ios_device.sh": {"doctor", "build", "install", "launch", "console", "pull", "bench", "lang-bench", "crashes", "debug", "logs", "profile", "preflight", "device-state", "gate", "help"},
     "macos_test.sh": {"preflight", "core-test", "lang-bench", "test", "telemetry-overhead", "crashes", "debug", "logs", "profile", "gate", "release-readiness", "models", "help"},
+    "ui_test.sh": {"macos", "ios"},
 }
 errors = []
-command = re.compile(r"(?:\./)?scripts/(ios_device\.sh|macos_test\.sh)\s+([a-z][a-z0-9-]*)")
+command = re.compile(r"(?:\./)?scripts/(ios_device\.sh|macos_test\.sh|ui_test\.sh)\s+([a-z][a-z0-9-]*)")
 baseline = re.compile(r"--compare-baseline(?:=|\s+)([^\s`\\]+)")
 for path in files:
     text = path.read_text(encoding="utf-8")
@@ -305,10 +380,22 @@ from pathlib import Path
 import glob
 import re
 
-roots = [Path("AGENTS.md"), Path("README.md"), Path(".agents"), Path("docs/reference")]
+roots = [
+    Path("AGENTS.md"),
+    Path("README.md"),
+    Path(".agents"),
+    Path("docs/reference"),
+    Path("benchmarks/README.md"),
+    Path("docs/project-map.html"),
+]
 files = []
 for root in roots:
-    files.extend([root] if root.is_file() else root.rglob("*.md"))
+    candidates = [root] if root.is_file() else root.rglob("*.md")
+    files.extend(
+        path
+        for path in candidates
+        if path != Path("docs/reference/backend-optimization-research-report.md")
+    )
 prefixes = ("Sources/", "Tests/", "scripts/", "config/", ".github/")
 errors = []
 for source in files:
@@ -339,6 +426,14 @@ out="$(git grep -nE '/Users/[A-Za-z0-9._-]+/' -- ':!scripts/check_test_workflows
 python3 scripts/validate_backend_risk_spine.py
 
 python3 -m unittest \
+  scripts.tests.test_benchmark_history \
+  scripts.tests.test_bench_command_contract \
+  scripts.tests.test_publish_benchmark_history \
+  scripts.tests.test_ios_device_benchmark_contract \
+  scripts.tests.test_profile_capture_contract \
+  scripts.tests.test_telemetry_overhead \
+  scripts.tests.test_summarize_generation_telemetry \
+  scripts.tests.test_prosody_calibration \
   scripts.test_check_macos_xpc_bench \
   scripts.test_check_ios_ui_benchmark \
   scripts.test_device_state_classifier \

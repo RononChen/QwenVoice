@@ -189,6 +189,37 @@ check_mac_test_models() {
   return 1
 }
 
+# Read-only prerequisite for explicit benchmark/profile lanes. Unlike
+# ensure_mac_test_models, this never downloads weights, changes the debug-model
+# link, or creates/replaces the clone fixture. Callers pass the exact model IDs
+# selected by their matrix.
+require_mac_benchmark_models() {
+  [[ $# -gt 0 ]] || _test_models_die "benchmark model check requires at least one model id"
+  ensure_vocello_cli
+  local missing=0 id
+  for id in "$@"; do
+    if vocello_model_installed "$id" 1; then
+      _test_models_note "benchmark model $id: ready in debug context"
+    else
+      _test_models_warn "benchmark model $id: missing from debug context"
+      missing=1
+    fi
+  done
+  (( missing == 0 )) || _test_models_die \
+    "selected benchmark models are not ready; explicit repair: scripts/macos_test.sh models ensure"
+}
+
+# Clone benchmarks additionally require the immutable Voice-Design-derived
+# reference. This check is deliberately read-only.
+require_mac_benchmark_clone_fixture() {
+  if vocello_clone_voice_present 1 && mac_test_clone_fixture_current; then
+    _test_models_note "benchmark clone voice $MAC_TEST_CLONE_VOICE_NAME: ready"
+    return 0
+  fi
+  _test_models_die \
+    "benchmark clone fixture is missing or stale; explicit repair: scripts/macos_test.sh models ensure"
+}
+
 # $1 = debug context (0|1, default 0). True when the bench default clone voice is enrolled.
 vocello_clone_voice_present() {
   local debug="${1:-0}"

@@ -236,7 +236,13 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
                 qwen3Capabilities: try Self.requiredQwen3Capabilities(for: loadedDescriptor),
                 timingsMS: [:],
                 booleanFlags: [:],
-                stringFlags: preparedMetadataByDescriptorID[loadedDescriptor.id]?.qwenRuntimeProfile.diagnosticStringFlags() ?? [:]
+                stringFlags: (preparedMetadataByDescriptorID[loadedDescriptor.id]?.qwenRuntimeProfile.diagnosticStringFlags() ?? [:])
+                    .merging(
+                        modelIdentityFlags(
+                            for: loadedDescriptor,
+                            runtimeProfile: preparedMetadataByDescriptorID[loadedDescriptor.id]?.qwenRuntimeProfile
+                        )
+                    ) { _, identity in identity }
             )
         }
 
@@ -392,6 +398,12 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
             timingsMS: timingsMS,
             booleanFlags: booleanFlags,
             stringFlags: preparedCacheResult.metadata.qwenRuntimeProfile.diagnosticStringFlags()
+                .merging(
+                    modelIdentityFlags(
+                        for: descriptor,
+                        runtimeProfile: preparedCacheResult.metadata.qwenRuntimeProfile
+                    )
+                ) { _, identity in identity }
         )
     }
 
@@ -439,6 +451,51 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
             throw MLXTTSEngineError.unknownModel(id)
         }
         return descriptor
+    }
+
+    /// Privacy-safe, typed-telemetry inputs for the exact resolved artifact.
+    /// Only stable contract identifiers and a digest of the integrity manifest
+    /// leave this coordinator; local model paths never do.
+    private func modelIdentityFlags(
+        for descriptor: ModelAssetDescriptor,
+        runtimeProfile: Qwen3TTSRuntimeProfile?
+    ) -> [String: String] {
+        let model = descriptor.model
+        let quantization = Self.telemetryQuantization(
+            for: runtimeProfile?.quantizationTier ?? .unknown
+        )
+        var flags = [
+            "model_identity_repository": model.huggingFaceRepo,
+            "model_identity_revision": model.huggingFaceRevision ?? "main",
+            "model_identity_artifact_version": model.artifactVersion,
+            "model_identity_quantization": quantization,
+        ]
+        if let variant = model.variants.first(where: {
+            $0.folder == model.folder
+                && $0.huggingFaceRepo == model.huggingFaceRepo
+                && $0.huggingFaceRevision == model.huggingFaceRevision
+                && $0.artifactVersion == model.artifactVersion
+        }) {
+            flags["model_identity_variant"] = variant.id
+        }
+        let manifestURL = modelAssetStore.localRoot(for: descriptor)
+            .appendingPathComponent(ModelAssetIntegrityManifest.filename, isDirectory: false)
+        if let data = try? Data(contentsOf: manifestURL, options: .mappedIfSafe) {
+            flags["model_identity_integrity_manifest_digest"] = SHA256.hash(data: data)
+                .map { String(format: "%02x", $0) }
+                .joined()
+        }
+        return flags
+    }
+
+    /// Stable telemetry vocabulary derived from validated runtime metadata,
+    /// never from a folder-name convention.
+    static func telemetryQuantization(for tier: Qwen3TTSQuantizationTier) -> String {
+        switch tier {
+        case .fourBit: return "4-bit"
+        case .eightBit: return "8-bit"
+        case .unknown: return "unquantized"
+        }
     }
 
     private static func requiredQwen3Capabilities(

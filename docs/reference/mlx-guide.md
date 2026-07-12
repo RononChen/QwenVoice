@@ -349,11 +349,11 @@ The vendored Qwen3-TTS decode loop emits `os_signpost` intervals:
 - "Audio Decoder"
 - "Sample First Codebook" / "Sample Predicted Codebooks"
 
-Capture with:
+Prefer the repository profile lane, which launches or attaches by exact PID, requires tracer
+success, and validates the trace table of contents:
 
 ```sh
-xctrace record --template "Metal System Trace" --instrument os_signpost \
-  --launch -- vocello bench --modes custom --variants speed --lengths long --warm 2
+scripts/macos_test.sh profile custom:speed:
 ```
 
 Trace overhead is ~25%, so compare fractions, not absolute RTF.
@@ -367,6 +367,9 @@ When telemetry is on (`QWENVOICE_DEBUG=1` or the debug toggle), each generation 
 - `chunkTimeline` — per-chunk substage timings (streaming only).
 - `derivedMetrics.audioSecondsPerWallSecond` — **RTF** (>1 = faster than realtime).
 - `derivedMetrics.tokensPerSecond` — token throughput.
+- `summary.targetIntervalNS` / `effectiveIntervalNS` / `maximumDriftNS` / `maximumLatenessNS` — sampler cadence, observed interval, and anchored scheduling phase error/lateness.
+- `summary.missedPeriodicDeadlineCount` — cadence deadlines skipped instead of issuing misleading burst catch-up samples.
+- `summary.boundarySampleCount` / `processResourceUsage` — lifecycle snapshots and owning-process CPU/fault/switch/I/O deltas.
 
 Example one-liner to read the latest engine row:
 
@@ -413,7 +416,8 @@ Only upgrade when:
    ./scripts/build_foundation_targets.sh macos
    ./scripts/build_foundation_targets.sh ios
    ```
-5. Run `vocello bench` against the committed baseline (`benchmarks/HISTORY.md`) and perform a listening pass.
+5. Run `vocello bench`; compare its generated registry entry with the nearest compatible clean run
+   in `benchmarks/HISTORY.md`, then annotate the independent listening verdict.
 6. Keep the bump only if RTF, memory, and audioQC are unchanged or improved.
 7. If anything regresses, document the blocker and revert.
 
@@ -484,18 +488,18 @@ QWENVOICE_DEBUG=1 ./scripts/build.sh run
 
 # Bench a full matrix
 QWENVOICE_DEBUG=1 ./build/vocello bench --modes custom,design,clone \
-  --variants speed,quality --lengths short,medium,long --warm 3 --ledger
+  --variants speed,quality --lengths short,medium,long --warm 3
 
 # Force constrained-tier behavior on a dev Mac
 QWENVOICE_DEBUG=1 QWENVOICE_FORCE_MEMORY_CLASS=floor_8gb_mac \
   QWENVOICE_SUPPRESS_WARMUP=1 ./scripts/build.sh run
 
-# Summarize telemetry
-python3 scripts/summarize_generation_telemetry.py
+# Summarize one authoritative benchmark run
+python3 scripts/summarize_generation_telemetry.py <diag-dir> \
+  --run-id <run-id> --evidence-manifest <run-artifact-dir>/benchmark-evidence.json
 
-# Capture an Instruments trace
-xctrace record --template "Metal System Trace" --instrument os_signpost \
-  --launch -- vocello bench --modes custom --variants speed --lengths long --warm 2
+# Capture and validate an Instruments trace (untracked; compact PASS metadata is registered)
+scripts/macos_test.sh profile custom:speed:
 ```
 
 ---

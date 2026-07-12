@@ -6,7 +6,8 @@ It serves two roles:
 - **User-facing generation** — synthesize speech from the terminal (Custom Voice / Voice Design /
   Voice Cloning), one clip or many, scriptable with JSON output and stdin piping.
 - **Deterministic benchmark/test driver** — drive the perf/quality matrix in-process (cold/warm
-  controlled exactly via load/unload, no UI waits), aggregate telemetry, and append a perf-ledger row.
+  controlled exactly via load/unload, no UI waits), aggregate run-scoped telemetry, and publish a
+  privacy-safe PASS-only benchmark record when running inside this checkout.
 
 It links the engine frameworks directly (no XPC), **ships no model weights and no Python**, and runs
 **in place** beside its MLX metallib bundle. It shares the same on-disk model store as the app
@@ -165,18 +166,19 @@ vocello bench [--modes custom,design,clone] [--variants speed,quality] \
 ```
 
 Per cell: 1 cold (medium) for Custom/Design + N warm per length; Voice Cloning is warm-only.
-Telemetry defaults to lightweight; use `--telemetry off` for engine-only WAV runs without
-instrumentation. Results land in `<data>/diagnostics` and are summarized by
-`scripts/summarize_generation_telemetry.py` (skipped when `--telemetry off`).
+Telemetry defaults to lightweight; use `--telemetry off` for engine-only WAV diagnostics without
+history publication. Results land in `<data>/diagnostics`, carry a collision-resistant run ID, and
+are summarized from the exact run evidence by `scripts/summarize_generation_telemetry.py` when the
+CLI is run from a Vocello checkout (skipped when `--telemetry off` or repository tools are absent).
 
 | Option | Meaning |
 |---|---|
-| `--modes` / `--variants` / `--lengths` | matrix axes (comma lists) |
+| `--modes` / `--variants` / `--lengths` | strict comma-list matrix axes: `custom,design,clone` / `speed,quality` / `short,medium,long`; empty, unknown, or duplicate values fail before runtime bootstrap |
 | `--warm` | warm reps per (cell × length); default 3 |
 | `--voice` / `--voice-brief` | clone voice name / design brief |
-| `--delivery [list]` | add **instruct-bearing delivery cells** (Custom/Design, warm, medium text, 1 take each): comma list of preset ids (e.g. `happy,calm,whisper`); the bare flag runs the default set (`happy,calm,whisper`). Rows are stamped `notes.delivery` and summarized in their own block, so the headline matrix and `--ledger` row stay comparable; the plain warm takes double as the neutral reference for prosody/delivery A/Bs |
-| `--label "<note>"` | stamp a note on the summary / ledger row |
-| `--ledger` | append a one-line row to `benchmarks/HISTORY.md` via a **single** summarizer pass (`--emit-ledger-row`) |
+| `--delivery [list]` | add **instruct-bearing delivery cells** (Custom/Design, warm, medium text, 1 take each): comma list of `<preset>[.<intensity>]` values (e.g. `happy.strong,calm.normal`); the bare flag runs `happy.strong,calm.normal,whisper.normal`. Rows are stamped `notes.delivery` and summarized in their own block; the plain warm takes double as the neutral reference for prosody/delivery A/Bs. Prosody analysis selects only WAVs named by the current run manifest and runs before the final summary. Delivery evidence remains inside the parent engine-generation record. |
+| `--label <opaque-id>` | stamp a privacy-safe identifier using only letters, numbers, `.`, `_`, and `-` |
+| `--run-id <id>` | supply a collision-resistant run ID for orchestration; normal invocations mint one automatically |
 | `--force-class` | **dev/diagnostic only** — force a constrained memory tier on any Mac: `8gb` · `16gb` · `high` · `iphone` (sets the `QWENVOICE_FORCE_MEMORY_CLASS` knob, relayed to the engine over the `initialize` handshake; stamps `notes.deviceClass`) |
 | `--telemetry` | `off` · `lightweight` (default) · `verbose` (raw per-sample sidecars) |
 | `--seed` | deterministic sampling seed applied to every benchmark take |
@@ -184,7 +186,7 @@ instrumentation. Results land in `<data>/diagnostics` and are summarized by
 | `--ttfc` | add an engine first-chunk-latency probe per cell → table + `diagnostics/bench-ttfc.json` |
 | `--keep` / `--force` | append to existing diagnostics / allow clearing even the real app data dir |
 | `--data-dir` / `--manifest` | override the runtime data dir (default: the debug-isolated folder) / the `qwenvoice_contract.json` path |
-| `--no-summary` | skip running the aggregator |
+| `--no-summary` | skip the aggregator and standalone registry publication because a parent diagnostic/profile lane owns evidence and publication; do not use for a normal standalone benchmark |
 
 **Streaming by default.** `vocello bench` runs the streaming path by default, so its
 memory numbers match the iOS/app streaming reality. Streaming takes drain `engine.events`
@@ -193,22 +195,35 @@ do not retain chunk events across takes. Pass `--no-stream` to run the old accum
 behavior for comparison.
 
 **What it measures.** Engine truth — RTF, decode, memory, per-stage GPU, and the `audioQC` verdict.
-It does **not** capture the app's end-to-end through-XPC latency (TTFC/TTFA) or the merged 3-layer
-telemetry row — those exist only in the real app process topology — and CLI rows carry no UI-stall
-counters (no UI process), so the summarizer's `UIstall` column shows `—` for bench runs. `--ttfc` adds an *engine-side*
-first-chunk probe (a warm streaming take per cell, run after the summary so it doesn't perturb the
-RTF/decode medians) — distinct from the app's buffered TTFA.
+It does **not** capture the app's submit-to-first-chunk or submit-to-playback-scheduled timing, nor
+the merged 3-layer telemetry row; those exist only in the real app process topology. CLI rows also
+have no delayed-heartbeat coverage because there is no UI process, so the summarizer's
+`UI heartbeat` column shows `—` for bench runs. `--ttfc` adds an *engine-side* first-chunk probe (a
+warm streaming take per cell, run after the matrix and excluded from its frozen summary selection)
+— distinct from app playback scheduling, which is not proof of acoustic audibility.
 
 **Preflight.** Before running, `bench` fails fast if any requested `(mode × variant)` model isn't
 installed (listing the missing ids), and fails if `clone` is in `--modes` but the saved voice
 (`--voice`, default `A_warm_elderly_woman`) is absent. Prerequisites: the requested models
 installed; a saved clone voice when clone is in the matrix.
 
-The deterministic `audioQC` gate, `scripts/prosody_quality_gate.py`, and
-`scripts/delivery_adherence.py` provide automated gating for bench runs.
+The deterministic `audioQC` gate runs for every benchmark take. `--delivery` additionally runs the
+paired delivery-prosody analysis before aggregation. The standalone
+`scripts/prosody_quality_gate.py` per-clip check and `scripts/delivery_adherence.py` corpus workflow
+run only when invoked explicitly.
 **Manual listening by ear** remains mandatory before explicitly promoting or releasing an
 engine-adjacent change; it does not block an ordinary development commit, push, pull request, or
 merge.
+
+**History publication.** A successful, telemetry-enabled benchmark in a repository checkout emits
+an atomic `benchmark-evidence.json`, publishes one allowlisted record under
+`benchmarks/runs/engine-generation/`, and regenerates `benchmarks/HISTORY.md`. It never stages,
+commits, or pushes. Failed/incomplete runs and `--telemetry off` diagnostics do not modify tracked
+history. When the CLI runs outside a checkout it retains local WAVs and the immutable
+`diagnostics/benchmark-runs/<runID>/bench-results.json`, skips unavailable repository summary/history
+tools without turning a successful generation into a failure, and prints the retained manifest path.
+If publication alone fails, rerun the printed idempotent
+`python3 scripts/benchmark_history.py record --artifact-dir <dir>` repair command.
 
 ## Examples
 
@@ -230,9 +245,9 @@ vocello speakers list
 vocello models list
 vocello models install pro_custom_speed   # headless; shared with the app
 
-# One-command benchmark: forced 8 GB tier, labelled, append a ledger row
+# One-command benchmark: forced 8 GB tier, labelled; PASS publishes an exploratory record
 vocello bench --modes custom --variants speed --lengths short,medium,long --warm 3 \
-              --label "my change" --ledger --force-class 8gb
+              --label "my-change" --force-class 8gb
 ```
 
 ## See also

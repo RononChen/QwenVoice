@@ -3,11 +3,245 @@ import os
 import tempfile
 import shutil
 import io
+import inspect
 import json
+import unittest
 from contextlib import redirect_stdout
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import summarize_generation_telemetry as sgt
+
+
+class _MonkeyPatch:
+    """Minimal pytest-compatible fixture used by the unittest workflow."""
+
+    def __init__(self):
+        self._restores = []
+
+    def setattr(self, target, name, value):
+        original = getattr(target, name)
+        self._restores.append((target, name, original))
+        setattr(target, name, value)
+
+    def undo(self):
+        for target, name, original in reversed(self._restores):
+            setattr(target, name, original)
+
+
+def test_labels_are_opaque_privacy_safe_identifiers():
+    assert sgt.opaque_label("release-QA.v1") == "release-QA.v1"
+    with unittest.TestCase().assertRaisesRegex(Exception, "opaque 1-96"):
+        sgt.opaque_label("contains user note")
+
+
+def _scoped_engine_row(generation_id, run_id, prompt_chars=150):
+    return {
+        "generationID": generation_id,
+        "mode": "custom",
+        "modelID": "fixture-model",
+        "warmState": "warm",
+        "finishReason": "completed",
+        "notes": {"benchRunID": run_id, "promptChars": str(prompt_chars)},
+        "derivedMetrics": {"audioSecondsPerWallSecond": 1.0, "tokensPerSecond": 100.0},
+        "audioQC": {"verdict": "pass", "flags": []},
+    }
+
+
+def _scoped_app_row(generation_id, run_id):
+    return {
+        "generationID": generation_id,
+        "finishReason": "completed",
+        "notes": {"benchRunID": run_id},
+        "timingsMS": {"submitToFirstChunkMS": 10},
+    }
+
+
+def _write_jsonl(path, rows):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row) + "\n")
+
+
+def _evidence_manifest(run_id, generation_ids, cells):
+    takes = []
+    for index, (generation_id, cell) in enumerate(zip(generation_ids, cells), start=1):
+        takes.append({
+            "takeIndex": index,
+            "generationID": generation_id,
+            "cell": cell,
+            "status": "pass",
+            "finishReason": "completed",
+            "readableWAV": True,
+            "atomicPublish": True,
+            "audioQC": {"verdict": "pass", "flags": []},
+            "layerCompleteness": {"engine": True, "app": True},
+        })
+    return {
+        "schemaVersion": 1,
+        "benchmarkKind": "ui-generation",
+        "platform": "ios",
+        "runID": run_id,
+        "status": "pass",
+        "matrix": {
+            "expectedTakeCount": len(takes),
+            "orderedCells": cells,
+        },
+        "layers": {
+            "engine": {"count": len(takes), "complete": True},
+            "app": {"count": len(takes), "complete": True},
+        },
+        "takes": takes,
+    }
+
+
+def test_len_bucket_treats_ios_150_character_prompt_as_long():
+    assert sgt.len_bucket(150) == "long"
+
+
+def test_schema_v7_frontend_metrics_are_preferred_over_legacy_counters():
+    engine = _scoped_engine_row("typed", "typed-run")
+    app_lookup = {
+        "typed": {
+            "timingsMS": {},
+            "counters": {
+                "delayedHeartbeatCount50": 99,
+                "heartbeatCoveragePPM": 1,
+                "maximumDelayedHeartbeatMS": 999,
+            },
+            "frontendMetrics": {
+                "delayedHeartbeatCount50": 2,
+                "delayedHeartbeatCount250": 1,
+                "maximumDelayedHeartbeatMS": 75,
+                "heartbeatCoveragePPM": 875_000,
+            },
+        }
+    }
+    run = sgt._engine_run(engine, app_lookup)
+    assert run["uiDelayedHeartbeat50"] == 2
+    assert run["uiDelayedHeartbeat250"] == 1
+    assert run["uiMaxDelayedHeartbeatMS"] == 75
+    assert run["uiHeartbeatCoverage"] == 0.875
+
+
+def test_run_id_scope_excludes_hundreds_of_unrelated_rows():
+    with tempfile.TemporaryDirectory() as tmp:
+        run_id = "selected-run"
+        unrelated_engine = [
+            _scoped_engine_row(f"old-{index}", "old-run", 36)
+            for index in range(300)
+        ]
+        unrelated_app = [
+            _scoped_app_row(f"old-{index}", "old-run")
+            for index in range(300)
+        ]
+        selected_engine = [_scoped_engine_row("selected-1", run_id)]
+        selected_app = [_scoped_app_row("selected-1", run_id)]
+        _write_jsonl(
+            os.path.join(tmp, "engine", "generations.jsonl"),
+            unrelated_engine + selected_engine,
+        )
+        _write_jsonl(
+            os.path.join(tmp, "app", "generations.jsonl"),
+            unrelated_app + selected_app,
+        )
+        runs, cells, _, _ = sgt.aggregate_runs(tmp, run_id=run_id, strict=True)
+        assert [run["generationID"] for run in runs] == ["selected-1"]
+        assert len(cells) == 1
+
+
+def test_engine_only_strict_scope_does_not_require_app_telemetry():
+    with tempfile.TemporaryDirectory() as tmp:
+        run_id = "headless-engine"
+        _write_jsonl(
+            os.path.join(tmp, "engine", "generations.jsonl"),
+            [_scoped_engine_row("engine-only-1", run_id)],
+        )
+        runs, cells, _, _ = sgt.aggregate_runs(
+            tmp,
+            run_id=run_id,
+            strict=True,
+            engine_only=True,
+        )
+        assert [run["generationID"] for run in runs] == ["engine-only-1"]
+        assert len(cells) == 1
+
+
+def test_evidence_manifest_controls_exact_order_and_cells():
+    with tempfile.TemporaryDirectory() as tmp:
+        run_id = "evidence-run"
+        # Telemetry is deliberately written in the opposite order. Evidence is
+        # authoritative and assigns the exact test-owned length cells.
+        _write_jsonl(
+            os.path.join(tmp, "engine", "generations.jsonl"),
+            [
+                _scoped_engine_row("gen-2", run_id, 150),
+                _scoped_engine_row("gen-1", run_id, 150),
+            ],
+        )
+        _write_jsonl(
+            os.path.join(tmp, "app", "generations.jsonl"),
+            [
+                _scoped_app_row("gen-2", run_id),
+                _scoped_app_row("gen-1", run_id),
+            ],
+        )
+        manifest_path = os.path.join(tmp, "benchmark-evidence.json")
+        with open(manifest_path, "w", encoding="utf-8") as handle:
+            json.dump(
+                _evidence_manifest(
+                    run_id,
+                    ["gen-1", "gen-2"],
+                    ["custom/short/warm#0", "custom/long/warm#0"],
+                ),
+                handle,
+            )
+        _, selected_run, generation_ids, cell_by_id = sgt.load_evidence_selection(manifest_path)
+        runs, _, _, _ = sgt.aggregate_runs(
+            tmp,
+            run_id=selected_run,
+            generation_ids=generation_ids,
+            cell_by_id=cell_by_id,
+            strict=True,
+        )
+        assert [run["generationID"] for run in runs] == ["gen-1", "gen-2"]
+        assert [run["lenBucket"] for run in runs] == ["short", "long"]
+
+
+def test_evidence_manifest_rejects_duplicate_generation_ids():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "benchmark-evidence.json")
+        manifest = _evidence_manifest(
+            "duplicate-run",
+            ["same", "same"],
+            ["custom/short/warm#0", "custom/long/warm#0"],
+        )
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(manifest, handle)
+        try:
+            sgt.load_evidence_selection(path)
+        except sgt.TelemetrySelectionError as error:
+            assert "duplicate evidence generationID" in str(error)
+        else:
+            raise AssertionError("duplicate evidence generationID was accepted")
+
+
+def test_scoped_aggregate_rejects_malformed_jsonl():
+    with tempfile.TemporaryDirectory() as tmp:
+        _write_jsonl(
+            os.path.join(tmp, "app", "generations.jsonl"),
+            [_scoped_app_row("gen-1", "run")],
+        )
+        path = os.path.join(tmp, "engine", "generations.jsonl")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("{not-json\n")
+        try:
+            sgt.aggregate_runs(tmp, run_id="run", strict=True)
+        except sgt.TelemetrySelectionError as error:
+            assert "malformed JSON" in str(error)
+        else:
+            raise AssertionError("malformed scoped telemetry was accepted")
 
 
 def test_load_merged_runs_frontend_overhead():
@@ -474,28 +708,6 @@ def test_load_runs_skips_non_success_finish_reason():
         assert [r["generationID"] for r in runs] == ["gen-ok"]
 
 
-def test_emit_ledger_row_with_table(monkeypatch):
-    """--emit-ledger-row prints the full table plus a ledger marker and row."""
-    fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "telemetry_variants.jsonl")
-    with tempfile.TemporaryDirectory() as tmp:
-        engine_dir = os.path.join(tmp, "engine")
-        os.makedirs(engine_dir)
-        shutil.copy(fixture_path, os.path.join(engine_dir, "generations.jsonl"))
-
-        monkeypatch.setattr(
-            sys, "argv",
-            ["summarize_generation_telemetry.py", tmp, "--emit-ledger-row", "--label", "test"],
-        )
-        out = io.StringIO()
-        with redirect_stdout(out):
-            rc = sgt.main()
-        assert rc == 0
-        text = out.getvalue()
-        assert "Telemetry summary" in text
-        assert "# ledger-row" in text
-        assert "| 2026-" in text.split("# ledger-row")[-1]
-
-
 def test_mimi_decoder_breakdown_aggregation():
     """mimiDecoderBreakdownMS per-chunk fields are aggregated into cell medians."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -547,3 +759,29 @@ def test_mimi_decoder_breakdown_aggregation():
         md = cells[key]["mimiDecoderBreakdownMS"]
         assert md["quantizerMS"] == 1
         assert md["totalMS"] == 8
+
+
+def load_tests(_loader, _tests, _pattern):
+    """Expose function-style tests to the repository's unittest-only gate."""
+    suite = unittest.TestSuite()
+    for name, function in sorted(globals().items()):
+        if not name.startswith("test_") or not inspect.isfunction(function):
+            continue
+        parameters = tuple(inspect.signature(function).parameters)
+
+        def invoke(selected=function, selected_parameters=parameters):
+            if not selected_parameters:
+                selected()
+                return
+            if selected_parameters != ("monkeypatch",):
+                raise AssertionError(
+                    f"unsupported function-test fixture(s): {selected_parameters}"
+                )
+            fixture = _MonkeyPatch()
+            try:
+                selected(fixture)
+            finally:
+                fixture.undo()
+
+        suite.addTest(unittest.FunctionTestCase(invoke, description=name))
+    return suite

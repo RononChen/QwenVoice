@@ -1,159 +1,275 @@
 #!/usr/bin/env python3
-"""Post-process `vocello bench --delivery` WAVs with the prosody analyzer.
+"""Analyze only the current ``vocello bench --delivery`` run's WAVs.
 
-For every instruct-bearing delivery take under outputs/bench, finds the paired
-neutral warm take (same mode / model / length / state) and computes the
-prosody delta via scripts/analyze_prosody.py. Writes a sidecar JSON that
-summarize_generation_telemetry.py can render alongside the delivery cells.
+The immutable ``bench-results.json`` manifest is mandatory: it selects the exact
+delivery and neutral outputs from the current run, even when ``outputs/bench``
+also contains files from older ``--keep`` runs. The resulting sidecar is written
+before the telemetry summary so the current summary and history record include
+the same prosody evidence.
 
 Usage:
-    scripts/bench_delivery_prosody.py <diagnostics_dir>
+    scripts/bench_delivery_prosody.py <diagnostics_dir> \
+        --results-manifest <run-artifact-dir>/bench-results.json
 
 Output:
     <diagnostics_dir>/bench-prosody.json
 """
-import sys, os, json, re, argparse
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import sys
+import tempfile
+from typing import Any
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from analyze_prosody import analyze
-from prosody_profile import builtin_profile, load_profile, delivery_weight
+from prosody_profile import builtin_profile, delivery_weight, load_profile
 
 
-def parse_filename(name):
-    """Parse bench WAV filename: <mode>_<modelID>_<len>_<stateToken>_<n>.wav
-
-    Model IDs can contain underscores (e.g. pro_custom_speed), so we anchor on
-    the known length/state tokens from the right instead of counting segments.
-    """
+def parse_filename(name: str) -> dict[str, Any] | None:
+    """Parse ``<mode>_<modelID>_<len>_<stateToken>_<n>.wav``."""
     if not name.endswith(".wav"):
         return None
-    m = re.match(
+    match = re.match(
         r"^(custom|design|clone)_(.+?)_(short|medium|long)_(warm|cold|warm_d-[^_]+)_(\d+)\.wav$",
         name,
     )
-    if not m:
+    if not match:
         return None
-    mode, model, length, state_token, n_str = m.groups()
-    try:
-        n = int(n_str)
-    except ValueError:
-        return None
+    mode, model, length, state_token, repetition = match.groups()
     delivery = None
     state = state_token
     if state_token.startswith("warm_d-"):
         state = "warm"
-        delivery = state_token[len("warm_d-"):]
+        delivery = state_token[len("warm_d-") :]
     return {
-        "mode": mode, "model": model, "length": length,
-        "state": state, "delivery": delivery, "n": n,
+        "mode": mode,
+        "model": model,
+        "length": length,
+        "state": state,
+        "delivery": delivery,
+        "n": int(repetition),
         "name": name,
     }
 
 
-def collect_outputs(bench_dir):
-    if not os.path.isdir(bench_dir):
-        return []
-    parsed = []
-    for name in os.listdir(bench_dir):
-        p = parse_filename(name)
-        if p:
-            p["path"] = os.path.join(bench_dir, name)
-            parsed.append(p)
-    return parsed
+def collect_run_outputs(bench_dir: Path, results_manifest: Path) -> tuple[str, list[dict[str, Any]]]:
+    """Resolve and validate the exact output set named by one run manifest."""
+    try:
+        manifest = json.loads(results_manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"invalid results manifest {results_manifest}: {error}") from error
+    if not isinstance(manifest, dict) or manifest.get("schemaVersion") != 1:
+        raise ValueError("results manifest must be a schema-v1 object")
+    run_id = manifest.get("runID")
+    takes = manifest.get("takes")
+    if not isinstance(run_id, str) or not run_id:
+        raise ValueError("results manifest has no runID")
+    if not isinstance(takes, list) or not takes:
+        raise ValueError("results manifest has no takes")
+
+    parsed_outputs: list[dict[str, Any]] = []
+    names: set[str] = set()
+    generation_ids: set[str] = set()
+    for index, take in enumerate(takes, start=1):
+        if not isinstance(take, dict) or take.get("takeIndex") != index:
+            raise ValueError("results manifest take indices must be contiguous and one-based")
+        name = take.get("outputFileName")
+        generation_id = take.get("generationID")
+        if (
+            not isinstance(name, str)
+            or not name
+            or Path(name).name != name
+            or name in names
+        ):
+            raise ValueError(f"take {index} has an invalid or duplicate output filename")
+        if not isinstance(generation_id, str) or not generation_id or generation_id in generation_ids:
+            raise ValueError(f"take {index} has an invalid or duplicate generation ID")
+        parsed = parse_filename(name)
+        if parsed is None:
+            raise ValueError(f"take {index} output filename does not match the bench contract: {name}")
+        expected = {
+            "mode": take.get("mode"),
+            "model": take.get("modelID"),
+            "length": take.get("length"),
+            "state": take.get("warmState"),
+            "delivery": take.get("delivery"),
+            "n": take.get("repetition"),
+        }
+        mismatches = [key for key, value in expected.items() if parsed[key] != value]
+        if mismatches:
+            raise ValueError(
+                f"take {index} output filename disagrees with manifest fields: {', '.join(mismatches)}"
+            )
+        output_path = bench_dir / name
+        if not output_path.is_file():
+            raise ValueError(f"current run output is missing: {name}")
+        parsed["path"] = str(output_path)
+        parsed["generationID"] = generation_id
+        parsed_outputs.append(parsed)
+        names.add(name)
+        generation_ids.add(generation_id)
+    return run_id, parsed_outputs
 
 
-def find_neutral(parsed, target):
-    """Find the best neutral reference for a delivery take.
-
-    Delivery takes always use the medium text, so the ideal reference is a warm
-    neutral take of the same mode/model/length. If a same-length neutral is
-    unavailable (e.g. a partial bench), fall back to any warm neutral for the
-    same mode/model so the analysis still runs.
-    """
+def find_neutral(parsed: list[dict[str, Any]], target: dict[str, Any]) -> dict[str, Any] | None:
+    """Find the closest neutral reference within the selected current run."""
     same_length = [
-        p for p in parsed
-        if p["delivery"] is None
-        and p["mode"] == target["mode"]
-        and p["model"] == target["model"]
-        and p["length"] == target["length"]
-        and p["state"] == target["state"]
+        item
+        for item in parsed
+        if item["delivery"] is None
+        and item["mode"] == target["mode"]
+        and item["model"] == target["model"]
+        and item["length"] == target["length"]
+        and item["state"] == target["state"]
     ]
     candidates = same_length or [
-        p for p in parsed
-        if p["delivery"] is None
-        and p["mode"] == target["mode"]
-        and p["model"] == target["model"]
-        and p["state"] == target["state"]
+        item
+        for item in parsed
+        if item["delivery"] is None
+        and item["mode"] == target["mode"]
+        and item["model"] == target["model"]
+        and item["state"] == target["state"]
     ]
     if not candidates:
         return None
-    # Prefer same n, then lowest n.
-    candidates.sort(key=lambda p: (abs(p["n"] - target["n"]), p["n"]))
+    candidates.sort(key=lambda item: (abs(item["n"] - target["n"]), item["n"]))
     return candidates[0]
 
 
-def prosody_effect(d, profile=None):
-    """Replicate the signed effect score from delivery_adherence.py."""
-    prof = profile if profile is not None else builtin_profile()
+def prosody_effect(metrics: dict[str, float], profile: dict[str, Any] | None = None) -> float:
+    """Replicate the signed effect score from ``delivery_adherence.py``."""
+    resolved = profile if profile is not None else builtin_profile()
     return (
-        d["f0_std_hz"] / delivery_weight(prof, "prosody_effect", "f0_std_divisor")
-        + d["rate_cv"] / delivery_weight(prof, "prosody_effect", "rate_cv_divisor")
-        - d["pause_ratio"] / delivery_weight(prof, "prosody_effect", "pause_ratio_divisor")
-        + d["energy_roughness"] / delivery_weight(prof, "prosody_effect", "energy_roughness_divisor")
+        metrics["f0_std_hz"] / delivery_weight(resolved, "prosody_effect", "f0_std_divisor")
+        + metrics["rate_cv"] / delivery_weight(resolved, "prosody_effect", "rate_cv_divisor")
+        - metrics["pause_ratio"] / delivery_weight(resolved, "prosody_effect", "pause_ratio_divisor")
+        + metrics["energy_roughness"]
+        / delivery_weight(resolved, "prosody_effect", "energy_roughness_divisor")
     )
 
 
-def main():
-    ap = argparse.ArgumentParser(description="Post-process bench delivery WAVs with prosody analysis.")
-    ap.add_argument("diagnostics_dir", help="diagnostics directory (contains outputs/bench)")
-    ap.add_argument("--prosody-profile", default="", help="path to a prosody profile JSON (default: built-in)")
-    args = ap.parse_args()
-
-    profile = load_profile(args.prosody_profile) if args.prosody_profile else None
-
-    diag_dir = args.diagnostics_dir
-    bench_dir = os.path.join(os.path.dirname(diag_dir), "outputs", "bench")
-    if not os.path.isdir(bench_dir):
-        sys.exit(f"bench outputs dir not found: {bench_dir}")
-
-    parsed = collect_outputs(bench_dir)
-    deliveries = [p for p in parsed if p["delivery"]]
+def analyze_run(
+    diagnostics_dir: Path,
+    results_manifest: Path,
+    profile: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    bench_dir = diagnostics_dir.parent / "outputs" / "bench"
+    if not bench_dir.is_dir():
+        raise ValueError(f"bench outputs dir not found: {bench_dir}")
+    run_id, parsed = collect_run_outputs(bench_dir, results_manifest)
+    deliveries = [item for item in parsed if item["delivery"]]
     if not deliveries:
-        print("no delivery takes found; nothing to analyze", file=sys.stderr)
-        return
+        raise ValueError("current results manifest contains no delivery takes")
 
-    results = []
-    for d in deliveries:
-        neu = find_neutral(parsed, d)
-        if neu is None:
-            print(f"WARN: no neutral reference for {d['name']}", file=sys.stderr)
-            continue
-        p_inst = analyze(d["path"])
-        p_neu = analyze(neu["path"])
-        if "error" in p_inst or "error" in p_neu:
-            print(f"WARN: analysis failed for {d['name']}", file=sys.stderr)
-            continue
-        results.append({
-            "mode": d["mode"],
-            "model": d["model"],
-            "length": d["length"],
-            "delivery": d["delivery"],
-            "deliveryWav": d["name"],
-            "neutralWav": neu["name"],
-            "durationSec": p_inst["durationSec"],
-            "dF0Std": round(p_inst["f0_std_hz"] - p_neu["f0_std_hz"], 2),
-            "dRateCV": round(p_inst["rate_cv"] - p_neu["rate_cv"], 3),
-            "dPauseRatio": round(p_inst["pause_ratio"] - p_neu["pause_ratio"], 3),
-            "dRoughness": round(p_inst["energy_roughness"] - p_neu["energy_roughness"], 3),
-            "prosodyEffect": round(prosody_effect({k: p_inst[k] for k in [
-                "f0_std_hz", "rate_cv", "pause_ratio", "energy_roughness"]}, profile), 2),
-            "deliveryMetrics": p_inst,
-            "neutralMetrics": p_neu,
-        })
+    resolved_profile = profile if profile is not None else builtin_profile()
+    profile_digest = hashlib.sha256(
+        json.dumps(
+            resolved_profile,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("utf-8")
+    ).hexdigest()
 
-    out_path = os.path.join(diag_dir, "bench-prosody.json")
-    with open(out_path, "w") as f:
-        json.dump(results, f, indent=2)
-    print(f"wrote {out_path} ({len(results)} delivery/neutral pairs)")
+    results: list[dict[str, Any]] = []
+    for delivery in deliveries:
+        neutral = find_neutral(parsed, delivery)
+        if neutral is None:
+            raise ValueError(f"current run has no neutral reference for {delivery['name']}")
+        instructed_metrics = analyze(delivery["path"])
+        neutral_metrics = analyze(neutral["path"])
+        if "error" in instructed_metrics or "error" in neutral_metrics:
+            raise ValueError(f"prosody analysis failed for current output {delivery['name']}")
+        results.append(
+            {
+                "runID": run_id,
+                "generationID": delivery["generationID"],
+                "neutralGenerationID": neutral["generationID"],
+                "mode": delivery["mode"],
+                "model": delivery["model"],
+                "length": delivery["length"],
+                "delivery": delivery["delivery"],
+                "profileDigest": profile_digest,
+                "deliveryWav": delivery["name"],
+                "neutralWav": neutral["name"],
+                "durationSec": instructed_metrics["durationSec"],
+                "dF0Std": round(instructed_metrics["f0_std_hz"] - neutral_metrics["f0_std_hz"], 2),
+                "dRateCV": round(instructed_metrics["rate_cv"] - neutral_metrics["rate_cv"], 3),
+                "dPauseRatio": round(instructed_metrics["pause_ratio"] - neutral_metrics["pause_ratio"], 3),
+                "dRoughness": round(
+                    instructed_metrics["energy_roughness"] - neutral_metrics["energy_roughness"], 3
+                ),
+                "prosodyEffect": round(
+                    prosody_effect(
+                        {
+                            key: instructed_metrics[key]
+                            for key in ("f0_std_hz", "rate_cv", "pause_ratio", "energy_roughness")
+                        },
+                        profile,
+                    ),
+                    2,
+                ),
+                "deliveryMetrics": instructed_metrics,
+                "neutralMetrics": neutral_metrics,
+            }
+        )
+    return results
+
+
+def write_results(diagnostics_dir: Path, results: list[dict[str, Any]]) -> Path:
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    output_path = diagnostics_dir / "bench-prosody.json"
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=".bench-prosody-", suffix=".json", dir=diagnostics_dir
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(results, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_name, output_path)
+    except BaseException:
+        try:
+            os.unlink(temporary_name)
+        except FileNotFoundError:
+            pass
+        raise
+    return output_path
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Post-process the current bench run's delivery WAVs with prosody analysis."
+    )
+    parser.add_argument("diagnostics_dir", type=Path, help="current runtime diagnostics directory")
+    parser.add_argument(
+        "--results-manifest",
+        type=Path,
+        required=True,
+        help="current run's immutable bench-results.json",
+    )
+    parser.add_argument(
+        "--prosody-profile",
+        default="",
+        help="path to a prosody profile JSON (default: built-in)",
+    )
+    args = parser.parse_args()
+    try:
+        profile = load_profile(args.prosody_profile) if args.prosody_profile else None
+        results = analyze_run(args.diagnostics_dir, args.results_manifest, profile)
+        output_path = write_results(args.diagnostics_dir, results)
+    except (OSError, ValueError) as error:
+        raise SystemExit(f"delivery prosody analysis failed: {error}") from error
+    print(f"wrote {output_path} ({len(results)} current-run delivery/neutral pairs)")
 
 
 if __name__ == "__main__":

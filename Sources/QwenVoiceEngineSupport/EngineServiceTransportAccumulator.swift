@@ -18,6 +18,7 @@ public struct EngineServiceTransportAccumulator: Sendable {
     private let telemetryEnabled: Bool
     private var generationID: UUID?
     private var mode: String?
+    private var requestAcceptedUptime: Double?
     private var firstChunkUptime: Double?
     private var chunksForwarded = 0
     private var firstChunkSequence: UInt64?
@@ -45,13 +46,16 @@ public struct EngineServiceTransportAccumulator: Sendable {
     }
 
     /// Returns at most one durable record for a terminal or superseded generation.
-    public mutating func observe(event: GenerationEvent) -> GenerationTelemetryRecord? {
+    public mutating func observe(
+        event: GenerationEvent,
+        requestAcceptedUptime: Double? = nil
+    ) -> GenerationTelemetryRecord? {
         switch event {
         case .chunk(let chunk):
             var superseded: GenerationTelemetryRecord?
             if chunk.generationID != generationID {
                 superseded = makeRecord(finishReason: .superseded, usedStreaming: true, notes: [:])
-                begin(chunk)
+                begin(chunk, requestAcceptedUptime: requestAcceptedUptime)
             }
             observeSequence(chunk.chunkSequence)
             chunksForwarded += 1
@@ -82,9 +86,13 @@ public struct EngineServiceTransportAccumulator: Sendable {
         }
     }
 
-    private mutating func begin(_ chunk: GenerationChunk) {
+    private mutating func begin(
+        _ chunk: GenerationChunk,
+        requestAcceptedUptime: Double?
+    ) {
         generationID = chunk.generationID
         mode = chunk.mode
+        self.requestAcceptedUptime = requestAcceptedUptime
         firstChunkUptime = ProcessInfo.processInfo.systemUptime
         chunksForwarded = 0
         firstChunkSequence = nil
@@ -114,6 +122,7 @@ public struct EngineServiceTransportAccumulator: Sendable {
     private mutating func resetGeneration() {
         generationID = nil
         mode = nil
+        requestAcceptedUptime = nil
         firstChunkUptime = nil
         chunksForwarded = 0
         firstChunkSequence = nil
@@ -135,7 +144,17 @@ public struct EngineServiceTransportAccumulator: Sendable {
             let spanSeconds = max(0, ProcessInfo.processInfo.systemUptime - firstChunkUptime)
             timingsMS["chunkForwardingSpanMS"] = Int(spanSeconds * 1_000)
             timingsMS["chunkForwardingSpanNS"] = Int(min(Double(Int.max), spanSeconds * 1_000_000_000))
-            stageMarks.append(NativeTelemetryStageMark(tMS: 0, stage: "firstChunk"))
+            let requestToFirstChunkMS: Int
+            if let requestAcceptedUptime {
+                requestToFirstChunkMS = Int(max(0, firstChunkUptime - requestAcceptedUptime) * 1_000)
+                timingsMS["requestToFirstChunkMS"] = requestToFirstChunkMS
+                timingsMS["requestToFirstChunkNS"] = Int(
+                    min(Double(Int.max), max(0, firstChunkUptime - requestAcceptedUptime) * 1_000_000_000)
+                )
+            } else {
+                requestToFirstChunkMS = 0
+            }
+            stageMarks.append(NativeTelemetryStageMark(tMS: requestToFirstChunkMS, stage: "firstChunk"))
         }
         let mergedNotes = notes
             .merging(currentTaskQOSNotes()) { current, _ in current }
@@ -158,6 +177,7 @@ public struct EngineServiceTransportAccumulator: Sendable {
             notes: mergedNotes,
             transportMetrics: EngineTransportMetrics(
                 finishReason: finishReason,
+                requestToFirstChunkMS: timingsMS["requestToFirstChunkMS"],
                 firstChunkToTerminalMS: timingsMS["chunkForwardingSpanMS"],
                 counters: EngineTransportCounters(
                     chunksForwarded: chunksForwarded,
@@ -166,7 +186,7 @@ public struct EngineServiceTransportAccumulator: Sendable {
                     outOfOrderChunks: outOfOrderChunks
                 ),
                 cancellation: finishReason == .cancelled ? .completed : .notRequested,
-                requestAccepted: true,
+                requestAccepted: requestAcceptedUptime != nil,
                 sessionIdentity: sessionIdentity,
                 firstChunkSequence: firstChunkSequence,
                 lastChunkSequence: lastChunkSequence

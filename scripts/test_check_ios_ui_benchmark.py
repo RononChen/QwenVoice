@@ -25,6 +25,12 @@ def make_row(index: int, mode: str, length: str, warm_state: str) -> dict:
         "mode": mode,
         "warmState": warm_state,
         "finishReason": "completed",
+        "derivedMetrics": {"generatedTokenCount": 200 + index},
+        "summary": {
+            "stageMarks": [
+                {"stage": "memory_trim", "metadata": {"level": "fullUnload"}},
+            ] if index == 1 else [],
+        },
         "notes": {"benchRunID": RUN_ID, "promptChars": str(prompt_chars)},
         "outputMetrics": {
             "readableWAV": True,
@@ -33,6 +39,60 @@ def make_row(index: int, mode: str, length: str, warm_state: str) -> dict:
         },
         "audioQC": {"verdict": "pass"},
     }
+
+
+def v7_summary() -> dict:
+    return {
+        "targetIntervalNS": 500_000_000, "effectiveIntervalNS": 505_000_000,
+        "maximumDriftNS": 5_000_000, "maximumLatenessNS": 5_000_000,
+        "boundarySampleCount": 4, "captureFailureCount": 0,
+        "processResourceUsage": {
+            "userCPUTimeMS": 100.0, "systemCPUTimeMS": 20.0,
+            "minorPageFaults": 1, "majorPageFaults": 0,
+            "voluntaryContextSwitches": 2, "involuntaryContextSwitches": 1,
+            "blockInputOperations": 0, "blockOutputOperations": 0,
+        },
+        "runEnvironment": {
+            "loadAverage1Minute": 1.0, "freeStorageBytes": 1_000_000,
+            "uptimeSeconds": 10.0, "lowPowerModeEnabled": False,
+            "thermalState": "nominal",
+        },
+    }
+
+
+def v7_frontend() -> dict:
+    return {
+        "submitToFirstChunkMS": 10, "submitToPlaybackScheduledMS": 30,
+        "submitToCompletedMS": 100, "firstChunkToPlaybackScheduledMS": 20,
+        "delayedHeartbeatCount50": 0, "scheduledHeartbeatCount": 10,
+        "completedHeartbeatCount": 10, "heartbeatCoveragePPM": 1_000_000,
+        "playbackChunksReceived": 4, "playbackContinuityFailures": 0,
+        "playbackUnderruns": 0, "playbackStartBufferedChunks": 2,
+        "playbackStartBufferedAudioMS": 120, "playbackMinimumQueuedAudioMS": 80,
+    }
+
+
+def upgrade_rows_to_v7(engine_rows: list[dict], app_rows: list[dict]) -> None:
+    for row in engine_rows:
+        mode = row["mode"]
+        model_id = f"pro_{mode}_speed"
+        row["schemaVersion"] = 7
+        row["summary"] = v7_summary()
+        row["backendMetrics"] = {"timings": [], "stages": []}
+        row["modelID"] = model_id
+        row["modelRuntimeIdentity"] = {
+            "resolvedModelID": model_id, "modelVariant": "speed",
+            "runtimeProfileSignature": f"{model_id}:fixture-v1",
+            "modelRepository": "mlx-community/Qwen3-TTS-fixture",
+            "huggingFaceRevision": "a" * 40, "artifactVersion": "fixture-v1",
+            "quantization": "4-bit", "integrityManifestDigest": "b" * 64,
+        }
+        if mode in {"design", "clone"}:
+            row["modelRuntimeIdentity"]["fixtureDigest"] = "d" * 64
+        row["notes"]["promptDigest"] = "c" * 64
+    for row in app_rows:
+        row["schemaVersion"] = 7
+        row["frontendMetrics"] = v7_frontend()
 
 
 class CheckIOSUIBenchmarkTests(unittest.TestCase):
@@ -48,36 +108,89 @@ class CheckIOSUIBenchmarkTests(unittest.TestCase):
         self,
         cells: list[tuple[str, str, str]],
         mutate_rows=None,
+        mutate_app_rows=None,
+        malformed_layer: str | None = None,
+        evidence: bool = False,
+        modes: str = "custom,clone",
+        lengths: str = "short,medium",
     ) -> subprocess.CompletedProcess[str]:
+        self.last_manifest = None
         with tempfile.TemporaryDirectory() as temp:
             diagnostics = Path(temp)
             engine = diagnostics / "engine"
+            app = diagnostics / "app"
             engine.mkdir()
+            app.mkdir()
             rows = [make_row(index, *cell) for index, cell in enumerate(cells, start=1)]
             if mutate_rows is not None:
                 mutate_rows(rows)
+            app_rows = [
+                {
+                    "generationID": row.get("generationID"),
+                    "finishReason": "completed",
+                    "notes": {
+                        "benchRunID": (row.get("notes") or {}).get("benchRunID")
+                    },
+                }
+                for row in rows
+            ]
+            if mutate_app_rows is not None:
+                mutate_app_rows(app_rows)
             (engine / "generations.jsonl").write_text(
-                "".join(json.dumps(row) + "\n" for row in rows),
+                "".join(json.dumps(row) + "\n" for row in rows)
+                + ("{not-json\n" if malformed_layer == "engine" else ""),
                 encoding="utf-8",
             )
-            return subprocess.run(
-                [
-                    sys.executable,
-                    str(CHECK),
-                    str(diagnostics),
-                    "--run-id",
-                    RUN_ID,
-                    "--modes",
-                    "custom,clone",
-                    "--lengths",
-                    "short,medium",
-                    "--warm",
-                    "1",
+            (app / "generations.jsonl").write_text(
+                "".join(json.dumps(row) + "\n" for row in app_rows)
+                + ("{not-json\n" if malformed_layer == "app" else ""),
+                encoding="utf-8",
+            )
+            command = [
+                sys.executable,
+                str(CHECK),
+                str(diagnostics),
+                "--run-id",
+                RUN_ID,
+                "--modes",
+                modes,
+                "--lengths",
+                lengths,
+                "--warm",
+                "1",
+            ]
+            generation_map = diagnostics / "generation-map.json"
+            generation_map.write_text(json.dumps({
+                "schemaVersion": 1,
+                "runID": RUN_ID,
+                "takes": [
+                    {
+                        "takeIndex": index,
+                        "cell": f"{mode}/{length}/{warm_state}#0",
+                        "generationID": f"fixture-{index}",
+                    }
+                    for index, (mode, length, warm_state) in enumerate(cells, start=1)
                 ],
+            }) + "\n", encoding="utf-8")
+            command.extend(["--generation-map", str(generation_map)])
+            manifest_path = diagnostics / "benchmark-evidence.json"
+            if evidence:
+                command.extend([
+                    "--evidence-manifest",
+                    str(manifest_path),
+                    "--crash-delta-passed",
+                    "--label",
+                    "fixture",
+                ])
+            result = subprocess.run(
+                command,
                 capture_output=True,
                 text=True,
                 check=False,
             )
+            if manifest_path.is_file():
+                self.last_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            return result
 
     def test_exact_order_passes(self) -> None:
         result = self.run_checker(self.expected_order)
@@ -88,7 +201,7 @@ class CheckIOSUIBenchmarkTests(unittest.TestCase):
         reordered[1], reordered[2] = reordered[2], reordered[1]
         result = self.run_checker(reordered)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("cell order mismatch", result.stdout + result.stderr)
+        self.assertIn("generation map take 2", result.stdout + result.stderr)
 
     def test_missing_audio_qc_fails(self) -> None:
         def remove_audio_qc(rows: list[dict]) -> None:
@@ -116,6 +229,115 @@ class CheckIOSUIBenchmarkTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("audioQC failed", result.stdout + result.stderr)
 
+    def test_150_character_prompt_is_long_and_manifest_uses_exact_cell(self) -> None:
+        cells = [
+            ("custom", "long", "cold"),
+            ("custom", "long", "warm"),
+        ]
+        result = self.run_checker(
+            cells,
+            evidence=True,
+            modes="custom",
+            lengths="long",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            self.last_manifest["matrix"]["orderedCells"],
+            ["custom/long/cold#0", "custom/long/warm#0"],
+        )
+        self.assertEqual([take["length"] for take in self.last_manifest["takes"]], ["long", "long"])
+
+    def test_evidence_manifest_contains_correlated_engine_and_app_rows(self) -> None:
+        result = self.run_checker(self.expected_order, evidence=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        manifest = self.last_manifest
+        self.assertEqual(manifest["runID"], RUN_ID)
+        self.assertTrue(manifest["layers"]["engine"]["complete"])
+        self.assertTrue(manifest["layers"]["app"]["complete"])
+        self.assertTrue(
+            all(take["layerCompleteness"] == {"engine": True, "app": True} for take in manifest["takes"])
+        )
+        self.assertTrue(manifest["historyRecord"]["evidence"]["validatorPassed"])
+        first_metrics = manifest["historyRecord"]["takes"][0]["metrics"]
+        self.assertEqual(first_metrics["generatedTokens"], 201)
+        self.assertEqual(first_metrics["memoryTrimCount"], 1)
+        self.assertEqual(first_metrics["maximumTrimLevel"], 3)
+
+    def test_missing_app_row_fails_without_evidence(self) -> None:
+        def remove_app(rows: list[dict]) -> None:
+            rows.pop()
+
+        result = self.run_checker(
+            self.expected_order,
+            mutate_app_rows=remove_app,
+            evidence=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("app rows 4 != expected 5", result.stdout + result.stderr)
+        self.assertIsNone(self.last_manifest)
+
+    def test_duplicate_app_generation_id_fails(self) -> None:
+        def duplicate_app(rows: list[dict]) -> None:
+            rows[1]["generationID"] = rows[0]["generationID"]
+
+        result = self.run_checker(self.expected_order, mutate_app_rows=duplicate_app)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("app generationIDs are not unique", result.stdout + result.stderr)
+
+    def test_malformed_jsonl_fails(self) -> None:
+        result = self.run_checker(self.expected_order, malformed_layer="engine")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("malformed JSON", result.stdout + result.stderr)
+
+    def test_schema_v7_complete_accuracy_evidence_passes(self) -> None:
+        def engine(rows):
+            self._pending_v7_engine = rows
+        def app(rows):
+            upgrade_rows_to_v7(self._pending_v7_engine, rows)
+        result = self.run_checker(
+            self.expected_order, mutate_rows=engine, mutate_app_rows=app
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_schema_v7_missing_sampler_resource_or_environment_fails(self) -> None:
+        for field, message in (
+            ("maximumDriftNS", "invalid sampler maximumDriftNS"),
+            ("processResourceUsage", "incomplete process resource deltas"),
+            ("runEnvironment", "missing run environment"),
+        ):
+            def engine(rows):
+                self._pending_v7_engine = rows
+            def app(rows, field=field):
+                upgrade_rows_to_v7(self._pending_v7_engine, rows)
+                self._pending_v7_engine[0]["summary"].pop(field)
+            with self.subTest(field=field):
+                result = self.run_checker(
+                    self.expected_order, mutate_rows=engine, mutate_app_rows=app
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stdout + result.stderr)
+
+    def test_schema_v7_frontend_lifecycle_and_playback_health_are_required(self) -> None:
+        def engine(rows):
+            self._pending_v7_engine = rows
+        def app(rows):
+            upgrade_rows_to_v7(self._pending_v7_engine, rows)
+            rows[0]["frontendMetrics"].pop("playbackMinimumQueuedAudioMS")
+        result = self.run_checker(
+            self.expected_order, mutate_rows=engine, mutate_app_rows=app
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("incomplete typed frontend lifecycle/playback", result.stdout + result.stderr)
+
+    def test_unrelated_historical_rows_are_not_selected(self) -> None:
+        def append_unrelated(rows: list[dict]) -> None:
+            unrelated = make_row(99, "custom", "short", "warm")
+            unrelated["notes"]["benchRunID"] = "another-run"
+            rows.append(unrelated)
+
+        result = self.run_checker(self.expected_order, mutate_rows=append_unrelated)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_runner_does_not_mask_benchmark_gate_failure_in_or_list(self) -> None:
         text = RUNNER.read_text(encoding="utf-8")
         prefix = "validate_ios_benchmark() {\n"
@@ -129,6 +351,15 @@ class CheckIOSUIBenchmarkTests(unittest.TestCase):
             output = root / "output"
             scripts.mkdir()
             output.mkdir()
+            attachments = output / "attachments"
+            attachments.mkdir()
+            (attachments / "generation-map.json").write_text("{}\n", encoding="utf-8")
+            (attachments / "manifest.json").write_text(json.dumps([{
+                "attachments": [{
+                    "suggestedHumanReadableName": "ios-benchmark-generation-map.json",
+                    "exportedFileName": "generation-map.json",
+                }],
+            }]) + "\n", encoding="utf-8")
 
             pull = scripts / "ios_device.sh"
             pull.write_text(

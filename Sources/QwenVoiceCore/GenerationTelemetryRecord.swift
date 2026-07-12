@@ -84,29 +84,193 @@ public struct BackendCounterMetric: Hashable, Codable, Sendable {
 
 public struct FrontendGenerationMetrics: Hashable, Codable, Sendable {
     public let submitToFirstChunkMS: Int?
-    public let submitToFirstAudibleMS: Int?
+    /// Submission to the point where playback was scheduled. This does not claim
+    /// that acoustic output was independently observed.
+    public let submitToPlaybackScheduledMS: Int?
     public let submitToCompletedMS: Int?
-    public let firstChunkToAudibleMS: Int?
-    public let mainThreadStallCount50MS: Int
-    public let mainThreadStallCount250MS: Int
-    public let mainThreadMaximumStallMS: Int
+    public let firstChunkToPlaybackScheduledMS: Int?
+    /// Sampled heartbeat delays, not an exhaustive enumeration of UI stalls.
+    public let delayedHeartbeatCount50: Int
+    public let delayedHeartbeatCount250: Int
+    public let maximumDelayedHeartbeatMS: Int
+    public let scheduledHeartbeatCount: Int
+    public let completedHeartbeatCount: Int
+    public let heartbeatCoveragePPM: Int
+    public let playbackChunksReceived: Int
+    public let playbackContinuityFailures: Int
+    public let playbackUnderruns: Int
+    public let playbackStartBufferedChunks: Int?
+    public let playbackStartBufferedAudioMS: Int?
+    public let playbackMinimumQueuedAudioMS: Int?
+
+    /// Schema-v6 source compatibility. v7 encodes the accurate scheduled-playback
+    /// name and decodes legacy "audible" fields into that canonical value.
+    @available(*, deprecated, renamed: "submitToPlaybackScheduledMS")
+    public var submitToFirstAudibleMS: Int? { submitToPlaybackScheduledMS }
+
+    @available(*, deprecated, renamed: "firstChunkToPlaybackScheduledMS")
+    public var firstChunkToAudibleMS: Int? { firstChunkToPlaybackScheduledMS }
+
+    @available(*, deprecated, renamed: "delayedHeartbeatCount50")
+    public var mainThreadStallCount50MS: Int { delayedHeartbeatCount50 }
+
+    @available(*, deprecated, renamed: "delayedHeartbeatCount250")
+    public var mainThreadStallCount250MS: Int { delayedHeartbeatCount250 }
+
+    @available(*, deprecated, renamed: "maximumDelayedHeartbeatMS")
+    public var mainThreadMaximumStallMS: Int { maximumDelayedHeartbeatMS }
 
     public init(
         submitToFirstChunkMS: Int? = nil,
-        submitToFirstAudibleMS: Int? = nil,
+        submitToPlaybackScheduledMS: Int? = nil,
         submitToCompletedMS: Int? = nil,
+        firstChunkToPlaybackScheduledMS: Int? = nil,
+        delayedHeartbeatCount50: Int = 0,
+        delayedHeartbeatCount250: Int = 0,
+        maximumDelayedHeartbeatMS: Int = 0,
+        scheduledHeartbeatCount: Int = 0,
+        completedHeartbeatCount: Int = 0,
+        heartbeatCoveragePPM: Int = 0,
+        playbackChunksReceived: Int = 0,
+        playbackContinuityFailures: Int = 0,
+        playbackUnderruns: Int = 0,
+        playbackStartBufferedChunks: Int? = nil,
+        playbackStartBufferedAudioMS: Int? = nil,
+        playbackMinimumQueuedAudioMS: Int? = nil,
+        submitToFirstAudibleMS: Int? = nil,
         firstChunkToAudibleMS: Int? = nil,
-        mainThreadStallCount50MS: Int = 0,
-        mainThreadStallCount250MS: Int = 0,
-        mainThreadMaximumStallMS: Int = 0
+        mainThreadStallCount50MS: Int? = nil,
+        mainThreadStallCount250MS: Int? = nil,
+        mainThreadMaximumStallMS: Int? = nil
     ) {
         self.submitToFirstChunkMS = submitToFirstChunkMS
-        self.submitToFirstAudibleMS = submitToFirstAudibleMS
+        self.submitToPlaybackScheduledMS = submitToPlaybackScheduledMS ?? submitToFirstAudibleMS
         self.submitToCompletedMS = submitToCompletedMS
-        self.firstChunkToAudibleMS = firstChunkToAudibleMS
-        self.mainThreadStallCount50MS = mainThreadStallCount50MS
-        self.mainThreadStallCount250MS = mainThreadStallCount250MS
-        self.mainThreadMaximumStallMS = mainThreadMaximumStallMS
+        self.firstChunkToPlaybackScheduledMS = firstChunkToPlaybackScheduledMS ?? firstChunkToAudibleMS
+        self.delayedHeartbeatCount50 = mainThreadStallCount50MS ?? delayedHeartbeatCount50
+        self.delayedHeartbeatCount250 = mainThreadStallCount250MS ?? delayedHeartbeatCount250
+        self.maximumDelayedHeartbeatMS = mainThreadMaximumStallMS ?? maximumDelayedHeartbeatMS
+        self.scheduledHeartbeatCount = scheduledHeartbeatCount
+        self.completedHeartbeatCount = completedHeartbeatCount
+        self.heartbeatCoveragePPM = heartbeatCoveragePPM
+        self.playbackChunksReceived = playbackChunksReceived
+        self.playbackContinuityFailures = playbackContinuityFailures
+        self.playbackUnderruns = playbackUnderruns
+        self.playbackStartBufferedChunks = playbackStartBufferedChunks
+        self.playbackStartBufferedAudioMS = playbackStartBufferedAudioMS
+        self.playbackMinimumQueuedAudioMS = playbackMinimumQueuedAudioMS
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case submitToFirstChunkMS
+        case submitToPlaybackScheduledMS
+        case submitToFirstAudibleMS
+        case submitToCompletedMS
+        case firstChunkToPlaybackScheduledMS
+        case firstChunkToAudibleMS
+        case delayedHeartbeatCount50
+        case delayedHeartbeatCount250
+        case maximumDelayedHeartbeatMS
+        case scheduledHeartbeatCount
+        case completedHeartbeatCount
+        case heartbeatCoveragePPM
+        case playbackChunksReceived
+        case playbackContinuityFailures
+        case playbackUnderruns
+        case playbackStartBufferedChunks
+        case playbackStartBufferedAudioMS
+        case playbackMinimumQueuedAudioMS
+        case mainThreadStallCount50MS
+        case mainThreadStallCount250MS
+        case mainThreadMaximumStallMS
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.submitToFirstChunkMS = try container.decodeIfPresent(Int.self, forKey: .submitToFirstChunkMS)
+        self.submitToPlaybackScheduledMS = try container.decodeIfPresent(Int.self, forKey: .submitToPlaybackScheduledMS)
+            ?? container.decodeIfPresent(Int.self, forKey: .submitToFirstAudibleMS)
+        self.submitToCompletedMS = try container.decodeIfPresent(Int.self, forKey: .submitToCompletedMS)
+        self.firstChunkToPlaybackScheduledMS = try container.decodeIfPresent(Int.self, forKey: .firstChunkToPlaybackScheduledMS)
+            ?? container.decodeIfPresent(Int.self, forKey: .firstChunkToAudibleMS)
+        self.delayedHeartbeatCount50 = try container.decodeIfPresent(Int.self, forKey: .delayedHeartbeatCount50)
+            ?? container.decodeIfPresent(Int.self, forKey: .mainThreadStallCount50MS) ?? 0
+        self.delayedHeartbeatCount250 = try container.decodeIfPresent(Int.self, forKey: .delayedHeartbeatCount250)
+            ?? container.decodeIfPresent(Int.self, forKey: .mainThreadStallCount250MS) ?? 0
+        self.maximumDelayedHeartbeatMS = try container.decodeIfPresent(Int.self, forKey: .maximumDelayedHeartbeatMS)
+            ?? container.decodeIfPresent(Int.self, forKey: .mainThreadMaximumStallMS) ?? 0
+        self.scheduledHeartbeatCount = try container.decodeIfPresent(Int.self, forKey: .scheduledHeartbeatCount) ?? 0
+        self.completedHeartbeatCount = try container.decodeIfPresent(Int.self, forKey: .completedHeartbeatCount) ?? 0
+        self.heartbeatCoveragePPM = try container.decodeIfPresent(Int.self, forKey: .heartbeatCoveragePPM) ?? 0
+        self.playbackChunksReceived = try container.decodeIfPresent(Int.self, forKey: .playbackChunksReceived) ?? 0
+        self.playbackContinuityFailures = try container.decodeIfPresent(Int.self, forKey: .playbackContinuityFailures) ?? 0
+        self.playbackUnderruns = try container.decodeIfPresent(Int.self, forKey: .playbackUnderruns) ?? 0
+        self.playbackStartBufferedChunks = try container.decodeIfPresent(Int.self, forKey: .playbackStartBufferedChunks)
+        self.playbackStartBufferedAudioMS = try container.decodeIfPresent(Int.self, forKey: .playbackStartBufferedAudioMS)
+        self.playbackMinimumQueuedAudioMS = try container.decodeIfPresent(Int.self, forKey: .playbackMinimumQueuedAudioMS)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(submitToFirstChunkMS, forKey: .submitToFirstChunkMS)
+        try container.encodeIfPresent(submitToPlaybackScheduledMS, forKey: .submitToPlaybackScheduledMS)
+        try container.encodeIfPresent(submitToCompletedMS, forKey: .submitToCompletedMS)
+        try container.encodeIfPresent(firstChunkToPlaybackScheduledMS, forKey: .firstChunkToPlaybackScheduledMS)
+        try container.encode(delayedHeartbeatCount50, forKey: .delayedHeartbeatCount50)
+        try container.encode(delayedHeartbeatCount250, forKey: .delayedHeartbeatCount250)
+        try container.encode(maximumDelayedHeartbeatMS, forKey: .maximumDelayedHeartbeatMS)
+        try container.encode(scheduledHeartbeatCount, forKey: .scheduledHeartbeatCount)
+        try container.encode(completedHeartbeatCount, forKey: .completedHeartbeatCount)
+        try container.encode(heartbeatCoveragePPM, forKey: .heartbeatCoveragePPM)
+        try container.encode(playbackChunksReceived, forKey: .playbackChunksReceived)
+        try container.encode(playbackContinuityFailures, forKey: .playbackContinuityFailures)
+        try container.encode(playbackUnderruns, forKey: .playbackUnderruns)
+        try container.encodeIfPresent(playbackStartBufferedChunks, forKey: .playbackStartBufferedChunks)
+        try container.encodeIfPresent(playbackStartBufferedAudioMS, forKey: .playbackStartBufferedAudioMS)
+        try container.encodeIfPresent(playbackMinimumQueuedAudioMS, forKey: .playbackMinimumQueuedAudioMS)
+    }
+}
+
+/// Bounded playback-health state shared by the macOS/iOS frontend timeline.
+/// Keeping the queue-minimum logic in QwenVoiceCore makes normal drain,
+/// continuity failure, and underrun semantics deterministic and unit-testable.
+public struct PlaybackHealthAccumulator: Hashable, Sendable {
+    public private(set) var chunksReceived = 0
+    public private(set) var continuityFailures = 0
+    public private(set) var underruns = 0
+    public private(set) var startBufferedChunks: Int?
+    public private(set) var startBufferedAudioMS: Int?
+    public private(set) var minimumQueuedAudioMS: Int?
+
+    public init() {}
+
+    public mutating func playbackScheduled(queuedChunks: Int, queuedAudioMS: Int) {
+        startBufferedChunks = max(queuedChunks, 0)
+        startBufferedAudioMS = max(queuedAudioMS, 0)
+        observeQueueDepth(queuedAudioMS: queuedAudioMS)
+    }
+
+    public mutating func chunkReceived(queuedAudioMS: Int) {
+        chunksReceived += 1
+        observeQueueDepth(queuedAudioMS: queuedAudioMS)
+    }
+
+    public mutating func queueDrained(queuedAudioMS: Int) {
+        observeQueueDepth(queuedAudioMS: queuedAudioMS)
+    }
+
+    public mutating func continuityFailed() {
+        continuityFailures += 1
+    }
+
+    public mutating func underrun() {
+        underruns += 1
+        observeQueueDepth(queuedAudioMS: 0)
+    }
+
+    private mutating func observeQueueDepth(queuedAudioMS: Int) {
+        let bounded = max(queuedAudioMS, 0)
+        minimumQueuedAudioMS = min(minimumQueuedAudioMS ?? bounded, bounded)
     }
 }
 
@@ -131,6 +295,9 @@ public struct EngineTransportCounters: Hashable, Codable, Sendable {
 
 public struct EngineTransportMetrics: Hashable, Codable, Sendable {
     public let finishReason: GenerationTerminalReason
+    /// Request acceptance to first forwarded chunk. nil when a legacy transport
+    /// row did not capture its acceptance instant.
+    public let requestToFirstChunkMS: Int?
     public let firstChunkToTerminalMS: Int?
     public let counters: EngineTransportCounters
     public let cancellation: GenerationCancellationState
@@ -143,6 +310,7 @@ public struct EngineTransportMetrics: Hashable, Codable, Sendable {
 
     public init(
         finishReason: GenerationTerminalReason,
+        requestToFirstChunkMS: Int? = nil,
         firstChunkToTerminalMS: Int? = nil,
         counters: EngineTransportCounters,
         cancellation: GenerationCancellationState = .notRequested,
@@ -154,6 +322,7 @@ public struct EngineTransportMetrics: Hashable, Codable, Sendable {
         lifecycleEvents: [GenerationTransportState] = [.connected]
     ) {
         self.finishReason = finishReason
+        self.requestToFirstChunkMS = requestToFirstChunkMS
         self.firstChunkToTerminalMS = firstChunkToTerminalMS
         self.counters = counters
         self.cancellation = cancellation
@@ -194,6 +363,47 @@ public struct BackendGenerationMetrics: Hashable, Codable, Sendable {
     }
 }
 
+/// Stable, typed identity for the runtime selected for one generation.
+/// Contract revision/artifact/integrity fields are joined by the benchmark
+/// exporter; this payload keeps validators from guessing the active profile or
+/// fixture from legacy free-form dictionaries.
+public struct ModelRuntimeIdentity: Hashable, Codable, Sendable {
+    public let resolvedModelID: String
+    public let modelVariant: String?
+    public let modelRepository: String?
+    public let huggingFaceRevision: String?
+    public let artifactVersion: String?
+    public let quantization: String?
+    public let integrityManifestDigest: String?
+    public let runtimeProfileSignature: String?
+    public let nativeLoadCapabilityProfile: String?
+    public let fixtureDigest: String?
+
+    public init(
+        resolvedModelID: String,
+        modelVariant: String? = nil,
+        modelRepository: String? = nil,
+        huggingFaceRevision: String? = nil,
+        artifactVersion: String? = nil,
+        quantization: String? = nil,
+        integrityManifestDigest: String? = nil,
+        runtimeProfileSignature: String? = nil,
+        nativeLoadCapabilityProfile: String? = nil,
+        fixtureDigest: String? = nil
+    ) {
+        self.resolvedModelID = resolvedModelID
+        self.modelVariant = modelVariant
+        self.modelRepository = modelRepository
+        self.huggingFaceRevision = huggingFaceRevision
+        self.artifactVersion = artifactVersion
+        self.quantization = quantization
+        self.integrityManifestDigest = integrityManifestDigest
+        self.runtimeProfileSignature = runtimeProfileSignature
+        self.nativeLoadCapabilityProfile = nativeLoadCapabilityProfile
+        self.fixtureDigest = fixtureDigest
+    }
+}
+
 public struct GenerationOutputMetrics: Hashable, Codable, Sendable {
     public let durationSeconds: Double?
     public let readableWAV: Bool?
@@ -220,12 +430,24 @@ public enum GenerationTelemetryCompatibilityAdapter {
     ) -> FrontendGenerationMetrics {
         FrontendGenerationMetrics(
             submitToFirstChunkMS: timingsMS["submitToFirstChunkMS"],
-            submitToFirstAudibleMS: timingsMS["submitToFirstAudibleMS"],
+            submitToPlaybackScheduledMS: timingsMS["submitToPlaybackScheduledMS"]
+                ?? timingsMS["submitToFirstAudibleMS"],
             submitToCompletedMS: timingsMS["submitToCompletedMS"],
-            firstChunkToAudibleMS: timingsMS["chunkForwardingSpanMS"],
-            mainThreadStallCount50MS: counters["uiStallCount50"] ?? 0,
-            mainThreadStallCount250MS: counters["uiStallCount250"] ?? 0,
-            mainThreadMaximumStallMS: counters["uiMaxStallMS"] ?? 0
+            firstChunkToPlaybackScheduledMS: timingsMS["firstChunkToPlaybackScheduledMS"]
+                ?? timingsMS["firstChunkToAudibleMS"]
+                ?? timingsMS["chunkForwardingSpanMS"],
+            delayedHeartbeatCount50: counters["delayedHeartbeatCount50"] ?? counters["uiStallCount50"] ?? 0,
+            delayedHeartbeatCount250: counters["delayedHeartbeatCount250"] ?? counters["uiStallCount250"] ?? 0,
+            maximumDelayedHeartbeatMS: counters["maximumDelayedHeartbeatMS"] ?? counters["uiMaxStallMS"] ?? 0,
+            scheduledHeartbeatCount: counters["heartbeatScheduledCount"] ?? 0,
+            completedHeartbeatCount: counters["heartbeatCompletedCount"] ?? counters["uiHeartbeats"] ?? 0,
+            heartbeatCoveragePPM: counters["heartbeatCoveragePPM"] ?? 0,
+            playbackChunksReceived: counters["playbackChunksReceived"] ?? 0,
+            playbackContinuityFailures: counters["playbackContinuityFailures"] ?? 0,
+            playbackUnderruns: counters["playbackUnderruns"] ?? 0,
+            playbackStartBufferedChunks: counters["playbackStartBufferedChunks"],
+            playbackStartBufferedAudioMS: timingsMS["playbackStartBufferedAudioMS"],
+            playbackMinimumQueuedAudioMS: timingsMS["playbackMinimumQueuedAudioMS"]
         )
     }
 
@@ -236,6 +458,7 @@ public enum GenerationTelemetryCompatibilityAdapter {
     ) -> EngineTransportMetrics {
         EngineTransportMetrics(
             finishReason: GenerationTerminalReason(compatibilityValue: finishReason),
+            requestToFirstChunkMS: timingsMS["requestToFirstChunkMS"],
             firstChunkToTerminalMS: timingsMS["chunkForwardingSpanMS"],
             counters: EngineTransportCounters(
                 chunksForwarded: counters["chunksForwarded"] ?? 0,
@@ -349,11 +572,14 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
     /// self-identifies its benchmark cell (model variant × cold/warm). v4 added
     /// `audioQC` (reference-free output-quality verdict + defect flags). v5 added
     /// high-resolution `mach_absolute_time` nanoseconds (`clockSource`, stage-mark
-    /// `tNS`/`sequence`, sample `tNS`/`actualElapsedNS`, chunk `arrivalNS`). All
-    /// optional, so older rows still decode.
-    public static let currentSchemaVersion = 6
+    /// `tNS`/`sequence`, sample `tNS`/`actualElapsedNS`, chunk `arrivalNS`). v6
+    /// added typed frontend/transport/backend/output payloads. v7 adds explicit
+    /// sampler scheduling/capture accuracy, process resource deltas, merge
+    /// completeness, and accurate playback-scheduled frontend naming. All new
+    /// payload fields remain optional or compatibility-decoded.
+    public static let currentSchemaVersion = 7
 
-    public let clockSource: String? = "mach_absolute_time"
+    public let clockSource: String?
 
     public let schemaVersion: Int
     public let generationID: String
@@ -395,12 +621,13 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
     /// for backend changes; nil when not computed. Perceptual quality still needs the
     /// listening pass — this catches gross defects, not subtle "sounds worse".
     public let audioQC: AudioQCReport?
-    /// Typed v6 payloads. The legacy dictionaries above remain encoded for
+    /// Typed v6+ payloads. The legacy dictionaries above remain encoded for
     /// historical tools; new validators use these stable fields.
     public let frontendMetrics: FrontendGenerationMetrics?
     public let transportMetrics: EngineTransportMetrics?
     public let backendMetrics: BackendGenerationMetrics?
     public let outputMetrics: GenerationOutputMetrics?
+    public let modelRuntimeIdentity: ModelRuntimeIdentity?
 
     public init(
         generationID: String,
@@ -425,10 +652,13 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
         transportMetrics: EngineTransportMetrics? = nil,
         backendMetrics: BackendGenerationMetrics? = nil,
         outputMetrics: GenerationOutputMetrics? = nil,
+        modelRuntimeIdentity: ModelRuntimeIdentity? = nil,
+        clockSource: String? = "mach_absolute_time",
         schemaVersion: Int = GenerationTelemetryRecord.currentSchemaVersion,
         processName: String = ProcessInfo.processInfo.processName,
         processIdentifier: Int32 = ProcessInfo.processInfo.processIdentifier
     ) {
+        self.clockSource = clockSource
         self.schemaVersion = schemaVersion
         self.generationID = generationID
         self.layer = layer
@@ -474,6 +704,22 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
         self.outputMetrics = outputMetrics ?? (layer == .engine
             ? GenerationTelemetryCompatibilityAdapter.output(notes: notes, audioQC: audioQC)
             : nil)
+        self.modelRuntimeIdentity = modelRuntimeIdentity ?? (
+            layer == .engine && modelID != nil
+                ? ModelRuntimeIdentity(
+                    resolvedModelID: modelID!,
+                    modelVariant: notes["modelVariant"],
+                    modelRepository: notes["modelRepository"],
+                    huggingFaceRevision: notes["huggingFaceRevision"],
+                    artifactVersion: notes["modelArtifactVersion"],
+                    quantization: notes["modelQuantization"],
+                    integrityManifestDigest: notes["modelIntegrityManifestDigest"],
+                    runtimeProfileSignature: notes["qwen3RuntimeProfileSignature"],
+                    nativeLoadCapabilityProfile: notes["nativeLoadCapabilityProfile"],
+                    fixtureDigest: notes["fixtureDigest"]
+                )
+                : nil
+        )
     }
 }
 
@@ -485,18 +731,32 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
 /// human/agent listening pass. Thresholds are conservative + tunable (see the
 /// builder in `NativeStreamingSynthesisSession`).
 public struct AudioQCReport: Hashable, Codable, Sendable {
+    /// v2 fixed cross-chunk interior-silence localization. v3 derives the
+    /// written-output verdict from the atomically published WAV frames rather
+    /// than assuming the pre-write limited buffer and persisted file agree.
+    public static let currentAlgorithmVersion = 3
+
     public enum Verdict: String, Hashable, Codable, Sendable {
         case pass
         case warn
         case fail
     }
 
+    public let algorithmVersion: Int
+    /// Instability detected at the model/limiter input (non-finite values,
+    /// clipping, excessive discontinuities, or sustained over-ceiling samples).
+    public let instabilityVerdict: Verdict
+    /// Quality of the frames re-read from the atomically published WAV (level,
+    /// dropout, and DC-offset checks). `verdict` remains the worst of these two.
+    public let writtenOutputVerdict: Verdict
     public let verdict: Verdict
     /// Human-readable defect tags that tripped (e.g. "nonfinite", "clipping",
     /// "clicks", "dropout:240ms", "near_silent"). Empty on a clean pass.
     public let flags: [String]
     /// Whole-clip RMS in dBFS (nil = total silence).
     public let rmsDBFS: Double?
+    /// Mean of the limited output samples. Values far from zero indicate DC bias.
+    public let dcOffset: Double?
     public let peak: Double
     /// Samples that exceeded unit range (true digital clipping, pre-limiter).
     public let clippedSamples: Int
@@ -522,9 +782,13 @@ public struct AudioQCReport: Hashable, Codable, Sendable {
     public let chunkQC: [AudioQCChunkReport]?
 
     public init(
+        algorithmVersion: Int = AudioQCReport.currentAlgorithmVersion,
+        instabilityVerdict: Verdict? = nil,
+        writtenOutputVerdict: Verdict? = nil,
         verdict: Verdict,
         flags: [String],
         rmsDBFS: Double?,
+        dcOffset: Double? = nil,
         peak: Double,
         clippedSamples: Int,
         hotSamples: Int,
@@ -537,9 +801,13 @@ public struct AudioQCReport: Hashable, Codable, Sendable {
         longestSilenceStartMS: Int? = nil,
         chunkQC: [AudioQCChunkReport]? = nil
     ) {
+        self.algorithmVersion = algorithmVersion
+        self.instabilityVerdict = instabilityVerdict ?? verdict
+        self.writtenOutputVerdict = writtenOutputVerdict ?? verdict
         self.verdict = verdict
         self.flags = flags
         self.rmsDBFS = rmsDBFS
+        self.dcOffset = dcOffset
         self.peak = peak
         self.clippedSamples = clippedSamples
         self.hotSamples = hotSamples
@@ -557,9 +825,13 @@ public struct AudioQCReport: Hashable, Codable, Sendable {
     /// lack the localization fields and per-chunk QC. Defaults keep them decodeable.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.algorithmVersion = try container.decodeIfPresent(Int.self, forKey: .algorithmVersion) ?? 1
         self.verdict = try container.decode(Verdict.self, forKey: .verdict)
+        self.instabilityVerdict = try container.decodeIfPresent(Verdict.self, forKey: .instabilityVerdict) ?? verdict
+        self.writtenOutputVerdict = try container.decodeIfPresent(Verdict.self, forKey: .writtenOutputVerdict) ?? verdict
         self.flags = try container.decode([String].self, forKey: .flags)
         self.rmsDBFS = try container.decodeIfPresent(Double.self, forKey: .rmsDBFS)
+        self.dcOffset = try container.decodeIfPresent(Double.self, forKey: .dcOffset)
         self.peak = try container.decode(Double.self, forKey: .peak)
         self.clippedSamples = try container.decode(Int.self, forKey: .clippedSamples)
         self.hotSamples = try container.decode(Int.self, forKey: .hotSamples)
@@ -713,7 +985,7 @@ public struct GenerationChunkTelemetry: Hashable, Codable, Sendable {
 /// The unified per-generation record produced by `GenerationTelemetryMerger`,
 /// joining each layer's row under one `generationID`.
 public struct MergedGenerationTelemetry: Hashable, Codable, Sendable {
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 2
 
     public let schemaVersion: Int
     public let generationID: String
@@ -721,6 +993,11 @@ public struct MergedGenerationTelemetry: Hashable, Codable, Sendable {
     public let app: GenerationTelemetryRecord?
     public let engineService: GenerationTelemetryRecord?
     public let engine: GenerationTelemetryRecord?
+    /// Explicit completeness prevents a timed-out partial merge from looking like
+    /// authoritative joined evidence. The macOS merger requires all three layers.
+    public let requiredLayers: [GenerationTelemetryRecord.Layer]
+    public let missingLayers: [GenerationTelemetryRecord.Layer]
+    public let complete: Bool
 
     public init(
         generationID: String,
@@ -728,6 +1005,7 @@ public struct MergedGenerationTelemetry: Hashable, Codable, Sendable {
         app: GenerationTelemetryRecord?,
         engineService: GenerationTelemetryRecord?,
         engine: GenerationTelemetryRecord?,
+        requiredLayers: [GenerationTelemetryRecord.Layer] = [.app, .engineService, .engine],
         schemaVersion: Int = MergedGenerationTelemetry.currentSchemaVersion
     ) {
         self.schemaVersion = schemaVersion
@@ -736,5 +1014,67 @@ public struct MergedGenerationTelemetry: Hashable, Codable, Sendable {
         self.app = app
         self.engineService = engineService
         self.engine = engine
+        self.requiredLayers = requiredLayers
+        let presentLayers = Self.presentLayers(app: app, engineService: engineService, engine: engine)
+        self.missingLayers = requiredLayers.filter { !presentLayers.contains($0) }
+        self.complete = missingLayers.isEmpty
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case generationID
+        case recordedAt
+        case app
+        case engineService
+        case engine
+        case requiredLayers
+        case missingLayers
+        case complete
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        self.generationID = try container.decode(String.self, forKey: .generationID)
+        self.recordedAt = try container.decode(String.self, forKey: .recordedAt)
+        self.app = try container.decodeIfPresent(GenerationTelemetryRecord.self, forKey: .app)
+        self.engineService = try container.decodeIfPresent(GenerationTelemetryRecord.self, forKey: .engineService)
+        self.engine = try container.decodeIfPresent(GenerationTelemetryRecord.self, forKey: .engine)
+        self.requiredLayers = try container.decodeIfPresent(
+            [GenerationTelemetryRecord.Layer].self,
+            forKey: .requiredLayers
+        ) ?? [.app, .engineService, .engine]
+        let presentLayers = Self.presentLayers(app: app, engineService: engineService, engine: engine)
+        self.missingLayers = try container.decodeIfPresent(
+            [GenerationTelemetryRecord.Layer].self,
+            forKey: .missingLayers
+        ) ?? requiredLayers.filter { !presentLayers.contains($0) }
+        self.complete = try container.decodeIfPresent(Bool.self, forKey: .complete)
+            ?? missingLayers.isEmpty
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(generationID, forKey: .generationID)
+        try container.encode(recordedAt, forKey: .recordedAt)
+        try container.encodeIfPresent(app, forKey: .app)
+        try container.encodeIfPresent(engineService, forKey: .engineService)
+        try container.encodeIfPresent(engine, forKey: .engine)
+        try container.encode(requiredLayers, forKey: .requiredLayers)
+        try container.encode(missingLayers, forKey: .missingLayers)
+        try container.encode(complete, forKey: .complete)
+    }
+
+    private static func presentLayers(
+        app: GenerationTelemetryRecord?,
+        engineService: GenerationTelemetryRecord?,
+        engine: GenerationTelemetryRecord?
+    ) -> Set<GenerationTelemetryRecord.Layer> {
+        var layers: Set<GenerationTelemetryRecord.Layer> = []
+        if app != nil { layers.insert(.app) }
+        if engineService != nil { layers.insert(.engineService) }
+        if engine != nil { layers.insert(.engine) }
+        return layers
     }
 }

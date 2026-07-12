@@ -44,6 +44,23 @@ final class EngineServiceTransportAccumulatorTests: XCTestCase {
         XCTAssertEqual(accumulator.snapshot.chunksForwarded, 1)
     }
 
+    func testRequestAcceptanceProducesRealRequestToFirstChunkLatency() throws {
+        let id = UUID()
+        let accepted = ProcessInfo.processInfo.systemUptime - 0.125
+        var accumulator = EngineServiceTransportAccumulator(telemetryEnabled: true)
+        _ = accumulator.observe(
+            event: chunk(id: id, sequence: 0),
+            requestAcceptedUptime: accepted
+        )
+        let terminal = try XCTUnwrap(accumulator.observe(event: .failed("cancelled")))
+
+        let latency = try XCTUnwrap(terminal.transportMetrics?.requestToFirstChunkMS)
+        XCTAssertGreaterThanOrEqual(latency, 100)
+        XCTAssertLessThan(latency, 500)
+        XCTAssertEqual(terminal.timingsMS["requestToFirstChunkMS"], latency)
+        XCTAssertEqual(terminal.transportMetrics?.requestAccepted, true)
+    }
+
     func testTelemetryDisabledBuildsNoDurableRecord() {
         let id = UUID()
         var accumulator = EngineServiceTransportAccumulator(telemetryEnabled: false)

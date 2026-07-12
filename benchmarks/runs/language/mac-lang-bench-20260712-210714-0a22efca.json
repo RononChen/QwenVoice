@@ -1,0 +1,2094 @@
+{
+  "cells": [
+    {
+      "count": 1,
+      "key": "custom-en-pinned",
+      "length": "not-applicable",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2.08,
+          "median": 2.08,
+          "min": 2.08
+        },
+        "blockIOOperations": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "contextSwitches": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 14485.0,
+          "median": 14485.0,
+          "min": 14485.0
+        },
+        "cpuSystemSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.620398,
+          "median": 0.620398,
+          "min": 0.620398
+        },
+        "cpuUserSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.977429,
+          "median": 1.977429,
+          "min": 1.977429
+        },
+        "decodeWallSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2.392,
+          "median": 2.392,
+          "min": 2.392
+        },
+        "finalizationMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 3.0,
+          "median": 3.0,
+          "min": 3.0
+        },
+        "generatedTokens": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 26.0,
+          "median": 26.0,
+          "min": 26.0
+        },
+        "hintCellsExpected": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 7.0,
+          "median": 7.0,
+          "min": 7.0
+        },
+        "hintCellsPassed": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 7.0,
+          "median": 7.0,
+          "min": 7.0
+        },
+        "maximumTrimLevel": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "memoryTrimCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "modelLoadMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "pageFaults": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2795.0,
+          "median": 2795.0,
+          "min": 2795.0
+        },
+        "peakCompressedMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2028.78125,
+          "median": 2028.78125,
+          "min": 2028.78125
+        },
+        "peakGPUAllocatedMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2773.203125,
+          "median": 2773.203125,
+          "min": 2773.203125
+        },
+        "peakPhysicalFootprintMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2799.517868041992,
+          "median": 2799.517868041992,
+          "min": 2799.517868041992
+        },
+        "peakResidentMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 501.5625,
+          "median": 501.5625,
+          "min": 501.5625
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.8695652173913044,
+          "median": 0.8695652173913044,
+          "min": 0.8695652173913044
+        },
+        "samplerBoundarySampleCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 9.0,
+          "median": 9.0,
+          "min": 9.0
+        },
+        "samplerCaptureFailureCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "samplerEffectiveMedianIntervalMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 504.410708,
+          "median": 504.410708,
+          "min": 504.410708
+        },
+        "samplerMaximumDriftMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 40.022458,
+          "median": 40.022458,
+          "min": 40.022458
+        },
+        "samplerMaximumLatenessMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 42.134291,
+          "median": 42.134291,
+          "min": 42.134291
+        },
+        "samplerTargetIntervalMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 500.0,
+          "median": 500.0,
+          "min": 500.0
+        },
+        "tokensPerSecond": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 10.862480755043283,
+          "median": 10.862480755043283,
+          "min": 10.862480755043283
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "custom-en-auto",
+      "length": "not-applicable",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2.0,
+          "median": 2.0,
+          "min": 2.0
+        },
+        "blockIOOperations": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "contextSwitches": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 15468.0,
+          "median": 15468.0,
+          "min": 15468.0
+        },
+        "cpuSystemSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.5893030000000001,
+          "median": 0.5893030000000001,
+          "min": 0.5893030000000001
+        },
+        "cpuUserSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.948358,
+          "median": 1.948358,
+          "min": 1.948358
+        },
+        "decodeWallSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2.29,
+          "median": 2.29,
+          "min": 2.29
+        },
+        "finalizationMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0
+        },
+        "generatedTokens": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 25.0,
+          "median": 25.0,
+          "min": 25.0
+        },
+        "hintCellsExpected": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 7.0,
+          "median": 7.0,
+          "min": 7.0
+        },
+        "hintCellsPassed": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 7.0,
+          "median": 7.0,
+          "min": 7.0
+        },
+        "maximumTrimLevel": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "memoryTrimCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "modelLoadMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "pageFaults": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 3374.0,
+          "median": 3374.0,
+          "min": 3374.0
+        },
+        "peakCompressedMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1992.953125,
+          "median": 1992.953125,
+          "min": 1992.953125
+        },
+        "peakGPUAllocatedMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2773.5625,
+          "median": 2773.5625,
+          "min": 2773.5625
+        },
+        "peakPhysicalFootprintMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2859.455368041992,
+          "median": 2859.455368041992,
+          "min": 2859.455368041992
+        },
+        "peakResidentMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 533.390625,
+          "median": 533.390625,
+          "min": 533.390625
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.8733624454148472,
+          "median": 0.8733624454148472,
+          "min": 0.8733624454148472
+        },
+        "samplerBoundarySampleCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 9.0,
+          "median": 9.0,
+          "min": 9.0
+        },
+        "samplerCaptureFailureCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "samplerEffectiveMedianIntervalMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 504.108541,
+          "median": 504.108541,
+          "min": 504.108541
+        },
+        "samplerMaximumDriftMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 30.240166,
+          "median": 30.240166,
+          "min": 30.240166
+        },
+        "samplerMaximumLatenessMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 35.891791,
+          "median": 35.891791,
+          "min": 35.891791
+        },
+        "samplerTargetIntervalMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 500.0,
+          "median": 500.0,
+          "min": 500.0
+        },
+        "tokensPerSecond": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 10.899700656767212,
+          "median": 10.899700656767212,
+          "min": 10.899700656767212
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "design-en-auto",
+      "length": "not-applicable",
+      "maximumTrimLevel": 0,
+      "mode": "design",
+      "modelID": "pro_design_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.84,
+          "median": 1.84,
+          "min": 1.84
+        },
+        "blockIOOperations": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "contextSwitches": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 15434.0,
+          "median": 15434.0,
+          "min": 15434.0
+        },
+        "cpuSystemSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.6408809999999998,
+          "median": 0.6408809999999998,
+          "min": 0.6408809999999998
+        },
+        "cpuUserSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2.020656,
+          "median": 2.020656,
+          "min": 2.020656
+        },
+        "decodeWallSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.97,
+          "median": 1.97,
+          "min": 1.97
+        },
+        "finalizationMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0
+        },
+        "generatedTokens": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 23.0,
+          "median": 23.0,
+          "min": 23.0
+        },
+        "hintCellsExpected": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 7.0,
+          "median": 7.0,
+          "min": 7.0
+        },
+        "hintCellsPassed": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 7.0,
+          "median": 7.0,
+          "min": 7.0
+        },
+        "maximumTrimLevel": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "memoryTrimCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "modelLoadMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "pageFaults": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 3743.0,
+          "median": 3743.0,
+          "min": 3743.0
+        },
+        "peakCompressedMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1995.484375,
+          "median": 1995.484375,
+          "min": 1995.484375
+        },
+        "peakGPUAllocatedMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2395.234375,
+          "median": 2395.234375,
+          "min": 2395.234375
+        },
+        "peakPhysicalFootprintMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2596.814743041992,
+          "median": 2596.814743041992,
+          "min": 2596.814743041992
+        },
+        "peakResidentMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 347.90625,
+          "median": 347.90625,
+          "min": 347.90625
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.934010152284264,
+          "median": 0.934010152284264,
+          "min": 0.934010152284264
+        },
+        "samplerBoundarySampleCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 9.0,
+          "median": 9.0,
+          "min": 9.0
+        },
+        "samplerCaptureFailureCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "samplerEffectiveMedianIntervalMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 513.514375,
+          "median": 513.514375,
+          "min": 513.514375
+        },
+        "samplerMaximumDriftMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 32.536084,
+          "median": 32.536084,
+          "min": 32.536084
+        },
+        "samplerMaximumLatenessMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 46.066375,
+          "median": 46.066375,
+          "min": 46.066375
+        },
+        "samplerTargetIntervalMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 500.0,
+          "median": 500.0,
+          "min": 500.0
+        },
+        "tokensPerSecond": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 11.67751586246776,
+          "median": 11.67751586246776,
+          "min": 11.67751586246776
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "custom-fr-pinned",
+      "length": "not-applicable",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.68,
+          "median": 1.68,
+          "min": 1.68
+        },
+        "blockIOOperations": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "contextSwitches": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 11020.0,
+          "median": 11020.0,
+          "min": 11020.0
+        },
+        "cpuSystemSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.541895,
+          "median": 0.541895,
+          "min": 0.541895
+        },
+        "cpuUserSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.6477989999999998,
+          "median": 1.6477989999999998,
+          "min": 1.6477989999999998
+        },
+        "decodeWallSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2.074,
+          "median": 2.074,
+          "min": 2.074
+        },
+        "finalizationMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0
+        },
+        "generatedTokens": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 21.0,
+          "median": 21.0,
+          "min": 21.0
+        },
+        "hintCellsExpected": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 7.0,
+          "median": 7.0,
+          "min": 7.0
+        },
+        "hintCellsPassed": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 7.0,
+          "median": 7.0,
+          "min": 7.0
+        },
+        "maximumTrimLevel": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "memoryTrimCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "modelLoadMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "pageFaults": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 3043.0,
+          "median": 3043.0,
+          "min": 3043.0
+        },
+        "peakCompressedMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2006.1875,
+          "median": 2006.1875,
+          "min": 2006.1875
+        },
+        "peakGPUAllocatedMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2773.109375,
+          "median": 2773.109375,
+          "min": 2773.109375
+        },
+        "peakPhysicalFootprintMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2855.533447265625,
+          "median": 2855.533447265625,
+          "min": 2855.533447265625
+        },
+        "peakResidentMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 195.359375,
+          "median": 195.359375,
+          "min": 195.359375
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.8100289296046288,
+          "median": 0.8100289296046288,
+          "min": 0.8100289296046288
+        },
+        "samplerBoundarySampleCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 9.0,
+          "median": 9.0,
+          "min": 9.0
+        },
+        "samplerCaptureFailureCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "samplerEffectiveMedianIntervalMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 502.208666,
+          "median": 502.208666,
+          "min": 502.208666
+        },
+        "samplerMaximumDriftMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 38.991125,
+          "median": 38.991125,
+          "min": 38.991125
+        },
+        "samplerMaximumLatenessMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 43.408458,
+          "median": 43.408458,
+          "min": 43.408458
+        },
+        "samplerTargetIntervalMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 500.0,
+          "median": 500.0,
+          "min": 500.0
+        },
+        "tokensPerSecond": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 10.1164505425681,
+          "median": 10.1164505425681,
+          "min": 10.1164505425681
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "custom-fr-auto",
+      "length": "not-applicable",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.68,
+          "median": 1.68,
+          "min": 1.68
+        },
+        "blockIOOperations": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "contextSwitches": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 10908.0,
+          "median": 10908.0,
+          "min": 10908.0
+        },
+        "cpuSystemSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.525824,
+          "median": 0.525824,
+          "min": 0.525824
+        },
+        "cpuUserSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.608224,
+          "median": 1.608224,
+          "min": 1.608224
+        },
+        "decodeWallSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.986,
+          "median": 1.986,
+          "min": 1.986
+        },
+        "finalizationMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0
+        },
+        "generatedTokens": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 21.0,
+          "median": 21.0,
+          "min": 21.0
+        },
+        "hintCellsExpected": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 7.0,
+          "median": 7.0,
+          "min": 7.0
+        },
+        "hintCellsPassed": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 7.0,
+          "median": 7.0,
+          "min": 7.0
+        },
+        "maximumTrimLevel": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "memoryTrimCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "modelLoadMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "pageFaults": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 3354.0,
+          "median": 3354.0,
+          "min": 3354.0
+        },
+        "peakCompressedMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2001.828125,
+          "median": 2001.828125,
+          "min": 2001.828125
+        },
+        "peakGPUAllocatedMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2394.546875,
+          "median": 2394.546875,
+          "min": 2394.546875
+        },
+        "peakPhysicalFootprintMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2665.408493041992,
+          "median": 2665.408493041992,
+          "min": 2665.408493041992
+        },
+        "peakResidentMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 187.859375,
+          "median": 187.859375,
+          "min": 187.859375
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.8459214501510574,
+          "median": 0.8459214501510574,
+          "min": 0.8459214501510574
+        },
+        "samplerBoundarySampleCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 9.0,
+          "median": 9.0,
+          "min": 9.0
+        },
+        "samplerCaptureFailureCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "samplerEffectiveMedianIntervalMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 519.272958,
+          "median": 519.272958,
+          "min": 519.272958
+        },
+        "samplerMaximumDriftMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 41.647833,
+          "median": 41.647833,
+          "min": 41.647833
+        },
+        "samplerMaximumLatenessMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 46.866333,
+          "median": 46.866333,
+          "min": 46.866333
+        },
+        "samplerTargetIntervalMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 500.0,
+          "median": 500.0,
+          "min": 500.0
+        },
+        "tokensPerSecond": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 10.55846761916224,
+          "median": 10.55846761916224,
+          "min": 10.55846761916224
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "design-fr-auto",
+      "length": "not-applicable",
+      "maximumTrimLevel": 0,
+      "mode": "design",
+      "modelID": "pro_design_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.76,
+          "median": 1.76,
+          "min": 1.76
+        },
+        "blockIOOperations": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "contextSwitches": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 13070.0,
+          "median": 13070.0,
+          "min": 13070.0
+        },
+        "cpuSystemSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.59122,
+          "median": 0.59122,
+          "min": 0.59122
+        },
+        "cpuUserSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.846961,
+          "median": 1.846961,
+          "min": 1.846961
+        },
+        "decodeWallSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.797,
+          "median": 1.797,
+          "min": 1.797
+        },
+        "finalizationMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0
+        },
+        "generatedTokens": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 22.0,
+          "median": 22.0,
+          "min": 22.0
+        },
+        "hintCellsExpected": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 7.0,
+          "median": 7.0,
+          "min": 7.0
+        },
+        "hintCellsPassed": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 7.0,
+          "median": 7.0,
+          "min": 7.0
+        },
+        "maximumTrimLevel": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "memoryTrimCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "modelLoadMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "pageFaults": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 3468.0,
+          "median": 3468.0,
+          "min": 3468.0
+        },
+        "peakCompressedMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1896.8125,
+          "median": 1896.8125,
+          "min": 1896.8125
+        },
+        "peakGPUAllocatedMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2378.578125,
+          "median": 2378.578125,
+          "min": 2378.578125
+        },
+        "peakPhysicalFootprintMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2626.580368041992,
+          "median": 2626.580368041992,
+          "min": 2626.580368041992
+        },
+        "peakResidentMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 503.875,
+          "median": 503.875,
+          "min": 503.875
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.9794101279910963,
+          "median": 0.9794101279910963,
+          "min": 0.9794101279910963
+        },
+        "samplerBoundarySampleCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 9.0,
+          "median": 9.0,
+          "min": 9.0
+        },
+        "samplerCaptureFailureCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "samplerEffectiveMedianIntervalMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 498.180083,
+          "median": 498.180083,
+          "min": 498.180083
+        },
+        "samplerMaximumDriftMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 45.274083,
+          "median": 45.274083,
+          "min": 45.274083
+        },
+        "samplerMaximumLatenessMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 45.274083,
+          "median": 45.274083,
+          "min": 45.274083
+        },
+        "samplerTargetIntervalMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 500.0,
+          "median": 500.0,
+          "min": 500.0
+        },
+        "tokensPerSecond": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 12.255611684594808,
+          "median": 12.255611684594808,
+          "min": 12.255611684594808
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "custom-fr-text-en-pinned",
+      "length": "not-applicable",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2.32,
+          "median": 2.32,
+          "min": 2.32
+        },
+        "blockIOOperations": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "contextSwitches": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 13559.0,
+          "median": 13559.0,
+          "min": 13559.0
+        },
+        "cpuSystemSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.5805769999999999,
+          "median": 0.5805769999999999,
+          "min": 0.5805769999999999
+        },
+        "cpuUserSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2.145333,
+          "median": 2.145333,
+          "min": 2.145333
+        },
+        "decodeWallSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2.575,
+          "median": 2.575,
+          "min": 2.575
+        },
+        "finalizationMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0,
+          "median": 1.0,
+          "min": 1.0
+        },
+        "generatedTokens": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 29.0,
+          "median": 29.0,
+          "min": 29.0
+        },
+        "hintCellsExpected": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 7.0,
+          "median": 7.0,
+          "min": 7.0
+        },
+        "hintCellsPassed": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 7.0,
+          "median": 7.0,
+          "min": 7.0
+        },
+        "maximumTrimLevel": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "memoryTrimCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "modelLoadMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "pageFaults": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2346.0,
+          "median": 2346.0,
+          "min": 2346.0
+        },
+        "peakCompressedMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1996.46875,
+          "median": 1996.46875,
+          "min": 1996.46875
+        },
+        "peakGPUAllocatedMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2394.40625,
+          "median": 2394.40625,
+          "min": 2394.40625
+        },
+        "peakPhysicalFootprintMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 2653.861572265625,
+          "median": 2653.861572265625,
+          "min": 2653.861572265625
+        },
+        "peakResidentMB": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 305.34375,
+          "median": 305.34375,
+          "min": 305.34375
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.9009708737864076,
+          "median": 0.9009708737864076,
+          "min": 0.9009708737864076
+        },
+        "samplerBoundarySampleCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 9.0,
+          "median": 9.0,
+          "min": 9.0
+        },
+        "samplerCaptureFailureCount": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "samplerEffectiveMedianIntervalMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 494.981833,
+          "median": 494.981833,
+          "min": 494.981833
+        },
+        "samplerMaximumDriftMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 50.066542,
+          "median": 50.066542,
+          "min": 50.066542
+        },
+        "samplerMaximumLatenessMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 50.066542,
+          "median": 50.066542,
+          "min": 50.066542
+        },
+        "samplerTargetIntervalMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 500.0,
+          "median": 500.0,
+          "min": 500.0
+        },
+        "tokensPerSecond": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 11.261130063309524,
+          "median": 11.261130063309524,
+          "min": 11.261130063309524
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    }
+  ],
+  "comparison": {
+    "baselineRunID": null,
+    "comparable": false,
+    "deltas": {},
+    "key": "642f6a5a33ac3bd783a36305bfa0d69bdd134e7db4a67989f09c9d4376e7eec2"
+  },
+  "digest": "d41991f1c0ada57d93f67f5d099e5e6021576978a6e577971cb9596aecf062ef",
+  "evidence": {
+    "actualTakeCount": 7,
+    "crashCount": 0,
+    "crashDeltaPassed": true,
+    "expectedTakeCount": 7,
+    "manifestDigest": "36efc50091516e8b3b8fcf435d8472ba8425234d857c9926e817ec34fc538215",
+    "qcAlgorithmVersion": 2,
+    "rawTelemetryDigest": "3f3815c3c061c2134f030fb9ac8945c0728a8039729b28ecc1812feda098be11",
+    "resultBundleDigest": "not-applicable",
+    "screenshotDigests": [],
+    "selectedEvidenceDigest": "b0480431b8417d3f7935ab597062e5350fc25ab6314e9e3156ed02dc932ed8de",
+    "telemetrySchemaVersion": 7,
+    "validatorPassed": true,
+    "validatorSchemaVersion": 1
+  },
+  "hardware": {
+    "chip": "Apple M2",
+    "cpuCores": 8,
+    "efficiencyCores": 4,
+    "freeStorageBytes": 32093769728,
+    "loadAverage1M": 2.99267578125,
+    "lowPowerMode": false,
+    "marketingName": "Mac mini (M2, 8 GB)",
+    "memoryBytes": 8589934592,
+    "modelIdentifier": "Mac14,3",
+    "osBuild": "25F84",
+    "osName": "macOS",
+    "osVersion": "26.5.2",
+    "performanceCores": 4,
+    "profileID": "mac-mini-m2-8gb",
+    "thermalState": "nominal",
+    "transport": "local",
+    "uptimeSeconds": 21577.31518941667
+  },
+  "inputs": {
+    "analysisProfileHash": "not-applicable",
+    "contractHash": "8183d0ee88da8b501975f37dc4c304f91e224fb125e6b4adf5fe3b0a1e0dd47a",
+    "corpusHash": "1adb910eff1db8de4d06fd6547bc54cb4e8097d804648cafa0c591c1d8bbdde7",
+    "dependencyLockHash": "e90f4e43f0e7182c481fb02a5827ceabbb1e8fbf653b2ea7fdfb610ca005e990",
+    "harnessHash": "269fb9304b3d18bc2c85364a294fe3cc9c559b6c7f3c799c3fbb0ed3974274c8",
+    "matrixHash": "423b8f80b1e574e8d4a577e54b6cd1d3a03de264c61d48484fdba39312a5a279",
+    "projectInputHash": "33d4682b1d22b3fe80d58ee6446b0181fe4a385afcc332a3fb56ff7ba00a7920"
+  },
+  "listening": {
+    "annotatedAt": null,
+    "note": "",
+    "status": "not-performed"
+  },
+  "models": [
+    {
+      "artifactVersion": "2026.04.05.2",
+      "fixtureDigest": "not-applicable",
+      "integrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "mode": "custom",
+      "modelID": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "quantization": "4-bit",
+      "revision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "variant": "speed"
+    },
+    {
+      "artifactVersion": "2026.04.05.2",
+      "fixtureDigest": "4cd154efe6edac426a109b501861b611fc7172a0c9f2152981d09eb6c11465c2",
+      "integrityDigest": "1fd6f28f5cd9f257f178d7d49fe269a29c911680f7fcdeed06b60e8d37532664",
+      "mode": "design",
+      "modelID": "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-4bit",
+      "quantization": "4-bit",
+      "revision": "5c390979e4b93af5f2932f90742ca99c7dd04687",
+      "runtimeProfileSignature": "qwen3_tts|voice_design|4bit|24000|qwen3_tts_tokenizer_12hz|chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish||pro1b7|instruction",
+      "variant": "speed"
+    }
+  ],
+  "run": {
+    "classification": "exploratory",
+    "durationSeconds": 33.0,
+    "finishedAt": "2026-07-12T21:07:47Z",
+    "id": "mac-lang-bench-20260712-210714-0a22efca",
+    "kind": "language",
+    "label": "telemetry-v7-language-quick",
+    "matrixScope": "partial",
+    "platform": "macos",
+    "startedAt": "2026-07-12T21:07:14Z",
+    "status": "passed",
+    "warnings": []
+  },
+  "schemaVersion": 1,
+  "source": {
+    "changedPaths": [
+      ".agents/backend-mlx.md",
+      ".agents/release-qa-engineer.md",
+      ".gitignore",
+      "AGENTS.md",
+      "QwenVoice.xcodeproj/project.pbxproj",
+      "QwenVoice_MLXAudio_Corrected_Report_Series_2026-07-10/README.md",
+      "Sources/QwenVoiceCore/GenerationTelemetryRecord.swift",
+      "Sources/QwenVoiceCore/MLXModelLoadCoordinator.swift",
+      "Sources/QwenVoiceCore/MLXTTSEngine.swift",
+      "Sources/QwenVoiceCore/NativeEngineRuntime.swift",
+      "Sources/QwenVoiceCore/NativeStreamingSynthesisSession.swift",
+      "Sources/QwenVoiceCore/NativeTelemetryMetadata.swift",
+      "Sources/QwenVoiceCore/NativeTelemetrySampler.swift",
+      "Sources/QwenVoiceEngineService/EngineServiceHost.swift",
+      "Sources/QwenVoiceEngineSupport/EngineServiceTransportAccumulator.swift",
+      "Sources/SharedSupport/Telemetry/AppGenerationTimeline.swift",
+      "Sources/SharedSupport/Telemetry/MainThreadStallWatchdog.swift",
+      "Sources/SharedSupport/ViewModels/AudioPlayerViewModel.swift",
+      "Sources/ViewModels/CustomVoiceCoordinator.swift",
+      "Sources/ViewModels/VoiceCloningCoordinator.swift",
+      "Sources/ViewModels/VoiceDesignCoordinator.swift",
+      "Sources/VocelloCLI/BenchCommand.swift",
+      "Sources/iOS/IOSDeviceDiagnosticsRunner.swift",
+      "Sources/iOS/IOSGenerationModeViews.swift",
+      "Sources/iOS/IOSStudioCanvas.swift",
+      "Sources/iOS/Studio/IOSStudioInlinePlayerCard.swift",
+      "Sources/iOS/TTSEngineStore.swift",
+      "Sources/iOSSupport/Services/IOSInterruptionRecorder.swift",
+      "Sources/iOSSupport/Services/IOSPullableDiagnosticsMirror.swift",
+      "Tests/VocelloCoreTests/GenerationTelemetrySchemaTests.swift",
+      "Tests/VocelloCoreTests/MainThreadStallWatchdogTests.swift",
+      "Tests/VocelloEngineIntegrationTests/EngineServiceTransportAccumulatorTests.swift",
+      "Tests/VocelloiOSUITests/VocelloiOSBenchmarkUITests.swift",
+      "Tests/VocelloiOSUITests/VocelloiOSSmokeUITests.swift",
+      "Tests/VocelloiOSUITests/VocelloiOSUITestCase.swift",
+      "benchmarks/LEGACY_HISTORY.md",
+      "benchmarks/OPTIMIZATION.md",
+      "benchmarks/README.md",
+      "benchmarks/baseline-2026-05-31-641a541.md",
+      "benchmarks/hardware-profiles.json",
+      "benchmarks/schema-v1.json",
+      "config/backend-risk-spine.json",
+      "docs/ARCHITECTURE.md",
+      "docs/development-progress.md",
+      "docs/project-map.html",
+      "docs/reference/backend-optimization-research-report.md",
+      "docs/reference/benchmarking-procedure.md",
+      "docs/reference/cli.md",
+      "docs/reference/ios-device-testing.md",
+      "docs/reference/language-bench.md",
+      "docs/reference/macos-release-qa.md",
+      "docs/reference/macos-testing.md",
+      "docs/reference/mlx-guide.md",
+      "docs/reference/swift-performance-guide.md",
+      "docs/reference/telemetry-and-benchmarking.md",
+      "project.yml",
+      "scripts/bench_delivery_prosody.py",
+      "scripts/benchmark_history.py",
+      "scripts/check_ios_ui_benchmark.py",
+      "scripts/check_macos_xpc_bench.py",
+      "scripts/check_project_inputs.sh",
+      "scripts/check_test_workflows.sh",
+      "scripts/ios_device.sh",
+      "scripts/macos_test.sh",
+      "scripts/prosody_calibration.py",
+      "scripts/publish_benchmark_history.py",
+      "scripts/summarize_generation_telemetry.py",
+      "scripts/telemetry_overhead.py",
+      "scripts/test_check_ios_ui_benchmark.py",
+      "scripts/test_check_macos_xpc_bench.py",
+      "scripts/tests/test_bench_command_contract.py",
+      "scripts/tests/test_benchmark_history.py",
+      "scripts/tests/test_ios_device_benchmark_contract.py",
+      "scripts/tests/test_profile_capture_contract.py",
+      "scripts/tests/test_prosody_calibration.py",
+      "scripts/tests/test_publish_benchmark_history.py",
+      "scripts/tests/test_summarize_generation_telemetry.py",
+      "scripts/tests/test_telemetry_overhead.py",
+      "scripts/ui_test.sh"
+    ],
+    "commit": "1ef1669326b577a307799062d19257b734e6b724",
+    "dirty": true,
+    "fingerprintsMatch": false,
+    "postFingerprint": "4424e6dfa1d2d17fec69d127415b565d7201455c17c3d98f6817b057fdeeafe1",
+    "preFingerprint": "e0435dc40d50e399854617695ebbc02d9e1617340ef70592c5c68a39fca03dfe",
+    "workspaceFingerprint": "e0435dc40d50e399854617695ebbc02d9e1617340ef70592c5c68a39fca03dfe"
+  },
+  "takes": [
+    {
+      "audioQC": {
+        "algorithmVersion": 2,
+        "instabilityVerdict": "pass",
+        "metrics": {
+          "clipCount": 0.0,
+          "dcOffset": 2.2631872856582193e-05,
+          "discontinuityCount": 0.0,
+          "longestSilenceMS": 49.0,
+          "nonFiniteCount": 0.0
+        },
+        "verdict": "pass",
+        "warningCodes": [],
+        "writtenOutputVerdict": "pass"
+      },
+      "cell": "custom-en-pinned",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "34EE0E06-683F-4E10-9C0A-61E626994731",
+      "layerCompleteness": "complete",
+      "layers": [
+        "engine"
+      ],
+      "length": "not-applicable",
+      "metrics": {
+        "audioSeconds": 2.08,
+        "blockIOOperations": 0.0,
+        "contextSwitches": 14485.0,
+        "cpuSystemSeconds": 0.620398,
+        "cpuUserSeconds": 1.977429,
+        "decodeWallSeconds": 2.392,
+        "finalizationMS": 3.0,
+        "generatedTokens": 26.0,
+        "hintCellsExpected": 7.0,
+        "hintCellsPassed": 7.0,
+        "maximumTrimLevel": 0.0,
+        "memoryTrimCount": 0.0,
+        "modelLoadMS": 0.0,
+        "pageFaults": 2795.0,
+        "peakCompressedMB": 2028.78125,
+        "peakGPUAllocatedMB": 2773.203125,
+        "peakPhysicalFootprintMB": 2799.517868041992,
+        "peakResidentMB": 501.5625,
+        "rtf": 0.8695652173913044,
+        "samplerBoundarySampleCount": 9.0,
+        "samplerCaptureFailureCount": 0.0,
+        "samplerEffectiveMedianIntervalMS": 504.410708,
+        "samplerMaximumDriftMS": 40.022458,
+        "samplerMaximumLatenessMS": 42.134291,
+        "samplerTargetIntervalMS": 500.0,
+        "tokensPerSecond": 10.862480755043283
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 2.08,
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 1,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "audioQC": {
+        "algorithmVersion": 2,
+        "instabilityVerdict": "pass",
+        "metrics": {
+          "clipCount": 0.0,
+          "dcOffset": -5.453422733685187e-05,
+          "discontinuityCount": 1.0,
+          "longestSilenceMS": 55.0,
+          "nonFiniteCount": 0.0
+        },
+        "verdict": "pass",
+        "warningCodes": [],
+        "writtenOutputVerdict": "pass"
+      },
+      "cell": "custom-en-auto",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "0DD067C3-2906-48B9-B077-2AD5497B4CB1",
+      "layerCompleteness": "complete",
+      "layers": [
+        "engine"
+      ],
+      "length": "not-applicable",
+      "metrics": {
+        "audioSeconds": 2.0,
+        "blockIOOperations": 0.0,
+        "contextSwitches": 15468.0,
+        "cpuSystemSeconds": 0.5893030000000001,
+        "cpuUserSeconds": 1.948358,
+        "decodeWallSeconds": 2.29,
+        "finalizationMS": 1.0,
+        "generatedTokens": 25.0,
+        "hintCellsExpected": 7.0,
+        "hintCellsPassed": 7.0,
+        "maximumTrimLevel": 0.0,
+        "memoryTrimCount": 0.0,
+        "modelLoadMS": 0.0,
+        "pageFaults": 3374.0,
+        "peakCompressedMB": 1992.953125,
+        "peakGPUAllocatedMB": 2773.5625,
+        "peakPhysicalFootprintMB": 2859.455368041992,
+        "peakResidentMB": 533.390625,
+        "rtf": 0.8733624454148472,
+        "samplerBoundarySampleCount": 9.0,
+        "samplerCaptureFailureCount": 0.0,
+        "samplerEffectiveMedianIntervalMS": 504.108541,
+        "samplerMaximumDriftMS": 30.240166,
+        "samplerMaximumLatenessMS": 35.891791,
+        "samplerTargetIntervalMS": 500.0,
+        "tokensPerSecond": 10.899700656767212
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 2.0,
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 2,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "audioQC": {
+        "algorithmVersion": 2,
+        "instabilityVerdict": "pass",
+        "metrics": {
+          "clipCount": 0.0,
+          "dcOffset": 1.4737542867320917e-05,
+          "discontinuityCount": 2.0,
+          "longestSilenceMS": 31.0,
+          "nonFiniteCount": 0.0
+        },
+        "verdict": "pass",
+        "warningCodes": [],
+        "writtenOutputVerdict": "pass"
+      },
+      "cell": "design-en-auto",
+      "finishReason": "completed",
+      "fixtureDigest": "4cd154efe6edac426a109b501861b611fc7172a0c9f2152981d09eb6c11465c2",
+      "generationID": "E9993400-80AF-4A5D-8C94-88F056177B38",
+      "layerCompleteness": "complete",
+      "layers": [
+        "engine"
+      ],
+      "length": "not-applicable",
+      "metrics": {
+        "audioSeconds": 1.84,
+        "blockIOOperations": 0.0,
+        "contextSwitches": 15434.0,
+        "cpuSystemSeconds": 0.6408809999999998,
+        "cpuUserSeconds": 2.020656,
+        "decodeWallSeconds": 1.97,
+        "finalizationMS": 1.0,
+        "generatedTokens": 23.0,
+        "hintCellsExpected": 7.0,
+        "hintCellsPassed": 7.0,
+        "maximumTrimLevel": 0.0,
+        "memoryTrimCount": 0.0,
+        "modelLoadMS": 0.0,
+        "pageFaults": 3743.0,
+        "peakCompressedMB": 1995.484375,
+        "peakGPUAllocatedMB": 2395.234375,
+        "peakPhysicalFootprintMB": 2596.814743041992,
+        "peakResidentMB": 347.90625,
+        "rtf": 0.934010152284264,
+        "samplerBoundarySampleCount": 9.0,
+        "samplerCaptureFailureCount": 0.0,
+        "samplerEffectiveMedianIntervalMS": 513.514375,
+        "samplerMaximumDriftMS": 32.536084,
+        "samplerMaximumLatenessMS": 46.066375,
+        "samplerTargetIntervalMS": 500.0,
+        "tokensPerSecond": 11.67751586246776
+      },
+      "mode": "design",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_design_speed",
+      "modelIntegrityDigest": "1fd6f28f5cd9f257f178d7d49fe269a29c911680f7fcdeed06b60e8d37532664",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-4bit",
+      "modelRevision": "5c390979e4b93af5f2932f90742ca99c7dd04687",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 1.84,
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|voice_design|4bit|24000|qwen3_tts_tokenizer_12hz|chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish||pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 3,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "audioQC": {
+        "algorithmVersion": 2,
+        "instabilityVerdict": "pass",
+        "metrics": {
+          "clipCount": 0.0,
+          "dcOffset": 7.375062107914378e-05,
+          "discontinuityCount": 2.0,
+          "longestSilenceMS": 10.0,
+          "nonFiniteCount": 0.0
+        },
+        "verdict": "pass",
+        "warningCodes": [],
+        "writtenOutputVerdict": "pass"
+      },
+      "cell": "custom-fr-pinned",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "6C84FC0C-227C-4CEA-BEED-FA6226BE92EE",
+      "layerCompleteness": "complete",
+      "layers": [
+        "engine"
+      ],
+      "length": "not-applicable",
+      "metrics": {
+        "audioSeconds": 1.68,
+        "blockIOOperations": 0.0,
+        "contextSwitches": 11020.0,
+        "cpuSystemSeconds": 0.541895,
+        "cpuUserSeconds": 1.6477989999999998,
+        "decodeWallSeconds": 2.074,
+        "finalizationMS": 1.0,
+        "generatedTokens": 21.0,
+        "hintCellsExpected": 7.0,
+        "hintCellsPassed": 7.0,
+        "maximumTrimLevel": 0.0,
+        "memoryTrimCount": 0.0,
+        "modelLoadMS": 0.0,
+        "pageFaults": 3043.0,
+        "peakCompressedMB": 2006.1875,
+        "peakGPUAllocatedMB": 2773.109375,
+        "peakPhysicalFootprintMB": 2855.533447265625,
+        "peakResidentMB": 195.359375,
+        "rtf": 0.8100289296046288,
+        "samplerBoundarySampleCount": 9.0,
+        "samplerCaptureFailureCount": 0.0,
+        "samplerEffectiveMedianIntervalMS": 502.208666,
+        "samplerMaximumDriftMS": 38.991125,
+        "samplerMaximumLatenessMS": 43.408458,
+        "samplerTargetIntervalMS": 500.0,
+        "tokensPerSecond": 10.1164505425681
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 1.68,
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 4,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "audioQC": {
+        "algorithmVersion": 2,
+        "instabilityVerdict": "pass",
+        "metrics": {
+          "clipCount": 0.0,
+          "dcOffset": -0.00014539579275681683,
+          "discontinuityCount": 0.0,
+          "longestSilenceMS": 6.0,
+          "nonFiniteCount": 0.0
+        },
+        "verdict": "pass",
+        "warningCodes": [],
+        "writtenOutputVerdict": "pass"
+      },
+      "cell": "custom-fr-auto",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "B78523C6-99DD-40FB-9FE9-8933EBB61C0C",
+      "layerCompleteness": "complete",
+      "layers": [
+        "engine"
+      ],
+      "length": "not-applicable",
+      "metrics": {
+        "audioSeconds": 1.68,
+        "blockIOOperations": 0.0,
+        "contextSwitches": 10908.0,
+        "cpuSystemSeconds": 0.525824,
+        "cpuUserSeconds": 1.608224,
+        "decodeWallSeconds": 1.986,
+        "finalizationMS": 1.0,
+        "generatedTokens": 21.0,
+        "hintCellsExpected": 7.0,
+        "hintCellsPassed": 7.0,
+        "maximumTrimLevel": 0.0,
+        "memoryTrimCount": 0.0,
+        "modelLoadMS": 0.0,
+        "pageFaults": 3354.0,
+        "peakCompressedMB": 2001.828125,
+        "peakGPUAllocatedMB": 2394.546875,
+        "peakPhysicalFootprintMB": 2665.408493041992,
+        "peakResidentMB": 187.859375,
+        "rtf": 0.8459214501510574,
+        "samplerBoundarySampleCount": 9.0,
+        "samplerCaptureFailureCount": 0.0,
+        "samplerEffectiveMedianIntervalMS": 519.272958,
+        "samplerMaximumDriftMS": 41.647833,
+        "samplerMaximumLatenessMS": 46.866333,
+        "samplerTargetIntervalMS": 500.0,
+        "tokensPerSecond": 10.55846761916224
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 1.68,
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 5,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "audioQC": {
+        "algorithmVersion": 2,
+        "instabilityVerdict": "pass",
+        "metrics": {
+          "clipCount": 0.0,
+          "dcOffset": -7.781130321081842e-08,
+          "discontinuityCount": 14.0,
+          "longestSilenceMS": 13.0,
+          "nonFiniteCount": 0.0
+        },
+        "verdict": "pass",
+        "warningCodes": [],
+        "writtenOutputVerdict": "pass"
+      },
+      "cell": "design-fr-auto",
+      "finishReason": "completed",
+      "fixtureDigest": "4cd154efe6edac426a109b501861b611fc7172a0c9f2152981d09eb6c11465c2",
+      "generationID": "753C4548-8BAF-4A0E-958E-662D1B0A1B0B",
+      "layerCompleteness": "complete",
+      "layers": [
+        "engine"
+      ],
+      "length": "not-applicable",
+      "metrics": {
+        "audioSeconds": 1.76,
+        "blockIOOperations": 0.0,
+        "contextSwitches": 13070.0,
+        "cpuSystemSeconds": 0.59122,
+        "cpuUserSeconds": 1.846961,
+        "decodeWallSeconds": 1.797,
+        "finalizationMS": 1.0,
+        "generatedTokens": 22.0,
+        "hintCellsExpected": 7.0,
+        "hintCellsPassed": 7.0,
+        "maximumTrimLevel": 0.0,
+        "memoryTrimCount": 0.0,
+        "modelLoadMS": 0.0,
+        "pageFaults": 3468.0,
+        "peakCompressedMB": 1896.8125,
+        "peakGPUAllocatedMB": 2378.578125,
+        "peakPhysicalFootprintMB": 2626.580368041992,
+        "peakResidentMB": 503.875,
+        "rtf": 0.9794101279910963,
+        "samplerBoundarySampleCount": 9.0,
+        "samplerCaptureFailureCount": 0.0,
+        "samplerEffectiveMedianIntervalMS": 498.180083,
+        "samplerMaximumDriftMS": 45.274083,
+        "samplerMaximumLatenessMS": 45.274083,
+        "samplerTargetIntervalMS": 500.0,
+        "tokensPerSecond": 12.255611684594808
+      },
+      "mode": "design",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_design_speed",
+      "modelIntegrityDigest": "1fd6f28f5cd9f257f178d7d49fe269a29c911680f7fcdeed06b60e8d37532664",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-4bit",
+      "modelRevision": "5c390979e4b93af5f2932f90742ca99c7dd04687",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 1.76,
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|voice_design|4bit|24000|qwen3_tts_tokenizer_12hz|chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish||pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 6,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "audioQC": {
+        "algorithmVersion": 2,
+        "instabilityVerdict": "pass",
+        "metrics": {
+          "clipCount": 0.0,
+          "dcOffset": -3.388828394572816e-05,
+          "discontinuityCount": 0.0,
+          "longestSilenceMS": 5.0,
+          "nonFiniteCount": 0.0
+        },
+        "verdict": "pass",
+        "warningCodes": [],
+        "writtenOutputVerdict": "pass"
+      },
+      "cell": "custom-fr-text-en-pinned",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "610BCBE1-1325-4610-8D8A-2164EC94FFE2",
+      "layerCompleteness": "complete",
+      "layers": [
+        "engine"
+      ],
+      "length": "not-applicable",
+      "metrics": {
+        "audioSeconds": 2.32,
+        "blockIOOperations": 0.0,
+        "contextSwitches": 13559.0,
+        "cpuSystemSeconds": 0.5805769999999999,
+        "cpuUserSeconds": 2.145333,
+        "decodeWallSeconds": 2.575,
+        "finalizationMS": 1.0,
+        "generatedTokens": 29.0,
+        "hintCellsExpected": 7.0,
+        "hintCellsPassed": 7.0,
+        "maximumTrimLevel": 0.0,
+        "memoryTrimCount": 0.0,
+        "modelLoadMS": 0.0,
+        "pageFaults": 2346.0,
+        "peakCompressedMB": 1996.46875,
+        "peakGPUAllocatedMB": 2394.40625,
+        "peakPhysicalFootprintMB": 2653.861572265625,
+        "peakResidentMB": 305.34375,
+        "rtf": 0.9009708737864076,
+        "samplerBoundarySampleCount": 9.0,
+        "samplerCaptureFailureCount": 0.0,
+        "samplerEffectiveMedianIntervalMS": 494.981833,
+        "samplerMaximumDriftMS": 50.066542,
+        "samplerMaximumLatenessMS": 50.066542,
+        "samplerTargetIntervalMS": 500.0,
+        "tokensPerSecond": 11.261130063309524
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 2.32,
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 7,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    }
+  ],
+  "toolchain": {
+    "appBuild": "18",
+    "appVersion": "2.1.0",
+    "executableHashes": {
+      "vocello": "64b5dd6959598446f14e3fdd53e9102e60f84d3e0a957e31ca93a566240e6f38"
+    },
+    "executableUUIDs": {
+      "vocello[arm64]": "B8572988-D591-3139-AB96-0C50B4131F86"
+    },
+    "optimization": "-Onone",
+    "sdkName": "macosx",
+    "sdkVersion": "26.5",
+    "swiftVersion": "Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)",
+    "xcodeBuild": "17F113",
+    "xcodeVersion": "26.6"
+  }
+}

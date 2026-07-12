@@ -1,5 +1,9 @@
 # Source Map
 
+> **Historical snapshot.** This source map is pinned to Vocello commit
+> `05bd2b6d24b3f43351f3b388622a72d8f0d6ecce`. It supports preserved research evidence, not the
+> current runtime, telemetry, or benchmark contract. See the [series notice](README.md).
+
 
 - **QwenVoice/Vocello:** `05bd2b6d24b3f43351f3b388622a72d8f0d6ecce`
 - **Recorded upstream import baseline:** `fcbd04daa1bfebe881932f630af2ba6ce9af3274` (`v0.1.2`)

@@ -127,7 +127,7 @@ We are requesting com.apple.developer.kernel.increased-memory-limit for the iOS 
 
 Our current hardware diagnostics use os_proc_available_memory(), task_vm_info, and Metal allocation metrics for the app process. Without the increased-memory entitlement, the app reports critically low process headroom before model admission on supported iPhone hardware. The app correctly blocks model loading in this state rather than risking jetsam. This confirms that the blocker is the per-process memory limit, not lack of general device RAM.
 
-Vocello already includes guardrails for responsible memory use: model admission checks, process-memory diagnostics, streaming-first iOS generation, disabled inline PCM preview payloads by default, bounded event streams, explicit MLX/Qwen3 cache trimming, hard trim and full unload paths, active-generation cancellation under critical pressure, and fallback behavior when additional memory is unavailable.
+Vocello already includes guardrails for responsible memory use: model admission checks, process-memory diagnostics, streaming-first iOS generation, bounded in-process PCM preview chunks for live playback with an explicit diagnostic opt-out for controlled memory comparisons, bounded event streams, explicit MLX/Qwen3 cache trimming, hard trim and full unload paths, active-generation cancellation under critical pressure, and fallback behavior when additional memory is unavailable.
 
 The entitlement is needed so supported devices can run the app's core on-device speech generation feature reliably while preserving the privacy benefit of local inference. If additional memory is unavailable, Vocello still behaves safely: the app remains usable for UI, model downloads, diagnostics, and user data access, and generation is blocked with a user-visible memory error instead of forcing a risky allocation.
 ```
@@ -161,7 +161,7 @@ Vocello samples app process memory with os_proc_available_memory(), task_vm_info
 How system impact is limited:
 
 ```text
-iOS generation is streaming-first; inline PCM preview payloads are skipped by default; event streams are bounded; model admission blocks critical pressure; Qwen3 tokenizer, speech-tokenizer, prefix, and decoder caches are explicitly cleared on iPhone hard-trim/full-unload paths; active generation is canceled under critical memory pressure.
+iOS generation is streaming-first; inline PCM preview payloads remain in-process, are emitted in bounded chunks for live playback, and can be explicitly disabled for controlled memory diagnostics; event streams are bounded; model admission blocks critical pressure; Qwen3 tokenizer, speech-tokenizer, prefix, and decoder caches are explicitly cleared on iPhone hard-trim/full-unload paths; active generation is canceled under critical memory pressure.
 ```
 
 ## Repo evidence map
@@ -183,8 +183,8 @@ Process measurement and guardrails:
 Memory-reduction behavior already implemented:
 
 - `Sources/iOS/IOSGenerationModeViews.swift` builds Custom, Design, and Clone generation requests with `shouldStream: true`.
-- `Sources/QwenVoiceCore/SemanticTypes.swift` skips inline streaming preview PCM by default on physical iOS.
-- `Sources/QwenVoiceCore/NativeStreamingSynthesisSession.swift` emits `previewAudio: nil` when preview data is skipped.
+- `Sources/QwenVoiceCore/SemanticTypes.swift` defaults inline streaming preview PCM to `.emit` on every platform; `QWENVOICE_STREAMING_PREVIEW_DATA=off` is the explicit controlled-diagnostic opt-out.
+- `Sources/QwenVoiceCore/NativeStreamingSynthesisSession.swift` emits inline `previewAudio` under the default policy and emits `previewAudio: nil` only when the explicit opt-out is active.
 - `Sources/QwenVoiceCore/NativeEngineRuntime.swift` clears Qwen3 caches on iPhone unload/hard-trim/full-unload paths.
 - `third_party_patches/mlx-audio-swift/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift` exposes `Qwen3TTSMemoryCaches.clearAll()`.
 

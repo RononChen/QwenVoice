@@ -468,6 +468,7 @@ struct IOSStudioLivePreviewItem: Equatable {
 }
 
 struct IOSStudioInlinePlayerItem: Equatable {
+    let generationID: UUID
     let audioURL: URL
     let voiceName: String
     let modeLabel: String

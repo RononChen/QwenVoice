@@ -1,23 +1,36 @@
 # benchmarks/
 
-Compact, human-readable benchmark **summaries** may be committed here. This directory exists because
-benchmark result logs are now permitted in the repo — but **bounded**, so they never blow out repo size.
+Validated, privacy-safe benchmark **summaries** live here. Raw telemetry, audio, screenshots, traces,
+and result bundles stay in the untracked run-artifact directory.
 
 ## What may live here
 
-- **`HISTORY.md`** — the running ledger: one compact row per benchmark run (date · git SHA · cell ·
-  RTF · tok/s · TTFC · physFoot · trims · note), for watching the trend over time. Append a row with
-  `python3 scripts/summarize_generation_telemetry.py --ledger-row --label "what changed" >> benchmarks/HISTORY.md`,
-  or use `vocello bench --ledger` (single summarizer pass via internal `--emit-ledger-row`).
+- **`runs/<kind>/<run-id>.json`** — one canonical, allowlisted record for each successful benchmark.
+- **`HISTORY.md`** — a generated index. Never append to it manually.
+- **`LEGACY_HISTORY.md`** — the former hand-maintained ledger, preserved verbatim as incomplete historical
+  context. It is not schema-v1 benchmark evidence.
+- **`hardware-profiles.json`** — the canonical Mac mini M2 8 GB and iPhone 17 Pro profiles.
+- **`schema-v1.json`** — the portable record shape. `scripts/benchmark_history.py` is the executable validator.
 - **`OPTIMIZATION.md`** — the standing optimization-progress log: what was investigated, decided, shipped,
   and deferred (workstreams + findings + invariants + next steps), anchored to the reference baseline.
-- A saved full summary table from `summarize_generation_telemetry.py --label "<note>"` (`.md` / `.txt`)
-  for a milestone — auto-stamped with the date + short SHA so numbers tie to a commit.
-- A small `.json` of headline numbers (RTF, tokens/s, TTFC, peak RAM/GPU) for a dated run.
+- Existing dated Markdown/JSON snapshots and `benchmarks/baselines/` remain preserved reference
+  artifacts. They are not silently converted into complete schema-v1 evidence. New successful runs
+  use `runs/<kind>/`; optional baseline comparisons remain local model-dependent QA and never an
+  ordinary CI or packaging gate.
 
-Name milestone files by date + context, e.g. `2026-05-30-floor8gb-quality.md`. Compare Markdown
-snapshots with `git diff`. JSON baselines under `benchmarks/baselines/` support the optional,
-model-dependent `--compare-baseline` regression check; it is never an ordinary CI or packaging gate.
+## Registry commands
+
+Successful benchmark validators write an untracked `benchmark-evidence.json`; the runner then publishes it:
+
+```sh
+python3 scripts/benchmark_history.py record --artifact-dir build/path/to/run
+python3 scripts/benchmark_history.py validate --all
+python3 scripts/benchmark_history.py rebuild-index --check
+python3 scripts/benchmark_history.py annotate --run-id <id> --listening pass --note "reviewed"
+```
+
+Publication only writes the JSON record and generated index. It never stages, commits, or pushes. Repeating
+`record` with byte-identical evidence is idempotent; conflicting run IDs or duplicate evidence fail.
 
 ## Rules (enforced by `scripts/check_project_inputs.sh`)
 
@@ -25,8 +38,66 @@ model-dependent `--compare-baseline` regression check; it is never an ordinary C
   `~/Library/Application Support/QwenVoice[-Debug]/diagnostics/` (gitignored, and auto-pruned to a size
   budget by `GenerationTelemetryJSONLSink`). Commit a distilled summary, not the raw stream.
 - **Each committed file ≤ 256 KB.** Keep it a summary, not a dump.
+- **Successful evidence only.** Failed, interrupted, crashed, incomplete-layer, unreadable-output, or failed-QC
+  runs must leave the tracked registry unchanged.
+- **Strict privacy allowlist.** Records reject serial numbers, UDIDs, ECIDs, device/host/user names,
+  absolute paths, prompts, transcripts, voice descriptions, raw errors, URLs, email addresses, and
+  path-like or secret-bearing labels. Run labels are opaque identifiers made only from letters,
+  numbers, `.`, `_`, and `-`; warnings are bounded machine codes, never prose or copied errors.
+- **Dirty runs are exploratory.** They retain source fingerprints but are excluded from comparable trends.
 - JSON baseline comparisons are explicit local QA. They do not run automatically in ordinary CI or
   release packaging. See the canonical procedure for the supported save/compare commands.
+
+## Canonical hardware and run classes
+
+New native comparisons use the profiles in `hardware-profiles.json`:
+
+- macOS: Mac mini `Mac14,3`, Apple M2, 8 GB (`mac-mini-m2-8gb`)
+- iOS: iPhone 17 Pro `iPhone18,1` (`iphone-17-pro`)
+
+The registry accepts `ui-generation`, `engine-generation`, `language`, `telemetry-overhead`,
+`instrument-profile`, and `prosody-calibration`. An unfiltered 29-take UI matrix on the matching
+hardware is canonical; a filtered matrix is focused; a dirty checkout is exploratory; an
+Instruments run is instrumented; and a hint-only language run is partial. Only compatible clean
+runs share a comparison key. Instrumented, exploratory, and partial records are never silently
+mixed into normal timing trends.
+
+Each record binds UTC timing, matrix/status, source and pre/post workspace fingerprints, hardware
+and toolchain/executable identity, project/harness/model/fixture hashes, selected-evidence and
+result digests, ordered per-take metrics, per-cell median/IQR/min/max and worst-state summaries,
+and an independent listening block. Its canonical SHA-256 is computed with the `digest` field
+omitted.
+
+The executable validator independently rechecks kind-specific success semantics after publication:
+the exact 18 measured telemetry-overhead takes and rotations, PCM parity and overhead thresholds,
+structured target-PID/CPU/signpost
+profile proof, complete prosody-calibration aggregates, full hardware context, and cell summaries
+recomputed from the ordered takes. A publisher PASS alone cannot make an incomplete tracked record
+valid.
+
+Corpus identity is derived from fixed harness sources and the ordered generation-time prompt
+digests. Delivery and calibration records also bind the exact prosody-analysis profile. Prompt
+text and profile source paths are never copied into telemetry or the registry.
+
+The selected-evidence digest is derived from the distilled take/output/QC payload and raw/result/
+trace evidence identities, not from mutable labels or wrapper metadata. Rewrapping the same
+underlying evidence under a different run ID is therefore rejected.
+
+Every validator selects one collision-resistant run ID and emits one atomic, untracked
+`benchmark-evidence.json`. History publication consumes only that manifest's ordered generation
+IDs, cells, layer verdicts, output/QC verdicts, and crash result; it never scans a historical
+diagnostics tree. A publication failure after a successful run leaves the local evidence intact
+and prints the idempotent `record --artifact-dir` repair command.
+
+Listening review is independent from automated success and can be added later with `annotate`.
+Automated success and a listening pass answer different questions; neither is inferred from the
+other. `annotate` is the only supported post-publication mutation: it updates the listening block
+and recomputes the record digest without changing the captured run evidence.
+
+Comparison metadata is derived from all tracked records, not insertion order. `rebuild-index`
+reconciles each compatible clean run with its nearest earlier equivalent and updates the record
+digest when an earlier record arrives later through a merge; `rebuild-index --check` and ordinary CI
+reject stale comparison metadata.
 
 See [`docs/reference/benchmarking-procedure.md`](../docs/reference/benchmarking-procedure.md)
 for the operator runbook (workflows, preflight, reading results) and

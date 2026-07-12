@@ -683,13 +683,19 @@ Records are written by the `GenerationTelemetryJSONLSink` actor as JSONL under
 - `*/native-events.jsonl` (chunk gaps, warm-admission, XPC retirement — gated)
 - `<documents>/generation-failures.jsonl` (`GenerationFailureDiagnosticLogger` — gated)
 
-`GenerationTelemetryRecord` schema v6 is a versioned Codable struct keyed by `generationID`
+`GenerationTelemetryRecord` schema v7 is a versioned Codable struct keyed by `generationID`
 with `layer { engine, engineService, app, merged }`. New validation consumes typed
 `FrontendGenerationMetrics`, `EngineTransportMetrics`, `BackendGenerationMetrics`, and
-`GenerationOutputMetrics`. The legacy timing/counter/note dictionaries remain serialization
-compatibility output and v1–v5 rows still decode. The transport layer records session/chunk/order/
-terminal evidence; the backend records typed stages/timings/counters, final barrier, atomic output,
-memory, and audio QC. No telemetry persists raw script, transcript, path, or voice description.
+`GenerationOutputMetrics`, plus typed model/runtime identity. The generation sampler starts before
+model preparation, adds lifecycle boundary samples to its 500 ms cadence, and reports capture time,
+lateness, effective interval, drift, resource deltas, and safe run context. Frontend timing calls
+playback what it can prove—**scheduled**, not acoustically audible—and reports sampled delayed-heartbeat
+counts with coverage plus typed playback queue, continuity, and underrun health. The legacy timing/counter/note dictionaries remain serialization compatibility
+output and v1–v6 rows still decode. The transport layer records request acceptance, first-chunk,
+session/chunk/order/terminal evidence; the backend records typed stages/timings/counters, final barrier,
+atomic output, process-owned memory, and audio QC v3's separate pre-limiter-instability and
+persisted-WAV written-output verdicts.
+No telemetry persists raw script, transcript, path, or voice description.
 Aggregate with `scripts/summarize_generation_telemetry.py`; UI-driven tests join matching typed
 records by `generationID` before accepting a take.
 Logs are budget-capped (`QWENVOICE_DIAGNOSTICS_MAX_MB`, default ~8 MB, pruned

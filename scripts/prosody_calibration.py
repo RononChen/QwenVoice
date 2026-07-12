@@ -16,9 +16,14 @@ Usage:
   scripts/prosody_calibration.py --labels labels.jsonl --out profile.json
 """
 import argparse
+import datetime as dt
+import hashlib
 import json
 import math
 import os
+from pathlib import Path
+import secrets
+import subprocess
 import sys
 
 import numpy as np
@@ -84,6 +89,26 @@ def analyze_corpus(entries):
         for metric, _ in THRESHOLD_MAP.values():
             bucket[metric].append(pros.get(metric, 0.0))
     return good, bad, errors
+
+
+def corpus_digest(entries):
+    """Hash the labeled corpus semantics and every referenced WAV byte.
+
+    Path strings are deliberately excluded: the same corpus should identify
+    the same way after a checkout moves, while a label change, ordering change,
+    missing clip, or one-byte audio change must alter the digest.
+    """
+    digest = hashlib.sha256(b"vocello-prosody-corpus-v1\0")
+    for index, entry in enumerate(entries):
+        clip = Path(entry["path"])
+        if not clip.is_file():
+            raise ValueError(f"corpus clip does not exist: {clip}")
+        digest.update(str(index).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(entry["label"].encode("ascii"))
+        digest.update(b"\0")
+        digest.update(hashlib.sha256(clip.read_bytes()).digest())
+    return digest.hexdigest()
 
 
 def percentile_value(values, q):
@@ -171,6 +196,28 @@ def main():
     ap.add_argument("--name", default="calibrated", help="profile name")
     ap.add_argument("--description", default="", help="profile description")
     args = ap.parse_args()
+    started_at = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    run_id = (
+        "prosody-calibration-"
+        + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S-")
+        + secrets.token_hex(4)
+    )
+    root = Path(__file__).resolve().parents[1]
+    test_history_disabled = os.environ.get("QVOICE_BENCHMARK_HISTORY_TEST_DISABLE") == "1"
+    artifact_dir = root / "build" / "prosody-calibration" / run_id
+    snapshot = artifact_dir / "benchmark-source.json"
+    if not test_history_disabled:
+        artifact_dir.mkdir(parents=True, exist_ok=False)
+        snapshot_command = [
+            sys.executable, str(root / "scripts" / "publish_benchmark_history.py"),
+            "snapshot", "--output", str(snapshot), "--crash-scope", "none",
+        ]
+        captured = subprocess.run(snapshot_command, cwd=root, text=True, capture_output=True)
+        if captured.returncode:
+            sys.exit(
+                "could not capture pre-run source provenance: "
+                + (captured.stderr.strip() or captured.stdout.strip())
+            )
 
     if not (0 < args.target_fpr < 1):
         sys.exit("--target-fpr must be between 0 and 1")
@@ -181,9 +228,10 @@ def main():
 
     good, bad, errors = analyze_corpus(entries)
     if errors:
-        print(f"WARN: analysis failed for {len(errors)} clip(s):", file=sys.stderr)
+        print(f"analysis failed for {len(errors)} clip(s):", file=sys.stderr)
         for path, err in errors[:5]:
             print(f"  {path}: {err}", file=sys.stderr)
+        sys.exit("calibration requires every labeled clip to analyze successfully")
 
     n_good = sum(1 for e in entries if e["label"] == "good")
     n_bad = sum(1 for e in entries if e["label"] == "bad")
@@ -202,6 +250,36 @@ def main():
     stats = evaluate_profile(profile, good_records, bad_records)
 
     save_profile(profile, args.out)
+    labels_digest = corpus_digest(entries)
+    result = {
+        "schemaVersion": 1,
+        "runID": run_id,
+        # Profile names remain human-facing metadata. The tracked benchmark label
+        # is the opaque run ID and never copies this free-form description.
+        "label": run_id,
+        "startedAt": started_at,
+        "finishedAt": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "status": "pass",
+        "analysisFailureCount": 0,
+        "goodClipCount": n_good,
+        "badClipCount": n_bad,
+        "targetFalsePositiveRate": args.target_fpr,
+        "corpusDigest": labels_digest,
+        "profileDigest": hashlib.sha256(Path(args.out).read_bytes()).hexdigest(),
+        "flagRates": stats,
+    }
+    if not test_history_disabled:
+        result_path = artifact_dir / "calibration-results.json"
+        result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        publish_command = [
+            sys.executable, str(root / "scripts" / "publish_benchmark_history.py"),
+            "prosody", "--artifact-dir", str(artifact_dir), "--snapshot", str(snapshot),
+            "--results", str(result_path), "--profile", str(Path(args.out).resolve()),
+        ]
+        published = subprocess.run(publish_command, cwd=root, text=True, capture_output=True)
+        if published.returncode:
+            detail = published.stderr.strip() or published.stdout.strip()
+            sys.exit(f"history publication failed: {detail}")
     print(f"wrote {args.out}")
     print(f"  clips: {n_good} good, {n_bad} bad; analysis errors: {len(errors)}")
     print(f"  calibrated thresholds: {json.dumps(thresholds, indent=2)}")

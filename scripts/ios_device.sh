@@ -22,9 +22,9 @@
 #   scripts/ios_device.sh console [spec] [--voice-id SAVED_VOICE_ID]
 #                                                 # attached launch, stream diagnostics stdout live
 #   scripts/ios_device.sh pull [dest]             # pull the app-container diagnostics mirror
-#   scripts/ios_device.sh bench [spec] [--label "note"] [--memory-profile PROFILE]
+#   scripts/ios_device.sh bench [spec] [--label RUN_ID] [--memory-profile PROFILE]
 #                               [--voice-id SAVED_VOICE_ID]
-#   scripts/ios_device.sh lang-bench [--subset quick|full] [--label "note"]
+#   scripts/ios_device.sh lang-bench [--subset quick|full] [--label RUN_ID]
 #                                                 # headless language-hint matrix
 #   scripts/ios_device.sh crashes [--test]         # pull + symbolicate on-device crash/hang diagnostics (MetricKit)
 #   scripts/ios_device.sh debug [spec]             # attached launch + LLDB attach guidance (get-task-allow build)
@@ -47,6 +47,8 @@
 #                                (otherwise automatic, with auto-fallback to manual)
 #   QVOICE_IOS_DEVICE_ID         (optional) devicectl device id/name/udid; else auto
 #   QVOICE_IOS_BENCH_TIMEOUT     (optional) bench sentinel timeout seconds (default 300)
+#   QVOICE_IOS_PROFILE_START_TIMEOUT
+#                                (optional) maximum tracer-start wait seconds (default 30)
 #   QVOICE_IOS_DEVICE_DIAGNOSTICS_CLONE_VOICE_ID
 #                                exact prepared saved-voice identifier required for clone diagnostics
 
@@ -73,6 +75,52 @@ PROFILES_DIR="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
 note() { printf '\033[0;36m==>\033[0m %s\n' "$*" >&2; }
 warn() { printf '\033[0;33m[warn]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[0;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
+
+validate_benchmark_label() {
+  local value="$1"
+  [[ -z "$value" || "$value" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$ ]] \
+    || die "--label must be an opaque 1-96 character ID using letters, digits, dot, underscore, or hyphen"
+}
+
+benchmark_nonce() {
+  python3 -c 'import secrets; print(secrets.token_hex(4))'
+}
+
+# Canonical history/telemetry cell for every one-take physical-device diagnostic.
+# The publisher reconstructs this same identity from the successful sentinel.
+device_benchmark_cell() {
+  local spec="$1"
+  local mode="${spec%%:*}"
+  local remainder="${spec#*:}"
+  local variant="${remainder%%:*}"
+  printf '%s/%s/device' "$mode" "$variant"
+}
+
+capture_benchmark_source() {
+  local artifacts="$1"
+  local crash_before="$artifacts/crash-before"
+  local dev
+  dev="$(resolve_device)"
+  mkdir -p "$crash_before"
+  xcrun devicectl device copy from --device "$dev" \
+    --domain-type appDataContainer --domain-identifier "$BUNDLE_ID" \
+    --source "Library/Caches/Vocello/diagnostics" --destination "$crash_before" \
+    >"$artifacts/crash-before-pull.log" 2>&1 \
+    || die "could not establish the pre-run iOS crash baseline (see $artifacts/crash-before-pull.log)"
+  python3 "$ROOT_DIR/scripts/publish_benchmark_history.py" snapshot \
+    --output "$artifacts/benchmark-source.json" --crash-scope ios \
+    --crash-diagnostics "$crash_before" >/dev/null \
+    || die "could not capture pre-run benchmark provenance"
+}
+
+record_benchmark_history() {
+  local artifacts="$1"
+  python3 "$ROOT_DIR/scripts/benchmark_history.py" record --artifact-dir "$artifacts" || {
+    warn "benchmark passed, but history publication failed; evidence is preserved in $artifacts"
+    warn "repair: python3 scripts/benchmark_history.py record --artifact-dir '$artifacts'"
+    return 1
+  }
+}
 
 # device-state [--json|--json-v2] [watch [--interval N] [--count N]]
 # Exit codes: 0 READY · 14 DEVICE_UNREACHABLE.
@@ -253,6 +301,69 @@ PY
   printf '%s' "$id"
 }
 
+# xctrace and CoreDevice intentionally expose different identifiers for the
+# same physical phone. Resolve the Instruments UDID from CoreDevice's stable
+# JSON, then require that xctrace currently lists it in the online Devices
+# section before the profile lane launches or suspends Vocello.
+xctrace_inventory_status() {
+  local udid="$1"
+  python3 -c '
+import sys
+udid = sys.argv[1]
+section = None
+for raw in sys.stdin:
+    line = raw.replace("\u00a0", " ").strip()
+    if line == "== Devices ==":
+        section = "online"
+        continue
+    if line == "== Devices Offline ==":
+        section = "offline"
+        continue
+    if line.startswith("== "):
+        section = None
+        continue
+    if f"({udid})" not in line:
+        continue
+    if section == "online":
+        print(udid)
+        raise SystemExit(0)
+    if section == "offline":
+        raise SystemExit(20)
+raise SystemExit(21)
+' "$udid"
+}
+
+resolve_xctrace_device() {
+  local dev="$1"
+  local details inventory
+  details="$(mktemp)"
+  inventory="$(mktemp)"
+  xcrun devicectl device info details --device "$dev" \
+    --json-output "$details" --quiet >/dev/null 2>&1 \
+    || { rm -f "$details" "$inventory"; die "could not resolve the physical iPhone for Instruments"; }
+  local udid
+  udid="$(python3 - "$details" <<'PY'
+import json, sys
+payload = json.load(open(sys.argv[1]))
+udid = (((payload.get("result") or {}).get("hardwareProperties") or {}).get("udid") or "")
+if not udid:
+    raise SystemExit(1)
+print(udid)
+PY
+)" || { rm -f "$details" "$inventory"; die "CoreDevice did not report an Instruments UDID"; }
+  xcrun xctrace list devices >"$inventory" 2>&1 \
+    || { rm -f "$details" "$inventory"; die "xctrace could not list Instruments devices"; }
+  local result status=0
+  result="$(xctrace_inventory_status "$udid" <"$inventory")" || status=$?
+  rm -f "$details" "$inventory"
+  case "$status" in
+    0) printf '%s' "$result" ;;
+    20) die "Instruments sees the paired iPhone as offline — reconnect/unlock it and wait until 'xcrun xctrace list devices' shows it under Devices" ;;
+    21) die "the paired iPhone is absent from Instruments — reconnect it and confirm Xcode device services before profiling" ;;
+    *) die "could not match the CoreDevice phone to an Instruments device" ;;
+  esac
+}
+
 cmd_doctor() {
   note "Vocello iOS device doctor"
   command -v xcrun >/dev/null || die "xcrun not found (install Xcode)"
@@ -304,18 +415,18 @@ cmd_build() {
 
   _run_device_build() {
     build_sign_args "$1" "$team"
-    local -a diagnostic_flags=()
+    local -a command=(
+      xcodebuild
+      -project "$PROJECT" -scheme "$SCHEME" -configuration "$CONFIG"
+      -destination "id=$dev" -derivedDataPath "$DERIVED"
+      "${SIGN_ARGS[@]}"
+    )
     if (( diagnostics_crash_build )); then
-      diagnostic_flags+=('OTHER_SWIFT_FLAGS=$(inherited) -DQVOICE_DEVICE_DIAGNOSTICS')
+      command+=('OTHER_SWIFT_FLAGS=$(inherited) -DQVOICE_DEVICE_DIAGNOSTICS')
     fi
+    command+=(SWIFT_OPTIMIZATION_LEVEL=-Onone build)
     set +e
-    xcodebuild \
-      -project "$PROJECT" -scheme "$SCHEME" -configuration "$CONFIG" \
-      -destination "id=$dev" -derivedDataPath "$DERIVED" \
-      "${SIGN_ARGS[@]}" \
-      "${diagnostic_flags[@]}" \
-      SWIFT_OPTIMIZATION_LEVEL=-Onone \
-      build 2>&1 | tee "$log"
+    "${command[@]}" 2>&1 | tee "$log"
     local st=${PIPESTATUS[0]}; set -e; return $st
   }
 
@@ -376,6 +487,27 @@ require_diagnostic_clone_voice() {
   if [[ "$spec" == clone:* && -z "${QVOICE_IOS_DEVICE_DIAGNOSTICS_CLONE_VOICE_ID:-}" ]]; then
     die "clone diagnostics require --voice-id <exact-prepared-saved-voice-id>"
   fi
+}
+
+# A completed generation is not publishable when the app lost foreground ownership
+# or CallKit observed an interruption. Keep this check in the runner script as a
+# defense for sentinels produced by older installed builds that reported status=ok.
+require_uninterrupted_success_sentinel() {
+  local sentinel="$1"
+  python3 - "$sentinel" <<'PY'
+import json
+import sys
+
+record = json.load(open(sys.argv[1]))
+if record.get("status") != "ok":
+    print(f"sentinel status is {record.get('status')!r}: {record.get('error')}", file=sys.stderr)
+    raise SystemExit(1)
+interruptions = record.get("interruptions") or []
+if interruptions:
+    kinds = ", ".join(str(event.get("type") or "unknown") for event in interruptions)
+    print(f"sentinel contains {len(interruptions)} interruption(s): {kinds}", file=sys.stderr)
+    raise SystemExit(2)
+PY
 }
 
 # launch [spec]: with a spec, set the non-UI diagnostics + telemetry env; otherwise, a plain launch.
@@ -454,7 +586,10 @@ wait_device_diagnostics_sentinel() {
     sleep 10
     waited=$((waited + 10))
     cmd_pull "$dest" >/dev/null 2>&1 || true
-    sentinel="$(find "$dest" -name device-diagnostics-done.json -path "*/${run_id}/*" 2>/dev/null | head -1)"
+    # Require RUN_ID to be the sentinel's immediate parent. Profile artifacts
+    # also contain RUN_ID higher in their path, so a broad */RUN_ID/* match can
+    # otherwise select an unrelated historical sentinel from the pulled tree.
+    sentinel="$(find "$dest" -type f -path "*/${run_id}/device-diagnostics-done.json" 2>/dev/null | head -1)"
     if [[ -n "$sentinel" && -f "$sentinel" ]]; then
       note "sentinel found after ${waited}s (runID=$run_id)"
       printf '%s\n' "$sentinel"
@@ -476,7 +611,7 @@ wait_device_diagnostics_sentinel() {
   die "no sentinel after ${timeout}s for runID=$run_id — Device state: $(probe_device_state 2>/dev/null || echo unknown)"
 }
 
-# lang-bench [--subset quick|full] [--label "note"]:
+# lang-bench [--subset quick|full] [--label RUN_ID]:
 # Headless on-device language matrix — one diagnostic generation per cell, gated by
 # scripts/check_language_hints.py on notes.languageHint vs config/language-bench-matrix.json.
 cmd_lang_bench() {
@@ -489,17 +624,21 @@ cmd_lang_bench() {
       --subset=*) subset="${1#*=}"; shift ;;
       --label) label="${2:-}"; shift 2 ;;
       --label=*) label="${1#*=}"; shift ;;
-      *) die "unknown lang-bench arg '$1' (try --subset quick|full --label \"note\")" ;;
+      *) die "unknown lang-bench arg '$1' (try --subset quick|full --label lang-check-v1)" ;;
     esac
   done
+  validate_benchmark_label "$label"
   [[ "$subset" == "quick" || "$subset" == "full" ]] || die "--subset must be quick or full"
 
   local matrix="$ROOT_DIR/config/language-bench-matrix.json"
   local corpus="$ROOT_DIR/config/language-bench-corpus.json"
   [[ -f "$matrix" && -f "$corpus" ]] || die "missing language bench config (expected $matrix and $corpus)"
 
-  local run_id="ios-lang-bench-$(date +%Y%m%d-%H%M%S)"
+  local run_id
+  run_id="ios-lang-bench-$(date -u +%Y%m%d-%H%M%S)-$(benchmark_nonce)"
   local artifacts="$ROOT_DIR/build/ios/lang-bench-$run_id"
+  local started_at
+  started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   local dest="$ROOT_DIR/build/ios-diagnostics"
   local cell_timeout="${QVOICE_IOS_LANG_BENCH_CELL_TIMEOUT:-240}"
   mkdir -p "$artifacts"
@@ -507,6 +646,7 @@ cmd_lang_bench() {
 
   cmd_build
   cmd_install
+  capture_benchmark_source "$artifacts"
 
   export QVOICE_MAC_BENCH_RUN_ID="$run_id"
   if [[ "${QVOICE_LANG_BENCH_SKIP_OUTPUT:-0}" != "1" ]]; then
@@ -594,9 +734,6 @@ PY
       | tee "$artifacts/output-gate.txt" || output_st=$?
   fi
 
-  python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$diag" \
-    ${label:+--label "$label"} >"$artifacts/summary.txt" 2>&1 || true
-
   {
     echo "lang-bench runID=$run_id subset=$subset cells=$cell_count diagnostics_fail=$cell_fail"
     echo "hint_gate=$([[ $hint_st -eq 0 ]] && echo PASS || echo FAIL)"
@@ -610,6 +747,21 @@ PY
   if (( cell_fail > 0 || hint_st != 0 || output_st != 0 )); then
     die "lang-bench FAIL · $artifacts"
   fi
+  local output_gate="pass"
+  [[ "${QVOICE_LANG_BENCH_SKIP_OUTPUT:-0}" == "1" ]] && output_gate="not-performed"
+  python3 "$ROOT_DIR/scripts/publish_benchmark_history.py" language \
+    --artifact-dir "$artifacts" --snapshot "$artifacts/benchmark-source.json" \
+    --platform ios --run-id "$run_id" --diagnostics "$diag" --crash-diagnostics "$dest" \
+    --matrix "$matrix" --corpus "$corpus" --subset "$subset" \
+    --output-gate "$output_gate" --started-at "$started_at" --defer-record \
+    ${label:+--label "$label"} \
+    || die "language benchmark passed but evidence validation failed; artifacts are preserved in $artifacts"
+  python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$diag" \
+    --run-id "$run_id" --evidence-manifest "$artifacts/benchmark-evidence.json" \
+    --engine-only ${label:+--label "$label"} >"$artifacts/summary.txt" 2>&1 \
+    || die "language evidence was valid but its frozen telemetry summary failed"
+  record_benchmark_history "$artifacts" >/dev/null \
+    || die "language history publication failed"
   note "lang-bench PASS · $artifacts"
 }
 
@@ -617,7 +769,7 @@ cmd_bench() {
   require_team
   note "bench requires Custom Voice (Speed) on device — confirm it in Settings → Model Downloads before generation"
   local spec="custom:speed:" label=""
-  # parse: first non-flag arg = spec; --label "note"; --memory-profile <profile>;
+  # parse: first non-flag arg = spec; --label RUN_ID; --memory-profile <profile>;
   # --voice-id <saved-voice-id> is mandatory for clone diagnostics.
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -634,12 +786,24 @@ cmd_bench() {
       *) spec="$1"; shift ;;
     esac
   done
+  validate_benchmark_label "$label"
   [[ "$spec" == *:* ]] || spec="custom:speed:$spec"   # bare text → custom:speed:<text>
   require_diagnostic_clone_voice "$spec"
+  local run_id
+  run_id="ios-engine-$(date -u +%Y%m%d-%H%M%S)-$(benchmark_nonce)"
+  local artifacts="$ROOT_DIR/build/ios/engine-bench/$run_id"
+  mkdir -p "$artifacts"
 
   cmd_build
   cmd_install
-  local run_id; run_id="$(cmd_launch "$spec" | tail -1)"
+  capture_benchmark_source "$artifacts"
+  export QVOICE_LAUNCH_RUN_ID="$run_id"
+  export QVOICE_MAC_BENCH_RUN_ID="$run_id"
+  export QVOICE_MAC_BENCH_TAKE_INDEX=1
+  export QVOICE_MAC_BENCH_CELL="$(device_benchmark_cell "$spec")"
+  local launched_run_id; launched_run_id="$(cmd_launch "$spec" | tail -1)"
+  unset QVOICE_LAUNCH_RUN_ID QVOICE_MAC_BENCH_RUN_ID QVOICE_MAC_BENCH_TAKE_INDEX QVOICE_MAC_BENCH_CELL
+  [[ "$launched_run_id" == "$run_id" ]] || die "device launch returned the wrong run ID"
 
   local timeout="${QVOICE_IOS_BENCH_TIMEOUT:-300}"
   local dest="$ROOT_DIR/build/ios-diagnostics"
@@ -705,11 +869,20 @@ print("  device   :", r.get("deviceModel"), r.get("systemName"), r.get("systemVe
 PY
 
   note "── telemetry summary (engine decode / RTF / audioQC / RAM) ──"
+  require_uninterrupted_success_sentinel "$sentinel" \
+    || die "device benchmark generation failed or was interrupted"
+  python3 "$ROOT_DIR/scripts/publish_benchmark_history.py" ios-engine \
+    --artifact-dir "$artifacts" --snapshot "$artifacts/benchmark-source.json" \
+    --run-id "$run_id" --sentinel "$sentinel" --diagnostics "$diag" --crash-diagnostics "$dest" \
+    --defer-record ${label:+--label "$label"} \
+    || die "device benchmark passed but evidence validation failed; artifacts are preserved in $artifacts"
   python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$diag" \
-    ${label:+--label "$label"} >&2 || warn "summarizer found no engine rows (was QWENVOICE_DEBUG=1 honored?)"
-
-  # Exit non-zero on a failed generation so CI/automation can gate on it.
-  python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("status")=="ok" else 1)' "$sentinel"
+    --run-id "$run_id" --evidence-manifest "$artifacts/benchmark-evidence.json" \
+    --engine-only ${label:+--label "$label"} >&2 \
+    || die "strict frozen telemetry summary failed for runID=$run_id"
+  record_benchmark_history "$artifacts" >/dev/null \
+    || die "device benchmark history publication failed"
+  note "bench PASS · $artifacts"
 }
 
 cmd_crashes() {
@@ -767,7 +940,9 @@ cmd_crashes() {
 # Burns-in safe (headless/locked works).
 cmd_debug() {
   local spec="${1:-}"
-  [[ -d "$APP_PATH" ]] || cmd_build
+  # Rebuild immediately before provenance capture so source/toolchain metadata
+  # cannot be paired with an older installed profiling binary.
+  cmd_build
   cmd_install >/dev/null
   local dev; dev="$(resolve_device)"
   note "debug: get-task-allow build installed on $dev — LLDB-attachable."
@@ -810,50 +985,141 @@ cmd_logs() {
 }
 
 # profile [spec]: record an Instruments/xctrace trace while device diagnostics runs one
-# generation on-device (burns-in safe — headless, screen dark). Default template
-# 'Time Profiler'; override with QVOICE_IOS_PROFILE_TEMPLATE ('Allocations', …) and the
-# capture window with QVOICE_IOS_PROFILE_DURATION (seconds, default 90). The engine emits
-# OSSignpost intervals under com.qwenvoice.engine / com.patricedery.vocello — use a
-# signpost-bearing template (or the os_signpost instrument) to capture them. Produces
-# build/ios/profile-<ts>.trace + the in-app telemetry summary for the same run.
+# generation on-device (burns-in safe — headless, screen dark). The lane always records
+# CPU Profiler and os_signpost in one trace; QVOICE_IOS_PROFILE_DURATION controls the
+# capture window (seconds, default 90). The engine emits OSSignpost intervals under
+# com.qwenvoice.engine / com.patricedery.vocello. Produces
+# build/ios/profiles/<run-id>/<run-id>.trace + the in-app telemetry summary for the same run.
 cmd_profile() {
   local spec="${1:-custom:speed:Profile device diagnostics.}"
   [[ "$spec" == *:* ]] || spec="custom:speed:$spec"
+  require_diagnostic_clone_voice "$spec"
   require_team
-  local template="${QVOICE_IOS_PROFILE_TEMPLATE:-Time Profiler}"
+  local cpu_instrument="CPU Profiler"
+  local capture_instruments="$cpu_instrument + os_signpost"
   local duration="${QVOICE_IOS_PROFILE_DURATION:-90}"
+  local tracer_start_timeout="${QVOICE_IOS_PROFILE_START_TIMEOUT:-30}"
+  [[ "$duration" =~ ^[1-9][0-9]*$ ]] || die "QVOICE_IOS_PROFILE_DURATION must be a positive whole number of seconds"
+  [[ "$tracer_start_timeout" =~ ^[1-9][0-9]*$ ]] \
+    || die "QVOICE_IOS_PROFILE_START_TIMEOUT must be a positive whole number of seconds"
   local dev; dev="$(resolve_device)"
   command -v xctrace >/dev/null 2>&1 \
     || die "xctrace not found — install Xcode and use Instruments for native profiling"
+  local xctrace_dev
+  xctrace_dev="$(resolve_xctrace_device "$dev")"
 
   [[ -d "$APP_PATH" ]] || cmd_build
   cmd_install >/dev/null
-  local trace="$ROOT_DIR/build/ios/profile-$(date +%Y%m%d-%H%M%S).trace"
-  mkdir -p "$(dirname "$trace")"
+  local run_id
+  run_id="ios-profile-$(date -u +%Y%m%d-%H%M%S)-$(benchmark_nonce)"
+  local artifacts="$ROOT_DIR/build/ios/profiles/$run_id"
+  local trace="$artifacts/$run_id.trace"
+  local toc="$artifacts/trace-toc.xml"
+  local launch_json="$artifacts/launch.json"
+  local dest="$artifacts/device-diagnostics"
+  mkdir -p "$artifacts"
+  capture_benchmark_source "$artifacts"
 
-  note "profile: template='$template', ${duration}s, device=$dev (start tracer, then diagnostics)"
-  # Start the tracer FIRST (attach mode waits for 'Vocello') so it captures from launch.
-  xctrace record --device "$dev" --template "$template" \
-    --attach "Vocello" --time-limit "${duration}s" --output "$trace" &
-  local xcpid=$!
-  sleep 2   # let xctrace begin polling for the attach target
-  local run_id; run_id="$(cmd_launch "$spec" | tail -1)"
-  note "device diagnostics launched (runID=$run_id); capturing for up to ${duration}s…"
-  wait "$xcpid" || true
+  note "profile: instruments='$capture_instruments', ${duration}s, device=$dev (exact suspended PID)"
+  local env_json
+  export QVOICE_MAC_BENCH_RUN_ID="$run_id"
+  export QVOICE_MAC_BENCH_TAKE_INDEX=1
+  export QVOICE_MAC_BENCH_CELL="$(device_benchmark_cell "$spec")"
+  env_json="$(device_diagnostics_env_json "$spec" "$run_id")"
+  unset QVOICE_MAC_BENCH_RUN_ID QVOICE_MAC_BENCH_TAKE_INDEX QVOICE_MAC_BENCH_CELL
+  xcrun devicectl device process launch --device "$dev" --terminate-existing --start-stopped \
+    -e "$env_json" --json-output "$launch_json" "$BUNDLE_ID" \
+    >"$artifacts/launch.log" 2>&1 \
+    || die "could not launch the profiling target suspended (see $artifacts/launch.log)"
+  local target_pid
+  target_pid="$(python3 - "$launch_json" <<'PY'
+import json, sys
+payload = json.load(open(sys.argv[1]))
+def find(value):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key == "processIdentifier" and isinstance(child, int):
+                return child
+        for child in value.values():
+            if (found := find(child)) is not None:
+                return found
+    elif isinstance(value, list):
+        for child in value:
+            if (found := find(child)) is not None:
+                return found
+    return None
+pid = find(payload)
+if pid is None:
+    raise SystemExit(1)
+print(pid)
+PY
+)" || die "devicectl launch result did not contain the exact target PID"
+  [[ "$target_pid" =~ ^[0-9]+$ ]] || die "invalid profiling target PID"
+  local cleanup_command
+  printf -v cleanup_command \
+    'xcrun devicectl device process terminate --device %q --pid %q --quiet >/dev/null 2>&1 || true' \
+    "$dev" "$target_pid"
+  trap "$cleanup_command" EXIT
+  note "device diagnostics suspended (runID=$run_id pid=$target_pid); attaching Instruments"
+  xcrun xctrace record --device "$xctrace_dev" --instrument "$cpu_instrument" --instrument os_signpost \
+    --attach "$target_pid" --time-limit "${duration}s" --no-prompt --output "$trace" \
+    >"$artifacts/xctrace.log" 2>&1 &
+  local xctrace_pid=$!
+  local tracer_start_deadline=$((SECONDS + tracer_start_timeout))
+  local tracer_started=0
+  while kill -0 "$xctrace_pid" >/dev/null 2>&1; do
+    if grep -q '^Starting recording' "$artifacts/xctrace.log" 2>/dev/null; then
+      tracer_started=1
+      break
+    fi
+    if (( SECONDS >= tracer_start_deadline )); then
+      kill "$xctrace_pid" >/dev/null 2>&1 || true
+      wait "$xctrace_pid" >/dev/null 2>&1 || true
+      die "xctrace did not report tracing startup within ${tracer_start_timeout}s"
+    fi
+    sleep 0.1
+  done
+  if (( tracer_started == 0 )); then
+    wait "$xctrace_pid" >/dev/null 2>&1 || true
+    die "xctrace exited before reporting tracing startup"
+  fi
+  xcrun devicectl device process resume --device "$dev" --pid "$target_pid" \
+    >"$artifacts/resume.log" 2>&1 \
+    || { kill "$xctrace_pid" >/dev/null 2>&1 || true; die "could not resume the profiled target"; }
+  wait "$xctrace_pid" || die "xctrace failed (see $artifacts/xctrace.log)"
   [[ -d "$trace" ]] || die "no trace produced at $trace"
+  xcrun xctrace export --input "$trace" --toc --output "$toc" \
+    >"$artifacts/xctrace-export.log" 2>&1 \
+    || die "trace table-of-contents validation failed (see $artifacts/xctrace-export.log)"
+  [[ -s "$toc" ]] || die "trace table-of-contents export is empty"
 
   note "trace → $trace"
   note "analyze: open in Instruments, or use optional: xcprof analyze \"$trace\""
 
-  local dest="$ROOT_DIR/build/ios-diagnostics"
-  rm -rf "$dest"
-  cmd_pull "$dest" >/dev/null 2>&1 || true
+  local sentinel
+  sentinel="$({ wait_device_diagnostics_sentinel "$run_id" "$duration" "$dest"; })" \
+    || die "profiled generation did not produce a success sentinel"
+  require_uninterrupted_success_sentinel "$sentinel" \
+    || die "profiled generation failed or was interrupted"
   local diag="$dest"
   local engine_jsonl; engine_jsonl="$(find "$dest" -path '*/engine/generations.jsonl' 2>/dev/null | head -1)"
   [[ -n "$engine_jsonl" ]] && diag="$(dirname "$(dirname "$engine_jsonl")")"
+  python3 "$ROOT_DIR/scripts/publish_benchmark_history.py" ios-profile \
+    --artifact-dir "$artifacts" --snapshot "$artifacts/benchmark-source.json" \
+    --run-id "$run_id" --sentinel "$sentinel" --diagnostics "$diag" --crash-diagnostics "$dest" \
+    --trace "$trace" --toc "$toc" --template "$capture_instruments" --duration "$duration" \
+    --target-process Vocello --target-pid "$target_pid" --defer-record \
+    --label "instrument-profile" \
+    || die "profile passed but evidence validation failed; artifacts are preserved in $artifacts"
   note "── telemetry for the profiled run ──"
-  python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$diag" >&2 \
-    || warn "no engine telemetry (was QWENVOICE_DEBUG=1 honored?)"
+  python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$diag" \
+    --run-id "$run_id" --evidence-manifest "$artifacts/benchmark-evidence.json" \
+    --engine-only --label "instrument-profile" >&2 \
+    || die "profile evidence was valid but its frozen telemetry summary failed"
+  record_benchmark_history "$artifacts" >/dev/null \
+    || die "profile history publication failed"
+  eval "$cleanup_command"
+  trap - EXIT
   printf '%s\n' "$trace"
 }
 
@@ -914,11 +1180,25 @@ PY
 # Fail when ColdGeneration was skipped because the Speed model is missing on device.
 _gate_generation_check() {
   local gate_dir="$1"
-  [[ -d "$APP_PATH" ]] || cmd_install >/dev/null 2>&1 || true
-  local run_id
-  run_id="$(cmd_launch "custom:speed:Gate generation smoke." | tail -1)"
+  # The gate must not launch an older app already present on the phone. Rebuild,
+  # install the exact APP_PATH, then snapshot that same local binary identity before
+  # the diagnostic generation starts.
+  cmd_build
+  cmd_install >/dev/null
+  local run_id="ios-gate-bench-$(date -u +%Y%m%d-%H%M%S)-$(benchmark_nonce)"
+  local artifacts="$gate_dir/engine-benchmark"
+  mkdir -p "$artifacts"
+  capture_benchmark_source "$artifacts"
+  export QVOICE_LAUNCH_RUN_ID="$run_id"
+  export QVOICE_MAC_BENCH_RUN_ID="$run_id"
+  export QVOICE_MAC_BENCH_TAKE_INDEX=1
+  export QVOICE_MAC_BENCH_CELL="$(device_benchmark_cell "custom:speed:Gate generation smoke.")"
+  local launched_run_id
+  launched_run_id="$(cmd_launch "custom:speed:Gate generation smoke." | tail -1)"
+  unset QVOICE_LAUNCH_RUN_ID QVOICE_MAC_BENCH_RUN_ID QVOICE_MAC_BENCH_TAKE_INDEX QVOICE_MAC_BENCH_CELL
+  [[ "$launched_run_id" == "$run_id" ]] || { echo "gate generation launched the wrong run ID"; return 1; }
   local timeout="${QVOICE_IOS_BENCH_TIMEOUT:-300}"
-  local dest="$gate_dir/.gen-diagnostics"
+  local dest="$artifacts/device-diagnostics"
   rm -rf "$dest"
   local waited=0 sentinel=""
   local interference_streak=0
@@ -941,7 +1221,7 @@ _gate_generation_check() {
   done
   [[ -n "$sentinel" && -f "$sentinel" ]] || { echo "no device-diagnostics sentinel after ${timeout}s (device state: $(probe_device_state 2>/dev/null || echo unknown))"; return 1; }
   cp "$sentinel" "$gate_dir/generation-sentinel.json" 2>/dev/null || true
-  python3 - "$sentinel" <<'PY'
+  python3 - "$sentinel" <<'PY' || return 1
 import json, sys
 r = json.load(open(sys.argv[1]))
 print(f"status={r.get('status')} mode={r.get('mode')} rtf={r.get('realtimeFactor')} wall={r.get('wallSeconds')}s error={r.get('error')}")
@@ -949,6 +1229,18 @@ for e in r.get("interruptions") or []:
     print(f"interruption: {e.get('type')} at t={(e.get('atMS') or 0) / 1000.0:.1f}s")
 sys.exit(0 if r.get("status") == "ok" else 1)
 PY
+  require_uninterrupted_success_sentinel "$sentinel" || return 1
+  local diag="$dest"
+  local engine_jsonl
+  engine_jsonl="$(find "$dest" -path '*/engine/generations.jsonl' 2>/dev/null | head -1)"
+  [[ -n "$engine_jsonl" ]] && diag="$(dirname "$(dirname "$engine_jsonl")")"
+  python3 "$ROOT_DIR/scripts/publish_benchmark_history.py" ios-engine \
+    --artifact-dir "$artifacts" --snapshot "$artifacts/benchmark-source.json" \
+    --run-id "$run_id" --sentinel "$sentinel" --diagnostics "$diag" \
+    --crash-diagnostics "$dest" --label "ios-gate-bench" --defer-record || return 1
+  python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$diag" \
+    --run-id "$run_id" --evidence-manifest "$artifacts/benchmark-evidence.json" \
+    --engine-only --label "ios-gate-bench" || return 1
 }
 
 cmd_gate() {
@@ -976,6 +1268,11 @@ cmd_gate() {
   cmd_crashes >"$gate_dir/crashes.log" 2>&1 \
     || { echo "crashes: FAIL" | tee -a "$verdict"; return 1; }
   echo "crashes: PASS" | tee -a "$verdict"
+  if [[ "${QVOICE_GATE_SKIP_GENERATION:-0}" != "1" ]]; then
+    record_benchmark_history "$gate_dir/engine-benchmark" >/dev/null \
+      || { echo "history: FAIL" | tee -a "$verdict"; return 1; }
+    echo "history: PASS" | tee -a "$verdict"
+  fi
   echo "GATE: PASS" | tee -a "$verdict"
   note "iOS gate PASS · $gate_dir"
 }

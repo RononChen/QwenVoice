@@ -1,229 +1,63 @@
-<a href="https://trendshift.io/repositories/20684" target="_blank"><img src="https://trendshift.io/api/badge/repositories/20684" alt="Blaizzy%2Fmlx-audio-swift | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+# MLX Audio Swift — Vocello Qwen3-TTS subset
 
-# MLX Audio Swift
+This directory is Vocello's owned, specialized fork of
+[`mlx-audio-swift`](https://github.com/Blaizzy/mlx-audio-swift). It is not the upstream multi-model SDK.
+The import was narrowed to the Qwen3-TTS runtime and the codec primitives that runtime needs; deleted
+upstream model families remain recoverable from Git history or the recorded upstream baseline.
 
-A modular Swift SDK for audio processing with MLX on Apple Silicon
+## Checked-in products
 
-![Platform](https://img.shields.io/badge/platform-macOS%2014%2B%20%7C%20iOS%2017%2B-lightgrey)
-![Swift](https://img.shields.io/badge/Swift-5.9%2B-orange)
-![License](https://img.shields.io/badge/license-MIT-blue)
+- **`MLXAudioCore`** — generation protocols and shared audio utilities.
+- **`MLXAudioCodecs`** — the Mimi codec subset used by the Qwen3 speech tokenizer.
+- **`MLXAudioTTS`** — Qwen3-TTS only.
+- **`Qwen3RuntimeTests`** — deterministic coverage for the runtime behavior Vocello owns.
 
-## Architecture
+There are no checked-in STT, speech-to-speech, VAD/diarization, UI, or non-Qwen TTS targets. Do not use
+the upstream README's model catalogue as evidence that a model is supported by this fork.
 
-MLXAudio follows a modular design allowing you to import only what you need:
+## Supported model contract
 
-- **MLXAudioCore**: Base types, protocols, and utilities
-- **MLXAudioCodecs**: Audio codec implementations (SNAC, Encodec, Vocos, Mimi, DACVAE)
-- **MLXAudioTTS**: Text-to-Speech models (Qwen3-TTS, Fish Audio S2 Pro, Soprano, VyvoTTS, Orpheus, Marvis TTS, Pocket TTS)
-- **MLXAudioSTT**: Speech-to-Text models (Qwen3-ASR, Voxtral Realtime, Parakeet, GLMASR)
-- **MLXAudioVAD**: Voice Activity Detection & Speaker Diarization (Sortformer, SmartTurn)
-- **MLXAudioSTS**: Speech-to-Speech models (LFM2.5-Audio, SAM-Audio, MossFormer2-SE)
-- **MLXAudioUI**: SwiftUI components for audio interfaces
+The owned model family is **Qwen3-TTS 12 Hz**. Vocello currently selects the 1.7B Base, CustomVoice,
+and VoiceDesign families in 4-bit and 8-bit variants. The authoritative repository IDs, pinned
+Hugging Face revisions, artifact versions, required files, tokenizer profile, and platform eligibility
+live in:
 
-## Installation
+- [`Sources/Resources/qwenvoice_contract.json`](../../Sources/Resources/qwenvoice_contract.json)
 
-Add MLXAudio to your project using Swift Package Manager:
+The local implementation and family-level API notes live in:
 
-```swift
-dependencies: [
-    .package(url: "https://github.com/Blaizzy/mlx-audio-swift.git", branch: "main")
-]
+- [`Sources/MLXAudioTTS/Models/Qwen3TTS/`](Sources/MLXAudioTTS/Models/Qwen3TTS/)
 
-// Import only what you need
-.product(name: "MLXAudioTTS", package: "mlx-audio-swift"),
-.product(name: "MLXAudioCore", package: "mlx-audio-swift")
-```
+Do not add a model to this README as a declaration of support. Update the contract, loader validation,
+tests, and benchmark evidence together when the product adopts a new artifact.
 
-## Quick Start
+## Integration
 
-### Text-to-Speech
-
-```swift
-import MLXAudioTTS
-import MLXAudioCore
-
-// Load a TTS model from HuggingFace
-let model = try await SopranoModel.fromPretrained("mlx-community/Soprano-80M-bf16")
-
-// Generate audio
-let audio = try await model.generate(
-    text: "Hello from MLX Audio Swift!",
-    parameters: GenerateParameters(
-        maxTokens: 200,
-        temperature: 0.7,
-        topP: 0.95
-    )
-)
-
-// Save to file
-try saveAudioArray(audio, sampleRate: Double(model.sampleRate), to: outputURL)
-```
-
-### Speech-to-Text
+Vocello consumes this package as a local dependency from the generated Xcode project. Keep the MLX
+dependency versions in this package synchronized with `project.yml`; see the repository backend role
+playbook for the required upgrade gates.
 
 ```swift
-import MLXAudioSTT
-import MLXAudioCore
-
-// Load audio file
-let (sampleRate, audioData) = try loadAudioArray(from: audioURL)
-
-// Load STT model
-let model = try await GLMASRModel.fromPretrained("mlx-community/GLM-ASR-Nano-2512-4bit")
-
-// Transcribe
-let output = model.generate(audio: audioData)
-print(output.text)
+.package(path: "third_party_patches/mlx-audio-swift")
 ```
 
-### Speaker Diarization
+The package requires Swift 6.1, macOS 14 or newer, or iOS 17 or newer. Vocello's application deployment
+targets are stricter and remain authoritative for the shipped products.
 
-```swift
-import MLXAudioVAD
-import MLXAudioCore
+## Verification
 
-// Load audio file
-let (sampleRate, audioData) = try loadAudioArray(from: audioURL)
+From the repository root, use the authoritative deterministic lane:
 
-// Load diarization model
-let model = try await SortformerModel.fromPretrained(
-    "mlx-community/diar_streaming_sortformer_4spk-v2.1-fp16"
-)
-
-// Detect who is speaking when
-let output = try await model.generate(audio: audioData, threshold: 0.5)
-for segment in output.segments {
-    print("Speaker \(segment.speaker): \(segment.start)s - \(segment.end)s")
-}
+```sh
+scripts/macos_test.sh test
 ```
 
-### Streaming Generation
+That lane runs the owned `Qwen3RuntimeTests` target in addition to Vocello's Core and XPC integration
+coverage. Model-dependent benchmark and frontend lanes remain explicit QA and are not prerequisites for
+committing or publishing ordinary development work.
 
-```swift
-for try await event in model.generateStream(text: text, parameters: parameters) {
-    switch event {
-    case .token(let token):
-        print("Generated token: \(token)")
-    case .audio(let audio):
-        print("Final audio shape: \(audio.shape)")
-    case .info(let info):
-        print(info.summary)
-    }
-}
-```
+## Provenance and license
 
-## Supported Models
-
-### TTS Models
-
-| Model | Model README | HuggingFace Repo |
-|-------|--------------|------------------|
-| Qwen3-TTS | [Qwen3-TTS README](Sources/MLXAudioTTS/Models/Qwen3TTS/README.md) | [mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit) |
-| Fish Audio S2 Pro | [Fish Audio S2 Pro README](Sources/MLXAudioTTS/Models/FishSpeech/README.md) | [mlx-community/fish-audio-s2-pro-8bit](https://huggingface.co/mlx-community/fish-audio-s2-pro-8bit) |
-| Soprano | [Soprano README](Sources/MLXAudioTTS/Models/Soprano/README.md) | [mlx-community/Soprano-80M-bf16](https://huggingface.co/mlx-community/Soprano-80M-bf16) |
-| VyvoTTS | [VyvoTTS README](Sources/MLXAudioTTS/Models/Qwen3/README.md) | [mlx-community/VyvoTTS-EN-Beta-4bit](https://huggingface.co/mlx-community/VyvoTTS-EN-Beta-4bit) |
-| Orpheus | [Orpheus README](Sources/MLXAudioTTS/Models/Llama/README.md) | [mlx-community/orpheus-3b-0.1-ft-bf16](https://huggingface.co/mlx-community/orpheus-3b-0.1-ft-bf16) |
-| Marvis TTS | [Marvis TTS README](Sources/MLXAudioTTS/Models/Marvis/README.md) | [Marvis-AI/marvis-tts-250m-v0.2-MLX-8bit](https://huggingface.co/Marvis-AI/marvis-tts-250m-v0.2-MLX-8bit) |
-| Pocket TTS | [Pocket TTS README](Sources/MLXAudioTTS/Models/PocketTTS/README.md) | [mlx-community/pocket-tts](https://huggingface.co/mlx-community/pocket-tts) |
-
-### STT Models
-
-| Model | Model README | HuggingFace Repo |
-|-------|--------------|------------------|
-| Qwen3-ASR | [Qwen3-ASR README](Sources/MLXAudioSTT/Models/Qwen3ASR/README.md) | [mlx-community/Qwen3-ASR-1.7B-bf16](https://huggingface.co/mlx-community/Qwen3-ASR-1.7B-bf16) |
-| Qwen3-ForcedAligner | [Qwen3-ASR README](Sources/MLXAudioSTT/Models/Qwen3ASR/README.md) | [mlx-community/Qwen3-ForcedAligner-0.6B-bf16](https://huggingface.co/mlx-community/Qwen3-ForcedAligner-0.6B-bf16) |
-| Voxtral Realtime | [Voxtral README](Sources/MLXAudioSTT/Models/VoxtralRealtime/README.md) | [mlx-community/Voxtral-Mini-4B-Realtime-2602-fp16](https://huggingface.co/mlx-community/Voxtral-Mini-4B-Realtime-2602-fp16) |
-| Parakeet | [Parakeet README](Sources/MLXAudioSTT/Models/Parakeet/README.md) | [mlx-community/parakeet-tdt-0.6b-v3](https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3) |
-| GLMASR | [GLMASR README](Sources/MLXAudioSTT/Models/GLMASR/README.md) | [mlx-community/GLM-ASR-Nano-2512-4bit](https://huggingface.co/mlx-community/GLM-ASR-Nano-2512-4bit) |
-
-### STS Models
-
-| Model | Model README | HuggingFace Repo |
-|-------|--------------|------------------|
-| LFM2.5-Audio | [LFM Audio README](Sources/MLXAudioSTS/Models/LFMAudio/README.md) | [mlx-community/LFM2.5-Audio-1.5B-6bit](https://huggingface.co/mlx-community/LFM2.5-Audio-1.5B-6bit) |
-| SAM-Audio | [SAM Audio README](Sources/MLXAudioSTS/Models/SAMAudio/README.md) | [mlx-community/sam-audio-large-fp16](https://huggingface.co/mlx-community/sam-audio-large-fp16) |
-| MossFormer2-SE | — | [starkdmi/MossFormer2-SE-fp16](https://huggingface.co/starkdmi/MossFormer2-SE-fp16) |
-
-### VAD / Speaker Diarization Models
-
-| Model | Model README | HuggingFace Repo |
-|-------|--------------|------------------|
-| Sortformer | [Sortformer README](Sources/MLXAudioVAD/Models/Sortformer/README.md) | [mlx-community/diar_streaming_sortformer_4spk-v2.1-fp16](https://huggingface.co/mlx-community/diar_streaming_sortformer_4spk-v2.1-fp16) |
-| SmartTurn | [SmartTurn README](Sources/MLXAudioVAD/Models/SmartTurn/README.md) | [mlx-community/smart-turn-v3](https://huggingface.co/mlx-community/smart-turn-v3) |
-
-## Features
-
-- **Modular architecture** for minimal app size - import only what you need
-- **Automatic model downloading** from HuggingFace Hub
-- **Native async/await support** for seamless Swift integration
-- **Streaming audio generation** for real-time TTS
-- **Type-safe Swift API** with comprehensive error handling
-- **Optimized for Apple Silicon** with MLX framework
-
-## Advanced Usage
-
-### Custom Generation Parameters
-
-```swift
-let parameters = GenerateParameters(
-    maxTokens: 1200,
-    temperature: 0.7,
-    topP: 0.95,
-    repetitionPenalty: 1.5,
-    repetitionContextSize: 30
-)
-
-let audio = try await model.generate(text: "Your text here", parameters: parameters)
-```
-
-### Audio Codec Usage
-
-```swift
-import MLXAudioCodecs
-
-// Load SNAC codec
-let snac = try await SNAC.fromPretrained("mlx-community/snac_24khz")
-
-// Encode audio to tokens
-let tokens = try snac.encode(audio)
-
-// Decode tokens back to audio
-let reconstructed = try snac.decode(tokens)
-```
-
-### Voice Selection for Multi-Voice Models
-
-```swift
-// For models supporting multiple voices (like LlamaTTS/Orpheus)
-let audio = try await model.generate(
-    text: "Hello!",
-    voice: "tara",  // Options: tara, leah, jess, leo, dan, mia, zac, zoe
-    parameters: parameters
-)
-```
-
-## Requirements
-
-- **macOS 14+** or **iOS 17+**
-- **Apple Silicon** (M1 or later) recommended for optimal performance
-- **Xcode 15+**
-- **Swift 5.9+**
-
-## Examples
-
-Check out the [Examples/VoicesApp](Examples/VoicesApp) directory for a complete SwiftUI application demonstrating:
-- Loading and running TTS models
-- Playing generated audio
-- UI components for model interaction
-
-Additional usage examples can be found in the test files.
-
-## Credits
-
-- Built on [MLX Swift](https://github.com/ml-explore/mlx-swift)
-- Uses [swift-transformers](https://github.com/huggingface/swift-transformers)
-- Inspired by [MLX Audio (Python)](https://github.com/Blaizzy/mlx-audio)
-
-## License
-
-MIT License - see [LICENSE](LICENSE) file for details.
+The specialization baseline is documented in `Package.swift` and the repository's backend ownership
+guides. Upstream attribution remains with the original project and its contributors. This fork remains
+under the MIT license; see [`LICENSE`](LICENSE).

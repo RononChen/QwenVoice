@@ -12,8 +12,9 @@ If anything here disagrees with the code, the code wins — fix this file.
 > Scope note: this covers the runtime telemetry that is the **default** benchmarking path —
 > drive a generation, then read the JSONL this system writes + aggregate with
 > `summarize_generation_telemetry.py`. Benchmarking + output‑quality checks are **first‑class**:
-> committed benchmark/QC scripts, baselines, and summaries are permitted (bounded by the
-> `benchmarks/` cap). XCUITest is the sole autonomous app UI driver; deterministic
+> successful benchmark records, historical baselines, and generated indexes are permitted
+> (bounded by the `benchmarks/` cap). Raw telemetry, audio, screenshots, traces, and result
+> bundles remain untracked. XCUITest is the sole autonomous app UI driver; deterministic
 > history/WAV/XPC/backend probes validate its smoke and benchmark results. iOS UI tests
 > and real-engine generation remain **on-device only** on a paired physical iPhone. GitHub CI is
 > compile-only for iOS.
@@ -35,6 +36,12 @@ If anything here disagrees with the code, the code wins — fix this file.
 4. **Measure, don't perturb.** The fine‑grained backend timings read clocks around work
    that already happens (including the GPU syncs that generation requires); telemetry
    does not add synchronization. See [§9 Observer effect](#9-overhead--observer-effect).
+5. **Select one run, never a directory history.** Benchmark validators emit an atomic
+   `benchmark-evidence.json` with the exact ordered generation IDs and cells. Summaries and the
+   tracked registry consume that manifest plus its run ID; unrelated historical rows are ignored.
+6. **Process ownership stays explicit.** Memory and resource deltas remain on the process that
+   measured them. macOS UI evidence requires app + engine-service + engine; iOS UI evidence
+   requires app + engine. A partial merge is marked incomplete and cannot publish history.
 
 ---
 
@@ -74,11 +81,12 @@ scripts/macos_test.sh telemetry-overhead
 This is a real generation lane with its own read-only model integrity check. It never invokes
 `models ensure`, downloads weights, bootstraps a clone fixture, or depends on an XCUITest result.
 
-It applies one fixed `vocello bench --seed`, one warm-up and five measured
-Custom/Speed/medium warm takes per mode. PCM SHA-256 must match across off,
-lightweight, and verbose. Median RTF and TTFC regression limits are 5% for
-lightweight and 10% for verbose. Raw evidence stays under `build/macos/`; the
-compact verdict is retained as runtime check `telemetry-overhead`.
+It applies one fixed `vocello bench --seed` through three deterministic mode-order rotations.
+Each rotation runs one warm-up and two measured Custom/Speed/medium takes per mode, yielding six
+machine-readable takes per mode. PCM SHA-256 must match across off, lightweight, and verbose.
+Median RTF and TTFC regression limits are 5% for lightweight and 10% for verbose. Raw evidence and
+load/thermal context stay under `build/macos/`; a PASS publishes one compact
+`telemetry-overhead` record.
 
 Typical backend‑optimization invocation:
 
@@ -110,7 +118,7 @@ QWENVOICE_DEBUG=1 QWENVOICE_NATIVE_TELEMETRY_MODE=verbose ./scripts/build.sh run
  │   mint generationID       │ generate  │   creates per‑generation recorder          │
  │ AudioPlayerViewModel      │           │ MLXModelLoadCoordinator (load/tokenize)    │
  │   submit→firstChunk→       │ ◄──────   │ NativeStreamingSynthesisSession            │
- │   firstAudible→completed   │  chunks   │   decode loop + memory sampler             │
+ │   playbackScheduled→done  │  chunks   │   decode loop + shared sampler/session      │
  │ AppGenerationTimeline      │           │   reads MLX timings, per‑chunk substages   │
  │ GenerationTelemetryMerger  │           │ Qwen3TTS (vendored) emits timings/counters │
  └───────────────────────────┘           └──────────────────────────────────────────┘
@@ -126,12 +134,12 @@ Core types (all in `Sources/QwenVoiceCore/` unless noted):
 | Type | Role |
 |---|---|
 | `TelemetryGate` | Master on/off, per process; handshake latch. |
-| `NativeTelemetryRecorder` | Per‑generation stage timeline (`mark(stage:)`). Created in `prepareGeneration`; shared with the load coordinator and the session. |
+| `NativeTelemetryRecorder` | Per‑generation stage timeline (`mark(stage:)`). The generation telemetry session begins before model preparation and shares one clock across load, prewarm, synthesis, finalize, trim, cancellation, and failure. |
 | `NativeTelemetrySampler` | Background memory/timing sampler → `TelemetrySummary` + raw `[TelemetrySample]`. |
 | `GenerationTelemetryRecord` | One durable row per layer (`engine` / `engine-service` / `app`). |
 | `GenerationTelemetryJSONLSink` | Append‑only writer (gated); also the verbose raw‑sample sidecar. |
 | `GenerationTelemetryMerger` (`Sources/Services/`, macOS) | Joins per‑layer rows → `generations-merged.jsonl`. |
-| `AppGenerationTimeline` (`Sources/SharedSupport/Telemetry/`) | Frontend submit→firstChunk→firstAudible→completed. |
+| `AppGenerationTimeline` (`Sources/SharedSupport/Telemetry/`) | Frontend submit→firstChunk→playbackScheduled→completed plus bounded playback-health counters. |
 
 ---
 
@@ -143,9 +151,9 @@ folder when DebugMode is on, so real data is never polluted):
 | File | Layer | Contents |
 |---|---|---|
 | `engine/generations.jsonl` | backend | The decode breakdown, KPIs, per‑stage MLX memory, per‑chunk timeline, stage marks, memory summary. **The richest source for backend work.** |
-| `engine-service/generations.jsonl` | middle | XPC transport: chunks forwarded, gaps, forwarding span. |
-| `app/generations.jsonl` | frontend | User‑perceived timings: submit→first chunk→first audible→completed + memory summary. |
-| `generations-merged.jsonl` | merged | All layers joined per `generationID` (one row per run). |
+| `engine-service/generations.jsonl` | middle | XPC transport: request acceptance→first chunk, chunks forwarded, gaps, and forwarding span. |
+| `app/generations.jsonl` | frontend | Submit→first chunk→playback scheduled→completed, delayed-heartbeat coverage, and playback health. It does not claim acoustic audibility or inherit engine memory. |
+| `generations-merged.jsonl` | merged | Layers joined per `generationID`, with explicit `requiredLayers`, `missingLayers`, and `complete`. |
 | `engine/samples-<generationID>.jsonl` | backend (verbose only) | Raw per‑sample memory/timing series. |
 | `*/native-events.jsonl` | engine/middle/app | Chunk‑sequence gaps + encode drops; the **app** file also carries `mac_warm_admission_observed` / `mac_warm_blocked` (warm‑admission gate) and `engine_service_retired` (XPC retirement) events. **Written only when telemetry is enabled** (`TelemetryGate.resolvedEnabled` / app-process intended mode). |
 | `<documents>/generation-failures.jsonl` | debug | Append-only failure log when telemetry is on (see `GenerationFailureDiagnosticLogger`). |
@@ -161,12 +169,12 @@ file) is front‑trimmed past ~8 MB (`QWENVOICE_DIAGNOSTICS_MAX_MB` scales it), 
 
 ## 5. The per‑generation record schema
 
-`GenerationTelemetryRecord` (schema v6). Optional fields are omitted from JSON when nil and
-v1–v5 rows remain decodable.
+`GenerationTelemetryRecord` (schema v7). Optional fields are omitted from JSON when nil and
+v1–v6 rows remain decodable.
 
 | Field | Type | Notes |
 |---|---|---|
-| `schemaVersion` | Int | 6 (v2 derived/memory/chunk; v3 model/warm state; v4 audioQC; v5 high-resolution clock/stage metadata; v6 typed frontend/transport/backend/output payloads). |
+| `schemaVersion` | Int | 7 (v2 derived/memory/chunk; v3 model/warm state; v4 audioQC; v5 high-resolution clocks; v6 typed payloads; v7 sampler accuracy/resource deltas, merge completeness, and playback-scheduled naming). |
 | `clockSource` | String? | `mach_absolute_time` when nanosecond timestamps are present. |
 | `generationID` | String | Correlation key (UUID). |
 | `layer` | String | `engine` / `engine-service` / `app` / `merged`. (The retired iOS `engine-extension` layer no longer emits — iOS runs in-process.) |
@@ -174,20 +182,25 @@ v1–v5 rows remain decodable.
 | `modelID` | String? | Resolved model variant id (e.g. `pro_custom_quality`). |
 | `warmState` | String? | `cold` / `warm` — the benchmark cell. |
 | `usedStreaming` | Bool? | Streaming vs quality‑first. |
-| `finishReason` | String? | `eos` / `maxTokens` / `failed` / `superseded`. |
+| `finishReason` | String? | Typed terminal reason: `eos` / `maxTokens` / `cancelled` / `failed` / `completed` / `superseded` / `unknown`. Compatibility input also accepts `max_tokens` and `canceled`; v7 typed payloads encode the canonical values. |
 | `stageMarks` | `[{tMS, tNS?, sequence?, stage, metadata}]` | Lifecycle timeline with optional nanosecond timestamps and monotonic sequence numbers (see §6). |
-| `frontendMetrics` | `FrontendGenerationMetrics?` | Typed submit/first-chunk/audible/completed and main-thread-stall metrics. |
-| `transportMetrics` | `EngineTransportMetrics?` | Typed terminal/cancellation/lifecycle, opaque session identity, first/last sequence, forwarded/gap/duplicate/reordered counters and duration. |
+| `frontendMetrics` | `FrontendGenerationMetrics?` | Typed submit/first-chunk/playback-scheduled/completed, delayed-heartbeat coverage, and bounded playback queue/continuity/underrun metrics. Legacy `*Audible*` keys decode as compatibility aliases only. |
+| `transportMetrics` | `EngineTransportMetrics?` | Typed request-to-first-chunk timing, terminal/cancellation/lifecycle, opaque session identity, first/last sequence, and forwarded/gap/duplicate/reordered counters. |
 | `backendMetrics` | `BackendGenerationMetrics?` | Typed lifecycle stages, warm/streaming state, finish reason, timing/counter enums, and final-chunk barrier. |
 | `outputMetrics` | `GenerationOutputMetrics?` | Duration, readable-WAV verdict, atomic-publication verdict, and audio QC. |
-| `timingsMS` / `counters` | compatibility maps | Generated compatibility output for existing summarizers and old rows; new validators consume typed v6 payloads. |
+| `timingsMS` / `counters` | compatibility maps | Generated compatibility output for existing summarizers and old rows; new validators consume typed payloads. |
 | `derivedMetrics` | `[String: Double]?` | Headline KPIs (see §7). Includes `kvCacheEstimatedPeakMB` (2026‑07‑01, audit P1‑2) — the peak of the per‑chunk KV‑cache footprint estimates, surfaced at row level so regression tooling doesn't walk the chunk timeline. |
 | `mlxMemoryByStage` | `[String: {activeMB, cacheMB, peakMB}]?` | MLX GPU memory at each stage (see §8). |
 | `chunkTimeline` | `[GenerationChunkTelemetry]?` | Per‑chunk decode substages, with `arrivalNS` (v5) and optional `mimiDecoderBreakdownMS` (v5) (see §6.3). |
-| `audioQC` | `AudioQCReport?` | Reference‑free quality verdict + flags, plus defect sample offsets and optional per‑chunk QC (`chunkQC`) in verbose mode (see "Guarding output quality"). |
-| `summary` | `TelemetrySummary?` | Process memory curve summary (see §8). `timeToPeakMS` tracks the **physFootprint** peak (the Jetsam‑relevant figure; falls back to RSS only when phys_footprint is unavailable — audit P1‑4, 2026‑07‑01). |
-| `notes` | `[String: String]` | Bounded compatibility metadata such as `deviceClass`, `promptChars`, and memory pressure. Raw script, transcript, voice description, file path, and failure message are forbidden; failures use length + SHA-256 digest. |
+| `audioQC` | `AudioQCReport?` | Versioned reference‑free overall, model-instability, and written-output verdicts plus flags, defect offsets, and optional per‑chunk QC. Algorithm v3 preserves chunk-spanning silence state and derives written-output evidence from the atomically published WAV frames. |
+| `summary` | `TelemetrySummary?` | Owning-process memory curve, sampler target/effective/max interval, anchored phase drift/lateness, skipped-deadline and boundary/failure counts, and process CPU/page-fault/context-switch/block-I/O deltas. `timeToPeakMS` tracks the physical-footprint peak. |
+| `notes` | `[String: String]` | Bounded compatibility metadata such as `deviceClass`, `promptChars`, privacy-safe `promptDigest`, and memory pressure. Raw script, transcript, voice description, file path, and failure message are forbidden; prompts/failures use SHA-256 identity rather than content. |
 | `recordedAt` / `processName` / `processIdentifier` | | Provenance. |
+
+`MergedGenerationTelemetry` is schema v2. A macOS UI record requires `.app`,
+`.engineService`, and `.engine`; an iOS UI validator requires app and engine rows from the same
+run/generation. The `complete` flag and `missingLayers` list prevent a timed-out partial merge from
+appearing authoritative.
 
 ---
 
@@ -213,12 +226,16 @@ These are optional and only emitted when the corresponding signpost interval was
 
 Coarse milestones for one generation, in ms from generation start (the recorder and the
 memory sampler **share one high‑resolution `NativeTelemetryClock`**, so marks and samples
-align on both ms and ns timelines). Each mark carries `tMS`, optional `tNS`
-(nanoseconds since start), and a monotonic `sequence` number. `metadata` values are
+align on both ms and ns timelines). The session exists before model preparation and finishes
+exactly once on success, cancellation, or failure. Each mark carries `tMS`, optional `tNS`
+(nanoseconds since start), and a monotonic `sequence` number. Readers order by nanoseconds and use
+sequence only to break ties. `metadata` values are
 typed (`string`/`int`/`double`/`bool`) in v5, while remaining JSON‑serializable.
-Stages (`NativeRuntimeStage`): `preparedCacheValidation`, `tokenizerPreparation`,
-`upstreamModelLoad`, `prewarm`, `clonePreparation`, `streamStartup`, `firstChunk`,
-`streamCompleted` / `streamFailed`, `unload`. Load/prewarm marks appear only on a **cold**
+Stages (`NativeRuntimeStage`): `preparedCacheValidation`, `preparedCacheRebuild`,
+`tokenizerPreparation`, `upstreamModelLoad`, `prewarm`, `clonePreparation`, `streamStartup`,
+`firstChunk`, `streamGenerationEnded`, `streamCompleted` / `streamFailed`, `unload`.
+`streamGenerationEnded` closes the model/decode span before final WAV publication, while
+`streamCompleted` is the successful terminal lifecycle mark. Load/prewarm marks appear only on a **cold**
 run (warm runs skip that work — that's correct, not missing data). Two additional
 string‑keyed marks record memory events on pressure‑bound tiers: `memory_pressure` and
 `memory_trim` (see §8).
@@ -275,9 +292,11 @@ backend throughput:
 | `tokensPerSecond` | Codec tokens ÷ decode wall seconds (from `.info` when present). | Decode throughput; compare across model variants / patches. |
 | `generatedTokenCount` | Codec tokens produced. | Work done; normalize other metrics by this. |
 
-Time‑to‑first‑audio (perceived latency) is the **app** row's `submitToFirstChunkMS` /
-`submitToFirstAudibleMS`; the engine row's `firstChunk` stage mark is the backend‑only
-portion.
+Frontend latency is the app row's `submitToFirstChunkMS` and
+`submitToPlaybackScheduledMS`. The latter means the player was commanded with a bounded queued
+buffer; it is **not** proof that acoustic output was audible. Proving audibility would require an
+independent loopback measurement. The engine row's `firstChunk` mark is backend-only, while the
+macOS transport row's `requestToFirstChunkMS` begins at request acceptance.
 
 ### RTF vs `decode ms` (read together, don't diff naively)
 
@@ -309,10 +328,15 @@ where time goes; use **Instruments signposts** (see [`benchmarking-procedure.md`
   `after_generation_trim`, plus prepare/clone/prewarm stages). Shows GPU memory growth
   across the pipeline — key for restricted‑hardware tuning. Captured at boundaries only
   (a GPU snapshot is too costly per chunk).
-- **`summary`** (`TelemetrySummary`) — process memory **curve** summary from the background
+- **`summary`** (`TelemetrySummary`) — owning-process memory **curve** summary from the background
   sampler: resident start/end/peak, physical footprint peak, compressed peak, headroom
-  start/end/min, GPU allocated peak + recommended working set, `timeToPeakMS`, `sampleCount`.
-- **Verbose raw series** — `verbose` mode writes every sample (`tMS`, residentMB,
+  start/end/min, GPU allocated peak + recommended working set, `timeToPeakMS`, `sampleCount`;
+  target/effective/maximum cadence, maximum lateness, periodic/boundary/failure counts; and
+  generation-scoped user/system CPU, page-fault, context-switch, and block-I/O deltas.
+- **Boundary samples** — capture immediately around model load, first chunk, final WAV, and trim,
+  so short cold-load or finalize peaks are not dependent on the 500 ms constrained-device tick.
+- **Verbose raw series** — `verbose` mode writes every sample (`tMS`, `scheduledElapsedNS`,
+  `capturedElapsedNS`, `latenessNS`, `kind`, `boundary`, residentMB,
   physFootprintMB, compressedMB, headroomMB, gpuAllocatedMB, threads, decorated `stage`/
   `chunkIndex`) to `engine/samples-<generationID>.jsonl` for full memory‑curve analysis.
   Off by default (higher volume).
@@ -332,6 +356,17 @@ where time goes; use **Instruments signposts** (see [`benchmarking-procedure.md`
   iOS only (`os_proc_available_memory`); on macOS they're nil and `phys_footprint` is the
   OOM‑relevant figure to watch.
 
+### Frontend responsiveness and playback health
+
+The app watchdog uses generation-scoped session tokens so a late callback from a finished run
+cannot contaminate the next. It reports scheduled/completed heartbeat counts, coverage, delayed
+heartbeat counts at the configured thresholds, and the maximum observed delay. These are sampling
+statistics, not an exhaustive count of every main-thread stall.
+
+App telemetry also records bounded playback health: chunks received, continuity failures,
+underruns, queued chunks/audio at playback scheduling, and minimum queue duration. This makes UI
+benchmarks sensitive to streaming health while keeping raw audio and user content out of telemetry.
+
 ---
 
 ## 9. Overhead & observer effect
@@ -343,6 +378,10 @@ Designed so the numbers you optimize against are trustworthy.
 - **Device‑tiered sampler cadence** (`NativeTelemetryMode.sampleIntervalMS(for:)`): high‑memory
   Mac 100 ms, 16 GB Mac 250 ms, **8 GB Mac / iPhone 500 ms** — the background sampler never
   competes with generation on constrained devices.
+- **Cadence is measured, not assumed.** Periodic samples retain scheduled and captured elapsed
+  nanoseconds plus lateness. The summary reports effective/maximum interval, maximum drift,
+  boundary count, and capture failures; the old duplicate elapsed timestamp remains decode-only
+  compatibility data.
 - **Per‑sample cost reduced.** The Metal device is resolved **once per generation** and
   reused (`IOSMemorySnapshot.capture` would otherwise allocate a fresh `MTLCreateSystemDefaultDevice()`
   every tick). A sample is a few `task_info`/mach calls + one cached‑device GPU read.
@@ -362,8 +401,10 @@ sampler + a sidecar write; for the tightest latency numbers use `lightweight` an
 ## 10. Reading telemetry
 
 The canonical benchmark procedure owns launch configuration, matrix execution, and diagnostics-path
-selection. Once a run exists, `summarize_generation_telemetry.py` can merge the macOS app, XPC, and
-engine layers by `generationID`; CLI rows have only the engine boundary. Read `finishReason` and
+selection. For authoritative output, call `summarize_generation_telemetry.py` with both
+`--run-id` and `--evidence-manifest`; the manifest's ordered generation IDs prevent historical rows
+from leaking into the current summary. The summarizer can merge the macOS app, XPC, and engine
+layers by `generationID`; CLI rows have only the engine boundary. Read `finishReason` and
 `audioQC` before interpreting performance, keep cold and warm populations separate, and compare
 `derivedMetrics.audioSecondsPerWallSecond` with the dominant `timingsMS` substage. A cold Custom or
 Design row should include `upstreamModelLoad` in `stageMarks`; an immediately repeated row should be
@@ -402,10 +443,12 @@ GPU compute: `talker`/`codePred` measure graph‑*build* time, the single per‑
 `asyncEval`'d (Phase 2c) and overlaps the token loop (pipelined, not free). To attribute compute per
 stage, capture the os_signpost intervals under Instruments `xctrace`. Read‑only; joins `engine/` +
 `app/` rows by `generationID`.
-Compact **summaries and JSON baselines** may be committed under `benchmarks/` (≤256 KB each, no raw
-`*.jsonl`). Markdown snapshots are reviewed with `git diff`; JSON baselines support the explicit,
-model-dependent comparison described in the canonical procedure. Neither comparison is an ordinary
-CI or packaging gate.
+New benchmark history is one allowlisted JSON record per successful run under
+`benchmarks/runs/<kind>/` (≤256 KB), with a generated `HISTORY.md` index. Existing Markdown/JSON
+baselines remain reference artifacts; they are not silently upgraded into complete schema-v1
+records. Raw telemetry, audio, screenshots, result bundles, and traces remain untracked. Registry
+validation is deterministic CI work, but model/device/UI execution is not an ordinary CI or
+packaging gate.
 
 ### Memory and pressure interpretation
 
@@ -441,26 +484,37 @@ warm by design.
 
 ### Tracking performance over time
 
-As optimization advances, track the trend with committed snapshots and explicit, on-demand
-comparison. Regression thresholds remain a maintainer decision and do not run in ordinary CI.
+Each successful runner publishes one canonical, privacy-safe schema-v1 record under one of six
+kinds: UI generation, engine generation, language, telemetry overhead, instrument profile, or
+prosody calibration. `scripts/benchmark_history.py` validates these records and regenerates
+`benchmarks/HISTORY.md`; direct Markdown append is unsupported. A strict allowlist rejects
+identifiers and content that could expose serials, UDIDs/ECIDs, host/device/user names, absolute
+paths, prompts/transcripts/voice descriptions, raw errors, email addresses, URLs, or secrets. Run
+labels are opaque machine identifiers (letters, numbers, `.`, `_`, `-`) and warning fields contain
+only bounded machine codes; listening notes remain the separately scanned human-review field.
 
-Three committed artifact types under `benchmarks/` (compact, ≤256 KB, no raw `*.jsonl`):
+Every record binds source SHA/dirty paths and fingerprints, hardware/OS/thermal context, toolchain
+and executable identity, project/input/harness hashes, model/runtime/fixture identities, evidence
+digests, ordered takes, per-cell distribution statistics, and optional independent listening
+review. Dirty runs are exploratory and excluded from canonical comparisons. Instrumented and
+partial runs are also isolated from normal timing trends.
 
-1. **Per-milestone Markdown snapshot** — the full table, labeled and tied to a date and Git SHA.
-2. **`benchmarks/HISTORY.md` ledger** — one compact headline row per accepted run.
-3. **JSON baseline** — machine-readable cells for the optional regression comparison.
+Tracked validation re-derives cell aggregates and enforces each kind's immutable success shape,
+including the exact 18 measured telemetry-overhead takes, PCM parity and overhead thresholds,
+structured PID/CPU/signpost profile
+evidence, and complete prosody-calibration aggregates. `rebuild-index` also reconciles comparison
+deltas from the nearest earlier compatible clean record, so merge order cannot leave stale trends;
+the `--check` form rejects any unreconciled record.
 
-The ledger columns are date, SHA, cell, RTF, tok/s, TTFC, physFoot, trims, QC, note, and
-`uiMaxStall` (absent for CLI rows, which have no UI process).
-
-For trustworthy deltas: use the same machine, keep it quiet, watch thermals, keep
-cold vs warm separate; compare **medians** of ≥3 warm; record the SHA. For MLX backend work the needle
-to watch is the dominant `timingsMS` substage (e.g. `qwen_stream_step_eval_total`) alongside RTF.
+For trustworthy deltas: use the same canonical hardware, keep it quiet, watch thermals, keep cold
+and warm separate, and compare medians/IQR from equivalent matrices. The generated comparison key
+enforces equivalence and selects the nearest earlier compatible clean run. A performance delta does
+not automatically fail a benchmark whose own correctness gates passed.
 
 ### Guarding output quality
 
 Perf is only half the story — a backend change must not introduce **audio** regressions (glitches,
-dropouts, garbled words, "sounds worse"). Two layers, increasing in what they catch and what they cost:
+dropouts, garbled words, "sounds worse"). Three layers, increasing in what they catch and what they cost:
 
 1. **Reference-free defect detector — automatic, every run.** The engine runs a per-sample QC pass on
    the final PCM (extends `PCM16StreamLimiter`) and writes an `audioQC` verdict into the engine row:
@@ -479,21 +533,30 @@ dropouts, garbled words, "sounds worse"). Two layers, increasing in what they ca
    amplitude alone — that residual is **ear-only**, so the listening pass below stays its gate.
    In v5 `audioQC` also reports **defect sample offsets** for debugging: `firstNonFiniteSample`,
    `firstClipSample`, and `longestSilenceStartMS`. In verbose mode the streaming path captures
-   `chunkQC: [AudioQCChunkReport]` so defects can be tied to an individual output chunk.
-2. **Automated prosody gate — every run, no external model.** `scripts/prosody_quality_gate.py`
-   analyzes each take for monotone, rushed, flat, and pause-issue signatures; `scripts/delivery_adherence.py`
-   measures paired neutral-vs-instructed deltas for delivery cells. These are deterministic, reference-free,
-   and run on the bench WAVs directly. With `vocello bench --delivery`, the summarizer also surfaces
-   `prosEff` / `dF0Std` / `dRateCV` / `dPauseR` / `dRough` in the delivery table.
+   `chunkQC: [AudioQCChunkReport]` so defects can be tied to an individual output chunk. QC
+   algorithm v2 introduced persistence of the absolute start of an open silence run across chunk
+   appends, so a chunk-spanning dropout keeps its correct start and duration. Algorithm v3 retains
+   pre-limiter instability evidence but reopens the atomically published WAV and computes level,
+   DC-offset, and dropout evidence from its exact persisted frames. It reports separate
+   `instabilityVerdict` and `writtenOutputVerdict` values in addition to the worst overall verdict;
+   the algorithm version is stored with tracked evidence.
+2. **Prosody analysis — conditional or explicit, no external model.** `vocello bench --delivery`
+   automatically analyzes only its manifest-selected neutral/instructed pairs before final
+   aggregation; the summarizer then surfaces `prosEff` / `dF0Std` / `dRateCV` / `dPauseR` /
+   `dRough` in the delivery table. A benchmark without `--delivery` does not run that paired gate.
+   `scripts/prosody_quality_gate.py` analyzes individual takes for monotone, rushed, flat, and
+   pause-issue signatures only when invoked explicitly, and `scripts/delivery_adherence.py` is an
+   explicit corpus workflow. All are deterministic, reference-free, and operate on bench WAVs.
    A JSON **prosody profile** (`scripts/prosody_profile.py`) supplies thresholds and delivery-effect
    weights. The canonical procedure owns calibration and benchmark invocation; the built-in profile
    is used when none is supplied.
 3. **Listening pass — mandatory before promoting or releasing a backend change.** No automated check judges subtle
    perceptual quality (timbre, prosody, naturalness). Play each take and listen for hiccups/artifacts;
-   record the verdict in the snapshot / `HISTORY.md` note. The objective `audioQC` + prosody gates are
+   record the verdict with `scripts/benchmark_history.py annotate`. The objective `audioQC` + prosody gates are
    fast tripwires, not substitutes for ears.
 
-Interpretation order is `audioQC` first, then prosody output, then the listening verdict. Any
+Interpretation order is `audioQC` first, then any requested delivery/per-clip prosody output, then
+the listening verdict. Any
 `QC=fail` is a hard stop for engine promotion. The in-engine `audioQC` is the default signal;
 committed bounded quality summaries and baselines remain permitted.
 

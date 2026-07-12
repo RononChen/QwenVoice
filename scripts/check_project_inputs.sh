@@ -22,11 +22,17 @@ REQUIRED_SURFACES=(
     "scripts/check_test_workflows.sh"
     "scripts/validate_backend_risk_spine.py"
     "scripts/check_ios_ui_benchmark.py"
+    "scripts/benchmark_history.py"
+    "scripts/publish_benchmark_history.py"
     "scripts/test_check_macos_xpc_bench.py"
     "scripts/test_check_ios_ui_benchmark.py"
     "scripts/test_check_language_output.py"
     "scripts/release.sh"
     "Sources/Resources/qwenvoice_contract.json"
+    "benchmarks/hardware-profiles.json"
+    "benchmarks/schema-v1.json"
+    "benchmarks/HISTORY.md"
+    "benchmarks/LEGACY_HISTORY.md"
     "config/apple-platform-capability-matrix.json"
     "Tests/UIAutomationSupport"
     "Tests/VocelloMacUITests"
@@ -193,15 +199,31 @@ if [ -d "$PROJECT_DIR/Assets.xcassets" ]; then
 fi
 
 # Committed benchmark logs are permitted but must stay bounded: only compact
-# human-readable summaries under benchmarks/, each <= 256 KB, never raw *.jsonl
-# (raw diagnostics belong on disk / gitignored, not in git history). The retired
-# harness and banned-symbol checks above still apply everywhere.
+# human-readable summaries under benchmarks/, each <= 256 KB. Raw telemetry,
+# audio, screenshots, trace/crash logs, and result/profile bundles belong under
+# ignored local artifact roots, never in benchmark history. The Python registry
+# validator additionally enforces the exact benchmarks/runs/<kind>/<run-id>.json
+# layout so renaming raw evidence cannot bypass CI.
 BENCHMARKS_DIR="$PROJECT_DIR/benchmarks"
 if [ -d "$BENCHMARKS_DIR" ]; then
     BENCH_MAX_BYTES=$((256 * 1024))
-    if find "$BENCHMARKS_DIR" -type f -name '*.jsonl' -print -quit | grep -q .; then
-        echo "error: raw *.jsonl must not be committed under benchmarks/ (commit a compact summary; raw diagnostics are gitignored)." >&2
-        find "$BENCHMARKS_DIR" -type f -name '*.jsonl' >&2
+    raw_benchmark_artifacts="$(find "$BENCHMARKS_DIR" \
+      \( -type f \( \
+        -iname '*.jsonl' -o -iname '*.ndjson' -o -iname '*.jsonlines' \
+        -o -iname '*.log' -o -iname '*.ips' -o -iname '*.tracev3' \
+        -o -iname '*.wav' -o -iname '*.wave' -o -iname '*.aif' -o -iname '*.aiff' \
+        -o -iname '*.caf' -o -iname '*.flac' -o -iname '*.mp3' -o -iname '*.m4a' \
+        -o -iname '*.ogg' -o -iname '*.opus' \
+        -o -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.gif' \
+        -o -iname '*.heic' -o -iname '*.heif' -o -iname '*.tif' -o -iname '*.tiff' \
+        -o -iname '*.webp' -o -iname '*.bmp' \
+        -o -iname '*.xcresult' -o -iname '*.trace' -o -iname '*.xcarchive' -o -iname '*.dsym' \
+      \) -o -type d \( \
+        -iname '*.xcresult' -o -iname '*.trace' -o -iname '*.xcarchive' -o -iname '*.dsym' \
+      \) \) -print)"
+    if [ -n "$raw_benchmark_artifacts" ]; then
+        echo "error: raw benchmark telemetry, audio, screenshots, logs, and bundles must remain untracked:" >&2
+        printf '%s\n' "$raw_benchmark_artifacts" >&2
         exit 1
     fi
     while IFS= read -r oversized; do
@@ -210,6 +232,12 @@ if [ -d "$BENCHMARKS_DIR" ]; then
         exit 1
     done < <(find "$BENCHMARKS_DIR" -type f -size +"${BENCH_MAX_BYTES}"c)
 fi
+
+# The compact registry is deterministic and privacy-validated in ordinary CI.
+# These checks inspect tracked summaries only; they never execute a benchmark,
+# access models, or require a physical device.
+python3 "$SCRIPT_DIR/benchmark_history.py" validate --all
+python3 "$SCRIPT_DIR/benchmark_history.py" rebuild-index --check
 
 "$SCRIPT_DIR/check_backend_resource_contract.sh" --project
 "$SCRIPT_DIR/check_qwen3_backend_only.sh"
