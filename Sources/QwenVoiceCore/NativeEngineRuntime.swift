@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import MLX
 import MLXRandom
@@ -84,6 +85,67 @@ struct NativeRuntimeError: LocalizedError, Sendable {
     }
 }
 
+/// Controls whether an attempt owns the durable terminal engine row. The first
+/// attempt in allocation recovery defers only a retryable allocation failure;
+/// the retry (or any non-retryable terminal) publishes normally. This prevents
+/// two contradictory engine rows from sharing one public generation UUID.
+enum NativeTelemetryTerminalPolicy: Sendable {
+    case publish
+    case deferRetryableAllocationFailure
+}
+
+enum NativeGenerationTerminalClassifier {
+    static func reason(for error: Error) -> GenerationTerminalReason {
+        if error is CancellationError { return .cancelled }
+        let description = [error.localizedDescription, String(reflecting: error)]
+            .joined(separator: "\n")
+            .lowercased()
+        if description.contains("cancellationerror")
+            || description.contains("cancelled")
+            || description.contains("canceled") {
+            return .cancelled
+        }
+        return .failed
+    }
+
+    static func isRetryableAllocationFailure(_ error: Error) -> Bool {
+        guard reason(for: error) != .cancelled else { return false }
+        let lowercased = [
+            error.localizedDescription,
+            String(reflecting: error),
+        ]
+            .joined(separator: "\n")
+            .lowercased()
+
+        if lowercased.contains("out of memory")
+            || lowercased.contains("resource exhausted")
+            || lowercased.contains("failed to allocate") {
+            return true
+        }
+
+        let allocationLike = lowercased.contains("allocation")
+            || lowercased.contains("allocate")
+            || lowercased.contains("memory")
+        let mlxOrMetal = lowercased.contains("mlx")
+            || lowercased.contains("metal")
+            || lowercased.contains("mps")
+            || lowercased.contains("gpu")
+        return allocationLike && mlxOrMetal
+    }
+
+    static func shouldPublish(
+        error: Error,
+        policy: NativeTelemetryTerminalPolicy
+    ) -> Bool {
+        switch policy {
+        case .publish:
+            return true
+        case .deferRetryableAllocationFailure:
+            return !isRetryableAllocationFailure(error)
+        }
+    }
+}
+
 struct NativePreparedGeneration: Sendable {
     let generationID: UUID
     let requestID: Int
@@ -102,6 +164,10 @@ struct NativePreparedGeneration: Sendable {
     /// Carried to the streaming session so its sampler shares the same start clock
     /// and its stage marks join the model-load/prewarm marks recorded here.
     let telemetryRecorder: NativeTelemetryRecorder?
+    /// Prestarted before model load so memory/resource sampling covers cold load,
+    /// conditioning, prewarm, synthesis, finalization, and trim on one clock.
+    let telemetrySampler: NativeTelemetrySampler?
+    let telemetryTerminalPolicy: NativeTelemetryTerminalPolicy
 }
 
 public struct InteractivePrefetchDiagnostics: Codable, Equatable, Sendable {
@@ -148,6 +214,7 @@ actor NativeEngineRuntime {
     private var telemetryRecorder: NativeTelemetryRecorder?
     private let customPrewarmPolicy: NativeCustomPrewarmPolicy
     private let diagnosticEventSink: (@Sendable (String, [String: String]) async -> Void)?
+    private let diagnosticAppSupportBox: DiagnosticAppSupportBox?
 
     private var normalizedCloneReferenceDirectory: URL?
     private var voicesDirectory: URL?
@@ -189,6 +256,7 @@ actor NativeEngineRuntime {
         lightweightWarmupText: String,
         telemetryRecorder: NativeTelemetryRecorder? = nil,
         customPrewarmPolicy: NativeCustomPrewarmPolicy = .eager,
+        diagnosticAppSupportBox: DiagnosticAppSupportBox? = nil,
         diagnosticEventSink: (@Sendable (String, [String: String]) async -> Void)? = nil
     ) {
         self.loadCoordinator = loadCoordinator
@@ -197,6 +265,7 @@ actor NativeEngineRuntime {
         self.lightweightWarmupText = lightweightWarmupText
         self.telemetryRecorder = telemetryRecorder
         self.customPrewarmPolicy = customPrewarmPolicy
+        self.diagnosticAppSupportBox = diagnosticAppSupportBox
         self.diagnosticEventSink = diagnosticEventSink
     }
 
@@ -361,8 +430,12 @@ actor NativeEngineRuntime {
         )
     }
 
-    func prepareGeneration(for request: GenerationRequest) async throws -> NativePreparedGeneration {
+    func prepareGeneration(
+        for request: GenerationRequest,
+        telemetryTerminalPolicy: NativeTelemetryTerminalPolicy = .publish
+    ) async throws -> NativePreparedGeneration {
         try GenerationSemantics.validateQwenPromptContract(for: request)
+        let generationID = request.generationID ?? UUID()
         // Per-request sampling controls (GitHub #47/#30). Safe here because
         // the model-operation gate admits one generation at a time:
         // - Seed: makes the decode's RNG stream deterministic, so the same
@@ -383,10 +456,42 @@ actor NativeEngineRuntime {
             : nil
         self.telemetryRecorder = telemetryRecorder
         await loadCoordinator.setTelemetryRecorder(telemetryRecorder)
-        let prepareSignpost = Self.signposter.beginInterval("Native Prepare Generation")
+        let memoryPolicy = NativeMemoryPolicyResolver.policy(
+            mode: request.mode,
+            isBatch: request.batchTotal != nil
+        )
+        NativeMemoryPolicyResolver.apply(memoryPolicy)
+        NativeMemoryPolicyResolver.resetPeakMemory()
+        let telemetrySampler: NativeTelemetrySampler? = {
+            guard let telemetryRecorder,
+                  let sampleIntervalMS = NativeTelemetryMode.current().sampleIntervalMS(
+                      for: memoryPolicy.deviceClass
+                  ) else { return nil }
+            return NativeTelemetrySampler(
+                clock: telemetryRecorder.clock,
+                sampleIntervalMS: sampleIntervalMS
+            )
+        }()
+        await telemetrySampler?.start()
+        await telemetrySampler?.captureBoundary("before_preparation")
+        do {
+        let benchNotes = BenchRunContext.telemetryNotes()
+        let benchRunID = benchNotes["benchRunID"] ?? "not-bench"
+        let benchTakeIndex = benchNotes["benchTakeIndex"] ?? "not-bench"
+        let benchCell = benchNotes["benchCell"] ?? "not-bench"
+        let prepareSignpostID = Self.signposter.makeSignpostID()
+        let prepareSignpost = Self.signposter.beginInterval(
+            "Native Prepare Generation",
+            id: prepareSignpostID,
+            "runID=\(benchRunID, privacy: .public) generationID=\(generationID.uuidString, privacy: .public) takeIndex=\(benchTakeIndex, privacy: .public) cell=\(benchCell, privacy: .public)"
+        )
         let prepareStartedAt = ContinuousClock.now
         defer {
-            Self.signposter.endInterval("Native Prepare Generation", prepareSignpost)
+            Self.signposter.endInterval(
+                "Native Prepare Generation",
+                prepareSignpost,
+                "runID=\(benchRunID, privacy: .public) generationID=\(generationID.uuidString, privacy: .public) takeIndex=\(benchTakeIndex, privacy: .public) cell=\(benchCell, privacy: .public)"
+            )
         }
         let descriptorCapabilities = try await loadCoordinator.qwen3Capabilities(for: request.modelID)
         await recordDiagnosticEvent(
@@ -396,20 +501,18 @@ actor NativeEngineRuntime {
         )
         let loadStartedAt = ContinuousClock.now
         let loadCapabilityProfile = NativeLoadCapabilityProfile(for: request)
-        let memoryPolicy = NativeMemoryPolicyResolver.policy(
-            mode: request.mode,
-            isBatch: request.batchTotal != nil
-        )
-        NativeMemoryPolicyResolver.apply(memoryPolicy)
-        NativeMemoryPolicyResolver.resetPeakMemory()
+        await telemetrySampler?.captureBoundary("before_model_load")
+
         var mlxMemorySnapshots: [String: NativeMLXMemorySnapshot] = [
             "before_load": NativeMemoryPolicyResolver.snapshot()
         ]
         let loadResult = try await loadModel(
             id: request.modelID,
             capabilityProfile: loadCapabilityProfile,
-            preserveActiveClonePrimeToken: false
+            preserveActiveClonePrimeToken: false,
+            signpostGenerationID: generationID
         )
+        await telemetrySampler?.captureBoundary("after_model_load")
         mlxMemorySnapshots["after_load"] = NativeMemoryPolicyResolver.snapshot()
         await recordDiagnosticEvent(
             "runtime-prepare-after-load-model",
@@ -443,7 +546,8 @@ actor NativeEngineRuntime {
             var conditioning = try await resolveCloneConditioning(
                 modelID: request.modelID,
                 reference: reference,
-                sampleRate: model.sampleRate
+                sampleRate: model.sampleRate,
+                signpostGenerationID: generationID
             )
             let cloneLanguage = GenerationSemantics.qwenLanguageHint(
                 for: request,
@@ -578,10 +682,11 @@ actor NativeEngineRuntime {
         )
 
         timingOverridesMS["native_prepare_generation_ms"] = prepareStartedAt.elapsedMilliseconds
+        await telemetrySampler?.captureBoundary("after_preparation")
         return NativePreparedGeneration(
             // Reuse the app-minted ID so app/middle/engine telemetry rows correlate;
             // fall back to a fresh UUID for callers (e.g. internal batch) passing nil.
-            generationID: request.generationID ?? UUID(),
+            generationID: generationID,
             requestID: takeNextRequestID(),
             model: model,
             warmState: loadResult.didLoad ? .cold : .warm,
@@ -594,8 +699,54 @@ actor NativeEngineRuntime {
             qwen3Capabilities: loadResult.qwen3Capabilities,
             memoryPolicy: memoryPolicy,
             mlxMemorySnapshots: mlxMemorySnapshots,
-            telemetryRecorder: telemetryRecorder
+            telemetryRecorder: telemetryRecorder,
+            telemetrySampler: telemetrySampler,
+            telemetryTerminalPolicy: telemetryTerminalPolicy
         )
+        } catch {
+            await telemetrySampler?.captureBoundary("preparation_failed")
+            await telemetryRecorder?.mark(
+                metadata: StreamFailureMessageMetadata(message: error.localizedDescription)
+            )
+            let stageMarks = await telemetryRecorder?.snapshot() ?? []
+            let stopped = await telemetrySampler?.stop(stageMarks: stageMarks)
+            let summary = stopped?.summary ?? TelemetrySummary.empty(stageMarks: stageMarks)
+            if NativeGenerationTerminalClassifier.shouldPublish(
+                error: error,
+                policy: telemetryTerminalPolicy
+            ), TelemetryGate.resolvedEnabled,
+               let appSupportDirectory = diagnosticAppSupportBox?.url {
+                let record = GenerationTelemetryRecord(
+                    generationID: generationID.uuidString,
+                    layer: .engine,
+                    recordedAt: ISO8601DateFormatter().string(from: Date()),
+                    mode: request.modeIdentifier,
+                    modelID: request.modelID,
+                    finishReason: NativeGenerationTerminalClassifier.reason(for: error).rawValue,
+                    stageMarks: stageMarks,
+                    summary: summary,
+                    thermalState: summary.thermalState,
+                    notes: GenerationTelemetryPrivacy.failureNotes(message: error.localizedDescription)
+                        .merging(BenchRunContext.telemetryNotes()) { current, _ in current }
+                )
+                await GenerationTelemetryJSONLSink.shared.write(
+                    record: record,
+                    appSupportDirectory: appSupportDirectory,
+                    subdirectory: "engine"
+                )
+                if NativeTelemetryMode.current().persistsRawSamples,
+                   let samples = stopped?.samples,
+                   !samples.isEmpty {
+                    await GenerationTelemetryJSONLSink.shared.writeRawSamples(
+                        samples,
+                        generationID: generationID.uuidString,
+                        appSupportDirectory: appSupportDirectory,
+                        subdirectory: "engine"
+                    )
+                }
+            }
+            throw error
+        }
     }
 
     func primeCloneReference(
@@ -724,12 +875,25 @@ actor NativeEngineRuntime {
     private func loadModel(
         id: String,
         capabilityProfile: NativeLoadCapabilityProfile = .fullCapabilities,
-        preserveActiveClonePrimeToken: Bool
+        preserveActiveClonePrimeToken: Bool,
+        signpostGenerationID: UUID? = nil
     ) async throws -> NativeModelLoadResult {
-        let loadSignpost = Self.signposter.beginInterval("Native Model Load")
+        let benchNotes = BenchRunContext.telemetryNotes()
+        let runID = benchNotes["benchRunID"] ?? "not-bench"
+        let takeIndex = benchNotes["benchTakeIndex"] ?? "not-bench"
+        let cell = benchNotes["benchCell"] ?? "not-bench"
+        let generationID = signpostGenerationID?.uuidString ?? "not-generation"
+        let loadSignpost = Self.signposter.beginInterval(
+            "Native Model Load",
+            "runID=\(runID, privacy: .public) generationID=\(generationID, privacy: .public) takeIndex=\(takeIndex, privacy: .public) cell=\(cell, privacy: .public)"
+        )
         let loadStartedAt = ContinuousClock.now
         defer {
-            Self.signposter.endInterval("Native Model Load", loadSignpost)
+            Self.signposter.endInterval(
+                "Native Model Load",
+                loadSignpost,
+                "runID=\(runID, privacy: .public) generationID=\(generationID, privacy: .public) takeIndex=\(takeIndex, privacy: .public) cell=\(cell, privacy: .public)"
+            )
         }
         do {
 #if os(iOS)
@@ -786,12 +950,25 @@ actor NativeEngineRuntime {
     private func resolveCloneConditioning(
         modelID: String,
         reference: CloneReference,
-        sampleRate: Int
+        sampleRate: Int,
+        signpostGenerationID: UUID? = nil
     ) async throws -> ResolvedCloneConditioning {
-        let conditioningSignpost = Self.signposter.beginInterval("Native Clone Conditioning")
+        let benchNotes = BenchRunContext.telemetryNotes()
+        let runID = benchNotes["benchRunID"] ?? "not-bench"
+        let takeIndex = benchNotes["benchTakeIndex"] ?? "not-bench"
+        let cell = benchNotes["benchCell"] ?? "not-bench"
+        let generationID = signpostGenerationID?.uuidString ?? "not-generation"
+        let conditioningSignpost = Self.signposter.beginInterval(
+            "Native Clone Conditioning",
+            "runID=\(runID, privacy: .public) generationID=\(generationID, privacy: .public) takeIndex=\(takeIndex, privacy: .public) cell=\(cell, privacy: .public)"
+        )
         let conditioningStartedAt = ContinuousClock.now
         defer {
-            Self.signposter.endInterval("Native Clone Conditioning", conditioningSignpost)
+            Self.signposter.endInterval(
+                "Native Clone Conditioning",
+                conditioningSignpost,
+                "runID=\(runID, privacy: .public) generationID=\(generationID, privacy: .public) takeIndex=\(takeIndex, privacy: .public) cell=\(cell, privacy: .public)"
+            )
         }
         do {
             await telemetryRecorder?.mark(stage: .clonePreparation)
@@ -831,10 +1008,22 @@ actor NativeEngineRuntime {
         defer { releasePrewarmSlot() }
         try Task.checkCancellation()
 
-        let prewarmSignpost = Self.signposter.beginInterval("Native Explicit Prewarm")
+        let benchNotes = BenchRunContext.telemetryNotes()
+        let runID = benchNotes["benchRunID"] ?? "not-bench"
+        let takeIndex = benchNotes["benchTakeIndex"] ?? "not-bench"
+        let cell = benchNotes["benchCell"] ?? "not-bench"
+        let generationID = request.generationID?.uuidString ?? "not-generation"
+        let prewarmSignpost = Self.signposter.beginInterval(
+            "Native Explicit Prewarm",
+            "runID=\(runID, privacy: .public) generationID=\(generationID, privacy: .public) takeIndex=\(takeIndex, privacy: .public) cell=\(cell, privacy: .public)"
+        )
         let explicitPrewarmStartedAt = ContinuousClock.now
         defer {
-            Self.signposter.endInterval("Native Explicit Prewarm", prewarmSignpost)
+            Self.signposter.endInterval(
+                "Native Explicit Prewarm",
+                prewarmSignpost,
+                "runID=\(runID, privacy: .public) generationID=\(generationID, privacy: .public) takeIndex=\(takeIndex, privacy: .public) cell=\(cell, privacy: .public)"
+            )
         }
 
         let identityKey: String
@@ -862,7 +1051,10 @@ actor NativeEngineRuntime {
             // distinguish "warm cell really skipped prewarm" from "warm
             // cell paid a fast prewarm." Pairs with the analogous event
             // in `ensureDesignConditioningWarmStateIfNeeded`.
-            Self.signposter.emitEvent("Native Prewarm Cache Hit")
+            Self.signposter.emitEvent(
+                "Native Prewarm Cache Hit",
+                "runID=\(runID, privacy: .public) generationID=\(generationID, privacy: .public) takeIndex=\(takeIndex, privacy: .public) cell=\(cell, privacy: .public)"
+            )
             return [
                 "prewarm_slot_wait_ms": prewarmSlotWaitMS,
                 "native_explicit_prewarm_ms": explicitPrewarmStartedAt.elapsedMilliseconds,
@@ -1104,12 +1296,12 @@ actor NativeEngineRuntime {
         case .custom(let speakerID, let deliveryStyle):
             details["speaker"] = speakerID
             if let deliveryStyle {
-                details["deliveryStyle"] = deliveryStyle
+                details.merge(Self.privateTextMetadata(deliveryStyle, prefix: "deliveryStyle")) { _, rhs in rhs }
             }
         case .design(let voiceDescription, let deliveryStyle):
             details["voiceDescriptionLength"] = String(voiceDescription.count)
             if let deliveryStyle {
-                details["deliveryStyle"] = deliveryStyle
+                details.merge(Self.privateTextMetadata(deliveryStyle, prefix: "deliveryStyle")) { _, rhs in rhs }
             }
         case .clone:
             break
@@ -1117,6 +1309,19 @@ actor NativeEngineRuntime {
 
         details.merge(extra) { _, rhs in rhs }
         await diagnosticEventSink(action, details)
+    }
+
+    private static func privateTextMetadata(
+        _ value: String,
+        prefix: String
+    ) -> [String: String] {
+        let digest = SHA256.hash(data: Data(value.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return [
+            "\(prefix)Length": String(value.count),
+            "\(prefix)Digest": digest,
+        ]
     }
 
     private func primeCloneConditioning(
@@ -1260,7 +1465,15 @@ actor NativeEngineRuntime {
             // Cache hit — the active design conditioning matches what
             // this request needs. Emit a signpost so bench traces can
             // count hits vs misses, and skip the prewarm work below.
-            Self.signposter.emitEvent("Native Design Conditioning Reuse")
+            let notes = BenchRunContext.telemetryNotes()
+            let runID = notes["benchRunID"] ?? "not-bench"
+            let takeIndex = notes["benchTakeIndex"] ?? "not-bench"
+            let cell = notes["benchCell"] ?? "not-bench"
+            let generationID = request.generationID?.uuidString ?? "not-generation"
+            Self.signposter.emitEvent(
+                "Native Design Conditioning Reuse",
+                "runID=\(runID, privacy: .public) generationID=\(generationID, privacy: .public) takeIndex=\(takeIndex, privacy: .public) cell=\(cell, privacy: .public)"
+            )
             await markDesignWarmSatisfied(
                 for: request,
                 conditioningWarmKey: conditioningWarmKey

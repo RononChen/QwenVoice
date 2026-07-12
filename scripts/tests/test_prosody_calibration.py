@@ -5,6 +5,8 @@ Builds a tiny labeled corpus of synthetic WAVs and verifies the CLI emits a
 valid, usable profile.
 """
 import json
+import hashlib
+import importlib.util
 import math
 import os
 import subprocess
@@ -13,9 +15,14 @@ import tempfile
 import unittest
 import wave
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scripts"))
+from prosody_calibration import corpus_digest, load_labels
+
 SR = 24000
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CALIBRATION = os.path.join(REPO, "scripts", "prosody_calibration.py")
+HISTORY = os.path.join(REPO, "benchmarks", "HISTORY.md")
+RUNS = os.path.join(REPO, "benchmarks", "runs")
 
 
 def write_sine(path, freq, duration, amplitude=0.5, freq_end=None, pause_ranges=None):
@@ -43,9 +50,29 @@ class ProsodyCalibrationTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.dir = self.tmp.name
+        self.registry_before = self._registry_digest()
 
     def tearDown(self):
+        self.assertEqual(self.registry_before, self._registry_digest(), "unit tests must not mutate benchmark history")
         self.tmp.cleanup()
+
+    @staticmethod
+    def _registry_digest():
+        digest = hashlib.sha256()
+        for path in [HISTORY] + sorted(
+            os.path.join(root, name)
+            for root, _dirs, files in os.walk(RUNS)
+            for name in files if name.endswith(".json")
+        ):
+            digest.update(os.path.relpath(path, REPO).encode())
+            if os.path.isfile(path):
+                with open(path, "rb") as handle:
+                    digest.update(handle.read())
+        return digest.hexdigest()
+
+    @staticmethod
+    def _test_env():
+        return {**os.environ, "QVOICE_BENCHMARK_HISTORY_TEST_DISABLE": "1"}
 
     def _generate_corpus(self):
         clips = [
@@ -66,6 +93,7 @@ class ProsodyCalibrationTests(unittest.TestCase):
                 f.write(json.dumps(entry) + "\n")
         return labels_path
 
+    @unittest.skipUnless(importlib.util.find_spec("numpy"), "requires optional NumPy analysis dependency")
     def test_cli_emits_valid_profile(self):
         labels = self._generate_corpus()
         out = os.path.join(self.dir, "profile.json")
@@ -73,6 +101,7 @@ class ProsodyCalibrationTests(unittest.TestCase):
             [sys.executable, CALIBRATION, "--labels", labels, "--out", out, "--target-fpr", "0.1"],
             capture_output=True,
             text=True,
+            env=self._test_env(),
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(os.path.exists(out))
@@ -83,12 +112,14 @@ class ProsodyCalibrationTests(unittest.TestCase):
         for key in ["monotone_f0_std_hz", "pause_max_seconds", "pause_ratio_max"]:
             self.assertIn(key, profile["thresholds"])
 
+    @unittest.skipUnless(importlib.util.find_spec("numpy"), "requires optional NumPy analysis dependency")
     def test_calibrated_profile_flags_bad_clips(self):
         labels = self._generate_corpus()
         out = os.path.join(self.dir, "profile.json")
         subprocess.run(
             [sys.executable, CALIBRATION, "--labels", labels, "--out", out, "--target-fpr", "0.2"],
             check=True,
+            env=self._test_env(),
         )
         sys.path.insert(0, os.path.join(REPO, "scripts"))
         from prosody_quality_gate import evaluate
@@ -99,6 +130,15 @@ class ProsodyCalibrationTests(unittest.TestCase):
         pause = evaluate(os.path.join(self.dir, "bad_pause.wav"), profile)
         # At least one obvious defect should be flagged on each bad clip.
         self.assertTrue(monotone["flags"] or pause["flags"])
+
+    def test_corpus_digest_includes_referenced_wav_bytes(self):
+        labels = self._generate_corpus()
+        entries = load_labels(labels)
+        before = corpus_digest(entries)
+        with open(entries[0]["path"], "ab") as handle:
+            handle.write(b"changed")
+        after = corpus_digest(entries)
+        self.assertNotEqual(before, after)
 
 
 if __name__ == "__main__":

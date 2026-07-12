@@ -1,0 +1,2015 @@
+{
+  "cells": [
+    {
+      "count": 1,
+      "key": "rotation-1/order-1/off/take-1",
+      "length": "medium",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.16,
+          "median": 6.16,
+          "min": 6.16
+        },
+        "freeStorageBytes": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 23355236352.0,
+          "median": 23355236352.0,
+          "min": 23355236352.0
+        },
+        "loadAverage1M": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 8.6220703125,
+          "median": 8.6220703125,
+          "min": 8.6220703125
+        },
+        "lowPowerMode": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0445936351457845,
+          "median": 1.0445936351457845,
+          "min": 1.0445936351457845
+        },
+        "ttfcMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 668.6199903488159,
+          "median": 668.6199903488159,
+          "min": 668.6199903488159
+        },
+        "uptimeSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 25731.43201725,
+          "median": 25731.43201725,
+          "min": 25731.43201725
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "rotation-1/order-1/off/take-2",
+      "length": "medium",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.16,
+          "median": 6.16,
+          "min": 6.16
+        },
+        "freeStorageBytes": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 23354818560.0,
+          "median": 23354818560.0,
+          "min": 23354818560.0
+        },
+        "loadAverage1M": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 8.33154296875,
+          "median": 8.33154296875,
+          "min": 8.33154296875
+        },
+        "lowPowerMode": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0440370025227377,
+          "median": 1.0440370025227377,
+          "min": 1.0440370025227377
+        },
+        "ttfcMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 654.2620658874512,
+          "median": 654.2620658874512,
+          "min": 654.2620658874512
+        },
+        "uptimeSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 25737.32934941667,
+          "median": 25737.32934941667,
+          "min": 25737.32934941667
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "rotation-1/order-2/lightweight/take-1",
+      "length": "medium",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.16,
+          "median": 6.16,
+          "min": 6.16
+        },
+        "freeStorageBytes": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 23353606144.0,
+          "median": 23353606144.0,
+          "min": 23353606144.0
+        },
+        "loadAverage1M": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.755859375,
+          "median": 6.755859375,
+          "min": 6.755859375
+        },
+        "lowPowerMode": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.9932577893075402,
+          "median": 0.9932577893075402,
+          "min": 0.9932577893075402
+        },
+        "ttfcMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 649.4789123535156,
+          "median": 649.4789123535156,
+          "min": 649.4789123535156
+        },
+        "uptimeSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 25757.063198,
+          "median": 25757.063198,
+          "min": 25757.063198
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "rotation-1/order-2/lightweight/take-2",
+      "length": "medium",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.16,
+          "median": 6.16,
+          "min": 6.16
+        },
+        "freeStorageBytes": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 23353028608.0,
+          "median": 23353028608.0,
+          "min": 23353028608.0
+        },
+        "loadAverage1M": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.455078125,
+          "median": 6.455078125,
+          "min": 6.455078125
+        },
+        "lowPowerMode": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.9832610865945139,
+          "median": 0.9832610865945139,
+          "min": 0.9832610865945139
+        },
+        "ttfcMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 786.6730690002441,
+          "median": 786.6730690002441,
+          "min": 786.6730690002441
+        },
+        "uptimeSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 25763.265236458334,
+          "median": 25763.265236458334,
+          "min": 25763.265236458334
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "rotation-1/order-3/verbose/take-1",
+      "length": "medium",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.16,
+          "median": 6.16,
+          "min": 6.16
+        },
+        "freeStorageBytes": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 23350894592.0,
+          "median": 23350894592.0,
+          "min": 23350894592.0
+        },
+        "loadAverage1M": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 5.23388671875,
+          "median": 5.23388671875,
+          "min": 5.23388671875
+        },
+        "lowPowerMode": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0398091722168183,
+          "median": 1.0398091722168183,
+          "min": 1.0398091722168183
+        },
+        "ttfcMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 656.7490100860596,
+          "median": 656.7490100860596,
+          "min": 656.7490100860596
+        },
+        "uptimeSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 25783.94134566667,
+          "median": 25783.94134566667,
+          "min": 25783.94134566667
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "rotation-1/order-3/verbose/take-2",
+      "length": "medium",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.16,
+          "median": 6.16,
+          "min": 6.16
+        },
+        "freeStorageBytes": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 23349452800.0,
+          "median": 23349452800.0,
+          "min": 23349452800.0
+        },
+        "loadAverage1M": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 5.21484375,
+          "median": 5.21484375,
+          "min": 5.21484375
+        },
+        "lowPowerMode": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0382626889434918,
+          "median": 1.0382626889434918,
+          "min": 1.0382626889434918
+        },
+        "ttfcMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 652.783989906311,
+          "median": 652.783989906311,
+          "min": 652.783989906311
+        },
+        "uptimeSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 25789.865723708335,
+          "median": 25789.865723708335,
+          "min": 25789.865723708335
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "rotation-2/order-1/lightweight/take-1",
+      "length": "medium",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.16,
+          "median": 6.16,
+          "min": 6.16
+        },
+        "freeStorageBytes": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 23352332288.0,
+          "median": 23352332288.0,
+          "min": 23352332288.0
+        },
+        "loadAverage1M": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 4.86767578125,
+          "median": 4.86767578125,
+          "min": 4.86767578125
+        },
+        "lowPowerMode": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0355120115611258,
+          "median": 1.0355120115611258,
+          "min": 1.0355120115611258
+        },
+        "ttfcMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 652.1539688110352,
+          "median": 652.1539688110352,
+          "min": 652.1539688110352
+        },
+        "uptimeSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 25809.880094166667,
+          "median": 25809.880094166667,
+          "min": 25809.880094166667
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "rotation-2/order-1/lightweight/take-2",
+      "length": "medium",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.16,
+          "median": 6.16,
+          "min": 6.16
+        },
+        "freeStorageBytes": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 23351787520.0,
+          "median": 23351787520.0,
+          "min": 23351787520.0
+        },
+        "loadAverage1M": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 4.8779296875,
+          "median": 4.8779296875,
+          "min": 4.8779296875
+        },
+        "lowPowerMode": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0070402881789005,
+          "median": 1.0070402881789005,
+          "min": 1.0070402881789005
+        },
+        "ttfcMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 661.8770360946655,
+          "median": 661.8770360946655,
+          "min": 661.8770360946655
+        },
+        "uptimeSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 25815.8290645,
+          "median": 25815.8290645,
+          "min": 25815.8290645
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "rotation-2/order-2/verbose/take-1",
+      "length": "medium",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.16,
+          "median": 6.16,
+          "min": 6.16
+        },
+        "freeStorageBytes": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 23350743040.0,
+          "median": 23350743040.0,
+          "min": 23350743040.0
+        },
+        "loadAverage1M": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 4.27587890625,
+          "median": 4.27587890625,
+          "min": 4.27587890625
+        },
+        "lowPowerMode": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0408809370514278,
+          "median": 1.0408809370514278,
+          "min": 1.0408809370514278
+        },
+        "ttfcMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 654.3549299240112,
+          "median": 654.3549299240112,
+          "min": 654.3549299240112
+        },
+        "uptimeSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 25835.882079333336,
+          "median": 25835.882079333336,
+          "min": 25835.882079333336
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "rotation-2/order-2/verbose/take-2",
+      "length": "medium",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.16,
+          "median": 6.16,
+          "min": 6.16
+        },
+        "freeStorageBytes": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 23350362112.0,
+          "median": 23350362112.0,
+          "min": 23350362112.0
+        },
+        "loadAverage1M": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 4.33349609375,
+          "median": 4.33349609375,
+          "min": 4.33349609375
+        },
+        "lowPowerMode": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0384289393604402,
+          "median": 1.0384289393604402,
+          "min": 1.0384289393604402
+        },
+        "ttfcMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 668.300986289978,
+          "median": 668.300986289978,
+          "min": 668.300986289978
+        },
+        "uptimeSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 25841.800362,
+          "median": 25841.800362,
+          "min": 25841.800362
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "rotation-2/order-3/off/take-1",
+      "length": "medium",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.16,
+          "median": 6.16,
+          "min": 6.16
+        },
+        "freeStorageBytes": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 23348936704.0,
+          "median": 23348936704.0,
+          "min": 23348936704.0
+        },
+        "loadAverage1M": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 3.8115234375,
+          "median": 3.8115234375,
+          "min": 3.8115234375
+        },
+        "lowPowerMode": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0451469509007825,
+          "median": 1.0451469509007825,
+          "min": 1.0451469509007825
+        },
+        "ttfcMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 656.4149856567383,
+          "median": 656.4149856567383,
+          "min": 656.4149856567383
+        },
+        "uptimeSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 25861.485902750002,
+          "median": 25861.485902750002,
+          "min": 25861.485902750002
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "rotation-2/order-3/off/take-2",
+      "length": "medium",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.16,
+          "median": 6.16,
+          "min": 6.16
+        },
+        "freeStorageBytes": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 23348125696.0,
+          "median": 23348125696.0,
+          "min": 23348125696.0
+        },
+        "loadAverage1M": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 3.74609375,
+          "median": 3.74609375,
+          "min": 3.74609375
+        },
+        "lowPowerMode": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0470889127673142,
+          "median": 1.0470889127673142,
+          "min": 1.0470889127673142
+        },
+        "ttfcMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 655.6190252304077,
+          "median": 655.6190252304077,
+          "min": 655.6190252304077
+        },
+        "uptimeSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 25867.38009116667,
+          "median": 25867.38009116667,
+          "min": 25867.38009116667
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "rotation-3/order-1/verbose/take-1",
+      "length": "medium",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.16,
+          "median": 6.16,
+          "min": 6.16
+        },
+        "freeStorageBytes": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 23346884608.0,
+          "median": 23346884608.0,
+          "min": 23346884608.0
+        },
+        "loadAverage1M": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 3.4033203125,
+          "median": 3.4033203125,
+          "min": 3.4033203125
+        },
+        "lowPowerMode": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0355442181621732,
+          "median": 1.0355442181621732,
+          "min": 1.0355442181621732
+        },
+        "ttfcMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 678.1909465789795,
+          "median": 678.1909465789795,
+          "min": 678.1909465789795
+        },
+        "uptimeSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 25887.017948375,
+          "median": 25887.017948375,
+          "min": 25887.017948375
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "rotation-3/order-1/verbose/take-2",
+      "length": "medium",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.16,
+          "median": 6.16,
+          "min": 6.16
+        },
+        "freeStorageBytes": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 23346470912.0,
+          "median": 23346470912.0,
+          "min": 23346470912.0
+        },
+        "loadAverage1M": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 3.29052734375,
+          "median": 3.29052734375,
+          "min": 3.29052734375
+        },
+        "lowPowerMode": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0266964486601957,
+          "median": 1.0266964486601957,
+          "min": 1.0266964486601957
+        },
+        "ttfcMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 654.5319557189941,
+          "median": 654.5319557189941,
+          "min": 654.5319557189941
+        },
+        "uptimeSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 25892.96672625,
+          "median": 25892.96672625,
+          "min": 25892.96672625
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "rotation-3/order-2/off/take-1",
+      "length": "medium",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.16,
+          "median": 6.16,
+          "min": 6.16
+        },
+        "freeStorageBytes": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 23345254400.0,
+          "median": 23345254400.0,
+          "min": 23345254400.0
+        },
+        "loadAverage1M": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 3.16259765625,
+          "median": 3.16259765625,
+          "min": 3.16259765625
+        },
+        "lowPowerMode": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0298397706275966,
+          "median": 1.0298397706275966,
+          "min": 1.0298397706275966
+        },
+        "ttfcMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 640.373945236206,
+          "median": 640.373945236206,
+          "min": 640.373945236206
+        },
+        "uptimeSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 25912.54720904167,
+          "median": 25912.54720904167,
+          "min": 25912.54720904167
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "rotation-3/order-2/off/take-2",
+      "length": "medium",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.16,
+          "median": 6.16,
+          "min": 6.16
+        },
+        "freeStorageBytes": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 23344926720.0,
+          "median": 23344926720.0,
+          "min": 23344926720.0
+        },
+        "loadAverage1M": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 3.1494140625,
+          "median": 3.1494140625,
+          "min": 3.1494140625
+        },
+        "lowPowerMode": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0466544503229693,
+          "median": 1.0466544503229693,
+          "min": 1.0466544503229693
+        },
+        "ttfcMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 655.614972114563,
+          "median": 655.614972114563,
+          "min": 655.614972114563
+        },
+        "uptimeSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 25918.529244166668,
+          "median": 25918.529244166668,
+          "min": 25918.529244166668
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "rotation-3/order-3/lightweight/take-1",
+      "length": "medium",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.16,
+          "median": 6.16,
+          "min": 6.16
+        },
+        "freeStorageBytes": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 23343505408.0,
+          "median": 23343505408.0,
+          "min": 23343505408.0
+        },
+        "loadAverage1M": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 3.1787109375,
+          "median": 3.1787109375,
+          "min": 3.1787109375
+        },
+        "lowPowerMode": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.040568667846696,
+          "median": 1.040568667846696,
+          "min": 1.040568667846696
+        },
+        "ttfcMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 647.0019817352295,
+          "median": 647.0019817352295,
+          "min": 647.0019817352295
+        },
+        "uptimeSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 25938.147148,
+          "median": 25938.147148,
+          "min": 25938.147148
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    },
+    {
+      "count": 1,
+      "key": "rotation-3/order-3/lightweight/take-2",
+      "length": "medium",
+      "maximumTrimLevel": 0,
+      "mode": "custom",
+      "modelID": "pro_custom_speed",
+      "statistics": {
+        "audioSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 6.16,
+          "median": 6.16,
+          "min": 6.16
+        },
+        "freeStorageBytes": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 23343226880.0,
+          "median": 23343226880.0,
+          "min": 23343226880.0
+        },
+        "loadAverage1M": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 3.23095703125,
+          "median": 3.23095703125,
+          "min": 3.23095703125
+        },
+        "lowPowerMode": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "rtf": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 1.0415993976707474,
+          "median": 1.0415993976707474,
+          "min": 1.0415993976707474
+        },
+        "ttfcMS": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 650.4100561141968,
+          "median": 650.4100561141968,
+          "min": 650.4100561141968
+        },
+        "uptimeSeconds": {
+          "count": 1,
+          "iqr": 0.0,
+          "max": 25944.067256708335,
+          "median": 25944.067256708335,
+          "min": 25944.067256708335
+        }
+      },
+      "status": "passed",
+      "variant": "speed",
+      "warmState": "warm",
+      "warningCount": 0,
+      "worstQCVerdict": "pass",
+      "worstThermalState": "nominal"
+    }
+  ],
+  "comparison": {
+    "baselineRunID": null,
+    "comparable": false,
+    "deltas": {},
+    "key": "353077244bd7da7d42804c0dc1e539db0f6e69a7f65cbf74e24aef0617ae6aeb"
+  },
+  "digest": "1b3cf733a328248ffc601e2c552dabb43cc1952b25b2d097eee931f1b52ea5d9",
+  "evidence": {
+    "actualTakeCount": 18,
+    "crashCount": 0,
+    "crashDeltaPassed": true,
+    "expectedTakeCount": 18,
+    "manifestDigest": "0e62f94a028a3c6ed892b5cc185fc00f3f955c7626af76046e3ca5ed878cf084",
+    "qcAlgorithmVersion": "not-applicable",
+    "rawTelemetryDigest": "271c7787ea1011db5dc33c1c80abaaa5530f40e38836b2b41fac7c50b0d1e6f1",
+    "resultBundleDigest": "not-applicable",
+    "screenshotDigests": [],
+    "selectedEvidenceDigest": "7a58b742014b84405bc3313a0b71393c46c9bb5d7bd276d2792aa3ddccd8fcf1",
+    "telemetrySchemaVersion": 7,
+    "validatorPassed": true,
+    "validatorSchemaVersion": 1
+  },
+  "hardware": {
+    "chip": "Apple M2",
+    "cpuCores": 8,
+    "efficiencyCores": 4,
+    "freeStorageBytes": 23357042688,
+    "loadAverage1M": 10.21484375,
+    "lowPowerMode": false,
+    "marketingName": "Mac mini (M2, 8 GB)",
+    "memoryBytes": 8589934592,
+    "modelIdentifier": "Mac14,3",
+    "osBuild": "25F84",
+    "osName": "macOS",
+    "osVersion": "26.5.2",
+    "performanceCores": 4,
+    "profileID": "mac-mini-m2-8gb",
+    "thermalState": "nominal",
+    "transport": "local",
+    "uptimeSeconds": 25717.366226833
+  },
+  "inputs": {
+    "analysisProfileHash": "not-applicable",
+    "contractHash": "8183d0ee88da8b501975f37dc4c304f91e224fb125e6b4adf5fe3b0a1e0dd47a",
+    "corpusHash": "fb9d989c36b867710cd598a9f7e5cd6a0660a02b429e495e92e72f25a04aa7c7",
+    "dependencyLockHash": "e90f4e43f0e7182c481fb02a5827ceabbb1e8fbf653b2ea7fdfb610ca005e990",
+    "harnessHash": "42a1b69ab4fccaa1c7b36eff72f848bd1175fc2347bd297e36530d26a99ab967",
+    "matrixHash": "80e0eef17fc6c74c544872b80b401152d9755b8df24e9ceac36929dd42980322",
+    "projectInputHash": "33d4682b1d22b3fe80d58ee6446b0181fe4a385afcc332a3fb56ff7ba00a7920"
+  },
+  "listening": {
+    "annotatedAt": null,
+    "note": "",
+    "status": "not-performed"
+  },
+  "models": [
+    {
+      "artifactVersion": "2026.04.05.2",
+      "fixtureDigest": "not-applicable",
+      "integrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "mode": "custom",
+      "modelID": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "quantization": "4-bit",
+      "revision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "variant": "speed"
+    }
+  ],
+  "run": {
+    "classification": "exploratory",
+    "durationSeconds": 234.0,
+    "finishedAt": "2026-07-12T22:20:10Z",
+    "id": "telemetry-overhead-20260712-221616-d7b19334",
+    "kind": "telemetry-overhead",
+    "label": "telemetry-overhead-20260712-221616-d7b19334",
+    "matrixScope": "focused",
+    "platform": "macos",
+    "startedAt": "2026-07-12T22:16:16Z",
+    "status": "passed",
+    "warnings": []
+  },
+  "schemaVersion": 1,
+  "source": {
+    "changedPaths": [
+      ".agents/backend-mlx.md",
+      ".agents/release-qa-engineer.md",
+      ".gitignore",
+      "AGENTS.md",
+      "QwenVoice.xcodeproj/project.pbxproj",
+      "QwenVoice_MLXAudio_Corrected_Report_Series_2026-07-10/README.md",
+      "README.md",
+      "Sources/QwenVoiceCore/GenerationTelemetryRecord.swift",
+      "Sources/QwenVoiceCore/MLXModelLoadCoordinator.swift",
+      "Sources/QwenVoiceCore/MLXTTSEngine.swift",
+      "Sources/QwenVoiceCore/NativeEngineRuntime.swift",
+      "Sources/QwenVoiceCore/NativeStreamingSynthesisSession.swift",
+      "Sources/QwenVoiceCore/NativeTelemetryMetadata.swift",
+      "Sources/QwenVoiceCore/NativeTelemetrySampler.swift",
+      "Sources/QwenVoiceEngineService/EngineServiceHost.swift",
+      "Sources/QwenVoiceEngineSupport/EngineServiceTransportAccumulator.swift",
+      "Sources/Services/AudioQualityGate.swift",
+      "Sources/SharedSupport/Telemetry/AppGenerationTimeline.swift",
+      "Sources/SharedSupport/Telemetry/MainThreadStallWatchdog.swift",
+      "Sources/SharedSupport/ViewModels/AudioPlayerViewModel.swift",
+      "Sources/ViewModels/CustomVoiceCoordinator.swift",
+      "Sources/ViewModels/VoiceCloningCoordinator.swift",
+      "Sources/ViewModels/VoiceDesignCoordinator.swift",
+      "Sources/VocelloCLI/BenchCommand.swift",
+      "Sources/iOS/IOSDeviceDiagnosticsRunner.swift",
+      "Sources/iOS/IOSGenerationModeViews.swift",
+      "Sources/iOS/IOSStudioCanvas.swift",
+      "Sources/iOS/Studio/IOSStudioInlinePlayerCard.swift",
+      "Sources/iOS/TTSEngineStore.swift",
+      "Sources/iOSSupport/Services/IOSInterruptionRecorder.swift",
+      "Sources/iOSSupport/Services/IOSPullableDiagnosticsMirror.swift",
+      "Tests/VocelloCoreTests/AtomicWAVPublicationTests.swift",
+      "Tests/VocelloCoreTests/GenerationTelemetrySchemaTests.swift",
+      "Tests/VocelloCoreTests/MainThreadStallWatchdogTests.swift",
+      "Tests/VocelloEngineIntegrationTests/EngineServiceTransportAccumulatorTests.swift",
+      "Tests/VocelloiOSUITests/VocelloiOSBenchmarkUITests.swift",
+      "Tests/VocelloiOSUITests/VocelloiOSSmokeUITests.swift",
+      "Tests/VocelloiOSUITests/VocelloiOSUITestCase.swift",
+      "benchmarks/LEGACY_HISTORY.md",
+      "benchmarks/OPTIMIZATION.md",
+      "benchmarks/README.md",
+      "benchmarks/baseline-2026-05-31-641a541.md",
+      "benchmarks/hardware-profiles.json",
+      "benchmarks/schema-v1.json",
+      "config/backend-risk-spine.json",
+      "docs/ARCHITECTURE.md",
+      "docs/development-progress.md",
+      "docs/project-map.html",
+      "docs/reference/backend-optimization-research-report.md",
+      "docs/reference/benchmarking-procedure.md",
+      "docs/reference/cli.md",
+      "docs/reference/ios-device-testing.md",
+      "docs/reference/language-bench.md",
+      "docs/reference/macos-release-qa.md",
+      "docs/reference/macos-testing.md",
+      "docs/reference/mlx-guide.md",
+      "docs/reference/swift-performance-guide.md",
+      "docs/reference/telemetry-and-benchmarking.md",
+      "project.yml",
+      "scripts/bench_delivery_prosody.py",
+      "scripts/benchmark_history.py",
+      "scripts/check_ios_ui_benchmark.py",
+      "scripts/check_macos_xpc_bench.py",
+      "scripts/check_project_inputs.sh",
+      "scripts/check_test_workflows.sh",
+      "scripts/ios_device.sh",
+      "scripts/lib/test_models.sh",
+      "scripts/macos_test.sh",
+      "scripts/prosody_calibration.py",
+      "scripts/publish_benchmark_history.py",
+      "scripts/summarize_generation_telemetry.py",
+      "scripts/telemetry_overhead.py",
+      "scripts/test_check_ios_ui_benchmark.py",
+      "scripts/test_check_macos_xpc_bench.py",
+      "scripts/tests/test_bench_command_contract.py",
+      "scripts/tests/test_benchmark_history.py",
+      "scripts/tests/test_ios_device_benchmark_contract.py",
+      "scripts/tests/test_profile_capture_contract.py",
+      "scripts/tests/test_prosody_calibration.py",
+      "scripts/tests/test_publish_benchmark_history.py",
+      "scripts/tests/test_summarize_generation_telemetry.py",
+      "scripts/tests/test_telemetry_overhead.py",
+      "scripts/ui_test.sh"
+    ],
+    "commit": "1ef1669326b577a307799062d19257b734e6b724",
+    "dirty": true,
+    "fingerprintsMatch": true,
+    "postFingerprint": "874d8cd73b2e2d56899dca0e5f09a169b3a9c2af3fa895e3aac7b8cee1bc5610",
+    "preFingerprint": "874d8cd73b2e2d56899dca0e5f09a169b3a9c2af3fa895e3aac7b8cee1bc5610",
+    "workspaceFingerprint": "874d8cd73b2e2d56899dca0e5f09a169b3a9c2af3fa895e3aac7b8cee1bc5610"
+  },
+  "takes": [
+    {
+      "cell": "rotation-1/order-1/off/take-1",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "34B8B17D-62CC-474D-B21E-E3C3E08BFC3E",
+      "length": "medium",
+      "metrics": {
+        "audioSeconds": 6.16,
+        "freeStorageBytes": 23355236352.0,
+        "loadAverage1M": 8.6220703125,
+        "lowPowerMode": 0.0,
+        "rtf": 1.0445936351457845,
+        "ttfcMS": 668.6199903488159,
+        "uptimeSeconds": 25731.43201725
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 6.16,
+        "fileDigest": "d4348277c958c3e2a95c3080e3492e19c9e0da15215f4fa7dba3912bfa5c79a7",
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 1,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "cell": "rotation-1/order-1/off/take-2",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "23974F00-3E0C-4FB9-AEB0-2E80700703BD",
+      "length": "medium",
+      "metrics": {
+        "audioSeconds": 6.16,
+        "freeStorageBytes": 23354818560.0,
+        "loadAverage1M": 8.33154296875,
+        "lowPowerMode": 0.0,
+        "rtf": 1.0440370025227377,
+        "ttfcMS": 654.2620658874512,
+        "uptimeSeconds": 25737.32934941667
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 6.16,
+        "fileDigest": "d4348277c958c3e2a95c3080e3492e19c9e0da15215f4fa7dba3912bfa5c79a7",
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 2,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "cell": "rotation-1/order-2/lightweight/take-1",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "B34AF8EA-E4C4-44D2-B3AE-8759AC9E2855",
+      "length": "medium",
+      "metrics": {
+        "audioSeconds": 6.16,
+        "freeStorageBytes": 23353606144.0,
+        "loadAverage1M": 6.755859375,
+        "lowPowerMode": 0.0,
+        "rtf": 0.9932577893075402,
+        "ttfcMS": 649.4789123535156,
+        "uptimeSeconds": 25757.063198
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 6.16,
+        "fileDigest": "d4348277c958c3e2a95c3080e3492e19c9e0da15215f4fa7dba3912bfa5c79a7",
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 3,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "cell": "rotation-1/order-2/lightweight/take-2",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "D258F495-BAC5-4CB1-8994-30055A3CFE38",
+      "length": "medium",
+      "metrics": {
+        "audioSeconds": 6.16,
+        "freeStorageBytes": 23353028608.0,
+        "loadAverage1M": 6.455078125,
+        "lowPowerMode": 0.0,
+        "rtf": 0.9832610865945139,
+        "ttfcMS": 786.6730690002441,
+        "uptimeSeconds": 25763.265236458334
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 6.16,
+        "fileDigest": "d4348277c958c3e2a95c3080e3492e19c9e0da15215f4fa7dba3912bfa5c79a7",
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 4,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "cell": "rotation-1/order-3/verbose/take-1",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "CFBF4C26-CD53-410C-9611-7497F70C8DFD",
+      "length": "medium",
+      "metrics": {
+        "audioSeconds": 6.16,
+        "freeStorageBytes": 23350894592.0,
+        "loadAverage1M": 5.23388671875,
+        "lowPowerMode": 0.0,
+        "rtf": 1.0398091722168183,
+        "ttfcMS": 656.7490100860596,
+        "uptimeSeconds": 25783.94134566667
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 6.16,
+        "fileDigest": "d4348277c958c3e2a95c3080e3492e19c9e0da15215f4fa7dba3912bfa5c79a7",
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 5,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "cell": "rotation-1/order-3/verbose/take-2",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "3497CD8F-8CD5-4A0E-9D21-56221DE7FCB4",
+      "length": "medium",
+      "metrics": {
+        "audioSeconds": 6.16,
+        "freeStorageBytes": 23349452800.0,
+        "loadAverage1M": 5.21484375,
+        "lowPowerMode": 0.0,
+        "rtf": 1.0382626889434918,
+        "ttfcMS": 652.783989906311,
+        "uptimeSeconds": 25789.865723708335
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 6.16,
+        "fileDigest": "d4348277c958c3e2a95c3080e3492e19c9e0da15215f4fa7dba3912bfa5c79a7",
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 6,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "cell": "rotation-2/order-1/lightweight/take-1",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "8D70BF23-530E-48F0-95E8-79E97B68BEAA",
+      "length": "medium",
+      "metrics": {
+        "audioSeconds": 6.16,
+        "freeStorageBytes": 23352332288.0,
+        "loadAverage1M": 4.86767578125,
+        "lowPowerMode": 0.0,
+        "rtf": 1.0355120115611258,
+        "ttfcMS": 652.1539688110352,
+        "uptimeSeconds": 25809.880094166667
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 6.16,
+        "fileDigest": "d4348277c958c3e2a95c3080e3492e19c9e0da15215f4fa7dba3912bfa5c79a7",
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 7,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "cell": "rotation-2/order-1/lightweight/take-2",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "59EAA29C-5FAF-4963-8B61-0BC8808F5F78",
+      "length": "medium",
+      "metrics": {
+        "audioSeconds": 6.16,
+        "freeStorageBytes": 23351787520.0,
+        "loadAverage1M": 4.8779296875,
+        "lowPowerMode": 0.0,
+        "rtf": 1.0070402881789005,
+        "ttfcMS": 661.8770360946655,
+        "uptimeSeconds": 25815.8290645
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 6.16,
+        "fileDigest": "d4348277c958c3e2a95c3080e3492e19c9e0da15215f4fa7dba3912bfa5c79a7",
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 8,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "cell": "rotation-2/order-2/verbose/take-1",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "AC0F2414-CD5A-4F3E-BD60-987CBE4B7ED5",
+      "length": "medium",
+      "metrics": {
+        "audioSeconds": 6.16,
+        "freeStorageBytes": 23350743040.0,
+        "loadAverage1M": 4.27587890625,
+        "lowPowerMode": 0.0,
+        "rtf": 1.0408809370514278,
+        "ttfcMS": 654.3549299240112,
+        "uptimeSeconds": 25835.882079333336
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 6.16,
+        "fileDigest": "d4348277c958c3e2a95c3080e3492e19c9e0da15215f4fa7dba3912bfa5c79a7",
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 9,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "cell": "rotation-2/order-2/verbose/take-2",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "7D656C97-5214-4FDD-9B98-64A08A760FDC",
+      "length": "medium",
+      "metrics": {
+        "audioSeconds": 6.16,
+        "freeStorageBytes": 23350362112.0,
+        "loadAverage1M": 4.33349609375,
+        "lowPowerMode": 0.0,
+        "rtf": 1.0384289393604402,
+        "ttfcMS": 668.300986289978,
+        "uptimeSeconds": 25841.800362
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 6.16,
+        "fileDigest": "d4348277c958c3e2a95c3080e3492e19c9e0da15215f4fa7dba3912bfa5c79a7",
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 10,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "cell": "rotation-2/order-3/off/take-1",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "00AC987D-D084-4A87-83FF-6842B40AE769",
+      "length": "medium",
+      "metrics": {
+        "audioSeconds": 6.16,
+        "freeStorageBytes": 23348936704.0,
+        "loadAverage1M": 3.8115234375,
+        "lowPowerMode": 0.0,
+        "rtf": 1.0451469509007825,
+        "ttfcMS": 656.4149856567383,
+        "uptimeSeconds": 25861.485902750002
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 6.16,
+        "fileDigest": "d4348277c958c3e2a95c3080e3492e19c9e0da15215f4fa7dba3912bfa5c79a7",
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 11,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "cell": "rotation-2/order-3/off/take-2",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "FE927254-EA47-4F2D-9FEB-1F2AD47F3ADD",
+      "length": "medium",
+      "metrics": {
+        "audioSeconds": 6.16,
+        "freeStorageBytes": 23348125696.0,
+        "loadAverage1M": 3.74609375,
+        "lowPowerMode": 0.0,
+        "rtf": 1.0470889127673142,
+        "ttfcMS": 655.6190252304077,
+        "uptimeSeconds": 25867.38009116667
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 6.16,
+        "fileDigest": "d4348277c958c3e2a95c3080e3492e19c9e0da15215f4fa7dba3912bfa5c79a7",
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 12,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "cell": "rotation-3/order-1/verbose/take-1",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "5C30EE89-7FB1-4A5B-A38A-B69687782DBB",
+      "length": "medium",
+      "metrics": {
+        "audioSeconds": 6.16,
+        "freeStorageBytes": 23346884608.0,
+        "loadAverage1M": 3.4033203125,
+        "lowPowerMode": 0.0,
+        "rtf": 1.0355442181621732,
+        "ttfcMS": 678.1909465789795,
+        "uptimeSeconds": 25887.017948375
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 6.16,
+        "fileDigest": "d4348277c958c3e2a95c3080e3492e19c9e0da15215f4fa7dba3912bfa5c79a7",
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 13,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "cell": "rotation-3/order-1/verbose/take-2",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "1B5FD0F2-413D-45EF-A7EF-577FA2E2B97A",
+      "length": "medium",
+      "metrics": {
+        "audioSeconds": 6.16,
+        "freeStorageBytes": 23346470912.0,
+        "loadAverage1M": 3.29052734375,
+        "lowPowerMode": 0.0,
+        "rtf": 1.0266964486601957,
+        "ttfcMS": 654.5319557189941,
+        "uptimeSeconds": 25892.96672625
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 6.16,
+        "fileDigest": "d4348277c958c3e2a95c3080e3492e19c9e0da15215f4fa7dba3912bfa5c79a7",
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 14,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "cell": "rotation-3/order-2/off/take-1",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "E42AD4E8-01CE-48C6-97CE-162379A6CE9B",
+      "length": "medium",
+      "metrics": {
+        "audioSeconds": 6.16,
+        "freeStorageBytes": 23345254400.0,
+        "loadAverage1M": 3.16259765625,
+        "lowPowerMode": 0.0,
+        "rtf": 1.0298397706275966,
+        "ttfcMS": 640.373945236206,
+        "uptimeSeconds": 25912.54720904167
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 6.16,
+        "fileDigest": "d4348277c958c3e2a95c3080e3492e19c9e0da15215f4fa7dba3912bfa5c79a7",
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 15,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "cell": "rotation-3/order-2/off/take-2",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "2E8E3A52-B878-4738-9B15-DCD0EA7C18B5",
+      "length": "medium",
+      "metrics": {
+        "audioSeconds": 6.16,
+        "freeStorageBytes": 23344926720.0,
+        "loadAverage1M": 3.1494140625,
+        "lowPowerMode": 0.0,
+        "rtf": 1.0466544503229693,
+        "ttfcMS": 655.614972114563,
+        "uptimeSeconds": 25918.529244166668
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 6.16,
+        "fileDigest": "d4348277c958c3e2a95c3080e3492e19c9e0da15215f4fa7dba3912bfa5c79a7",
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 16,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "cell": "rotation-3/order-3/lightweight/take-1",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "E7A7A154-6778-421E-94E7-363CD6F13E5D",
+      "length": "medium",
+      "metrics": {
+        "audioSeconds": 6.16,
+        "freeStorageBytes": 23343505408.0,
+        "loadAverage1M": 3.1787109375,
+        "lowPowerMode": 0.0,
+        "rtf": 1.040568667846696,
+        "ttfcMS": 647.0019817352295,
+        "uptimeSeconds": 25938.147148
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 6.16,
+        "fileDigest": "d4348277c958c3e2a95c3080e3492e19c9e0da15215f4fa7dba3912bfa5c79a7",
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 17,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    },
+    {
+      "cell": "rotation-3/order-3/lightweight/take-2",
+      "finishReason": "completed",
+      "fixtureDigest": "not-applicable",
+      "generationID": "92D514A2-4521-451B-A5DF-93D245DF4103",
+      "length": "medium",
+      "metrics": {
+        "audioSeconds": 6.16,
+        "freeStorageBytes": 23343226880.0,
+        "loadAverage1M": 3.23095703125,
+        "lowPowerMode": 0.0,
+        "rtf": 1.0415993976707474,
+        "ttfcMS": 650.4100561141968,
+        "uptimeSeconds": 25944.067256708335
+      },
+      "mode": "custom",
+      "modelArtifactVersion": "2026.04.05.2",
+      "modelID": "pro_custom_speed",
+      "modelIntegrityDigest": "f12c190adabbccff4d2bf77fdec8cfcaef4ed5913ed4e5211f2aa97ceca3432f",
+      "modelQuantization": "4-bit",
+      "modelRepository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
+      "modelRevision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "output": {
+        "atomicPublish": true,
+        "durationSeconds": 6.16,
+        "fileDigest": "d4348277c958c3e2a95c3080e3492e19c9e0da15215f4fa7dba3912bfa5c79a7",
+        "readableWAV": true
+      },
+      "runtimeProfileSignature": "qwen3_tts|custom_voice|4bit|24000|qwen3_tts_tokenizer_12hz|auto,chinese,english,french,german,italian,japanese,korean,portuguese,russian,spanish|aiden,dylan,eric,ono_anna,ryan,serena,sohee,uncle_fu,vivian|pro1b7|instruction",
+      "status": "passed",
+      "takeIndex": 18,
+      "thermalState": "nominal",
+      "variant": "speed",
+      "warmState": "warm",
+      "warnings": []
+    }
+  ],
+  "toolchain": {
+    "appBuild": "18",
+    "appVersion": "2.1.0",
+    "executableHashes": {
+      "vocello": "58cd084703408f0d72a9dfb4a3e2912dda0b3ba6ea52d8c8ff4e0f8d4b7155f3"
+    },
+    "executableUUIDs": {
+      "vocello[arm64]": "83FF9D8B-F1E9-3D81-A237-2CF22ECB630A"
+    },
+    "optimization": "-Onone",
+    "sdkName": "macosx",
+    "sdkVersion": "26.5",
+    "swiftVersion": "Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)",
+    "xcodeBuild": "17F113",
+    "xcodeVersion": "26.6"
+  }
+}

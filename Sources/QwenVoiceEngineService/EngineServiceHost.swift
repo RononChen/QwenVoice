@@ -77,6 +77,37 @@ private let diagnosticEventLogger = Logger(
     category: "DiagnosticEventRecorder"
 )
 
+/// Bridges request acceptance on the XPC command task to the detached event
+/// drain without blocking either path. Entries are consumed by the first chunk
+/// for that generation, so the map remains bounded even across long sessions.
+private final class EngineServiceRequestTimingRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var acceptedUptimeByGeneration: [UUID: Double] = [:]
+
+    func recordAcceptance(for generationID: UUID) {
+        lock.lock()
+        if acceptedUptimeByGeneration.count >= 64,
+           let oldest = acceptedUptimeByGeneration.min(by: { $0.value < $1.value })?.key {
+            acceptedUptimeByGeneration.removeValue(forKey: oldest)
+        }
+        acceptedUptimeByGeneration[generationID] = ProcessInfo.processInfo.systemUptime
+        lock.unlock()
+    }
+
+    func consumeAcceptance(for generationID: UUID) -> Double? {
+        lock.lock()
+        defer { lock.unlock() }
+        return acceptedUptimeByGeneration.removeValue(forKey: generationID)
+    }
+
+    func discard(_ generationID: UUID?) {
+        guard let generationID else { return }
+        lock.lock()
+        acceptedUptimeByGeneration.removeValue(forKey: generationID)
+        lock.unlock()
+    }
+}
+
 @MainActor
 private final class RuntimeContext: @unchecked Sendable {
     let appSupportDirectory: URL
@@ -84,6 +115,7 @@ private final class RuntimeContext: @unchecked Sendable {
     var cancellables: Set<AnyCancellable> = []
     var lastPublishedEvent: GenerationEvent?
     var lastPublishedSnapshot: TTSEngineSnapshot?
+    let requestTimings = EngineServiceRequestTimingRegistry()
     /// Long-running Task that drains the engine's bounded `events`
     /// AsyncStream and publishes each event over XPC in order while the
     /// consumer stays active. Replaces the prior
@@ -310,6 +342,9 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
             return .void
         case .generate(let request):
             let runtimeContext = try requireRuntimeContext()
+            if let generationID = request.generationID {
+                runtimeContext.requestTimings.recordAcceptance(for: generationID)
+            }
             let generationTask = Task { @MainActor in
                 try await runtimeContext.engine.generate(request)
             }
@@ -319,6 +354,7 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
                     generationTask.cancel()
                 }
             } catch {
+                runtimeContext.requestTimings.discard(request.generationID)
                 generationTask.cancel()
                 throw error
             }
@@ -327,6 +363,7 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
                 await activeGenerationCoordinator.finish(id: generationID)
                 return .generationResult(result)
             } catch {
+                runtimeContext.requestTimings.discard(request.generationID)
                 await activeGenerationCoordinator.finish(id: generationID)
                 throw error
             }
@@ -514,7 +551,20 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
                 }
                 // Accumulate transport telemetry; flushes the engine-service record
                 // on terminal events (.completed/.failed) and on generation switch.
-                if let record = transport.observe(event: event) {
+                let requestAcceptedUptime: Double?
+                if case .chunk(let chunk) = event,
+                   let generationID = chunk.generationID,
+                   generationID != transport.snapshot.generationID {
+                    requestAcceptedUptime = runtimeContext.requestTimings.consumeAcceptance(
+                        for: generationID
+                    )
+                } else {
+                    requestAcceptedUptime = nil
+                }
+                if let record = transport.observe(
+                    event: event,
+                    requestAcceptedUptime: requestAcceptedUptime
+                ) {
                     Task.detached(priority: .background) {
                         await GenerationTelemetryJSONLSink.shared.write(
                             record: record,

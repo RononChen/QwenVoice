@@ -16,6 +16,15 @@
   transcript-backed Voice Design reference; a Custom Voice output is not an acceptable substitute.
 - No preview/browser-mirror route, invisible accessibility state marker, alternate UI driver,
   coordinate bridge, or hidden UI bootstrap belongs in the shippable app.
+- Benchmark evidence now uses collision-resistant run IDs, atomic run-scoped manifests, and a
+  privacy-safe PASS-only registry. `benchmarks/HISTORY.md` is generated from canonical JSON records;
+  raw telemetry, audio, screenshots, traces, and `.xcresult` bundles remain untracked.
+- The canonical comparison hardware is the Mac mini `Mac14,3` (Apple M2, 8 GB) and iPhone 17 Pro
+  `iPhone18,1`. Filtered runs are focused, dirty runs exploratory, and Instruments runs
+  instrumented; those classes are not silently mixed into canonical timing trends.
+- Generation telemetry schema v7 distinguishes playback scheduling from acoustic audibility,
+  measures sampler cadence/drift and lifecycle boundaries, retains owning-process resource deltas,
+  requires explicit layer completeness, and restores correlated iOS app/frontend evidence.
 
 ## Publishing boundary
 
@@ -54,9 +63,13 @@ explicit macOS fixture repair/bootstrap step.
   and submission.
 - Locale-locked iOS language-output verification depends on the corresponding on-device Speech
   assets; rerun the full language matrix when those assets or language behavior changes.
+- After deterministic verification of the registry/telemetry upgrade, run fresh full macOS and
+  physical-iPhone 29-take UI benchmarks to create the first native schema-v1 canonical records.
+  These explicit quality runs remain independent from ordinary publishing and release packaging.
 
 ## Resume rule
 
 Review `git status`, read the applicable role playbook, and run verification proportional to the
 change. Do not rely on a dated local `.xcresult`, telemetry directory, or device state as proof for a
-new checkout; produce fresh evidence only when that acceptance surface is explicitly requested.
+new checkout. A tracked record proves only its exact source/toolchain/model/hardware identities;
+produce fresh evidence only when that acceptance surface is explicitly requested.

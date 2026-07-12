@@ -55,8 +55,10 @@ the full matrix when full frontend benchmark acceptance is explicitly requested.
 ## Model readiness
 
 Generation UI tests inspect Settings and require Custom, Design, and Clone Speed to be ready,
-Generate to be enabled, and the benchmark clone voice to exist before a take begins. Use model
-ensure/install operations only for explicit repair/bootstrap and restart the UI lane afterward.
+Generate to be enabled, and the benchmark clone voice to exist before a take begins. On macOS,
+use `scripts/macos_test.sh models ensure` or `scripts/macos_test.sh models install` only for explicit
+repair/bootstrap after that visible check fails. On iOS, install or repair models only through
+visible Settings → Model Downloads. Restart the affected UI lane after either repair.
 
 ## Evidence
 

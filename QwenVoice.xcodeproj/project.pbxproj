@@ -141,6 +141,7 @@
 		624A6E1F5AA00B2165DA67F6 /* EngineServiceHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCF862B9A304A7A4EC8C209F /* EngineServiceHost.swift */; };
 		6311B4AE98C1DB4A1B040DEC /* ClipReviewPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F76D71A324517246C7A3CBFF /* ClipReviewPlayer.swift */; };
 		63688213A368E98006CB5813 /* IOSAppBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E06F182E0D06AC11E44161D /* IOSAppBootstrap.swift */; };
+		64531299DDEF9DB9352ED082 /* MainThreadStallWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C66191A5DDE964FBA36052A3 /* MainThreadStallWatchdog.swift */; };
 		64603CFA94505C3735BE5831 /* IOSCrashObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A7675DBAF4D1D043862803 /* IOSCrashObserver.swift */; };
 		64DBE2E5558AB9BCEBD09D2E /* ContractBackedModelRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75ED7320DEC606B571AB6E14 /* ContractBackedModelRegistry.swift */; };
 		66E1A7D6BACD92132EDF16EE /* MainThreadStallWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C66191A5DDE964FBA36052A3 /* MainThreadStallWatchdog.swift */; };
@@ -224,6 +225,7 @@
 		B005B34A94873FF7C4D80A7E /* VoicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D3C6777F2ABFE603D026E0D /* VoicesView.swift */; };
 		B03552F3823AFAD7425C8F3D /* GenerationPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 220CFD2739290441DB6C2732 /* GenerationPersistence.swift */; };
 		B1D83CB652CC883A7A1DDC65 /* AppPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6436F73812606485A0589C35 /* AppPaths.swift */; };
+		B2F24D789A1F4DE0B7A5E124 /* MainThreadStallWatchdogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5932A386FF76F76B0E476E8D /* MainThreadStallWatchdogTests.swift */; };
 		B31137314ACEE72E40E469CC /* MLXAudioTTS in Frameworks */ = {isa = PBXBuildFile; productRef = BA9C323FE069CB973F55469F /* MLXAudioTTS */; };
 		B32F94C80713C55BAFACCDFE /* GenerationOutputVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B31FA4FAD84410F74EB19EB /* GenerationOutputVerifier.swift */; };
 		B3ECAC9478C363FBF9140D8F /* ono_anna.wav in Resources */ = {isa = PBXBuildFile; fileRef = BC2B47BB4F36569E72D128B1 /* ono_anna.wav */; };
@@ -570,6 +572,7 @@
 		5480928772E9EF2D5AE57945 /* MLXTTSEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXTTSEngine.swift; sourceTree = "<group>"; };
 		58289F75979DA076DE518D8D /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		584102582A0CD1F4A0D5734B /* XPCNativeEngineClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XPCNativeEngineClient.swift; sourceTree = "<group>"; };
+		5932A386FF76F76B0E476E8D /* MainThreadStallWatchdogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainThreadStallWatchdogTests.swift; sourceTree = "<group>"; };
 		5A23CA857F62F9575FCCD255 /* IOSOnboardingFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSOnboardingFlow.swift; sourceTree = "<group>"; };
 		5A36F6E714F753070D4A7261 /* TTSModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSModel.swift; sourceTree = "<group>"; };
 		5A5E5015EC4FD8CE25703210 /* IOSGenerationModeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSGenerationModeViews.swift; sourceTree = "<group>"; };
@@ -1369,6 +1372,7 @@
 				2559353B52F1887141092C7C /* GenerationTelemetrySchemaTests.swift */,
 				B83543082A7A136CF321231B /* LanguageSelectionPresentationTests.swift */,
 				8E5042DE0774445AE17AEDA2 /* LanguageTestSupport.swift */,
+				5932A386FF76F76B0E476E8D /* MainThreadStallWatchdogTests.swift */,
 				99ADD3256887325626693B3B /* PromptLanguageDetectorTests.swift */,
 				7AB88B8C400B171FB3344FC3 /* Qwen3SupportedLanguageTests.swift */,
 				340E2BD754D44D2C17FF440C /* WordErrorRateTests.swift */,
@@ -2038,6 +2042,8 @@
 				A81C30D0CF51F4112214F107 /* LanguageSelectionPresentation.swift in Sources */,
 				FB580B67F03AAA61FA205BCE /* LanguageSelectionPresentationTests.swift in Sources */,
 				E8FD81B91EDA72DCEA6DDABC /* LanguageTestSupport.swift in Sources */,
+				64531299DDEF9DB9352ED082 /* MainThreadStallWatchdog.swift in Sources */,
+				B2F24D789A1F4DE0B7A5E124 /* MainThreadStallWatchdogTests.swift in Sources */,
 				C249DAFEA220226AC8AC9A1F /* PromptLanguageDetectorTests.swift in Sources */,
 				1A29ACA5ECBACAE2F5AC4958 /* Qwen3SupportedLanguageTests.swift in Sources */,
 				1B078BCA387E60CFA8C95C82 /* VoiceClipTranscriber.swift in Sources */,

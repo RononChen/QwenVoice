@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+
+REPO = Path(__file__).resolve().parents[2]
+SCRIPTS = REPO / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+
+import bench_delivery_prosody as prosody
+
+
+class BenchCommandSourceContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.source = (REPO / "Sources" / "VocelloCLI" / "BenchCommand.swift").read_text(
+            encoding="utf-8"
+        )
+
+    def test_matrix_axes_use_strict_allowlist_validation(self) -> None:
+        for option in ("modes", "variants", "lengths"):
+            self.assertIn(f'args.string("{option}"),\n            option: "{option}"', self.source)
+            self.assertIn(f'wasBareFlag: args.flag("{option}")', self.source)
+        validator_start = self.source.index("private static func parseMatrixAxis(")
+        validator = self.source[validator_start : self.source.index("static func printHelp()", validator_start)]
+        self.assertIn("omittingEmptySubsequences: false", validator)
+        self.assertIn("a comma-list value is required", validator)
+        self.assertIn("!allowedSet.contains($0)", validator)
+        self.assertIn("duplicate values are not allowed", validator)
+        self.assertNotIn("skip unknown mode", self.source)
+
+    def test_current_run_prosody_precedes_summary_and_receives_manifest(self) -> None:
+        manifest = self.source.index("try writeResultsManifest(")
+        prosody_call = self.source.index("try runDeliveryProsodyAnalysis(", manifest)
+        summary_call = self.source.index("try runSummarizer(", manifest)
+        self.assertLess(prosody_call, summary_call)
+        self.assertIn('"--results-manifest", resultsManifest.path', self.source)
+
+    def test_headless_cli_summary_is_explicitly_engine_only(self) -> None:
+        summarizer = self.source[self.source.index("private static func runSummarizer"):]
+        self.assertIn('"--run-id", runID,', summarizer)
+        self.assertIn('"--evidence-manifest", evidenceManifest.path,', summarizer)
+        self.assertIn('"--engine-only",', summarizer)
+
+    def test_history_is_frozen_summarized_then_recorded(self) -> None:
+        evidence = self.source.index("try prepareEngineHistoryEvidence(")
+        summary = self.source.index("try runSummarizer(", evidence)
+        record = self.source.index("try recordEngineHistory(", summary)
+        self.assertLess(evidence, summary)
+        self.assertLess(summary, record)
+        preparation = self.source[self.source.index("private static func prepareEngineHistoryEvidence"):]
+        self.assertIn('"--defer-record",', preparation)
+
+    def test_missing_checkout_tools_retain_local_results(self) -> None:
+        self.assertIn("if summarizerScript == nil, !noSummary, !telemetryOff", self.source)
+        self.assertIn("if summarizerScript != nil {", self.source)
+        self.assertIn("benchmark history not published; local manifest", self.source)
+
+    def test_label_is_validated_before_runtime_or_generation_work(self) -> None:
+        run_start = self.source.index("static func run(_ argv: [String]) async throws")
+        label = self.source.index('let label = try validatedBenchmarkLabel(args.string("label"))', run_start)
+        runtime = self.source.index("let dataDir", label)
+        generation = self.source.index("let runtime = try await CLIRuntime.bootstrap", runtime)
+        self.assertLess(label, runtime)
+        self.assertLess(label, generation)
+        self.assertIn(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$", self.source)
+
+
+class BenchDeliveryProsodyTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.data_dir = Path(self.temporary.name) / "data"
+        self.diagnostics = self.data_dir / "diagnostics"
+        self.bench_dir = self.data_dir / "outputs" / "bench"
+        self.bench_dir.mkdir(parents=True)
+        self.manifest = self.diagnostics / "benchmark-runs" / "run-current" / "bench-results.json"
+        self.manifest.parent.mkdir(parents=True)
+
+    @staticmethod
+    def take(
+        index: int,
+        generation_id: str,
+        name: str,
+        *,
+        delivery: str | None,
+        mode: str = "custom",
+        model: str = "pro_custom_speed",
+    ) -> dict[str, object]:
+        return {
+            "takeIndex": index,
+            "generationID": generation_id,
+            "outputFileName": name,
+            "mode": mode,
+            "modelID": model,
+            "length": "medium",
+            "warmState": "warm",
+            "repetition": 0,
+            "delivery": delivery,
+        }
+
+    def write_manifest(self, takes: list[dict[str, object]]) -> None:
+        self.manifest.write_text(
+            json.dumps({"schemaVersion": 1, "runID": "run-current", "takes": takes}),
+            encoding="utf-8",
+        )
+        for take in takes:
+            (self.bench_dir / str(take["outputFileName"])).touch()
+
+    @staticmethod
+    def metrics(path: str) -> dict[str, float]:
+        instructed = "_d-" in Path(path).name
+        return {
+            "durationSec": 2.5,
+            "f0_std_hz": 30.0 if instructed else 20.0,
+            "rate_cv": 0.4 if instructed else 0.3,
+            "pause_ratio": 0.1 if instructed else 0.2,
+            "energy_roughness": 0.25 if instructed else 0.2,
+        }
+
+    def test_analysis_ignores_stale_shared_outputs(self) -> None:
+        neutral = "custom_pro_custom_speed_medium_warm_0.wav"
+        delivery = "custom_pro_custom_speed_medium_warm_d-happy.strong_0.wav"
+        self.write_manifest(
+            [
+                self.take(1, "neutral-current", neutral, delivery=None),
+                self.take(2, "delivery-current", delivery, delivery="happy.strong"),
+            ]
+        )
+        # These valid-looking older files must never be discovered without a
+        # corresponding current-run manifest entry.
+        (self.bench_dir / "design_pro_design_speed_medium_warm_0.wav").touch()
+        (self.bench_dir / "design_pro_design_speed_medium_warm_d-calm.normal_0.wav").touch()
+
+        with mock.patch.object(prosody, "analyze", side_effect=self.metrics) as analyzer:
+            results = prosody.analyze_run(self.diagnostics, self.manifest)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["runID"], "run-current")
+        self.assertEqual(results[0]["generationID"], "delivery-current")
+        self.assertEqual(results[0]["neutralGenerationID"], "neutral-current")
+        self.assertEqual(results[0]["deliveryWav"], delivery)
+        self.assertEqual(results[0]["neutralWav"], neutral)
+        analyzed_names = {Path(call.args[0]).name for call in analyzer.call_args_list}
+        self.assertEqual(analyzed_names, {neutral, delivery})
+
+    def test_missing_current_run_neutral_fails(self) -> None:
+        delivery = "custom_pro_custom_speed_medium_warm_d-happy.strong_0.wav"
+        self.write_manifest([self.take(1, "delivery-current", delivery, delivery="happy.strong")])
+        with self.assertRaisesRegex(ValueError, "no neutral reference"):
+            prosody.analyze_run(self.diagnostics, self.manifest)
+
+    def test_filename_manifest_disagreement_fails(self) -> None:
+        neutral = "custom_pro_custom_speed_medium_warm_0.wav"
+        take = self.take(1, "neutral-current", neutral, delivery=None)
+        take["length"] = "long"
+        self.write_manifest([take])
+        with self.assertRaisesRegex(ValueError, "disagrees with manifest fields"):
+            prosody.collect_run_outputs(self.bench_dir, self.manifest)
+
+    def test_sidecar_write_replaces_stale_content_atomically(self) -> None:
+        self.diagnostics.mkdir(parents=True, exist_ok=True)
+        output = self.diagnostics / "bench-prosody.json"
+        output.write_text("stale", encoding="utf-8")
+        rows = [{"runID": "run-current", "generationID": "delivery-current"}]
+        written = prosody.write_results(self.diagnostics, rows)
+        self.assertEqual(written, output)
+        self.assertEqual(json.loads(output.read_text(encoding="utf-8")), rows)
+        self.assertEqual(list(self.diagnostics.glob(".bench-prosody-*.json")), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

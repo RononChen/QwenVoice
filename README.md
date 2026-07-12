@@ -135,7 +135,7 @@ scripts/ui_test.sh macos benchmark
 scripts/macos_test.sh gate            # deterministic macOS platform gate
 scripts/ui_test.sh ios smoke          # paired physical iPhone only
 scripts/ui_test.sh ios benchmark
-scripts/ios_device.sh lang-bench --subset quick --label "…"  # language hint + output bench
+scripts/ios_device.sh lang-bench --subset quick --label "lang-quick"  # language hint + output bench
 scripts/ios_device.sh device-state      # physical-device reachability/unlock/interference probe
 scripts/ios_device.sh gate              # physical-device deterministic/runtime gate
 ```

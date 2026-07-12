@@ -2,7 +2,7 @@ import Foundation
 import QwenVoiceCore
 
 /// Collects the **user-perceived** generation milestones — submit → first chunk
-/// delivered → first audible playback → completion — and writes the app-layer row
+/// delivered → playback scheduled → completion — and writes the app-layer row
 /// of the unified telemetry artifact, keyed by the app-minted `generationID` so it
 /// joins the middle/engine rows.
 ///
@@ -20,8 +20,9 @@ final class AppGenerationTimeline {
     private struct Marks {
         let submittedAt: ContinuousClock.Instant
         var firstChunkAt: ContinuousClock.Instant?
-        var firstAudibleAt: ContinuousClock.Instant?
+        var playbackScheduledAt: ContinuousClock.Instant?
         var mode: String?
+        var playbackHealth = PlaybackHealthAccumulator()
     }
 
     private var marksByID: [String: Marks] = [:]
@@ -49,15 +50,60 @@ final class AppGenerationTimeline {
         }
     }
 
-    /// Balance the watchdog/marks for a generation that failed or was
-    /// cancelled before `recordCompleted` — call from coordinator catch
-    /// paths. No app-layer row is written for failures (unchanged behavior).
-    func recordFailed(id: UUID?) {
+    /// Finish a failed/cancelled frontend session durably. Failure rows carry
+    /// only bounded lifecycle/counter data; no raw error or user content.
+    func recordFailed(
+        id: UUID?,
+        finishReason: GenerationTerminalReason = .failed
+    ) async {
+        guard TelemetryGate.appProcessIntendedEnabled else { return }
         guard let key = id?.uuidString else { return }
-        marksByID.removeValue(forKey: key)
-        if watchdogSessions.remove(key) != nil {
-            MainThreadStallWatchdog.shared.end()
+        let now = clock.now
+        let marks = marksByID.removeValue(forKey: key)
+        var counters: [String: Int] = [:]
+        let hadWatchdogSession = watchdogSessions.remove(key) != nil
+        guard marks != nil || hadWatchdogSession else { return }
+        if hadWatchdogSession {
+            counters = MainThreadStallWatchdog.shared.end()?.asCounters ?? [:]
         }
+        var timingsMS: [String: Int] = [:]
+        if let marks {
+            counters["playbackChunksReceived"] = marks.playbackHealth.chunksReceived
+            counters["playbackContinuityFailures"] = marks.playbackHealth.continuityFailures
+            counters["playbackUnderruns"] = marks.playbackHealth.underruns
+            if let startChunks = marks.playbackHealth.startBufferedChunks {
+                counters["playbackStartBufferedChunks"] = startChunks
+            }
+            if let minimumAudioMS = marks.playbackHealth.minimumQueuedAudioMS {
+                timingsMS["playbackMinimumQueuedAudioMS"] = minimumAudioMS
+            }
+            timingsMS["submitToCompletedMS"] = Self.milliseconds(from: marks.submittedAt, to: now)
+            if let firstChunkAt = marks.firstChunkAt {
+                timingsMS["submitToFirstChunkMS"] = Self.milliseconds(from: marks.submittedAt, to: firstChunkAt)
+            }
+            if let playbackScheduledAt = marks.playbackScheduledAt {
+                timingsMS["submitToPlaybackScheduledMS"] = Self.milliseconds(
+                    from: marks.submittedAt,
+                    to: playbackScheduledAt
+                )
+            }
+        }
+        let record = GenerationTelemetryRecord(
+            generationID: key,
+            layer: .app,
+            recordedAt: ISO8601DateFormatter().string(from: Date()),
+            mode: marks?.mode,
+            finishReason: finishReason.rawValue,
+            timingsMS: timingsMS,
+            counters: counters,
+            notes: currentTaskQOSNotes()
+                .merging(BenchRunContext.telemetryNotes()) { current, _ in current }
+        )
+        await GenerationTelemetryJSONLSink.shared.write(
+            record: record,
+            appSupportDirectory: AppPaths.appSupportDir,
+            subdirectory: "app"
+        )
     }
 
     /// `id` is the player's session id string (== `generationID.uuidString` whenever
@@ -68,9 +114,47 @@ final class AppGenerationTimeline {
         marksByID[id] = marks
     }
 
-    func recordFirstAudible(id: String?) {
-        guard let id, var marks = marksByID[id], marks.firstAudibleAt == nil else { return }
-        marks.firstAudibleAt = clock.now
+    /// Records the instant the player node receives `play()`. This is intentionally
+    /// named "scheduled": without an acoustic loopback we cannot prove when a
+    /// listener first heard a rendered sample.
+    func recordPlaybackScheduled(
+        id: String?,
+        queuedChunks: Int,
+        queuedAudioSeconds: TimeInterval
+    ) {
+        guard let id, var marks = marksByID[id], marks.playbackScheduledAt == nil else { return }
+        marks.playbackScheduledAt = clock.now
+        marks.playbackHealth.playbackScheduled(
+            queuedChunks: queuedChunks,
+            queuedAudioMS: Self.audioMilliseconds(queuedAudioSeconds)
+        )
+        marksByID[id] = marks
+    }
+
+    func recordPlaybackChunk(
+        id: String?,
+        queuedAudioSeconds: TimeInterval
+    ) {
+        guard let id, var marks = marksByID[id] else { return }
+        marks.playbackHealth.chunkReceived(queuedAudioMS: Self.audioMilliseconds(queuedAudioSeconds))
+        marksByID[id] = marks
+    }
+
+    func recordPlaybackContinuityFailure(id: String?) {
+        guard let id, var marks = marksByID[id] else { return }
+        marks.playbackHealth.continuityFailed()
+        marksByID[id] = marks
+    }
+
+    func recordPlaybackUnderrun(id: String?) {
+        guard let id, var marks = marksByID[id] else { return }
+        marks.playbackHealth.underrun()
+        marksByID[id] = marks
+    }
+
+    func recordPlaybackQueueDepth(id: String?, queuedAudioSeconds: TimeInterval) {
+        guard let id, var marks = marksByID[id] else { return }
+        marks.playbackHealth.queueDrained(queuedAudioMS: Self.audioMilliseconds(queuedAudioSeconds))
         marksByID[id] = marks
     }
 
@@ -79,7 +163,7 @@ final class AppGenerationTimeline {
         mode: String?,
         usedStreaming: Bool,
         finishReason: String?,
-        summary: TelemetrySummary?
+        summary _: TelemetrySummary?
     ) async {
         guard TelemetryGate.appProcessIntendedEnabled else { return }
         guard let key = id?.uuidString else { return }
@@ -91,27 +175,53 @@ final class AppGenerationTimeline {
         // watchdog window, so per-generation attribution isn't meaningful —
         // the counters are simply omitted on all but the closing row).
         var counters: [String: Int] = [:]
-        if watchdogSessions.remove(key) != nil,
+        let hadWatchdogSession = watchdogSessions.remove(key) != nil
+        guard marks != nil || hadWatchdogSession else { return }
+        if hadWatchdogSession,
            let report = MainThreadStallWatchdog.shared.end() {
             counters = report.asCounters
         }
 
         var timingsMS: [String: Int] = [:]
         if let marks {
+            counters["playbackChunksReceived"] = marks.playbackHealth.chunksReceived
+            counters["playbackContinuityFailures"] = marks.playbackHealth.continuityFailures
+            counters["playbackUnderruns"] = marks.playbackHealth.underruns
+            if let startChunks = marks.playbackHealth.startBufferedChunks {
+                counters["playbackStartBufferedChunks"] = startChunks
+            }
+            if let startAudioMS = marks.playbackHealth.startBufferedAudioMS {
+                timingsMS["playbackStartBufferedAudioMS"] = startAudioMS
+            }
+            if let minimumAudioMS = marks.playbackHealth.minimumQueuedAudioMS {
+                timingsMS["playbackMinimumQueuedAudioMS"] = minimumAudioMS
+            }
             timingsMS["submitToCompletedMS"] = Self.milliseconds(from: marks.submittedAt, to: now)
             timingsMS["submitToCompletedNS"] = Self.nanoseconds(from: marks.submittedAt, to: now)
             if let firstChunkAt = marks.firstChunkAt {
                 timingsMS["submitToFirstChunkMS"] = Self.milliseconds(from: marks.submittedAt, to: firstChunkAt)
                 timingsMS["submitToFirstChunkNS"] = Self.nanoseconds(from: marks.submittedAt, to: firstChunkAt)
             }
-            if let firstAudibleAt = marks.firstAudibleAt {
-                timingsMS["submitToFirstAudibleMS"] = Self.milliseconds(from: marks.submittedAt, to: firstAudibleAt)
-                timingsMS["submitToFirstAudibleNS"] = Self.nanoseconds(from: marks.submittedAt, to: firstAudibleAt)
+            if let playbackScheduledAt = marks.playbackScheduledAt {
+                timingsMS["submitToPlaybackScheduledMS"] = Self.milliseconds(
+                    from: marks.submittedAt,
+                    to: playbackScheduledAt
+                )
+                timingsMS["submitToPlaybackScheduledNS"] = Self.nanoseconds(
+                    from: marks.submittedAt,
+                    to: playbackScheduledAt
+                )
             }
             if let firstChunkAt = marks.firstChunkAt,
-               let firstAudibleAt = marks.firstAudibleAt {
-                timingsMS["chunkForwardingSpanMS"] = Self.milliseconds(from: firstChunkAt, to: firstAudibleAt)
-                timingsMS["chunkForwardingSpanNS"] = Self.nanoseconds(from: firstChunkAt, to: firstAudibleAt)
+               let playbackScheduledAt = marks.playbackScheduledAt {
+                timingsMS["firstChunkToPlaybackScheduledMS"] = Self.milliseconds(
+                    from: firstChunkAt,
+                    to: playbackScheduledAt
+                )
+                timingsMS["firstChunkToPlaybackScheduledNS"] = Self.nanoseconds(
+                    from: firstChunkAt,
+                    to: playbackScheduledAt
+                )
             }
         }
 
@@ -124,7 +234,10 @@ final class AppGenerationTimeline {
             mode: mode ?? marks?.mode,
             usedStreaming: usedStreaming,
             finishReason: finishReason,
-            summary: summary,
+            // Memory belongs to the process that sampled it. The app timeline is
+            // passed the engine summary for presentation convenience, but copying
+            // it into an app-owned row would misattribute engine memory to the UI.
+            summary: nil,
             timingsMS: timingsMS,
             counters: counters,
             notes: notes
@@ -161,5 +274,9 @@ final class AppGenerationTimeline {
         let secondsNS = UInt64(components.seconds) * 1_000_000_000
         let attosecondsNS = UInt64(components.attoseconds / 1_000_000_000)
         return Int(min(UInt64(Int.max), secondsNS + attosecondsNS))
+    }
+
+    private static func audioMilliseconds(_ seconds: TimeInterval) -> Int {
+        Int((max(seconds, 0) * 1_000).rounded())
     }
 }

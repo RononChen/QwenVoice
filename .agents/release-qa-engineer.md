@@ -8,7 +8,7 @@
 **Owns:**
 - `scripts/*.sh` and `scripts/lib/`
 - `.github/workflows/release.yml`
-- `benchmarks/` committed summaries
+- `benchmarks/` schema-v1 records, generated history, and preserved reference baselines
 - `docs/releases/`
 - Release verification scripts (`scripts/verify_*.sh`, `scripts/create_dmg.sh`, etc.)
 
@@ -51,7 +51,10 @@ Before changing scripts or CI, read:
 - **iOS artifact paths** (see [`ios-device-testing.md`](../docs/reference/ios-device-testing.md)):
   `.xcresult` bundles and exported screenshots from physical-device XCUITest,
   `build/ios-diagnostics/` (headless generation telemetry + crashes),
-  `build/ios/gate-<runID>/verdict.txt`, `build/ios/profile-*.trace`.
+  `build/ios/gate-<runID>/verdict.txt`, `build/ios/profiles/<runID>/<runID>.trace`.
+- **Benchmark registry:** successful benchmark-like lanes publish a compact record under
+  `benchmarks/runs/<kind>/` and regenerate `benchmarks/HISTORY.md`. Raw telemetry, WAVs,
+  screenshots, `.xcresult`, and traces stay untracked. Publication never stages, commits, or pushes.
 
 ## Build / test commands
 
@@ -79,8 +82,8 @@ scripts/macos_test.sh core-test
 python3 scripts/test_check_language_hints.py
 python3 scripts/test_check_language_output.py
 scripts/macos_test.sh lang-bench --subset quick              # Phase 2 hint gate (CLI)
-scripts/ios_device.sh lang-bench --subset quick --label "release-QA"   # Phases 2–3 on device
-# Full 19-cell iOS matrix: scripts/ios_device.sh lang-bench --subset full --label "…"
+scripts/ios_device.sh lang-bench --subset quick --label release-QA   # Phases 2–3 on device
+# Full 19-cell iOS matrix: scripts/ios_device.sh lang-bench --subset full --label lang-full-v1
 # Phase 3 output (DE/ES/ZH/JA): language-bench.md § Phase 3 prerequisites — Speech Wi‑Fi assets
 # Current acceptance state and resume commands: docs/development-progress.md
 
@@ -95,18 +98,23 @@ scripts/macos_test.sh models check|ensure|install
 # Release packaging
 ./scripts/build.sh release
 
-# Benchmark driver (--ledger = single summarizer pass → benchmarks/HISTORY.md)
+# Benchmark driver (PASS publishes a registry record automatically when run in this checkout)
 QWENVOICE_DEBUG=1 ./build/vocello bench --modes clone --variants speed \
   --lengths short,medium,long --warm 3 --voice <prepared-voice> \
-  --label "release-QA" --ledger
+  --label "release-QA"
+
+# Registry validation / reproducibility
+python3 scripts/benchmark_history.py validate --all
+python3 scripts/benchmark_history.py rebuild-index --check
 
 # Optional regression compare (see macos-release-qa.md step 3)
 python3 scripts/summarize_generation_telemetry.py \
   ~/Library/Application\ Support/QwenVoice-Debug/diagnostics \
+  --run-id <run-id> --evidence-manifest <run-artifact-dir>/benchmark-evidence.json \
   --compare-baseline benchmarks/baselines/mac-gate-bench.json \
   --label "release-QA"
 
-# Crash/profile (profile fails on bench error unless --allow-bench-fail / QVOICE_MAC_PROFILE_ALLOW_BENCH_FAIL=1)
+# Crash/profile (PASS-only; failed traces or generations never publish benchmark history)
 scripts/macos_test.sh crashes
 scripts/macos_test.sh profile [spec]
 scripts/ios_device.sh crashes
@@ -124,7 +132,9 @@ scripts/ios_device.sh profile [spec]
 - **Ordinary CI is deterministic-only.** GitHub CI builds `VocelloiOS` with
   `generic/platform=iOS` and runs macOS deterministic verification. XCUITest execution is used only
   for explicitly requested frontend acceptance.
-- **Committed benchmark summaries ≤256 KB.** Raw `*.jsonl` is gitignored.
+- **Committed benchmark records ≤256 KB.** Records use a strict privacy allowlist; raw JSONL,
+  WAVs, screenshots, result bundles, and traces are gitignored. `HISTORY.md` is generated, never
+  manually appended.
 - **Deep checkout on CI.** `fetch-depth: 0` is required so `git rev-parse HEAD` in
   `scripts/release.sh` resolves for `release-metadata.txt`.
 - **Burn-in-safe iOS testing.** Headless generation, profiling, logs, and device diagnostics go
@@ -144,5 +154,6 @@ scripts/ios_device.sh profile [spec]
   iPhone XCUITest lanes for explicit frontend acceptance, never as an archive/TestFlight or
   development-publishing prerequisite.
 - Committing raw `.jsonl` telemetry to `benchmarks/`.
+- Editing `benchmarks/HISTORY.md` by hand or treating a failed/incomplete run as publishable.
 - Forgetting to preserve dSYMs (`scripts/build.sh` copies them to `build/macos/dsyms`).
 - Changing signing/notarization env vars without updating the workflow secret docs.

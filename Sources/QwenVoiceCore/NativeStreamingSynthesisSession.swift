@@ -1,4 +1,5 @@
 import AVFoundation
+import CryptoKit
 import Foundation
 import MLX
 import MLXAudioCore
@@ -32,6 +33,34 @@ private enum NativeStreamingSignposts {
     )
 }
 
+struct NativeSignpostCorrelation: Hashable, Sendable {
+    let runID: String
+    let generationID: String
+    let takeIndex: String
+    let cell: String
+
+    static let unscoped = NativeSignpostCorrelation(
+        runID: "not-bench",
+        generationID: "not-generation",
+        takeIndex: "not-bench",
+        cell: "not-bench"
+    )
+
+    var message: String {
+        "runID=\(runID) generationID=\(generationID) takeIndex=\(takeIndex) cell=\(cell)"
+    }
+}
+
+actor NativeTelemetryTerminalGate {
+    private var claimed = false
+
+    func claim() -> Bool {
+        guard !claimed else { return false }
+        claimed = true
+        return true
+    }
+}
+
 final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unchecked Sendable {
     private let generationID: UUID
     private let requestID: Int
@@ -45,6 +74,8 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
     private let cloneConditioning: ResolvedCloneConditioning?
     private let wasPrimed: Bool
     private let telemetryRecorder: NativeTelemetryRecorder?
+    private let telemetrySampler: NativeTelemetrySampler?
+    private let telemetryTerminalPolicy: NativeTelemetryTerminalPolicy
     private let loadCapabilityProfile: NativeLoadCapabilityProfile
     private let qwen3Capabilities: Qwen3TTSModelCapabilities
     private let memoryPolicy: NativeMemoryPolicy
@@ -68,6 +99,8 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
         cloneConditioning: ResolvedCloneConditioning? = nil,
         wasPrimed: Bool = false,
         telemetryRecorder: NativeTelemetryRecorder? = nil,
+        telemetrySampler: NativeTelemetrySampler? = nil,
+        telemetryTerminalPolicy: NativeTelemetryTerminalPolicy = .publish,
         loadCapabilityProfile: NativeLoadCapabilityProfile,
         qwen3Capabilities: Qwen3TTSModelCapabilities,
         memoryPolicy: NativeMemoryPolicy,
@@ -87,6 +120,8 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
         self.cloneConditioning = cloneConditioning
         self.wasPrimed = wasPrimed
         self.telemetryRecorder = telemetryRecorder
+        self.telemetrySampler = telemetrySampler
+        self.telemetryTerminalPolicy = telemetryTerminalPolicy
         self.loadCapabilityProfile = loadCapabilityProfile
         self.qwen3Capabilities = qwen3Capabilities
         self.memoryPolicy = memoryPolicy
@@ -96,6 +131,8 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
     }
 
     func run(chunkSink: @escaping @Sendable (GenerationEvent) -> Void) async throws -> GenerationResult {
+        do {
+        let telemetryTerminalGate = NativeTelemetryTerminalGate()
         if !request.shouldStream {
             let sessionDirectory = try makeSessionDirectory()
             let execution = StreamingExecutionContext(
@@ -111,6 +148,9 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
                 cloneConditioning: cloneConditioning,
                 wasPrimed: wasPrimed,
                 telemetryRecorder: telemetryRecorder,
+                telemetrySampler: telemetrySampler,
+                telemetryTerminalPolicy: telemetryTerminalPolicy,
+                telemetryTerminalGate: telemetryTerminalGate,
                 loadCapabilityProfile: loadCapabilityProfile,
                 qwen3Capabilities: qwen3Capabilities,
                 memoryPolicy: memoryPolicy,
@@ -126,6 +166,7 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
             } onCancel: {
                 task.cancel()
             }
+            await stopSamplerIfNeeded()
             chunkSink(.completed(result))
             return result
         }
@@ -144,6 +185,9 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
             cloneConditioning: cloneConditioning,
             wasPrimed: wasPrimed,
             telemetryRecorder: telemetryRecorder,
+            telemetrySampler: telemetrySampler,
+            telemetryTerminalPolicy: telemetryTerminalPolicy,
+            telemetryTerminalGate: telemetryTerminalGate,
             loadCapabilityProfile: loadCapabilityProfile,
             qwen3Capabilities: qwen3Capabilities,
             memoryPolicy: memoryPolicy,
@@ -164,8 +208,18 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
         } onCancel: {
             task.cancel()
         }
+        await stopSamplerIfNeeded()
         chunkSink(.completed(result))
         return result
+        } catch {
+            await stopSamplerIfNeeded()
+            throw error
+        }
+    }
+
+    private func stopSamplerIfNeeded() async {
+        let marks = await telemetryRecorder?.snapshot() ?? []
+        _ = await telemetrySampler?.stop(stageMarks: marks)
     }
 
     private var previewTitle: String {
@@ -355,7 +409,8 @@ enum AtomicPCM16WAVWriter {
     static func write(
         pcmSamples: [Int16],
         sampleRate: Int,
-        outputURL: URL
+        outputURL: URL,
+        signpostCorrelation: NativeSignpostCorrelation = .unscoped
     ) throws {
         let temporaryURL = AtomicFilePublisher.temporaryURL(for: outputURL)
         try? FileManager.default.removeItem(at: temporaryURL)
@@ -365,12 +420,14 @@ enum AtomicPCM16WAVWriter {
 
         let header: Data = try {
             let headerSignpost = NativeStreamingSignposts.signposter.beginInterval(
-                "Native Final WAV Manual Header Build"
+                "Native Final WAV Manual Header Build",
+                "\(signpostCorrelation.message, privacy: .public)"
             )
             defer {
                 NativeStreamingSignposts.signposter.endInterval(
                     "Native Final WAV Manual Header Build",
-                    headerSignpost
+                    headerSignpost,
+                    "\(signpostCorrelation.message, privacy: .public)"
                 )
             }
             return try makeHeader(sampleRate: sampleRate, frameCount: pcmSamples.count)
@@ -379,11 +436,13 @@ enum AtomicPCM16WAVWriter {
         try {
             let fileWriteSignpost = NativeStreamingSignposts.signposter.beginInterval(
                 "Native Final WAV Manual File Write",
+                "\(signpostCorrelation.message, privacy: .public)"
             )
             defer {
                 NativeStreamingSignposts.signposter.endInterval(
                     "Native Final WAV Manual File Write",
-                    fileWriteSignpost
+                    fileWriteSignpost,
+                    "\(signpostCorrelation.message, privacy: .public)"
                 )
             }
             try write(header: header, pcmSamples: pcmSamples, to: temporaryURL)
@@ -392,11 +451,13 @@ enum AtomicPCM16WAVWriter {
         try {
             let publishSignpost = NativeStreamingSignposts.signposter.beginInterval(
                 "Native Final WAV Manual Publish",
+                "\(signpostCorrelation.message, privacy: .public)"
             )
             defer {
                 NativeStreamingSignposts.signposter.endInterval(
                     "Native Final WAV Manual Publish",
-                    publishSignpost
+                    publishSignpost,
+                    "\(signpostCorrelation.message, privacy: .public)"
                 )
             }
             try AtomicFilePublisher.publishAtomically(
@@ -566,6 +627,9 @@ struct PCM16StreamLimiter: Sendable {
         // silence is excluded). sampleRate-agnostic here; converted to ms at
         // report build.
         var sumOfSquares: Double = 0
+        // Statistics for the limited samples actually written to the WAV.
+        var outputSum: Double = 0
+        var outputSumOfSquares: Double = 0
         var longestInteriorSilentRunSamples = 0
         // Absolute sample index where the longest interior silent run started.
         // nil when no interior silent run has closed. Used for dropout localization.
@@ -606,6 +670,7 @@ struct PCM16StreamLimiter: Sendable {
     // Cross-`append` silence-run state (a dropout can span chunk boundaries).
     private var sawAudio = false
     private var currentSilentRun = 0
+    private var currentSilentRunStartSample: Int?
     private(set) var metrics = Metrics()
 
     mutating func append(_ samples: [Float], into destination: inout [Int16]) {
@@ -617,7 +682,7 @@ struct PCM16StreamLimiter: Sendable {
         var localMetrics = metrics
         var localSawAudio = sawAudio
         var localSilentRun = currentSilentRun
-        var localSilentRunStart: Int? = nil
+        var localSilentRunStart = currentSilentRunStartSample
 
         samples.withUnsafeBufferPointer { buffer in
             guard let base = buffer.baseAddress else { return }
@@ -700,6 +765,8 @@ struct PCM16StreamLimiter: Sendable {
                 limited = max(-Self.ceiling, min(Self.ceiling, limited))
                 localPreviousOutput = limited
                 localMetrics.limitedPeak = max(localMetrics.limitedPeak, abs(limited))
+                localMetrics.outputSum += Double(limited)
+                localMetrics.outputSumOfSquares += Double(limited) * Double(limited)
                 destination.append(Int16((limited * Float(Int16.max)).rounded()))
             }
         }
@@ -708,6 +775,7 @@ struct PCM16StreamLimiter: Sendable {
         previousOutput = localPreviousOutput
         sawAudio = localSawAudio
         currentSilentRun = localSilentRun
+        currentSilentRunStartSample = localSilentRunStart
         metrics = localMetrics
     }
 }
@@ -777,21 +845,29 @@ final class IncrementalPCM16WAVFileWriter {
     private let finalURL: URL
     private let temporaryURL: URL
     private var published = false
+    private let signpostCorrelation: NativeSignpostCorrelation
 
-    init(sampleRate: Int, outputURL: URL) throws {
-        let createSignpost = NativeStreamingSignposts.signposter.beginInterval(
-            "Native Final WAV Writer Create"
-        )
-        defer {
-            NativeStreamingSignposts.signposter.endInterval(
-                "Native Final WAV Writer Create",
-                createSignpost
-            )
-        }
+    init(
+        sampleRate: Int,
+        outputURL: URL,
+        signpostCorrelation: NativeSignpostCorrelation = .unscoped
+    ) throws {
+        self.signpostCorrelation = signpostCorrelation
         self.format = try PCM16WAVWriter.makeFormat(sampleRate: sampleRate)
         self.finalURL = outputURL
         self.temporaryURL = AtomicFilePublisher.temporaryURL(for: outputURL)
         try? FileManager.default.removeItem(at: temporaryURL)
+        let createSignpost = NativeStreamingSignposts.signposter.beginInterval(
+            "Native Final WAV Writer Create",
+            "\(self.signpostCorrelation.message, privacy: .public)"
+        )
+        defer {
+            NativeStreamingSignposts.signposter.endInterval(
+                "Native Final WAV Writer Create",
+                createSignpost,
+                "\(self.signpostCorrelation.message, privacy: .public)"
+            )
+        }
         self.file = try AVAudioFile(
             forWriting: temporaryURL,
             settings: format.settings,
@@ -802,7 +878,8 @@ final class IncrementalPCM16WAVFileWriter {
 
     func append(pcmSamples: [Int16]) throws {
         let bufferSignpost = NativeStreamingSignposts.signposter.beginInterval(
-            "Native Final WAV Buffer Build"
+            "Native Final WAV Buffer Build",
+            "\(self.signpostCorrelation.message, privacy: .public)"
         )
         let buffer = try PCM16WAVWriter.makePCMBuffer(
             pcmSamples: pcmSamples,
@@ -811,25 +888,29 @@ final class IncrementalPCM16WAVFileWriter {
         )
         NativeStreamingSignposts.signposter.endInterval(
             "Native Final WAV Buffer Build",
-            bufferSignpost
+            bufferSignpost,
+            "\(self.signpostCorrelation.message, privacy: .public)"
         )
 
         guard let file else {
             throw MLXTTSEngineError.generationFailed("The native WAV writer was already finalized.")
         }
         let writeSignpost = NativeStreamingSignposts.signposter.beginInterval(
-            "Native Final WAV AVAudioFile Write"
+            "Native Final WAV AVAudioFile Write",
+            "\(self.signpostCorrelation.message, privacy: .public)"
         )
         try file.write(from: buffer)
         NativeStreamingSignposts.signposter.endInterval(
             "Native Final WAV AVAudioFile Write",
-            writeSignpost
+            writeSignpost,
+            "\(self.signpostCorrelation.message, privacy: .public)"
         )
     }
 
     func finish() throws {
         let finalizeSignpost = NativeStreamingSignposts.signposter.beginInterval(
-            "Native Final WAV AVAudioFile Finalize"
+            "Native Final WAV AVAudioFile Finalize",
+            "\(self.signpostCorrelation.message, privacy: .public)"
         )
         reusableBuffer = nil
         file = nil
@@ -840,7 +921,8 @@ final class IncrementalPCM16WAVFileWriter {
         published = true
         NativeStreamingSignposts.signposter.endInterval(
             "Native Final WAV AVAudioFile Finalize",
-            finalizeSignpost
+            finalizeSignpost,
+            "\(self.signpostCorrelation.message, privacy: .public)"
         )
     }
 
@@ -857,7 +939,7 @@ final class IncrementalPCM16WAVFileWriter {
     }
 }
 
-private struct StreamingExecutionContext: Sendable {
+struct StreamingExecutionContext: Sendable {
     let requestID: Int
     let generationID: UUID
     let request: GenerationRequest
@@ -870,6 +952,9 @@ private struct StreamingExecutionContext: Sendable {
     let cloneConditioning: ResolvedCloneConditioning?
     let wasPrimed: Bool
     let telemetryRecorder: NativeTelemetryRecorder?
+    let telemetrySampler: NativeTelemetrySampler?
+    let telemetryTerminalPolicy: NativeTelemetryTerminalPolicy
+    let telemetryTerminalGate: NativeTelemetryTerminalGate
     let loadCapabilityProfile: NativeLoadCapabilityProfile
     let qwen3Capabilities: Qwen3TTSModelCapabilities
     let memoryPolicy: NativeMemoryPolicy
@@ -896,41 +981,52 @@ private struct StreamingExecutionContext: Sendable {
     }
 
     func runQualityFirstFinalAudio() async throws -> GenerationResult {
-        let generationSignpost = NativeStreamingSignposts.signposter.beginInterval("Native Quality-First Generation")
+        let benchNotes = BenchRunContext.telemetryNotes()
+        let benchRunID = benchNotes["benchRunID"] ?? "not-bench"
+        let benchTakeIndex = benchNotes["benchTakeIndex"] ?? "not-bench"
+        let benchCell = benchNotes["benchCell"] ?? "not-bench"
+        let signpostCorrelation = NativeSignpostCorrelation(
+            runID: benchRunID,
+            generationID: generationID.uuidString,
+            takeIndex: benchTakeIndex,
+            cell: benchCell
+        )
+        let generationSignpostID = NativeStreamingSignposts.signposter.makeSignpostID()
+        let generationSignpost = NativeStreamingSignposts.signposter.beginInterval(
+            "Native Quality-First Generation",
+            id: generationSignpostID,
+            "runID=\(benchRunID, privacy: .public) generationID=\(generationID.uuidString, privacy: .public) takeIndex=\(benchTakeIndex, privacy: .public) cell=\(benchCell, privacy: .public)"
+        )
         let qualityFirstGenerationStartedAt = ContinuousClock.now
         defer {
-            NativeStreamingSignposts.signposter.endInterval("Native Quality-First Generation", generationSignpost)
+            NativeStreamingSignposts.signposter.endInterval(
+                "Native Quality-First Generation",
+                generationSignpost,
+                "runID=\(benchRunID, privacy: .public) generationID=\(generationID.uuidString, privacy: .public) takeIndex=\(benchTakeIndex, privacy: .public) cell=\(benchCell, privacy: .public)"
+            )
         }
         var signpostTimingsMS: [String: Int] = [:]
 
         let outputURL = URL(fileURLWithPath: request.outputPath)
         let sampleRate = model.sampleRate
         let telemetryMode = NativeTelemetryMode.current()
-        let telemetrySampleInterval = telemetryMode.sampleIntervalMS(for: memoryPolicy.deviceClass)
         let telemetryWorkPlan = NativeTelemetryWorkPlan(
             mode: telemetryMode,
             recorderPresent: telemetryRecorder != nil,
-            sampleIntervalAvailable: telemetrySampleInterval != nil
+            sampleIntervalAvailable: telemetrySampler != nil
         )
         let telemetryActive = telemetryWorkPlan.computesDerivedDiagnostics
-        let telemetrySampler: NativeTelemetrySampler? = {
-            guard telemetryWorkPlan.constructsSampler,
-                  let clock = telemetryRecorder?.clock,
-                  let sampleIntervalMS = telemetrySampleInterval
-            else { return nil }
-            return NativeTelemetrySampler(
-                // Share the stage recorder's clock so samples and marks join on both
-                // the millisecond and nanosecond timelines.
-                clock: clock,
-                sampleIntervalMS: sampleIntervalMS
-            )
-        }()
-        await telemetrySampler?.start()
+        await telemetrySampler?.captureBoundary("session_start")
         await telemetryRecorder?.mark(stage: .streamStartup)
-        try FileManager.default.createDirectory(
-            at: outputURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
+        do {
+            try FileManager.default.createDirectory(
+                at: outputURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        } catch {
+            await writeFailureTelemetry(error: error, usedStreaming: false, counters: [:])
+            throw error
+        }
 
         var shouldRetainOutput = false
         defer {
@@ -952,24 +1048,7 @@ private struct StreamingExecutionContext: Sendable {
                 underlyingError: error,
                 request: request
             )
-            await telemetryRecorder?.mark(
-                metadata: StreamFailureMessageMetadata(message: error.localizedDescription)
-            )
-            let stageMarks = await telemetryRecorder?.snapshot() ?? []
-            let (summary, _) = await Self.stopTelemetrySampler(
-                telemetrySampler,
-                stageMarks: stageMarks
-            )
-            await writeEngineTelemetryRecord(
-                summary: summary,
-                stageMarks: stageMarks,
-                usedStreaming: false,
-                finishReason: "failed",
-                counters: [:],
-                notes: TelemetryGate.resolvedEnabled
-                    ? GenerationTelemetryPrivacy.failureNotes(message: error.localizedDescription)
-                    : [:]
-            )
+            await writeFailureTelemetry(error: error, usedStreaming: false, counters: [:])
             Memory.clearCache()
             throw error
         }
@@ -997,58 +1076,80 @@ private struct StreamingExecutionContext: Sendable {
         }
 
         let materializeSignpost = NativeStreamingSignposts.signposter.beginInterval(
-            "Native Final Audio Materialize"
+            "Native Final Audio Materialize",
+            "runID=\(benchRunID, privacy: .public) generationID=\(generationID.uuidString, privacy: .public) takeIndex=\(benchTakeIndex, privacy: .public) cell=\(benchCell, privacy: .public)"
         )
         let samples = completion.audio.asArray(Float.self)
         NativeStreamingSignposts.signposter.endInterval(
             "Native Final Audio Materialize",
-            materializeSignpost
+            materializeSignpost,
+            "runID=\(benchRunID, privacy: .public) generationID=\(generationID.uuidString, privacy: .public) takeIndex=\(benchTakeIndex, privacy: .public) cell=\(benchCell, privacy: .public)"
         )
         guard !samples.isEmpty else {
+            let error = MLXTTSEngineError.generationFailed("The native engine did not produce final audio.")
+            await writeFailureTelemetry(error: error, usedStreaming: false, counters: [:])
             Memory.clearCache()
-            throw MLXTTSEngineError.generationFailed("The native engine did not produce final audio.")
+            throw error
         }
+        await telemetrySampler?.captureBoundary("final_audio_materialized")
 
         let scratchBuffer = self.scratchBuffer()
         let limiterSignpost = NativeStreamingSignposts.signposter.beginInterval(
-            "Native PCM Limiter Convert"
+            "Native PCM Limiter Convert",
+            "runID=\(benchRunID, privacy: .public) generationID=\(generationID.uuidString, privacy: .public) takeIndex=\(benchTakeIndex, privacy: .public) cell=\(benchCell, privacy: .public)"
         )
         let pcmSamples = scratchBuffer.convertLimited(samples)
         NativeStreamingSignposts.signposter.endInterval(
             "Native PCM Limiter Convert",
-            limiterSignpost
+            limiterSignpost,
+            "runID=\(benchRunID, privacy: .public) generationID=\(generationID.uuidString, privacy: .public) takeIndex=\(benchTakeIndex, privacy: .public) cell=\(benchCell, privacy: .public)"
         )
         Self.warnIfNonFiniteSamplesObserved(
             metrics: scratchBuffer.limiterMetrics,
             context: "quality-first final audio"
         )
+        await telemetrySampler?.captureBoundary("before_final_wav")
+        let finalAudioQC: AudioQCReport?
         do {
             let finalWriteSignpost = NativeStreamingSignposts.signposter.beginInterval(
-                "Native Final WAV Write"
+                "Native Final WAV Write",
+                "runID=\(benchRunID, privacy: .public) generationID=\(generationID.uuidString, privacy: .public) takeIndex=\(benchTakeIndex, privacy: .public) cell=\(benchCell, privacy: .public)"
             )
             defer {
                 NativeStreamingSignposts.signposter.endInterval(
                     "Native Final WAV Write",
-                    finalWriteSignpost
+                    finalWriteSignpost,
+                    "runID=\(benchRunID, privacy: .public) generationID=\(generationID.uuidString, privacy: .public) takeIndex=\(benchTakeIndex, privacy: .public) cell=\(benchCell, privacy: .public)"
                 )
             }
             try AtomicPCM16WAVWriter.write(
                 pcmSamples: pcmSamples,
                 sampleRate: sampleRate,
-                outputURL: outputURL
+                outputURL: outputURL,
+                signpostCorrelation: signpostCorrelation
             )
             guard Self.isReadableWAV(at: outputURL) else {
                 throw MLXTTSEngineError.generationFailed("The finalized WAV could not be reopened for reading.")
             }
+            finalAudioQC = telemetryActive ? try Self.makePersistedWAVAudioQCReport(
+                at: outputURL,
+                preWriteMetrics: scratchBuffer.limiterMetrics,
+                expectedPauseCount: Self.expectedPauseCount(in: request.text)
+            ) : nil
         } catch {
+            await writeFailureTelemetry(error: error, usedStreaming: false, counters: [:])
             Memory.clearCache()
             throw error
         }
+        await telemetrySampler?.captureBoundary("after_final_wav")
         mlxMemorySnapshots["after_final_write"] = NativeMemoryPolicyResolver.snapshot()
         let postRequestCacheClearApplied = memoryPolicy.clearCacheAfterGeneration
         if postRequestCacheClearApplied {
             Memory.clearCache()
             mlxMemorySnapshots["after_generation_trim"] = NativeMemoryPolicyResolver.snapshot()
+            await telemetrySampler?.captureBoundary("post_generation_trim")
+        } else {
+            await telemetrySampler?.captureBoundary("post_generation")
         }
 
         let durationSeconds = Double(pcmSamples.count) / Double(sampleRate)
@@ -1091,12 +1192,7 @@ private struct StreamingExecutionContext: Sendable {
             derivedMetrics: derivedMetrics,
             mlxMemoryByStage: telemetryActive ? mlxMemorySnapshots : nil,
             chunkTimeline: nil,
-            audioQC: telemetryActive ? Self.makeAudioQCReport(
-                metrics: scratchBuffer.limiterMetrics,
-                sampleRate: sampleRate,
-                durationSeconds: durationSeconds,
-                expectedPauseCount: Self.expectedPauseCount(in: request.text)
-            ) : nil,
+            audioQC: finalAudioQC,
             rawSamples: telemetryMode.persistsRawSamples ? rawSamples : nil
         )
 
@@ -1210,34 +1306,40 @@ private struct StreamingExecutionContext: Sendable {
     }
 
     func run(chunkSink: @escaping @Sendable (GenerationEvent) -> Void) async throws -> GenerationResult {
-        let generationSignpost = NativeStreamingSignposts.signposter.beginInterval("Native Generation Stream")
+        let benchNotes = BenchRunContext.telemetryNotes()
+        let benchRunID = benchNotes["benchRunID"] ?? "not-bench"
+        let benchTakeIndex = benchNotes["benchTakeIndex"] ?? "not-bench"
+        let benchCell = benchNotes["benchCell"] ?? "not-bench"
+        let signpostCorrelation = NativeSignpostCorrelation(
+            runID: benchRunID,
+            generationID: generationID.uuidString,
+            takeIndex: benchTakeIndex,
+            cell: benchCell
+        )
+        let generationSignpostID = NativeStreamingSignposts.signposter.makeSignpostID()
+        let generationSignpost = NativeStreamingSignposts.signposter.beginInterval(
+            "Native Generation Stream",
+            id: generationSignpostID,
+            "runID=\(benchRunID, privacy: .public) generationID=\(generationID.uuidString, privacy: .public) takeIndex=\(benchTakeIndex, privacy: .public) cell=\(benchCell, privacy: .public)"
+        )
         let generationStreamStartedAt = ContinuousClock.now
         defer {
-            NativeStreamingSignposts.signposter.endInterval("Native Generation Stream", generationSignpost)
+            NativeStreamingSignposts.signposter.endInterval(
+                "Native Generation Stream",
+                generationSignpost,
+                "runID=\(benchRunID, privacy: .public) generationID=\(generationID.uuidString, privacy: .public) takeIndex=\(benchTakeIndex, privacy: .public) cell=\(benchCell, privacy: .public)"
+            )
         }
         var signpostTimingsMS: [String: Int] = [:]
         let outputURL = URL(fileURLWithPath: request.outputPath)
         let sampleRate = model.sampleRate
         let telemetryMode = NativeTelemetryMode.current()
         let telemetryClock = telemetryRecorder?.clock
-        let telemetrySampleInterval = telemetryMode.sampleIntervalMS(for: memoryPolicy.deviceClass)
         let telemetryWorkPlan = NativeTelemetryWorkPlan(
             mode: telemetryMode,
             recorderPresent: telemetryRecorder != nil,
-            sampleIntervalAvailable: telemetrySampleInterval != nil
+            sampleIntervalAvailable: telemetrySampler != nil
         )
-        let telemetrySampler: NativeTelemetrySampler? = {
-            guard telemetryWorkPlan.constructsSampler,
-                  let clock = telemetryClock,
-                  let sampleIntervalMS = telemetrySampleInterval
-            else { return nil }
-            return NativeTelemetrySampler(
-                // Share the stage recorder's clock so samples and marks join on both
-                // the millisecond and nanosecond timelines.
-                clock: clock,
-                sampleIntervalMS: sampleIntervalMS
-            )
-        }()
         // Per-chunk decode timeline + final stats. Only populated when telemetry is
         // on (recorder non-nil), so there is zero per-chunk cost when gated off.
         let telemetryActive = telemetryWorkPlan.computesDerivedDiagnostics
@@ -1246,12 +1348,17 @@ private struct StreamingExecutionContext: Sendable {
         var chunkQCReports: [AudioQCChunkReport] = []
         var pendingChunkTimings: ChunkSubstageTimings?
         var latestInfo: AudioGenerationInfo?
-        await telemetrySampler?.start()
+        await telemetrySampler?.captureBoundary("session_start")
         await telemetryRecorder?.mark(stage: .streamStartup)
-        try FileManager.default.createDirectory(
-            at: outputURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
+        do {
+            try FileManager.default.createDirectory(
+                at: outputURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        } catch {
+            await writeFailureTelemetry(error: error, usedStreaming: true, counters: [:])
+            throw error
+        }
 
         // Retention flag flipped to true only on the successful-return path.
         // Any error or cancellation between directory creation and successful
@@ -1271,15 +1378,28 @@ private struct StreamingExecutionContext: Sendable {
         mlxMemorySnapshots["before_stream"] = NativeMemoryPolicyResolver.snapshot()
         let streamingOutputPolicy = NativeStreamingOutputPolicy.current()
         let previewDataPolicy = NativeStreamingPreviewDataPolicy.current()
-        let chunkWriter = streamingOutputPolicy == .pcmPreviewAndFileArtifacts
-            ? try PCM16ChunkFileWriter(sampleRate: sampleRate)
-            : nil
+        let chunkWriter: PCM16ChunkFileWriter?
+        do {
+            chunkWriter = streamingOutputPolicy == .pcmPreviewAndFileArtifacts
+                ? try PCM16ChunkFileWriter(sampleRate: sampleRate)
+                : nil
+        } catch {
+            await writeFailureTelemetry(error: error, usedStreaming: true, counters: [:])
+            throw error
+        }
         let scratchBuffer = self.scratchBuffer()
         var pcmSamples = [Int16]()
-        let finalWriter = try IncrementalPCM16WAVFileWriter(
-            sampleRate: sampleRate,
-            outputURL: outputURL
-        )
+        let finalWriter: IncrementalPCM16WAVFileWriter
+        do {
+            finalWriter = try IncrementalPCM16WAVFileWriter(
+                sampleRate: sampleRate,
+                outputURL: outputURL,
+                signpostCorrelation: signpostCorrelation
+            )
+        } catch {
+            await writeFailureTelemetry(error: error, usedStreaming: true, counters: [:])
+            throw error
+        }
         defer {
             finalWriter.discard()
         }
@@ -1289,13 +1409,19 @@ private struct StreamingExecutionContext: Sendable {
             request: request,
             policy: memoryPolicy
         )
-        let stream = try NativeStreamingSynthesisSession.buildStream(
-            request: request,
-            model: model,
-            qwen3Capabilities: qwen3Capabilities,
-            cloneConditioning: cloneConditioning,
-            streamingInterval: streamingInterval
-        )
+        let stream: AsyncThrowingStream<AudioGeneration, Error>
+        do {
+            stream = try NativeStreamingSynthesisSession.buildStream(
+                request: request,
+                model: model,
+                qwen3Capabilities: qwen3Capabilities,
+                cloneConditioning: cloneConditioning,
+                streamingInterval: streamingInterval
+            )
+        } catch {
+            await writeFailureTelemetry(error: error, usedStreaming: true, counters: [:])
+            throw error
+        }
 
         do {
             for try await event in stream {
@@ -1333,11 +1459,16 @@ private struct StreamingExecutionContext: Sendable {
                     }
 
                     if chunkIndex == 0 {
-                        NativeStreamingSignposts.signposter.emitEvent("Native First Audio Chunk")
+                        NativeStreamingSignposts.signposter.emitEvent(
+                            "Native First Audio Chunk",
+                            id: generationSignpostID,
+                            "runID=\(benchRunID, privacy: .public) generationID=\(generationID.uuidString, privacy: .public) takeIndex=\(benchTakeIndex, privacy: .public) cell=\(benchCell, privacy: .public)"
+                        )
                         await telemetryRecorder?.mark(
                             metadata: FirstChunkMetadata(chunkIndex: chunkIndex)
                         )
                         mlxMemorySnapshots["first_chunk"] = NativeMemoryPolicyResolver.snapshot()
+                        await telemetrySampler?.captureBoundary("first_chunk")
                     }
 
                     scratchBuffer.convertLimited(chunkSamples, into: &pcmSamples)
@@ -1423,23 +1554,10 @@ private struct StreamingExecutionContext: Sendable {
                 underlyingError: error,
                 request: request
             )
-            await telemetryRecorder?.mark(
-                metadata: StreamFailureMessageMetadata(message: error.localizedDescription)
-            )
-            let stageMarks = await telemetryRecorder?.snapshot() ?? []
-            let (summary, _) = await Self.stopTelemetrySampler(
-                telemetrySampler,
-                stageMarks: stageMarks
-            )
-            await writeEngineTelemetryRecord(
-                summary: summary,
-                stageMarks: stageMarks,
+            await writeFailureTelemetry(
+                error: error,
                 usedStreaming: true,
-                finishReason: "failed",
-                counters: ["chunkCount": chunkIndex],
-                notes: TelemetryGate.resolvedEnabled
-                    ? GenerationTelemetryPrivacy.failureNotes(message: error.localizedDescription)
-                    : [:]
+                counters: ["chunkCount": chunkIndex]
             )
             finalWriter.discard()
             try? FileManager.default.removeItem(at: outputURL)
@@ -1454,41 +1572,83 @@ private struct StreamingExecutionContext: Sendable {
         )
 
         guard totalFramesWritten > 0 else {
-            throw MLXTTSEngineError.generationFailed("The native engine did not emit any audio chunks.")
+            let error = MLXTTSEngineError.generationFailed("The native engine did not emit any audio chunks.")
+            await writeFailureTelemetry(error: error, usedStreaming: true, counters: ["chunkCount": chunkIndex])
+            throw error
         }
         if model.latestPreparationStringFlags["generation_end_reason"] == "token_cap" {
-            throw MLXTTSEngineError.generationFailed(
+            let error = MLXTTSEngineError.generationFailed(
                 "Qwen3-TTS reached maxNewTokens before EOS. The output was discarded to avoid a truncated generation."
             )
+            await writeFailureTelemetry(error: error, usedStreaming: true, counters: ["chunkCount": chunkIndex])
+            throw error
         }
 
         // Token loop + pipelined decoder drain finished; post-stream work (WAV
         // finalize, telemetry marks) is tracked separately from decodeWallSeconds.
         await telemetryRecorder?.mark(stage: .streamGenerationEnded)
 
-        let finalWriteSignpost = NativeStreamingSignposts.signposter.beginInterval("Native Final WAV Finish")
+        await telemetrySampler?.captureBoundary("before_final_wav")
+        let finalWriteSignpost = NativeStreamingSignposts.signposter.beginInterval(
+            "Native Final WAV Finish",
+            "runID=\(benchRunID, privacy: .public) generationID=\(generationID.uuidString, privacy: .public) takeIndex=\(benchTakeIndex, privacy: .public) cell=\(benchCell, privacy: .public)"
+        )
         let finalWAVFinishStartedAt = ContinuousClock.now
-        try finalWriter.finish()
-        guard Self.isReadableWAV(at: outputURL) else {
-            throw MLXTTSEngineError.generationFailed("The finalized streaming WAV could not be reopened for reading.")
+        do {
+            try finalWriter.finish()
+            guard Self.isReadableWAV(at: outputURL) else {
+                throw MLXTTSEngineError.generationFailed("The finalized streaming WAV could not be reopened for reading.")
+            }
+        } catch {
+            NativeStreamingSignposts.signposter.endInterval(
+                "Native Final WAV Finish",
+                finalWriteSignpost,
+                "runID=\(benchRunID, privacy: .public) generationID=\(generationID.uuidString, privacy: .public) takeIndex=\(benchTakeIndex, privacy: .public) cell=\(benchCell, privacy: .public)"
+            )
+            await writeFailureTelemetry(error: error, usedStreaming: true, counters: ["chunkCount": chunkIndex])
+            throw error
         }
-        NativeStreamingSignposts.signposter.endInterval("Native Final WAV Finish", finalWriteSignpost)
+        NativeStreamingSignposts.signposter.endInterval(
+            "Native Final WAV Finish",
+            finalWriteSignpost,
+            "runID=\(benchRunID, privacy: .public) generationID=\(generationID.uuidString, privacy: .public) takeIndex=\(benchTakeIndex, privacy: .public) cell=\(benchCell, privacy: .public)"
+        )
         signpostTimingsMS["native_final_wav_finish_ms"] = finalWAVFinishStartedAt.elapsedMilliseconds
+        let finalAudioQC: AudioQCReport?
+        do {
+            finalAudioQC = telemetryActive ? try Self.makePersistedWAVAudioQCReport(
+                at: outputURL,
+                preWriteMetrics: scratchBuffer.limiterMetrics,
+                expectedPauseCount: Self.expectedPauseCount(in: request.text),
+                chunkQC: chunkQCActive && !chunkQCReports.isEmpty ? chunkQCReports : nil
+            ) : nil
+        } catch {
+            await writeFailureTelemetry(
+                error: error,
+                usedStreaming: true,
+                counters: ["chunkCount": chunkIndex]
+            )
+            throw error
+        }
+        await telemetrySampler?.captureBoundary("after_final_wav")
         mlxMemorySnapshots["after_final_write"] = NativeMemoryPolicyResolver.snapshot()
 
         let durationSeconds = Double(totalFramesWritten) / Double(sampleRate)
         await telemetryRecorder?.mark(stage: .streamCompleted)
-        let stageMarks = await telemetryRecorder?.snapshot() ?? []
-        let (summary, rawSamples) = await Self.stopTelemetrySampler(
-            telemetrySampler,
-            stageMarks: stageMarks
-        )
         mlxMemorySnapshots["after_stream"] = NativeMemoryPolicyResolver.snapshot()
         let postRequestCacheClearApplied = memoryPolicy.clearCacheAfterGeneration
         if postRequestCacheClearApplied {
             Memory.clearCache()
             mlxMemorySnapshots["after_generation_trim"] = NativeMemoryPolicyResolver.snapshot()
+            await telemetrySampler?.captureBoundary("post_generation_trim")
+        } else {
+            await telemetrySampler?.captureBoundary("post_generation")
         }
+        let stageMarks = await telemetryRecorder?.snapshot() ?? []
+        let (summary, rawSamples) = await Self.stopTelemetrySampler(
+            telemetrySampler,
+            stageMarks: stageMarks
+        )
 
         let resolvedFinishReason: GenerationFinishReason =
             model.latestPreparationStringFlags["generation_end_reason"] == "token_cap"
@@ -1540,13 +1700,7 @@ private struct StreamingExecutionContext: Sendable {
             derivedMetrics: derivedMetrics,
             mlxMemoryByStage: telemetryActive ? mlxMemorySnapshots : nil,
             chunkTimeline: chunkTimeline.isEmpty ? nil : chunkTimeline,
-            audioQC: telemetryActive ? Self.makeAudioQCReport(
-                metrics: scratchBuffer.limiterMetrics,
-                sampleRate: sampleRate,
-                durationSeconds: durationSeconds,
-                expectedPauseCount: Self.expectedPauseCount(in: request.text),
-                chunkQC: chunkQCActive && !chunkQCReports.isEmpty ? chunkQCReports : nil
-            ) : nil,
+            audioQC: finalAudioQC,
             rawSamples: telemetryMode.persistsRawSamples ? rawSamples : nil
         )
 
@@ -1584,6 +1738,44 @@ private struct StreamingExecutionContext: Sendable {
         return file.fileFormat.sampleRate > 0 && file.length > 0
     }
 
+    /// Close the per-generation session and persist one failure row for setup,
+    /// empty-output, token-cap, or finalization failures that occur outside the
+    /// producer-loop catch. The sampler itself is idempotent, so an outer cleanup
+    /// may safely call stop again without changing this evidence.
+    private func writeFailureTelemetry(
+        error: Error,
+        usedStreaming: Bool,
+        counters: [String: Int]
+    ) async {
+        let reason = NativeGenerationTerminalClassifier.reason(for: error)
+        await telemetrySampler?.captureBoundary(
+            reason == .cancelled ? "terminal_cancelled" : "terminal_failure"
+        )
+        await telemetryRecorder?.mark(
+            metadata: StreamFailureMessageMetadata(message: error.localizedDescription)
+        )
+        let stageMarks = await telemetryRecorder?.snapshot() ?? []
+        let (summary, rawSamples) = await Self.stopTelemetrySampler(
+            telemetrySampler,
+            stageMarks: stageMarks
+        )
+        guard NativeGenerationTerminalClassifier.shouldPublish(
+            error: error,
+            policy: telemetryTerminalPolicy
+        ) else { return }
+        await writeEngineTelemetryRecord(
+            summary: summary,
+            stageMarks: stageMarks,
+            usedStreaming: usedStreaming,
+            finishReason: reason.rawValue,
+            counters: counters,
+            notes: TelemetryGate.resolvedEnabled
+                ? GenerationTelemetryPrivacy.failureNotes(message: error.localizedDescription)
+                : [:],
+            rawSamples: NativeTelemetryMode.current().persistsRawSamples ? rawSamples : nil
+        )
+    }
+
     /// Persists the rescued sampler `TelemetrySummary` + stage timeline as the
     /// engine-layer row of the unified telemetry artifact. Runtime-gated and a
     /// no-op when the gate is off or the app-support directory is unknown — so it
@@ -1604,6 +1796,7 @@ private struct StreamingExecutionContext: Sendable {
     ) async {
         guard TelemetryGate.resolvedEnabled else { return }
         guard let appSupportDirectory = diagnosticAppSupportBox?.url else { return }
+        guard await telemetryTerminalGate.claim() else { return }
         // Stamp the resolved device-memory tier so each row self-identifies which
         // policy it ran under — confirms a forced-tier benchmark took effect.
         // Reuses the free-form notes field; a caller-supplied key wins on collision.
@@ -1617,6 +1810,10 @@ private struct StreamingExecutionContext: Sendable {
             // break results out by prompt length (short / medium / long) — RTF,
             // decode time, and KV-cache memory all scale with it.
             "promptChars": String(request.text.count),
+            // Privacy-safe corpus identity for history/trend equivalence. The
+            // script itself is never persisted in telemetry or tracked records.
+            "promptDigest": SHA256.hash(data: Data(request.text.utf8))
+                .map { String(format: "%02x", $0) }.joined(),
             // Resolved Qwen3 language for this generation (explicit hint or
             // text-detected) — verifies Auto-language resolution (incl. the
             // Latin-script NLLanguageRecognizer path) and gives delivery
@@ -1690,6 +1887,20 @@ private struct StreamingExecutionContext: Sendable {
             .merging(notes) { _, caller in caller }
             .merging(currentTaskQOSNotes()) { current, _ in current }
             .merging(BenchRunContext.telemetryNotes(intendedWarmState: warmState.rawValue)) { current, _ in current }
+        let fixtureDigest: String? = {
+            switch request.payload {
+            case .custom:
+                return nil
+            case .design(let voiceDescription, _):
+                return SHA256.hash(data: Data(voiceDescription.utf8))
+                    .map { String(format: "%02x", $0) }.joined()
+            case .clone(let reference):
+                guard let data = try? Data(contentsOf: URL(fileURLWithPath: reference.audioPath), options: .mappedIfSafe) else {
+                    return nil
+                }
+                return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            }
+        }()
         let record = GenerationTelemetryRecord(
             generationID: generationID.uuidString,
             layer: .engine,
@@ -1708,7 +1919,19 @@ private struct StreamingExecutionContext: Sendable {
             derivedMetrics: derivedWithKV,
             mlxMemoryByStage: mlxMemoryByStage,
             chunkTimeline: chunkTimeline,
-            audioQC: audioQC
+            audioQC: audioQC,
+            modelRuntimeIdentity: ModelRuntimeIdentity(
+                resolvedModelID: request.modelID,
+                modelVariant: stringFlags["model_identity_variant"],
+                modelRepository: stringFlags["model_identity_repository"],
+                huggingFaceRevision: stringFlags["model_identity_revision"],
+                artifactVersion: stringFlags["model_identity_artifact_version"],
+                quantization: stringFlags["model_identity_quantization"],
+                integrityManifestDigest: stringFlags["model_identity_integrity_manifest_digest"],
+                runtimeProfileSignature: stringFlags["qwen3_runtime_profile_signature"],
+                nativeLoadCapabilityProfile: loadCapabilityProfile.rawValue,
+                fixtureDigest: fixtureDigest
+            )
         )
         await GenerationTelemetryJSONLSink.shared.write(
             record: record,
@@ -1727,6 +1950,67 @@ private struct StreamingExecutionContext: Sendable {
         }
     }
 
+    /// Re-open the atomically published WAV and derive the written-output half
+    /// of the QC report from those exact persisted frames. Pre-limiter
+    /// instability counters are retained from generation, while energy, DC and
+    /// dropout evidence is replaced by the file that downstream consumers read.
+    static func makePersistedWAVAudioQCReport(
+        at url: URL,
+        preWriteMetrics: PCM16StreamLimiter.Metrics? = nil,
+        expectedPauseCount: Int,
+        chunkQC: [AudioQCChunkReport]? = nil
+    ) throws -> AudioQCReport {
+        let file = try AVAudioFile(forReading: url)
+        let frameCount = Int(file.length)
+        guard frameCount > 0, file.processingFormat.sampleRate > 0 else {
+            throw MLXTTSEngineError.generationFailed(
+                "The finalized WAV contains no readable audio frames."
+            )
+        }
+        guard let buffer = AVAudioPCMBuffer(
+            pcmFormat: file.processingFormat,
+            frameCapacity: AVAudioFrameCount(frameCount)
+        ) else {
+            throw MLXTTSEngineError.generationFailed(
+                "The finalized WAV could not allocate a verification buffer."
+            )
+        }
+        try file.read(into: buffer)
+        let count = Int(buffer.frameLength)
+        let persistedSamples: [Float]
+        if let floats = buffer.floatChannelData {
+            persistedSamples = Array(UnsafeBufferPointer(start: floats[0], count: count))
+        } else if let integers = buffer.int16ChannelData {
+            persistedSamples = UnsafeBufferPointer(start: integers[0], count: count).map {
+                Float($0) / Float(Int16.max)
+            }
+        } else {
+            throw MLXTTSEngineError.generationFailed(
+                "The finalized WAV uses an unsupported verification format."
+            )
+        }
+
+        var persistedLimiter = PCM16StreamLimiter()
+        var discardedPCM: [Int16] = []
+        persistedLimiter.append(persistedSamples, into: &discardedPCM)
+        let persisted = persistedLimiter.metrics
+        var combined = preWriteMetrics ?? persisted
+        combined.processedSamples = persisted.processedSamples
+        combined.outputSum = persisted.outputSum
+        combined.outputSumOfSquares = persisted.outputSumOfSquares
+        combined.longestInteriorSilentRunSamples = persisted.longestInteriorSilentRunSamples
+        combined.longestInteriorSilentRunStartSample = persisted.longestInteriorSilentRunStartSample
+        combined.interiorSilentRunSamples = persisted.interiorSilentRunSamples
+
+        return makeAudioQCReport(
+            metrics: combined,
+            sampleRate: Int(file.processingFormat.sampleRate.rounded()),
+            durationSeconds: Double(count) / file.processingFormat.sampleRate,
+            expectedPauseCount: expectedPauseCount,
+            chunkQC: chunkQC
+        )
+    }
+
     /// Build the reference-free `AudioQCReport` from the limiter's per-sample
     /// metrics. Thresholds are conservative + tunable here — they exist to catch
     /// GROSS defects (regression tripwire), not to judge subtle perceptual quality
@@ -1739,8 +2023,9 @@ private struct StreamingExecutionContext: Sendable {
         chunkQC: [AudioQCChunkReport]? = nil
     ) -> AudioQCReport {
         let n = metrics.processedSamples
-        let rms = n > 0 ? (metrics.sumOfSquares / Double(n)).squareRoot() : 0
+        let rms = n > 0 ? (metrics.outputSumOfSquares / Double(n)).squareRoot() : 0
         let rmsDBFS: Double? = rms > 0 ? 20 * log10(rms) : nil
+        let dcOffset: Double? = n > 0 ? metrics.outputSum / Double(n) : nil
         let longestSilenceMS = sampleRate > 0
             ? Int(Double(metrics.longestInteriorSilentRunSamples) * 1000 / Double(sampleRate))
             : 0
@@ -1765,6 +2050,7 @@ private struct StreamingExecutionContext: Sendable {
         let silentFailDBFS = -60.0, lowLevelWarnDBFS = -45.0
         let clipFailFrac = 0.001, clickFailFrac = 0.005
         let clickWarnFrac = 0.0005, hotWarnFrac = 0.02
+        let dcOffsetWarn = 0.05, dcOffsetFail = 0.20
         // Dropout (punctuation-aware). The model emits a prosodic pause at each
         // sentence/clause boundary; on long, slow content these legitimately reach
         // ~800 ms — verified that EVERY long-content interior silence maps to a
@@ -1781,37 +2067,59 @@ private struct StreamingExecutionContext: Sendable {
         let excessLongPauses = max(0, longPauseCount - max(0, expectedPauseCount))
 
         var flags: [String] = []
-        var verdict: AudioQCReport.Verdict = .pass
-        func raise(_ to: AudioQCReport.Verdict) {
+        var instabilityVerdict: AudioQCReport.Verdict = .pass
+        var writtenOutputVerdict: AudioQCReport.Verdict = .pass
+        func raise(_ to: AudioQCReport.Verdict, _ verdict: inout AudioQCReport.Verdict) {
             if to == .fail { verdict = .fail }
             else if to == .warn, verdict != .fail { verdict = .warn }
         }
-
-        if metrics.nonFiniteSamples > 0 { flags.append("nonfinite"); raise(.fail) }
-        if n == 0 { flags.append("empty"); raise(.fail) }
-        if let db = rmsDBFS {
-            if db < silentFailDBFS { flags.append("near_silent"); raise(.fail) }
-            else if db < lowLevelWarnDBFS { flags.append("low_level"); raise(.warn) }
-        } else if n > 0 { flags.append("silent"); raise(.fail) }
-        if longestSilenceMS >= egregiousMS {
-            flags.append("dropout:\(longestSilenceMS)ms"); raise(.fail)
-        } else if excessLongPauses >= 2 {
-            flags.append("dropout:excess\(excessLongPauses)(\(longPauseCount)/\(expectedPauseCount))"); raise(.fail)
-        } else if excessLongPauses == 1 {
-            flags.append("dropout:excess1(\(longPauseCount)/\(expectedPauseCount))"); raise(.warn)
-        } else if longestSilenceMS >= suspiciousSingleMS {
-            flags.append("dropout:\(longestSilenceMS)ms"); raise(.warn)
+        func worst(
+            _ lhs: AudioQCReport.Verdict,
+            _ rhs: AudioQCReport.Verdict
+        ) -> AudioQCReport.Verdict {
+            if lhs == .fail || rhs == .fail { return .fail }
+            if lhs == .warn || rhs == .warn { return .warn }
+            return .pass
         }
-        if clippedFrac > clipFailFrac { flags.append("clipping"); raise(.fail) }
-        else if clipped > 0 { flags.append("clipping"); raise(.warn) }
-        if clickFrac > clickFailFrac { flags.append("clicks"); raise(.fail) }
-        else if clickFrac > clickWarnFrac { flags.append("clicks"); raise(.warn) }
-        if hotFrac > hotWarnFrac { flags.append("hot"); raise(.warn) }
+
+        if metrics.nonFiniteSamples > 0 {
+            flags.append("nonfinite"); raise(.fail, &instabilityVerdict)
+        }
+        if n == 0 { flags.append("empty"); raise(.fail, &writtenOutputVerdict) }
+        if let db = rmsDBFS {
+            if db < silentFailDBFS { flags.append("near_silent"); raise(.fail, &writtenOutputVerdict) }
+            else if db < lowLevelWarnDBFS { flags.append("low_level"); raise(.warn, &writtenOutputVerdict) }
+        } else if n > 0 { flags.append("silent"); raise(.fail, &writtenOutputVerdict) }
+        if longestSilenceMS >= egregiousMS {
+            flags.append("dropout:\(longestSilenceMS)ms"); raise(.fail, &writtenOutputVerdict)
+        } else if excessLongPauses >= 2 {
+            flags.append("dropout:excess\(excessLongPauses)(\(longPauseCount)/\(expectedPauseCount))"); raise(.fail, &writtenOutputVerdict)
+        } else if excessLongPauses == 1 {
+            flags.append("dropout:excess1(\(longPauseCount)/\(expectedPauseCount))"); raise(.warn, &writtenOutputVerdict)
+        } else if longestSilenceMS >= suspiciousSingleMS {
+            flags.append("dropout:\(longestSilenceMS)ms"); raise(.warn, &writtenOutputVerdict)
+        }
+        if clippedFrac > clipFailFrac { flags.append("clipping"); raise(.fail, &instabilityVerdict) }
+        else if clipped > 0 { flags.append("clipping"); raise(.warn, &instabilityVerdict) }
+        if clickFrac > clickFailFrac { flags.append("clicks"); raise(.fail, &instabilityVerdict) }
+        else if clickFrac > clickWarnFrac { flags.append("clicks"); raise(.warn, &instabilityVerdict) }
+        if hotFrac > hotWarnFrac { flags.append("hot"); raise(.warn, &instabilityVerdict) }
+        if let dcOffset {
+            if abs(dcOffset) > dcOffsetFail {
+                flags.append("dc_offset"); raise(.fail, &writtenOutputVerdict)
+            } else if abs(dcOffset) > dcOffsetWarn {
+                flags.append("dc_offset"); raise(.warn, &writtenOutputVerdict)
+            }
+        }
+        let verdict = worst(instabilityVerdict, writtenOutputVerdict)
 
         return AudioQCReport(
+            instabilityVerdict: instabilityVerdict,
+            writtenOutputVerdict: writtenOutputVerdict,
             verdict: verdict,
             flags: flags,
             rmsDBFS: rmsDBFS,
+            dcOffset: dcOffset,
             peak: Double(metrics.rawPeak),
             clippedSamples: clipped,
             hotSamples: hot,
@@ -1975,27 +2283,23 @@ private struct StreamingExecutionContext: Sendable {
         stageMarks: [NativeTelemetryStageMark]
     ) async -> (summary: TelemetrySummary, samples: [TelemetrySample]) {
         guard let telemetrySampler else {
-            return (
-                TelemetrySummary(
-                    residentStartMB: nil,
-                    residentEndMB: nil,
-                    residentPeakMB: nil,
-                    physFootprintPeakMB: nil,
-                    compressedPeakMB: nil,
-                    headroomStartMB: nil,
-                    headroomEndMB: nil,
-                    headroomMinMB: nil,
-                    gpuAllocatedPeakMB: nil,
-                    gpuRecommendedWorkingSetMB: nil,
-                    gpuWorkingSetUsageRatioPeak: nil,
-                    timeToPeakMS: nil,
-                    sampleCount: 0,
-                    stageMarks: stageMarks,
-                    thermalState: nil
-                ),
-                []
-            )
+            return (TelemetrySummary.empty(stageMarks: stageMarks), [])
         }
         return await telemetrySampler.stop(stageMarks: stageMarks)
+    }
+}
+
+/// Canonical persisted-output QC entry point for app-level batch validation and
+/// deterministic tests. Generation passes its pre-limiter metrics internally so
+/// the same report also retains upstream instability evidence.
+public enum PersistedWAVAudioQCAnalyzer {
+    public static func evaluate(
+        url: URL,
+        expectedPauseCount: Int = 0
+    ) throws -> AudioQCReport {
+        try StreamingExecutionContext.makePersistedWAVAudioQCReport(
+            at: url,
+            expectedPauseCount: expectedPauseCount
+        )
     }
 }

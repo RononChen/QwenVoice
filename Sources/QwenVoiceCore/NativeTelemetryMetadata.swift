@@ -149,21 +149,36 @@ public struct FirstChunkMetadata: NativeTelemetryMetadata {
 public struct StreamFailureMessageMetadata: NativeTelemetryMetadata {
     public static let stage = NativeRuntimeStage.streamFailed.rawValue
 
-    public let message: String
+    public let messageLength: Int
+    public let messageDigest: String
 
     public init(message: String) {
-        self.message = message
+        let notes = GenerationTelemetryPrivacy.failureNotes(message: message)
+        self.messageLength = Int(notes["failureMessageLength"] ?? "") ?? message.count
+        self.messageDigest = notes["failureMessageDigest"] ?? ""
     }
 
     public init?(dictionary: [String: String]) {
+        if let length = dictionary["message_length"].flatMap(Int.init),
+           let digest = dictionary["message_digest"], !digest.isEmpty {
+            self.messageLength = length
+            self.messageDigest = digest
+            return
+        }
+        // Decode legacy metadata without preserving the raw message on re-encode.
         guard let message = dictionary["message"] else {
             return nil
         }
-        self.message = message
+        let notes = GenerationTelemetryPrivacy.failureNotes(message: message)
+        self.messageLength = Int(notes["failureMessageLength"] ?? "") ?? message.count
+        self.messageDigest = notes["failureMessageDigest"] ?? ""
     }
 
     public var dictionaryRepresentation: [String: String] {
-        ["message": message]
+        [
+            "message_length": String(messageLength),
+            "message_digest": messageDigest,
+        ]
     }
 }
 

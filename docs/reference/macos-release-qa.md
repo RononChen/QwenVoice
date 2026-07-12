@@ -36,7 +36,8 @@ upload depend on deterministic release-readiness and artifact checks.
    scripts/macos_test.sh telemetry-overhead
    ```
    This is deeper engine evidence when the model fixture is available; absence of the fixture does
-   not block signing, notarization, or upload.
+   not block signing, notarization, or upload. A PASS publishes a compact `telemetry-overhead`
+   record; its three mode-order rotations, raw PCM/timing evidence, and machine context stay local.
 2b. **Optional explicit frontend acceptance** (never packaging-blocking):
    ```sh
    scripts/ui_test.sh macos smoke       # includes visible model readiness
@@ -49,13 +50,14 @@ upload depend on deterministic release-readiness and artifact checks.
    generation, the completed player, and History. Benchmark owns the configurable
    Custom/Design/Clone matrix and defaults to exactly 29 takes. Both lanes fail on a new crash;
    benchmark additionally validates exact telemetry count/order, History, readable WAVs, and
-   audio-QC evidence for every take.
+   audio-QC evidence for every take. On PASS, the benchmark automatically publishes one compact
+   `ui-generation` record; raw `.xcresult`, screenshots, telemetry, and WAVs stay untracked.
 3. **Engine regression net** (when any engine/Sources change since the last green bench):
    ```sh
    # Explicit model-dependent engine QA; repair fixtures only when this optional run is requested.
    QWENVOICE_DEBUG=1 ./build/vocello bench --modes custom,design,clone \
      --variants speed --lengths short,medium,long \
-     --warm 3 --voice A_warm_elderly_woman --label "release-QA" --ledger
+     --warm 3 --voice A_warm_elderly_woman --label "release-QA"
    ```
    Full procedure: [`benchmarking-procedure.md`](benchmarking-procedure.md) §4.1.
    Gate: audioQC pass on all cells; RTF within noise of the latest `benchmarks/HISTORY.md` rows;
@@ -64,10 +66,14 @@ upload depend on deterministic release-readiness and artifact checks.
    ```sh
    python3 scripts/summarize_generation_telemetry.py \
      ~/Library/Application\ Support/QwenVoice-Debug/diagnostics \
+     --run-id <run-id> --evidence-manifest <run-artifact-dir>/benchmark-evidence.json \
      --compare-baseline benchmarks/baselines/mac-gate-bench.json \
      --label "release-QA"
    ```
    Investigate any highlighted cell before shipping.
+   Successful in-repository benchmarks publish a privacy-safe `engine-generation` record and
+   regenerate `benchmarks/HISTORY.md`; do not append to that generated file manually. Add a human
+   listening verdict later with `scripts/benchmark_history.py annotate`.
 4. **Static audits** (release-sized changesets): use the relevant installed Codex macOS skills
    plus direct code review for SwiftUI architecture/performance, memory, concurrency, signing,
    and security/privacy. Scope findings to changed surfaces; fix or explicitly defer them.

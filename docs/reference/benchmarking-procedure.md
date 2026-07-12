@@ -1,7 +1,7 @@
 # Benchmarking procedure — operator runbook
 
 Step-by-step guide for running Vocello performance and quality benchmarks on **macOS**
-(CLI and app/XPC) and **iOS** (headless on-device diagnostics). This document covers **when** to bench,
+(CLI and app/XPC) and **iOS** (physical-device UI and headless diagnostics). This document covers **when** to bench,
 **how** to drive each platform path, **what** artifacts to expect, and **how** to read results.
 
 For telemetry schema, record fields, and MLX timing semantics, see
@@ -35,7 +35,7 @@ A benchmark pass requires **all** of the following:
 | Gate | Criterion |
 |------|-----------|
 | **audioQC** | No `fail` in any cell (`pass` or `warn` only). Any `fail` blocks promotion. |
-| **RTF** | `derivedMetrics.audioSecondsPerWallSecond` within noise of the latest [`benchmarks/HISTORY.md`](../../benchmarks/HISTORY.md) row for the headline cell (same tier, same variant). |
+| **RTF** | `derivedMetrics.audioSecondsPerWallSecond` reviewed against the nearest compatible clean record in generated [`benchmarks/HISTORY.md`](../../benchmarks/HISTORY.md). |
 | **Memory** | No rising `physFoot` peak or non-zero `hardTrim` in `trims` on floor-tier runs. |
 | **Listening pass** | Mandatory human ear check for engine changes — automated QC is a tripwire, not a substitute. |
 
@@ -46,9 +46,12 @@ A benchmark pass requires **all** of the following:
 1. **Primary backend driver is headless** — `vocello bench` drives the matrix in-process with exact
    cold/warm control. **`scripts/ui_test.sh macos benchmark`** is the supplementary XPC integration net (§4.10).
 2. **Telemetry is runtime-gated** — identical code in Release; off unless debug env/toggle/handshake.
-3. **No CI auto-gate today** — model-dependent benchmarks are local and explicitly requested (see §9).
+3. **No CI execution gate** — model-dependent benchmarks are local and explicitly requested. CI validates the compact registry and reproducible index but does not run models, devices, XCUITest, or Instruments.
 4. **Lazy MLX caveat** — decode breakdown columns measure Swift wall-clock around lazy graph
    ops, not per-stage GPU compute. Use Instruments signposts for GPU attribution (§6.3).
+5. **PASS-only publication** — a successful repository benchmark publishes one allowlisted JSON
+   record and regenerates `HISTORY.md`. Failed or incomplete runs leave tracked history unchanged;
+   raw telemetry, audio, screenshots, traces, and result bundles remain untracked.
 
 ---
 
@@ -62,15 +65,15 @@ Three hosts write telemetry; only some layers exist per path:
 Engine row          yes                     yes                    yes
 Engine-service row  no                      yes (XPC transport)    no
 App row             no                      yes (UI timings)       yes (UI timings)
-Merged row          no (CLI)                yes (macOS merger)     partial
+Required join        engine                  app + service + engine app + engine
 TTFC column         — (no app process)      yes (submit→chunk)     yes
-UIstall column      —                       yes                    yes
+UI heartbeat        —                       yes                    yes
 ```
 
 | Path | Driver | Engine topology | Best for |
 |------|--------|-----------------|----------|
 | **CLI** | `./build/vocello bench` | In-process `MLXTTSEngine` | Deterministic RTF/decode/memory matrix; release QA step 3 |
-| **macOS UI** | App + `QwenVoiceEngineService` XPC | Out-of-process engine | End-to-end TTFC, UI stall, XPC transport; UI smoke tests |
+| **macOS UI** | App + `QwenVoiceEngineService` XPC | Out-of-process engine | Submit-to-first-chunk, playback scheduling, delayed-heartbeat, and XPC transport evidence; UI smoke tests |
 | **macOS XPC UI benchmark** | `scripts/ui_test.sh macos benchmark` | Out-of-process engine | Full UI matrix through real app + XPC; merged 3-layer telemetry |
 | **macOS profile** | `scripts/macos_test.sh profile` | In-process via CLI inside trace | Instruments / os_signpost validation |
 | **iOS device** | `scripts/ios_device.sh bench` | In-process | iPhone tier, Jetsam, on-device RTF (headless diagnostics, single take) |
@@ -78,6 +81,20 @@ UIstall column      —                       yes                    yes
 
 **Important:** CLI bench numbers are **not** identical to macOS XPC UI numbers. Compare like with
 like (CLI vs CLI, UI vs UI). Use CLI for backend optimization; use UI/XPC for integration regressions.
+
+### Canonical hardware profiles
+
+Native history is anchored to [`benchmarks/hardware-profiles.json`](../../benchmarks/hardware-profiles.json):
+
+| Platform | Profile | Hardware |
+|---|---|---|
+| macOS | `mac-mini-m2-8gb` | Mac mini `Mac14,3`, Apple M2, 8 GB |
+| iOS | `iphone-17-pro` | iPhone 17 Pro `iPhone18,1` |
+
+Records also capture current OS build, thermal/low-power state, sanitized transport, toolchain,
+executables, input/model fingerprints, and source state. A dirty success is `exploratory`, not a
+canonical trend point. Profiles and forced-memory-class diagnostics are not compared with normal
+timing records.
 
 ---
 
@@ -128,6 +145,10 @@ Set `QVOICE_REQUIRE_TEST_MODELS=1` is automatic on script paths; bare `xcodebuil
 
 ## 4. Standard workflows
 
+All `--label` values are opaque privacy-safe identifiers matching
+`[A-Za-z0-9][A-Za-z0-9._-]{0,95}`. Use a short slug such as `release-QA`; never put a prompt,
+voice description, username, path, or free-form note in a label.
+
 ### 4.1 Release QA engine net (macOS)
 
 From [`macos-release-qa.md`](macos-release-qa.md) step 3 — run when `Sources/` engine code changed:
@@ -141,8 +162,7 @@ QWENVOICE_DEBUG=1 ./build/vocello bench \
   --lengths short,medium,long \
   --warm 3 \
   --voice A_warm_elderly_woman \
-  --label "release-QA" \
-  --ledger
+  --label "release-QA"
 ```
 
 Gate: all cells `QC=pass` (or documented `warn` with listening pass); RTF within noise of
@@ -157,7 +177,6 @@ QWENVOICE_DEBUG=1 ./build/vocello bench \
   --lengths short,medium \
   --warm 1 \
   --label "my-change" \
-  --ledger \
   --force
 ```
 
@@ -189,7 +208,7 @@ QWENVOICE_DEBUG=1 \
   QWENVOICE_SUPPRESS_WARMUP=1 \
   ./build/vocello bench \
   --modes custom --variants speed --lengths medium --warm 3 \
-  --label "floor-tier" --ledger
+  --label "floor-tier"
 ```
 
 Summarizer header shows `tier: floor_8gb_mac ⚠ forced`.
@@ -217,7 +236,9 @@ QWENVOICE_DEBUG=1 ./build/vocello bench \
   --label "delivery-audit"
 ```
 
-Adds instruct-bearing warm takes; summarizer prints a delivery block with prosody deltas.
+Adds instruct-bearing warm takes. The prosody analyzer reads the current run's immutable
+`bench-results.json` allowlist before the final summary, so older WAVs left by `--keep` cannot enter
+the delivery comparison; the summarizer then prints that current prosody block.
 
 ### 4.7 iOS on-device bench
 
@@ -257,14 +278,22 @@ Requires a paired, unlocked physical iPhone and a valid XCUITest destination. Si
 supported. The benchmark accepts `--modes`, `--lengths`, `--warm`, and `--label`; without filters it
 runs the canonical 29-take matrix.
 
-Optional trace during matrix (single in-process attach):
+Artifacts are the `.xcresult` bundle, exported XCTest screenshots, run-scoped engine/app telemetry,
+and the atomic `benchmark-evidence.json`. The validator maps the test-owned ordered matrix directly
+to the matching generation IDs; the 150-character case remains explicitly `long`. Test assertions,
+the crash delta, and the deterministic telemetry/audio validators form the gate.
+
+The Instruments profile is a separate headless lane, not an attachment to the XCUITest matrix:
 
 ```sh
 scripts/ios_device.sh profile
 ```
 
-Artifacts are the `.xcresult` bundle, exported XCTest screenshots, pulled telemetry, and optional
-trace references. Test assertions and the deterministic telemetry/audio validators form the gate.
+It builds and installs the diagnostic app, launches one headless generation suspended, attaches
+CPU Profiler plus `os_signpost` to that exact PID, resumes it, waits for the success sentinel, pulls
+its run-scoped diagnostics, and publishes an independent `instrument-profile` record. Run it before
+or after a UI benchmark when profiling evidence is useful; do not treat its trace, generation, or
+history record as part of the UI benchmark's `.xcresult` or evidence manifest.
 
 ### 4.7c iOS benchmark ownership
 
@@ -273,7 +302,7 @@ friction, use the headless §4.7 `ios_device.sh bench` lane.
 
 | Phase | Tool |
 |-------|------|
-| Trace capture | `scripts/ios_device.sh profile` during the explicit benchmark lane |
+| Independent trace capture | `scripts/ios_device.sh profile` (separate headless generation/profile lane) |
 | Trace analysis | Instruments / `xcrun xctrace`; optional `xcprof` on `PATH` |
 | UI failure | `.xcresult` activities, failure diagnostics, and screenshot attachments |
 | Crash post-mortem | Xcode Organizer; optional `xcsym` on `PATH` |
@@ -281,18 +310,26 @@ friction, use the headless §4.7 `ios_device.sh bench` lane.
 Use `$axiom-tools` for workflow selection. Physical-device setup is documented in
 [`ios-device-testing.md`](ios-device-testing.md).
 
+The iOS profile command resolves Instruments' UDID independently from CoreDevice's device ID and
+stops before launching Vocello if the phone is listed under `Devices Offline`. Reconnect and unlock
+the phone until `xcrun xctrace list devices` places it under `Devices`; CoreDevice reachability alone
+is not sufficient evidence that Instruments can attach.
+
 ### 4.8 macOS Instruments profile (signpost validation)
 
 ```sh
-QVOICE_MAC_PROFILE_TEMPLATE=os_signpost \
 QVOICE_MAC_PROFILE_DURATION=120 \
 scripts/macos_test.sh profile custom:speed:
 ```
 
-Produces `build/macos/profile-<timestamp>.trace`. **In-process only** — not the production XPC path.
-The lane **fails** when `vocello bench` exits non-zero unless you pass `--allow-bench-fail` or set
-`QVOICE_MAC_PROFILE_ALLOW_BENCH_FAIL=1` (useful when you only need the trace artifact).
-For XPC: attach `xctrace` to `QwenVoiceEngineService` while generating via UI.
+Produces `build/macos/profiles/<run-id>/<run-id>.trace` containing CPU Profiler samples and
+`os_signpost` rows in one capture. **In-process only** — not the production XPC
+path. The lane is PASS-only: a tracer failure, benchmark failure, invalid trace, or failed publication
+returns nonzero and leaves the local artifacts available for diagnosis without creating history.
+The profiler launches or attaches to the exact target PID, requires a successful tracer exit, and
+validates the trace through `xctrace export --toc`; there is no blind startup sleep. For XPC, attach
+to the exact `QwenVoiceEngineService` PID while generating via UI. Traces remain untracked; the
+registry retains only their digest, settings, extracted summary, and local artifact reference.
 
 ### 4.9 UI-driven generation (macOS XPC)
 
@@ -315,12 +352,21 @@ deterministic tooling owns timestamps, typed telemetry validation, and aggregati
 
 Telemetry rows stamp `notes.benchRunID`, `benchTakeIndex`, `benchCell`, and `benchWarmState` when
 `QVOICE_MAC_BENCH_RUN_ID` is set. Completion requires matching generation, History, WAV, and typed
-probe evidence; there are no hidden UI-test flush markers. Gate with the run ID:
+probe evidence; there are no hidden UI-test flush markers. The authoritative runner supplies the
+matrix arguments, run ID, crash-delta assertion, and evidence-manifest path together. A direct
+run-ID-only validator call is useful for diagnosis, but it is not a publishable benchmark contract:
 
 ```sh
+# Diagnostic only: inspect the default matrix rows already present for one run ID.
 python3 scripts/check_macos_xpc_bench.py ~/Library/Application\ Support/QwenVoice-Debug/diagnostics \
   --run-id macos-xcui-benchmark-YYYYMMDD-HHMMSS
 ```
+
+For the strict contract, use `scripts/ui_test.sh macos benchmark`. Internally it passes the exact
+`--modes`, `--lengths`, `--warm`, and `--label` values plus
+`--evidence-manifest <run-artifact-dir>/benchmark-evidence.json --crash-delta-passed`. Never add the
+crash-delta assertion to a manual command unless the caller actually captured and compared the
+pre/post crash snapshots.
 
 **One-time machine setup:** configure Xcode UI-test runner signing, build the native test host, and
 install the required models.
@@ -349,20 +395,20 @@ fixture is available; it does not consume or require UI evidence:
 scripts/macos_test.sh telemetry-overhead
 ```
 
-This uses `vocello bench --seed` with one warm-up and five measured warm takes per telemetry mode,
-requires identical PCM, and gates median RTF/TTFC at 5% (lightweight) and 10% (verbose) versus off.
-It never repairs or downloads models; missing fixtures stop the run.
+This counterbalances `off`, `lightweight`, and `verbose` through three deterministic order
+rotations. Every rotation performs one warm-up and two measured takes per mode, yielding six
+machine-readable measured takes per mode. It requires identical PCM, records thermal/load context,
+and gates median RTF/TTFC at 5% (lightweight) and 10% (verbose) versus off. It never repairs or
+downloads models; missing fixtures stop the run.
 
-Post-run gate:
-
-```sh
-python3 scripts/check_macos_xpc_bench.py ~/Library/Application\ Support/QwenVoice-Debug/diagnostics \
-  --run-id <run-id>
-```
+The UI runner performs the strict post-run gate and freezes its ordered evidence before summary and
+publication. For post-mortem inspection only, the run-ID-only diagnostic command shown above can
+re-read the default matrix; filtered runs require their exact matrix arguments and remain
+non-authoritative without the runner-owned crash delta and evidence manifest.
 
 | Phase | Tool |
 |-------|------|
-| Trace capture | `xctrace record --attach QwenVoiceEngineService` during a benchmark scenario |
+| Trace capture | `xctrace record --attach <exact-service-pid>` during a benchmark scenario |
 | Trace analysis | Instruments/xctrace plus the relevant installed macOS performance skill |
 | Logs / warm-admission | `scripts/macos_test.sh logs` and unified-log inspection |
 | Crash post-mortem | `scripts/macos_test.sh crashes`, dSYMs, and standard symbolication |
@@ -418,10 +464,16 @@ Streaming populates `chunkTimeline`; non-streaming leaves it empty.
 ### 6.1 Summarizer invocation
 
 ```sh
-python3 scripts/summarize_generation_telemetry.py [DIAGNOSTICS_DIR] [--label NOTE]
+python3 scripts/summarize_generation_telemetry.py <DIAGNOSTICS_DIR> \
+  --run-id <run-id> --evidence-manifest <artifact-dir>/benchmark-evidence.json \
+  --label release-QA
 ```
 
-Default dir: `~/Library/Application Support/QwenVoice-Debug/diagnostics`
+For an authoritative benchmark, both selectors are mandatory: the run ID rejects unrelated rows,
+and the evidence manifest supplies the exact ordered generation IDs/cells. Never summarize an
+entire historical diagnostics directory as if it were one run. Ad-hoc diagnostics may still use
+the default directory (`~/Library/Application Support/QwenVoice-Debug/diagnostics`) without being
+eligible for registry publication.
 
 Useful flags:
 
@@ -431,8 +483,8 @@ Useful flags:
 | `--merged` | Cross-layer first-chunk table from `generations-merged.jsonl` |
 | `--save-baseline PATH` | Write the current per-cell summary as a **JSON** baseline |
 | `--compare-baseline BASELINE.json` | Regression compare vs a **JSON** baseline from `--save-baseline` (exit 2 on >5% regression; RTF **drop**, tok/s drop, TTFC/physFoot rise, QC worsening). Markdown snapshots cannot be fed to this flag — diff those with `git diff`. |
-| `--ledger-row` | One HISTORY.md row (pipe to `>> benchmarks/HISTORY.md`) |
-| `--cell mode/model/state[/len]` | Headline cell for ledger (default `custom/quality/warm`) |
+| `--run-id ID` | Reject rows from other benchmark runs. |
+| `--evidence-manifest PATH` | Select the manifest's exact ordered generations and cells. |
 
 ### 6.2 Headline table columns
 
@@ -443,7 +495,7 @@ Useful flags:
 | TTFC ms | App row `submitToFirstChunkMS` | `-` for CLI (no app process) |
 | peakGPU / physFoot | Sampler peaks | physFoot = Jetsam-relevant on iOS |
 | trims | `memory_trim` stage marks | Floor/mid/iPhone tiers |
-| UIstall | App row stall counters | `-` for CLI |
+| UIdelay | App row delayed-heartbeat count/max plus coverage | Sampling signal; `-` for CLI, not an exhaustive stall count |
 | QC | `audioQC.verdict` + flags | `fail` = hard stop |
 
 ### 6.3 Decode breakdown (lazy MLX)
@@ -474,44 +526,81 @@ suspected; inspect raw JSONL for full `thermalState` start/end/worst.
 
 ## 7. Tracking performance over time
 
-### HISTORY.md ledger
+### PASS-only registry
+
+Every in-repository benchmark-like lane publishes only after its own success contract passes. The
+runner writes an atomic untracked `benchmark-evidence.json`, then calls:
 
 ```sh
-python3 scripts/summarize_generation_telemetry.py --ledger-row --label "what changed" \
-  >> benchmarks/HISTORY.md
+python3 scripts/benchmark_history.py record --artifact-dir <run-artifact-dir>
+python3 scripts/benchmark_history.py validate --all
+python3 scripts/benchmark_history.py rebuild-index --check
 ```
 
-Or use `vocello bench --ledger` — one summarizer invocation (`--emit-ledger-row` internally)
-that prints the table and appends one row to `benchmarks/HISTORY.md`.
+Publication creates `benchmarks/runs/<kind>/<run-id>.json` and regenerates
+`benchmarks/HISTORY.md`; it never stages, commits, or pushes. Re-recording byte-identical evidence
+is idempotent. A conflicting run ID, duplicate evidence digest, privacy violation, oversized
+record, failed QC, failed finish, crash delta, missing layer, wrong take order, or unreadable WAV
+fails publication and leaves tracked history unchanged. If publication fails after the expensive
+run passed, retain the local artifact directory and rerun the printed `record --artifact-dir`
+command after repairing the exporter.
 
-### Milestone snapshots
+An accepted QC warning produces `passedWithWarnings` and remains visible in run/cell warning
+counts and worst-QC fields. A QC failure is never downgraded or published.
+
+Tracked benchmark kinds are `ui-generation`, `engine-generation`, `language`,
+`telemetry-overhead`, `instrument-profile`, and `prosody-calibration`. Delivery/prosody cells from
+`vocello bench --delivery` remain inside their parent engine-generation record. Smoke, unit tests,
+crash inspection, preflight, and standalone analysis tools do not publish benchmark records.
+
+| Kind | Publisher | Minimum publishable success |
+|---|---|---|
+| `ui-generation` | `ui_test.sh macos|ios benchmark` | XCTest, exact selected matrix/order, complete required telemetry layers, readable atomic WAVs, QC, and crash delta |
+| `engine-generation` | `vocello bench`, iOS headless bench, optional gate bench | Exact selected rows, successful finishes, readable/QC-accepted output, and command PASS |
+| `language` | macOS/iOS `lang-bench` | Requested hint/output gates; hint-only is explicitly `partial` |
+| `telemetry-overhead` | `macos_test.sh telemetry-overhead` | PCM parity and overhead thresholds across all rotations |
+| `instrument-profile` | macOS/iOS profile commands | Target generation PASS, tracer success, valid trace TOC, non-empty exported performance rows, and run/generation/take/cell-correlated signposts |
+| `prosody-calibration` | `prosody_calibration.py` | Required corpus coverage with no analysis failure |
+
+`HISTORY.md` is a generated index grouped by kind, platform, hardware, and comparable
+configuration. It computes a delta against the nearest earlier compatible clean record; a delta is
+information, not an automatic failure. [`benchmarks/LEGACY_HISTORY.md`](../../benchmarks/LEGACY_HISTORY.md)
+preserves the former manual ledger as incomplete historical evidence.
+
+### Listening annotation
+
+Automated success and perceptual review are independent. Add the latter without rewriting the run:
 
 ```sh
-python3 scripts/summarize_generation_telemetry.py --label "stepeval fix" \
-  > benchmarks/2026-06-29-stepeval.md
+python3 scripts/benchmark_history.py annotate --run-id <run-id> \
+  --listening pass --note "reviewed representative takes"
 ```
 
-Compare with `git diff`. No auto-fail gate — maintainer judgment.
+Use `fail` or `not-performed` when appropriate. Listening remains required for an explicit engine
+promotion decision, but its absence does not turn a successful automated benchmark into a failure.
 
 ### Baseline comparison (JSON, machine-gated)
 
 ```sh
 # Seed / reseed a baseline (after an intentional, reviewed perf change):
 python3 scripts/summarize_generation_telemetry.py <diag-dir> \
+  --run-id <run-id> --evidence-manifest <run-artifact-dir>/benchmark-evidence.json \
   --save-baseline benchmarks/baselines/mac-gate-bench.json
 
 # Compare (exit 2 on regression — usable in scripts/gates):
 python3 scripts/summarize_generation_telemetry.py <diag-dir> \
+  --run-id <run-id> --evidence-manifest <run-artifact-dir>/benchmark-evidence.json \
   --compare-baseline benchmarks/baselines/mac-gate-bench.json
 ```
 
 The committed **`benchmarks/baselines/mac-gate-bench.json`** (custom/speed/medium,
 cold+warm) is what `QWENVOICE_GATE_BENCH=1 scripts/macos_test.sh gate` compares against —
-the gate isolates its own run's rows by `recordedAt` before comparing. Markdown snapshots
-(`benchmarks/baseline-*.md`) remain the human-readable full-matrix references; diff them
-with `git diff`, not `--compare-baseline`.
+the gate uses an isolated runtime directory, rejects rows outside its collision-resistant run ID,
+and freezes the exact ordered generation selection in `benchmark-evidence.json` before comparing.
+Markdown snapshots (`benchmarks/baseline-*.md`) remain the human-readable full-matrix references;
+diff them with `git diff`, not `--compare-baseline`.
 
-### Like-for-like comparison rules (ledger discipline)
+### Like-for-like comparison rules
 
 Never compare numbers across topologies — each is a different measurement, not a
 regression signal:
@@ -522,10 +611,12 @@ regression signal:
 | local release / `-O` CLI | optimized | in-process | RTF ≈ 1.7 |
 | macOS `ui_test.sh macos benchmark` | Release app | app + XPC service | RTF ≈ 1.7 |
 | iOS `ios_device.sh bench` | `-Onone` device | in-process on iPhone | RTF ≈ 1.6–1.9 |
-| iOS `ui_test.sh ios benchmark` | `-Onone` device | in-process, real Studio UI | same engine numbers as `bench` (same build flags); adds UI-path coverage |
+| iOS `ui_test.sh ios benchmark` | `-O` Release app | in-process, real Studio UI | optimized frontend/device result; do not compare with the `-Onone` headless lane |
 
-Compare a row only against a baseline from the **same lane** (HISTORY.md rows carry the
-label; keep the lane in the label text).
+Compare a record only against one with the same generated comparison key. That key includes lane,
+platform/hardware, matrix (including CLI streaming/seed and overhead rotation settings),
+model/runtime, toolchain, and relevant input identities. Dirty,
+instrumented, partial, and forced-profile runs are excluded from canonical trends.
 
 ---
 
@@ -556,7 +647,8 @@ Skip with `QVOICE_LANG_BENCH_SKIP_OUTPUT=1`. See [`language-bench.md`](language-
 
 ### Layer 3 — Listening pass (mandatory for engine promotion/release)
 
-Play takes; judge timbre, prosody, artifacts. Record verdict in snapshot note or HISTORY.md.
+Play takes; judge timbre, prosody, artifacts. Record the independent verdict with
+`scripts/benchmark_history.py annotate`; never edit `HISTORY.md` directly.
 
 ---
 
@@ -572,6 +664,8 @@ Play takes; judge timbre, prosody, artifacts. Record verdict in snapshot note or
 | `.../generations-merged.jsonl` | Joined layers (macOS) |
 | `.../engine/samples-<UUID>.jsonl` | Verbose per-sample series |
 | `QwenVoice-Debug/outputs/bench/*.wav` | Bench WAV outputs |
+| `<run-artifact-dir>/benchmark-evidence.json` | Atomic run-scoped validator selection and verdict used for publication |
+| `build/**/*.xcresult`, screenshots, `*.trace` | UI/profile evidence retained locally |
 
 Auto-pruned: `generations.jsonl` ~8 MB cap; verbose sidecars newest-48 / 64 MB.
 
@@ -579,16 +673,21 @@ Auto-pruned: `generations.jsonl` ~8 MB cap; verbose sidecars newest-48 / 64 MB.
 
 | Path | Rule |
 |------|------|
-| `benchmarks/HISTORY.md` | Compact ledger rows |
-| `benchmarks/baseline-*.md` | Full summarizer snapshots ≤ 256 KB each |
-| `benchmarks/*-audit-*.md` | Audit reports |
+| `benchmarks/runs/<kind>/<run-id>.json` | One canonical allowlisted record per successful run, ≤ 256 KB; only `annotate` may update listening review |
+| `benchmarks/HISTORY.md` | Generated registry index; never edit by hand |
+| `benchmarks/LEGACY_HISTORY.md` | Preserved incomplete manual history; never promoted to schema-v1 evidence |
+| `benchmarks/hardware-profiles.json`, `schema-v1.json` | Canonical hardware identities and portable record contract |
+| `benchmarks/baseline-*`, `OPTIMIZATION.md` | Existing reference snapshots and historical optimization narrative |
 
-**Never commit raw `*.jsonl`** under `benchmarks/` (guard-enforced).
+The exporter uses a strict allowlist and rejects serials/UDIDs/ECIDs, host/device/user names,
+absolute paths, prompts/transcripts/voice descriptions, raw errors, emails, URLs, and secret-like
+labels. **Never commit raw JSONL, WAVs, screenshots, result bundles, or traces** under `benchmarks/`.
 
 ### CI / automation
 
 - `.github/workflows/ci.yml` — `ios-compile-check` (compile-only; no attended UI, no bench)
 - `.github/workflows/release.yml` — deterministic signing and packaging; UI lanes remain explicit/local
+- `scripts/check_project_inputs.sh` — validates all compact records and checks that `HISTORY.md` is reproducible
 - Explicit frontend acceptance: `scripts/ui_test.sh macos smoke|benchmark`
 - Deterministic macOS platform gate: `scripts/macos_test.sh gate` (does not consume UI results)
 
@@ -607,7 +706,7 @@ Engine regression net remains **manual local** until a self-hosted macOS bench j
 | RTF vs decode ms disagree | Different time bases + lazy MLX | Read §6.3; use signpost trace |
 | All QC warn:dropout on long | Often natural pauses | Listening pass; check punctuation-aware budget |
 | iOS bench timeout | Model missing / device diagnostics did not complete | `scripts/ios_device.sh console`; install Speed model |
-| Clone cold row appears | Summarizer labels first clone take | Clone is warm-by-design; ignore cold label if present |
+| Clone cold row appears | Corrupt matrix ordering, generation map, or frozen evidence | **Hard failure:** inspect `bench-results.json` or the UI generation map plus `benchmark-evidence.json`, repair the producer/selection mismatch, and rerun. Never relabel or ignore a Clone cold row. |
 
 ---
 
@@ -621,4 +720,4 @@ Engine regression net remains **manual local** until a self-hosted macOS bench j
 | [`macos-testing.md`](macos-testing.md) | UI test / profile / gate lanes |
 | [`ios-device-testing.md`](ios-device-testing.md) | iOS bench, gate, device lanes |
 | [`benchmarks/OPTIMIZATION.md`](../../benchmarks/OPTIMIZATION.md) | Optimization program status |
-| [`benchmarks/HISTORY.md`](../../benchmarks/HISTORY.md) | Performance ledger |
+| [`benchmarks/HISTORY.md`](../../benchmarks/HISTORY.md) | Generated benchmark registry index |

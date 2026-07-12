@@ -889,6 +889,10 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         liveQueuedAudioSeconds += chunkAudioSeconds
         setLivePreviewQueueDepth(liveScheduledCount)
         scheduleLiveBuffer(buffer)
+        AppGenerationTimeline.shared.recordPlaybackChunk(
+            id: liveSessionID,
+            queuedAudioSeconds: liveQueuedAudioSeconds
+        )
 
         livePreviewDuration = cumulativeDuration
             ?? (livePreviewDuration + chunkAudioSeconds)
@@ -951,6 +955,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
 
     private func stopLivePreviewForChunkContinuityFailure() {
         AppPerformanceSignposts.emit("Live Preview Chunk Gap")
+        AppGenerationTimeline.shared.recordPlaybackContinuityFailure(id: liveSessionID)
         livePreviewDisabledSessionID = liveSessionID
         stopLivePlayback(resetCurrentTime: true)
         liveScheduledCount = 0
@@ -984,6 +989,10 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         liveQueuedAudioSeconds += chunkAudioSeconds
         setLivePreviewQueueDepth(liveScheduledCount)
         scheduleLiveBuffer(buffer)
+        AppGenerationTimeline.shared.recordPlaybackChunk(
+            id: liveSessionID,
+            queuedAudioSeconds: liveQueuedAudioSeconds
+        )
 
         livePreviewDuration = cumulativeDuration
             ?? (livePreviewDuration + chunkAudioSeconds)
@@ -1041,7 +1050,11 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
                 livePlayerNode.play()
                 livePlaybackStarted = true
                 AppPerformanceSignposts.emit("Live Engine Play")
-                AppGenerationTimeline.shared.recordFirstAudible(id: liveSessionID)
+                AppGenerationTimeline.shared.recordPlaybackScheduled(
+                    id: liveSessionID,
+                    queuedChunks: liveScheduledCount,
+                    queuedAudioSeconds: liveQueuedAudioSeconds
+                )
             }
             isPlaying = true
             setLivePreviewPhase(.playing)
@@ -1135,6 +1148,10 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             let drained = liveBufferDurations.removeFirst()
             liveQueuedAudioSeconds = max(0, liveQueuedAudioSeconds - drained)
         }
+        AppGenerationTimeline.shared.recordPlaybackQueueDepth(
+            id: liveSessionID,
+            queuedAudioSeconds: liveQueuedAudioSeconds
+        )
         setLivePreviewQueueDepth(liveScheduledCount)
         if liveScheduledCount > 0 {
             setLivePreviewPhase(isPlaying ? .playing : .draining)
@@ -1145,6 +1162,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         } else if liveScheduledCount == 0 {
             liveUnderrunCount += 1
             AppPerformanceSignposts.emit("Live Preview Underrun")
+            AppGenerationTimeline.shared.recordPlaybackUnderrun(id: liveSessionID)
             livePlayerNode?.pause()
             isPlaying = false
             stopTimer()

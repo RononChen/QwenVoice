@@ -23,12 +23,13 @@ final class GenerationTelemetrySchemaTests: XCTestCase {
         XCTAssertEqual(sorted.map(\.sequence), [2, 3])
     }
 
-    func testSchemaV6RoundTripCarriesTypedBackendMetrics() throws {
+    func testSchemaV7RoundTripCarriesTypedBackendMetrics() throws {
         let record = GenerationTelemetryRecord(
             generationID: UUID().uuidString,
             layer: .engine,
             recordedAt: "2026-07-10T00:00:00Z",
             mode: "custom",
+            modelID: "pro_custom_speed",
             warmState: .warm,
             usedStreaming: true,
             finishReason: "eos",
@@ -37,13 +38,20 @@ final class GenerationTelemetrySchemaTests: XCTestCase {
                 "qwen_token_loop_total": 120,
                 "qwen_stream_decoder_total": 30,
             ],
-            counters: ["chunkCount": 2]
+            counters: ["chunkCount": 2],
+            modelRuntimeIdentity: ModelRuntimeIdentity(
+                resolvedModelID: "pro_custom_speed",
+                modelVariant: "speed",
+                runtimeProfileSignature: "runtime-profile-fixture",
+                nativeLoadCapabilityProfile: "full",
+                fixtureDigest: String(repeating: "a", count: 64)
+            )
         )
 
         let data = try JSONEncoder().encode(record)
         let decoded = try JSONDecoder().decode(GenerationTelemetryRecord.self, from: data)
 
-        XCTAssertEqual(decoded.schemaVersion, 6)
+        XCTAssertEqual(decoded.schemaVersion, 7)
         XCTAssertEqual(decoded.backendMetrics?.finishReason, .eos)
         XCTAssertEqual(decoded.backendMetrics?.warmState, .warm)
         XCTAssertEqual(decoded.backendMetrics?.stages.count, 1)
@@ -51,6 +59,10 @@ final class GenerationTelemetrySchemaTests: XCTestCase {
             decoded.backendMetrics?.timings.first(where: { $0.key == .tokenLoop })?.milliseconds,
             120
         )
+        XCTAssertEqual(decoded.modelRuntimeIdentity?.resolvedModelID, "pro_custom_speed")
+        XCTAssertEqual(decoded.modelRuntimeIdentity?.modelVariant, "speed")
+        XCTAssertEqual(decoded.modelRuntimeIdentity?.runtimeProfileSignature, "runtime-profile-fixture")
+        XCTAssertEqual(decoded.modelRuntimeIdentity?.fixtureDigest, String(repeating: "a", count: 64))
     }
 
     func testLegacyV5RowDecodesWithoutTypedPayloads() throws {
@@ -104,6 +116,7 @@ final class GenerationTelemetrySchemaTests: XCTestCase {
             XCTAssertNil(decoded.transportMetrics)
             XCTAssertNil(decoded.backendMetrics)
             XCTAssertNil(decoded.outputMetrics)
+            XCTAssertNil(decoded.modelRuntimeIdentity)
         }
     }
 
@@ -145,12 +158,47 @@ final class GenerationTelemetrySchemaTests: XCTestCase {
 
     func testFrontendAdapterDoesNotRequireRawUserContent() {
         let metrics = GenerationTelemetryCompatibilityAdapter.frontend(
-            timingsMS: ["submitToCompletedMS": 500],
-            counters: ["uiStallCount50": 1]
+            timingsMS: [
+                "submitToCompletedMS": 500,
+                "playbackStartBufferedAudioMS": 600,
+                "playbackMinimumQueuedAudioMS": 120,
+            ],
+            counters: [
+                "uiStallCount50": 1,
+                "playbackChunksReceived": 4,
+                "playbackContinuityFailures": 1,
+                "playbackUnderruns": 2,
+                "playbackStartBufferedChunks": 3,
+            ]
         )
 
         XCTAssertEqual(metrics.submitToCompletedMS, 500)
-        XCTAssertEqual(metrics.mainThreadStallCount50MS, 1)
+        XCTAssertEqual(metrics.delayedHeartbeatCount50, 1)
+        XCTAssertEqual(metrics.playbackChunksReceived, 4)
+        XCTAssertEqual(metrics.playbackContinuityFailures, 1)
+        XCTAssertEqual(metrics.playbackUnderruns, 2)
+        XCTAssertEqual(metrics.playbackStartBufferedChunks, 3)
+        XCTAssertEqual(metrics.playbackStartBufferedAudioMS, 600)
+        XCTAssertEqual(metrics.playbackMinimumQueuedAudioMS, 120)
+    }
+
+    func testPlaybackHealthTracksNormalDrainContinuityAndUnderrun() {
+        var health = PlaybackHealthAccumulator()
+        health.playbackScheduled(queuedChunks: 3, queuedAudioMS: 900)
+        health.chunkReceived(queuedAudioMS: 1_200)
+        health.queueDrained(queuedAudioMS: 600)
+        health.queueDrained(queuedAudioMS: 250)
+        health.continuityFailed()
+
+        XCTAssertEqual(health.startBufferedChunks, 3)
+        XCTAssertEqual(health.startBufferedAudioMS, 900)
+        XCTAssertEqual(health.chunksReceived, 1)
+        XCTAssertEqual(health.continuityFailures, 1)
+        XCTAssertEqual(health.minimumQueuedAudioMS, 250)
+
+        health.underrun()
+        XCTAssertEqual(health.underruns, 1)
+        XCTAssertEqual(health.minimumQueuedAudioMS, 0)
     }
 
     func testFailurePrivacyAdapterDoesNotPersistRawMessageOrPath() {
@@ -160,5 +208,328 @@ final class GenerationTelemetrySchemaTests: XCTestCase {
         XCTAssertEqual(notes["failureMessageLength"], String(sensitive.count))
         XCTAssertEqual(notes["failureMessageDigest"]?.count, 64)
         XCTAssertFalse(notes.values.contains(where: { $0.contains("secret") || $0.contains("/Users/") }))
+    }
+
+    func testSchemaV7UsesPlaybackScheduledNamesAndDecodesLegacyAudibleNames() throws {
+        let legacy = """
+        {
+          "submitToFirstChunkMS": 10,
+          "submitToFirstAudibleMS": 24,
+          "firstChunkToAudibleMS": 14,
+          "submitToCompletedMS": 80
+        }
+        """
+        let decoded = try JSONDecoder().decode(FrontendGenerationMetrics.self, from: Data(legacy.utf8))
+        XCTAssertEqual(decoded.submitToPlaybackScheduledMS, 24)
+        XCTAssertEqual(decoded.firstChunkToPlaybackScheduledMS, 14)
+
+        let encoded = try JSONEncoder().encode(decoded)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertEqual(object["submitToPlaybackScheduledMS"] as? Int, 24)
+        XCTAssertEqual(object["firstChunkToPlaybackScheduledMS"] as? Int, 14)
+        XCTAssertNil(object["submitToFirstAudibleMS"])
+        XCTAssertNil(object["firstChunkToAudibleMS"])
+
+        let record = GenerationTelemetryRecord(
+            generationID: "v7-playback",
+            layer: .app,
+            recordedAt: "2026-07-12T00:00:00Z",
+            timingsMS: [
+                "submitToPlaybackScheduledMS": 30,
+                "submitToFirstAudibleMS": 999,
+                "firstChunkToPlaybackScheduledMS": 12,
+            ]
+        )
+        XCTAssertEqual(record.frontendMetrics?.submitToPlaybackScheduledMS, 30)
+        XCTAssertEqual(record.frontendMetrics?.firstChunkToPlaybackScheduledMS, 12)
+    }
+
+    func testV7SampleCadenceSummaryAndNanosecondDecoration() throws {
+        let legacy = """
+        {"tMS":5,"tNS":5000000,"actualElapsedNS":5100000,"threads":2}
+        """
+        let legacySample = try JSONDecoder().decode(TelemetrySample.self, from: Data(legacy.utf8))
+        XCTAssertEqual(legacySample.capturedElapsedNS, 5_100_000)
+        let encoded = try JSONEncoder().encode(legacySample)
+        let encodedObject = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertNil(encodedObject["actualElapsedNS"])
+
+        let samples = [
+            telemetrySample(tMS: 0, capturedNS: 0, kind: .start),
+            telemetrySample(tMS: 110, scheduledNS: 100_000_000, capturedNS: 110_000_000, latenessNS: 10_000_000, kind: .periodic),
+            telemetrySample(tMS: 150, capturedNS: 150_000_000, kind: .boundary, boundary: "first_chunk"),
+            telemetrySample(tMS: 230, scheduledNS: 200_000_000, capturedNS: 230_000_000, latenessNS: 30_000_000, kind: .periodic, captureSucceeded: false),
+            telemetrySample(tMS: 240, capturedNS: 240_000_000, kind: .stop),
+        ]
+        let summary = NativeTelemetrySampler.summarize(
+            samples: samples,
+            stageMarks: [],
+            targetIntervalNS: 100_000_000
+        )
+        XCTAssertEqual(summary.effectiveIntervalNS, 115_000_000)
+        XCTAssertEqual(summary.maximumIntervalNS, 120_000_000)
+        XCTAssertEqual(summary.maximumDriftNS, 30_000_000)
+        XCTAssertEqual(summary.maximumLatenessNS, 30_000_000)
+        XCTAssertEqual(summary.periodicSampleCount, 2)
+        XCTAssertEqual(summary.boundarySampleCount, 1)
+        XCTAssertEqual(summary.captureFailureCount, 1)
+        XCTAssertEqual(summary.missedPeriodicDeadlineCount, 0)
+
+        let decorated = NativeTelemetrySampler.decorate(
+            samples: [
+                telemetrySample(tMS: 10, capturedNS: 10_900_000, kind: .periodic),
+                telemetrySample(tMS: 10, capturedNS: 10_100_000, kind: .periodic),
+            ],
+            stageMarks: [
+                NativeTelemetryStageMark(tMS: 10, tNS: 10_500_000, sequence: 1, stage: "second"),
+                NativeTelemetryStageMark(tMS: 10, tNS: 10_000_000, sequence: 0, stage: "first"),
+            ]
+        )
+        XCTAssertEqual(decorated.map(\.capturedElapsedNS), [10_100_000, 10_900_000])
+        XCTAssertEqual(decorated.map(\.stage), ["first", "second"])
+    }
+
+    func testCrossChunkSilenceAndMergeCompleteness() throws {
+        var limiter = PCM16StreamLimiter()
+        var destination: [Int16] = []
+        limiter.append([0.2, 0, 0], into: &destination)
+        limiter.append([0, 0, 0.2], into: &destination)
+        XCTAssertEqual(limiter.metrics.longestInteriorSilentRunSamples, 4)
+        XCTAssertEqual(limiter.metrics.longestInteriorSilentRunStartSample, 1)
+        let report = StreamingExecutionContext.makeAudioQCReport(
+            metrics: limiter.metrics,
+            sampleRate: 1_000,
+            durationSeconds: 0.006,
+            expectedPauseCount: 0
+        )
+        XCTAssertEqual(report.algorithmVersion, 3)
+        XCTAssertEqual(report.longestSilenceMS, 4)
+        XCTAssertEqual(report.longestSilenceStartMS, 1)
+
+        let app = GenerationTelemetryRecord(
+            generationID: "merge",
+            layer: .app,
+            recordedAt: "2026-07-12T00:00:00Z"
+        )
+        let merged = MergedGenerationTelemetry(
+            generationID: "merge",
+            recordedAt: "2026-07-12T00:00:01Z",
+            app: app,
+            engineService: nil,
+            engine: nil
+        )
+        XCTAssertFalse(merged.complete)
+        XCTAssertEqual(merged.missingLayers, [.engineService, .engine])
+        let roundTrip = try JSONDecoder().decode(
+            MergedGenerationTelemetry.self,
+            from: JSONEncoder().encode(merged)
+        )
+        XCTAssertEqual(roundTrip.missingLayers, [.engineService, .engine])
+    }
+
+    func testAudioQCSplitsInputInstabilityFromWrittenOutputDefects() throws {
+        var unstableLimiter = PCM16StreamLimiter()
+        var unstableDestination: [Int16] = []
+        unstableLimiter.append(
+            [0.2, .nan, .infinity, 1.2, -1.2, 0.2],
+            into: &unstableDestination
+        )
+        let unstableReport = StreamingExecutionContext.makeAudioQCReport(
+            metrics: unstableLimiter.metrics,
+            sampleRate: 24_000,
+            durationSeconds: Double(unstableDestination.count) / 24_000,
+            expectedPauseCount: 0
+        )
+        XCTAssertEqual(unstableLimiter.metrics.nonFiniteSamples, 2)
+        XCTAssertEqual(unstableLimiter.metrics.samplesOutsideUnitRange, 2)
+        XCTAssertGreaterThan(unstableLimiter.metrics.slewLimitedSamples, 0)
+        XCTAssertEqual(unstableReport.instabilityVerdict, .fail)
+        XCTAssertEqual(unstableReport.verdict, .fail)
+
+        var dcLimiter = PCM16StreamLimiter()
+        var dcDestination: [Int16] = []
+        dcLimiter.append(Array(repeating: Float(0.1), count: 1_000), into: &dcDestination)
+        let dcReport = StreamingExecutionContext.makeAudioQCReport(
+            metrics: dcLimiter.metrics,
+            sampleRate: 1_000,
+            durationSeconds: 1,
+            expectedPauseCount: 0
+        )
+        XCTAssertEqual(dcReport.instabilityVerdict, .pass)
+        XCTAssertEqual(dcReport.writtenOutputVerdict, .warn)
+        XCTAssertEqual(dcReport.verdict, .warn)
+        XCTAssertEqual(try XCTUnwrap(dcReport.dcOffset), 0.1, accuracy: 0.000_001)
+
+        let legacy = """
+        {
+          "verdict":"warn","flags":[],"rmsDBFS":-20,"peak":0.1,
+          "clippedSamples":0,"hotSamples":0,"nonFiniteSamples":0,
+          "clickEvents":0,"longestSilenceMS":0,"durationSeconds":1
+        }
+        """
+        let decoded = try JSONDecoder().decode(AudioQCReport.self, from: Data(legacy.utf8))
+        XCTAssertEqual(decoded.algorithmVersion, 1)
+        XCTAssertEqual(decoded.instabilityVerdict, .warn)
+        XCTAssertEqual(decoded.writtenOutputVerdict, .warn)
+    }
+
+    func testSamplerStopIsIdempotentAcrossTerminalCleanup() async {
+        let sampler = NativeTelemetrySampler(
+            clock: NativeTelemetryClock(),
+            sampleIntervalMS: 60_000
+        )
+        await sampler.start()
+        await sampler.captureBoundary("before_model_load")
+        let first = await sampler.stop(stageMarks: [])
+        let second = await sampler.stop(stageMarks: [])
+
+        XCTAssertEqual(first.summary, second.summary)
+        XCTAssertEqual(first.samples, second.samples)
+        XCTAssertEqual(first.samples.count(where: { $0.kind == .stop }), 1)
+        XCTAssertEqual(first.summary.boundarySampleCount, 1)
+    }
+
+    func testSamplerKeepsAnchoredPhaseAndCountsSkippedDeadlines() {
+        let onTime = NativeTelemetrySampler.nextPeriodicSchedule(
+            after: 100,
+            capturedElapsedNS: 110,
+            intervalNanos: 100
+        )
+        XCTAssertEqual(onTime.nextScheduledElapsedNS, 200)
+        XCTAssertEqual(onTime.missedDeadlines, 0)
+
+        let late = NativeTelemetrySampler.nextPeriodicSchedule(
+            after: 100,
+            capturedElapsedNS: 450,
+            intervalNanos: 100
+        )
+        XCTAssertEqual(late.nextScheduledElapsedNS, 500)
+        XCTAssertEqual(late.missedDeadlines, 3)
+    }
+
+    func testBoundarySampleCanOwnTheMemoryPeak() {
+        let samples = [
+            telemetrySample(tMS: 0, capturedNS: 0, kind: .start, residentMB: 100),
+            telemetrySample(
+                tMS: 20,
+                capturedNS: 20_000_000,
+                kind: .boundary,
+                boundary: "after_model_load",
+                residentMB: 350
+            ),
+            telemetrySample(tMS: 100, capturedNS: 100_000_000, kind: .periodic, residentMB: 180),
+        ]
+        let summary = NativeTelemetrySampler.summarize(
+            samples: samples,
+            stageMarks: [],
+            targetIntervalNS: 100_000_000
+        )
+        XCTAssertEqual(summary.residentPeakMB, 350)
+        XCTAssertEqual(summary.timeToPeakMS, 20)
+        XCTAssertEqual(summary.boundarySampleCount, 1)
+    }
+
+    func testTerminalClassifierDefersOnlyFirstRetryableAllocationFailure() {
+        let allocation = NSError(
+            domain: "MLX",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Metal failed to allocate GPU memory"]
+        )
+        XCTAssertTrue(NativeGenerationTerminalClassifier.isRetryableAllocationFailure(allocation))
+        XCTAssertFalse(
+            NativeGenerationTerminalClassifier.shouldPublish(
+                error: allocation,
+                policy: .deferRetryableAllocationFailure
+            )
+        )
+        XCTAssertTrue(
+            NativeGenerationTerminalClassifier.shouldPublish(
+                error: allocation,
+                policy: .publish
+            )
+        )
+
+        let cancellation = CancellationError()
+        XCTAssertEqual(NativeGenerationTerminalClassifier.reason(for: cancellation), .cancelled)
+        XCTAssertFalse(NativeGenerationTerminalClassifier.isRetryableAllocationFailure(cancellation))
+        XCTAssertTrue(
+            NativeGenerationTerminalClassifier.shouldPublish(
+                error: cancellation,
+                policy: .deferRetryableAllocationFailure
+            )
+        )
+    }
+
+    func testTerminalGateAllowsExactlyOneDurableRowPerAttempt() async {
+        let gate = NativeTelemetryTerminalGate()
+        async let first = gate.claim()
+        async let second = gate.claim()
+        async let third = gate.claim()
+        let results = await [first, second, third]
+        XCTAssertEqual(results.count(where: { $0 }), 1)
+    }
+
+    func testModelIdentityQuantizationUsesTypedRuntimeTier() {
+        XCTAssertEqual(MLXModelLoadCoordinator.telemetryQuantization(for: .fourBit), "4-bit")
+        XCTAssertEqual(MLXModelLoadCoordinator.telemetryQuantization(for: .eightBit), "8-bit")
+        XCTAssertEqual(MLXModelLoadCoordinator.telemetryQuantization(for: .unknown), "unquantized")
+    }
+
+    func testProcessResourceDeltaClampsCounterResets() {
+        let start = processResourceSnapshot(cpu: 20, counters: 10)
+        let end = processResourceSnapshot(cpu: 25, counters: 5)
+        let delta = ProcessResourceUsageDelta(start: start, end: end)
+        XCTAssertEqual(delta.userCPUTimeMS, 5)
+        XCTAssertEqual(delta.systemCPUTimeMS, 5)
+        XCTAssertEqual(delta.minorPageFaults, 0)
+        XCTAssertEqual(delta.involuntaryContextSwitches, 0)
+
+        let environment = RunEnvironmentSnapshot.capture()
+        XCTAssertGreaterThan(environment.uptimeSeconds, 0)
+        XCTAssertGreaterThanOrEqual(environment.loadAverage1Minute ?? 0, 0)
+        XCTAssertFalse(environment.thermalState.isEmpty)
+    }
+
+    private func telemetrySample(
+        tMS: Int,
+        scheduledNS: UInt64? = nil,
+        capturedNS: UInt64,
+        latenessNS: UInt64? = nil,
+        kind: TelemetrySampleKind,
+        boundary: String? = nil,
+        captureSucceeded: Bool = true,
+        residentMB: Double = 100
+    ) -> TelemetrySample {
+        TelemetrySample(
+            tMS: tMS,
+            tNS: capturedNS,
+            scheduledElapsedNS: scheduledNS,
+            capturedElapsedNS: capturedNS,
+            latenessNS: latenessNS,
+            kind: kind,
+            boundary: boundary,
+            captureSucceeded: captureSucceeded,
+            residentMB: residentMB,
+            physFootprintMB: residentMB,
+            compressedMB: 0,
+            headroomMB: 500,
+            gpuAllocatedMB: 25,
+            gpuRecommendedWorkingSetMB: 1_000,
+            threads: 4,
+            thermalState: "nominal"
+        )
+    }
+
+    private func processResourceSnapshot(cpu: Double, counters: Int64) -> ProcessResourceUsageSnapshot {
+        ProcessResourceUsageSnapshot(
+            userCPUTimeMS: cpu,
+            systemCPUTimeMS: cpu,
+            minorPageFaults: counters,
+            majorPageFaults: counters,
+            voluntaryContextSwitches: counters,
+            involuntaryContextSwitches: counters,
+            blockInputOperations: counters,
+            blockOutputOperations: counters
+        )
     }
 }

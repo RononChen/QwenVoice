@@ -63,8 +63,13 @@ QWENVOICE_DEBUG=1 ./build/vocello custom --variant speed --text "Hello world."
 # Perf gate (mandatory listening pass for release-affecting changes)
 QWENVOICE_DEBUG=1 ./build/vocello bench --modes clone --variants speed \
   --lengths short,medium,long --warm 3 --voice <prepared-voice> \
-  --label "backend-qa" --ledger
+  --label "backend-qa"
 ```
+
+A successful in-repository benchmark publishes a compact, allowlisted record automatically. Do
+not append to `benchmarks/HISTORY.md`; it is generated from `benchmarks/runs/`. Raw JSONL, audio,
+screenshots, result bundles, and traces remain in the untracked artifact directory. Dirty-source
+runs are retained as exploratory evidence and excluded from canonical trends.
 
 ## Invariants (do not regress)
 
@@ -84,6 +89,9 @@ QWENVOICE_DEBUG=1 ./build/vocello bench --modes clone --variants speed \
 - **SPM pins move in lockstep.** `mlx-swift` and `mlx-swift-lm` are bumped together, never
   alone, and only after a benchmark-gated review on a throwaway branch.
 - **MLX is the only backend.** Do not pivot to Core ML or another runtime.
+- **Telemetry semantics are typed.** Schema-v7 frontend latency stops at playback scheduling, not
+  acoustic audibility; process memory belongs only to the process that measured it, and a macOS UI
+  benchmark is authoritative only when app, XPC service, and engine layers are complete.
 
 ## Common mistakes
 

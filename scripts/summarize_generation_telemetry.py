@@ -1,25 +1,21 @@
 #!/usr/bin/env python3
 """Summarize per-generation telemetry into a mode × model × cold/warm table.
 
-READ-ONLY analysis of the JSONL the runtime telemetry already writes — it never
-drives a generation, never writes baselines, and takes no committed input. It joins
+Analysis of the JSONL the runtime telemetry already writes. It joins
 the per-layer rows by `generationID` and prints a comparison table; for the warm
 runs in a cell it reports the median, for cold the single value (median if several).
 
+Use `--run-id` for strict selection from an accumulated diagnostics directory, or
+`--evidence-manifest` to consume the exact ordered generation IDs and cells emitted
+by a benchmark validator. Unscoped invocation remains available for historical
+interactive analysis.
+
 Usage:
-    python3 scripts/summarize_generation_telemetry.py [DIAGNOSTICS_DIR] [--label NOTE]
-    python3 scripts/summarize_generation_telemetry.py --ledger-row [--label NOTE] [--cell mode/model/state]
+    python3 scripts/summarize_generation_telemetry.py [DIAGNOSTICS_DIR] [--label RUN_ID]
 
-The full table is the default. `--ledger-row` prints ONE Markdown table row (the
-headline cell) for appending to `benchmarks/HISTORY.md` to track performance over
-time, e.g.:
-
-    python3 scripts/summarize_generation_telemetry.py --ledger-row --label "stepeval fix" \\
-        >> benchmarks/HISTORY.md
-
-`--label` stamps a free-form note (e.g. what changed); the run is auto-stamped with
-the current date + short git SHA so a number ties to a commit. Read-only: it never
-writes into the repo itself (you redirect the row).
+`--label` stamps an opaque privacy-safe identifier; the report is auto-stamped with the current date
+and short Git SHA. Repo-tracked history is owned by `benchmark_history.py` and its
+validated evidence manifests, never by redirecting this human-readable table.
 
 Default DIAGNOSTICS_DIR:
     ~/Library/Application Support/QwenVoice-Debug/diagnostics
@@ -33,10 +29,12 @@ import argparse
 import datetime
 import json
 import os
+import re
 import statistics
 import subprocess
 from collections import defaultdict
 from dataclasses import dataclass, field
+from pathlib import Path
 
 DEFAULT_DIR = os.path.expanduser(
     "~/Library/Application Support/QwenVoice-Debug/diagnostics"
@@ -50,6 +48,16 @@ _BENCHMARK_SUCCESS_FINISH_REASONS = frozenset({
     "maxTokens",
     "completed",
 })
+
+
+def opaque_label(value: str) -> str:
+    if value == "":
+        return value
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}", value):
+        raise argparse.ArgumentTypeError(
+            "must be an opaque 1-96 character ID using letters, digits, dot, underscore, or hyphen"
+        )
+    return value
 
 
 def _engine_row_counts_for_benchmark(row):
@@ -77,28 +85,148 @@ def today_str():
     return datetime.date.today().isoformat()
 
 
-def iter_jsonl(path):
+class TelemetrySelectionError(ValueError):
+    """Raised when scoped benchmark evidence is malformed or incomplete."""
+
+
+def iter_jsonl(path, *, strict=False):
     """Lazy stream of decoded JSON objects from a JSONL file."""
     if not os.path.exists(path):
+        if strict:
+            raise TelemetrySelectionError(f"missing telemetry file: {path}")
         return
     with open(path, "r", encoding="utf-8") as handle:
-        for line in handle:
+        for line_number, line in enumerate(handle, start=1):
             line = line.strip()
             if not line:
                 continue
             try:
-                yield json.loads(line)
-            except json.JSONDecodeError:
+                row = json.loads(line)
+            except json.JSONDecodeError as error:
+                if strict:
+                    raise TelemetrySelectionError(
+                        f"{path}:{line_number}: malformed JSON: {error.msg}"
+                    ) from error
                 continue
+            if not isinstance(row, dict):
+                if strict:
+                    raise TelemetrySelectionError(
+                        f"{path}:{line_number}: row is not a JSON object"
+                    )
+                continue
+            yield row
 
 
-def read_jsonl(path):
+def read_jsonl(path, *, strict=False):
     """Eager load of a JSONL file; kept for callers that need a list."""
-    return list(iter_jsonl(path))
+    return list(iter_jsonl(path, strict=strict))
+
+
+def load_evidence_selection(path, requested_run_id=""):
+    """Validate a benchmark-evidence manifest and return its exact selection."""
+    manifest_path = Path(path)
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as error:
+        raise TelemetrySelectionError(f"missing evidence manifest: {manifest_path}") from error
+    except json.JSONDecodeError as error:
+        raise TelemetrySelectionError(
+            f"{manifest_path}: malformed JSON: {error.msg}"
+        ) from error
+    if not isinstance(payload, dict):
+        raise TelemetrySelectionError("evidence manifest root must be an object")
+    if payload.get("schemaVersion") != 1:
+        raise TelemetrySelectionError(
+            f"unsupported evidence schemaVersion={payload.get('schemaVersion')!r}"
+        )
+    if payload.get("benchmarkKind") != "ui-generation":
+        raise TelemetrySelectionError("evidence manifest is not a ui-generation benchmark")
+    if payload.get("status") not in {"pass", "passedWithWarnings"}:
+        raise TelemetrySelectionError("evidence manifest does not describe a successful run")
+    run_id = payload.get("runID")
+    if not isinstance(run_id, str) or not run_id:
+        raise TelemetrySelectionError("evidence manifest has no runID")
+    if requested_run_id and requested_run_id != run_id:
+        raise TelemetrySelectionError(
+            f"--run-id {requested_run_id!r} does not match evidence runID {run_id!r}"
+        )
+    matrix = payload.get("matrix")
+    takes = payload.get("takes")
+    if not isinstance(matrix, dict) or not isinstance(takes, list) or not takes:
+        raise TelemetrySelectionError("evidence manifest has no non-empty matrix/takes")
+    expected_count = matrix.get("expectedTakeCount")
+    ordered_cells = matrix.get("orderedCells")
+    if expected_count != len(takes) or not isinstance(ordered_cells, list) or len(ordered_cells) != len(takes):
+        raise TelemetrySelectionError("evidence matrix/take counts are inconsistent")
+    layers = payload.get("layers")
+    if not isinstance(layers, dict) or not layers:
+        raise TelemetrySelectionError("evidence manifest has no layer completeness")
+    for layer, detail in layers.items():
+        if not isinstance(detail, dict) or detail.get("complete") is not True:
+            raise TelemetrySelectionError(f"evidence layer {layer!r} is incomplete")
+
+    generation_ids = []
+    cell_by_id = {}
+    for index, (take, ordered_cell) in enumerate(zip(takes, ordered_cells, strict=True), start=1):
+        if not isinstance(take, dict):
+            raise TelemetrySelectionError(f"evidence take {index} is not an object")
+        if take.get("takeIndex") != index:
+            raise TelemetrySelectionError(f"evidence takeIndex sequence is invalid at take {index}")
+        generation_id = take.get("generationID")
+        cell = take.get("cell")
+        if not isinstance(generation_id, str) or not generation_id:
+            raise TelemetrySelectionError(f"evidence take {index} has no generationID")
+        if generation_id in cell_by_id:
+            raise TelemetrySelectionError(f"duplicate evidence generationID: {generation_id}")
+        if not isinstance(cell, str) or cell != ordered_cell or len(cell.split("/")) != 3:
+            raise TelemetrySelectionError(f"evidence take {index} has an invalid ordered cell")
+        if take.get("status") not in {"pass", "passedWithWarnings"}:
+            raise TelemetrySelectionError(f"evidence take {index} is not successful")
+        if take.get("finishReason") not in _BENCHMARK_SUCCESS_FINISH_REASONS:
+            raise TelemetrySelectionError(f"evidence take {index} has an unsuccessful finishReason")
+        if take.get("readableWAV") is not True or take.get("atomicPublish") is not True:
+            raise TelemetrySelectionError(f"evidence take {index} has invalid output proof")
+        audio_qc = take.get("audioQC")
+        if not isinstance(audio_qc, dict) or audio_qc.get("verdict") not in {"pass", "warn"}:
+            raise TelemetrySelectionError(f"evidence take {index} has invalid audioQC proof")
+        completeness = take.get("layerCompleteness")
+        if not isinstance(completeness, dict) or not completeness or not all(
+            value is True for value in completeness.values()
+        ):
+            raise TelemetrySelectionError(f"evidence take {index} has incomplete layers")
+        generation_ids.append(generation_id)
+        cell_by_id[generation_id] = cell
+    return payload, run_id, generation_ids, cell_by_id
+
+
+def _select_rows(rows, *, run_id="", generation_ids=None, layer="telemetry"):
+    """Select and deterministically order one run's rows."""
+    selected = list(rows)
+    if run_id:
+        selected = [
+            row for row in selected
+            if (row.get("notes") or {}).get("benchRunID") == run_id
+        ]
+    ids = [row.get("generationID") for row in selected]
+    if any(not isinstance(value, str) or not value for value in ids):
+        raise TelemetrySelectionError(f"one or more selected {layer} rows has no generationID")
+    if len(set(ids)) != len(ids):
+        raise TelemetrySelectionError(f"selected {layer} generationIDs are not unique")
+    if generation_ids is None:
+        return selected
+    expected = list(generation_ids)
+    by_id = {row["generationID"]: row for row in selected}
+    missing = [generation_id for generation_id in expected if generation_id not in by_id]
+    unexpected = sorted(set(by_id) - set(expected))
+    if missing or unexpected:
+        raise TelemetrySelectionError(
+            f"{layer} selection mismatch: missing={missing} unexpected={unexpected}"
+        )
+    return [by_id[generation_id] for generation_id in expected]
 
 
 # Prompt-length buckets for the benchmark length sweep. Thresholds tied to the
-# fixed corpus (short ~35, medium ~110, long ~330 chars); see
+# fixed corpora (short ~35, medium ~100, long >=150 chars); see
 # docs/reference/telemetry-and-benchmarking.md. Rows with no promptChars
 # (pre-length-capture runs) bucket as "n/a".
 LEN_ORDER = {"short": 0, "medium": 1, "long": 2, "n/a": 3}
@@ -109,7 +237,7 @@ def len_bucket(prompt_chars):
         return "n/a"
     if prompt_chars < 70:
         return "short"
-    if prompt_chars > 220:
+    if prompt_chars >= 140:
         return "long"
     return "medium"
 
@@ -151,18 +279,44 @@ def first_stage_mark_ms(record, stage):
     return None
 
 
-def load_merged_runs(diag_dir):
+def load_merged_runs(diag_dir, *, run_id="", generation_ids=None, strict=False):
     """Load generations-merged.jsonl and join per-layer first-chunk marks."""
     path = os.path.join(diag_dir, "generations-merged.jsonl")
-    rows = read_jsonl(path)
+    rows = read_jsonl(path, strict=strict)
+    if generation_ids is not None:
+        expected_set = set(generation_ids)
+        rows = [row for row in rows if row.get("generationID") in expected_set]
+        rows = _select_rows(
+            rows,
+            generation_ids=generation_ids,
+            layer="merged",
+        )
+    elif run_id:
+        # Merged rows do not carry notes.benchRunID. Resolve the run through the
+        # exact engine IDs selected by that stamp.
+        engine_rows = _select_rows(
+            iter_jsonl(
+                os.path.join(diag_dir, "engine", "generations.jsonl"),
+                strict=strict,
+            ),
+            run_id=run_id,
+            layer="engine",
+        )
+        engine_ids = [row["generationID"] for row in engine_rows]
+        engine_id_set = set(engine_ids)
+        rows = [row for row in rows if row.get("generationID") in engine_id_set]
+        rows = _select_rows(rows, generation_ids=engine_ids, layer="merged")
     runs = []
     for row in rows:
         app = row.get("app") or {}
         engine = row.get("engine") or {}
         engine_service = row.get("engineService") or {}
+        app_frontend = app.get("frontendMetrics") or {}
         run = {
             "generationID": row.get("generationID"),
-            "appTTFCMS": (app.get("timingsMS") or {}).get("submitToFirstChunkMS"),
+            "appTTFCMS": app_frontend.get("submitToFirstChunkMS")
+                if app_frontend.get("submitToFirstChunkMS") is not None
+                else (app.get("timingsMS") or {}).get("submitToFirstChunkMS"),
             "engineFirstChunkMS": first_stage_mark_ms(engine, "firstChunk"),
             "engineServiceFirstChunkMS": first_stage_mark_ms(engine_service, "firstChunk"),
         }
@@ -172,21 +326,29 @@ def load_merged_runs(diag_dir):
     return runs
 
 
-def _app_index(diag_dir):
+def _app_index(diag_dir, *, run_id="", generation_ids=None, strict=False):
     """Stream app/generations.jsonl and keep only the fields needed for joining."""
     index = {}
-    for a in iter_jsonl(os.path.join(diag_dir, "app", "generations.jsonl")):
+    path = os.path.join(diag_dir, "app", "generations.jsonl")
+    rows = _select_rows(
+        iter_jsonl(path, strict=strict),
+        run_id=run_id,
+        generation_ids=generation_ids,
+        layer="app",
+    ) if (run_id or generation_ids is not None) else iter_jsonl(path, strict=strict)
+    for a in rows:
         gid = a.get("generationID")
         if gid is None:
             continue
         index[gid] = {
             "timingsMS": a.get("timingsMS") or {},
             "counters": a.get("counters") or {},
+            "frontendMetrics": a.get("frontendMetrics") or {},
         }
     return index
 
 
-def _engine_run(e, app_lookup):
+def _engine_run(e, app_lookup, *, cell_override=None):
     """Build one per-run dict from an engine row + joined app row."""
     derived = e.get("derivedMetrics") or {}
     timings = e.get("timingsMS") or {}
@@ -194,8 +356,20 @@ def _engine_run(e, app_lookup):
     a = app_lookup.get(e.get("generationID")) or {}
     app_timings = a.get("timingsMS") or {}
     app_counters = a.get("counters") or {}
+    frontend = a.get("frontendMetrics") or {}
+    backend_timings = {
+        item.get("key"): item.get("milliseconds")
+        for item in (e.get("backendMetrics") or {}).get("timings") or []
+        if isinstance(item, dict)
+    }
     qc = e.get("audioQC") or {}
     trim_count, pressure_count, worst = count_memory_events(e, summary)
+    notes = e.get("notes") or {}
+    bucket = len_bucket(int(notes.get("promptChars") or 0))
+    if cell_override:
+        parts = cell_override.split("/")
+        if len(parts) == 3:
+            bucket = parts[1]
     run = {
         "generationID": e.get("generationID"),
         "mode": e.get("mode") or "?",
@@ -205,13 +379,32 @@ def _engine_run(e, app_lookup):
         "rtf": derived.get("audioSecondsPerWallSecond"),
         "tokps": derived.get("tokensPerSecond"),
         "audioSec": derived.get("audioSeconds"),
-        "ttfcMS": app_timings.get("submitToFirstChunkMS"),
-        # UI-responsiveness KPI (app row, MainThreadStallWatchdog):
-        # main-thread heartbeat stalls during the generation window.
-        "uiStall50": app_counters.get("uiStallCount50"),
-        "uiStall250": app_counters.get("uiStallCount250"),
-        "uiMaxStallMS": app_counters.get("uiMaxStallMS"),
-        "decodeLoopMS": timings.get("qwen_token_loop_total"),
+        "ttfcMS": frontend.get("submitToFirstChunkMS")
+            if frontend.get("submitToFirstChunkMS") is not None
+            else app_timings.get("submitToFirstChunkMS"),
+        # UI-responsiveness KPI (app row, sampled heartbeat watchdog). These
+        # are delayed observed heartbeats, not an exhaustive main-thread stall count.
+        "uiDelayedHeartbeat50": frontend.get(
+            "delayedHeartbeatCount50",
+            app_counters.get("delayedHeartbeatCount50", app_counters.get("uiStallCount50")),
+        ),
+        "uiDelayedHeartbeat250": frontend.get(
+            "delayedHeartbeatCount250",
+            app_counters.get("delayedHeartbeatCount250", app_counters.get("uiStallCount250")),
+        ),
+        "uiMaxDelayedHeartbeatMS": frontend.get("maximumDelayedHeartbeatMS")
+            if frontend.get("maximumDelayedHeartbeatMS") is not None
+            else app_counters.get("maximumDelayedHeartbeatMS", app_counters.get("uiMaxStallMS")),
+        "uiHeartbeatCoverage": (
+            frontend.get("heartbeatCoveragePPM") / 1_000_000
+            if isinstance(frontend.get("heartbeatCoveragePPM"), (int, float))
+            else app_counters.get("heartbeatCoveragePPM") / 1_000_000
+            if isinstance(app_counters.get("heartbeatCoveragePPM"), (int, float))
+            else None
+        ),
+        "decodeLoopMS": backend_timings.get("tokenLoop")
+            if backend_timings.get("tokenLoop") is not None
+            else timings.get("qwen_token_loop_total"),
         "peakGpuMB": summary.get("gpuAllocatedPeakMB"),
         "peakRssMB": summary.get("residentPeakMB"),
         # phys_footprint is the figure Jetsam judges on Apple Silicon — the
@@ -228,19 +421,21 @@ def _engine_run(e, app_lookup):
         "worstTrim": worst,
         # Resolved device tier this row ran under (notes.deviceClass) —
         # reveals a forced-tier benchmark and the floor Quality→Speed fallback.
-        "deviceClass": (e.get("notes") or {}).get("deviceClass") or "?",
+        "deviceClass": notes.get("deviceClass") or "?",
         # Whether the tier was forced via QWENVOICE_FORCE_MEMORY_CLASS (vs the
         # native tier) — so a real 8 GB Mac isn't mislabeled "forced".
-        "deviceClassForced": (e.get("notes") or {}).get("deviceClassForced") == "true",
+        "deviceClassForced": notes.get("deviceClassForced") == "true",
         # Input script length (notes.promptChars) → bucket for the
         # short/medium/long sweep. RTF/decode/KV-cache all scale with it.
-        "promptChars": int((e.get("notes") or {}).get("promptChars") or 0),
-        "lenBucket": len_bucket(int((e.get("notes") or {}).get("promptChars") or 0)),
+        "promptChars": int(notes.get("promptChars") or 0),
+        "lenBucket": bucket,
+        "benchRunID": notes.get("benchRunID"),
+        "benchCell": cell_override or notes.get("benchCell"),
         # Bench delivery-cell id (notes.delivery, preset id)
         # for instruct-bearing takes from `vocello bench --delivery`.
         # Empty for plain matrix takes; delivery rows are segregated into
         # their own block so the headline cells stay comparable.
-        "delivery": (e.get("notes") or {}).get("delivery") or "",
+        "delivery": notes.get("delivery") or "",
         # GPU peak MB at pipeline boundaries (mlxMemoryByStage) — shows WHERE
         # GPU memory grows and how much a trim reclaims.
         "gpuByStage": gpu_peak_by_stage(e.get("mlxMemoryByStage") or {}),
@@ -278,12 +473,36 @@ def _engine_run(e, app_lookup):
     return run
 
 
-def load_runs(diag_dir):
+def load_runs(
+    diag_dir,
+    *,
+    run_id="",
+    generation_ids=None,
+    cell_by_id=None,
+    strict=False,
+    engine_only=False,
+):
     """Join engine + app rows by generationID. Returns list of per-run dicts."""
-    app_lookup = _app_index(diag_dir)
+    app_lookup = {} if engine_only else _app_index(
+        diag_dir,
+        run_id=run_id,
+        generation_ids=generation_ids,
+        strict=strict,
+    )
+    path = os.path.join(diag_dir, "engine", "generations.jsonl")
+    rows = _select_rows(
+        iter_jsonl(path, strict=strict),
+        run_id=run_id,
+        generation_ids=generation_ids,
+        layer="engine",
+    ) if (run_id or generation_ids is not None) else iter_jsonl(path, strict=strict)
     return [
-        _engine_run(e, app_lookup)
-        for e in iter_jsonl(os.path.join(diag_dir, "engine", "generations.jsonl"))
+        _engine_run(
+            e,
+            app_lookup,
+            cell_override=(cell_by_id or {}).get(e.get("generationID")),
+        )
+        for e in rows
         if _engine_row_counts_for_benchmark(e)
     ]
 
@@ -306,6 +525,7 @@ class CellAccumulator:
     worst_trims: list = field(default_factory=list)
     ui_stalls: list = field(default_factory=list)
     ui_max_stalls: list = field(default_factory=list)
+    ui_heartbeat_coverage: list = field(default_factory=list)
     qc_verdicts: list = field(default_factory=list)
     qc_flags: set = field(default_factory=set)
     chunk_counts: list = field(default_factory=list)
@@ -340,10 +560,12 @@ class CellAccumulator:
             self.trims.append(run["trims"])
         if run.get("worstTrim") is not None:
             self.worst_trims.append(run["worstTrim"])
-        if run.get("uiStall50") is not None:
-            self.ui_stalls.append(run["uiStall50"])
-        if run.get("uiMaxStallMS") is not None:
-            self.ui_max_stalls.append(run["uiMaxStallMS"])
+        if run.get("uiDelayedHeartbeat50") is not None:
+            self.ui_stalls.append(run["uiDelayedHeartbeat50"])
+        if run.get("uiMaxDelayedHeartbeatMS") is not None:
+            self.ui_max_stalls.append(run["uiMaxDelayedHeartbeatMS"])
+        if run.get("uiHeartbeatCoverage") is not None:
+            self.ui_heartbeat_coverage.append(run["uiHeartbeatCoverage"])
         if run.get("qcVerdict") is not None:
             self.qc_verdicts.append(run["qcVerdict"])
         for f in run.get("qcFlags") or []:
@@ -414,8 +636,9 @@ class CellAccumulator:
             "physFootIQR": iqr(self.phys_foot_mb),
             "trims": med(self.trims),
             "worstTrim": worst_trim,
-            "uiStall50": med(self.ui_stalls),
-            "uiMaxStallMS": med(self.ui_max_stalls),
+            "uiDelayedHeartbeat50": med(self.ui_stalls),
+            "uiMaxDelayedHeartbeatMS": med(self.ui_max_stalls),
+            "uiHeartbeatCoverage": med(self.ui_heartbeat_coverage),
             "qcVerdict": qc,
             "qcFlags": sorted(self.qc_flags),
             "chunkCount": med(self.chunk_counts),
@@ -436,7 +659,15 @@ class CellAccumulator:
         }
 
 
-def aggregate_runs(diag_dir):
+def aggregate_runs(
+    diag_dir,
+    *,
+    run_id="",
+    generation_ids=None,
+    cell_by_id=None,
+    strict=False,
+    engine_only=False,
+):
     """Stream engine + app rows and aggregate them into finalized cell summaries.
 
     Returns (runs, cells, delivery_cells, skipped_failed) where `runs` is the
@@ -445,16 +676,32 @@ def aggregate_runs(diag_dir):
     (mode, modelID, warmState, delivery). Rows with finishReason
     failed/superseded/cancelled are omitted from aggregates.
     """
-    app_lookup = _app_index(diag_dir)
+    app_lookup = {} if engine_only else _app_index(
+        diag_dir,
+        run_id=run_id,
+        generation_ids=generation_ids,
+        strict=strict,
+    )
     accumulators = {}
     delivery_accumulators = {}
     runs = []
     skipped_failed = 0
-    for e in iter_jsonl(os.path.join(diag_dir, "engine", "generations.jsonl")):
+    path = os.path.join(diag_dir, "engine", "generations.jsonl")
+    engine_rows = _select_rows(
+        iter_jsonl(path, strict=strict),
+        run_id=run_id,
+        generation_ids=generation_ids,
+        layer="engine",
+    ) if (run_id or generation_ids is not None) else iter_jsonl(path, strict=strict)
+    for e in engine_rows:
         if not _engine_row_counts_for_benchmark(e):
             skipped_failed += 1
             continue
-        run = _engine_run(e, app_lookup)
+        run = _engine_run(
+            e,
+            app_lookup,
+            cell_override=(cell_by_id or {}).get(e.get("generationID")),
+        )
         runs.append(run)
         if run.get("delivery"):
             key = (run["mode"], run["modelID"], run["warmState"], run["delivery"])
@@ -697,95 +944,24 @@ def fmt(value, places=2):
     return str(value)
 
 
-def select_headline_cell(cells, requested):
-    """Pick the cell to summarize in a ledger row. `requested` is an optional
-    'mode/model/state/len' selector (model matched as a substring; len optional).
-    Default: a warm + medium-length Custom Voice Quality cell, else any warm
-    medium cell, else any warm cell, else the first cell."""
-    keys = list(cells.keys())
-    if requested:
-        parts = requested.split("/")
-        want_mode = parts[0] if len(parts) > 0 else ""
-        want_model = parts[1] if len(parts) > 1 else ""
-        want_state = parts[2] if len(parts) > 2 else ""
-        want_len = parts[3] if len(parts) > 3 else ""
-        for key in keys:
-            mode, model_id, state, lb = key
-            if want_mode and mode != want_mode:
-                continue
-            if want_model and want_model.lower() not in model_id.lower():
-                continue
-            if want_state and state != want_state:
-                continue
-            if want_len and lb != want_len:
-                continue
-            return key
-        return None
-    # Default preference: custom + quality + warm + medium → any warm+medium →
-    # any warm → first.
-    for key in keys:
-        if key[0] == "custom" and "quality" in key[1].lower() and key[2] == "warm" and key[3] == "medium":
-            return key
-    for key in keys:
-        if key[2] == "warm" and key[3] == "medium":
-            return key
-    for key in keys:
-        if key[2] == "warm":
-            return key
-    return keys[0] if keys else None
-
-
-def fmt_ui_stall(group):
-    """UI-responsiveness cell: '<stalls>50ms/<max>ms' from the app row's
-    MainThreadStallWatchdog counters ('—' when the app row carried none —
+def fmt_ui_heartbeat(group):
+    """UI-responsiveness cell: '<delayed>/>50ms max/coverage' from sampled
+    MainThreadStallWatchdog heartbeats ('—' when the app row carried none —
     CLI bench runs have no UI, and overlapping generations omit the report).
 
     Accepts either a list of run dicts (legacy) or a finalized cell summary dict."""
     if isinstance(group, dict):
-        stalls = group.get("uiStall50")
-        max_ms = group.get("uiMaxStallMS")
+        delayed = group.get("uiDelayedHeartbeat50")
+        max_ms = group.get("uiMaxDelayedHeartbeatMS")
+        coverage = group.get("uiHeartbeatCoverage")
     else:
-        stalls = med(r["uiStall50"] for r in group)
-        max_ms = med(r["uiMaxStallMS"] for r in group)
-    if stalls is None and max_ms is None:
+        delayed = med(r["uiDelayedHeartbeat50"] for r in group)
+        max_ms = med(r["uiMaxDelayedHeartbeatMS"] for r in group)
+        coverage = med(r["uiHeartbeatCoverage"] for r in group)
+    if delayed is None and max_ms is None and coverage is None:
         return "—"
-    return f"{fmt(stalls, 0)}/{fmt(max_ms, 0)}ms"
-
-
-def format_ledger_row(cells, label):
-    """Return one Markdown table row for benchmarks/HISTORY.md, or None if no headline cell."""
-    key = select_headline_cell(cells, label.get("cell"))
-    if key is None:
-        return None
-    mode, model_id, state, lb = key
-    summary = cells[key]
-    cell = f"{mode}/{short_model(model_id)}/{state}/{lb}"
-    note = (label.get("note") or "").replace("|", "/")
-    cols = [
-        today_str(),
-        git_short_sha(),
-        cell,
-        fmt(summary["rtf"]),
-        fmt(summary["tokps"]),
-        fmt(summary["ttfcMS"], 0),
-        fmt(summary["physFootMB"], 0),
-        fmt_trims(summary),
-        cell_qc(summary),
-        note or "—",
-        fmt(summary["uiMaxStallMS"], 0),
-    ]
-    return "| " + " | ".join(cols) + " |"
-
-
-def emit_ledger_row(cells, label):
-    """Print one Markdown table row for benchmarks/HISTORY.md. Columns match the
-    table header seeded in that file. `cells` is a dict of finalized cell summaries."""
-    row = format_ledger_row(cells, label)
-    if row is None:
-        print("| (no rows) |")
-        return 1
-    print(row)
-    return 0
+    coverage_text = "-" if coverage is None else f"{coverage * 100:.0f}%"
+    return f"{fmt(delayed, 0)}/{fmt(max_ms, 0)}ms/{coverage_text}"
 
 
 def build_summary(cells):
@@ -928,18 +1104,18 @@ def main():
     parser = argparse.ArgumentParser(description="Summarize per-generation telemetry.")
     parser.add_argument("diag_dir", nargs="?", default=DEFAULT_DIR,
                         help="diagnostics dir (default: QwenVoice-Debug/diagnostics)")
-    parser.add_argument("--label", default="",
-                        help="free-form note stamped on the output / ledger row")
-    parser.add_argument("--ledger-row", action="store_true",
-                        help="print ONE Markdown row for benchmarks/HISTORY.md instead of the table")
-    parser.add_argument("--emit-ledger-row", action="store_true",
-                        help="after the full table, print a # ledger-row marker and one HISTORY row")
-    parser.add_argument("--cell", default="",
-                        help="ledger cell selector 'mode/model/state' (model = substring)")
+    parser.add_argument("--label", default="", type=opaque_label,
+                        help="opaque privacy-safe identifier stamped on the human-readable output")
     parser.add_argument("--show-variance", action="store_true",
                         help="include IQR columns for RTF and physFoot in the summary table")
     parser.add_argument("--merged", action="store_true",
                         help="show cross-layer first-chunk latency from generations-merged.jsonl")
+    parser.add_argument("--engine-only", action="store_true",
+                        help="summarize a headless engine benchmark without requiring app telemetry")
+    parser.add_argument("--run-id", default="",
+                        help="strictly select rows stamped with notes.benchRunID")
+    parser.add_argument("--evidence-manifest", metavar="PATH",
+                        help="strictly select the exact ordered takes in benchmark-evidence.json")
     parser.add_argument("--save-baseline", metavar="PATH",
                         help="write current summary as JSON baseline")
     parser.add_argument("--compare-baseline", metavar="PATH",
@@ -948,18 +1124,35 @@ def main():
                         help="relative delta threshold for regression (default 0.05)")
     args = parser.parse_args()
     diag_dir = args.diag_dir
-
-    runs, cells, delivery_cells, skipped_failed = aggregate_runs(diag_dir)
+    generation_ids = None
+    cell_by_id = None
+    selected_run_id = args.run_id
+    strict_selection = bool(args.run_id or args.evidence_manifest)
+    try:
+        if args.evidence_manifest:
+            _, selected_run_id, generation_ids, cell_by_id = load_evidence_selection(
+                args.evidence_manifest,
+                requested_run_id=args.run_id,
+            )
+        runs, cells, delivery_cells, skipped_failed = aggregate_runs(
+            diag_dir,
+            run_id=selected_run_id,
+            generation_ids=generation_ids,
+            cell_by_id=cell_by_id,
+            strict=strict_selection,
+            engine_only=args.engine_only,
+        )
+    except TelemetrySelectionError as error:
+        print(f"FAIL: {error}")
+        return 1
     if not runs:
-        print(f"No telemetry rows under {diag_dir}/engine/generations.jsonl")
+        scope = f" for runID={selected_run_id}" if selected_run_id else ""
+        print(f"No telemetry rows{scope} under {diag_dir}/engine/generations.jsonl")
         print("Run the benchmark first (see docs/reference/telemetry-and-benchmarking.md).")
         return 1
     if skipped_failed:
         print(f"(skipped {skipped_failed} non-success engine row(s) with finishReason failed/superseded/cancelled)")
     prosody_rows = load_prosody(diag_dir)
-
-    if args.ledger_row:
-        return emit_ledger_row(cells, {"note": args.label, "cell": args.cell})
 
     if args.save_baseline:
         summary = build_summary(cells)
@@ -978,12 +1171,14 @@ def main():
         f"{'mode':<8} {'model':<26} {'state':<5} {'len':<6} {'n':>2} "
         f"{'RTF':>6} {'tok/s':>7} {'TTFC ms':>8} {'decode ms':>9} "
         f"{'peakGPU':>8} {'physFoot':>8} {'headMin':>8} {'gpuWS':>6} {'thermal':<8} "
-        f"{'trims':>9} {'UIstall':>9} {'QC':<12}"
+        f"{'trims':>9} {'UI heartbeat':>18} {'QC':<12}"
         + variance_cols
     )
     tiers = sorted({r["deviceClass"] for r in runs})
     forced = any(r["deviceClassForced"] for r in runs)
     print(f"\nTelemetry summary — {diag_dir}")
+    if selected_run_id:
+        print(f"runID: {selected_run_id} (strictly scoped)")
     print(f"({len(runs)} runs across {len(cells) + len(delivery_cells)} cells; warm shows median)")
     print(f"tier: {', '.join(tiers)}"
           + ("   ⚠ forced (QWENVOICE_FORCE_MEMORY_CLASS)" if forced else "")
@@ -1008,7 +1203,7 @@ def main():
             f"{fmt(summary.get('gpuWsRatioPeak')):>6} "
             f"{(summary.get('thermalWorst') or '-'):<8} "
             f"{fmt_trims(summary):>9} "
-            f"{fmt_ui_stall(summary):>9} "
+            f"{fmt_ui_heartbeat(summary):>18} "
             f"{cell_qc(summary):<12}"
         )
         if args.show_variance:
@@ -1200,7 +1395,16 @@ def main():
         )
 
     if args.merged:
-        merged_runs = load_merged_runs(diag_dir)
+        try:
+            merged_runs = load_merged_runs(
+                diag_dir,
+                run_id=selected_run_id,
+                generation_ids=generation_ids,
+                strict=strict_selection,
+            )
+        except TelemetrySelectionError as error:
+            print(f"\nFAIL: {error}")
+            return 1
         if merged_runs:
             print_merged_table(merged_runs)
         else:
@@ -1214,14 +1418,6 @@ def main():
         print_regressions(regressions)
         if regressions:
             return 2
-
-    if args.emit_ledger_row:
-        row = format_ledger_row(cells, {"note": args.label, "cell": args.cell})
-        print("\n# ledger-row")
-        if row is None:
-            print("| (no rows) |")
-            return 1
-        print(row)
 
     return 0
 

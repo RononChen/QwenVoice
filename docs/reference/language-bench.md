@@ -42,6 +42,8 @@ when hint gate and synthesis succeed.
 
 Confirm Speech assets manually in Settings on the physical device before running the matrix.
 Vocello UI expectations remain documented in [`ios-ui-reference.md`](ios-ui-reference.md).
+Language-benchmark labels are opaque privacy-safe identifiers matching
+`[A-Za-z0-9][A-Za-z0-9._-]{0,95}`; they are not free-form notes.
 
 ```sh
 scripts/ios_device.sh lang-bench --subset quick --label "lang-smoke"
@@ -67,6 +69,12 @@ Gates:
 - `scripts/check_language_hints.py` — `engine/generations.jsonl`
 - `scripts/check_language_output.py` — `device-diagnostics-done.json` → `outputVerification`
 
+After both requested gates pass, the runner automatically publishes one privacy-safe `language`
+record under `benchmarks/runs/language/` and regenerates `benchmarks/HISTORY.md`. A run made with
+`QVOICE_LANG_BENCH_SKIP_OUTPUT=1` is recorded as `partial` and excluded from normal timing trends.
+Failed cells, missing typed telemetry/model identity, or a publication error leave the tracked
+registry unchanged; the untracked artifact directory retains the idempotent repair command.
+
 ### Validated (2026-07-06)
 
 | Run | Subset | Hint gate | Output gate | Notes |
@@ -90,7 +98,8 @@ scripts/macos_test.sh lang-bench --subset quick
 
 Uses `QWENVOICE_DEBUG=1`, `vocello generate --language …`, and the hint gate against
 `~/Library/Application Support/QwenVoice-Debug/diagnostics/`. CLI Speech is **not** used
-(TCC); output verification is available through the iOS device-diagnostics lane only.
+(TCC); output verification is available through the iOS device-diagnostics lane only. Successful
+macOS hint-only evidence is therefore explicitly `partial` in benchmark history.
 
 ## Offline gate tests
 

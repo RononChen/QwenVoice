@@ -69,6 +69,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         ResolvedCloneConditioning?,
         Bool,
         NativeTelemetryRecorder?,
+        NativeTelemetrySampler?,
+        NativeTelemetryTerminalPolicy,
         NativeLoadCapabilityProfile,
         Qwen3TTSModelCapabilities,
         NativeMemoryPolicy,
@@ -433,7 +435,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         pcmScratchBuffer: PCM16ScratchBuffer,
         diagnosticAppSupportBox: DiagnosticAppSupportBox
     ) -> StreamingSessionFactory {
-        { generationID, requestID, request, model, streamSessionsDirectory, warmState, timingOverridesMS, booleanFlags, stringFlags, cloneConditioning, wasPrimed, telemetryRecorder, loadCapabilityProfile, qwen3Capabilities, memoryPolicy, mlxMemorySnapshots in
+        { generationID, requestID, request, model, streamSessionsDirectory, warmState, timingOverridesMS, booleanFlags, stringFlags, cloneConditioning, wasPrimed, telemetryRecorder, telemetrySampler, telemetryTerminalPolicy, loadCapabilityProfile, qwen3Capabilities, memoryPolicy, mlxMemorySnapshots in
             NativeStreamingSynthesisSession(
                 generationID: generationID,
                 requestID: requestID,
@@ -447,6 +449,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
                 cloneConditioning: cloneConditioning,
                 wasPrimed: wasPrimed,
                 telemetryRecorder: telemetryRecorder,
+                telemetrySampler: telemetrySampler,
+                telemetryTerminalPolicy: telemetryTerminalPolicy,
                 loadCapabilityProfile: loadCapabilityProfile,
                 qwen3Capabilities: qwen3Capabilities,
                 memoryPolicy: memoryPolicy,
@@ -497,6 +501,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             lightweightWarmupText: Self.lightweightWarmupText,
             telemetryRecorder: telemetryRecorder,
             customPrewarmPolicy: customPrewarmPolicy,
+            diagnosticAppSupportBox: diagnosticAppSupportBox,
             diagnosticEventSink: { action, details in
                 await Self.recordDiagnosticEvent(
                     action,
@@ -866,7 +871,10 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         }
 
         do {
-            let result = try await runGenerationAttempt(request)
+            let result = try await runGenerationAttempt(
+                request,
+                telemetryTerminalPolicy: .deferRetryableAllocationFailure
+            )
             loadState = .loaded(modelID: request.modelID)
             visibleErrorMessage = nil
             let annotated = Self.annotatingAllocationRetry(
@@ -888,19 +896,25 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             // invariants) but surface NO error: no visibleErrorMessage, no
             // .failed event, so the sidebar never flashes "Error" after the
             // user pressed Cancel. Mirrors the clone-preparation catch above.
-            if error is CancellationError {
+            if NativeGenerationTerminalClassifier.reason(for: error) == .cancelled {
                 loadState = .loaded(modelID: request.modelID)
                 try? FileManager.default.removeItem(at: URL(fileURLWithPath: request.outputPath))
-                throw error
+                // Preserve the UI's no-visible-error cancellation contract while
+                // still closing the service-layer transport accumulator.
+                eventStreamContinuation.yield(.failed("Generation cancelled"))
+                throw CancellationError()
             }
-            if Self.isRetryableAllocationFailure(error) {
+            if NativeGenerationTerminalClassifier.isRetryableAllocationFailure(error) {
                 let cleanupStartedAt = ContinuousClock.now
                 try? FileManager.default.removeItem(at: URL(fileURLWithPath: request.outputPath))
                 Memory.clearCache()
                 await runtime.unloadModel()
                 let cleanupMS = cleanupStartedAt.elapsedMilliseconds
                 do {
-                    let retryResult = try await runGenerationAttempt(request)
+                    let retryResult = try await runGenerationAttempt(
+                        request,
+                        telemetryTerminalPolicy: .publish
+                    )
                     loadState = .loaded(modelID: request.modelID)
                     visibleErrorMessage = nil
                     let annotated = Self.annotatingAllocationRetry(
@@ -917,10 +931,11 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
                     )
                     return annotated
                 } catch {
-                    if error is CancellationError {
+                    if NativeGenerationTerminalClassifier.reason(for: error) == .cancelled {
                         loadState = .loaded(modelID: request.modelID)
                         try? FileManager.default.removeItem(at: URL(fileURLWithPath: request.outputPath))
-                        throw error
+                        eventStreamContinuation.yield(.failed("Generation cancelled"))
+                        throw CancellationError()
                     }
                     let surfacedMessage = "The native runtime could not start audio generation after one allocation retry."
                     GenerationFailureDiagnosticLogger.shared.log(
@@ -961,7 +976,10 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         }
     }
 
-    private func runGenerationAttempt(_ request: GenerationRequest) async throws -> GenerationResult {
+    private func runGenerationAttempt(
+        _ request: GenerationRequest,
+        telemetryTerminalPolicy: NativeTelemetryTerminalPolicy
+    ) async throws -> GenerationResult {
         // The per-generation stage recorder is created inside `prepareGeneration`
         // (started before model load) and returned in `prepared` so the session's
         // memory sampler shares its start clock — see NativeEngineRuntime.
@@ -971,7 +989,10 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             fraction: nil
         )
 
-        let prepared = try await runtime.prepareGeneration(for: request)
+        let prepared = try await runtime.prepareGeneration(
+            for: request,
+            telemetryTerminalPolicy: telemetryTerminalPolicy
+        )
         let session = streamingSessionFactory(
             prepared.generationID,
             prepared.requestID,
@@ -985,6 +1006,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             prepared.cloneConditioning,
             prepared.wasPrimed,
             prepared.telemetryRecorder,
+            prepared.telemetrySampler,
+            prepared.telemetryTerminalPolicy,
             prepared.loadCapabilityProfile,
             prepared.qwen3Capabilities,
             prepared.memoryPolicy,
@@ -1007,33 +1030,6 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         cleanupMS: Int?
     ) -> GenerationResult {
         result
-    }
-
-    nonisolated private static func isRetryableAllocationFailure(_ error: Error) -> Bool {
-        if error is CancellationError {
-            return false
-        }
-        let lowercased = [
-            error.localizedDescription,
-            String(reflecting: error),
-        ]
-            .joined(separator: "\n")
-            .lowercased()
-
-        if lowercased.contains("out of memory")
-            || lowercased.contains("resource exhausted")
-            || lowercased.contains("failed to allocate") {
-            return true
-        }
-
-        let allocationLike = lowercased.contains("allocation")
-            || lowercased.contains("allocate")
-            || lowercased.contains("memory")
-        let mlxOrMetal = lowercased.contains("mlx")
-            || lowercased.contains("metal")
-            || lowercased.contains("mps")
-            || lowercased.contains("gpu")
-        return allocationLike && mlxOrMetal
     }
 
     private static func generationSessionKey(for request: GenerationRequest) -> GenerationSessionKey {

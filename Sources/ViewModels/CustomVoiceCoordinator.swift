@@ -107,11 +107,16 @@ final class CustomVoiceCoordinator {
                     caller: "CustomVoiceCoordinator"
                 )
             } catch is CancellationError {
-                AppGenerationTimeline.shared.recordFailed(id: submittedGenerationID)
+                await AppGenerationTimeline.shared.recordFailed(
+                    id: submittedGenerationID,
+                    finishReason: .cancelled
+                )
+                GenerationTelemetryMerger.scheduleMerge(generationID: submittedGenerationID)
                 audioPlayer.abortLivePreviewIfNeeded()
                 self.errorMessage = nil
             } catch {
-                AppGenerationTimeline.shared.recordFailed(id: submittedGenerationID)
+                await AppGenerationTimeline.shared.recordFailed(id: submittedGenerationID)
+                GenerationTelemetryMerger.scheduleMerge(generationID: submittedGenerationID)
                 audioPlayer.abortLivePreviewIfNeeded()
                 self.errorMessage = error.localizedDescription
             }

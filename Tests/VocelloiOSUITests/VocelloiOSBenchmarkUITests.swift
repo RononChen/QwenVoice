@@ -37,6 +37,7 @@ final class VocelloiOSBenchmarkUITests: VocelloiOSUITestCase {
         var previousTake: VocelloUIBenchMatrix.Take?
         var preparedMode: VocelloUIBenchMatrix.Mode?
         var completedCount = 0
+        var generationMap: [[String: Any]] = []
 
         for (offset, take) in takes.enumerated() {
             // BenchForceColdPolicy consumes its flag once. A mode's cold take
@@ -63,7 +64,12 @@ final class VocelloiOSBenchmarkUITests: VocelloiOSUITestCase {
             print("[ios-xcui-benchmark] begin \(takeNumber)/\(takes.count) \(take.cellID)")
             XCTContext.runActivity(named: "Take \(takeNumber): \(take.cellID)") { _ in
                 replaceScript(with: take.text)
-                generateAndWaitForCompletedPlayer(timeout: timeout(for: take))
+                let generationID = generateAndWaitForCompletedPlayer(timeout: timeout(for: take))
+                generationMap.append([
+                    "takeIndex": takeNumber,
+                    "cell": take.cellID,
+                    "generationID": generationID,
+                ])
 
                 if take.warmState == .cold || offset == 0 || offset == takes.count - 1 {
                     VocelloUIScreenshot.attach(
@@ -80,6 +86,16 @@ final class VocelloiOSBenchmarkUITests: VocelloiOSUITestCase {
         }
 
         XCTAssertEqual(completedCount, takes.count)
+        let mapPayload: [String: Any] = [
+            "schemaVersion": 1,
+            "runID": runID,
+            "takes": generationMap,
+        ]
+        let mapData = try JSONSerialization.data(withJSONObject: mapPayload, options: [.sortedKeys])
+        let mapAttachment = XCTAttachment(data: mapData, uniformTypeIdentifier: "public.json")
+        mapAttachment.name = "ios-benchmark-generation-map.json"
+        mapAttachment.lifetime = .keepAlways
+        add(mapAttachment)
         print("VOCELLO-BENCH-UI-MANIFEST ran=\(completedCount) runID=\(runID) skippedClone=false")
     }
 

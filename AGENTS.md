@@ -50,6 +50,7 @@ Model/speaker schema: [`Sources/Resources/qwenvoice_contract.json`](Sources/Reso
 | **One shared XcodeBuildMCP** | OpenAI Build iOS Apps supplies the shared server; Build macOS Apps consumes it. Call `session_show_defaults`, select `macos` or `ios-device`, and set a physical-device ID only at runtime. Never configure a second server. Repository scripts remain the final gate. |
 | **Codex/ChatGPT Desktop only** | This repository has no compatibility layer for another agent IDE. Codex/ChatGPT Desktop, installed OpenAI plugins, repository skills, and repository scripts are the supported development environment. |
 | **Publishing is deterministic-only** | Commits, pushes, pull requests, ordinary merges, ordinary CI, and release packaging require deterministic verification only. Missing models, a physical device, or XCUITest evidence must never block preserving, sharing, signing, notarizing, or uploading work. UI lanes run only for explicit frontend QA. |
+| **Benchmark history is PASS-only** | Successful benchmark runners publish one privacy-safe record under `benchmarks/runs/` and regenerate `benchmarks/HISTORY.md`. Raw telemetry, WAVs, screenshots, traces, and `.xcresult` bundles remain untracked. Publication never stages, commits, pushes, or turns model/device availability into a development gate. |
 
 Every active invariant must live here, in a role playbook, or in an authoritative reference document.
 
@@ -118,8 +119,8 @@ scripts/macos_test.sh core-test                              # Phase 1 — macOS
 python3 scripts/test_check_language_hints.py                 # offline hint-gate fixtures
 python3 scripts/test_check_language_output.py                # offline output-gate fixtures
 scripts/macos_test.sh lang-bench --subset quick              # Phase 2 — macOS CLI hint gate (needs models)
-scripts/ios_device.sh lang-bench --subset quick --label "…"  # Phases 2–3 — on-device hint + output (needs Speed)
-scripts/ios_device.sh lang-bench --subset full --label "…"   # full 19-cell matrix (hint + output gates)
+scripts/ios_device.sh lang-bench --subset quick --label "lang-quick"  # Phases 2–3 — on-device hint + output (needs Speed)
+scripts/ios_device.sh lang-bench --subset full --label "lang-full"   # full 19-cell matrix (hint + output gates)
 ```
 
 **Verify:** core-test + offline fixtures exit 0. iOS lang-bench must print **`hint_gate=PASS`**
@@ -138,7 +139,7 @@ archive/TestFlight build.
 
 ```sh
 QWENVOICE_DEBUG=1 ./build/vocello bench --modes clone --variants speed \
-  --lengths short,medium,long --warm 3 --voice <voice> --label "release-QA" --ledger
+  --lengths short,medium,long --warm 3 --voice <voice> --label "release-QA"
 ```
 
 **Verify:** packaging requires the applicable deterministic platform release check. When an engine
@@ -162,6 +163,7 @@ audio-QC, telemetry comparison, and listening verdict →
 | `Tests/VocelloMacUITests/` | macOS smoke and benchmark UI tests |
 | `Tests/VocelloiOSUITests/` | Physical-iPhone smoke and benchmark UI tests |
 | `scripts/ui_test.sh` | Unified explicit XCUITest entry point |
+| `benchmarks/`, `scripts/benchmark_history.py` | PASS-only, privacy-safe benchmark registry and generated index |
 | `Tests/VocelloCoreTests/`, `Tests/VocelloEngineIntegrationTests/` | Deterministic Core/output/telemetry and XPC transport tests |
 | `docs/project-map.html` | Canonical interactive feature, component, dependency, and workflow map |
 | `docs/development-progress.md` | Current implementation checkpoint and remaining release work |

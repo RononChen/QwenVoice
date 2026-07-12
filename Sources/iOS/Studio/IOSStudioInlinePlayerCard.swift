@@ -39,6 +39,14 @@ struct IOSStudioPlayerCard: View {
         var liveEstimate: TimeInterval? {
             if case .live(let i) = self { return i.estimatedAudioDuration } else { return nil }
         }
+        var accessibilityIdentifier: String {
+            switch self {
+            case .live:
+                return "studio_livePreview_card"
+            case .complete(let item):
+                return "studio_inlinePlayer_generation_\(item.generationID.uuidString.lowercased())"
+            }
+        }
         /// Stable task key: stays `"live"` while streaming, flips to the final path on
         /// completion so the controller re-adopts by URL.
         var taskKey: String {
@@ -108,6 +116,8 @@ struct IOSStudioPlayerCard: View {
         // Softer shadow per the design notes: dropped from `0 12 32 / 0.45`
         // to `0 2 10 / 0.22` so the player floats lightly above the canvas.
         .shadow(color: Color.black.opacity(0.22), radius: 5, x: 0, y: 2)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(phase.accessibilityIdentifier)
         .transition(cardTransition)
         .task(id: phase.taskKey) { await activateController() }
         .onAppear {

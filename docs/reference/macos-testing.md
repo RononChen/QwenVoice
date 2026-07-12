@@ -39,7 +39,8 @@ unchanged, and records failures as XCTest activities and attachments. It never r
 display name or alternate app path.
 
 Benchmark accepts `--modes`, `--lengths`, `--warm`, and `--label`. Filters are explicit diagnostic
-runs; invoking the command without filters is the canonical 29-take matrix.
+runs; invoking the command without filters is the canonical 29-take matrix on the tracked Mac mini
+`Mac14,3` / Apple M2 / 8 GB profile. Dirty-source successes are exploratory even on that hardware.
 
 ## Model-dependent tests
 
@@ -53,9 +54,15 @@ run. Do not download models implicitly inside a normal UI lane.
 The benchmark validator joins UI completion with:
 
 - History/database correlation and a readable WAV;
-- audio QC and typed frontend/XPC/backend telemetry by `generationID`;
+- audio QC and complete typed frontend/XPC/backend telemetry by `generationID`;
 - crash delta and XPC process lifecycle evidence;
 - benchmark order, take count, cold/warm class, and timing.
+
+The validator atomically writes an untracked `benchmark-evidence.json` containing only the run's
+ordered generation IDs/cells and verdicts. The summarizer consumes that manifest plus the run ID,
+never the diagnostics directory's historical population. A PASS publishes one privacy-safe record
+under `benchmarks/runs/ui-generation/` and regenerates `benchmarks/HISTORY.md`. Raw telemetry, WAVs,
+screenshots, and `.xcresult` remain untracked; publication never stages, commits, or pushes.
 
 Smoke is intentionally smaller: it asserts visible completion and History plus the runner's
 single-process/crash-delta checks; it does not claim the benchmark's per-take telemetry matrix.

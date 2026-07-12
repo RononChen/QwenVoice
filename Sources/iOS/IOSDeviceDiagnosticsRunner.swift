@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import QwenVoiceCore
 import UIKit
@@ -153,21 +154,12 @@ enum IOSDeviceDiagnosticsRunner {
             record.modelName = model.name
 
             let payload = try await buildPayload(spec: spec, engine: engine)
+            record.fixtureDigest = try fixtureDigest(for: payload)
 
-            print("[device-diagnostics] loading \(model.id)…")
-            try await engine.loadModel(id: model.id)
-
-            // Clone requires the reference primed (the optimized `voiceClonePrompt`) BEFORE
-            // generate — mirrors `VoiceCloningCoordinator`. With proactive warm now gated on
-            // the memory band (not blanket-disabled on hardware), this actually runs on device.
-            if case .clone(let reference) = payload {
-                print("[device-diagnostics] priming clone reference…")
-                do {
-                    try await engine.ensureCloneReferencePrimed(modelID: model.id, reference: reference)
-                } catch {
-                    print("[device-diagnostics] clone prime degraded: \(error.localizedDescription)")
-                }
-            }
+            // Do not explicitly load or prime here. `engine.generate` enters the native
+            // per-generation telemetry session before model load, prewarm, and clone
+            // conditioning. Preloading from this runner would hide the cold model-loading
+            // peak and clone preparation from the benchmark's clock and sampler.
 
             let outputPath = makeOutputPath(runID: runID, model: model)
             let request = GenerationRequest(
@@ -229,6 +221,10 @@ enum IOSDeviceDiagnosticsRunner {
         let interruptions = IOSInterruptionRecorder.shared.snapshot()
         if !interruptions.isEmpty {
             record.interruptions = interruptions
+            if record.status == "ok" {
+                record.status = "error"
+                record.error = "diagnostic run was interrupted (\(interruptions.count) event(s))"
+            }
         }
         writeSentinel(record, runID: runID)
     }
@@ -280,6 +276,39 @@ enum IOSDeviceDiagnosticsRunner {
             return nil
         }
         return raw
+    }
+
+    /// Privacy-safe identity for the exact non-text fixture used by a diagnostic
+    /// generation. The sentinel exposes only the digest—never the App Group path,
+    /// saved-voice name, transcript, or design description.
+    private static func fixtureDigest(for payload: GenerationRequest.Payload) throws -> String? {
+        switch payload {
+        case .custom:
+            return nil
+        case .design(let voiceDescription, _):
+            return SHA256.hash(data: Data(voiceDescription.utf8))
+                .map { String(format: "%02x", $0) }
+                .joined()
+        case .clone(let reference):
+            let url = URL(fileURLWithPath: reference.audioPath)
+            guard let stream = InputStream(url: url) else {
+                throw DiagnosticsError("could not open the resolved clone reference for identity hashing")
+            }
+            stream.open()
+            defer { stream.close() }
+            var hasher = SHA256()
+            var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count < 0 {
+                    throw stream.streamError
+                        ?? DiagnosticsError("could not read the resolved clone reference for identity hashing")
+                }
+                if count == 0 { break }
+                hasher.update(data: Data(buffer[..<count]))
+            }
+            return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        }
     }
 
     private static var shouldVerifyOutput: Bool {
@@ -380,6 +409,7 @@ enum IOSDeviceDiagnosticsRunner {
         var resolvedLanguageHint: String?
         var modelID: String?
         var modelName: String?
+        var fixtureDigest: String?
         var audioPath: String?
         var durationSeconds: Double?
         var wallSeconds: Double?

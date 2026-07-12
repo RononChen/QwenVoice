@@ -1,5 +1,12 @@
 # 1.7B Custom Backend Optimization Research Report
 
+> **Historical snapshot.** This report records the repository at its stated 2026-06-16 checkpoint and
+> preserves the measurements and decisions made there. It is not the current runtime, telemetry, or
+> benchmark contract. For current behavior, use
+> [`telemetry-and-benchmarking.md`](telemetry-and-benchmarking.md),
+> [`benchmarking-procedure.md`](benchmarking-procedure.md), and the generated
+> [`benchmarks/HISTORY.md`](../../benchmarks/HISTORY.md).
+
 > **Scope:** 1.7B Qwen3-TTS only. 0.6B variants are explicitly out of scope.  
 > **Date:** 2026-06-16  
 > **Hardware:** Mac mini, Apple M2, 8 GB RAM (`floor_8gb_mac`)  
@@ -198,7 +205,8 @@ The **Rank 1 recommendation was implemented** in the same session:
 - Updated docs: `docs/reference/cli.md`, `docs/reference/telemetry-and-benchmarking.md`, `docs/reference/mlx-guide.md`, `docs/reference/ios-engine-optimization.md`, and `benchmarks/OPTIMIZATION.md`.
 - Built and smoke-tested the CLI (`generate` streaming and `--no-stream` both produce valid audio).
 - Re-ran the benchmark matrix in streaming mode and saved the new baseline: [`benchmarks/baseline-2026-06-16-45720dd-streaming-default.md`](../../benchmarks/baseline-2026-06-16-45720dd-streaming-default.md).
-- Appended ledger rows to `benchmarks/HISTORY.md`.
+- Appended ledger rows to the then-current manual history. That snapshot is now preserved in
+  `benchmarks/LEGACY_HISTORY.md`; new validated runs are indexed by generated `benchmarks/HISTORY.md`.
 
 Streaming-default headline (floor 8 GB Mac, warm median):
 

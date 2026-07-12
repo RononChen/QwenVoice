@@ -271,7 +271,10 @@ Profile before and after any non-trivial performance change. The project ships w
 
 - `OSSignposter` intervals in `AppPerformanceSignposts` and `NativeEngineRuntime`.
 - Telemetry JSONL under `~/Library/Application Support/QwenVoice-Debug/diagnostics/` when `QWENVOICE_DEBUG=1` is set.
-- `MainThreadStallWatchdog` reports UI stalls per generation in `uiStallCount50` / `uiStallCount250` / `uiMaxStallMS`.
+- `MainThreadStallWatchdog` samples heartbeat delay per generation as
+  `delayedHeartbeatCount50` / `delayedHeartbeatCount250` / `maximumDelayedHeartbeatMS`, with
+  scheduled/completed counts and coverage. These are responsiveness samples, not an exhaustive
+  enumeration of main-thread stalls.
 
 ### 8.2 Instruments templates
 
@@ -328,7 +331,8 @@ Swift performance change, complete the deeper checklist:
 
 - [ ] Build the change optimized (`scripts/release.sh` or `-O` xcodebuild), not just `-Onone`.
 - [ ] Run the relevant benchmark (`vocello bench`, `scripts/ios_device.sh bench`, or a targeted Instruments profile).
-- [ ] Compare telemetry KPIs: `audioSecondsPerWallSecond`, `tokensPerSecond`, `physFootprint` peak, `uiMaxStallMS`.
+- [ ] Compare telemetry KPIs: `audioSecondsPerWallSecond`, `tokensPerSecond`, process-owned
+      physical-footprint peak, `maximumDelayedHeartbeatMS`, and heartbeat coverage.
 - [ ] Check for new `swift_retain` / `swift_release` hot spots in Time Profiler.
 - [ ] On iOS, confirm memory stays flat with length and no trims appear.
 - [ ] Run `./scripts/check_project_inputs.sh`.

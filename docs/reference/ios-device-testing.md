@@ -21,9 +21,11 @@ scripts/ios_device.sh preflight
 scripts/ios_device.sh device-state
 ```
 
-The scripts verify pairing, developer mode, unlock/interference state, signing destination,
-supported hardware, and device identity. Use explicit repair/bootstrap operations for missing
-models; normal UI tests do not silently install them.
+`preflight` and `device-state` verify the paired CoreDevice identity and reachability; preflight
+also checks signing plus the existing app-build and dSYM readiness. `device-state` treats
+reachability as its only blocker. The XCUITest runner independently rejects a phone that
+CoreDevice reports as locked before invoking `xcodebuild`. Install or repair iOS models through the
+visible Settings → Model Downloads UI; neither device scripts nor normal UI tests install them.
 
 ## Explicit XCUITest lanes
 
@@ -48,7 +50,8 @@ condition-based waits, XCTest activities, screenshots, and failure attachments. 
 OCR taps, alternate UI drivers, and fixed sleeps are not supported.
 
 Benchmark accepts `--modes`, `--lengths`, `--warm`, and `--label`. Filters are explicit diagnostic
-runs; invoking the command without filters is the canonical 29-take matrix.
+runs; invoking the command without filters is the canonical 29-take matrix on the tracked iPhone 17
+Pro `iPhone18,1` profile. Dirty-source successes are exploratory even on that hardware.
 
 ## Headless device diagnostics
 
@@ -62,17 +65,37 @@ operations are diagnostics, not a second frontend acceptance stack.
 ## Model readiness
 
 Before generation, XCUITest visibly requires Custom, Design, and Clone Speed to report ready,
-Generate to be enabled, and the required clone voice to exist. Device scripts retain explicit model
-repair/bootstrap commands and headless engine diagnostics, but normal acceptance never substitutes
+Generate to be enabled, and the required clone voice to exist. iOS has no command-line model
+ensure/install path: repair missing models in visible Settings → Model Downloads, then restart the
+UI lane. Device scripts retain headless engine diagnostics, but normal acceptance never substitutes
 a headless inventory for the visible Settings state.
 
 ## Deterministic evidence retained
 
-The benchmark result is joined with exact device/app identity, pulled telemetry, History/database
-correlation, readable WAV validation, audio QC, crash deltas, thermal state, matrix ordering, and
-take counts. Smoke asserts visible completion and History plus the runner's device/crash checks; it
+The benchmark result is joined with exact device/app identity, current-run engine and app telemetry,
+History/database correlation, readable WAV validation, audio QC, crash deltas, thermal state,
+matrix ordering, and take counts. The app mints the generation UUID across Custom, Design, and Clone
+and writes its frontend row durably before only the matching run rows/verbose sidecars are mirrored.
+The 150-character boundary case remains explicitly `long`; no prompt-length inference is used.
+Smoke asserts visible completion and History plus the runner's device/crash checks; it
 does not claim the benchmark's per-take telemetry matrix. Headless `bench`, `lang-bench`, `profile`,
 `crashes`, logs, and console operations remain supported physical-device diagnostics.
+
+Profile commands launch or attach to the exact target PID, record CPU Profiler and `os_signpost`
+rows in one trace, require a successful tracer exit, and verify the trace using exported
+table-of-contents data plus non-empty performance-row and correlated-signpost exports. Traces remain local; a successful profile
+publishes only its digest, capture settings, CPU/data-row summary, and sanitized artifact reference as
+an `instrument-profile` record. CoreDevice and Instruments use different runtime identifiers for the
+same phone; the profile lane resolves the Instruments UDID from CoreDevice JSON and fails before
+installing or launching the app unless `xcrun xctrace list devices` reports that phone in its online
+`Devices` section. Tracer startup is bounded by xctrace's own `Starting recording` output rather than
+the unreliable physical-device Darwin-notification callback. Any target suspended by a later failure
+is terminated automatically.
+
+The validator atomically writes an untracked `benchmark-evidence.json` with the exact ordered
+generation IDs/cells and verdicts. A PASS publishes one privacy-safe record under
+`benchmarks/runs/ui-generation/` and regenerates `benchmarks/HISTORY.md`. Raw pulled JSONL, WAVs,
+screenshots, traces, and `.xcresult` stay untracked; publication never stages, commits, or pushes.
 
 ## Release boundary
 

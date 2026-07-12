@@ -30,6 +30,7 @@ public final class IOSInterruptionRecorder: NSObject {
     private var notificationTokens: [NSObjectProtocol] = []
     private var startedAt: Date?
     private var events: [Event] = []
+    private var hasLostActiveState = false
     private let dateFormatter = ISO8601DateFormatter()
 
     override private init() {
@@ -54,7 +55,7 @@ public final class IOSInterruptionRecorder: NSObject {
         for (name, label) in lifecycle {
             let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    self?.record(type: label)
+                    self?.recordLifecycle(type: label)
                 }
             }
             notificationTokens.append(token)
@@ -65,6 +66,22 @@ public final class IOSInterruptionRecorder: NSObject {
     /// Events observed so far (for the diagnostics sentinel).
     public func snapshot() -> [Event] {
         events
+    }
+
+    /// App launch may deliver `didBecomeActive` after the diagnostics recorder starts.
+    /// That initial activation is expected, not interference. A later activation is
+    /// retained only when the run first observed loss of active ownership.
+    private func recordLifecycle(type: String) {
+        switch type {
+        case "will_resign_active", "did_enter_background":
+            hasLostActiveState = true
+        case "did_become_active":
+            guard hasLostActiveState else { return }
+            hasLostActiveState = false
+        default:
+            break
+        }
+        record(type: type)
     }
 
     private func record(type: String) {

@@ -27,7 +27,7 @@ final class VocelloiOSSmokeUITests: VocelloiOSUITestCase {
 
         prepare(mode: .custom)
         replaceScript(with: "The train left the station at dawn.")
-        generateAndWaitForCompletedPlayer(timeout: 240)
+        _ = generateAndWaitForCompletedPlayer(timeout: 240)
         VocelloUIScreenshot.attach(app, named: "ios-smoke-custom-complete")
 
         select(tab: .history)

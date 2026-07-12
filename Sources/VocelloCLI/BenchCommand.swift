@@ -1,3 +1,5 @@
+import CryptoKit
+import Darwin
 import Foundation
 import QwenVoiceCore
 
@@ -9,6 +11,45 @@ import QwenVoiceCore
 /// With `--delivery`, it also runs a reference-free prosody analysis on the
 /// paired neutral-vs-instructed WAVs and surfaces the deltas in the summary.
 enum BenchCommand {
+    private struct BenchTakeEnvironment: Codable {
+        let loadAverage1Minute: Double?
+        let freeStorageBytes: UInt64?
+        let uptimeSeconds: Double
+        let lowPowerModeEnabled: Bool
+        let thermalState: String
+    }
+
+    private struct BenchTakeResult: Codable {
+        let takeIndex: Int
+        let generationID: String
+        let cell: String
+        let mode: String
+        let modelID: String
+        let variant: String
+        let length: String
+        let warmState: String
+        let repetition: Int
+        let delivery: String?
+        let audioSeconds: Double
+        let wallSeconds: Double
+        let firstChunkMS: Double?
+        let outputFileName: String
+        let environment: BenchTakeEnvironment
+    }
+
+    private struct BenchResultsManifest: Codable {
+        let schemaVersion: Int
+        let runID: String
+        let label: String
+        let startedAt: String
+        let finishedAt: String
+        let telemetryMode: String
+        let seed: UInt64?
+        let streaming: Bool
+        let fixtureDigests: [String: String]
+        let takes: [BenchTakeResult]
+    }
+
     /// Fixed corpus — shared with macOS XPC UI bench via `BenchMatrixSpec`.
     static var corpus: [(len: String, text: String)] { BenchMatrixSpec.corpus }
     static var defaultDesignBrief: String { BenchMatrixSpec.defaultDesignBrief }
@@ -76,6 +117,30 @@ enum BenchCommand {
         // the summarizer uses, so producer and consumer agree by construction.
         try BenchMatrixSpec.validateCorpus()
 
+        let modes = try parseMatrixAxis(
+            args.string("modes"),
+            option: "modes",
+            wasBareFlag: args.flag("modes"),
+            defaults: GenerationMode.allCases.map(\.rawValue),
+            allowed: GenerationMode.allCases.map(\.rawValue)
+        )
+        let variants = try parseMatrixAxis(
+            args.string("variants"),
+            option: "variants",
+            wasBareFlag: args.flag("variants"),
+            defaults: ["speed", "quality"],
+            allowed: ["speed", "quality"]
+        )
+        let lengths = try parseMatrixAxis(
+            args.string("lengths"),
+            option: "lengths",
+            wasBareFlag: args.flag("lengths"),
+            defaults: ["short", "medium", "long"],
+            allowed: corpus.map(\.len)
+        )
+        let noSummary = args.flag("no-summary")
+        let label = try validatedBenchmarkLabel(args.string("label"))
+
         // Telemetry: default lightweight; verbose adds sidecars; off skips JSONL/sampler
         // while still writing WAV outputs (engine-only baseline runs).
         let telemetryRaw = (args.string("telemetry") ?? "lightweight").lowercased()
@@ -93,6 +158,13 @@ enum BenchCommand {
         // drain the macOS `.unbounded` engine.events stream during streaming takes.
         setenv("QWENVOICE_STREAMING_PREVIEW_DATA", "off", 1)
 
+        let runID = args.string("run-id") ?? "macos-engine-\(Self.utcRunTimestamp())-\(UUID().uuidString.lowercased().prefix(8))"
+        setenv("QVOICE_MAC_BENCH_RUN_ID", runID, 1)
+        defer {
+            unsetenv("QVOICE_MAC_BENCH_RUN_ID")
+            try? FileManager.default.removeItem(atPath: "/tmp/vocello-bench-current-take.json")
+        }
+
         // --force-class: run constrained-tier code paths on any Mac. Must be set
         // before the device class is first resolved (i.e. before bootstrap).
         if let tier = args.string("force-class") {
@@ -101,9 +173,6 @@ enum BenchCommand {
             note("forcing memory class: \(canonical)")
         }
 
-        var modes = parseList(args.string("modes")) ?? ["custom", "design", "clone"]
-        let variants = parseList(args.string("variants")) ?? ["speed", "quality"]
-        let lengths = parseList(args.string("lengths")) ?? ["short", "medium", "long"]
         let warm = max(1, Int(args.string("warm") ?? "3") ?? 3)
         let designBrief = args.string("voice-brief") ?? defaultDesignBrief
         let cloneVoiceName = args.string("voice") ?? defaultCloneVoice
@@ -135,6 +204,26 @@ enum BenchCommand {
             try clearDiagnosticsIfSafe(dataDir: resolvedDataDir, force: args.flag("force"))
         }
 
+        let diagDir = resolvedDataDir.appendingPathComponent("diagnostics", isDirectory: true)
+        // Parent diagnostic lanes use --no-summary and own their artifact layout.
+        // Standalone benches retain one immutable per-run manifest/snapshot so a
+        // later run cannot overwrite the evidence needed for delayed recording.
+        let historyArtifactDir = noSummary
+            ? diagDir
+            : diagDir
+                .appendingPathComponent("benchmark-runs", isDirectory: true)
+                .appendingPathComponent(runID, isDirectory: true)
+        let historyPublisher = (!noSummary && !telemetryOff) ? locateHistoryPublisher() : nil
+        let summarizerScript = (!noSummary && !telemetryOff) ? locateSummarizer() : nil
+        if let historyPublisher {
+            try captureHistorySourceSnapshot(publisher: historyPublisher, artifactDirectory: historyArtifactDir)
+        } else if !noSummary, !telemetryOff {
+            note("benchmark registry unavailable outside a Vocello checkout; local results will be retained")
+        }
+        if summarizerScript == nil, !noSummary, !telemetryOff {
+            note("benchmark summarizer unavailable outside a Vocello checkout; local results will be retained")
+        }
+
         note("bench • data: \(resolvedDataDir.path)")
         let runtime = try await CLIRuntime.bootstrap(
             dataDirectory: resolvedDataDir,
@@ -155,22 +244,27 @@ enum BenchCommand {
                 throw CLIError("clone bench needs saved voice '\(cloneVoiceName)' (have: \(have.isEmpty ? "none" : have))")
             }
         }
+        var fixtureDigests = ["design": sha256(Data(designBrief.utf8))]
+        if let audioPath = cloneReference?.audioPath,
+           let audioData = try? Data(contentsOf: URL(fileURLWithPath: audioPath)) {
+            fixtureDigests["clone"] = sha256(audioData)
+        }
         // Every requested (mode × variant) model must be installed — fail fast.
         try preflightModels(runtime: runtime, modes: modes, variants: variants, dataDir: resolvedDataDir)
 
         let coldLen = lengths.contains("medium") ? "medium" : lengths.first
         var total = 0
+        var takeResults: [BenchTakeResult] = []
         let started = Date()
+        let startedAt = ISO8601DateFormatter().string(from: started)
 
         for modeStr in modes {
             guard let mode = GenerationMode(rawValue: modeStr) else {
-                note("skip unknown mode '\(modeStr)'"); continue
+                throw CLIError("invalid --modes value '\(modeStr)'")
             }
             for variantStr in variants {
                 let quality = variantStr.lowercased() == "quality"
-                let modelID: String
-                do { modelID = try runtime.modelID(mode: mode, quality: quality) }
-                catch { note("skip \(modeStr)/\(variantStr): \(error)"); continue }
+                let modelID = try runtime.modelID(mode: mode, quality: quality)
 
                 let payload = try payload(for: mode, customSpeaker: runtime.defaultSpeakerID,
                                           designBrief: designBrief, cloneReference: cloneReference)
@@ -180,20 +274,33 @@ enum BenchCommand {
                 try? await runtime.engine.unloadModel()
 
                 // Cold sample (Custom/Design only — Clone is warm-by-design).
-                if mode != .clone, let coldLen, let coldText = text(for: coldLen) {
-                    try await take(runtime, mode: mode, modelID: modelID, payload: payload,
-                                   len: coldLen, text: coldText, state: "cold", n: 0, outDir: outDir,
-                                   shouldStream: !noStream, seed: seed)
+                if mode != .clone, let coldLen {
+                    let coldText = try requiredText(for: coldLen)
                     total += 1
+                    let cell = "\(mode.rawValue)/\(variantStr.lowercased())/\(coldLen)/cold#0"
+                    BenchRunContext.writeCurrentTakeFile(
+                        takeIndex: total, cell: cell, intendedWarmState: "cold"
+                    )
+                    takeResults.append(try await take(
+                        runtime, mode: mode, modelID: modelID, payload: payload,
+                        len: coldLen, text: coldText, state: "cold", n: 0, outDir: outDir,
+                        takeIndex: total, cell: cell, shouldStream: !noStream, seed: seed
+                    ))
                 }
                 // Warm samples per requested length.
                 for len in lengths {
-                    guard let t = text(for: len) else { continue }
+                    let t = try requiredText(for: len)
                     for n in 0..<warm {
-                        try await take(runtime, mode: mode, modelID: modelID, payload: payload,
-                                       len: len, text: t, state: "warm", n: n, outDir: outDir,
-                                       shouldStream: !noStream, seed: seed)
                         total += 1
+                        let cell = "\(mode.rawValue)/\(variantStr.lowercased())/\(len)/warm#\(n)"
+                        BenchRunContext.writeCurrentTakeFile(
+                            takeIndex: total, cell: cell, intendedWarmState: "warm"
+                        )
+                        takeResults.append(try await take(
+                            runtime, mode: mode, modelID: modelID, payload: payload,
+                            len: len, text: t, state: "warm", n: n, outDir: outDir,
+                            takeIndex: total, cell: cell, shouldStream: !noStream, seed: seed
+                        ))
                     }
                 }
 
@@ -203,16 +310,24 @@ enum BenchCommand {
                 // plain warm takes above double as the neutral reference for the
                 // listening comparison; the summarizer segregates these rows via
                 // the notes.delivery stamp so the headline matrix stays clean.
-                if !deliveryItems.isEmpty, mode != .clone, let deliveryText = text(for: "medium") {
+                if !deliveryItems.isEmpty, mode != .clone {
+                    let deliveryText = try requiredText(for: "medium")
                     for item in deliveryItems {
                         let deliveryPayload = try Self.payload(
                             for: mode, customSpeaker: runtime.defaultSpeakerID,
                             designBrief: designBrief, cloneReference: cloneReference,
                             deliveryStyle: item.instruction)
-                        try await take(runtime, mode: mode, modelID: modelID, payload: deliveryPayload,
-                                       len: "medium", text: deliveryText, state: "warm", n: 0,
-                                       outDir: outDir, delivery: item.id, shouldStream: !noStream, seed: seed)
                         total += 1
+                        let cell = "\(mode.rawValue)/\(variantStr.lowercased())/medium/warm#delivery-\(item.id)"
+                        BenchRunContext.writeCurrentTakeFile(
+                            takeIndex: total, cell: cell, intendedWarmState: "warm"
+                        )
+                        takeResults.append(try await take(
+                            runtime, mode: mode, modelID: modelID, payload: deliveryPayload,
+                            len: "medium", text: deliveryText, state: "warm", n: 0,
+                            outDir: outDir, takeIndex: total, cell: cell, delivery: item.id,
+                            shouldStream: !noStream, seed: seed
+                        ))
                     }
                 }
             }
@@ -220,32 +335,61 @@ enum BenchCommand {
 
         note("✓ \(total) takes in \(String(format: "%.0f", Date().timeIntervalSince(started)))s")
 
-        let diagDir = resolvedDataDir.appendingPathComponent("diagnostics", isDirectory: true)
-        let label = args.string("label") ?? ""
-        if !args.flag("no-summary"), !telemetryOff {
-            runSummarizer(diagnostics: diagDir, label: label, appendLedger: args.flag("ledger"))
-            // Prosody analysis for --delivery takes: deterministic, reference-free,
-            // complements audioQC with tone/cadence deltas vs the paired neutral take.
+        try writeResultsManifest(
+            BenchResultsManifest(
+                schemaVersion: 1,
+                runID: runID,
+                label: label.isEmpty ? runID : label,
+                startedAt: startedAt,
+                finishedAt: ISO8601DateFormatter().string(from: Date()),
+                telemetryMode: telemetryRaw,
+                seed: seed,
+                streaming: !noStream,
+                fixtureDigests: fixtureDigests,
+                takes: takeResults
+            ),
+            artifactDirectory: historyArtifactDir
+        )
+        if summarizerScript != nil {
+            // Prosody must be generated from this run's immutable results manifest
+            // before aggregation so the summary includes it and stale shared WAVs
+            // can never enter the current run's evidence.
             if !deliveryItems.isEmpty {
-                runDeliveryProsodyAnalysis(diagnostics: diagDir, profilePath: prosodyProfilePath)
+                guard let prosodyScript = locateDeliveryProsodyAnalyzer() else {
+                    throw CLIError("delivery prosody script not found from \(FileManager.default.currentDirectoryPath)")
+                }
+                try runDeliveryProsodyAnalysis(
+                    script: prosodyScript,
+                    diagnostics: diagDir,
+                    resultsManifest: historyArtifactDir.appendingPathComponent("bench-results.json"),
+                    profilePath: prosodyProfilePath
+                )
+            } else {
+                // A --keep run without delivery must not inherit an older sidecar.
+                try? FileManager.default.removeItem(
+                    at: diagDir.appendingPathComponent("bench-prosody.json")
+                )
             }
         }
-        if args.flag("ledger"), telemetryOff {
-            note("(--ledger skipped: --telemetry off)")
-        }
-
-        // Optional engine first-chunk-latency probe. Runs AFTER the summary so its
-        // streaming rows don't perturb the headline (non-streaming) RTF/decode table.
-        // This is engine-side TTFC — not the app's through-XPC TTFA.
+        // Optional engine first-chunk-latency probe. Runs after the main matrix but
+        // before final evidence publication. The immutable results manifest selects
+        // only the matrix generations, so these probe rows cannot perturb its summary.
+        // This is engine-side TTFC — not the app's through-XPC
+        // submit-to-playback-scheduled latency.
         if ttfc {
             note("ttfc probe (warm streaming, after summary)…")
             var rows: [TTFCRow] = []
             for modeStr in modes {
-                guard let mode = GenerationMode(rawValue: modeStr) else { continue }
+                guard let mode = GenerationMode(rawValue: modeStr) else {
+                    throw CLIError("invalid --modes value '\(modeStr)'")
+                }
                 for variantStr in variants {
                     let quality = variantStr.lowercased() == "quality"
-                    guard let modelID = try? runtime.modelID(mode: mode, quality: quality) else { continue }
-                    guard let probeLen = coldLen ?? lengths.first, let probeText = text(for: probeLen) else { continue }
+                    let modelID = try runtime.modelID(mode: mode, quality: quality)
+                    guard let probeLen = coldLen ?? lengths.first else {
+                        throw CLIError("benchmark matrix has no lengths")
+                    }
+                    let probeText = try requiredText(for: probeLen)
                     let payload = try payload(for: mode, customSpeaker: runtime.defaultSpeakerID,
                                               designBrief: designBrief, cloneReference: cloneReference)
                     try await runtime.engine.loadModel(id: modelID)  // warm
@@ -263,6 +407,41 @@ enum BenchCommand {
             reportTTFC(rows, diagnostics: diagDir)
         }
 
+        // Publication is deliberately last: an optional TTFC probe is still part
+        // of this command's success contract, so it must not be able to fail after
+        // a tracked PASS record has already been created.
+        if let historyPublisher {
+            guard let summarizerScript else {
+                throw CLIError("benchmark publisher is available but the telemetry summarizer is missing")
+            }
+            try prepareEngineHistoryEvidence(
+                publisher: historyPublisher,
+                artifactDirectory: historyArtifactDir,
+                diagnostics: diagDir,
+                outputs: outDir,
+                runID: runID,
+                label: label
+            )
+            try runSummarizer(
+                script: summarizerScript,
+                diagnostics: diagDir,
+                evidenceManifest: historyArtifactDir.appendingPathComponent("benchmark-evidence.json"),
+                runID: runID,
+                label: label
+            )
+            try recordEngineHistory(
+                historyScript: historyPublisher.deletingLastPathComponent()
+                    .appendingPathComponent("benchmark_history.py"),
+                artifactDirectory: historyArtifactDir
+            )
+        } else if telemetryOff {
+            note("benchmark history skipped because telemetry is off")
+        } else if noSummary {
+            note("benchmark history skipped with --no-summary (parent diagnostic lane owns publication)")
+        } else {
+            note("benchmark history not published; local manifest → \(historyArtifactDir.appendingPathComponent("bench-results.json").path)")
+        }
+
     }
 
     // MARK: - One take
@@ -270,8 +449,9 @@ enum BenchCommand {
     @MainActor
     private static func take(_ runtime: CLIRuntime, mode: GenerationMode, modelID: String,
                              payload: GenerationRequest.Payload, len: String, text: String,
-                             state: String, n: Int, outDir: URL, delivery: String? = nil,
-                             shouldStream: Bool = true, seed: UInt64? = nil) async throws {
+                             state: String, n: Int, outDir: URL,
+                             takeIndex: Int, cell: String, delivery: String? = nil,
+                             shouldStream: Bool = true, seed: UInt64? = nil) async throws -> BenchTakeResult {
         // Bucket the char count with the SAME function the summarizer uses, so
         // the filename and the telemetry row agree by construction regardless of
         // the bucket thresholds.
@@ -280,11 +460,13 @@ enum BenchCommand {
         // so the filename and the engine row's notes.delivery stamp agree.
         let stateToken = delivery.map { "\(state)_d-\($0)" } ?? state
         let out = outDir.appendingPathComponent("\(mode.rawValue)_\(modelID)_\(lenToken)_\(stateToken)_\(n).wav").path
+        let generationID = UUID()
         let request = GenerationRequest(
             mode: mode, modelID: modelID, text: text, outputPath: out,
-            shouldStream: shouldStream, payload: payload, generationID: UUID(), seed: seed)
+            shouldStream: shouldStream, payload: payload, generationID: generationID, seed: seed)
         if let delivery { setenv("QWENVOICE_BENCH_DELIVERY", delivery, 1) }
         defer { if delivery != nil { unsetenv("QWENVOICE_BENCH_DELIVERY") } }
+        let environment = captureEnvironment()
         let t0 = Date()
         let result: GenerationResult
         var firstChunkMS: Double?
@@ -302,6 +484,76 @@ enum BenchCommand {
         let ttfcTag = firstChunkMS.map { "  ttfc=\(String(format: "%.1f", $0))ms" } ?? ""
         FileHandle.standardError.write(Data(
             "  \(mode.rawValue)/\(modelID.hasSuffix("quality") ? "Q" : "S")/\(len)/\(state)\(deliveryTag)#\(n)  \(String(format: "%.2f", result.durationSeconds))s audio in \(String(format: "%.1f", wall))s\(ttfcTag)\n".utf8))
+        return BenchTakeResult(
+            takeIndex: takeIndex,
+            generationID: generationID.uuidString,
+            cell: cell,
+            mode: mode.rawValue,
+            modelID: modelID,
+            variant: modelID.hasSuffix("quality") ? "quality" : "speed",
+            length: len,
+            warmState: state,
+            repetition: n,
+            delivery: delivery,
+            audioSeconds: result.durationSeconds,
+            wallSeconds: wall,
+            firstChunkMS: firstChunkMS,
+            outputFileName: URL(fileURLWithPath: out).lastPathComponent,
+            environment: environment
+        )
+    }
+
+    private static func captureEnvironment() -> BenchTakeEnvironment {
+        var loads = [Double](repeating: 0, count: 3)
+        let loadCount = loads.withUnsafeMutableBufferPointer { buffer -> Int in
+            guard let baseAddress = buffer.baseAddress else { return 0 }
+            return Int(getloadavg(baseAddress, Int32(buffer.count)))
+        }
+        let freeStorage = (
+            try? FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory())
+        )?[.systemFreeSize] as? NSNumber
+        let processInfo = ProcessInfo.processInfo
+        let thermal: String
+        switch processInfo.thermalState {
+        case .nominal: thermal = "nominal"
+        case .fair: thermal = "fair"
+        case .serious: thermal = "serious"
+        case .critical: thermal = "critical"
+        @unknown default: thermal = "unknown"
+        }
+        return BenchTakeEnvironment(
+            loadAverage1Minute: loadCount > 0 ? loads[0] : nil,
+            freeStorageBytes: freeStorage?.uint64Value,
+            uptimeSeconds: processInfo.systemUptime,
+            lowPowerModeEnabled: processInfo.isLowPowerModeEnabled,
+            thermalState: thermal
+        )
+    }
+
+    private static func writeResultsManifest(
+        _ manifest: BenchResultsManifest,
+        artifactDirectory: URL
+    ) throws {
+        try FileManager.default.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(manifest)
+        try data.write(
+            to: artifactDirectory.appendingPathComponent("bench-results.json"),
+            options: .atomic
+        )
+    }
+
+    private static func utcRunTimestamp() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter.string(from: Date())
+    }
+
+    private static func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private static func payload(for mode: GenerationMode, customSpeaker: String, designBrief: String,
@@ -319,57 +571,37 @@ enum BenchCommand {
         corpus.first { $0.len == len }?.text
     }
 
-    private static func runSummarizer(diagnostics: URL, label: String, appendLedger: Bool = false) {
-        guard let scriptURL = locateSummarizer() else {
-            note("(summarizer scripts/summarize_generation_telemetry.py not found from \(FileManager.default.currentDirectoryPath); run it manually on \(diagnostics.path))")
-            return
+    private static func requiredText(for length: String) throws -> String {
+        guard let text = text(for: length) else {
+            throw CLIError("benchmark corpus has no text for length '\(length)'")
         }
+        return text
+    }
+
+    private static func runSummarizer(
+        script: URL,
+        diagnostics: URL,
+        evidenceManifest: URL,
+        runID: String,
+        label: String
+    ) throws {
         note("aggregating →")
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        var pargs = ["python3", scriptURL.path, diagnostics.path]
+        var pargs = [
+            "python3", script.path, diagnostics.path,
+            "--run-id", runID,
+            "--evidence-manifest", evidenceManifest.path,
+            "--engine-only",
+        ]
         if !label.isEmpty { pargs += ["--label", label] }
-        if appendLedger { pargs += ["--emit-ledger-row"] }
         p.arguments = pargs
-
-        if appendLedger {
-            let pipe = Pipe()
-            p.standardOutput = pipe
-            do { try p.run() } catch {
-                note("(summarizer: \(error.localizedDescription))")
-                return
-            }
-            p.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            guard let output = String(data: data, encoding: .utf8) else { return }
-            var ledgerRow: String?
-            var replay: [String] = []
-            var captureLedger = false
-            for line in output.split(separator: "\n", omittingEmptySubsequences: false) {
-                if line == "# ledger-row" {
-                    captureLedger = true
-                    continue
-                }
-                if captureLedger {
-                    ledgerRow = String(line)
-                    captureLedger = false
-                    continue
-                }
-                replay.append(String(line))
-            }
-            if !replay.isEmpty {
-                var text = replay.joined(separator: "\n")
-                if !text.hasSuffix("\n") { text += "\n" }
-                FileHandle.standardOutput.write(Data(text.utf8))
-            }
-            if let ledgerRow, !ledgerRow.isEmpty {
-                appendLedgerRowToHistory(ledgerRow)
-            } else if p.terminationStatus != 0 {
-                note("(--ledger: summarizer exit \(p.terminationStatus))")
-            }
-        } else {
-            try? p.run()
-            p.waitUntilExit()
+        do { try p.run() } catch {
+            throw CLIError("could not start telemetry summarizer: \(error.localizedDescription)")
+        }
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else {
+            throw CLIError("strict telemetry summarizer failed for runID=\(runID)")
         }
     }
 
@@ -382,48 +614,149 @@ enum BenchCommand {
         return CLIRuntime.findUpwards(relativePath: rel, from: cwd)
     }
 
-    private static func runDeliveryProsodyAnalysis(diagnostics: URL, profilePath: String?) {
+    private static func locateHistoryPublisher() -> URL? {
+        let rel = "scripts/publish_benchmark_history.py"
+        let cwd = FileManager.default.currentDirectoryPath
+        if FileManager.default.fileExists(atPath: cwd + "/" + rel) {
+            return URL(fileURLWithPath: cwd + "/" + rel)
+        }
+        return CLIRuntime.findUpwards(relativePath: rel, from: cwd)
+    }
+
+    private static func captureHistorySourceSnapshot(publisher: URL, artifactDirectory: URL) throws {
+        try FileManager.default.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
+        let snapshot = artifactDirectory.appendingPathComponent("benchmark-source.json")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [
+            "python3", publisher.path, "snapshot", "--output", snapshot.path,
+            "--crash-scope", "macos",
+        ]
+        let errorPipe = Pipe()
+        process.standardError = errorPipe
+        do { try process.run() } catch {
+            throw CLIError("could not start benchmark provenance capture: \(error.localizedDescription)")
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let detail = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? "unknown failure"
+            throw CLIError("benchmark provenance capture failed: \(detail)")
+        }
+    }
+
+    private static func prepareEngineHistoryEvidence(
+        publisher: URL,
+        artifactDirectory: URL,
+        diagnostics: URL,
+        outputs: URL,
+        runID: String,
+        label: String
+    ) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        var arguments = [
+            "python3", publisher.path, "engine",
+            "--artifact-dir", artifactDirectory.path,
+            "--snapshot", artifactDirectory.appendingPathComponent("benchmark-source.json").path,
+            "--platform", "macos",
+            "--run-id", runID,
+            "--results", artifactDirectory.appendingPathComponent("bench-results.json").path,
+            "--diagnostics", diagnostics.path,
+            "--output-dir", outputs.path,
+            "--defer-record",
+        ]
+        if !label.isEmpty { arguments += ["--label", label] }
+        process.arguments = arguments
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+        do { try process.run() } catch {
+            throw CLIError("could not start benchmark history publication: \(error.localizedDescription)")
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let detail = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? "unknown failure"
+            // The publisher writes benchmark-evidence.json before invoking the
+            // registry. Its stderr therefore contains the safe delayed-repair
+            // command, which records that frozen manifest without rebuilding it.
+            throw CLIError("benchmark passed but evidence validation failed: \(detail)")
+        }
+        if let published = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !published.isEmpty {
+            note("benchmark evidence → \(published)")
+        }
+    }
+
+    private static func recordEngineHistory(
+        historyScript: URL,
+        artifactDirectory: URL
+    ) throws {
+        guard FileManager.default.fileExists(atPath: historyScript.path) else {
+            throw CLIError("benchmark history recorder is missing at \(historyScript.path)")
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [
+            "python3", historyScript.path, "record",
+            "--artifact-dir", artifactDirectory.path,
+        ]
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+        do { try process.run() } catch {
+            throw CLIError("could not start benchmark history recording: \(error.localizedDescription)")
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let detail = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? "unknown failure"
+            throw CLIError(
+                "benchmark passed but history publication failed: \(detail); repair: "
+                + "python3 scripts/benchmark_history.py record --artifact-dir '\(artifactDirectory.path)'"
+            )
+        }
+        if let published = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !published.isEmpty {
+            note("benchmark history → \(published)")
+        }
+    }
+
+    private static func locateDeliveryProsodyAnalyzer() -> URL? {
         let rel = "scripts/bench_delivery_prosody.py"
         let cwd = FileManager.default.currentDirectoryPath
-        var scriptURL: URL?
         if FileManager.default.fileExists(atPath: cwd + "/" + rel) {
-            scriptURL = URL(fileURLWithPath: cwd + "/" + rel)
-        } else {
-            scriptURL = CLIRuntime.findUpwards(relativePath: rel, from: cwd)
+            return URL(fileURLWithPath: cwd + "/" + rel)
         }
-        guard let scriptURL else {
-            note("(delivery prosody script not found from \(FileManager.default.currentDirectoryPath); skip)")
-            return
-        }
+        return CLIRuntime.findUpwards(relativePath: rel, from: cwd)
+    }
+
+    private static func runDeliveryProsodyAnalysis(
+        script: URL,
+        diagnostics: URL,
+        resultsManifest: URL,
+        profilePath: String?
+    ) throws {
         note("prosody analysis for delivery cells →")
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        var pargs = ["python3", scriptURL.path, diagnostics.path]
+        var pargs = [
+            "python3", script.path, diagnostics.path,
+            "--results-manifest", resultsManifest.path,
+        ]
         if let profilePath, !profilePath.isEmpty {
             pargs += ["--prosody-profile", profilePath]
         }
         p.arguments = pargs
-        try? p.run()
-        p.waitUntilExit()
-    }
-
-    /// Append a preformatted HISTORY.md ledger row (from `--emit-ledger-row`).
-    private static func appendLedgerRowToHistory(_ row: String) {
-        let cwd = FileManager.default.currentDirectoryPath
-        let historyURL: URL?
-        if FileManager.default.fileExists(atPath: cwd + "/benchmarks/HISTORY.md") {
-            historyURL = URL(fileURLWithPath: cwd + "/benchmarks/HISTORY.md")
-        } else {
-            historyURL = CLIRuntime.findUpwards(relativePath: "benchmarks/HISTORY.md", from: cwd)
+        do { try p.run() } catch {
+            throw CLIError("could not start delivery prosody analysis: \(error.localizedDescription)")
         }
-        guard let historyURL else { note("(--ledger: benchmarks/HISTORY.md not found; skip)"); return }
-        if let fh = try? FileHandle(forWritingTo: historyURL) {
-            defer { try? fh.close() }
-            fh.seekToEndOfFile()
-            if let d = (row + "\n").data(using: .utf8) { fh.write(d) }
-            note("ledger row appended → \(historyURL.path)")
-        } else {
-            note("(--ledger: could not open \(historyURL.path) for append)")
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else {
+            throw CLIError("delivery prosody analysis failed")
         }
     }
 
@@ -436,6 +769,18 @@ enum BenchCommand {
         default:
             throw CLIError("invalid --force-class '\(raw)' (use 8gb | 16gb | high | iphone, or the canonical *_mac names)")
         }
+    }
+
+    private static func validatedBenchmarkLabel(_ raw: String?) throws -> String {
+        guard let raw, !raw.isEmpty else { return "" }
+        let range = NSRange(raw.startIndex..<raw.endIndex, in: raw)
+        let expression = try NSRegularExpression(pattern: #"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"#)
+        guard expression.firstMatch(in: raw, range: range)?.range == range else {
+            throw CLIError(
+                "--label must be an opaque 1-96 character ID using letters, digits, dot, underscore, or hyphen"
+            )
+        }
+        return raw
     }
 
     /// Debug-isolated Application Support folder (models + diagnostics) without
@@ -482,10 +827,12 @@ enum BenchCommand {
         let modelsDir = dataDir.appendingPathComponent("models", isDirectory: true)
         var missing: [String] = []
         for modeStr in modes {
-            guard let mode = GenerationMode(rawValue: modeStr) else { continue }
+            guard let mode = GenerationMode(rawValue: modeStr) else {
+                throw CLIError("invalid --modes value '\(modeStr)'")
+            }
             for variantStr in variants {
                 let quality = variantStr.lowercased() == "quality"
-                guard let id = try? runtime.modelID(mode: mode, quality: quality) else { continue }
+                let id = try runtime.modelID(mode: mode, quality: quality)
                 if case .available = runtime.registry.availability(forModelID: id, in: modelsDir) { continue }
                 missing.append(id)
             }
@@ -500,7 +847,7 @@ enum BenchCommand {
     private static func reportTTFC(_ rows: [TTFCRow], diagnostics: URL) {
         guard !rows.isEmpty else { return }
         FileHandle.standardError.write(Data(
-            "\nEngine first-chunk latency (TTFC, ms) — warm streaming probe (engine-side, not app/XPC TTFA)\n".utf8))
+            "\nEngine first-chunk latency (TTFC, ms) — warm streaming probe (engine-side, not app/XPC playback-scheduled latency)\n".utf8))
         for r in rows {
             let ms = r.firstChunkMS.map { String(format: "%.0f", $0) } ?? "-"
             FileHandle.standardError.write(Data("  \(r.mode)/\(r.variant)\t\(ms)\n".utf8))
@@ -520,6 +867,34 @@ enum BenchCommand {
         return s.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty }
     }
 
+    private static func parseMatrixAxis(
+        _ raw: String?,
+        option: String,
+        wasBareFlag: Bool,
+        defaults: [String],
+        allowed: [String]
+    ) throws -> [String] {
+        guard !wasBareFlag else {
+            throw CLIError("invalid --\(option): a comma-list value is required")
+        }
+        guard let raw else { return defaults }
+        let values = raw
+            .split(separator: ",", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        let allowedSet = Set(allowed)
+        let invalid = values.filter { $0.isEmpty || !allowedSet.contains($0) }
+        guard invalid.isEmpty else {
+            let rendered = invalid.map { $0.isEmpty ? "<empty>" : $0 }.joined(separator: ", ")
+            throw CLIError(
+                "invalid --\(option) value(s): \(rendered) (use \(allowed.joined(separator: ",")))"
+            )
+        }
+        guard Set(values).count == values.count else {
+            throw CLIError("invalid --\(option): duplicate values are not allowed")
+        }
+        return values
+    }
+
     static func printHelp() {
         print("""
         vocello bench — drive the perf/quality matrix headlessly + aggregate
@@ -531,19 +906,23 @@ enum BenchCommand {
         Per cell: 1 cold (medium) for Custom/Design + N warm per length; Voice
         Cloning is warm-only. Telemetry defaults to lightweight (JSONL + sampler);
         use --telemetry off for engine-only WAV runs without instrumentation.
-        Results land in <data>/diagnostics and are summarized by
-        scripts/summarize_generation_telemetry.py (skipped when --telemetry off).
+        Raw telemetry lands in <data>/diagnostics; each run's immutable manifest
+        and publication evidence land in diagnostics/benchmark-runs/<runID>.
+        Repository summary/history tools run unless telemetry is off or the CLI is
+        outside a Vocello checkout; local WAVs and bench-results.json are retained.
 
         Measures engine truth — RTF / decode / memory / audioQC. It does NOT capture
-        the app's end-to-end through-XPC latency (TTFC/TTFA) or the merged 3-layer row
+        the app's end-to-end through-XPC submit-to-first-chunk or
+        playback-scheduled latency, or the merged 3-layer row
         (use the app for those); --ttfc adds an engine-side first-chunk probe.
         Prerequisites: the requested models installed; saved clone voice
         '\(defaultCloneVoice)' when clone is in --modes.
 
         Options:
-          --modes        comma list (default custom,design,clone)
-          --variants     comma list (default speed,quality)
-          --lengths      comma list (default short,medium,long)
+          --modes        strict comma list: custom,design,clone (default all)
+          --variants     strict comma list: speed,quality (default both)
+          --lengths      strict comma list: short,medium,long (default all)
+                         Empty, unknown, and duplicate axis values fail.
           --warm         warm reps per (cell × length); default 3
           --voice        (clone) saved voice name; default \(defaultCloneVoice)
           --voice-brief  (design) brief; default the standard narrator brief
@@ -556,12 +935,13 @@ enum BenchCommand {
                          plain warm takes double as the neutral reference. Also
                          triggers a numpy-only prosody analysis (pitch dynamics,
                          rate variability, pauses, energy roughness) vs the paired
-                         neutral take; results appear in the delivery table.
+                         neutral take. Only WAVs in the current run manifest are
+                         analyzed before aggregation, so results appear in the
+                         final delivery table without stale --keep contamination.
           --prosody-profile <path>
                          use a calibrated prosody profile for the delivery analysis
                          (default: built-in profile)
-          --label "<n>"  stamp a note on the summary / ledger row
-          --ledger       append a one-line row to benchmarks/HISTORY.md (perf ledger)
+          --label <id>   opaque 1-96 character run label using letters, digits, ._- only
           --force-class  run a constrained tier on any Mac: 8gb|16gb|high|iphone
           --telemetry    off | lightweight (default) | verbose (raw per-sample sidecars)
           --seed         deterministic sampling seed applied to every take
@@ -572,7 +952,7 @@ enum BenchCommand {
           --manifest     override path to qwenvoice_contract.json
           --keep         append to existing diagnostics (default: clear first)
           --force        allow clearing even the real (non-debug) app data dir
-          --no-summary   skip running the aggregator
+          --no-summary   skip the aggregator and registry; parent diagnostic lane owns publication
           --quiet|--verbose   suppress / expand stderr progress notes
         """)
     }

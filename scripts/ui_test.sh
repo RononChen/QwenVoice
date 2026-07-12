@@ -22,16 +22,23 @@ note() { printf '\033[0;36m==>\033[0m %s\n' "$*" >&2; }
 warn() { printf '\033[0;33m[warn]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[0;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
 
+validate_benchmark_label() {
+  local value="$1"
+  [[ -z "$value" || "$value" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$ ]] \
+    || die "--label must be an opaque 1-96 character ID using letters, digits, dot, underscore, or hyphen"
+}
+
 usage() {
   cat >&2 <<'EOF'
 Usage:
   scripts/ui_test.sh macos smoke
-  scripts/ui_test.sh macos benchmark [--modes custom,design,clone] [--lengths short,medium,long] [--warm 3] [--label NOTE]
+  scripts/ui_test.sh macos benchmark [--modes custom,design,clone] [--lengths short,medium,long] [--warm 3] [--label RUN_ID]
   scripts/ui_test.sh ios smoke
-  scripts/ui_test.sh ios benchmark [--modes custom,design,clone] [--lengths short,medium,long] [--warm 3] [--label NOTE]
+  scripts/ui_test.sh ios benchmark [--modes custom,design,clone] [--lengths short,medium,long] [--warm 3] [--label RUN_ID]
 
 The iOS destination is the paired physical iPhone only. Simulator destinations are unsupported.
 No lane retries automatically. A failed run keeps its log, xcresult, screenshots, and diagnostics.
+RUN_ID is an opaque 1-96 character identifier using letters, digits, dot, underscore, or hyphen.
 EOF
   exit 2
 }
@@ -61,6 +68,7 @@ while [[ $# -gt 0 ]]; do
     *) die "unknown flag: $1" ;;
   esac
 done
+validate_benchmark_label "$label"
 
 if [[ "$lane" == "smoke" && ( "$modes" != "custom,design,clone" || "$lengths" != "short,medium,long" || "$warm" != 3 || -n "$label" ) ]]; then
   die "benchmark flags are accepted only by the benchmark lane"
@@ -90,12 +98,18 @@ fi
 command -v xcodebuild >/dev/null 2>&1 || die "xcodebuild not found"
 [[ -d "$PROJECT" ]] || die "missing $PROJECT (run ./scripts/regenerate_project.sh)"
 
-timestamp="$(date +%Y%m%d-%H%M%S)"
-run_id="${platform}-xcui-${lane}-${timestamp}"
+timestamp="$(date -u +%Y%m%d-%H%M%S)"
+nonce="$(uuidgen | tr '[:upper:]' '[:lower:]' | cut -c1-8)"
+run_id="${platform}-xcui-${lane}-${timestamp}-${nonce}"
 out="$ROOT_DIR/build/ui-tests/$platform/$run_id"
 result="$out/result.xcresult"
 mkdir -p "$out"
+started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+printf '%s\n' "$started_at" >"$out/started-at.txt"
 printf '%s\n' "${label:-$run_id}" >"$out/label.txt"
+python3 "$ROOT_DIR/scripts/publish_benchmark_history.py" snapshot \
+  --output "$out/benchmark-source.json" --crash-scope none >/dev/null \
+  || die "could not capture pre-run source provenance"
 
 export_attachments() {
   [[ -d "$result" ]] || return 0
@@ -257,10 +271,13 @@ run_xcodebuild() {
 
 validate_macos_benchmark() {
   local diagnostics="$HOME/Library/Application Support/QwenVoice-Debug/diagnostics"
+  local evidence="$out/benchmark-evidence.json"
   local status=1 attempt
   for attempt in {1..60}; do
     if python3 "$ROOT_DIR/scripts/check_macos_xpc_bench.py" "$diagnostics" \
         --run-id "$run_id" --modes "$modes" --lengths "$lengths" --warm "$warm" \
+        --label "${label:-$run_id}" --evidence-manifest "$evidence" \
+        --crash-delta-passed \
         >"$out/benchmark-gate.txt" 2>&1; then
       status=0
       break
@@ -270,21 +287,46 @@ validate_macos_benchmark() {
   cat "$out/benchmark-gate.txt" >&2
   (( status == 0 )) || return 1
   python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$diagnostics" \
-    --label "${label:-$run_id}" --merged --show-variance >"$out/telemetry-summary.txt" 2>&1 || true
+    --run-id "$run_id" --evidence-manifest "$evidence" \
+    --label "${label:-$run_id}" --merged --show-variance \
+    >"$out/telemetry-summary.txt" 2>&1
 }
 
 validate_ios_benchmark() {
   local diagnostics="$out/diagnostics"
+  local evidence="$out/benchmark-evidence.json"
+  local generation_map
+  generation_map="$(python3 - "$out/attachments/manifest.json" "$out/attachments" <<'PY'
+import json, pathlib, sys
+manifest = pathlib.Path(sys.argv[1])
+root = pathlib.Path(sys.argv[2])
+if not manifest.is_file():
+    raise SystemExit("missing exported attachment manifest")
+matches = []
+for test in json.loads(manifest.read_text(encoding="utf-8")):
+    for attachment in test.get("attachments", []):
+        name = attachment.get("suggestedHumanReadableName", "")
+        if name.startswith("ios-benchmark-generation-map"):
+            matches.append(root / attachment["exportedFileName"])
+if len(matches) != 1 or not matches[0].is_file():
+    raise SystemExit(f"expected one iOS generation-map attachment, found {len(matches)}")
+print(matches[0])
+PY
+  )" || return 1
   rm -rf "$diagnostics"
   "$ROOT_DIR/scripts/ios_device.sh" pull "$diagnostics" >/dev/null \
     || return 1
   if ! python3 "$ROOT_DIR/scripts/check_ios_ui_benchmark.py" "$diagnostics" \
       --run-id "$run_id" --modes "$modes" --lengths "$lengths" --warm "$warm" \
+      --generation-map "$generation_map" \
+      --label "${label:-$run_id}" --evidence-manifest "$evidence" \
+      --crash-delta-passed \
       | tee "$out/benchmark-gate.txt"; then
     return 1
   fi
   python3 "$ROOT_DIR/scripts/summarize_generation_telemetry.py" "$diagnostics" \
-    --label "${label:-$run_id}" >"$out/telemetry-summary.txt" 2>&1 || true
+    --run-id "$run_id" --evidence-manifest "$evidence" \
+    --label "${label:-$run_id}" >"$out/telemetry-summary.txt" 2>&1
   return 0
 }
 
@@ -309,6 +351,7 @@ if [[ "$platform" == "macos" ]]; then
     -destination 'platform=macOS,arch=arm64' -derivedDataPath "$MAC_DERIVED" \
     -resultBundlePath "$result" -only-testing:"$only_test" \
     CODE_SIGN_IDENTITY="-" ONLY_ACTIVE_ARCH=YES ARCHS=arm64 \
+    SWIFT_OPTIMIZATION_LEVEL=-O \
     || die "macOS XCUITest failed (see $out/xcodebuild.log)"
   check_mac_crash_delta
   [[ "$lane" != "benchmark" ]] || validate_macos_benchmark \
@@ -345,6 +388,7 @@ else
     -resultBundlePath "$result" -collect-test-diagnostics never \
     -only-testing:"$only_test" \
     -allowProvisioningUpdates DEVELOPMENT_TEAM="$team" CODE_SIGN_STYLE=Automatic \
+    SWIFT_OPTIMIZATION_LEVEL=-O \
     || die "physical-iPhone XCUITest failed (see $out/xcodebuild.log)"
 
   snapshot_ios_crashes "$out/crashes-after" \
@@ -355,14 +399,23 @@ else
     || die "iOS benchmark telemetry gate failed"
 fi
 
-python3 - "$out/run.json" "$platform" "$lane" "$run_id" "$modes" "$lengths" "$warm" "${label:-$run_id}" <<'PY'
+finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+python3 - "$out/run.json" "$platform" "$lane" "$run_id" "$modes" "$lengths" "$warm" "${label:-$run_id}" "$started_at" "$finished_at" <<'PY'
 import json, pathlib, sys
 path = pathlib.Path(sys.argv[1])
 path.write_text(json.dumps({
     "platform": sys.argv[2], "lane": sys.argv[3], "runID": sys.argv[4],
     "modes": sys.argv[5].split(','), "lengths": sys.argv[6].split(','),
     "warm": int(sys.argv[7]), "label": sys.argv[8], "status": "passed",
+    "startedAt": sys.argv[9], "finishedAt": sys.argv[10],
 }, indent=2) + "\n", encoding="utf-8")
 PY
+
+if [[ "$lane" == "benchmark" ]]; then
+  if ! history_record="$(python3 "$ROOT_DIR/scripts/benchmark_history.py" record --artifact-dir "$out")"; then
+    die "benchmark passed, but history publication failed; evidence is preserved in $out (repair: python3 scripts/benchmark_history.py record --artifact-dir '$out')"
+  fi
+  note "tracked benchmark record → $history_record"
+fi
 
 note "$platform $lane PASS · $out"

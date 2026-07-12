@@ -355,6 +355,7 @@ struct IOSCustomVoiceView: View {
             waveformSeed: seed,
             estimatedAudioDuration: LivePreviewEstimate(text: promptText)?.estimatedAudioDuration ?? 0
         ))
+        let generationID = UUID()
 
         coordinator.generationTask = Task {
             defer {
@@ -370,6 +371,10 @@ struct IOSCustomVoiceView: View {
                 // AudioPlayerViewModel play chunks as they arrive (it already subscribes on
                 // iOS) and seamlessly hand off to the final file at completion.
                 audioPlayer.setLivePreviewEstimate(LivePreviewEstimate(text: promptText))
+                AppGenerationTimeline.shared.recordSubmitted(
+                    id: generationID,
+                    mode: GenerationMode.custom.rawValue
+                )
                 let result = try await ttsEngine.generate(
                     GenerationRequest(
                         mode: .custom,
@@ -385,6 +390,7 @@ struct IOSCustomVoiceView: View {
                                 ? draft.resolvedDeliveryInstruction
                                 : nil
                         ),
+                        generationID: generationID,
                         variation: IOSGenerationVariationPreference.requestValue()
                     )
                 )
@@ -394,10 +400,24 @@ struct IOSCustomVoiceView: View {
                 // iOS-only — it does NOT alter engine lifecycle/loadState), so this just
                 // suppresses surfacing an unwanted result. Keeps cancelled takes out of History.
                 if Task.isCancelled {
+                    await AppGenerationTimeline.shared.recordFailed(
+                        id: generationID,
+                        finishReason: .cancelled
+                    )
                     try? FileManager.default.removeItem(atPath: result.audioPath)
                     audioPlayer.abortLivePreviewIfNeeded()
                     return
                 }
+                await AppGenerationTimeline.shared.recordCompleted(
+                    id: generationID,
+                    mode: GenerationMode.custom.rawValue,
+                    usedStreaming: true,
+                    finishReason: result.finishReason?.rawValue,
+                    summary: result.telemetrySummary
+                )
+                IOSPullableDiagnosticsMirror.syncGenerationTelemetryIfEnabled(
+                    generationID: generationID
+                )
                 audioPlayer.completeStreamingPreview(
                     result: result,
                     title: String(promptText.prefix(40)),
@@ -422,6 +442,7 @@ struct IOSCustomVoiceView: View {
                 await MainActor.run {
                     coordinator.complete(
                         IOSStudioInlinePlayerItem(
+                            generationID: generationID,
                             audioURL: URL(fileURLWithPath: result.audioPath),
                             voiceName: speakerDisplayName,
                             modeLabel: "Custom",
@@ -435,9 +456,17 @@ struct IOSCustomVoiceView: View {
                 }
                 IOSHaptics.success()
             } catch is CancellationError {
+                await AppGenerationTimeline.shared.recordFailed(
+                    id: generationID,
+                    finishReason: .cancelled
+                )
                 audioPlayer.abortLivePreviewIfNeeded()
                 await MainActor.run { coordinator.errorMessage = nil }
             } catch {
+                await AppGenerationTimeline.shared.recordFailed(
+                    id: generationID,
+                    finishReason: Task.isCancelled ? .cancelled : .failed
+                )
                 audioPlayer.abortLivePreviewIfNeeded()
                 if Task.isCancelled {
                     // A user cancel can surface as a wrapped engine error (not a bare
@@ -971,6 +1000,7 @@ struct IOSVoiceDesignView: View {
             waveformSeed: seed,
             estimatedAudioDuration: LivePreviewEstimate(text: promptText)?.estimatedAudioDuration ?? 0
         ))
+        let generationID = UUID()
 
         coordinator.generationTask = Task {
             defer {
@@ -983,6 +1013,10 @@ struct IOSVoiceDesignView: View {
             let outputPath = makeOutputPath(subfolder: model.outputSubfolder, text: promptText)
             do {
                 audioPlayer.setLivePreviewEstimate(LivePreviewEstimate(text: promptText))
+                AppGenerationTimeline.shared.recordSubmitted(
+                    id: generationID,
+                    mode: GenerationMode.design.rawValue
+                )
                 let result = try await ttsEngine.generate(
                     GenerationRequest(
                         mode: .design,
@@ -996,6 +1030,7 @@ struct IOSVoiceDesignView: View {
                             voiceDescription: draft.voiceDescription,
                             deliveryStyle: draft.resolvedDeliveryInstruction
                         ),
+                        generationID: generationID,
                         variation: IOSGenerationVariationPreference.requestValue()
                     )
                 )
@@ -1005,10 +1040,24 @@ struct IOSVoiceDesignView: View {
                 // iOS-only — it does NOT alter engine lifecycle/loadState), so this just
                 // suppresses surfacing an unwanted result. Keeps cancelled takes out of History.
                 if Task.isCancelled {
+                    await AppGenerationTimeline.shared.recordFailed(
+                        id: generationID,
+                        finishReason: .cancelled
+                    )
                     try? FileManager.default.removeItem(atPath: result.audioPath)
                     audioPlayer.abortLivePreviewIfNeeded()
                     return
                 }
+                await AppGenerationTimeline.shared.recordCompleted(
+                    id: generationID,
+                    mode: GenerationMode.design.rawValue,
+                    usedStreaming: true,
+                    finishReason: result.finishReason?.rawValue,
+                    summary: result.telemetrySummary
+                )
+                IOSPullableDiagnosticsMirror.syncGenerationTelemetryIfEnabled(
+                    generationID: generationID
+                )
                 audioPlayer.completeStreamingPreview(
                     result: result,
                     title: String(promptText.prefix(40)),
@@ -1034,6 +1083,7 @@ struct IOSVoiceDesignView: View {
                 await MainActor.run {
                     coordinator.complete(
                         IOSStudioInlinePlayerItem(
+                            generationID: generationID,
                             audioURL: URL(fileURLWithPath: result.audioPath),
                             voiceName: briefChipLabel,
                             modeLabel: "Design",
@@ -1047,9 +1097,17 @@ struct IOSVoiceDesignView: View {
                 }
                 IOSHaptics.success()
             } catch is CancellationError {
+                await AppGenerationTimeline.shared.recordFailed(
+                    id: generationID,
+                    finishReason: .cancelled
+                )
                 audioPlayer.abortLivePreviewIfNeeded()
                 await MainActor.run { coordinator.errorMessage = nil }
             } catch {
+                await AppGenerationTimeline.shared.recordFailed(
+                    id: generationID,
+                    finishReason: Task.isCancelled ? .cancelled : .failed
+                )
                 audioPlayer.abortLivePreviewIfNeeded()
                 if Task.isCancelled {
                     // A user cancel can surface as a wrapped engine error (not a bare
@@ -1527,6 +1585,7 @@ struct IOSVoiceCloningView: View {
             waveformSeed: seed,
             estimatedAudioDuration: LivePreviewEstimate(text: promptText)?.estimatedAudioDuration ?? 0
         ))
+        let generationID = UUID()
 
         coordinator.generationTask = Task {
             defer {
@@ -1558,6 +1617,10 @@ struct IOSVoiceCloningView: View {
 
                 let outputPath = makeOutputPath(subfolder: model.outputSubfolder, text: promptText)
                 audioPlayer.setLivePreviewEstimate(LivePreviewEstimate(text: promptText))
+                AppGenerationTimeline.shared.recordSubmitted(
+                    id: generationID,
+                    mode: GenerationMode.clone.rawValue
+                )
                 let result = try await ttsEngine.generate(
                     GenerationRequest(
                         mode: .clone,
@@ -1574,6 +1637,7 @@ struct IOSVoiceCloningView: View {
                                 preparedVoiceID: draft.selectedSavedVoiceID
                             )
                         ),
+                        generationID: generationID,
                         variation: IOSGenerationVariationPreference.requestValue()
                     )
                 )
@@ -1583,10 +1647,24 @@ struct IOSVoiceCloningView: View {
                 // iOS-only — it does NOT alter engine lifecycle/loadState), so this just
                 // suppresses surfacing an unwanted result. Keeps cancelled takes out of History.
                 if Task.isCancelled {
+                    await AppGenerationTimeline.shared.recordFailed(
+                        id: generationID,
+                        finishReason: .cancelled
+                    )
                     try? FileManager.default.removeItem(atPath: result.audioPath)
                     audioPlayer.abortLivePreviewIfNeeded()
                     return
                 }
+                await AppGenerationTimeline.shared.recordCompleted(
+                    id: generationID,
+                    mode: GenerationMode.clone.rawValue,
+                    usedStreaming: true,
+                    finishReason: result.finishReason?.rawValue,
+                    summary: result.telemetrySummary
+                )
+                IOSPullableDiagnosticsMirror.syncGenerationTelemetryIfEnabled(
+                    generationID: generationID
+                )
                 audioPlayer.completeStreamingPreview(
                     result: result,
                     title: String(promptText.prefix(40)),
@@ -1612,6 +1690,7 @@ struct IOSVoiceCloningView: View {
                 await MainActor.run {
                     coordinator.complete(
                         IOSStudioInlinePlayerItem(
+                            generationID: generationID,
                             audioURL: URL(fileURLWithPath: result.audioPath),
                             voiceName: voiceName,
                             modeLabel: "Clone",
@@ -1625,9 +1704,17 @@ struct IOSVoiceCloningView: View {
                 }
                 IOSHaptics.success()
             } catch is CancellationError {
+                await AppGenerationTimeline.shared.recordFailed(
+                    id: generationID,
+                    finishReason: .cancelled
+                )
                 audioPlayer.abortLivePreviewIfNeeded()
                 await MainActor.run { coordinator.errorMessage = nil }
             } catch {
+                await AppGenerationTimeline.shared.recordFailed(
+                    id: generationID,
+                    finishReason: Task.isCancelled ? .cancelled : .failed
+                )
                 audioPlayer.abortLivePreviewIfNeeded()
                 if Task.isCancelled {
                     // A user cancel can surface as a wrapped engine error (not a bare

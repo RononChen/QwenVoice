@@ -1,9 +1,10 @@
 # Optimization progress
 
 Durable record of backend/MLX + output-quality optimization work — what was investigated, decided,
-shipped, and deferred. The blow-by-blow lives in git history + `HISTORY.md`; this file is the **standing
-status** so a future session (or maintainer) can resume without re-deriving it. Anchored to the reference
-baseline. Point-in-time as of **2026-06-16** (§H complete; §I is the delivery-accuracy program record).
+shipped, and deferred. The historical blow-by-blow lives in git history + `LEGACY_HISTORY.md`; validated
+new runs are indexed in generated `HISTORY.md`. This file is the **standing status** so a future session
+(or maintainer) can resume without re-deriving it. Anchored to the reference baseline. Point-in-time as
+of **2026-06-16** (§H complete; §I is the delivery-accuracy program record).
 
 ## Reference baseline
 
@@ -16,7 +17,8 @@ and on memory (~7.4–8.7 GB physFoot in-process); `trims = 0` everywhere.
 **streaming-default** baseline after switching `vocello bench` / `vocello generate` to streaming by default.
 Custom/Design Speed RTF **0.95–1.04**, physFoot **2.4–3.8 GB** (down from ~7–8 GB non-streaming); Custom
 Quality RTF **0.77–0.84**, physFoot **3.1–3.6 GB**. All QC pass; `trims = 0`. Design Quality not installed
-on the bench machine. Perf-over-time ledger: [`HISTORY.md`](HISTORY.md).
+on the bench machine. Historical manual ledger: [`LEGACY_HISTORY.md`](LEGACY_HISTORY.md). New comparable
+runs: generated [`HISTORY.md`](HISTORY.md).
 
 ## Status at a glance
 
@@ -81,7 +83,7 @@ warn). Else `pass`. (`Sources/QwenVoiceCore/NativeStreamingSynthesisSession.swif
 + synthetic cases): **15/16 cells now `pass`** (every false-positive `fail`/`warn` cleared); the lone
 remaining `warn` is a **real-but-natural ~1116 ms sentence-boundary pause** (correctly routed to the ear).
 Sensitivity retained — synthetic 1300 ms → fail, 11 long pauses → fail. Perf unchanged (engine untouched;
-see the `3da580d` `HISTORY.md` row vs the `641a541` baseline). The residual rare mid-phrase gap is ear-only;
+see the `3da580d` row in `LEGACY_HISTORY.md` vs the `641a541` baseline). The residual rare mid-phrase gap is ear-only;
 the **mandatory listening pass remains the perceptual gate**.
 
 ## D — CodePredictor RoPE fusion (CLOSED — implemented in §H P3, `f3cd2aa`; kept for history)
@@ -99,8 +101,10 @@ must preserve exact numerics (KV precision).
 Pinned `exact: 0.30.6` (mlx-swift) + `2.30.6` (mlx-swift-lm) in **both** `project.yml` and the vendored
 `third_party_patches/mlx-audio-swift/Package.swift`. Latest upstream is **0.31.3** (+ `mlx-swift-lm` 2.31.x;
 a separate 3.x line also exists). **Decision: keep pinned at 0.30.6 / 2.30.6.** Rationale: the backend is
-vendored + hand-ported and there's no automated test suite, so the exact pin keeps the compute substrate
-deterministic; 0.30.6 is the benchmarked, working version and 0.31 adds nothing Vocello needs. 0.31 is **not
+vendored + hand-ported. The owned `Qwen3RuntimeTests` suite protects deterministic runtime invariants, but
+cannot by itself rule out performance or perceptual drift from a compute-substrate change; the exact pin
+keeps the tested substrate deterministic. 0.30.6 is the benchmarked, working version and 0.31 adds nothing
+Vocello needs. 0.31 is **not
 a free bump** — it changes the MLX quantization API (`Quantizable.toQuantized` gains a `QuantizationMode`;
 quantize moved to a top-level fn), which touches the 4-bit (Speed) / 8-bit (Quality) model-load path, and
 it's a core-MLX backend bump that can shift RTF/memory (what these benchmarks track). **When upgrading**
@@ -279,9 +283,15 @@ dropped, no consumer) vs ON (`.emit` = feature; the device-diagnostics runner ke
 the `AVAudioEngine` consumer is exercised too). iPhone 17 Pro, custom/speed, short+long × 3, interleaved.
 **Result: no measurable cost** — RTF +0.5% overall (short −1.9% / long +0.2%, within run-to-run noise),
 physFootprint peak identical (~2.7 GB, off-max 2731 vs on-max 2722 MB; inside the 2.4–3.3 GB band, far
-under the 4.5 GB guard), **0 memory trims** across all 12 runs, audioQC all pass. Ledger rows in
-[`HISTORY.md`](HISTORY.md). The `scripts/ios_device.sh` launch now forwards caller-set `QWENVOICE_*`/`QVOICE_*`
-env, so this A/B is repeatable (`QWENVOICE_STREAMING_PREVIEW_DATA=off scripts/ios_device.sh bench …`).
+under the 4.5 GB guard), **0 memory trims** across all 12 runs, audioQC all pass. Historical rows are in
+[`LEGACY_HISTORY.md`](LEGACY_HISTORY.md). The `scripts/ios_device.sh` launch now forwards caller-set
+`QWENVOICE_*`/`QVOICE_*` environment variables. A current reproduction must supply a complete diagnostics
+spec and an opaque label, for example:
+
+```sh
+QWENVOICE_STREAMING_PREVIEW_DATA=off \
+  scripts/ios_device.sh bench 'custom:speed:Streaming-preview-A-B.' --label streaming-preview-off
+```
 
 ## G — macOS UI smoothness under engine load (2026-06-09; XPC kept)
 
@@ -605,5 +615,6 @@ agy-only (unreliable) or a manual listening pass.
 
 The optimization program tracked in this document is wrapped up. The §H P0–P6 work has been
 completed and validated, streaming is now the default generation path, and the remaining
-delivery-accuracy work is recorded in §I. For UI smoothness (G), watch the `uiMaxStall ms`
-ledger column across releases.
+delivery-accuracy work is recorded in §I. For UI smoothness (G), compare the typed heartbeat and
+playback metrics in compatible records indexed by generated `HISTORY.md`; the former
+`uiMaxStall ms` column remains historical context in `LEGACY_HISTORY.md`.
