@@ -5,7 +5,6 @@
 Examples/VoicesApp/Config/Local.xcconfig
 xcuserdata/*
 *.pbxproj
-*.resolved
 *.xcworkspace
 *.xcuserdata
 *.xcuserstate
