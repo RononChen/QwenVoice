@@ -826,11 +826,13 @@ cmd_test() {
   if ensure_swiftpm_scratch_location "$runtime_package" "$QVOICE_SWIFTPM_RUNTIME_CACHE" \
       && swift build --package-path "$runtime_package" \
       --scratch-path "$QVOICE_SWIFTPM_RUNTIME_CACHE" --configuration debug \
+      --force-resolved-versions \
       --build-tests \
       > "$artifacts/runtime-build.log" 2>&1; then
     local runtime_bin runtime_resources
     runtime_bin="$(swift build --package-path "$runtime_package" \
       --scratch-path "$QVOICE_SWIFTPM_RUNTIME_CACHE" --configuration debug \
+      --force-resolved-versions \
       --show-bin-path)"
     runtime_resources="$runtime_bin/MLXAudioPackageTests.xctest/Contents/Resources"
     if [[ -d "$mlx_bundle" ]]; then
@@ -846,6 +848,7 @@ cmd_test() {
         # on GitHub's macOS 26 runner. No test is skipped or moved off Metal.
         MLX_ENABLE_TF32=0 swift test --package-path "$runtime_package" \
           --scratch-path "$QVOICE_SWIFTPM_RUNTIME_CACHE" --configuration debug \
+          --force-resolved-versions \
           --skip-build \
           --filter Qwen3RuntimeTests \
           > "$artifacts/runtime.log" 2>&1 || runtime_st=$?

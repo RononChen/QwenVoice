@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
 import shlex
@@ -98,6 +99,25 @@ class BuildRoutingContractTests(unittest.TestCase):
             "scripts/macos_test.sh",
             'ensure_swiftpm_scratch_location "$runtime_package" "$QVOICE_SWIFTPM_RUNTIME_CACHE"',
         )
+
+    def test_owned_runtime_uses_a_tracked_lock_in_xcode_lockstep(self) -> None:
+        runtime_lock = ROOT / "third_party_patches/mlx-audio-swift/Package.resolved"
+        xcode_lock = ROOT / "QwenVoice.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+        self.assertTrue(runtime_lock.is_file(), "owned runtime Package.resolved must be tracked")
+
+        def pins(path: Path) -> dict[str, dict[str, str]]:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            return {pin["identity"]: pin["state"] for pin in payload["pins"]}
+
+        runtime_pins = pins(runtime_lock)
+        xcode_pins = pins(xcode_lock)
+        self.assertTrue(runtime_pins.keys() <= xcode_pins.keys())
+        for identity, state in runtime_pins.items():
+            with self.subTest(identity=identity):
+                self.assertEqual(state, xcode_pins[identity])
+
+        macos = self.text("scripts/macos_test.sh")
+        self.assertGreaterEqual(macos.count("--force-resolved-versions"), 3)
 
     def test_ci_build_and_archive_commands_are_explicit_and_pinned(self) -> None:
         for relative in (".github/workflows/ci.yml", ".github/workflows/release.yml"):
