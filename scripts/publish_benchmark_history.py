@@ -24,6 +24,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import wave
 from typing import Any, Iterable
 import xml.etree.ElementTree as ET
@@ -33,6 +34,20 @@ ROOT = Path(__file__).resolve().parents[1]
 HISTORY_SCRIPT = ROOT / "scripts" / "benchmark_history.py"
 SUCCESS_FINISH = {"eos", "max_tokens", "maxtokens", "completed", "complete", "success", "ok"}
 TRIM_SEVERITY = {"softTrim": 1, "hardTrim": 2, "fullUnload": 3}
+UINT64_MAX = (1 << 64) - 1
+LANGUAGE_SENTINEL_SCHEMA = 2
+LANGUAGE_OUTPUT_SCHEMA = 3
+LANGUAGE_OUTPUT_ALGORITHM = "language-output-verifier-v3"
+ASR_EVIDENCE_SCHEMA = 2
+ASR_EVIDENCE_ALGORITHM = "apple-speech-file-consensus-v2"
+ASR_REQUIRED_PASS_COUNT = 3
+LANGUAGE_ACCURACY_METRIC_VERSION = "normalized-edit-rate-v1"
+LANGUAGE_PASS_SCORE = 0.5
+LANGUAGE_ACCURACY_THRESHOLDS = {
+    "wordErrorRate": 0.15,
+    "characterErrorRate": 0.15,
+}
+SAFE_LOCALE = re.compile(r"^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*$")
 
 
 class PublicationError(RuntimeError):
@@ -326,6 +341,51 @@ def load_engine_rows(diagnostics: Path) -> list[dict[str, Any]]:
             if isinstance(row, dict) and row.get("layer") == "engine":
                 rows.append(row)
     return rows
+
+
+def load_app_rows(diagnostics: Path) -> list[dict[str, Any]]:
+    direct = diagnostics / "app" / "generations.jsonl"
+    paths = [direct] if direct.is_file() else sorted(
+        path for path in diagnostics.rglob("generations.jsonl")
+        if path.parent.name == "app" and path.is_file()
+    )
+    if not paths:
+        raise PublicationError(f"no app/generations.jsonl under {diagnostics}")
+    rows: list[dict[str, Any]] = []
+    for path in paths:
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as error:
+                raise PublicationError(
+                    f"invalid app telemetry JSON at {path}:{line_number}: {error}"
+                ) from error
+            if isinstance(row, dict) and row.get("layer") == "app":
+                rows.append(row)
+    return rows
+
+
+def validate_language_app_row(
+    row: dict[str, Any], *, run_id: str, cell_id: str, planned_take: dict[str, Any]
+) -> None:
+    notes = row.get("notes") if isinstance(row.get("notes"), dict) else {}
+    finish = str(row.get("finishReason", "")).lower()
+    frontend = row.get("frontendMetrics") if isinstance(row.get("frontendMetrics"), dict) else {}
+    submit_to_completed = finite_number(frontend.get("submitToCompletedMS"))
+    if (
+        row.get("schemaVersion") != 7
+        or row.get("layer") != "app"
+        or row.get("generationID") is None
+        or row.get("mode") != planned_take.get("mode")
+        or finish not in SUCCESS_FINISH
+        or notes.get("benchRunID") != run_id
+        or notes.get("benchCell") != cell_id
+        or submit_to_completed is None
+        or submit_to_completed <= 0
+    ):
+        raise PublicationError(f"language cell {cell_id} app telemetry identity is invalid")
 
 
 def rows_by_generation(rows: Iterable[dict[str, Any]], generation_ids: Iterable[str]) -> list[dict[str, Any]]:
@@ -1102,23 +1162,277 @@ def selected_language_cells(matrix_path: Path, subset: str) -> list[dict[str, An
     return selected
 
 
+def language_corpus_scripts(corpus_path: Path) -> dict[str, str]:
+    payload = load_json(corpus_path)
+    languages = payload.get("languages")
+    if not isinstance(languages, list) or not languages:
+        raise PublicationError("language corpus has no scripts")
+    scripts: dict[str, str] = {}
+    for entry in languages:
+        if not isinstance(entry, dict):
+            raise PublicationError("language corpus contains a malformed script")
+        language_id = entry.get("id")
+        script = entry.get("script")
+        if (
+            not isinstance(language_id, str)
+            or re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", language_id) is None
+            or not isinstance(script, str)
+            or not script.strip()
+            or language_id in scripts
+        ):
+            raise PublicationError("language corpus contains an invalid or duplicate script")
+        scripts[language_id] = script
+    return scripts
+
+
+def normalized_language_word_tokens(text: str) -> list[str]:
+    """Mirror Swift's POSIX lowercasing plus diacritic/width-insensitive tokenization."""
+    folded = unicodedata.normalize("NFKD", text)
+    folded = "".join(
+        character for character in folded if not unicodedata.category(character).startswith("M")
+    ).lower()
+    tokens: list[str] = []
+    current: list[str] = []
+    for character in folded:
+        if character.isalnum():
+            current.append(character)
+        elif current:
+            tokens.append("".join(current))
+            current = []
+    if current:
+        tokens.append("".join(current))
+    return tokens
+
+
+def language_edit_metrics(reference: str, hypothesis: str, *, characters: bool) -> dict[str, Any]:
+    lhs_words = normalized_language_word_tokens(reference)
+    rhs_words = normalized_language_word_tokens(hypothesis)
+    lhs: list[Any] = list("".join(lhs_words)) if characters else lhs_words
+    rhs: list[Any] = list("".join(rhs_words)) if characters else rhs_words
+    # Stable tie policy matches VoiceClipTranscriber: diagonal, deletion, insertion.
+    previous = [(0, index, 0) for index in range(len(rhs) + 1)]
+    for left_index, left in enumerate(lhs):
+        current = [(0, 0, left_index + 1)]
+        for right_index, right in enumerate(rhs):
+            diagonal = list(previous[right_index])
+            if left != right:
+                diagonal[0] += 1
+            deletion = list(previous[right_index + 1])
+            deletion[2] += 1
+            insertion = list(current[right_index])
+            insertion[1] += 1
+            candidates = (tuple(diagonal), tuple(deletion), tuple(insertion))
+            best = candidates[0]
+            for candidate in candidates[1:]:
+                if sum(candidate) < sum(best):
+                    best = candidate
+            current.append(best)
+        previous = current
+    substitutions, insertions, deletions = previous[len(rhs)]
+    distance = substitutions + insertions + deletions
+    error_rate = (distance / len(lhs)) if lhs else (0.0 if not rhs else 1.0)
+    return {
+        "referenceCount": len(lhs),
+        "hypothesisCount": len(rhs),
+        "substitutions": substitutions,
+        "insertions": insertions,
+        "deletions": deletions,
+        "errorRate": error_rate,
+    }
+
+
+def uint64_value(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and 0 <= value <= UINT64_MAX:
+        return value
+    if isinstance(value, str) and value.isascii() and value.isdecimal():
+        parsed = int(value)
+        return parsed if parsed <= UINT64_MAX else None
+    return None
+
+
+def load_language_plan(
+    args: argparse.Namespace,
+    cells: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    plan_path = getattr(args, "plan", None)
+    if args.platform == "ios" and plan_path is None:
+        raise PublicationError("iOS language publication requires the immutable run plan")
+    if plan_path is None:
+        return None
+    plan = load_json(Path(plan_path))
+    unsigned = dict(plan)
+    plan_digest = unsigned.pop("planDigest", None)
+    if (
+        plan.get("schemaVersion") != 1
+        or plan.get("kind") != "languageBenchmark"
+        or plan.get("runID") != args.run_id
+        or not isinstance(plan_digest, str)
+        or plan_digest != digest_bytes(canonical_bytes(unsigned))
+    ):
+        raise PublicationError("language run plan identity or digest is invalid")
+    if plan.get("matrixDigest") != digest_file(args.matrix):
+        raise PublicationError("language run plan matrix digest does not match")
+    if plan.get("corpusDigest") != digest_file(args.corpus):
+        raise PublicationError("language run plan corpus digest does not match")
+    if plan.get("subset") != args.subset or plan.get("requireEveryTakePass") is not True:
+        raise PublicationError("language run plan scope or success policy does not match")
+    if plan.get("cohortID") is not None or plan.get("cohortDigest") is not None:
+        raise PublicationError("diagnostic language cohorts are intentionally unpublished")
+    takes = plan.get("takes")
+    if not isinstance(takes, list) or len(takes) != len(cells) or plan.get("takeCount") != len(cells):
+        raise PublicationError("language run plan must contain exactly one take per selected cell")
+    expected_ids = [str(cell.get("id")) for cell in cells]
+    if [take.get("cellID") if isinstance(take, dict) else None for take in takes] != expected_ids:
+        raise PublicationError("language run plan cell ordering does not match the matrix")
+    seen_children: set[str] = set()
+    group_counts: dict[str, int] = {}
+    for index, (take, cell) in enumerate(zip(takes, cells), start=1):
+        if not isinstance(take, dict) or take.get("takeIndex") != index:
+            raise PublicationError("language run plan take indexes must be one-based and ordered")
+        child = take.get("childRunID")
+        if (
+            not isinstance(child, str)
+            or child != f"{args.run_id}--{cell['id']}"
+            or child in seen_children
+        ):
+            raise PublicationError("language run plan contains an invalid child run identity")
+        seen_children.add(child)
+        seed = uint64_value(take.get("seed"))
+        if seed is None or seed != take.get("seed"):
+            raise PublicationError(f"language cell {cell['id']} has an invalid planned seed")
+        variation = take.get("samplingVariation")
+        if variation not in {"expressive", "balanced", "consistent"}:
+            raise PublicationError(f"language cell {cell['id']} has an invalid sampling variation")
+        if (
+            take.get("mode") != cell.get("mode")
+            or take.get("variant", "speed") != cell.get("variant", "speed")
+            or take.get("uiHint", "auto") != cell.get("uiHint", "auto")
+            or take.get("scriptLang") != cell.get("scriptLang")
+            or take.get("expectedHint") != cell.get("expectedHint")
+            or bool(take.get("skipOutputVerification"))
+            != bool(cell.get("skipOutputVerification"))
+            or take.get("promptEquivalenceGroup") != cell.get("promptEquivalenceGroup")
+        ):
+            raise PublicationError(f"language cell {cell['id']} plan identity does not match the matrix")
+        group = take.get("promptEquivalenceGroup")
+        if group is not None:
+            if not isinstance(group, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}", group) is None:
+                raise PublicationError(f"language cell {cell['id']} has an invalid prompt group")
+            group_counts[group] = group_counts.get(group, 0) + 1
+        matrix_seed = cell.get("seed")
+        if matrix_seed is not None and seed != uint64_value(matrix_seed):
+            raise PublicationError(f"language cell {cell['id']} plan seed does not match the matrix")
+        matrix_variation = cell.get("samplingVariation")
+        if matrix_variation is not None and variation != matrix_variation:
+            raise PublicationError(
+                f"language cell {cell['id']} plan variation does not match the matrix"
+            )
+    expected_groups = sorted(group_counts)
+    if plan.get("promptEquivalenceGroups") != expected_groups:
+        raise PublicationError("language run plan prompt-equivalence groups do not match the matrix")
+    if any(count < 2 for count in group_counts.values()):
+        raise PublicationError("language run plan prompt-equivalence groups require paired cells")
+    return plan
+
+
+def validate_language_sampling_identity(
+    *,
+    cell_id: str,
+    planned_take: dict[str, Any],
+    sentinel: dict[str, Any],
+    engine_row: dict[str, Any],
+) -> int:
+    if sentinel.get("schemaVersion") != LANGUAGE_SENTINEL_SCHEMA:
+        raise PublicationError(f"language cell {cell_id} lacks sentinel schema v2 evidence")
+    seed = uint64_value(planned_take.get("seed"))
+    notes = engine_row.get("notes") if isinstance(engine_row.get("notes"), dict) else {}
+    if seed is None or uint64_value(sentinel.get("seed")) != seed:
+        raise PublicationError(f"language cell {cell_id} sentinel seed does not match the plan")
+    if uint64_value(notes.get("samplingSeed")) != seed:
+        raise PublicationError(f"language cell {cell_id} engine seed does not match the plan")
+    variation = planned_take.get("samplingVariation")
+    if sentinel.get("samplingVariation") != variation:
+        raise PublicationError(f"language cell {cell_id} sentinel variation does not match the plan")
+    if notes.get("samplingVariation") != variation:
+        raise PublicationError(f"language cell {cell_id} engine variation does not match the plan")
+    requested_hint = planned_take.get("uiHint", "auto")
+    expected_source = "auto" if requested_hint == "auto" else "explicit"
+    if sentinel.get("requestedLanguageHint") != requested_hint:
+        raise PublicationError(f"language cell {cell_id} requested hint does not match the plan")
+    if sentinel.get("languageHintSource") != expected_source:
+        raise PublicationError(f"language cell {cell_id} hint source does not match the plan")
+    return seed
+
+
+def validate_prompt_equivalence(
+    *,
+    planned_takes: list[dict[str, Any]],
+    sentinels: dict[str, dict[str, Any]],
+    rows_by_cell: dict[str, dict[str, Any]],
+) -> None:
+    grouped: dict[tuple[str, int], list[tuple[str, str]]] = {}
+    for take in planned_takes:
+        group = take.get("promptEquivalenceGroup")
+        if not isinstance(group, str):
+            continue
+        cell_id = str(take["cellID"])
+        sentinel = sentinels[cell_id]
+        digest = sentinel.get("resolvedPromptAssemblyDigest")
+        if (
+            sentinel.get("promptDigestScope") != "resolved"
+            or not isinstance(digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+        ):
+            raise PublicationError(f"language cell {cell_id} lacks a resolved prompt digest")
+        notes = rows_by_cell[cell_id].get("notes")
+        engine_digest = notes.get("resolvedPromptAssemblyDigest") if isinstance(notes, dict) else None
+        if engine_digest is not None and engine_digest != digest:
+            raise PublicationError(f"language cell {cell_id} prompt digest disagrees across layers")
+        seed = uint64_value(take.get("seed"))
+        if seed is None:
+            raise PublicationError(f"language cell {cell_id} prompt group lacks a seed")
+        grouped.setdefault((group, seed), []).append((cell_id, digest))
+    for (group, seed), members in grouped.items():
+        if len(members) < 2 or len({digest for _, digest in members}) != 1:
+            raise PublicationError(
+                f"language prompt-equivalence group {group} seed {seed} is inconsistent"
+            )
+
+
 def sanitized_asr_evidence(
     *,
     cell: dict[str, Any],
+    planned_take: dict[str, Any],
     sentinel: dict[str, Any],
     engine_row: dict[str, Any],
     parent_run_id: str,
+    reference_script: str,
 ) -> dict[str, Any]:
     """Return the bounded, non-transcript ASR proof bound to one engine row."""
     cell_id = str(cell.get("id"))
-    expected_child_run = f"{parent_run_id}--{cell_id}"
+    expected_child_run = planned_take.get("childRunID")
+    if expected_child_run != f"{parent_run_id}--{cell_id}":
+        raise PublicationError(f"language cell {cell_id} has invalid planned child identity")
     if sentinel.get("runID") != expected_child_run:
         raise PublicationError(f"language cell {cell_id} has the wrong child run ID")
     if sentinel.get("generationID") != engine_row.get("generationID"):
         raise PublicationError(f"language cell {cell_id} ASR evidence belongs to another generation")
+    validate_language_sampling_identity(
+        cell_id=cell_id,
+        planned_take=planned_take,
+        sentinel=sentinel,
+        engine_row=engine_row,
+    )
     verification = sentinel.get("outputVerification")
     if not isinstance(verification, dict):
         raise PublicationError(f"language cell {cell_id} lacks output-verification evidence")
+    if (
+        verification.get("schemaVersion") != LANGUAGE_OUTPUT_SCHEMA
+        or verification.get("algorithmVersion") != LANGUAGE_OUTPUT_ALGORITHM
+    ):
+        raise PublicationError(f"language cell {cell_id} has unsupported output-verifier evidence")
     expected_language = cell.get("expectedHint")
     if verification.get("expectedLanguage") != expected_language:
         raise PublicationError(f"language cell {cell_id} has the wrong expected ASR language")
@@ -1127,70 +1441,384 @@ def sanitized_asr_evidence(
         raise PublicationError(f"language cell {cell_id} has invalid detected-language evidence")
     language_score = finite_number(verification.get("languageMatchScore"))
     word_error_rate = finite_number(verification.get("wordErrorRate"))
+    character_error_rate = finite_number(verification.get("characterErrorRate"))
+    count_fields: dict[str, int] = {}
+    for key in (
+        "referenceTokenCount", "hypothesisTokenCount", "referenceCharacterCount",
+        "hypothesisCharacterCount", "substitutions", "insertions", "deletions",
+        "characterSubstitutions", "characterInsertions", "characterDeletions",
+    ):
+        value = verification.get(key)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise PublicationError(f"language cell {cell_id} has invalid {key}")
+        count_fields[key] = value
     boolean_fields = {
         key: verification.get(key) for key in ("languagePass", "accuracyPass", "pass")
     }
     if (
         language_score is None or not 0.0 <= language_score <= 1.0
+        or language_score < LANGUAGE_PASS_SCORE
         or word_error_rate is None or word_error_rate < 0.0
+        or character_error_rate is None or character_error_rate < 0.0
+        or count_fields["referenceTokenCount"] <= 0
+        or count_fields["referenceCharacterCount"] <= 0
     ):
         raise PublicationError(f"language cell {cell_id} has non-finite ASR scores")
     if any(not isinstance(value, bool) for value in boolean_fields.values()):
         raise PublicationError(f"language cell {cell_id} has malformed ASR verdicts")
     if verification.get("skipReason") is not None or not all(boolean_fields.values()):
         raise PublicationError(f"language cell {cell_id} failed output verification")
+    edit_count = sum(count_fields[key] for key in ("substitutions", "insertions", "deletions"))
+    if not math.isclose(
+        word_error_rate,
+        edit_count / count_fields["referenceTokenCount"],
+        rel_tol=1e-9,
+        abs_tol=1e-12,
+    ):
+        raise PublicationError(f"language cell {cell_id} WER does not match its edit counts")
+
+    recognition = verification.get("recognition")
+    if not isinstance(recognition, dict) or (
+        recognition.get("schemaVersion") != ASR_EVIDENCE_SCHEMA
+        or recognition.get("algorithmVersion") != ASR_EVIDENCE_ALGORITHM
+    ):
+        raise PublicationError(f"language cell {cell_id} has unsupported recognition evidence")
+    locale = recognition.get("selectedLocaleIdentifier")
+    if not isinstance(locale, str) or SAFE_LOCALE.fullmatch(locale) is None:
+        raise PublicationError(f"language cell {cell_id} has invalid locale evidence")
+    if (
+        recognition.get("expectedLanguage") != expected_language
+        or recognition.get("authorizationStatus") != "authorized"
+        or recognition.get("recognizerAvailable") is not True
+        or recognition.get("supportsOnDeviceRecognition") is not True
+        or recognition.get("requiredPassCount") != ASR_REQUIRED_PASS_COUNT
+        or recognition.get("evidenceConsistency") is not True
+        or recognition.get("consensusStatus") != "consistent"
+    ):
+        raise PublicationError(f"language cell {cell_id} failed the on-device consensus contract")
+    recognition_duration = finite_number(recognition.get("recognitionDurationSeconds"))
+    repetitions = recognition.get("repetitions")
+    if recognition_duration is None or recognition_duration <= 0 or not isinstance(repetitions, list):
+        raise PublicationError(f"language cell {cell_id} has malformed recognition timing")
+    if len(repetitions) != ASR_REQUIRED_PASS_COUNT:
+        raise PublicationError(f"language cell {cell_id} lacks exactly three recognition passes")
+    transcripts: list[str] = []
+    pass_duration = 0.0
+    for index, repetition in enumerate(repetitions, start=1):
+        if not isinstance(repetition, dict):
+            raise PublicationError(f"language cell {cell_id} has malformed recognition passes")
+        duration = finite_number(repetition.get("recognitionDurationSeconds"))
+        segment_start = finite_number(repetition.get("segmentStartSeconds"))
+        segment_end = finite_number(repetition.get("segmentEndSeconds"))
+        timing_coverage = finite_number(repetition.get("timingCoverageSeconds"))
+        average_confidence = finite_number(repetition.get("averageConfidence"))
+        minimum_confidence = finite_number(repetition.get("minimumConfidence"))
+        transcript = repetition.get("transcript")
+        if (
+            repetition.get("passIndex") != index
+            or repetition.get("localeIdentifier") != locale
+            or repetition.get("authorizationStatus") != "authorized"
+            or repetition.get("recognizerAvailable") is not True
+            or repetition.get("supportsOnDeviceRecognition") is not True
+            or repetition.get("finalResultStatus") != "finalResult"
+            or duration is None or duration <= 0
+            or not isinstance(transcript, str) or not transcript.strip() or transcript != transcript.strip()
+            or isinstance(repetition.get("segmentCount"), bool)
+            or not isinstance(repetition.get("segmentCount"), int)
+            or repetition.get("segmentCount") <= 0
+            or segment_start is None or segment_start < 0
+            or segment_end is None or segment_end <= segment_start
+            or timing_coverage is None or timing_coverage <= 0
+            or not math.isclose(
+                timing_coverage, segment_end - segment_start, rel_tol=1e-9, abs_tol=1e-9
+            )
+            or average_confidence is None or not 0 <= average_confidence <= 1
+            or minimum_confidence is None or not 0 <= minimum_confidence <= 1
+            or minimum_confidence > average_confidence
+            or repetition.get("errorDomain") is not None
+            or repetition.get("errorCode") is not None
+        ):
+            raise PublicationError(f"language cell {cell_id} recognition pass {index} is invalid")
+        pass_duration += duration
+        transcripts.append(transcript)
+    if (
+        len(set(transcripts)) != 1
+        or recognition.get("transcript") != transcripts[0]
+        or verification.get("transcript") != transcripts[0]
+        or not math.isclose(recognition_duration, pass_duration, rel_tol=1e-9, abs_tol=1e-9)
+    ):
+        raise PublicationError(f"language cell {cell_id} recognition consensus is inconsistent")
+    word_metrics = language_edit_metrics(reference_script, transcripts[0], characters=False)
+    character_metrics = language_edit_metrics(reference_script, transcripts[0], characters=True)
+    recomputed_fields = {
+        "referenceTokenCount": word_metrics["referenceCount"],
+        "hypothesisTokenCount": word_metrics["hypothesisCount"],
+        "referenceCharacterCount": character_metrics["referenceCount"],
+        "hypothesisCharacterCount": character_metrics["hypothesisCount"],
+        "substitutions": word_metrics["substitutions"],
+        "insertions": word_metrics["insertions"],
+        "deletions": word_metrics["deletions"],
+        "characterSubstitutions": character_metrics["substitutions"],
+        "characterInsertions": character_metrics["insertions"],
+        "characterDeletions": character_metrics["deletions"],
+    }
+    if count_fields != recomputed_fields or not math.isclose(
+        word_error_rate, word_metrics["errorRate"], rel_tol=1e-9, abs_tol=1e-12
+    ) or not math.isclose(
+        character_error_rate, character_metrics["errorRate"], rel_tol=1e-9, abs_tol=1e-12
+    ):
+        raise PublicationError(f"language cell {cell_id} metrics do not match corpus and consensus")
+    expected_accuracy_metric = (
+        "characterErrorRate"
+        if expected_language in {"chinese", "japanese"}
+        else "wordErrorRate"
+    )
+    accuracy_metric = verification.get("accuracyMetric")
+    accuracy_threshold = finite_number(verification.get("accuracyThreshold"))
+    accuracy_value = finite_number(verification.get("accuracyValue"))
+    expected_threshold = LANGUAGE_ACCURACY_THRESHOLDS[expected_accuracy_metric]
+    primary_score = (
+        character_error_rate if expected_accuracy_metric == "characterErrorRate" else word_error_rate
+    )
+    if (
+        verification.get("accuracyMetricVersion") != LANGUAGE_ACCURACY_METRIC_VERSION
+        or accuracy_metric != expected_accuracy_metric
+        or accuracy_threshold is None
+        or not math.isclose(accuracy_threshold, expected_threshold, rel_tol=0, abs_tol=1e-12)
+        or accuracy_value is None
+        or not math.isclose(accuracy_value, primary_score, rel_tol=1e-9, abs_tol=1e-12)
+        or verification.get("accuracyPass") != (primary_score <= expected_threshold)
+        or primary_score > expected_threshold
+    ):
+        raise PublicationError(f"language cell {cell_id} has an invalid primary accuracy gate")
     return {
         "cell": cell_id,
-        "runID": expected_child_run,
         "generationID": str(engine_row.get("generationID")),
         "expectedLanguage": str(expected_language),
         "detectedLanguage": detected_language,
+        "selectedLocaleIdentifier": locale,
+        "outputVerifierSchemaVersion": LANGUAGE_OUTPUT_SCHEMA,
+        "outputVerifierAlgorithm": LANGUAGE_OUTPUT_ALGORITHM,
+        "recognitionSchemaVersion": ASR_EVIDENCE_SCHEMA,
+        "recognitionAlgorithm": ASR_EVIDENCE_ALGORITHM,
+        "recognitionPassCount": ASR_REQUIRED_PASS_COUNT,
+        "recognitionDurationSeconds": recognition_duration,
+        "authorizationVerified": True,
+        "recognizerAvailable": True,
+        "onDeviceRecognition": True,
+        "consensusStatus": "consistent",
+        "evidenceConsistency": True,
         "languageMatchScore": language_score,
         "wordErrorRate": word_error_rate,
+        "characterErrorRate": character_error_rate,
+        "accuracyMetric": expected_accuracy_metric,
+        "accuracyMetricVersion": LANGUAGE_ACCURACY_METRIC_VERSION,
+        "accuracyThreshold": expected_threshold,
+        "primaryAccuracyScore": primary_score,
+        **count_fields,
         **boolean_fields,
+    }
+
+
+def language_output_evidence(
+    sentinel: dict[str, Any], output_path: Path, cell_id: str
+) -> dict[str, Any]:
+    output = sentinel.get("outputEvidence")
+    if not isinstance(output, dict) or output.get("artifactRelativePath") != "output.wav":
+        raise PublicationError(f"language cell {cell_id} lacks bounded output evidence")
+    digest = output.get("sha256")
+    byte_count = output.get("byteCount")
+    duration = finite_number(output.get("durationSeconds"))
+    sample_rate = finite_number(output.get("sampleRate"))
+    channels = output.get("channelCount")
+    frames = output.get("frameCount")
+    try:
+        stat = output_path.stat()
+        with wave.open(str(output_path), "rb") as stream:
+            actual_sample_rate = stream.getframerate()
+            actual_channels = stream.getnchannels()
+            actual_frames = stream.getnframes()
+    except (OSError, EOFError, wave.Error) as error:
+        raise PublicationError(f"language cell {cell_id} output.wav is unreadable: {error}") from error
+    actual_duration = actual_frames / actual_sample_rate if actual_sample_rate > 0 else 0.0
+    if (
+        not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+        or isinstance(byte_count, bool) or not isinstance(byte_count, int) or byte_count <= 0
+        or duration is None or duration <= 0
+        or sample_rate is None or sample_rate <= 0 or not sample_rate.is_integer()
+        or isinstance(channels, bool) or not isinstance(channels, int) or channels <= 0
+        or isinstance(frames, bool) or not isinstance(frames, int) or frames <= 0
+        or not math.isclose(duration, frames / sample_rate, rel_tol=1e-6, abs_tol=1e-6)
+        or stat.st_size != byte_count
+        or digest_file(output_path) != digest
+        or actual_sample_rate != int(sample_rate)
+        or actual_channels != channels
+        or actual_frames != frames
+        or not math.isclose(actual_duration, duration, rel_tol=1e-6, abs_tol=1e-6)
+    ):
+        raise PublicationError(f"language cell {cell_id} has invalid output metadata")
+    return {
+        "readableWAV": True,
+        "atomicPublish": True,
+        "durationSeconds": duration,
+        "sampleRate": int(sample_rate),
+        "channels": channels,
+        "frames": frames,
+        "fileDigest": digest,
     }
 
 
 def language_command(args: argparse.Namespace) -> Path:
     cells = selected_language_cells(args.matrix, args.subset)
+    output_verified = args.output_gate == "pass"
+    corpus_scripts = language_corpus_scripts(args.corpus) if output_verified else {}
+    if output_verified:
+        missing_scripts = sorted({
+            str(cell.get("scriptLang")) for cell in cells
+            if not cell.get("skipOutputVerification")
+            and str(cell.get("scriptLang")) not in corpus_scripts
+        })
+        if missing_scripts:
+            raise PublicationError(
+                "language corpus is missing selected scripts: " + ", ".join(missing_scripts)
+            )
     expected_ids = [str(cell.get("id")) for cell in cells]
+    plan = load_language_plan(args, cells)
+    planned_takes = plan.get("takes") if isinstance(plan, dict) else None
     rows = [
         row for row in load_engine_rows(args.diagnostics)
         if (row.get("notes") or {}).get("benchRunID") == args.run_id
     ]
-    by_cell: dict[str, list[dict[str, Any]]] = {}
-    for row in rows:
-        by_cell.setdefault(str((row.get("notes") or {}).get("benchCell")), []).append(row)
     selected: list[dict[str, Any]] = []
-    for cell in cells:
-        cell_id = str(cell.get("id"))
-        matches = by_cell.get(cell_id, [])
-        if len(matches) != 1:
-            raise PublicationError(f"language cell {cell_id} has {len(matches)} rows; expected one")
-        row = matches[0]
-        successful_row(row)
-        expected_hint = str(cell.get("expectedHint"))
-        if (row.get("notes") or {}).get("languageHint") != expected_hint:
-            raise PublicationError(f"language cell {cell_id} has the wrong resolved hint")
-        selected.append(row)
-    unexpected = sorted(set(by_cell) - set(expected_ids))
-    if unexpected:
-        raise PublicationError(f"language run has unexpected cells: {', '.join(unexpected)}")
-    takes = [minimal_take(index, cell_id, row) for index, (cell_id, row) in enumerate(zip(expected_ids, selected), start=1)]
-    output_verified = args.output_gate == "pass"
+    selected_app: list[dict[str, Any]] = []
     sentinels: dict[str, dict[str, Any]] = {}
-    if args.platform == "ios":
+    selected_sentinel_paths: dict[str, Path] = {}
+    if planned_takes is not None:
+        by_generation: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            by_generation.setdefault(str(row.get("generationID")), []).append(row)
+        app_rows = [
+            row for row in load_app_rows(args.diagnostics)
+            if (row.get("notes") or {}).get("benchRunID") == args.run_id
+        ] if args.platform == "ios" else []
+        app_by_generation: dict[str, list[dict[str, Any]]] = {}
+        for row in app_rows:
+            app_by_generation.setdefault(str(row.get("generationID")), []).append(row)
+        expected_children = {str(take["childRunID"]) for take in planned_takes}
+        sentinel_paths: dict[str, list[Path]] = {child: [] for child in expected_children}
+        unexpected_children: set[str] = set()
+        prefix = f"{args.run_id}--"
         for path in args.diagnostics.rglob("device-diagnostics-done.json"):
-            record = load_json(path)
-            child_run_id = record.get("runID")
-            if isinstance(child_run_id, str) and child_run_id.startswith(f"{args.run_id}--"):
-                cell_id = child_run_id[len(args.run_id) + 2 :]
-                if cell_id in sentinels:
-                    raise PublicationError(f"duplicate output-verification sentinel for {cell_id}")
-                sentinels[cell_id] = record
+            child = path.parent.name
+            if child in sentinel_paths:
+                sentinel_paths[child].append(path)
+            elif child.startswith(prefix):
+                unexpected_children.add(child)
+        if unexpected_children:
+            raise PublicationError(
+                "language run has unexpected sentinels: " + ", ".join(sorted(unexpected_children))
+            )
+        selected_generations: set[str] = set()
+        for cell, planned_take in zip(cells, planned_takes):
+            cell_id = str(cell["id"])
+            child = str(planned_take["childRunID"])
+            paths = sentinel_paths[child]
+            if len(paths) != 1:
+                raise PublicationError(
+                    f"language cell {cell_id} has {len(paths)} exact sentinels; expected one"
+                )
+            sentinel = load_json(paths[0])
+            generation_id = sentinel.get("generationID")
+            if sentinel.get("runID") != child or not isinstance(generation_id, str):
+                raise PublicationError(f"language cell {cell_id} sentinel identity is invalid")
+            if generation_id in selected_generations:
+                raise PublicationError("language run reuses one generation across multiple cells")
+            matches = by_generation.get(generation_id, [])
+            if len(matches) != 1:
+                raise PublicationError(
+                    f"language cell {cell_id} generation has {len(matches)} rows; expected one"
+                )
+            row = matches[0]
+            notes = row.get("notes") if isinstance(row.get("notes"), dict) else {}
+            if notes.get("benchCell") != cell_id or row.get("mode") != planned_take.get("mode"):
+                raise PublicationError(f"language cell {cell_id} telemetry identity is invalid")
+            expected_hint = str(cell.get("expectedHint"))
+            if notes.get("languageHint") != expected_hint:
+                raise PublicationError(f"language cell {cell_id} has the wrong resolved hint")
+            if sentinel.get("status") != "ok":
+                raise PublicationError(f"language cell {cell_id} sentinel did not complete")
+            successful_row(row)
+            validate_language_sampling_identity(
+                cell_id=cell_id,
+                planned_take=planned_take,
+                sentinel=sentinel,
+                engine_row=row,
+            )
+            if args.platform == "ios":
+                app_matches = app_by_generation.get(generation_id, [])
+                if len(app_matches) != 1:
+                    raise PublicationError(
+                        f"language cell {cell_id} generation has {len(app_matches)} app rows; expected one"
+                    )
+                app_row = app_matches[0]
+                validate_language_app_row(
+                    app_row, run_id=args.run_id, cell_id=cell_id, planned_take=planned_take
+                )
+                selected_app.append(app_row)
+            selected.append(row)
+            sentinels[cell_id] = sentinel
+            selected_sentinel_paths[cell_id] = paths[0]
+            selected_generations.add(generation_id)
+        unexpected_generations = sorted(set(by_generation) - selected_generations)
+        if unexpected_generations:
+            raise PublicationError(
+                "language run has unexpected generations: " + ", ".join(unexpected_generations)
+            )
+        unexpected_app_generations = sorted(set(app_by_generation) - selected_generations)
+        if unexpected_app_generations:
+            raise PublicationError(
+                "language run has unexpected app generations: "
+                + ", ".join(unexpected_app_generations)
+            )
+    else:
+        by_cell: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            by_cell.setdefault(str((row.get("notes") or {}).get("benchCell")), []).append(row)
+        for cell in cells:
+            cell_id = str(cell.get("id"))
+            matches = by_cell.get(cell_id, [])
+            if len(matches) != 1:
+                raise PublicationError(f"language cell {cell_id} has {len(matches)} rows; expected one")
+            row = matches[0]
+            successful_row(row)
+            expected_hint = str(cell.get("expectedHint"))
+            if (row.get("notes") or {}).get("languageHint") != expected_hint:
+                raise PublicationError(f"language cell {cell_id} has the wrong resolved hint")
+            selected.append(row)
+        unexpected = sorted(set(by_cell) - set(expected_ids))
+        if unexpected:
+            raise PublicationError(f"language run has unexpected cells: {', '.join(unexpected)}")
+    takes = [minimal_take(index, cell_id, row) for index, (cell_id, row) in enumerate(zip(expected_ids, selected), start=1)]
+    if planned_takes is not None:
+        validate_prompt_equivalence(
+            planned_takes=planned_takes,
+            sentinels=sentinels,
+            rows_by_cell={str(cell["id"]): row for cell, row in zip(cells, selected)},
+        )
+        for cell, planned_take, take in zip(cells, planned_takes, takes):
+            cell_id = str(cell["id"])
+            take["seed"] = int(planned_take["seed"])
+            if args.platform == "ios":
+                take["layers"] = ["engine", "app"]
+                take["layerCompleteness"] = "complete"
+            take["output"] = language_output_evidence(
+                sentinels[cell_id], selected_sentinel_paths[cell_id].parent / "output.wav", cell_id
+            )
     asr_evidence: list[dict[str, Any]] = []
     if output_verified:
-        for cell, row, take in zip(cells, selected, takes):
+        if planned_takes is None:
+            raise PublicationError("output verification publication requires an immutable run plan")
+        for cell, planned_take, row, take in zip(cells, planned_takes, selected, takes):
             if cell.get("skipOutputVerification"):
                 continue
             cell_id = str(cell.get("id"))
@@ -1199,16 +1827,35 @@ def language_command(args: argparse.Namespace) -> Path:
                 raise PublicationError(f"language cell {cell_id} lacks successful output-verification evidence")
             evidence = sanitized_asr_evidence(
                 cell=cell,
+                planned_take=planned_take,
                 sentinel=sentinel,
                 engine_row=row,
                 parent_run_id=args.run_id,
+                reference_script=corpus_scripts[str(cell["scriptLang"])],
             )
             asr_evidence.append(evidence)
+            take["accuracyMetric"] = evidence["accuracyMetric"]
+            take["accuracyThreshold"] = evidence["accuracyThreshold"]
             take["metrics"].update({
                 "wordErrorRate": evidence["wordErrorRate"],
+                "characterErrorRate": evidence["characterErrorRate"],
                 "languageMatchScore": evidence["languageMatchScore"],
                 "outputLanguagePass": 1.0,
                 "outputAccuracyPass": 1.0,
+                "referenceTokenCount": float(evidence["referenceTokenCount"]),
+                "hypothesisTokenCount": float(evidence["hypothesisTokenCount"]),
+                "referenceCharacterCount": float(evidence["referenceCharacterCount"]),
+                "hypothesisCharacterCount": float(evidence["hypothesisCharacterCount"]),
+                "substitutions": float(evidence["substitutions"]),
+                "insertions": float(evidence["insertions"]),
+                "deletions": float(evidence["deletions"]),
+                "characterSubstitutions": float(evidence["characterSubstitutions"]),
+                "characterInsertions": float(evidence["characterInsertions"]),
+                "characterDeletions": float(evidence["characterDeletions"]),
+                "recognitionPassCount": float(evidence["recognitionPassCount"]),
+                "recognitionDurationSeconds": evidence["recognitionDurationSeconds"],
+                "primaryAccuracyScore": evidence["primaryAccuracyScore"],
+                "accuracyThreshold": evidence["accuracyThreshold"],
             })
     for take in takes:
         take["metrics"]["hintCellsPassed"] = float(len(cells))
@@ -1235,17 +1882,58 @@ def language_command(args: argparse.Namespace) -> Path:
     elif getattr(args, "design_fixture_digest", None):
         fixture_digests["design"] = args.design_fixture_digest
     require_fixture_cross_check(takes, fixture_digests, source=f"{args.platform} language runner")
+    analysis_profile: dict[str, Any] | None = None
+    if asr_evidence:
+        evidence_by_cell = {evidence["cell"]: evidence for evidence in asr_evidence}
+        analysis_takes: list[dict[str, Any]] = []
+        for cell, take, planned in zip(cells, takes, planned_takes or []):
+            cell_id = str(cell["id"])
+            entry: dict[str, Any] = {
+                "cell": cell_id,
+                "seed": take.get("seed"),
+                "samplingVariation": planned.get("samplingVariation"),
+                "promptEquivalenceGroup": planned.get("promptEquivalenceGroup"),
+                "outputVerificationRequired": not bool(cell.get("skipOutputVerification")),
+            }
+            evidence = evidence_by_cell.get(cell_id)
+            if evidence is not None:
+                entry.update({
+                    "expectedLanguage": evidence["expectedLanguage"],
+                    "selectedLocaleIdentifier": evidence["selectedLocaleIdentifier"],
+                    "accuracyMetricVersion": evidence["accuracyMetricVersion"],
+                    "accuracyMetric": evidence["accuracyMetric"],
+                    "accuracyThreshold": evidence["accuracyThreshold"],
+                    "outputVerifierSchemaVersion": evidence["outputVerifierSchemaVersion"],
+                    "outputVerifierAlgorithm": evidence["outputVerifierAlgorithm"],
+                    "recognitionSchemaVersion": evidence["recognitionSchemaVersion"],
+                    "recognitionAlgorithm": evidence["recognitionAlgorithm"],
+                    "requiredPassCount": evidence["recognitionPassCount"],
+                })
+            analysis_takes.append(entry)
+        analysis_profile = {
+            "contract": "autonomous-language-output-v3",
+            "seedPolicy": plan.get("seedPolicy") if isinstance(plan, dict) else None,
+            "takes": analysis_takes,
+        }
+    selected_digest_payload: dict[str, Any] = {
+        "telemetry": selected,
+        "outputVerification": asr_evidence,
+    }
+    if selected_app:
+        selected_digest_payload["appTelemetry"] = selected_app
+    if analysis_profile is not None:
+        selected_digest_payload["analysisProfile"] = analysis_profile
+    inputs = {"matrixHash": digest_file(args.matrix), "corpusHash": digest_file(args.corpus)}
+    if analysis_profile is not None:
+        inputs["analysisProfileHash"] = digest_bytes(canonical_bytes(analysis_profile))
     manifest = record_shell(
         kind="language", platform=args.platform, run_id=args.run_id,
         label=args.label or args.run_id, started_at=started, finished_at=finished,
         matrix_scope=matrix_scope, artifact_dir=args.artifact_dir, snapshot=args.snapshot,
-        takes=takes, raw_digest=digest_bytes(canonical_bytes({
-            "telemetry": selected,
-            "outputVerification": asr_evidence,
-        })),
+        takes=takes, raw_digest=digest_bytes(canonical_bytes(selected_digest_payload)),
         telemetry_schema=max(int(row.get("schemaVersion", 0)) for row in selected),
         qc_algorithm=max(int((row.get("audioQC") or {}).get("algorithmVersion", 1)) for row in selected),
-        inputs={"matrixHash": digest_file(args.matrix), "corpusHash": digest_file(args.corpus)},
+        inputs=inputs,
         hardware=hardware_context(selected),
         hardware_evidence=[
             sentinels[cell_id] for cell_id in expected_ids if cell_id in sentinels
@@ -1261,6 +1949,15 @@ def language_command(args: argparse.Namespace) -> Path:
         optimization="-Onone",
         classification=("exploratory" if uses_forced_memory_profile(selected) else None),
     )
+    if asr_evidence:
+        manifest["historyRecord"]["evidence"]["languageVerification"] = {
+            "outputSchemaVersion": LANGUAGE_OUTPUT_SCHEMA,
+            "outputAlgorithm": LANGUAGE_OUTPUT_ALGORITHM,
+            "recognitionSchemaVersion": ASR_EVIDENCE_SCHEMA,
+            "recognitionAlgorithm": ASR_EVIDENCE_ALGORITHM,
+            "accuracyMetricVersion": LANGUAGE_ACCURACY_METRIC_VERSION,
+            "requiredPassCount": ASR_REQUIRED_PASS_COUNT,
+        }
     return write_and_record(
         args.artifact_dir, manifest,
         defer_record=bool(getattr(args, "defer_record", False)),
@@ -1953,6 +2650,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     language.add_argument("--crash-diagnostics", type=Path)
     language.add_argument("--matrix", type=Path, required=True)
     language.add_argument("--corpus", type=Path, required=True)
+    language.add_argument("--plan", type=Path)
     language.add_argument("--subset", choices=("quick", "full"), required=True)
     language.add_argument("--output-gate", choices=("pass", "not-performed"), required=True)
     language.add_argument("--started-at", required=True)

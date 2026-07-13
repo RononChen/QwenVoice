@@ -62,6 +62,17 @@ the app UI. Clone diagnostics require the exact prepared voice ID, and `--memory
 smaller-device memory budget while retaining the connected phone's real GPU and thermals. These
 operations are diagnostics, not a second frontend acceptance stack.
 
+`lang-bench` declares an immutable one-based run plan before generation and passes an explicit
+UInt64 seed plus sampling variation to every take. Its schema-v2 sentinel is published last and
+binds the resolved language, prompt-assembly digest, exact output-WAV digest/metadata, generation
+telemetry identity, and structured three-pass on-device Speech evidence. The collector retains only
+those plan-selected rows and files. `--diagnostic-cohort` runs the fixed 15-take English-Design and
+French pinned/Auto failure cohort without retries or history publication. Language acceptance is
+fully autonomous; listening is optional annotation only. Its primary accuracy metric is WER for
+word-delimited languages and CER for Chinese/Japanese, both at the versioned 0.15 threshold; the
+Python validator and publisher recompute the edit evidence from the corpus rather than trusting the
+app's aggregate score.
+
 ## Model readiness
 
 Before generation, XCUITest visibly requires Custom, Design, and Clone Speed to report ready,

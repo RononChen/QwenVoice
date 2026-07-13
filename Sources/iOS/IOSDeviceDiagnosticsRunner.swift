@@ -1,3 +1,4 @@
+import AVFoundation
 import CryptoKit
 import Foundation
 import QwenVoiceCore
@@ -23,6 +24,10 @@ import UIKit
 /// Optional companion env `QVOICE_IOS_DEVICE_DIAGNOSTICS_LANGUAGE` sets the UI language picker
 /// equivalent (`english`, `french`, `auto`, …) on the generation request. Omitted
 /// behaves like Auto. `scripts/ios_device.sh lang-bench` sets it per matrix cell.
+/// `QVOICE_IOS_DEVICE_DIAGNOSTICS_SEED=<UInt64>` pins the MLX sampling stream for
+/// predeclared diagnostic cohorts; an invalid value fails before generation.
+/// `QVOICE_IOS_DEVICE_DIAGNOSTICS_VARIATION=expressive|balanced|consistent`
+/// explicitly pins the sampling policy; otherwise the current iOS preference applies.
 ///
 /// Clone diagnostics additionally require `QVOICE_IOS_DEVICE_DIAGNOSTICS_CLONE_VOICE_ID`
 /// to identify the exact prepared voice. They never select an arbitrary saved voice or
@@ -30,7 +35,9 @@ import UIKit
 ///
 /// When `QVOICE_IOS_DEVICE_DIAGNOSTICS_VERIFY_OUTPUT=1`, after a successful generation the runner
 /// transcribes the output WAV in-process (Speech) and stamps `outputVerification`
-/// on the diagnostics sentinel for `scripts/check_language_output.py`.
+/// on the diagnostics sentinel for `scripts/check_language_output.py`. The completed
+/// run also mirrors only its exact WAV as `output.wav`, with bounded sample metadata
+/// and a SHA-256 digest in the sentinel; raw prompts and absolute paths are omitted.
 ///
 /// The runner drives the same in-process `TTSEngineStore.generate(_:)` the UI uses —
 /// no UI interaction — then writes `diagnostics/<runID>/device-diagnostics-done.json`. It never
@@ -42,6 +49,8 @@ enum IOSDeviceDiagnosticsRunner {
     private static let languageEnvKey = "QVOICE_IOS_DEVICE_DIAGNOSTICS_LANGUAGE"
     private static let verifyOutputEnvKey = "QVOICE_IOS_DEVICE_DIAGNOSTICS_VERIFY_OUTPUT"
     private static let cloneVoiceIDEnvKey = "QVOICE_IOS_DEVICE_DIAGNOSTICS_CLONE_VOICE_ID"
+    private static let seedEnvKey = "QVOICE_IOS_DEVICE_DIAGNOSTICS_SEED"
+    private static let variationEnvKey = "QVOICE_IOS_DEVICE_DIAGNOSTICS_VARIATION"
 
     /// Default benchmark sentence — long enough to exercise streaming chunking,
     /// free of any personal/sensitive content.
@@ -136,15 +145,18 @@ enum IOSDeviceDiagnosticsRunner {
             generationID: generationID.uuidString,
             mode: spec.mode.rawValue,
             variant: spec.variant.rawValue,
-            text: spec.text,
+            promptCharacters: spec.text.count,
             startedAt: ISO8601DateFormatter().string(from: startedAt),
             uiLanguageHint: uiLanguageHint,
+            requestedLanguageHint: uiLanguageHint ?? Qwen3SupportedLanguage.auto.rawValue,
+            languageHintSource: languageHintSource(for: uiLanguageHint),
             deviceModel: device.model,
             systemName: device.systemName,
             systemVersion: device.systemVersion,
             bundleVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
             buildVersion: Bundle.main.object(forInfoDictionaryKey: kCFBundleVersionKey as String) as? String
         )
+        var appTimelineSubmitted = false
 
         do {
             guard let model = ModelDescriptor.model(for: spec.mode) else {
@@ -155,6 +167,13 @@ enum IOSDeviceDiagnosticsRunner {
 
             let payload = try await buildPayload(spec: spec, engine: engine)
             record.fixtureDigest = try fixtureDigest(for: payload)
+            let seed = try diagnosticsSeed()
+            let variation = try diagnosticsVariation()
+            record.seed = seed
+            record.samplingVariation = (variation ?? .expressive).rawValue
+            let loadedModelID = engine.loadState.currentModelID
+            record.preGenerationModelID = loadedModelID
+            record.preGenerationWarmState = loadedModelID == model.id ? "warm" : "cold"
 
             // Do not explicitly load or prime here. `engine.generate` enters the native
             // per-generation telemetry session before model load, prewarm, and clone
@@ -171,18 +190,46 @@ enum IOSDeviceDiagnosticsRunner {
                 streamingInterval: GenerationSemantics.appStreamingInterval,
                 languageHint: uiLanguageHint,
                 payload: payload,
-                generationID: generationID
+                generationID: generationID,
+                seed: seed,
+                variation: variation
             )
-            record.resolvedLanguageHint = GenerationSemantics.qwenLanguageHint(for: request)
+            guard let capabilities = model.qwen3Capabilities else {
+                throw DiagnosticsError("model '\(model.id)' has no declared Qwen3 prompt capabilities")
+            }
+            let prompt = GenerationSemantics.qwen3PromptAssembly(
+                for: request,
+                capabilities: capabilities
+            )
+            record.resolvedLanguageHint = prompt.language
+            record.resolvedPromptAssemblyDigest = try digest(prompt)
+            record.promptDigestScope = spec.mode == .clone
+                ? "request_without_resolved_clone_transcript"
+                : "resolved"
 
             print("[device-diagnostics] generating… resolvedLanguage=\(record.resolvedLanguageHint ?? "?")")
+            // Headless diagnostics still execute in the production app process. Record the real
+            // submit/completion lifecycle so iOS benchmark evidence proves both app and engine
+            // ownership. Do not synthesize player milestones: this lane never schedules playback.
+            AppGenerationTimeline.shared.recordSubmitted(
+                id: generationID,
+                mode: spec.mode.rawValue
+            )
+            appTimelineSubmitted = true
             let t0 = Date()
             let result = try await engine.generate(request)
+            await AppGenerationTimeline.shared.recordCompleted(
+                id: generationID,
+                mode: spec.mode.rawValue,
+                usedStreaming: true,
+                finishReason: result.finishReason?.rawValue,
+                summary: result.telemetrySummary
+            )
+            appTimelineSubmitted = false
             let wall = Date().timeIntervalSince(t0)
             let rtf = wall > 0 ? result.durationSeconds / wall : 0
 
             record.status = "ok"
-            record.audioPath = result.audioPath
             record.durationSeconds = result.durationSeconds
             record.wallSeconds = wall
             record.realtimeFactor = rtf
@@ -203,15 +250,29 @@ enum IOSDeviceDiagnosticsRunner {
                 record.outputVerification = verification
                 print(
                     "[device-diagnostics] output verify pass=\(verification.pass) "
-                    + "lang=\(verification.languagePass) wer=\(String(format: "%.2f", verification.wordErrorRate)) "
+                    + "lang=\(verification.languagePass) wer=\(verification.wordErrorRate.map { String(format: "%.2f", $0) } ?? "unavailable") "
                     + "score=\(String(format: "%.2f", verification.languageMatchScore))"
                 )
             }
+
+            let audioURL = URL(fileURLWithPath: result.audioPath)
+            let outputEvidence = try makeOutputEvidence(for: audioURL)
+            try mirrorOutputToPullableDiagnostics(audioURL, runID: runID)
+            record.outputEvidence = outputEvidence
         } catch is CancellationError {
+            if appTimelineSubmitted {
+                await AppGenerationTimeline.shared.recordFailed(
+                    id: generationID,
+                    finishReason: .cancelled
+                )
+            }
             record.status = "error"
             record.error = "cancelled"
             print("[device-diagnostics] ✗ cancelled")
         } catch {
+            if appTimelineSubmitted {
+                await AppGenerationTimeline.shared.recordFailed(id: generationID)
+            }
             record.status = "error"
             record.error = error.localizedDescription
             print("[device-diagnostics] ✗ \(error.localizedDescription)")
@@ -278,6 +339,41 @@ enum IOSDeviceDiagnosticsRunner {
         return raw
     }
 
+    private static func diagnosticsSeed() throws -> UInt64? {
+        guard let raw = trimmedEnvironmentValue(seedEnvKey) else { return nil }
+        guard let seed = UInt64(raw) else {
+            throw DiagnosticsError("\(seedEnvKey) must be an unsigned 64-bit integer")
+        }
+        return seed
+    }
+
+    private static func diagnosticsVariation() throws -> Qwen3SamplingVariation? {
+        guard let raw = trimmedEnvironmentValue(variationEnvKey) else {
+            return IOSGenerationVariationPreference.requestValue()
+        }
+        guard let variation = Qwen3SamplingVariation(rawValue: raw.lowercased()) else {
+            throw DiagnosticsError(
+                "\(variationEnvKey) must be expressive, balanced, or consistent"
+            )
+        }
+        return variation == .expressive ? nil : variation
+    }
+
+    private static func languageHintSource(for requestedHint: String?) -> String {
+        guard let requestedHint,
+              Qwen3SupportedLanguage.normalized(requestedHint) != .auto else {
+            return "auto"
+        }
+        return "explicit"
+    }
+
+    private static func digest<T: Encodable>(_ value: T) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(value)
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
     /// Privacy-safe identity for the exact non-text fixture used by a diagnostic
     /// generation. The sentinel exposes only the digest—never the App Group path,
     /// saved-voice name, transcript, or design description.
@@ -322,6 +418,65 @@ enum IOSDeviceDiagnosticsRunner {
 
     // MARK: - Paths & sentinel
 
+    private static func makeOutputEvidence(for url: URL) throws -> OutputEvidence {
+        let file = try AVAudioFile(forReading: url)
+        let frameCount = Int64(file.length)
+        let sampleRate = file.fileFormat.sampleRate
+        let channelCount = Int(file.fileFormat.channelCount)
+        guard frameCount > 0, sampleRate > 0, channelCount > 0 else {
+            throw DiagnosticsError("generated WAV has invalid sample metadata")
+        }
+        let values = try url.resourceValues(forKeys: [.fileSizeKey])
+        guard let fileSize = values.fileSize, fileSize > 0 else {
+            throw DiagnosticsError("generated WAV has no readable file size")
+        }
+        return OutputEvidence(
+            artifactRelativePath: "output.wav",
+            sha256: try sha256Hex(for: url),
+            byteCount: Int64(fileSize),
+            durationSeconds: Double(frameCount) / sampleRate,
+            sampleRate: sampleRate,
+            channelCount: channelCount,
+            frameCount: frameCount
+        )
+    }
+
+    private static func sha256Hex(for url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while true {
+            let chunk = try handle.read(upToCount: 1_048_576) ?? Data()
+            if chunk.isEmpty { break }
+            hasher.update(data: chunk)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func mirrorOutputToPullableDiagnostics(_ source: URL, runID: String) throws {
+        guard let pullableRoot = IOSPullableDiagnosticsMirror.pullableRoot else {
+            throw DiagnosticsError("pullable diagnostics directory is unavailable")
+        }
+        try copyAtomically(
+            source,
+            to: pullableRoot.appendingPathComponent(runID, isDirectory: true)
+                .appendingPathComponent("output.wav", isDirectory: false)
+        )
+    }
+
+    private static func copyAtomically(_ source: URL, to destination: URL) throws {
+        let fileManager = FileManager.default
+        let directory = destination.deletingLastPathComponent()
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let temporary = directory.appendingPathComponent(".output-\(UUID().uuidString).tmp")
+        defer { try? fileManager.removeItem(at: temporary) }
+        try fileManager.copyItem(at: source, to: temporary)
+        if fileManager.fileExists(atPath: destination.path) {
+            try fileManager.removeItem(at: destination)
+        }
+        try fileManager.moveItem(at: temporary, to: destination)
+    }
+
     private static func makeOutputPath(runID: String, model: ModelDescriptor) -> String {
         let dir = AppPaths.outputsDir
             .appendingPathComponent(model.outputSubfolder, isDirectory: true)
@@ -350,13 +505,16 @@ enum IOSDeviceDiagnosticsRunner {
         //    `Library/Caches/Vocello/diagnostics` from appDataContainer, so the bench
         //    needs the sentinel + the engine telemetry here too.
         guard let pullableRoot = IOSPullableDiagnosticsMirror.pullableRoot else { return }
-        writeData(data, to: pullableRoot.appendingPathComponent(runID, isDirectory: true)
-                    .appendingPathComponent("device-diagnostics-done.json", isDirectory: false),
-                  label: "sentinel (pullable)")
-        IOSPullableDiagnosticsMirror.syncEngineTelemetry(
+        // Publish the exact generation telemetry before the pullable sentinel: the
+        // sentinel is the completion barrier observed by the shell poller.
+        IOSPullableDiagnosticsMirror.syncGenerationTelemetry(
+            generationID: record.generationID,
             from: AppPaths.appSupportDir.appendingPathComponent("diagnostics", isDirectory: true),
             into: pullableRoot
         )
+        writeData(data, to: pullableRoot.appendingPathComponent(runID, isDirectory: true)
+                    .appendingPathComponent("device-diagnostics-done.json", isDirectory: false),
+                  label: "sentinel (pullable)")
     }
 
     private static func writeData(_ data: Data, to url: URL, label: String) {
@@ -396,21 +554,29 @@ enum IOSDeviceDiagnosticsRunner {
         // expression touching MainActor `UIDevice` would be evaluated in the nonisolated
         // synthesized init (Swift 6 error). So defaults stay literal/`var`, and device/
         // bundle fields are passed in from the @MainActor call site.
-        var schemaVersion = 1
+        var schemaVersion = 2
         let runID: String
         let generationID: String
         let mode: String
         let variant: String
-        let text: String
+        let promptCharacters: Int
         let startedAt: String
         var finishedAt: String?
         var status = "error"
         var uiLanguageHint: String?
+        var requestedLanguageHint: String
+        var languageHintSource: String
         var resolvedLanguageHint: String?
+        var resolvedPromptAssemblyDigest: String?
+        var promptDigestScope: String?
+        var seed: UInt64?
+        var samplingVariation: String?
+        var preGenerationModelID: String?
+        var preGenerationWarmState: String?
         var modelID: String?
         var modelName: String?
         var fixtureDigest: String?
-        var audioPath: String?
+        var outputEvidence: OutputEvidence?
         var durationSeconds: Double?
         var wallSeconds: Double?
         var realtimeFactor: Double?
@@ -425,5 +591,15 @@ enum IOSDeviceDiagnosticsRunner {
         let systemVersion: String
         let bundleVersion: String?
         let buildVersion: String?
+    }
+
+    private struct OutputEvidence: Codable {
+        let artifactRelativePath: String
+        let sha256: String
+        let byteCount: Int64
+        let durationSeconds: Double
+        let sampleRate: Double
+        let channelCount: Int
+        let frameCount: Int64
     }
 }

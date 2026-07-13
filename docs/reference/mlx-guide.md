@@ -126,7 +126,7 @@ let mode: QuantizationMode
 - `quantize(model:groupSize:bits:)` moved to a top-level function with a `mode:` argument.
 - The `biases` result from `quantized()` became optional.
 
-Vocello's vendored `mlx-audio-swift` port was written against the 0.30.x API, and the project has no automated correctness suite that would catch subtle numeric shifts from a core-MLX bump. For that reason the project **remains pinned at 0.30.6 / 2.30.6**. A future upgrade must be done on a throwaway branch, in lockstep across `project.yml` and `third_party_patches/mlx-audio-swift/Package.swift`, and validated with `vocello bench` + a listening pass.
+Vocello's vendored `mlx-audio-swift` port was written against the 0.30.x API, and the project has no exhaustive proof for every subtle numeric shift from a core-MLX bump. For that reason the project **remains pinned at 0.30.6 / 2.30.6**. A future upgrade must be done on a throwaway branch, in lockstep across `project.yml` and `third_party_patches/mlx-audio-swift/Package.swift`, and validated with fixed-seed `vocello bench`, clean audioQC, and the applicable automated language/prosody gates.
 
 ### 3.4 Loading weights
 
@@ -416,8 +416,9 @@ Only upgrade when:
    ./scripts/build_foundation_targets.sh macos
    ./scripts/build_foundation_targets.sh ios
    ```
-5. Run `vocello bench`; compare its generated registry entry with the nearest compatible clean run
-   in `benchmarks/HISTORY.md`, then annotate the independent listening verdict.
+5. Run a fixed-seed `vocello bench`; compare its generated registry entry with the nearest
+   compatible clean run in `benchmarks/HISTORY.md`, and require the applicable automated
+   language/prosody evidence. Optional listening may be annotated independently.
 6. Keep the bump only if RTF, memory, and audioQC are unchanged or improved.
 7. If anything regresses, document the blocker and revert.
 

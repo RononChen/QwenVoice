@@ -181,8 +181,9 @@ public enum GenerationSemantics {
     }
 
     /// Dev A/B gate: `QWENVOICE_ENGLISH_DICTION_REINFORCEMENT=off` skips the
-    /// English diction-reinforcement append entirely, so a listening pass can
-    /// judge whether the extra clause dilutes emotion-instruction adherence.
+    /// English diction-reinforcement append entirely, so fixed-seed delivery and
+    /// prosody evidence can test whether the extra clause dilutes instruction
+    /// adherence; an optional listening note may supplement that evidence.
     /// Resolved once; production default is unchanged (reinforcement on).
     private static let englishDictionReinforcementDisabled: Bool = {
         let raw = ProcessInfo.processInfo.environment["QWENVOICE_ENGLISH_DICTION_REINFORCEMENT"]?

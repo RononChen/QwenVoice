@@ -9,6 +9,7 @@
       "uiHint": "english",
       "scriptLang": "english",
       "expectedHint": "english",
+      "promptEquivalenceGroup": "custom-english-v1",
       "quick": true
     },
     {
@@ -18,6 +19,7 @@
       "uiHint": "auto",
       "scriptLang": "english",
       "expectedHint": "english",
+      "promptEquivalenceGroup": "custom-english-v1",
       "quick": true
     },
     {
@@ -36,6 +38,7 @@
       "uiHint": "french",
       "scriptLang": "french",
       "expectedHint": "french",
+      "promptEquivalenceGroup": "custom-french-v1",
       "quick": true
     },
     {
@@ -45,6 +48,7 @@
       "uiHint": "auto",
       "scriptLang": "french",
       "expectedHint": "french",
+      "promptEquivalenceGroup": "custom-french-v1",
       "quick": true
     },
     {
@@ -73,7 +77,8 @@
       "variant": "speed",
       "uiHint": "german",
       "scriptLang": "german",
-      "expectedHint": "german"
+      "expectedHint": "german",
+      "promptEquivalenceGroup": "custom-german-v1"
     },
     {
       "id": "custom-de-auto",
@@ -81,7 +86,8 @@
       "variant": "speed",
       "uiHint": "auto",
       "scriptLang": "german",
-      "expectedHint": "german"
+      "expectedHint": "german",
+      "promptEquivalenceGroup": "custom-german-v1"
     },
     {
       "id": "design-de-auto",
@@ -97,7 +103,8 @@
       "variant": "speed",
       "uiHint": "spanish",
       "scriptLang": "spanish",
-      "expectedHint": "spanish"
+      "expectedHint": "spanish",
+      "promptEquivalenceGroup": "custom-spanish-v1"
     },
     {
       "id": "custom-es-auto",
@@ -105,7 +112,8 @@
       "variant": "speed",
       "uiHint": "auto",
       "scriptLang": "spanish",
-      "expectedHint": "spanish"
+      "expectedHint": "spanish",
+      "promptEquivalenceGroup": "custom-spanish-v1"
     },
     {
       "id": "design-es-auto",
@@ -121,7 +129,8 @@
       "variant": "speed",
       "uiHint": "chinese",
       "scriptLang": "chinese",
-      "expectedHint": "chinese"
+      "expectedHint": "chinese",
+      "promptEquivalenceGroup": "custom-chinese-v1"
     },
     {
       "id": "custom-zh-auto",
@@ -129,7 +138,8 @@
       "variant": "speed",
       "uiHint": "auto",
       "scriptLang": "chinese",
-      "expectedHint": "chinese"
+      "expectedHint": "chinese",
+      "promptEquivalenceGroup": "custom-chinese-v1"
     },
     {
       "id": "design-zh-auto",
@@ -145,7 +155,8 @@
       "variant": "speed",
       "uiHint": "japanese",
       "scriptLang": "japanese",
-      "expectedHint": "japanese"
+      "expectedHint": "japanese",
+      "promptEquivalenceGroup": "custom-japanese-v1"
     },
     {
       "id": "custom-ja-auto",
@@ -153,7 +164,8 @@
       "variant": "speed",
       "uiHint": "auto",
       "scriptLang": "japanese",
-      "expectedHint": "japanese"
+      "expectedHint": "japanese",
+      "promptEquivalenceGroup": "custom-japanese-v1"
     },
     {
       "id": "design-ja-auto",

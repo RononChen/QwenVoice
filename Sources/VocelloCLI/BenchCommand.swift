@@ -308,7 +308,7 @@ enum BenchCommand {
                 // medium text, one per requested preset.intensity. Custom/Design
                 // only — the clone checkpoints have no instruction control. The
                 // plain warm takes above double as the neutral reference for the
-                // listening comparison; the summarizer segregates these rows via
+                // deterministic prosody comparison; the summarizer segregates these rows via
                 // the notes.delivery stamp so the headline matrix stays clean.
                 if !deliveryItems.isEmpty, mode != .clone {
                     let deliveryText = try requiredText(for: "medium")

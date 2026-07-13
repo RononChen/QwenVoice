@@ -9,7 +9,7 @@ Vocello already has three audio QA layers:
 
 1. **Signal-level QC** (`AudioQualityGate.swift` / `AudioQCReport`): deterministic, reference-free checks for clipping, DC offset, dropouts, discontinuities, silence, and duration.
 2. **Delivery adherence** (`scripts/analyze_delivery.py` + `scripts/delivery_adherence.py`): deterministic, paired neutral-vs-instructed A/B using median F0, F0 range, syllable rate, and duration deltas.
-3. **Listening review** (manual): the final arbiter for subtle perceptual quality (timbre, naturalness). An earlier external-model listening pass was removed after proving unreliable.
+3. **Optional listening annotation**: records subjective timbre/naturalness impressions without changing the automated verdict. An earlier external-model listening pass was removed after proving unreliable.
 
 The gap: none of the automated layers reliably catches **monotone delivery**, **rushed/slurred cadence**, **unnatural pauses**, or **weak emotional differentiation** within a single take.
 
@@ -100,9 +100,9 @@ scripts/delivery_adherence.py --presets happy,excited --seeds 4 --data-dir ~/Lib
 build/vocello bench --delivery happy,calm --modes custom,design
 ```
 
-Manual listening is independent of the automated gates. It remains mandatory for an explicit
-engine promotion or release quality decision, and optional for ordinary diagnostics and
-development publishing.
+Manual listening is independent of the automated gates and optional for every workflow. Engine
+promotion requires the deterministic QC and applicable paired prosody/language gates to pass; a
+listening note cannot waive a machine failure or warning.
 
 ### Calibration note
 

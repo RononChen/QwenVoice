@@ -299,7 +299,13 @@ Official guidance: **explicit language tokens outperform `auto`**. Vocello there
 
 **Headless hint bench (Phase 2):** `config/language-bench-matrix.json` + `scripts/ios_device.sh lang-bench` (device) or `scripts/macos_test.sh lang-bench` (CLI). Gated by `scripts/check_language_hints.py` on `notes.languageHint`.
 
-**Output round-trip (Phase 3, iOS device only):** same matrix; after synthesis, locale-locked on-device Speech ASR verifies transcript language and WER via `scripts/check_language_output.py`. Requires on-device Speech assets for non-EN/FR locales (iOS Settings → dictation languages + Wi‑Fi download). See [`language-bench.md`](language-bench.md).
+**Output round-trip (Phase 3, iOS device only):** the same fixed-seed matrix retains and
+revalidates the exact generated WAV, then runs three sequential locale-locked on-device Speech
+passes. `scripts/check_language_output.py` requires exact transcript consensus and independently
+recomputes the primary edit metric against the tracked corpus: WER for word-delimited languages or
+CER for Chinese and Japanese, with a `0.15` maximum in either case. Requires on-device Speech assets
+for non-EN/FR locales (iOS Settings → dictation languages + Wi-Fi download). See
+[`language-bench.md`](language-bench.md).
 
 ### 7.3 Dialects and accents
 

@@ -211,9 +211,9 @@ The deterministic `audioQC` gate runs for every benchmark take. `--delivery` add
 paired delivery-prosody analysis before aggregation. The standalone
 `scripts/prosody_quality_gate.py` per-clip check and `scripts/delivery_adherence.py` corpus workflow
 run only when invoked explicitly.
-**Manual listening by ear** remains mandatory before explicitly promoting or releasing an
-engine-adjacent change; it does not block an ordinary development commit, push, pull request, or
-merge.
+Engine promotion is autonomous: required cells must have clean audioQC plus the applicable
+fixed-seed language/prosody evidence. Optional listening may be recorded later, but cannot clear a
+machine failure or warning and never blocks ordinary development publishing.
 
 **History publication.** A successful, telemetry-enabled benchmark in a repository checkout emits
 an atomic `benchmark-evidence.json`, publishes one allowlisted record under
@@ -253,4 +253,4 @@ vocello bench --modes custom --variants speed --lengths short,medium,long --warm
 ## See also
 
 - [`telemetry-and-benchmarking.md`](telemetry-and-benchmarking.md) — the telemetry schema, the bench
-  matrix in depth, the `audioQC` gate, and the listening pass.
+  matrix in depth, autonomous `audioQC`/language/prosody gates, and optional listening annotation.

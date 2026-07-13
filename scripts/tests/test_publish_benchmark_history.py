@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 from pathlib import Path
@@ -55,6 +56,8 @@ def engine_row(generation_id: str, *, run_id: str = "run-one", cell: str = "cust
             "benchTakeIndex": "1",
             "benchCell": cell,
             "promptDigest": "1" * 64,
+            "samplingSeed": "42",
+            "samplingVariation": "expressive",
         },
         "derivedMetrics": {
             "audioSeconds": 2.0,
@@ -90,6 +93,162 @@ def engine_row(generation_id: str, *, run_id: str = "run-one", cell: str = "cust
             "nonFiniteSamples": 0,
             "longestSilenceMS": 10,
         },
+    }
+
+
+def app_row(generation_id: str, *, run_id: str = "lang-ios", cell: str = "fr") -> dict:
+    return {
+        "schemaVersion": 7,
+        "generationID": generation_id,
+        "layer": "app",
+        "mode": "custom",
+        "finishReason": "completed",
+        "notes": {
+            "benchRunID": run_id,
+            "benchCell": cell,
+        },
+        "timingsMS": {"submitToCompletedMS": 100},
+        "frontendMetrics": {"submitToCompletedMS": 100},
+    }
+
+
+def successful_asr_verification(
+    *,
+    reference: str = "un deux trois quatre cinq six sept huit",
+    transcript: str = "un deux trois quatre cinq six sept neuf",
+) -> dict:
+    word_metrics = publisher.language_edit_metrics(reference, transcript, characters=False)
+    character_metrics = publisher.language_edit_metrics(reference, transcript, characters=True)
+    repetitions = [
+        {
+            "passIndex": index,
+            "localeIdentifier": "fr-CA",
+            "authorizationStatus": "authorized",
+            "recognizerAvailable": True,
+            "supportsOnDeviceRecognition": True,
+            "finalResultStatus": "finalResult",
+            "recognitionDurationSeconds": 0.1,
+            "transcript": transcript,
+            "segmentCount": 4,
+            "segmentStartSeconds": 0.0,
+            "segmentEndSeconds": 1.9,
+            "timingCoverageSeconds": 1.9,
+            "averageConfidence": 0.9,
+            "minimumConfidence": 0.8,
+            "errorDomain": None,
+            "errorCode": None,
+        }
+        for index in range(1, 4)
+    ]
+    return {
+        "schemaVersion": 3,
+        "algorithmVersion": "language-output-verifier-v3",
+        "transcript": transcript,
+        "detectedLanguage": "french",
+        "expectedLanguage": "french",
+        "languageMatchScore": 0.875,
+        "wordErrorRate": word_metrics["errorRate"],
+        "characterErrorRate": character_metrics["errorRate"],
+        "accuracyMetric": "wordErrorRate",
+        "accuracyMetricVersion": "normalized-edit-rate-v1",
+        "accuracyThreshold": 0.15,
+        "accuracyValue": word_metrics["errorRate"],
+        "referenceTokenCount": word_metrics["referenceCount"],
+        "hypothesisTokenCount": word_metrics["hypothesisCount"],
+        "referenceCharacterCount": character_metrics["referenceCount"],
+        "hypothesisCharacterCount": character_metrics["hypothesisCount"],
+        "substitutions": word_metrics["substitutions"],
+        "insertions": word_metrics["insertions"],
+        "deletions": word_metrics["deletions"],
+        "characterSubstitutions": character_metrics["substitutions"],
+        "characterInsertions": character_metrics["insertions"],
+        "characterDeletions": character_metrics["deletions"],
+        "languagePass": True,
+        "accuracyPass": True,
+        "pass": True,
+        "skipReason": None,
+        "recognition": {
+            "schemaVersion": 2,
+            "algorithmVersion": "apple-speech-file-consensus-v2",
+            "expectedLanguage": "french",
+            "selectedLocaleIdentifier": "fr-CA",
+            "authorizationStatus": "authorized",
+            "recognizerAvailable": True,
+            "supportsOnDeviceRecognition": True,
+            "requiredPassCount": 3,
+            "recognitionDurationSeconds": 0.3,
+            "repetitions": repetitions,
+            "evidenceConsistency": True,
+            "consensusStatus": "consistent",
+            "transcript": transcript,
+        },
+    }
+
+
+def language_plan(*, matrix: Path, corpus: Path, run_id: str = "lang-ios", seed: int = 42) -> dict:
+    plan = {
+        "schemaVersion": 1,
+        "runID": run_id,
+        "subset": "quick",
+        "kind": "languageBenchmark",
+        "matrixDigest": publisher.digest_file(matrix),
+        "corpusDigest": publisher.digest_file(corpus),
+        "cohortID": None,
+        "cohortDigest": None,
+        "seedPolicy": "sha256-v1-mode-script-language",
+        "samplingVariation": "expressive",
+        "promptEquivalenceGroups": [],
+        "requireEveryTakePass": True,
+        "takeCount": 1,
+        "takes": [{
+            "takeIndex": 1,
+            "seedIndex": None,
+            "seed": seed,
+            "samplingVariation": "expressive",
+            "cellID": "fr",
+            "childRunID": f"{run_id}--fr",
+            "mode": "custom",
+            "variant": "speed",
+            "uiHint": "auto",
+            "scriptLang": "french",
+            "expectedHint": "french",
+            "promptEquivalenceGroup": None,
+            "skipOutputVerification": False,
+        }],
+    }
+    plan["planDigest"] = publisher.digest_bytes(publisher.canonical_bytes(plan))
+    return plan
+
+
+def language_sentinel(
+    *, output_path: Path, seed: int = 42, verification: dict | None = None
+) -> dict:
+    with wave.open(str(output_path), "rb") as stream:
+        sample_rate = stream.getframerate()
+        channels = stream.getnchannels()
+        frames = stream.getnframes()
+    return {
+        "schemaVersion": 2,
+        "runID": "lang-ios--fr",
+        "generationID": "fr-generation",
+        "status": "ok",
+        "seed": seed,
+        "samplingVariation": "expressive",
+        "requestedLanguageHint": "auto",
+        "languageHintSource": "auto",
+        "deviceModel": "iPhone",
+        "systemName": "iOS",
+        "systemVersion": "26.5",
+        "outputEvidence": {
+            "artifactRelativePath": "output.wav",
+            "sha256": publisher.digest_file(output_path),
+            "byteCount": output_path.stat().st_size,
+            "durationSeconds": frames / sample_rate,
+            "sampleRate": sample_rate,
+            "channelCount": channels,
+            "frameCount": frames,
+        },
+        "outputVerification": verification or successful_asr_verification(),
     }
 
 
@@ -417,7 +576,10 @@ class PublisherTests(unittest.TestCase):
             {"id": "fr", "quick": True, "expectedHint": "french"},
             {"id": "en", "quick": True, "expectedHint": "english"},
         ]}))
-        corpus.write_text(json.dumps({"languages": []}))
+        reference_script = "un deux trois quatre cinq six sept huit"
+        corpus.write_text(json.dumps({"languages": [{
+            "id": "french", "script": reference_script,
+        }]}))
         fr = engine_row("fr-id", run_id="lang-run", cell="fr")
         en = engine_row("en-id", run_id="lang-run", cell="en")
         fr["notes"]["languageHint"] = "french"
@@ -448,35 +610,29 @@ class PublisherTests(unittest.TestCase):
         matrix = self.root / "matrix.json"
         corpus = self.root / "corpus.json"
         matrix.write_text(json.dumps({"cells": [
-            {"id": "fr", "quick": True, "expectedHint": "french"},
+            {
+                "id": "fr", "quick": True, "expectedHint": "french",
+                "mode": "custom", "variant": "speed", "scriptLang": "french",
+            },
         ]}))
-        corpus.write_text(json.dumps({"languages": []}))
+        reference_script = "un deux trois quatre cinq six sept huit"
+        corpus.write_text(json.dumps({"languages": [{
+            "id": "french", "script": reference_script,
+        }]}))
+        plan_path = self.root / "language-run-plan.json"
+        plan = language_plan(matrix=matrix, corpus=corpus)
+        plan_path.write_text(json.dumps(plan))
         row = engine_row("fr-generation", run_id="lang-ios", cell="fr")
         row["notes"]["languageHint"] = "french"
-        sentinel = {
-            "runID": "lang-ios--fr",
-            "generationID": "fr-generation",
-            "status": "ok",
-            "deviceModel": "iPhone",
-            "systemName": "iOS",
-            "systemVersion": "26.5",
-            "outputVerification": {
-                "transcript": "private generated transcript must not be selected",
-                "detectedLanguage": "french",
-                "expectedLanguage": "french",
-                "languageMatchScore": 0.875,
-                "wordErrorRate": 0.125,
-                "languagePass": True,
-                "accuracyPass": True,
-                "pass": True,
-                "skipReason": None,
-            },
-        }
         sentinel_dir = self.root / "diagnostics" / "lang-ios--fr"
         sentinel_dir.mkdir(parents=True)
+        output_path = sentinel_dir / "output.wav"
+        self.make_wave(output_path)
+        sentinel = language_sentinel(output_path=output_path)
         (sentinel_dir / "device-diagnostics-done.json").write_text(json.dumps(sentinel))
         args = SimpleNamespace(
             matrix=matrix, corpus=corpus, subset="quick", diagnostics=self.root / "diagnostics",
+            plan=plan_path,
             crash_diagnostics=None, run_id="lang-ios", output_gate="pass", platform="ios",
             started_at="2026-07-12T12:00:00Z", finished_at="2026-07-12T12:01:00Z",
             label="fixture", artifact_dir=self.root, snapshot=self.root / "snapshot.json",
@@ -485,6 +641,7 @@ class PublisherTests(unittest.TestCase):
         captured, write_patch = self.capture_manifest()
         with (
             mock.patch.object(publisher, "load_engine_rows", return_value=[row]),
+            mock.patch.object(publisher, "load_app_rows", return_value=[app_row("fr-generation")]),
             mock.patch.object(publisher, "source_from_snapshot", return_value=source_fixture()),
             mock.patch.object(publisher, "crash_delta_from_snapshot", return_value={"passed": True, "count": 0}),
             self.hardware_patch(),
@@ -494,30 +651,279 @@ class PublisherTests(unittest.TestCase):
         manifest = captured["manifest"]
         take_metrics = manifest["historyRecord"]["takes"][0]["metrics"]
         self.assertEqual(take_metrics["wordErrorRate"], 0.125)
+        self.assertEqual(take_metrics["characterErrorRate"], 0.125)
         self.assertEqual(take_metrics["languageMatchScore"], 0.875)
         self.assertEqual(take_metrics["outputLanguagePass"], 1.0)
         self.assertEqual(take_metrics["outputAccuracyPass"], 1.0)
+        self.assertEqual(take_metrics["recognitionPassCount"], 3.0)
+        self.assertEqual(take_metrics["substitutions"], 1.0)
+        self.assertEqual(take_metrics["accuracyThreshold"], 0.15)
+        self.assertEqual(take_metrics["primaryAccuracyScore"], 0.125)
+        self.assertEqual(manifest["historyRecord"]["takes"][0]["seed"], 42)
+        self.assertEqual(
+            manifest["historyRecord"]["takes"][0]["layers"], ["engine", "app"]
+        )
+        self.assertEqual(
+            manifest["historyRecord"]["takes"][0]["accuracyMetric"], "wordErrorRate"
+        )
+        self.assertEqual(
+            manifest["historyRecord"]["takes"][0]["output"]["fileDigest"],
+            publisher.digest_file(output_path),
+        )
+        self.assertRegex(
+            manifest["historyRecord"]["inputs"]["analysisProfileHash"], r"^[0-9a-f]{64}$"
+        )
+        self.assertEqual(manifest["historyRecord"]["evidence"]["languageVerification"], {
+            "outputSchemaVersion": 3,
+            "outputAlgorithm": "language-output-verifier-v3",
+            "recognitionSchemaVersion": 2,
+            "recognitionAlgorithm": "apple-speech-file-consensus-v2",
+            "accuracyMetricVersion": "normalized-edit-rate-v1",
+            "requiredPassCount": 3,
+        })
         sanitized = publisher.sanitized_asr_evidence(
             cell={"id": "fr", "expectedHint": "french"},
+            planned_take=plan["takes"][0],
             sentinel=sentinel,
             engine_row=row,
             parent_run_id="lang-ios",
+            reference_script=reference_script,
         )
         self.assertNotIn("transcript", sanitized)
-        self.assertEqual(
-            manifest["rawTelemetryDigest"],
-            publisher.digest_bytes(publisher.canonical_bytes({
-                "telemetry": [row], "outputVerification": [sanitized],
-            })),
-        )
+        self.assertNotIn("runID", sanitized)
         mismatched = dict(sentinel)
         mismatched["generationID"] = "another-generation"
         with self.assertRaisesRegex(publisher.PublicationError, "another generation"):
             publisher.sanitized_asr_evidence(
                 cell={"id": "fr", "expectedHint": "french"},
+                planned_take=plan["takes"][0],
                 sentinel=mismatched,
                 engine_row=row,
                 parent_run_id="lang-ios",
+                reference_script=reference_script,
+            )
+
+        for name, app_rows, message in (
+            ("missing", [], "0 app rows"),
+            ("duplicate", [app_row("fr-generation"), app_row("fr-generation")], "2 app rows"),
+            (
+                "wrong-mode",
+                [{**app_row("fr-generation"), "mode": "design"}],
+                "app telemetry identity",
+            ),
+            (
+                "missing-frontend-completion",
+                [{**app_row("fr-generation"), "frontendMetrics": {}}],
+                "app telemetry identity",
+            ),
+        ):
+            with (
+                self.subTest(name=name),
+                mock.patch.object(publisher, "load_engine_rows", return_value=[row]),
+                mock.patch.object(publisher, "load_app_rows", return_value=app_rows),
+                self.assertRaisesRegex(publisher.PublicationError, message),
+            ):
+                publisher.language_command(args)
+
+        self.assertNotIn(
+            successful_asr_verification()["transcript"],
+            json.dumps(manifest, sort_keys=True),
+        )
+
+    def test_ios_language_requires_a_non_cohort_immutable_plan(self) -> None:
+        with self.assertRaisesRegex(publisher.PublicationError, "immutable run plan"):
+            publisher.load_language_plan(
+                SimpleNamespace(platform="ios", plan=None),
+                [{"id": "fr"}],
+            )
+
+        matrix = self.root / "matrix.json"
+        corpus = self.root / "corpus.json"
+        matrix.write_text(json.dumps({"cells": [{
+            "id": "fr", "quick": True, "expectedHint": "french",
+            "mode": "custom", "variant": "speed", "scriptLang": "french",
+        }]}))
+        corpus.write_text(json.dumps({"languages": [{
+            "id": "french", "script": "un deux trois quatre cinq six sept huit",
+        }]}))
+        plan = language_plan(matrix=matrix, corpus=corpus)
+        plan["cohortID"] = "diagnostic-cohort"
+        plan["cohortDigest"] = "d" * 64
+        plan.pop("planDigest")
+        plan["planDigest"] = publisher.digest_bytes(publisher.canonical_bytes(plan))
+        plan_path = self.root / "cohort-plan.json"
+        plan_path.write_text(json.dumps(plan))
+        args = SimpleNamespace(
+            platform="ios", plan=plan_path, run_id="lang-ios", matrix=matrix,
+            corpus=corpus, subset="quick",
+        )
+        with self.assertRaisesRegex(publisher.PublicationError, "intentionally unpublished"):
+            publisher.load_language_plan(args, publisher.selected_language_cells(matrix, "quick"))
+
+    def test_language_plan_rejects_seed_or_take_order_drift(self) -> None:
+        matrix = self.root / "matrix.json"
+        corpus = self.root / "corpus.json"
+        matrix.write_text(json.dumps({"cells": [{
+            "id": "fr", "quick": True, "expectedHint": "french",
+            "mode": "custom", "variant": "speed", "scriptLang": "french",
+        }]}))
+        corpus.write_text(json.dumps({"languages": []}))
+        cells = publisher.selected_language_cells(matrix, "quick")
+        for name, mutate, message in (
+            ("string-seed", lambda value: value["takes"][0].__setitem__("seed", "42"), "planned seed"),
+            ("zero-index", lambda value: value["takes"][0].__setitem__("takeIndex", 0), "one-based"),
+            (
+                "wrong-ui-hint",
+                lambda value: value["takes"][0].__setitem__("uiHint", "french"),
+                "plan identity",
+            ),
+        ):
+            plan = language_plan(matrix=matrix, corpus=corpus)
+            mutate(plan)
+            plan.pop("planDigest")
+            plan["planDigest"] = publisher.digest_bytes(publisher.canonical_bytes(plan))
+            path = self.root / f"{name}.json"
+            path.write_text(json.dumps(plan))
+            args = SimpleNamespace(
+                platform="ios", plan=path, run_id="lang-ios", matrix=matrix,
+                corpus=corpus, subset="quick",
+            )
+            with self.subTest(name=name), self.assertRaisesRegex(publisher.PublicationError, message):
+                publisher.load_language_plan(args, cells)
+
+    def test_language_asr_requires_exact_on_device_consensus_and_sampling_identity(self) -> None:
+        matrix = self.root / "matrix.json"
+        corpus = self.root / "corpus.json"
+        matrix.write_text(json.dumps({"cells": []}))
+        corpus.write_text(json.dumps({"languages": []}))
+        plan = language_plan(matrix=matrix, corpus=corpus)
+        output_path = self.root / "output.wav"
+        self.make_wave(output_path)
+        baseline = language_sentinel(output_path=output_path)
+        row = engine_row("fr-generation", run_id="lang-ios", cell="fr")
+        cell = {"id": "fr", "expectedHint": "french"}
+        reference_script = "un deux trois quatre cinq six sept huit"
+
+        cases = []
+        wrong_seed = copy.deepcopy(baseline)
+        wrong_seed["seed"] = 43
+        cases.append(("sentinel-seed", wrong_seed, row, "sentinel seed"))
+        wrong_requested_hint = copy.deepcopy(baseline)
+        wrong_requested_hint["requestedLanguageHint"] = "french"
+        wrong_requested_hint["languageHintSource"] = "explicit"
+        cases.append(("requested-hint", wrong_requested_hint, row, "requested hint"))
+        wrong_engine = copy.deepcopy(row)
+        wrong_engine["notes"]["samplingVariation"] = "balanced"
+        cases.append(("engine-variation", baseline, wrong_engine, "engine variation"))
+        unavailable = copy.deepcopy(baseline)
+        unavailable["outputVerification"]["recognition"]["recognizerAvailable"] = False
+        cases.append(("unavailable", unavailable, row, "consensus contract"))
+        two_passes = copy.deepcopy(baseline)
+        two_passes["outputVerification"]["recognition"]["repetitions"].pop()
+        cases.append(("two-passes", two_passes, row, "exactly three"))
+        disagreement = copy.deepcopy(baseline)
+        disagreement["outputVerification"]["recognition"]["repetitions"][2]["transcript"] = "different"
+        cases.append(("disagreement", disagreement, row, "consensus is inconsistent"))
+        nonfinite = copy.deepcopy(baseline)
+        nonfinite["outputVerification"]["characterErrorRate"] = float("inf")
+        cases.append(("nonfinite-cer", nonfinite, row, "non-finite"))
+        tampered = copy.deepcopy(baseline)
+        tampered["outputVerification"]["hypothesisCharacterCount"] += 1
+        cases.append(("tampered-metrics", tampered, row, "do not match corpus"))
+        wrong_primary = copy.deepcopy(baseline)
+        wrong_primary["outputVerification"]["accuracyMetric"] = "characterErrorRate"
+        cases.append(("wrong-primary", wrong_primary, row, "primary accuracy gate"))
+        wrong_algorithm = copy.deepcopy(baseline)
+        wrong_algorithm["outputVerification"]["recognition"]["schemaVersion"] = 1
+        cases.append(("old-recognition", wrong_algorithm, row, "unsupported recognition"))
+
+        for name, sentinel, candidate_row, message in cases:
+            with self.subTest(name=name), self.assertRaisesRegex(publisher.PublicationError, message):
+                publisher.sanitized_asr_evidence(
+                    cell=cell,
+                    planned_take=plan["takes"][0],
+                    sentinel=sentinel,
+                    engine_row=candidate_row,
+                    parent_run_id="lang-ios",
+                    reference_script=reference_script,
+                )
+
+    def test_language_asr_uses_character_error_for_chinese_and_japanese(self) -> None:
+        output_path = self.root / "output.wav"
+        self.make_wave(output_path)
+        for language, reference, transcript in (
+            ("chinese", "火车在黎明时离开", "火车在黎明时离开"),
+            ("japanese", "列車は夜明けに出発", "列車は夜明けに出発"),
+        ):
+            verification = successful_asr_verification(reference=reference, transcript=transcript)
+            verification.update({
+                "expectedLanguage": language,
+                "detectedLanguage": language,
+                "accuracyMetric": "characterErrorRate",
+                "accuracyValue": verification["characterErrorRate"],
+            })
+            verification["recognition"].update({
+                "expectedLanguage": language,
+                "selectedLocaleIdentifier": "zh-CN" if language == "chinese" else "ja-JP",
+            })
+            for repetition in verification["recognition"]["repetitions"]:
+                repetition["localeIdentifier"] = verification["recognition"]["selectedLocaleIdentifier"]
+            sentinel = language_sentinel(output_path=output_path, verification=verification)
+            row = engine_row("fr-generation", run_id="lang-ios", cell="fr")
+            planned_take = {
+                "childRunID": "lang-ios--fr",
+                "seed": 42,
+                "samplingVariation": "expressive",
+            }
+            with self.subTest(language=language):
+                evidence = publisher.sanitized_asr_evidence(
+                    cell={"id": "fr", "expectedHint": language},
+                    planned_take=planned_take,
+                    sentinel=sentinel,
+                    engine_row=row,
+                    parent_run_id="lang-ios",
+                    reference_script=reference,
+                )
+                self.assertEqual(evidence["accuracyMetric"], "characterErrorRate")
+                self.assertEqual(evidence["primaryAccuracyScore"], 0.0)
+
+    def test_language_output_is_independently_hashed_and_read(self) -> None:
+        output_path = self.root / "output.wav"
+        self.make_wave(output_path)
+        sentinel = language_sentinel(output_path=output_path)
+        evidence = publisher.language_output_evidence(sentinel, output_path, "fr")
+        self.assertEqual(evidence["fileDigest"], publisher.digest_file(output_path))
+        self.assertEqual(evidence["frames"], 240)
+
+        mismatched = copy.deepcopy(sentinel)
+        mismatched["outputEvidence"]["sha256"] = "0" * 64
+        with self.assertRaisesRegex(publisher.PublicationError, "invalid output metadata"):
+            publisher.language_output_evidence(mismatched, output_path, "fr")
+
+    def test_prompt_equivalence_requires_equal_resolved_digests(self) -> None:
+        planned = [
+            {"cellID": "auto", "seed": 42, "promptEquivalenceGroup": "english"},
+            {"cellID": "pinned", "seed": 42, "promptEquivalenceGroup": "english"},
+        ]
+        sentinels = {
+            cell: {
+                "promptDigestScope": "resolved",
+                "resolvedPromptAssemblyDigest": "a" * 64,
+            }
+            for cell in ("auto", "pinned")
+        }
+        rows = {
+            cell: {"notes": {"resolvedPromptAssemblyDigest": "a" * 64}}
+            for cell in ("auto", "pinned")
+        }
+        publisher.validate_prompt_equivalence(
+            planned_takes=planned, sentinels=sentinels, rows_by_cell=rows
+        )
+        sentinels["pinned"]["resolvedPromptAssemblyDigest"] = "b" * 64
+        rows["pinned"]["notes"].pop("resolvedPromptAssemblyDigest")
+        with self.assertRaisesRegex(publisher.PublicationError, "is inconsistent"):
+            publisher.validate_prompt_equivalence(
+                planned_takes=planned, sentinels=sentinels, rows_by_cell=rows
             )
 
     def test_telemetry_overhead_requires_and_records_eighteen_samples(self) -> None:

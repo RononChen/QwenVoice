@@ -60,8 +60,9 @@ upload depend on deterministic release-readiness and artifact checks.
      --warm 3 --voice A_warm_elderly_woman --label "release-QA"
    ```
    Full procedure: [`benchmarking-procedure.md`](benchmarking-procedure.md) §4.1.
-   Gate: audioQC pass on all cells; RTF within noise of the latest `benchmarks/HISTORY.md` rows;
-   a **manual listening pass by ear** over the generated WAVs for any engine-adjacent change.
+   Gate: clean audioQC on all required cells; RTF within noise of the latest
+   `benchmarks/HISTORY.md` rows; fixed-seed evidence and any applicable automated
+   language/prosody checks pass. Human listening is optional annotation.
    Optional regression compare against a committed baseline:
    ```sh
    python3 scripts/summarize_generation_telemetry.py \
@@ -72,8 +73,8 @@ upload depend on deterministic release-readiness and artifact checks.
    ```
    Investigate any highlighted cell before shipping.
    Successful in-repository benchmarks publish a privacy-safe `engine-generation` record and
-   regenerate `benchmarks/HISTORY.md`; do not append to that generated file manually. Add a human
-   listening verdict later with `scripts/benchmark_history.py annotate`.
+   regenerate `benchmarks/HISTORY.md`; do not append to that generated file manually. An optional
+   subjective listening note may be added later with `scripts/benchmark_history.py annotate`.
 4. **Static audits** (release-sized changesets): use the relevant installed Codex macOS skills
    plus direct code review for SwiftUI architecture/performance, memory, concurrency, signing,
    and security/privacy. Scope findings to changed surfaces; fix or explicitly defer them.

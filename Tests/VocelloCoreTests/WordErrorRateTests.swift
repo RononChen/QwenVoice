@@ -19,10 +19,442 @@ final class WordErrorRateTests: XCTestCase {
     }
 
     func testSingleSubstitution() {
-        let wer = VoiceClipTranscriber.wordErrorRate(
+        let metrics = VoiceClipTranscriber.wordErrorMetrics(
             reference: "one two three four",
             hypothesis: "one two four four"
         )
-        XCTAssertEqual(wer, 0.25, accuracy: 0.001)
+        XCTAssertEqual(metrics.errorRate, 0.25, accuracy: 0.001)
+        XCTAssertEqual(metrics.referenceCount, 4)
+        XCTAssertEqual(metrics.hypothesisCount, 4)
+        XCTAssertEqual(metrics.substitutions, 1)
+        XCTAssertEqual(metrics.insertions, 0)
+        XCTAssertEqual(metrics.deletions, 0)
+    }
+
+    func testInsertionDeletionAndCharacterMetrics() {
+        let insertion = VoiceClipTranscriber.wordErrorMetrics(
+            reference: "one two three",
+            hypothesis: "one bright two three"
+        )
+        XCTAssertEqual(insertion.insertions, 1)
+        XCTAssertEqual(insertion.deletions, 0)
+        XCTAssertEqual(insertion.errorRate, 1.0 / 3.0, accuracy: 0.001)
+
+        let deletion = VoiceClipTranscriber.wordErrorMetrics(
+            reference: "Le train arrive a l aube",
+            hypothesis: "Le train arrive"
+        )
+        XCTAssertEqual(deletion.deletions, 3)
+        XCTAssertEqual(deletion.insertions, 0)
+
+        let characters = VoiceClipTranscriber.characterErrorMetrics(
+            reference: "Café!",
+            hypothesis: "cafe"
+        )
+        XCTAssertEqual(characters.errorRate, 0, accuracy: 0.001)
+        XCTAssertEqual(characters.referenceCount, 4)
+    }
+
+    func testLocaleSelectionIsStableAndPrefersAvailablePreferredRegion() {
+        let capabilities = [
+            VoiceClipTranscriber.LocaleCapability(
+                identifier: "fr-CA",
+                language: .french,
+                isAvailable: true,
+                supportsOnDeviceRecognition: true
+            ),
+            VoiceClipTranscriber.LocaleCapability(
+                identifier: "fr-FR",
+                language: .french,
+                isAvailable: true,
+                supportsOnDeviceRecognition: true
+            ),
+            VoiceClipTranscriber.LocaleCapability(
+                identifier: "en-US",
+                language: .english,
+                isAvailable: false,
+                supportsOnDeviceRecognition: true
+            ),
+            VoiceClipTranscriber.LocaleCapability(
+                identifier: "en-GB",
+                language: .english,
+                isAvailable: true,
+                supportsOnDeviceRecognition: true
+            )
+        ]
+
+        let selected = VoiceClipTranscriber.selectedCapabilities(
+            from: Array(capabilities.reversed()),
+            preferredLanguages: ["fr-CA", "en-US"]
+        )
+        XCTAssertEqual(selected.map(\.identifier), ["fr-CA", "en-GB"])
+    }
+
+    func testThreePassConsensusRequiresExactAgreement() {
+        let matching = (1 ... 3).map { pass(index: $0, transcript: "Bonjour le monde") }
+        let consensus = VoiceClipTranscriber.consensus(for: matching)
+        XCTAssertEqual(consensus.status, .consistent)
+        XCTAssertEqual(consensus.transcript, "Bonjour le monde")
+
+        var inconsistent = matching
+        inconsistent[2].transcript = "Bonjour, le monde"
+        let rejected = VoiceClipTranscriber.consensus(for: inconsistent)
+        XCTAssertEqual(rejected.status, .inconsistent)
+        XCTAssertNil(rejected.transcript)
+
+        let incomplete = VoiceClipTranscriber.consensus(for: Array(matching.prefix(2)))
+        XCTAssertEqual(incomplete.status, .incomplete)
+        XCTAssertNil(incomplete.transcript)
+    }
+
+    func testRecognitionErrorPreventsConsensus() {
+        var passes = (1 ... 3).map { pass(index: $0, transcript: "Hello") }
+        passes[1].finalResultStatus = .recognitionError
+        passes[1].transcript = nil
+        XCTAssertEqual(VoiceClipTranscriber.consensus(for: passes).status, .failed)
+    }
+
+    func testVerificationStopsWhenConsensusBecomesImpossible() {
+        let first = pass(index: 1, transcript: "Hello world")
+        XCTAssertTrue(VoiceClipTranscriber.shouldContinueVerification(after: [first]))
+
+        var failed = pass(index: 2, transcript: "Hello world")
+        failed.finalResultStatus = .recognitionError
+        failed.transcript = nil
+        XCTAssertFalse(VoiceClipTranscriber.shouldContinueVerification(after: [first, failed]))
+        XCTAssertEqual(VoiceClipTranscriber.consensus(for: [first, failed]).status, .failed)
+
+        let disagreement = pass(index: 2, transcript: "Hello word")
+        XCTAssertFalse(VoiceClipTranscriber.shouldContinueVerification(after: [first, disagreement]))
+        XCTAssertEqual(VoiceClipTranscriber.consensus(for: [first, disagreement]).status, .inconsistent)
+
+        let agreement = pass(index: 2, transcript: "Hello world")
+        XCTAssertTrue(VoiceClipTranscriber.shouldContinueVerification(after: [first, agreement]))
+    }
+
+    func testAuthorizationCompletionClaimHasExactlyOneWinnerUnderContention() async {
+        let completion = CompletionClaim()
+        let winners = await withTaskGroup(of: Bool.self, returning: Int.self) { group in
+            for _ in 0 ..< 100 {
+                group.addTask { completion.claim() }
+            }
+            var count = 0
+            for await won in group where won { count += 1 }
+            return count
+        }
+        XCTAssertEqual(winners, 1)
+        XCTAssertFalse(completion.claim())
+    }
+
+    func testVerifierRejectsUnauthorizedAndUnavailableEvidenceWithoutFabricatingRates() {
+        let unauthorized = evidence(
+            authorization: .denied,
+            consensus: .failed,
+            repetitions: [],
+            transcript: nil
+        )
+        let unauthorizedResult = GenerationOutputVerifier.evaluate(
+            recognition: unauthorized,
+            expectedScript: "The train left the station",
+            expectedLanguage: .english
+        )
+        XCTAssertEqual(unauthorizedResult.skipReason, "speech_recognition_unauthorized")
+        XCTAssertNil(unauthorizedResult.wordErrorRate)
+        XCTAssertNil(unauthorizedResult.characterErrorRate)
+        XCTAssertNil(unauthorizedResult.accuracyPass)
+        XCTAssertFalse(unauthorizedResult.pass)
+        XCTAssertEqual(unauthorizedResult.accuracyMetric, .wordErrorRate)
+        XCTAssertEqual(unauthorizedResult.accuracyThreshold, 0.15, accuracy: 0.001)
+
+        var unavailable = unauthorized
+        unavailable.authorizationStatus = .authorized
+        unavailable.consensusStatus = .unavailable
+        let unavailableResult = GenerationOutputVerifier.evaluate(
+            recognition: unavailable,
+            expectedScript: "The train left the station",
+            expectedLanguage: .english
+        )
+        XCTAssertEqual(unavailableResult.skipReason, "speech_recognition_unavailable")
+        XCTAssertNil(unavailableResult.wordErrorRate)
+    }
+
+    func testVerifierClassifiesErrorTimeoutAndInconsistentEvidence() {
+        var errorPasses = (1 ... 3).map { pass(index: $0, transcript: "Hello world") }
+        errorPasses[0].finalResultStatus = .recognitionError
+        errorPasses[0].transcript = nil
+        let errorResult = GenerationOutputVerifier.evaluate(
+            recognition: evidence(
+                authorization: .authorized,
+                consensus: .failed,
+                repetitions: errorPasses,
+                transcript: nil
+            ),
+            expectedScript: "Hello world",
+            expectedLanguage: .english
+        )
+        XCTAssertEqual(errorResult.skipReason, "speech_recognition_error")
+        XCTAssertNil(errorResult.wordErrorRate)
+
+        var timeoutPasses = (1 ... 3).map { pass(index: $0, transcript: "Hello world") }
+        timeoutPasses[2].finalResultStatus = .timedOut
+        timeoutPasses[2].transcript = nil
+        let timeoutResult = GenerationOutputVerifier.evaluate(
+            recognition: evidence(
+                authorization: .authorized,
+                consensus: .failed,
+                repetitions: timeoutPasses,
+                transcript: nil
+            ),
+            expectedScript: "Hello world",
+            expectedLanguage: .english
+        )
+        XCTAssertEqual(timeoutResult.skipReason, "speech_recognition_timed_out")
+        XCTAssertNil(timeoutResult.accuracyPass)
+
+        let inconsistentPasses = [
+            pass(index: 1, transcript: "Hello world"),
+            pass(index: 2, transcript: "Hello word"),
+            pass(index: 3, transcript: "Hello world")
+        ]
+        let inconsistentResult = GenerationOutputVerifier.evaluate(
+            recognition: evidence(
+                authorization: .authorized,
+                consensus: .inconsistent,
+                repetitions: inconsistentPasses,
+                transcript: nil
+            ),
+            expectedScript: "Hello world",
+            expectedLanguage: .english
+        )
+        XCTAssertEqual(inconsistentResult.skipReason, "speech_recognition_inconsistent")
+        XCTAssertNil(inconsistentResult.wordErrorRate)
+    }
+
+    func testVerifierScoresOnlyConsistentEvidenceAndPreservesUncertainDetection() throws {
+        let transcript = "1234 5678 9012 3456"
+        let consistentPasses = (1 ... 3).map { pass(index: $0, transcript: transcript) }
+        let result = GenerationOutputVerifier.evaluate(
+            recognition: evidence(
+                authorization: .authorized,
+                consensus: .consistent,
+                repetitions: consistentPasses,
+                transcript: transcript
+            ),
+            expectedScript: "1234 5678 9012 9999",
+            expectedLanguage: .english,
+            maxWordErrorRate: 0.30
+        )
+
+        XCTAssertEqual(try XCTUnwrap(result.wordErrorRate), 0.25, accuracy: 0.001)
+        XCTAssertEqual(result.referenceTokenCount, 4)
+        XCTAssertEqual(result.hypothesisTokenCount, 4)
+        XCTAssertEqual(result.substitutions, 1)
+        XCTAssertEqual(result.insertions, 0)
+        XCTAssertEqual(result.deletions, 0)
+        XCTAssertEqual(result.detectedLanguage, Qwen3SupportedLanguage.auto.rawValue)
+        XCTAssertEqual(result.accuracyPass, true)
+        XCTAssertEqual(result.accuracyMetricVersion, "normalized-edit-rate-v1")
+        XCTAssertEqual(result.accuracyMetric, .wordErrorRate)
+        XCTAssertEqual(result.accuracyThreshold, 0.30, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(result.accuracyValue), 0.25, accuracy: 0.001)
+        XCTAssertTrue(result.recognition.evidenceConsistency)
+    }
+
+    func testChineseAndJapaneseUseCharacterErrorRate() throws {
+        let cases: [(Qwen3SupportedLanguage, String, String, String, Double)] = [
+            (.chinese, "zh-CN", "今天天气非常适合散步", "今天天气非常适合跑步", 1),
+            (.japanese, "ja-JP", "かきくけこさしすせそ", "がきくけこさしすせそ", 1)
+        ]
+
+        for (language, locale, reference, transcript, expectedWER) in cases {
+            let passes = (1 ... 3).map {
+                pass(index: $0, transcript: transcript, localeIdentifier: locale)
+            }
+            let result = GenerationOutputVerifier.evaluate(
+                recognition: evidence(
+                    authorization: .authorized,
+                    consensus: .consistent,
+                    repetitions: passes,
+                    transcript: transcript,
+                    expectedLanguage: language
+                ),
+                expectedScript: reference,
+                expectedLanguage: language
+            )
+
+            XCTAssertEqual(result.accuracyMetric, .characterErrorRate)
+            XCTAssertEqual(result.accuracyThreshold, 0.15, accuracy: 0.001)
+            XCTAssertEqual(try XCTUnwrap(result.characterErrorRate), 0.10, accuracy: 0.001)
+            XCTAssertEqual(try XCTUnwrap(result.wordErrorRate), expectedWER, accuracy: 0.001)
+            XCTAssertEqual(try XCTUnwrap(result.accuracyValue), 0.10, accuracy: 0.001)
+            XCTAssertEqual(result.characterSubstitutions, 1)
+            XCTAssertEqual(result.characterInsertions, 0)
+            XCTAssertEqual(result.characterDeletions, 0)
+            XCTAssertEqual(result.accuracyPass, true)
+        }
+    }
+
+    func testClaimedConsistentEvidenceFailsClosedWhenAnyInvariantIsMalformed() {
+        let transcript = "The train left the station"
+        let passes = (1 ... 3).map { pass(index: $0, transcript: transcript) }
+        let valid = evidence(
+            authorization: .authorized,
+            consensus: .consistent,
+            repetitions: passes,
+            transcript: transcript
+        )
+        XCTAssertTrue(VoiceClipTranscriber.isValidConsistentEvidence(valid, expectedLanguage: .english))
+
+        var malformed: [VoiceClipTranscriber.VerificationEvidence] = []
+
+        var wrongSchema = valid
+        wrongSchema.schemaVersion += 1
+        malformed.append(wrongSchema)
+
+        var wrongAlgorithm = valid
+        wrongAlgorithm.algorithmVersion = "unknown"
+        malformed.append(wrongAlgorithm)
+
+        var unauthorized = valid
+        unauthorized.authorizationStatus = .denied
+        malformed.append(unauthorized)
+
+        var unavailable = valid
+        unavailable.recognizerAvailable = false
+        malformed.append(unavailable)
+
+        var unsupported = valid
+        unsupported.supportsOnDeviceRecognition = false
+        malformed.append(unsupported)
+
+        var missingLocale = valid
+        missingLocale.selectedLocaleIdentifier = nil
+        malformed.append(missingLocale)
+
+        var automaticLocale = valid
+        automaticLocale.selectedLocaleIdentifier = "auto"
+        automaticLocale.repetitions = automaticLocale.repetitions.map { repetition in
+            var repetition = repetition
+            repetition.localeIdentifier = "auto"
+            return repetition
+        }
+        malformed.append(automaticLocale)
+
+        var wrongDuration = valid
+        wrongDuration.recognitionDurationSeconds += 1
+        malformed.append(wrongDuration)
+
+        var wrongIndex = valid
+        wrongIndex.repetitions[1].passIndex = 7
+        malformed.append(wrongIndex)
+
+        var passUnauthorized = valid
+        passUnauthorized.repetitions[1].authorizationStatus = .denied
+        malformed.append(passUnauthorized)
+
+        var passUnavailable = valid
+        passUnavailable.repetitions[1].recognizerAvailable = false
+        malformed.append(passUnavailable)
+
+        var passUnsupported = valid
+        passUnsupported.repetitions[1].supportsOnDeviceRecognition = false
+        malformed.append(passUnsupported)
+
+        var nonFinal = valid
+        nonFinal.repetitions[1].finalResultStatus = .recognitionError
+        malformed.append(nonFinal)
+
+        var zeroDuration = valid
+        zeroDuration.repetitions[1].recognitionDurationSeconds = 0
+        malformed.append(zeroDuration)
+
+        var noSegments = valid
+        noSegments.repetitions[1].segmentCount = 0
+        malformed.append(noSegments)
+
+        var invalidTiming = valid
+        invalidTiming.repetitions[1].timingCoverageSeconds = 2
+        malformed.append(invalidTiming)
+
+        var invalidConfidence = valid
+        invalidConfidence.repetitions[1].averageConfidence = 1.1
+        malformed.append(invalidConfidence)
+
+        var embeddedError = valid
+        embeddedError.repetitions[1].errorDomain = "SpeechError"
+        embeddedError.repetitions[1].errorCode = 1
+        malformed.append(embeddedError)
+
+        var wrongLocale = valid
+        wrongLocale.repetitions[1].localeIdentifier = "en-GB"
+        malformed.append(wrongLocale)
+
+        var wrongTranscript = valid
+        wrongTranscript.repetitions[1].transcript = "The train left a station"
+        malformed.append(wrongTranscript)
+
+        for evidence in malformed {
+            XCTAssertFalse(
+                VoiceClipTranscriber.isValidConsistentEvidence(evidence, expectedLanguage: .english)
+            )
+            let result = GenerationOutputVerifier.evaluate(
+                recognition: evidence,
+                expectedScript: transcript,
+                expectedLanguage: .english
+            )
+            XCTAssertEqual(result.skipReason, "speech_recognition_evidence_invalid")
+            XCTAssertNil(result.wordErrorRate)
+            XCTAssertNil(result.characterErrorRate)
+            XCTAssertFalse(result.pass)
+        }
+    }
+
+    private func pass(
+        index: Int,
+        transcript: String,
+        localeIdentifier: String = "en-US"
+    ) -> VoiceClipTranscriber.RecognitionPass {
+        VoiceClipTranscriber.RecognitionPass(
+            passIndex: index,
+            localeIdentifier: localeIdentifier,
+            authorizationStatus: .authorized,
+            recognizerAvailable: true,
+            supportsOnDeviceRecognition: true,
+            finalResultStatus: .finalResult,
+            recognitionDurationSeconds: 0.5,
+            transcript: transcript,
+            segmentCount: 3,
+            segmentStartSeconds: 0,
+            segmentEndSeconds: 1,
+            timingCoverageSeconds: 1,
+            averageConfidence: 0.9,
+            minimumConfidence: 0.8,
+            errorDomain: nil,
+            errorCode: nil
+        )
+    }
+
+    private func evidence(
+        authorization: VoiceClipTranscriber.AuthorizationState,
+        consensus: VoiceClipTranscriber.VerificationConsensusStatus,
+        repetitions: [VoiceClipTranscriber.RecognitionPass],
+        transcript: String?,
+        expectedLanguage: Qwen3SupportedLanguage = .english
+    ) -> VoiceClipTranscriber.VerificationEvidence {
+        VoiceClipTranscriber.VerificationEvidence(
+            schemaVersion: VoiceClipTranscriber.VerificationEvidence.currentSchemaVersion,
+            algorithmVersion: VoiceClipTranscriber.VerificationEvidence.currentAlgorithmVersion,
+            expectedLanguage: expectedLanguage.rawValue,
+            selectedLocaleIdentifier: repetitions.first?.localeIdentifier,
+            authorizationStatus: authorization,
+            recognizerAvailable: authorization == .authorized,
+            supportsOnDeviceRecognition: authorization == .authorized,
+            requiredPassCount: VoiceClipTranscriber.VerificationEvidence.requiredPassCount,
+            recognitionDurationSeconds: repetitions.reduce(0) { $0 + $1.recognitionDurationSeconds },
+            repetitions: repetitions,
+            evidenceConsistency: consensus == .consistent,
+            consensusStatus: consensus,
+            transcript: transcript
+        )
     }
 }

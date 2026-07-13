@@ -1216,7 +1216,7 @@ def main():
     # Delivery cells (vocello bench --delivery): instruct-bearing takes, keyed by
     # the delivery preset id instead of the length bucket (they all run the medium
     # text). Kept out of the tables above so the headline matrix stays comparable;
-    # QC + the listening pass are the point of these rows.
+    # QC + the deterministic paired prosody comparison are the point of these rows.
     if delivery_cells:
         has_prosody = bool(prosody_rows)
         d_header = (
@@ -1385,8 +1385,8 @@ def main():
     )
     print(
         "QC = reference-free audio defect verdict (pass / warn / fail:flags — "
-        "nonfinite/clipping/clicks/dropout/near_silent). It does not judge subtle "
-        "perceptual quality — that needs the listening pass (see telemetry doc)."
+        "nonfinite/clipping/clicks/dropout/near_silent). Promotion also uses fixed-seed "
+        "exact-WAV, ASR, and applicable prosody evidence; listening is optional annotation."
     )
     if prosody_rows:
         print(

@@ -87,6 +87,7 @@ SECTION_KEYS = {
         "qcAlgorithmVersion", "validatorPassed", "crashDeltaPassed", "crashCount",
         "expectedTakeCount", "actualTakeCount", "resultBundleDigest",
         "rawTelemetryDigest", "selectedEvidenceDigest", "screenshotDigests", "trace",
+        "languageVerification",
     },
     "comparison": {"key", "comparable", "baselineRunID", "deltas"},
     "listening": {"status", "note", "annotatedAt"},
@@ -100,7 +101,8 @@ TAKE_KEYS = {
     "length", "finishReason", "status", "layerCompleteness", "layers",
     "durationSeconds", "metrics", "output", "audioQC", "thermalState", "warnings",
     "runtimeProfileSignature", "fixtureDigest", "modelIntegrityDigest", "modelRepository",
-    "modelRevision", "modelArtifactVersion", "modelQuantization",
+    "modelRevision", "modelArtifactVersion", "modelQuantization", "seed",
+    "accuracyMetric", "accuracyThreshold",
 }
 OUTPUT_KEYS = {
     "readableWAV", "atomicPublish", "durationSeconds", "sampleRate", "channels",
@@ -122,6 +124,18 @@ TRACE_SUMMARY_KEYS = {
     "processCount", "schemaCount", "signpostEventCount", "signpostSchemaCount",
     "tableCount", "targetPIDVerified", "targetProcess", "tocDigest",
 }
+LANGUAGE_VERIFICATION_KEYS = {
+    "outputSchemaVersion", "outputAlgorithm", "recognitionSchemaVersion",
+    "recognitionAlgorithm", "accuracyMetricVersion", "requiredPassCount",
+}
+LANGUAGE_ACCURACY_METRIC_KEYS = {
+    "wordErrorRate", "characterErrorRate", "primaryAccuracyScore", "accuracyThreshold",
+    "languageMatchScore", "outputLanguagePass", "outputAccuracyPass",
+    "referenceTokenCount", "hypothesisTokenCount", "referenceCharacterCount",
+    "hypothesisCharacterCount", "substitutions", "insertions", "deletions",
+    "characterSubstitutions", "characterInsertions", "characterDeletions",
+    "recognitionPassCount", "recognitionDurationSeconds",
+}
 STATISTIC_KEYS = {"count", "median", "iqr", "min", "max"}
 
 SCHEMA_PROPERTY_KEYS = {
@@ -140,7 +154,7 @@ SCHEMA_REQUIRED_KEYS = {
     "source": SECTION_KEYS["source"],
     "toolchain": SECTION_KEYS["toolchain"],
     "inputs": SECTION_KEYS["inputs"],
-    "evidence": SECTION_KEYS["evidence"] - {"trace"},
+    "evidence": SECTION_KEYS["evidence"] - {"trace", "languageVerification"},
     "comparison": SECTION_KEYS["comparison"],
     "listening": SECTION_KEYS["listening"],
     "model": MODEL_KEYS,
@@ -194,7 +208,13 @@ METRIC_KEYS = {
     "chunksForwarded", "transportChunkGaps", "transportDuplicateChunks", "transportOutOfOrderChunks",
     "minimumQueueDurationMS", "hintCellsPassed", "hintCellsExpected",
     "outputCellsPassed", "outputCellsExpected", "medianRTF", "medianTTFCMS",
-    "wordErrorRate", "languageMatchScore", "outputLanguagePass", "outputAccuracyPass",
+    "wordErrorRate", "characterErrorRate", "languageMatchScore",
+    "outputLanguagePass", "outputAccuracyPass",
+    "referenceTokenCount", "hypothesisTokenCount", "referenceCharacterCount",
+    "hypothesisCharacterCount", "substitutions", "insertions", "deletions",
+    "characterSubstitutions", "characterInsertions", "characterDeletions",
+    "recognitionPassCount", "recognitionDurationSeconds",
+    "primaryAccuracyScore", "accuracyThreshold",
     "rtfRegressionPercent", "ttfcRegressionPercent", "f0MeanHz", "f0StdHz",
     "f0TurningPointsPerSecond", "syllableRateHz", "localRateCV", "maximumPauseSeconds",
     "pauseSpeechRatio", "energyEnvelopeRoughness", "discontinuityCount", "clipCount",
@@ -1032,6 +1052,8 @@ def selected_evidence_digest(record: dict[str, Any]) -> str:
         "crashCount": evidence.get("crashCount"),
         "takes": record.get("takes", []),
     }
+    if evidence.get("languageVerification") is not None:
+        payload["languageVerification"] = evidence["languageVerification"]
     return sha256_bytes(canonical_bytes(payload))
 
 
@@ -1654,6 +1676,21 @@ def validate_record(
             raise HistoryError(f"takes[{position - 1}] is missing: {', '.join(missing)}")
         if take["takeIndex"] != position:
             raise HistoryError("take indices must be contiguous and one-based")
+        if "seed" in take and (
+            isinstance(take["seed"], bool)
+            or not isinstance(take["seed"], int)
+            or not 0 <= take["seed"] <= (1 << 64) - 1
+        ):
+            raise HistoryError("take.seed must be an unsigned 64-bit integer")
+        if "accuracyMetric" in take or "accuracyThreshold" in take:
+            if (
+                take.get("accuracyMetric") not in {"wordErrorRate", "characterErrorRate"}
+                or not isinstance(take.get("accuracyThreshold"), (int, float))
+                or isinstance(take.get("accuracyThreshold"), bool)
+                or not math.isfinite(float(take["accuracyThreshold"]))
+                or not 0 <= float(take["accuracyThreshold"]) <= 1
+            ):
+                raise HistoryError("take accuracy gate is invalid")
         generation_id = take["generationID"]
         if (
             not isinstance(generation_id, str) or not SAFE_GENERATION_RE.fullmatch(generation_id)
@@ -1671,6 +1708,55 @@ def validate_record(
         for metric, value in take["metrics"].items():
             if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)):
                 raise HistoryError(f"take metric {metric} must be finite numeric data")
+        if "accuracyMetric" in take:
+            metrics = take["metrics"]
+            if missing := sorted(LANGUAGE_ACCURACY_METRIC_KEYS - set(metrics)):
+                raise HistoryError(
+                    "language accuracy metrics are incomplete: " + ", ".join(missing)
+                )
+            selected_score = metrics[take["accuracyMetric"]]
+            if (
+                not math.isclose(float(take["accuracyThreshold"]), 0.15, rel_tol=0, abs_tol=1e-12)
+                or not math.isclose(
+                    float(metrics["accuracyThreshold"]), float(take["accuracyThreshold"]),
+                    rel_tol=0, abs_tol=1e-12,
+                )
+                or not math.isclose(
+                    float(metrics["primaryAccuracyScore"]), float(selected_score),
+                    rel_tol=1e-9, abs_tol=1e-12,
+                )
+                or float(selected_score) > float(take["accuracyThreshold"])
+                or metrics["outputLanguagePass"] != 1.0
+                or metrics["outputAccuracyPass"] != 1.0
+                or metrics["languageMatchScore"] < 0.5
+                or metrics["recognitionPassCount"] != 3.0
+                or metrics["recognitionDurationSeconds"] <= 0
+            ):
+                raise HistoryError("language accuracy gate metrics are inconsistent")
+            count_keys = {
+                "referenceTokenCount", "hypothesisTokenCount", "referenceCharacterCount",
+                "hypothesisCharacterCount", "substitutions", "insertions", "deletions",
+                "characterSubstitutions", "characterInsertions", "characterDeletions",
+            }
+            if any(
+                float(metrics[key]).is_integer() is False or metrics[key] < 0
+                for key in count_keys
+            ) or metrics["referenceTokenCount"] <= 0 or metrics["referenceCharacterCount"] <= 0:
+                raise HistoryError("language accuracy counts are invalid")
+            word_edits = sum(metrics[key] for key in ("substitutions", "insertions", "deletions"))
+            character_edits = sum(metrics[key] for key in (
+                "characterSubstitutions", "characterInsertions", "characterDeletions",
+            ))
+            if not math.isclose(
+                float(metrics["wordErrorRate"]),
+                float(word_edits) / float(metrics["referenceTokenCount"]),
+                rel_tol=1e-9, abs_tol=1e-12,
+            ) or not math.isclose(
+                float(metrics["characterErrorRate"]),
+                float(character_edits) / float(metrics["referenceCharacterCount"]),
+                rel_tol=1e-9, abs_tol=1e-12,
+            ):
+                raise HistoryError("language edit rates do not match tracked counts")
         validate_machine_codes(take["warnings"], "take.warnings")
         if generation_kind:
             validate_model_identity_for_take(take, model_lookup)
@@ -1699,6 +1785,30 @@ def validate_record(
                 if not isinstance(audio_qc["metrics"], dict):
                     raise HistoryError("audioQC.metrics must be an object")
                 reject_unknown_keys(audio_qc["metrics"], METRIC_KEYS, "take.audioQC.metrics")
+
+    language_verification = record["evidence"].get("languageVerification")
+    accuracy_evidence_required = any("accuracyMetric" in take for take in takes)
+    if language_verification is not None:
+        if not isinstance(language_verification, dict):
+            raise HistoryError("evidence.languageVerification must be an object")
+        reject_unknown_keys(
+            language_verification, LANGUAGE_VERIFICATION_KEYS,
+            "evidence.languageVerification",
+        )
+    expected_language_verification = {
+        "outputSchemaVersion": 3,
+        "outputAlgorithm": "language-output-verifier-v3",
+        "recognitionSchemaVersion": 2,
+        "recognitionAlgorithm": "apple-speech-file-consensus-v2",
+        "accuracyMetricVersion": "normalized-edit-rate-v1",
+        "requiredPassCount": 3,
+    }
+    if accuracy_evidence_required and (
+        run["kind"] != "language" or language_verification != expected_language_verification
+    ):
+        raise HistoryError("language accuracy takes require exact verifier provenance")
+    if language_verification is not None and run["kind"] != "language":
+        raise HistoryError("language verifier provenance belongs only to language records")
 
     cells = record.get("cells")
     if not isinstance(cells, list):

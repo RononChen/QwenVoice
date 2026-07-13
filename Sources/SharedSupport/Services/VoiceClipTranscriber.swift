@@ -3,55 +3,136 @@ import Foundation
 import NaturalLanguage
 import QwenVoiceCore
 import Speech
+import Synchronization
 
 /// Best-effort **on-device** transcription + language detection of a finished reference WAV, used
 /// to pre-fill the (editable, optional) transcript and to auto-set the Clone language when enrolling
 /// a recorded voice.
 ///
-/// Covers **all Qwen3-TTS languages** whose on-device recognition model is already installed on the
-/// device (no downloads). For each candidate language it transcribes the clip on-device, then uses
-/// `NLLanguageRecognizer` to score how strongly the resulting text is actually in that language —
-/// a far more reliable signal than `SFSpeechRecognizer`'s (often-zero) confidence. The user's
-/// preferred device languages are tried first, so the common case matches on the first pass.
-///
-/// Everything degrades to `nil` (no transcript, language `.auto`) so enrollment is never blocked,
-/// and audio never leaves the device (`requiresOnDeviceRecognition`).
+/// Enrollment remains intentionally best-effort and single-pass. Benchmark output verification uses
+/// `verificationEvidence` instead: it pins one locale and requires three independent recognition
+/// passes over the same immutable file, stopping early once consensus is impossible.
 enum VoiceClipTranscriber {
     /// Why automatic transcription may currently be unavailable — drives the
     /// permission captions in the enrollment/clone UI instead of failing
     /// silently.
     enum TranscriptionAvailability: Equatable {
-        /// Authorized — transcription can run.
         case available
-        /// The user hasn't been asked yet; the system prompt appears on first use.
         case notDetermined
-        /// The user (or a policy) denied speech recognition for this app —
-        /// recoverable in System Settings → Privacy & Security → Speech Recognition.
         case denied
-        /// macOS only: Siri is disabled, so the OS auto-denies speech-recognition
-        /// authorization without ever showing a prompt. Recoverable by enabling
-        /// Siri in System Settings, then granting the app.
         case siriDisabled
+    }
+
+    enum AuthorizationState: String, Codable, Sendable, Equatable {
+        case authorized
+        case notDetermined
+        case denied
+        case restricted
+        case siriDisabled
+        case timedOut
+        case unknown
+    }
+
+    enum RecognitionFinalStatus: String, Codable, Sendable, Equatable {
+        case finalResult
+        case emptyTranscript
+        case recognitionError
+        case recognizerUnavailable
+        case onDeviceRecognitionUnsupported
+        case timedOut
+    }
+
+    enum VerificationConsensusStatus: String, Codable, Sendable, Equatable {
+        case consistent
+        case inconsistent
+        case incomplete
+        case unavailable
+        case failed
+    }
+
+    struct RecognitionPass: Codable, Sendable, Equatable {
+        var passIndex: Int
+        var localeIdentifier: String
+        var authorizationStatus: AuthorizationState
+        var recognizerAvailable: Bool
+        var supportsOnDeviceRecognition: Bool
+        var finalResultStatus: RecognitionFinalStatus
+        var recognitionDurationSeconds: Double
+        var transcript: String?
+        var segmentCount: Int
+        var segmentStartSeconds: Double?
+        var segmentEndSeconds: Double?
+        var timingCoverageSeconds: Double?
+        var averageConfidence: Double?
+        var minimumConfidence: Double?
+        var errorDomain: String?
+        var errorCode: Int?
+    }
+
+    struct VerificationEvidence: Codable, Sendable, Equatable {
+        static let currentSchemaVersion = 2
+        static let currentAlgorithmVersion = "apple-speech-file-consensus-v2"
+        static let requiredPassCount = 3
+
+        var schemaVersion: Int
+        var algorithmVersion: String
+        var expectedLanguage: String
+        var selectedLocaleIdentifier: String?
+        var authorizationStatus: AuthorizationState
+        var recognizerAvailable: Bool
+        var supportsOnDeviceRecognition: Bool
+        var requiredPassCount: Int
+        var recognitionDurationSeconds: Double
+        var repetitions: [RecognitionPass]
+        var evidenceConsistency: Bool
+        var consensusStatus: VerificationConsensusStatus
+        var transcript: String?
+    }
+
+    struct EditMetrics: Codable, Sendable, Equatable {
+        var referenceCount: Int
+        var hypothesisCount: Int
+        var substitutions: Int
+        var insertions: Int
+        var deletions: Int
+        var errorRate: Double
+
+        var editDistance: Int { substitutions + insertions + deletions }
+    }
+
+    struct LocaleCapability: Sendable, Equatable {
+        var identifier: String
+        var language: Qwen3SupportedLanguage
+        var isAvailable: Bool
+        var supportsOnDeviceRecognition: Bool
+    }
+
+    private struct CandidateLocale: Sendable, Equatable {
+        var locale: Locale
+        var language: Qwen3SupportedLanguage
+        var isAvailable: Bool
+        var supportsOnDeviceRecognition: Bool
+    }
+
+    private struct EditCell {
+        var substitutions: Int
+        var insertions: Int
+        var deletions: Int
+        var distance: Int { substitutions + insertions + deletions }
     }
 
     /// Cheap, prompt-free availability check for UI captions. (The expensive
     /// on-device-locale enumeration is NOT included — a missing model already
     /// degrades gracefully to "no transcript".)
     static func availability() -> TranscriptionAvailability {
-        switch SFSpeechRecognizer.authorizationStatus() {
+        switch authorizationState() {
         case .authorized:
             return .available
         case .notDetermined:
-            #if os(macOS)
-            if !isSiriEnabled { return .siriDisabled }
-            #endif
             return .notDetermined
-        case .denied, .restricted:
-            #if os(macOS)
-            if !isSiriEnabled { return .siriDisabled }
-            #endif
-            return .denied
-        @unknown default:
+        case .siriDisabled:
+            return .siriDisabled
+        case .denied, .restricted, .timedOut, .unknown:
             return .denied
         }
     }
@@ -68,24 +149,23 @@ enum VoiceClipTranscriber {
     }
     #endif
 
-    /// Score at/above which we accept a candidate's language as the detected one.
     private static let confidentLanguageScore = 0.5
-    /// Exposed for generation-output verification (benchmark/device diagnostics).
     static let outputVerificationLanguagePassScore = 0.5
-    /// Default WER ceiling for short bench scripts (~8 words).
     static let outputVerificationDefaultMaxWordErrorRate = 0.15
-    /// Score at/above which we stop trying further candidates (a clear match).
     private static let earlyExitScore = 0.85
-    /// Below this, the transcript looks like noise → don't fill it.
     private static let minimumUsableScore = 0.2
+    private static let authorizationTimeout: Duration = .seconds(30)
+    private static let recognitionPassTimeout: Duration = .seconds(45)
 
     static func transcribe(url: URL) async -> (text: String, language: Qwen3SupportedLanguage)? {
-        guard await requestAuthorization() else { return nil }
+        guard await requestAuthorizationState() == .authorized else { return nil }
 
         var best: (text: String, language: Qwen3SupportedLanguage, score: Double, confidence: Float)?
 
         for candidate in candidateLocales() {
-            guard let pass = await recognize(url: url, locale: candidate.locale) else { continue }
+            guard let pass = await recognizeForEnrollment(url: url, candidate: candidate) else {
+                continue
+            }
             let score = languageMatchScore(text: pass.text, expected: candidate.language)
 
             let isBetter: Bool
@@ -101,62 +181,190 @@ enum VoiceClipTranscriber {
         }
 
         guard let best, best.score >= minimumUsableScore else { return nil }
-        // Confident → use the detected language; weak → fill the transcript but leave language .auto.
         let language = best.score >= confidentLanguageScore ? best.language : .auto
         return (best.text, language)
     }
 
-    /// Bench output verification: transcribe with the **expected** language's on-device
-    /// recognizer only. Avoids picking French ASR for English synthesis on FR-primary devices.
+    /// Compatibility surface for callers that need only a transcript. Unlike enrollment, output
+    /// verification requires three consistent passes and never chooses the most favorable result.
     static func transcribeForVerification(
         url: URL,
         expectedLanguage: Qwen3SupportedLanguage
     ) async -> String? {
-        guard expectedLanguage != .auto else { return nil }
-        guard await requestAuthorization() else { return nil }
-
-        for candidate in candidateLocales() where candidate.language == expectedLanguage {
-            if let pass = await recognize(url: url, locale: candidate.locale) {
-                return pass.text
-            }
-        }
-        return nil
+        await verificationEvidence(url: url, expectedLanguage: expectedLanguage).transcript
     }
 
-    /// One on-device-capable locale per Qwen language, the user's preferred languages first.
-    private static func candidateLocales() -> [(locale: Locale, language: Qwen3SupportedLanguage)] {
-        let preferred = Locale.preferredLanguages
+    /// Captures deterministic, bounded ASR evidence for output verification. One locale is selected
+    /// once, then the exact same URL and locale are used for up to three sequential passes. Success
+    /// requires all three; a terminal failure or disagreement stops immediately.
+    static func verificationEvidence(
+        url: URL,
+        expectedLanguage: Qwen3SupportedLanguage
+    ) async -> VerificationEvidence {
+        let candidates = candidateLocales().filter { $0.language == expectedLanguage }
+        let selected = candidates.first
+        let authorization = await requestAuthorizationState()
+        let recognizerAvailable = selected?.isAvailable ?? false
+        let supportsOnDeviceRecognition = selected?.supportsOnDeviceRecognition ?? false
 
-        func regionRank(_ locale: Locale) -> Int {
-            for (i, pref) in preferred.enumerated()
-            where pref.caseInsensitiveCompare(locale.identifier) == .orderedSame {
-                return i // exact preferred match
-            }
-            for (i, pref) in preferred.enumerated()
-            where Locale(identifier: pref).language.languageCode?.identifier
-                == locale.language.languageCode?.identifier {
-                return 100 + i // same language as a preferred one
-            }
-            return 1000 // not a preferred language
+        guard expectedLanguage != .auto,
+              let selected,
+              authorization == .authorized,
+              recognizerAvailable,
+              supportsOnDeviceRecognition else {
+            let status: VerificationConsensusStatus = authorization == .authorized
+                ? .unavailable
+                : .failed
+            return VerificationEvidence(
+                schemaVersion: VerificationEvidence.currentSchemaVersion,
+                algorithmVersion: VerificationEvidence.currentAlgorithmVersion,
+                expectedLanguage: expectedLanguage.rawValue,
+                selectedLocaleIdentifier: selected?.locale.identifier,
+                authorizationStatus: authorization,
+                recognizerAvailable: recognizerAvailable,
+                supportsOnDeviceRecognition: supportsOnDeviceRecognition,
+                requiredPassCount: VerificationEvidence.requiredPassCount,
+                recognitionDurationSeconds: 0,
+                repetitions: [],
+                evidenceConsistency: false,
+                consensusStatus: status,
+                transcript: nil
+            )
         }
 
-        // Keep one locale per Qwen language, preferring the user's region variant.
-        var byLanguage: [Qwen3SupportedLanguage: (locale: Locale, rank: Int)] = [:]
-        for locale in SFSpeechRecognizer.supportedLocales() {
-            let language = Qwen3SupportedLanguage.normalized(locale.language.languageCode?.identifier)
-            guard language != .auto else { continue }
-            guard SFSpeechRecognizer(locale: locale)?.supportsOnDeviceRecognition == true else { continue }
-            let rank = regionRank(locale)
-            if let existing = byLanguage[language], existing.rank <= rank { continue }
-            byLanguage[language] = (locale, rank)
+        var repetitions: [RecognitionPass] = []
+        repetitions.reserveCapacity(VerificationEvidence.requiredPassCount)
+        for passIndex in 1 ... VerificationEvidence.requiredPassCount {
+            let pass = await recognizeDetailed(
+                url: url,
+                candidate: selected,
+                authorizationStatus: authorization,
+                passIndex: passIndex
+            )
+            repetitions.append(pass)
+            guard shouldContinueVerification(after: repetitions) else { break }
         }
 
-        return byLanguage
-            .map { (language: $0.key, locale: $0.value.locale, rank: $0.value.rank) }
-            .sorted { lhs, rhs in
-                lhs.rank != rhs.rank ? lhs.rank < rhs.rank : lhs.language.rawValue < rhs.language.rawValue
+        let consensus = consensus(for: repetitions, requiredPassCount: VerificationEvidence.requiredPassCount)
+        return VerificationEvidence(
+            schemaVersion: VerificationEvidence.currentSchemaVersion,
+            algorithmVersion: VerificationEvidence.currentAlgorithmVersion,
+            expectedLanguage: expectedLanguage.rawValue,
+            selectedLocaleIdentifier: selected.locale.identifier,
+            authorizationStatus: authorization,
+            recognizerAvailable: recognizerAvailable,
+            supportsOnDeviceRecognition: supportsOnDeviceRecognition,
+            requiredPassCount: VerificationEvidence.requiredPassCount,
+            recognitionDurationSeconds: repetitions.reduce(0) { $0 + $1.recognitionDurationSeconds },
+            repetitions: repetitions,
+            evidenceConsistency: consensus.status == .consistent,
+            consensusStatus: consensus.status,
+            transcript: consensus.transcript
+        )
+    }
+
+    static func consensus(
+        for passes: [RecognitionPass],
+        requiredPassCount: Int = VerificationEvidence.requiredPassCount
+    ) -> (status: VerificationConsensusStatus, transcript: String?) {
+        guard passes.allSatisfy({ $0.finalResultStatus == .finalResult }) else {
+            return (.failed, nil)
+        }
+        let transcripts = passes.compactMap(\.transcript)
+        guard transcripts.count == passes.count, let first = transcripts.first else {
+            return (.failed, nil)
+        }
+        guard transcripts.dropFirst().allSatisfy({ $0 == first }) else {
+            return (.inconsistent, nil)
+        }
+        guard passes.count == requiredPassCount else { return (.incomplete, nil) }
+        return (.consistent, first)
+    }
+
+    /// Stops deterministic repetition as soon as exact consensus has become impossible. A failed
+    /// terminal pass or a transcript disagreement can never be repaired by a later pass.
+    static func shouldContinueVerification(
+        after passes: [RecognitionPass],
+        requiredPassCount: Int = VerificationEvidence.requiredPassCount
+    ) -> Bool {
+        guard !passes.isEmpty else { return requiredPassCount > 0 }
+        guard passes.count < requiredPassCount else { return false }
+        guard passes.allSatisfy({ $0.finalResultStatus == .finalResult }) else { return false }
+        let transcripts = passes.compactMap(\.transcript)
+        guard transcripts.count == passes.count, let first = transcripts.first else { return false }
+        return transcripts.dropFirst().allSatisfy { $0 == first }
+    }
+
+    /// Fail-closed structural validation for a claimed successful consensus. This does not consult
+    /// live Speech state, so retained evidence can be revalidated deterministically offline.
+    static func isValidConsistentEvidence(
+        _ evidence: VerificationEvidence,
+        expectedLanguage: Qwen3SupportedLanguage
+    ) -> Bool {
+        guard expectedLanguage != .auto,
+              evidence.schemaVersion == VerificationEvidence.currentSchemaVersion,
+              evidence.algorithmVersion == VerificationEvidence.currentAlgorithmVersion,
+              evidence.expectedLanguage == expectedLanguage.rawValue,
+              evidence.authorizationStatus == .authorized,
+              evidence.recognizerAvailable,
+              evidence.supportsOnDeviceRecognition,
+              evidence.requiredPassCount == VerificationEvidence.requiredPassCount,
+              evidence.repetitions.count == VerificationEvidence.requiredPassCount,
+              evidence.repetitions.map(\.passIndex) == Array(1 ... VerificationEvidence.requiredPassCount),
+              evidence.evidenceConsistency,
+              evidence.consensusStatus == .consistent,
+              let selectedLocale = evidence.selectedLocaleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !selectedLocale.isEmpty,
+              selectedLocale.lowercased() != "auto",
+              evidence.selectedLocaleIdentifier == selectedLocale,
+              let transcript = evidence.transcript?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !transcript.isEmpty,
+              evidence.transcript == transcript,
+              isPositiveFinite(evidence.recognitionDurationSeconds) else {
+            return false
+        }
+
+        let passDuration = evidence.repetitions.reduce(0) { $0 + $1.recognitionDurationSeconds }
+        guard approximatelyEqual(passDuration, evidence.recognitionDurationSeconds) else {
+            return false
+        }
+
+        for pass in evidence.repetitions {
+            guard pass.localeIdentifier == selectedLocale,
+                  pass.authorizationStatus == .authorized,
+                  pass.recognizerAvailable,
+                  pass.supportsOnDeviceRecognition,
+                  pass.finalResultStatus == .finalResult,
+                  pass.transcript == transcript,
+                  isPositiveFinite(pass.recognitionDurationSeconds),
+                  pass.segmentCount > 0,
+                  let segmentStart = pass.segmentStartSeconds,
+                  segmentStart.isFinite,
+                  segmentStart >= 0,
+                  let segmentEnd = pass.segmentEndSeconds,
+                  segmentEnd.isFinite,
+                  segmentEnd > segmentStart,
+                  let coverage = pass.timingCoverageSeconds,
+                  isPositiveFinite(coverage),
+                  approximatelyEqual(coverage, segmentEnd - segmentStart),
+                  let averageConfidence = pass.averageConfidence,
+                  averageConfidence.isFinite,
+                  (0 ... 1).contains(averageConfidence),
+                  let minimumConfidence = pass.minimumConfidence,
+                  minimumConfidence.isFinite,
+                  (0 ... 1).contains(minimumConfidence),
+                  minimumConfidence <= averageConfidence,
+                  pass.errorDomain == nil,
+                  pass.errorCode == nil else {
+                return false
             }
-            .map { (locale: $0.locale, language: $0.language) }
+        }
+
+        let recomputed = consensus(
+            for: evidence.repetitions,
+            requiredPassCount: evidence.requiredPassCount
+        )
+        return recomputed.status == .consistent && recomputed.transcript == transcript
     }
 
     /// NaturalLanguage probability mass that the text is in `expected` (handles script/region
@@ -177,90 +385,466 @@ enum VoiceClipTranscriber {
         return score
     }
 
-    /// Word-level WER for bench output verification (normalized lowercase tokens).
-    static func wordErrorRate(reference: String, hypothesis: String) -> Double {
-        let ref = normalizedTokens(reference)
-        let hyp = normalizedTokens(hypothesis)
-        guard !ref.isEmpty else { return hyp.isEmpty ? 0 : 1 }
-        let distance = levenshteinDistance(ref, hyp)
-        return Double(distance) / Double(ref.count)
+    static func wordErrorMetrics(reference: String, hypothesis: String) -> EditMetrics {
+        editMetrics(lhs: normalizedWordTokens(reference), rhs: normalizedWordTokens(hypothesis))
     }
 
-    private static func normalizedTokens(_ text: String) -> [String] {
+    static func characterErrorMetrics(
+        reference: String,
+        hypothesis: String,
+        expectedLanguage: Qwen3SupportedLanguage = .auto
+    ) -> EditMetrics {
+        let preservesDiacritics = expectedLanguage == .chinese || expectedLanguage == .japanese
+        return editMetrics(
+            lhs: normalizedCharacterTokens(reference, preservesDiacritics: preservesDiacritics),
+            rhs: normalizedCharacterTokens(hypothesis, preservesDiacritics: preservesDiacritics)
+        )
+    }
+
+    static func wordErrorRate(reference: String, hypothesis: String) -> Double {
+        wordErrorMetrics(reference: reference, hypothesis: hypothesis).errorRate
+    }
+
+    /// Pure deterministic selection seam used by tests. Availability is preferred before the user's
+    /// language-region rank; identifier is the final stable tie-breaker.
+    static func selectedCapabilities(
+        from capabilities: [LocaleCapability],
+        preferredLanguages: [String]
+    ) -> [LocaleCapability] {
+        func regionRank(_ identifier: String) -> Int {
+            let locale = Locale(identifier: identifier)
+            for (index, preferred) in preferredLanguages.enumerated()
+            where preferred.caseInsensitiveCompare(identifier) == .orderedSame {
+                return index
+            }
+            for (index, preferred) in preferredLanguages.enumerated()
+            where Locale(identifier: preferred).language.languageCode?.identifier
+                == locale.language.languageCode?.identifier {
+                return 100 + index
+            }
+            return 1000
+        }
+
+        let eligible = capabilities
+            .filter { $0.language != .auto && $0.supportsOnDeviceRecognition }
+            .sorted { lhs, rhs in
+                if lhs.language != rhs.language { return lhs.language.rawValue < rhs.language.rawValue }
+                if lhs.isAvailable != rhs.isAvailable { return lhs.isAvailable && !rhs.isAvailable }
+                let lhsRank = regionRank(lhs.identifier)
+                let rhsRank = regionRank(rhs.identifier)
+                if lhsRank != rhsRank { return lhsRank < rhsRank }
+                return lhs.identifier < rhs.identifier
+            }
+
+        var seen: Set<Qwen3SupportedLanguage> = []
+        return eligible.filter { seen.insert($0.language).inserted }
+            .sorted { lhs, rhs in
+                let lhsRank = regionRank(lhs.identifier)
+                let rhsRank = regionRank(rhs.identifier)
+                if lhsRank != rhsRank { return lhsRank < rhsRank }
+                if lhs.language != rhs.language { return lhs.language.rawValue < rhs.language.rawValue }
+                return lhs.identifier < rhs.identifier
+            }
+    }
+
+    private static func normalizedWordTokens(_ text: String) -> [String] {
         text
-            .folding(options: .diacriticInsensitive, locale: .current)
-            .lowercased()
+            .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased(with: Locale(identifier: "en_US_POSIX"))
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }
     }
 
-    private static func levenshteinDistance(_ lhs: [String], _ rhs: [String]) -> Int {
-        if lhs.isEmpty { return rhs.count }
-        if rhs.isEmpty { return lhs.count }
-        var previous = Array(0 ... rhs.count)
-        for (i, left) in lhs.enumerated() {
-            var current = [i + 1]
-            for (j, right) in rhs.enumerated() {
-                let insertion = previous[j + 1] + 1
-                let deletion = current[j] + 1
-                let substitution = previous[j] + (left == right ? 0 : 1)
-                current.append(min(insertion, deletion, substitution))
+    private static func normalizedCharacterTokens(
+        _ text: String,
+        preservesDiacritics: Bool
+    ) -> [Character] {
+        var options: String.CompareOptions = [.widthInsensitive]
+        if !preservesDiacritics { options.insert(.diacriticInsensitive) }
+        let folded = text
+            .folding(options: options, locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased(with: Locale(identifier: "en_US_POSIX"))
+        return Array(
+            folded.unicodeScalars
+                .filter { CharacterSet.alphanumerics.contains($0) }
+                .map(String.init)
+                .joined()
+        )
+    }
+
+    private static func isPositiveFinite(_ value: Double) -> Bool {
+        value.isFinite && value > 0
+    }
+
+    private static func approximatelyEqual(_ lhs: Double, _ rhs: Double) -> Bool {
+        guard lhs.isFinite, rhs.isFinite else { return false }
+        let scale = max(1, max(abs(lhs), abs(rhs)))
+        return abs(lhs - rhs) <= scale * 1e-9
+    }
+
+    private static func editMetrics<T: Equatable>(lhs: [T], rhs: [T]) -> EditMetrics {
+        var previous = (0 ... rhs.count).map {
+            EditCell(substitutions: 0, insertions: $0, deletions: 0)
+        }
+        for (leftIndex, left) in lhs.enumerated() {
+            var current = [EditCell(substitutions: 0, insertions: 0, deletions: leftIndex + 1)]
+            current.reserveCapacity(rhs.count + 1)
+            for (rightIndex, right) in rhs.enumerated() {
+                var diagonal = previous[rightIndex]
+                if left != right { diagonal.substitutions += 1 }
+                var deletion = previous[rightIndex + 1]
+                deletion.deletions += 1
+                var insertion = current[rightIndex]
+                insertion.insertions += 1
+
+                // Stable tie policy: diagonal/substitution, then deletion, then insertion.
+                var best = diagonal
+                if deletion.distance < best.distance { best = deletion }
+                if insertion.distance < best.distance { best = insertion }
+                current.append(best)
             }
             previous = current
         }
-        return previous[rhs.count]
+
+        let final = previous[rhs.count]
+        let rate: Double
+        if lhs.isEmpty {
+            rate = rhs.isEmpty ? 0 : 1
+        } else {
+            rate = Double(final.distance) / Double(lhs.count)
+        }
+        return EditMetrics(
+            referenceCount: lhs.count,
+            hypothesisCount: rhs.count,
+            substitutions: final.substitutions,
+            insertions: final.insertions,
+            deletions: final.deletions,
+            errorRate: rate
+        )
     }
 
-    private static func recognize(url: URL, locale: Locale) async -> (text: String, confidence: Float)? {
-        guard let recognizer = SFSpeechRecognizer(locale: locale),
-              recognizer.isAvailable,
-              recognizer.supportsOnDeviceRecognition else { return nil }
+    /// One deterministic, available, on-device-capable locale per Qwen language.
+    private static func candidateLocales() -> [CandidateLocale] {
+        let capabilities = SFSpeechRecognizer.supportedLocales().map { locale -> LocaleCapability in
+            let recognizer = SFSpeechRecognizer(locale: locale)
+            return LocaleCapability(
+                identifier: locale.identifier,
+                language: Qwen3SupportedLanguage.normalized(locale.language.languageCode?.identifier),
+                isAvailable: recognizer?.isAvailable ?? false,
+                supportsOnDeviceRecognition: recognizer?.supportsOnDeviceRecognition ?? false
+            )
+        }
+        return selectedCapabilities(from: capabilities, preferredLanguages: Locale.preferredLanguages)
+            .map {
+                CandidateLocale(
+                    locale: Locale(identifier: $0.identifier),
+                    language: $0.language,
+                    isAvailable: $0.isAvailable,
+                    supportsOnDeviceRecognition: $0.supportsOnDeviceRecognition
+                )
+            }
+    }
+
+    private static func recognizeForEnrollment(
+        url: URL,
+        candidate: CandidateLocale
+    ) async -> (text: String, confidence: Float)? {
+        let pass = await recognizeDetailed(
+            url: url,
+            candidate: candidate,
+            authorizationStatus: .authorized,
+            passIndex: 1
+        )
+        guard pass.finalResultStatus == .finalResult,
+              let text = pass.transcript else { return nil }
+        return (text, Float(pass.averageConfidence ?? 0))
+    }
+
+    private static func recognizeDetailed(
+        url: URL,
+        candidate: CandidateLocale,
+        authorizationStatus: AuthorizationState,
+        passIndex: Int
+    ) async -> RecognitionPass {
+        let start = ProcessInfo.processInfo.systemUptime
+        guard let recognizer = SFSpeechRecognizer(locale: candidate.locale) else {
+            return unavailablePass(
+                passIndex: passIndex,
+                candidate: candidate,
+                authorizationStatus: authorizationStatus,
+                status: .recognizerUnavailable,
+                startedAt: start
+            )
+        }
+        let isAvailable = recognizer.isAvailable
+        let supportsOnDevice = recognizer.supportsOnDeviceRecognition
+        guard isAvailable else {
+            return unavailablePass(
+                passIndex: passIndex,
+                candidate: candidate,
+                authorizationStatus: authorizationStatus,
+                status: .recognizerUnavailable,
+                startedAt: start
+            )
+        }
+        guard supportsOnDevice else {
+            return unavailablePass(
+                passIndex: passIndex,
+                candidate: candidate,
+                authorizationStatus: authorizationStatus,
+                status: .onDeviceRecognitionUnsupported,
+                startedAt: start
+            )
+        }
 
         let request = SFSpeechURLRecognitionRequest(url: url)
         request.requiresOnDeviceRecognition = true
         request.shouldReportPartialResults = false
+        let controller = SpeechRecognitionTaskController()
 
-        let once = ResumeOnce()
-        return await withCheckedContinuation { (continuation: CheckedContinuation<(text: String, confidence: Float)?, Never>) in
-            recognizer.recognitionTask(with: request) { result, error in
-                if error != nil {
-                    once.run { continuation.resume(returning: nil) }
+        return await withCheckedContinuation { (continuation: CheckedContinuation<RecognitionPass, Never>) in
+            let timeoutTask = Task {
+                do {
+                    try await Task.sleep(for: recognitionPassTimeout)
+                } catch {
                     return
                 }
-                guard let result, result.isFinal else { return }
+                guard controller.claimAndCancel() else { return }
+                continuation.resume(returning: RecognitionPass(
+                    passIndex: passIndex,
+                    localeIdentifier: candidate.locale.identifier,
+                    authorizationStatus: authorizationStatus,
+                    recognizerAvailable: isAvailable,
+                    supportsOnDeviceRecognition: supportsOnDevice,
+                    finalResultStatus: .timedOut,
+                    recognitionDurationSeconds: max(0, ProcessInfo.processInfo.systemUptime - start),
+                    transcript: nil,
+                    segmentCount: 0,
+                    segmentStartSeconds: nil,
+                    segmentEndSeconds: nil,
+                    timingCoverageSeconds: nil,
+                    averageConfidence: nil,
+                    minimumConfidence: nil,
+                    errorDomain: nil,
+                    errorCode: nil
+                ))
+            }
+
+            let recognitionTask = recognizer.recognitionTask(with: request) { result, error in
+                if let error {
+                    guard controller.claimCompletion() else { return }
+                    timeoutTask.cancel()
+                    let duration = max(0, ProcessInfo.processInfo.systemUptime - start)
+                    let nsError = error as NSError
+                    continuation.resume(returning: RecognitionPass(
+                        passIndex: passIndex,
+                        localeIdentifier: candidate.locale.identifier,
+                        authorizationStatus: authorizationStatus,
+                        recognizerAvailable: isAvailable,
+                        supportsOnDeviceRecognition: supportsOnDevice,
+                        finalResultStatus: .recognitionError,
+                        recognitionDurationSeconds: duration,
+                        transcript: nil,
+                        segmentCount: 0,
+                        segmentStartSeconds: nil,
+                        segmentEndSeconds: nil,
+                        timingCoverageSeconds: nil,
+                        averageConfidence: nil,
+                        minimumConfidence: nil,
+                        errorDomain: boundedErrorDomain(nsError.domain),
+                        errorCode: nsError.code
+                    ))
+                    return
+                }
+                guard let result, result.isFinal else {
+                    // Partial callbacks are deliberately ignored. With partial results disabled,
+                    // Speech eventually supplies either a final result or an error.
+                    return
+                }
+                guard controller.claimCompletion() else { return }
+                timeoutTask.cancel()
+                let duration = max(0, ProcessInfo.processInfo.systemUptime - start)
                 let transcription = result.bestTranscription
                 let text = transcription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
                 let segments = transcription.segments
-                let confidence = segments.isEmpty
-                    ? 0
-                    : segments.map(\.confidence).reduce(0, +) / Float(segments.count)
-                once.run {
-                    continuation.resume(returning: text.isEmpty ? nil : (text, confidence))
+                let startTime = segments.map(\.timestamp).min()
+                let endTime = segments.map { $0.timestamp + $0.duration }.max()
+                let confidences = segments.map { Double($0.confidence) }
+                let averageConfidence = confidences.isEmpty
+                    ? nil
+                    : confidences.reduce(0, +) / Double(confidences.count)
+                let timingCoverage: Double? = if let startTime, let endTime {
+                    max(0, endTime - startTime)
+                } else {
+                    nil
                 }
+                continuation.resume(returning: RecognitionPass(
+                    passIndex: passIndex,
+                    localeIdentifier: candidate.locale.identifier,
+                    authorizationStatus: authorizationStatus,
+                    recognizerAvailable: isAvailable,
+                    supportsOnDeviceRecognition: supportsOnDevice,
+                    finalResultStatus: text.isEmpty ? .emptyTranscript : .finalResult,
+                    recognitionDurationSeconds: duration,
+                    transcript: text.isEmpty ? nil : text,
+                    segmentCount: segments.count,
+                    segmentStartSeconds: startTime,
+                    segmentEndSeconds: endTime,
+                    timingCoverageSeconds: timingCoverage,
+                    averageConfidence: averageConfidence,
+                    minimumConfidence: confidences.min(),
+                    errorDomain: nil,
+                    errorCode: nil
+                ))
             }
+            controller.install(recognitionTask)
         }
     }
 
-    private static func requestAuthorization() async -> Bool {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+    private static func unavailablePass(
+        passIndex: Int,
+        candidate: CandidateLocale,
+        authorizationStatus: AuthorizationState,
+        status: RecognitionFinalStatus,
+        startedAt: TimeInterval
+    ) -> RecognitionPass {
+        RecognitionPass(
+            passIndex: passIndex,
+            localeIdentifier: candidate.locale.identifier,
+            authorizationStatus: authorizationStatus,
+            recognizerAvailable: candidate.isAvailable,
+            supportsOnDeviceRecognition: candidate.supportsOnDeviceRecognition,
+            finalResultStatus: status,
+            recognitionDurationSeconds: max(0, ProcessInfo.processInfo.systemUptime - startedAt),
+            transcript: nil,
+            segmentCount: 0,
+            segmentStartSeconds: nil,
+            segmentEndSeconds: nil,
+            timingCoverageSeconds: nil,
+            averageConfidence: nil,
+            minimumConfidence: nil,
+            errorDomain: nil,
+            errorCode: nil
+        )
+    }
+
+    private static func boundedErrorDomain(_ domain: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        return String(domain.unicodeScalars.filter { allowed.contains($0) }.prefix(80))
+    }
+
+    private static func authorizationState(_ status: SFSpeechRecognizerAuthorizationStatus? = nil) -> AuthorizationState {
+        let status = status ?? SFSpeechRecognizer.authorizationStatus()
+        switch status {
+        case .authorized:
+            return .authorized
+        case .notDetermined:
+            #if os(macOS)
+            if !isSiriEnabled { return .siriDisabled }
+            #endif
+            return .notDetermined
+        case .denied:
+            #if os(macOS)
+            if !isSiriEnabled { return .siriDisabled }
+            #endif
+            return .denied
+        case .restricted:
+            return .restricted
+        @unknown default:
+            return .unknown
+        }
+    }
+
+    private static func requestAuthorizationState() async -> AuthorizationState {
+        let current = authorizationState()
+        guard current == .notDetermined else { return current }
+        let completion = CompletionClaim()
+        return await withCheckedContinuation { continuation in
+            let timeoutTask = Task {
+                do {
+                    try await Task.sleep(for: authorizationTimeout)
+                } catch {
+                    return
+                }
+                guard completion.claim() else { return }
+                continuation.resume(returning: .timedOut)
+            }
             SFSpeechRecognizer.requestAuthorization { status in
-                continuation.resume(returning: status == .authorized)
+                guard completion.claim() else { return }
+                timeoutTask.cancel()
+                continuation.resume(returning: authorizationState(status))
             }
         }
     }
 }
 
-/// One-shot guard so the recognition callback (which may fire more than once) resumes the
-/// continuation exactly once. Lock-guarded so it's safe to capture in the `@Sendable` handler.
-private final class ResumeOnce: @unchecked Sendable {
-    private let lock = NSLock()
-    private var fired = false
+final class CompletionClaim: Sendable {
+    private let completed = Mutex(false)
 
-    func run(_ block: () -> Void) {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !fired else { return }
-        fired = true
-        block()
+    func claim() -> Bool {
+        completed.withLock { completed in
+            guard !completed else { return false }
+            completed = true
+            return true
+        }
+    }
+}
+
+/// Owns the non-Sendable Speech task behind a typed mutex. Callback, timeout, and synchronous task
+/// installation can race, but only one terminal path can claim completion. Cancellation occurs
+/// outside the lock so no framework callback can re-enter the critical section.
+private final class SpeechRecognitionTaskController: Sendable {
+    private struct State {
+        var didFinish = false
+        var task: SpeechRecognitionTaskHandle?
+    }
+
+    private let state = Mutex(State())
+
+    func install(_ task: SFSpeechRecognitionTask) {
+        let handle = SpeechRecognitionTaskHandle(task)
+        let shouldCancel = state.withLock { state in
+            if state.didFinish { return true }
+            state.task = handle
+            return false
+        }
+        if shouldCancel { handle.cancel() }
+    }
+
+    func claimCompletion() -> Bool {
+        state.withLock { state in
+            guard !state.didFinish else { return false }
+            state.didFinish = true
+            state.task = nil
+            return true
+        }
+    }
+
+    func claimAndCancel() -> Bool {
+        let outcome = state.withLock { state -> (claimed: Bool, task: SpeechRecognitionTaskHandle?) in
+            guard !state.didFinish else { return (false, nil) }
+            state.didFinish = true
+            defer { state.task = nil }
+            return (true, state.task)
+        }
+        guard outcome.claimed else { return false }
+        outcome.task?.cancel()
+        // A nil task is still a valid claim when the timeout wins before synchronous installation.
+        return true
+    }
+}
+
+/// `SFSpeechRecognitionTask` predates Swift concurrency annotations. Access is serialized by the
+/// controller's mutex; this narrow wrapper is the only unchecked boundary around that framework
+/// reference and exposes cancellation only.
+private final class SpeechRecognitionTaskHandle: @unchecked Sendable {
+    private let task: SFSpeechRecognitionTask
+
+    init(_ task: SFSpeechRecognitionTask) {
+        self.task = task
+    }
+
+    func cancel() {
+        task.cancel()
     }
 }

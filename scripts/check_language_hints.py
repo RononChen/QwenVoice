@@ -2,10 +2,10 @@
 """Gate language-bench telemetry (Phase 2 — hint contract, no ASR).
 
 Validates pulled engine rows for one language-bench run:
-  - one row per matrix cell (notes.benchRunID + notes.benchCell);
+  - one row per predeclared take (run + cell + generation + optional seed);
   - notes.languageHint matches the matrix expected resolved hint;
   - generation finished successfully;
-  - audioQC is not a hard fail.
+  - audioQC passes or warns; a fail remains a quality-gate failure.
 
 Usage:
   scripts/check_language_hints.py <diagnostics-dir> \\
@@ -21,7 +21,17 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, os.path.dirname(__file__))
+from language_bench_evidence import (
+    expected_language_hint_source,
+    exact_sentinels,
+    load_json as load_evidence_json,
+    seed_value,
+    validate_plan_against_sources,
+)
 
 
 def load_json(path: str) -> dict[str, Any]:
@@ -117,6 +127,16 @@ def main() -> int:
         default=os.path.join(os.path.dirname(__file__), "..", "config", "language-bench-corpus.json"),
     )
     parser.add_argument("--subset", choices=("quick", "full"), default="full")
+    parser.add_argument(
+        "--plan",
+        help="immutable language-run plan; enables generation/seed-level correlation",
+    )
+    parser.add_argument("--cohort", help="tracked diagnostic-cohort config used to create the plan")
+    parser.add_argument(
+        "--strict-qc",
+        action="store_true",
+        help="require audioQC verdict=pass for a diagnostic cohort (warnings fail)",
+    )
     args = parser.parse_args()
 
     matrix = load_json(args.matrix)
@@ -136,47 +156,157 @@ def main() -> int:
         return 1
 
     by_cell: dict[str, list[dict[str, Any]]] = {}
+    by_generation: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         notes = row.get("notes") or {}
         cell_id = notes.get("benchCell")
         if isinstance(cell_id, str):
             by_cell.setdefault(cell_id, []).append(row)
+        generation_id = row.get("generationID")
+        if isinstance(generation_id, str):
+            by_generation.setdefault(generation_id, []).append(row)
 
     failures: list[str] = []
+    planned_takes: list[dict[str, Any]] | None = None
+    sentinels: dict[str, tuple[Path, dict[str, Any]]] = {}
+    if args.plan:
+        try:
+            plan = load_evidence_json(Path(args.plan))
+            planned_takes = validate_plan_against_sources(
+                plan,
+                matrix_path=Path(args.matrix),
+                corpus_path=Path(args.corpus),
+                subset=args.subset,
+                cohort_path=Path(args.cohort) if args.cohort else None,
+            )
+            if plan.get("runID") != args.run_id:
+                failures.append("run plan belongs to another run ID")
+            if args.strict_qc and plan.get("kind") != "diagnosticCohort":
+                failures.append("--strict-qc is reserved for diagnostic-cohort plans")
+            if plan.get("kind") == "diagnosticCohort" and not args.strict_qc:
+                failures.append("diagnostic-cohort plans require --strict-qc")
+            sentinels = exact_sentinels(Path(args.diag), plan)
+        except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            failures.append(f"invalid run plan/evidence: {error}")
+            planned_takes = []
+
+    expected_count = len(planned_takes) if planned_takes is not None else len(cells)
     print(
         f"language-hint gate: runID={args.run_id} subset={args.subset} "
-        f"expected={len(cells)} engine={len(rows)}"
+        f"expected={expected_count} engine={len(rows)}"
     )
 
-    for cell in cells:
-        cell_id = cell["id"]
-        expected_hint = cell["expectedHint"]
-        matched = by_cell.get(cell_id, [])
-        if len(matched) != 1:
-            failures.append(f"{cell_id}: expected 1 row, got {len(matched)}")
-            continue
-        row = matched[0]
-        notes = row.get("notes") or {}
-        actual_hint = notes.get("languageHint")
-        if actual_hint != expected_hint:
-            failures.append(
-                f"{cell_id}: languageHint '{actual_hint}' != expected '{expected_hint}'"
+    if planned_takes is not None:
+        matrix_by_id = {cell["id"]: cell for cell in cells}
+        expected_generation_ids: set[str] = set()
+        equivalence: dict[tuple[str, int | None], list[tuple[str, str]]] = {}
+        for take in planned_takes:
+            cell_id = take["cellID"]
+            child_id = take["childRunID"]
+            cell = matrix_by_id.get(cell_id)
+            if cell is None:
+                failures.append(f"{child_id}: planned cell is outside selected matrix")
+                continue
+            sentinel_pair = sentinels.get(child_id)
+            if sentinel_pair is None:
+                failures.append(f"{child_id}: missing exact sentinel")
+                continue
+            record = sentinel_pair[1]
+            generation_id = record.get("generationID")
+            if not isinstance(generation_id, str):
+                failures.append(f"{child_id}: sentinel lacks generationID")
+                continue
+            expected_generation_ids.add(generation_id)
+            matched = by_generation.get(generation_id, [])
+            if len(matched) != 1:
+                failures.append(f"{child_id}: generation {generation_id} expected 1 row, got {len(matched)}")
+                continue
+            row = matched[0]
+            notes = row.get("notes") or {}
+            actual_hint = notes.get("languageHint")
+            expected_hint = take.get("expectedHint")
+            requested_hint = take.get("uiHint", "auto")
+            if notes.get("benchRunID") != args.run_id or notes.get("benchCell") != cell_id:
+                failures.append(f"{child_id}: engine run/cell correlation mismatch")
+            if actual_hint != expected_hint:
+                failures.append(f"{child_id}: languageHint {actual_hint!r} != expected {expected_hint!r}")
+            if record.get("requestedLanguageHint") != requested_hint:
+                failures.append(f"{child_id}: requestedLanguageHint does not match the plan")
+            if record.get("languageHintSource") != expected_language_hint_source(requested_hint):
+                failures.append(f"{child_id}: languageHintSource does not match the plan")
+            if row.get("mode") != take.get("mode"):
+                failures.append(f"{child_id}: mode {row.get('mode')!r} != expected {take.get('mode')!r}")
+            expected_seed = take.get("seed")
+            if seed_value(record.get("seed")) != expected_seed:
+                failures.append(f"{child_id}: sentinel seed does not match the plan")
+            if expected_seed is not None and seed_value(notes.get("samplingSeed")) != expected_seed:
+                failures.append(f"{child_id}: engine samplingSeed does not match the plan")
+            expected_variation = take.get("samplingVariation")
+            if record.get("samplingVariation") != expected_variation:
+                failures.append(f"{child_id}: sentinel sampling variation does not match the plan")
+            if notes.get("samplingVariation") != expected_variation:
+                failures.append(f"{child_id}: engine samplingVariation does not match the plan")
+            group = take.get("promptEquivalenceGroup")
+            if isinstance(group, str) and group:
+                prompt_digest = record.get("resolvedPromptAssemblyDigest")
+                if record.get("promptDigestScope") != "resolved":
+                    failures.append(f"{child_id}: promptDigestScope must be 'resolved'")
+                if not isinstance(prompt_digest, str) or len(prompt_digest) != 64:
+                    failures.append(f"{child_id}: missing resolved prompt-assembly digest")
+                else:
+                    equivalence.setdefault((group, expected_seed), []).append((child_id, prompt_digest))
+            if not finish_ok(row):
+                failures.append(f"{child_id}: finishReason={row.get('finishReason')!r}")
+            verdict = qc_verdict(row)
+            if verdict.startswith("fail") or (args.strict_qc and verdict != "pass"):
+                failures.append(f"{child_id}: audioQC {verdict}")
+            print(
+                f"  {cell_id:<28} take={take['takeIndex']:<2} seed={expected_seed!s:<8} "
+                f"hint={actual_hint!s:<10} mode={row.get('mode', '?'):<8} QC={verdict}"
             )
-        if row.get("mode") != cell.get("mode"):
-            failures.append(
-                f"{cell_id}: mode '{row.get('mode')}' != expected '{cell.get('mode')}'"
+        extra = sorted(set(by_generation) - expected_generation_ids)
+        if extra:
+            failures.append(f"unexpected current-run generation rows: {', '.join(extra)}")
+        for (group, seed), members in sorted(equivalence.items()):
+            if len(members) < 2:
+                failures.append(f"prompt equivalence group {group} seed {seed} has fewer than two takes")
+                continue
+            digests = {digest for _identity, digest in members}
+            if len(digests) != 1:
+                failures.append(
+                    f"prompt equivalence group {group} seed {seed} differs across "
+                    + ", ".join(identity for identity, _digest in members)
+                )
+    else:
+        for cell in cells:
+            cell_id = cell["id"]
+            expected_hint = cell["expectedHint"]
+            matched = by_cell.get(cell_id, [])
+            if len(matched) != 1:
+                failures.append(f"{cell_id}: expected 1 row, got {len(matched)}")
+                continue
+            row = matched[0]
+            notes = row.get("notes") or {}
+            actual_hint = notes.get("languageHint")
+            if actual_hint != expected_hint:
+                failures.append(
+                    f"{cell_id}: languageHint '{actual_hint}' != expected '{expected_hint}'"
+                )
+            if row.get("mode") != cell.get("mode"):
+                failures.append(
+                    f"{cell_id}: mode '{row.get('mode')}' != expected '{cell.get('mode')}'"
+                )
+            if not finish_ok(row):
+                failures.append(
+                    f"{cell_id}: finishReason={row.get('finishReason')!r}"
+                )
+            verdict = qc_verdict(row)
+            if verdict.startswith("fail"):
+                failures.append(f"{cell_id}: audioQC {verdict}")
+            print(
+                f"  {cell_id:<28} hint={actual_hint!s:<10} "
+                f"mode={row.get('mode', '?'):<8} QC={verdict}"
             )
-        if not finish_ok(row):
-            failures.append(
-                f"{cell_id}: finishReason={row.get('finishReason')!r}"
-            )
-        verdict = qc_verdict(row)
-        if verdict.startswith("fail"):
-            failures.append(f"{cell_id}: audioQC {verdict}")
-        print(
-            f"  {cell_id:<28} hint={actual_hint!s:<10} "
-            f"mode={row.get('mode', '?'):<8} QC={verdict}"
-        )
 
     if failures:
         print("FAIL:")

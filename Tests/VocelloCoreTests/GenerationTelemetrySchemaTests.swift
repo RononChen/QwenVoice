@@ -120,6 +120,43 @@ final class GenerationTelemetrySchemaTests: XCTestCase {
         }
     }
 
+    func testSamplingTelemetryNotesExposeDeterministicRequestIdentity() {
+        let request = GenerationRequest(
+            mode: .custom,
+            modelID: "pro_custom_speed",
+            text: "Deterministic diagnostic sample.",
+            outputPath: "/tmp/sample.wav",
+            shouldStream: true,
+            payload: .custom(speakerID: "aiden", deliveryStyle: nil),
+            seed: UInt64.max,
+            variation: .consistent
+        )
+
+        XCTAssertEqual(
+            StreamingExecutionContext.samplingTelemetryNotes(for: request),
+            [
+                "samplingSeed": String(UInt64.max),
+                "samplingVariation": "consistent",
+            ]
+        )
+    }
+
+    func testSamplingTelemetryNotesNameTheImplicitExpressiveDefault() {
+        let request = GenerationRequest(
+            mode: .design,
+            modelID: "pro_design_speed",
+            text: "Default sampling diagnostic sample.",
+            outputPath: "/tmp/sample.wav",
+            shouldStream: true,
+            payload: .design(voiceDescription: "A clear narrator.", deliveryStyle: nil)
+        )
+
+        XCTAssertEqual(
+            StreamingExecutionContext.samplingTelemetryNotes(for: request),
+            ["samplingVariation": "expressive"]
+        )
+    }
+
     func testTelemetryOffPlansNoSamplerSinkChunkQCOrDerivedDiagnostics() {
         let off = NativeTelemetryWorkPlan(
             mode: .off,

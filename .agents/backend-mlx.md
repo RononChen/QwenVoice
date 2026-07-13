@@ -60,7 +60,7 @@ scripts/macos_test.sh test   # Core, XPC transport, and owned Qwen3 runtime cont
 ./scripts/build.sh cli
 QWENVOICE_DEBUG=1 ./build/vocello custom --variant speed --text "Hello world."
 
-# Perf gate (mandatory listening pass for release-affecting changes)
+# Perf gate (autonomous QC/telemetry proof for release-affecting changes)
 QWENVOICE_DEBUG=1 ./build/vocello bench --modes clone --variants speed \
   --lengths short,medium,long --warm 3 --voice <prepared-voice> \
   --label "backend-qa"
@@ -69,7 +69,9 @@ QWENVOICE_DEBUG=1 ./build/vocello bench --modes clone --variants speed \
 A successful in-repository benchmark publishes a compact, allowlisted record automatically. Do
 not append to `benchmarks/HISTORY.md`; it is generated from `benchmarks/runs/`. Raw JSONL, audio,
 screenshots, result bundles, and traces remain in the untracked artifact directory. Dirty-source
-runs are retained as exploratory evidence and excluded from canonical trends.
+runs are retained as exploratory evidence and excluded from canonical trends. Human listening is
+optional annotation; promotion requires clean deterministic QC rather than a manual waiver for a
+warning.
 
 ## Invariants (do not regress)
 

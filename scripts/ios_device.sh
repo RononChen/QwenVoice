@@ -25,7 +25,9 @@
 #   scripts/ios_device.sh bench [spec] [--label RUN_ID] [--memory-profile PROFILE]
 #                               [--voice-id SAVED_VOICE_ID]
 #   scripts/ios_device.sh lang-bench [--subset quick|full] [--label RUN_ID]
-#                                                 # headless language-hint matrix
+#                               [--diagnostic-cohort[=PATH]]
+#                                                 # headless language/output matrix; optional
+#                                                 # fixed-seed diagnostic cohort never publishes history
 #   scripts/ios_device.sh crashes [--test]         # pull + symbolicate on-device crash/hang diagnostics (MetricKit)
 #   scripts/ios_device.sh debug [spec]             # attached launch + LLDB attach guidance (get-task-allow build)
 #   scripts/ios_device.sh logs [spec] [--voice-id SAVED_VOICE_ID]
@@ -611,42 +613,68 @@ wait_device_diagnostics_sentinel() {
   die "no sentinel after ${timeout}s for runID=$run_id — Device state: $(probe_device_state 2>/dev/null || echo unknown)"
 }
 
-# lang-bench [--subset quick|full] [--label RUN_ID]:
+# lang-bench [--subset quick|full] [--label RUN_ID] [--diagnostic-cohort[=PATH]]:
 # Headless on-device language matrix — one diagnostic generation per cell, gated by
-# scripts/check_language_hints.py on notes.languageHint vs config/language-bench-matrix.json.
+# scripts/check_language_hints.py on exact run/cell/generation/seed correlation.
+# Normal quick/full runs retain one take per cell and publish history on PASS. The optional
+# fixed-seed cohort is diagnostic-only and evaluates every predeclared take without retries.
 cmd_lang_bench() {
   require_team
   note "lang-bench requires Custom Voice (Speed) on device — install via Settings → Model Downloads if diagnostics fail"
-  local subset="full" label=""
+  local subset="full" label="" cohort=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --subset) subset="${2:-full}"; shift 2 ;;
       --subset=*) subset="${1#*=}"; shift ;;
       --label) label="${2:-}"; shift 2 ;;
       --label=*) label="${1#*=}"; shift ;;
-      *) die "unknown lang-bench arg '$1' (try --subset quick|full --label lang-check-v1)" ;;
+      --diagnostic-cohort) cohort="$ROOT_DIR/config/language-bench-diagnostic-cohort.json"; shift ;;
+      --diagnostic-cohort=*) cohort="${1#*=}"; [[ -n "$cohort" ]] || die "--diagnostic-cohort path cannot be empty"; shift ;;
+      *) die "unknown lang-bench arg '$1' (try --subset quick|full --label lang-check-v1 [--diagnostic-cohort])" ;;
     esac
   done
   validate_benchmark_label "$label"
   [[ "$subset" == "quick" || "$subset" == "full" ]] || die "--subset must be quick or full"
+  if [[ -n "$cohort" && "${QVOICE_LANG_BENCH_SKIP_OUTPUT:-0}" == "1" ]]; then
+    die "diagnostic cohorts require structured output verification; QVOICE_LANG_BENCH_SKIP_OUTPUT is unsupported"
+  fi
 
   local matrix="$ROOT_DIR/config/language-bench-matrix.json"
   local corpus="$ROOT_DIR/config/language-bench-corpus.json"
   [[ -f "$matrix" && -f "$corpus" ]] || die "missing language bench config (expected $matrix and $corpus)"
+  [[ -z "$cohort" || -f "$cohort" ]] || die "diagnostic cohort config not found: $cohort"
 
   local run_id
-  run_id="ios-lang-bench-$(date -u +%Y%m%d-%H%M%S)-$(benchmark_nonce)"
+  if [[ -n "$cohort" ]]; then
+    run_id="ios-lang-cohort-$(date -u +%Y%m%d-%H%M%S)-$(benchmark_nonce)"
+  else
+    run_id="ios-lang-bench-$(date -u +%Y%m%d-%H%M%S)-$(benchmark_nonce)"
+  fi
   local artifacts="$ROOT_DIR/build/ios/lang-bench-$run_id"
+  local plan="$artifacts/language-run-plan.json"
   local started_at
   started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   local dest="$ROOT_DIR/build/ios-diagnostics"
-  local cell_timeout="${QVOICE_IOS_LANG_BENCH_CELL_TIMEOUT:-240}"
+  # Three bounded 45-second Speech passes occur after generation. The outer bound leaves
+  # enough room for a genuine cold model load without changing the fast success path.
+  local cell_timeout="${QVOICE_IOS_LANG_BENCH_CELL_TIMEOUT:-360}"
   mkdir -p "$artifacts"
   rm -rf "$dest"
+
+  local -a plan_args=(
+    plan --run-id "$run_id" --matrix "$matrix" --corpus "$corpus"
+    --subset "$subset" --output "$plan"
+  )
+  [[ -n "$cohort" ]] && plan_args+=(--cohort "$cohort")
+  python3 "$ROOT_DIR/scripts/language_bench_evidence.py" "${plan_args[@]}" \
+    || die "could not create immutable language-run plan"
 
   cmd_build
   cmd_install
   capture_benchmark_source "$artifacts"
+  # The snapshot retains the crash baseline digest. Keeping a second complete copy of the
+  # device's historical diagnostics in this run artifact obscures current-run evidence.
+  rm -rf "$artifacts/crash-before"
 
   export QVOICE_MAC_BENCH_RUN_ID="$run_id"
   if [[ "${QVOICE_LANG_BENCH_SKIP_OUTPUT:-0}" != "1" ]]; then
@@ -655,14 +683,18 @@ cmd_lang_bench() {
   else
     unset QVOICE_IOS_DEVICE_DIAGNOSTICS_VERIFY_OUTPUT
   fi
-  note "lang-bench: runID=$run_id subset=$subset → $artifacts"
+  if [[ -n "$cohort" ]]; then
+    note "lang-bench: runID=$run_id fixed-seed diagnostic cohort → $artifacts"
+  else
+    note "lang-bench: runID=$run_id subset=$subset → $artifacts"
+  fi
 
   local cell_json cell_count=0 cell_fail=0
   while IFS= read -r cell_json; do
     [[ -n "$cell_json" ]] || continue
     cell_count=$((cell_count + 1))
-    local cell_id mode variant ui_hint text child_run_id spec sentinel st
-    cell_id="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"])["id"])')"
+    local cell_id mode variant ui_hint text child_run_id spec sentinel seed sampling_variation st
+    cell_id="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"])["cellID"])')"
     mode="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"])["mode"])')"
     variant="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"]).get("variant","speed"))')"
     ui_hint="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"]).get("uiHint","auto"))')"
@@ -672,12 +704,16 @@ cell = json.loads(os.environ["CELL"])
 corpus = json.load(open(os.environ["CORPUS"]))
 scripts = {e["id"]: e["script"] for e in corpus["languages"]}
 print(scripts[cell["scriptLang"]], end="")')"
-    child_run_id="${run_id}--${cell_id}"
+    child_run_id="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"])["childRunID"])')"
+    seed="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"])["seed"])')"
+    sampling_variation="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"])["samplingVariation"])')"
     spec="${mode}:${variant}:${text}"
 
-    note "lang-bench cell $cell_count: $cell_id ($mode, uiHint=$ui_hint)"
+    note "lang-bench take $cell_count: $cell_id ($mode, uiHint=$ui_hint, seed=$seed, variation=$sampling_variation)"
     export QVOICE_LAUNCH_RUN_ID="$child_run_id"
     export QVOICE_MAC_BENCH_CELL="$cell_id"
+    export QVOICE_IOS_DEVICE_DIAGNOSTICS_SEED="$seed"
+    export QVOICE_IOS_DEVICE_DIAGNOSTICS_VARIATION="$sampling_variation"
     if [[ "$ui_hint" == "auto" ]]; then
       unset QVOICE_IOS_DEVICE_DIAGNOSTICS_LANGUAGE
     else
@@ -698,12 +734,10 @@ print(scripts[cell["scriptLang"]], end="")')"
       warn "lang-bench cell $cell_id: diagnostics status != ok (see $sentinel)"
       cell_fail=$((cell_fail + 1))
     fi
-  done < <(python3 - "$matrix" "$corpus" "$subset" <<'PY'
+  done < <(python3 - "$plan" "$corpus" <<'PY'
 import json, sys
-matrix_path, corpus_path, subset = sys.argv[1:4]
-cells = json.load(open(matrix_path))["cells"]
-if subset == "quick":
-    cells = [c for c in cells if c.get("quick")]
+plan_path, corpus_path = sys.argv[1:3]
+cells = json.load(open(plan_path))["takes"]
 corpus = {e["id"]: e["script"] for e in json.load(open(corpus_path))["languages"]}
 for cell in cells:
     cell = dict(cell)
@@ -712,30 +746,40 @@ for cell in cells:
 PY
 )
 
-  unset QVOICE_LAUNCH_RUN_ID QVOICE_MAC_BENCH_RUN_ID QVOICE_MAC_BENCH_CELL QVOICE_IOS_DEVICE_DIAGNOSTICS_LANGUAGE QVOICE_IOS_DEVICE_DIAGNOSTICS_VERIFY_OUTPUT
+  unset QVOICE_LAUNCH_RUN_ID QVOICE_MAC_BENCH_RUN_ID QVOICE_MAC_BENCH_CELL \
+    QVOICE_IOS_DEVICE_DIAGNOSTICS_LANGUAGE QVOICE_IOS_DEVICE_DIAGNOSTICS_VERIFY_OUTPUT \
+    QVOICE_IOS_DEVICE_DIAGNOSTICS_SEED QVOICE_IOS_DEVICE_DIAGNOSTICS_VARIATION
 
   [[ "$cell_count" -gt 0 ]] || die "lang-bench: no cells for subset=$subset"
 
-  local engine_jsonl diag="$dest"
-  engine_jsonl="$(find "$dest" -path '*/engine/generations.jsonl' 2>/dev/null | head -1)"
-  [[ -n "$engine_jsonl" ]] && diag="$(dirname "$(dirname "$engine_jsonl")")"
+  note "lang-bench: pulled $cell_count takes ($cell_fail diagnostic failures) — selecting exact evidence"
+  local diag="$artifacts/diagnostics" collect_st=0
+  local -a cohort_args=()
+  [[ -n "$cohort" ]] && cohort_args+=(--cohort "$cohort")
+  python3 "$ROOT_DIR/scripts/language_bench_evidence.py" collect \
+    --source "$dest" --plan "$plan" --output "$diag" \
+    --matrix "$matrix" --corpus "$corpus" --subset "$subset" "${cohort_args[@]}" \
+    | tee "$artifacts/evidence-collection.txt" || collect_st=$?
 
-  note "lang-bench: pulled $cell_count cells ($cell_fail diagnostic failures) — hint gate"
-  cp -R "$dest" "$artifacts/diagnostics" 2>/dev/null || true
-
-  local gate_st=0 hint_st=0 output_st=0
+  local hint_st=0 output_st=0
+  local -a hint_gate_args=()
+  [[ -n "$cohort" ]] && hint_gate_args+=(--strict-qc)
   python3 "$ROOT_DIR/scripts/check_language_hints.py" "$diag" \
-    --run-id "$run_id" --matrix "$matrix" --corpus "$corpus" --subset "$subset" \
+    --run-id "$run_id" --matrix "$matrix" --corpus "$corpus" --subset "$subset" --plan "$plan" \
+    "${hint_gate_args[@]}" "${cohort_args[@]}" \
     | tee "$artifacts/hint-gate.txt" || hint_st=$?
 
   if [[ "${QVOICE_LANG_BENCH_SKIP_OUTPUT:-0}" != "1" ]]; then
     python3 "$ROOT_DIR/scripts/check_language_output.py" "$diag" \
-      --run-id "$run_id" --matrix "$matrix" --subset "$subset" \
+      --run-id "$run_id" --matrix "$matrix" --corpus "$corpus" --subset "$subset" --plan "$plan" \
+      "${cohort_args[@]}" \
       | tee "$artifacts/output-gate.txt" || output_st=$?
   fi
 
   {
-    echo "lang-bench runID=$run_id subset=$subset cells=$cell_count diagnostics_fail=$cell_fail"
+    echo "lang-bench runID=$run_id subset=$subset takes=$cell_count diagnostics_fail=$cell_fail"
+    echo "classification=$([[ -n $cohort ]] && echo diagnostic-cohort || echo benchmark)"
+    echo "evidence_collection=$([[ $collect_st -eq 0 ]] && echo PASS || echo FAIL)"
     echo "hint_gate=$([[ $hint_st -eq 0 ]] && echo PASS || echo FAIL)"
     if [[ "${QVOICE_LANG_BENCH_SKIP_OUTPUT:-0}" != "1" ]]; then
       echo "output_gate=$([[ $output_st -eq 0 ]] && echo PASS || echo FAIL)"
@@ -744,8 +788,12 @@ PY
     fi
   } | tee "$artifacts/verdict.txt"
 
-  if (( cell_fail > 0 || hint_st != 0 || output_st != 0 )); then
+  if (( cell_fail > 0 || collect_st != 0 || hint_st != 0 || output_st != 0 )); then
     die "lang-bench FAIL · $artifacts"
+  fi
+  if [[ -n "$cohort" ]]; then
+    note "lang-bench diagnostic cohort PASS · all $cell_count predeclared takes passed · no history record created"
+    return 0
   fi
   local output_gate="pass"
   [[ "${QVOICE_LANG_BENCH_SKIP_OUTPUT:-0}" == "1" ]] && output_gate="not-performed"
@@ -753,6 +801,7 @@ PY
     --artifact-dir "$artifacts" --snapshot "$artifacts/benchmark-source.json" \
     --platform ios --run-id "$run_id" --diagnostics "$diag" --crash-diagnostics "$dest" \
     --matrix "$matrix" --corpus "$corpus" --subset "$subset" \
+    --plan "$plan" \
     --output-gate "$output_gate" --started-at "$started_at" --defer-record \
     ${label:+--label "$label"} \
     || die "language benchmark passed but evidence validation failed; artifacts are preserved in $artifacts"

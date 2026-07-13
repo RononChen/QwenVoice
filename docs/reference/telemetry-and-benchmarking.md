@@ -530,7 +530,8 @@ dropouts, garbled words, "sounds worse"). Three layers, increasing in what they 
    (`dropout:excessN(long/budget)` — ≥2 = fail, 1 = warn) or a single **egregious** gap no natural pause
    reaches (≥1200 ms = fail `dropout:Nms`; ≥900 ms = warn). A genuine mid-phrase gap that merely *replaces*
    a punctuation pause (same count, ~same length) is positionally indistinguishable from a comma pause by
-   amplitude alone — that residual is **ear-only**, so the listening pass below stays its gate.
+   amplitude alone. Promotion therefore requires the remaining automated cohort, ASR, and prosody
+   evidence to be clean; a warning is not cleared by a subjective waiver.
    In v5 `audioQC` also reports **defect sample offsets** for debugging: `firstNonFiniteSample`,
    `firstClipSample`, and `longestSilenceStartMS`. In verbose mode the streaming path captures
    `chunkQC: [AudioQCChunkReport]` so defects can be tied to an individual output chunk. QC
@@ -550,14 +551,14 @@ dropouts, garbled words, "sounds worse"). Three layers, increasing in what they 
    A JSON **prosody profile** (`scripts/prosody_profile.py`) supplies thresholds and delivery-effect
    weights. The canonical procedure owns calibration and benchmark invocation; the built-in profile
    is used when none is supplied.
-3. **Listening pass — mandatory before promoting or releasing a backend change.** No automated check judges subtle
-   perceptual quality (timbre, prosody, naturalness). Play each take and listen for hiccups/artifacts;
-   record the verdict with `scripts/benchmark_history.py annotate`. The objective `audioQC` + prosody gates are
-   fast tripwires, not substitutes for ears.
+3. **Optional listening annotation.** Automated checks deliberately claim structural integrity,
+   intelligibility, language accuracy, reference consistency, and bounded prosody—not subjective
+   beauty or naturalness. A person may annotate those impressions with
+   `scripts/benchmark_history.py annotate`, but the annotation never changes the machine verdict.
 
-Interpretation order is `audioQC` first, then any requested delivery/per-clip prosody output, then
-the listening verdict. Any
-`QC=fail` is a hard stop for engine promotion. The in-engine `audioQC` is the default signal;
+Interpretation order is `audioQC` first, then fixed-seed/ASR evidence and any requested
+delivery/per-clip prosody output. Any `QC=fail` is a hard stop for engine promotion, and an unresolved
+warning is publishable evidence but not promotion-quality. The in-engine `audioQC` is the default signal;
 committed bounded quality summaries and baselines remain permitted.
 
 ---

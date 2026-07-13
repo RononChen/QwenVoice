@@ -9,8 +9,8 @@ Reads a JSONL label file where each line is:
 Runs scripts/analyze_prosody.py on every clip, then sets each threshold so that
 approximately `--target-fpr` of the good clips would be flagged by that specific
 metric (independent of the boolean combinations used by the gate). This gives a
- principled, corpus-specific starting point; human review of the resulting flags
-is still required before using pass/fail decisions.
+principled, corpus-specific starting point. Validate the resulting profile against
+a held-out labeled corpus before using it for autonomous pass/fail decisions.
 
 Usage:
   scripts/prosody_calibration.py --labels labels.jsonl --out profile.json
@@ -291,8 +291,9 @@ def main():
     print(f"  calibrated thresholds: {json.dumps(thresholds, indent=2)}")
     print(f"  flag rates — good={stats['good_flag_rate']:.2%}, bad={stats['bad_flag_rate']:.2%}, "
           f"fpr={stats['false_positive_rate']:.2%}, tpr={stats['true_positive_rate']:.2%}")
-    print("\nNOTE: review the thresholds before using pass/fail decisions; target-fpr is per-metric, "
-          "and boolean combinations may flag fewer good clips than the printed false-positive rate.")
+    print("\nNOTE: validate thresholds on a held-out labeled corpus before promotion; target-fpr is "
+          "per-metric, and boolean combinations may flag fewer good clips than the printed "
+          "false-positive rate.")
 
 
 if __name__ == "__main__":
