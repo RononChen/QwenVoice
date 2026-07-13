@@ -338,7 +338,8 @@ Swift performance change, complete the deeper checklist:
 - [ ] Run `./scripts/check_project_inputs.sh`.
 - [ ] When explicit frontend acceptance is requested, run the isolated UI lane:
       `scripts/ui_test.sh macos smoke`. Its absence never blocks promotion or release packaging.
-- [ ] For audio-output changes, complete the mandatory listening pass.
+- [ ] For audio-output changes, require clean deterministic QC plus the applicable fixed-seed
+      language/prosody gates; optional listening is annotation only.
 
 ---
 

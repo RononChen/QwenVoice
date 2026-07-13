@@ -436,6 +436,9 @@ python3 -m unittest \
   scripts.tests.test_prosody_calibration \
   scripts.test_check_macos_xpc_bench \
   scripts.test_check_ios_ui_benchmark \
+  scripts.test_language_bench_evidence \
+  scripts.test_check_language_hints \
+  scripts.test_check_language_output \
   scripts.test_device_state_classifier \
   scripts.test_validate_backend_risk_spine
 

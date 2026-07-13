@@ -28,8 +28,8 @@ this doc.** All claims below are cited to a file or commit; re-verify before rel
 - **Entitlement enabled, self-serve.** `increased-memory-limit` is on the app App ID; measured
   entitled per-app limit ≈ **~6 GB** on the 17 Pro, ~5–5.5 GB on 8 GB devices. No hard
   `Memory.memoryLimit` on any tier (§2).
-- **Remaining work (§9):** the design-mode `fail:dropout` / `warn:clicks` audioQC lead (listening
-  pass), an 8 GB-device proof (only the 17 Pro is measured), App Store credential/metadata setup, and the
+- **Remaining work (§9):** the design-mode `fail:dropout` / `warn:clicks` audioQC lead (fixed-seed
+  WAV/ASR diagnosis), an 8 GB-device proof (only the 17 Pro is measured), App Store credential/metadata setup, and the
   gated mlx-swift 0.31 bump. (The 0.6B variant evaluation was **ruled out 2026-07-02** — see §9 P2.)
 
 ---
@@ -262,20 +262,20 @@ around lazy ops, not per-stage GPU attribution (OPTIMIZATION.md §A).
 ## 7. Output quality on device
 
 The reference-free `audioQC` verdict (per engine row; `pass` / `warn` / `fail:flags` —
-nonfinite/clipping/clicks/dropout/near_silent) is the **objective tripwire**, not the perceptual gate.
-The **mandatory promotion/release listening pass** over the fixed corpus is the real perceptual
-gate: inspect the generated WAV artifacts by ear. This listening pass does not block preserving or
-sharing an ordinary development checkpoint.
+nonfinite/clipping/clicks/dropout/near_silent) is the first objective gate. Promotion additionally
+requires exact fixed-seed WAV identity and the applicable locale-locked ASR/prosody evidence. Human
+listening is optional annotation and cannot clear a deterministic failure or warning.
 
 - **`dropout` is punctuation-aware** (OPTIMIZATION.md §B/§C, `ac86b8a`). The original ~586 ms
   "dropout" was root-caused as the model's **natural prosodic pauses** at sentence/comma boundaries on
   long slow narration; the detector now counts long interior silences against the text's punctuation
   **pause budget** and flags only an *excess* (≥2 → fail, 1 → warn) or a single egregious ≥1200 ms gap.
-  A sampling-side "fix" was rejected — it would suppress real prosody to chase a rare ear-only event.
+  A sampling-side "fix" was rejected — it would suppress real prosody without repeatable
+  fixed-seed, chunk, WAV, and ASR evidence of a defect.
 - **Open on-device lead:** the device pool shows `design` = `fail:dropout` (cold) / `warn:clicks`
   (warm) and `custom` warm = `warn:dropout`, while `clone` passes. This is a **real on-device
   output-quality lead** (the `clicks` flag on design is the more interesting one — distinct from the
-  natural-pause dropout story), and it routes to the listening pass. It is not a memory or
+  natural-pause dropout story), and it routes to fixed-seed WAV/ASR diagnosis. It is not a memory or
   in-process-migration regression. See §9.
 
 ---
@@ -300,10 +300,11 @@ The blow-by-blow is in git history; per-run perf is in `benchmarks/HISTORY.md`.
 ## 9. Roadmap (prioritized)
 
 **P1 — design-mode output-quality lead (§7).** Investigate the `design` `fail:dropout` / `warn:clicks`
-on device by listening to the generated design-corpus WAV artifacts. Determine whether `clicks` is a
-real artifact (chunk-boundary / decoder) or another QC false-positive, and whether it is
-device-specific. Maps to `NativeStreamingSynthesisSession` (audioQC) + the decoder path; no engine
-change without a confirmed-real defect.
+on device with a predeclared seed cohort, exact persisted-WAV analysis, chunk evidence, and
+locale-locked ASR consensus. Determine whether `clicks` is a repeatable chunk-boundary/decoder defect
+or a QC classification issue, and whether it is device-specific. Maps to
+`NativeStreamingSynthesisSession` (audioQC) + the decoder path; no engine change without repeatable
+machine evidence.
 
 **P1 — 8 GB-device proof.** All on-device numbers are from the 12 GB iPhone 17 Pro. The 8 GB tier
 (entitled ≈ 5–5.5 GB) is where clone (~3.3 GB) + headroom is tightest. Run `ios_device.sh bench`
@@ -343,8 +344,9 @@ without a new maintainer decision.
 quantize moves to a top-level fn), which lands on the 4-bit/8-bit model-load path, so it's not a free
 bump. Procedure (OPTIMIZATION.md §E, `.agents/backend-mlx.md` "SPM dependencies"): throwaway branch → bump all pin
 sites in lockstep (`project.yml` *and* vendored `third_party_patches/mlx-audio-swift/Package.swift`) →
-`regenerate_project.sh` → both `build_foundation_targets.sh` → `vocello bench` vs the committed baseline
-+ listening pass → keep only if RTF/quality/QC are unchanged.
+`regenerate_project.sh` → both `build_foundation_targets.sh` → fixed-seed `vocello bench` vs the
+committed baseline + applicable automated language/prosody gates → keep only if RTF/quality/QC are
+unchanged.
 
 **P3 — thermal-state monitoring + automatic fallback.** Not implemented. Map to the `iPhonePro` case in
 `NativeMemoryPolicyResolver` + a `ProcessInfo.thermalState` observer; only worth it if sustained

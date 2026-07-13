@@ -1684,7 +1684,7 @@ scripts/macos_test.sh test
     {
       "label":"Languages",
       "title":"Ten spoken languages plus Auto",
-      "body":"English, Chinese, Japanese, Korean, German, French, Russian, Portuguese, Spanish, and Italian. Auto combines prompt heuristics with NaturalLanguage; language benches gate requested hints and locale-locked ASR output.",
+      "body":"English, Chinese, Japanese, Korean, German, French, Russian, Portuguese, Spanish, and Italian. Auto combines prompt heuristics with NaturalLanguage; language benches bind a predeclared fixed seed and exact WAV to requested hints, PCM QC, and three-pass locale-locked ASR consensus.",
       "chips":[
         {"t":"Qwen3SupportedLanguage","c":""},
         {"t":"PromptLanguageDetector","c":""},
@@ -2053,7 +2053,7 @@ scripts/macos_test.sh test
     "Bench":[
       {"cmd":"QWENVOICE_DEBUG=1 ./build/vocello bench … --seed N","desc":"Seedable headless perf/quality matrix; PASS publishes an engine-generation record"},
       {"cmd":"python3 scripts/check_language_hints.py","desc":"Validate requested language hints"},
-      {"cmd":"python3 scripts/check_language_output.py","desc":"Validate locale-locked ASR output"},
+      {"cmd":"python3 scripts/check_language_output.py","desc":"Validate exact-WAV, three-pass locale-locked ASR consensus"},
       {"cmd":"python3 scripts/summarize_generation_telemetry.py … --run-id ID --evidence-manifest PATH","desc":"Summarize one exact ordered run, never historical rows"},
       {"cmd":"python3 scripts/benchmark_history.py validate --all","desc":"Validate privacy/size/digests and reproducible generated history"}
     ],

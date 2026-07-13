@@ -25,6 +25,9 @@
 - Generation telemetry schema v7 distinguishes playback scheduling from acoustic audibility,
   measures sampler cadence/drift and lifecycle boundaries, retains owning-process resource deltas,
   requires explicit layer completeness, and restores correlated iOS app/frontend evidence.
+- The physical-iPhone language lane predeclares a one-based, fixed-seed run plan; retains only the
+  exact selected WAV and telemetry evidence; requires three-pass locale-locked on-device Speech
+  consensus; and offers a retry-free 15-take diagnostic cohort that never publishes history.
 
 ## Publishing boundary
 
@@ -37,8 +40,10 @@ scripts/macos_test.sh test
 ./scripts/build_foundation_targets.sh ios
 ```
 
-Stop there for ordinary development publishing. A model download, paired phone, UI result, or
-listening pass is required only for the explicit quality task that needs it.
+Stop there for ordinary development publishing. A model download, paired phone, or UI result is
+required only for the explicit quality task that needs it. Audio promotion quality is decided by
+deterministic QC, fixed-seed evidence, ASR/prosody gates, and telemetry; listening is optional
+annotation rather than a prerequisite.
 
 ## Explicit frontend acceptance
 

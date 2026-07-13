@@ -84,6 +84,7 @@ python3 scripts/test_check_language_output.py
 scripts/macos_test.sh lang-bench --subset quick              # Phase 2 hint gate (CLI)
 scripts/ios_device.sh lang-bench --subset quick --label release-QA   # Phases 2–3 on device
 # Full 19-cell iOS matrix: scripts/ios_device.sh lang-bench --subset full --label lang-full-v1
+# Fixed 15-take autonomous diagnosis, never history: scripts/ios_device.sh lang-bench --diagnostic-cohort
 # Phase 3 output (DE/ES/ZH/JA): language-bench.md § Phase 3 prerequisites — Speech Wi‑Fi assets
 # Current acceptance state and resume commands: docs/development-progress.md
 
@@ -135,6 +136,9 @@ scripts/ios_device.sh profile [spec]
 - **Committed benchmark records ≤256 KB.** Records use a strict privacy allowlist; raw JSONL,
   WAVs, screenshots, result bundles, and traces are gitignored. `HISTORY.md` is generated, never
   manually appended.
+- **Audio QA is autonomous.** Require the applicable fixed-seed exact-WAV QC, three-pass
+  locale-locked ASR, and prosody/delivery evidence. Listening is optional annotation and cannot
+  clear a machine warning or failure.
 - **Deep checkout on CI.** `fetch-depth: 0` is required so `git rev-parse HEAD` in
   `scripts/release.sh` resolves for `release-metadata.txt`.
 - **Burn-in-safe iOS testing.** Headless generation, profiling, logs, and device diagnostics go

@@ -309,6 +309,83 @@ class BenchmarkHistoryTests(unittest.TestCase):
         self.assertIn("macos-bench-20260712-120000", self.index.read_text())
         self.assertFalse(any(path.name.startswith(".") for path in first.parent.iterdir()))
 
+    def test_take_seed_is_optional_but_must_be_uint64(self) -> None:
+        valid = record_fixture(run_id="seed-valid")
+        valid["takes"][0]["seed"] = (1 << 64) - 1
+        path = self.publish(valid, "seed-valid")
+        self.assertEqual(json.loads(path.read_text())["takes"][0]["seed"], (1 << 64) - 1)
+
+        for index, seed in enumerate((True, -1, 1 << 64)):
+            record = record_fixture(run_id=f"seed-invalid-{index}")
+            record["takes"][0]["seed"] = seed
+            with self.subTest(seed=seed), self.assertRaises(history.HistoryError):
+                self.publish(record, f"seed-invalid-{index}")
+
+    def test_language_take_accuracy_gate_is_bounded_and_paired(self) -> None:
+        valid = record_fixture(run_id="accuracy-valid", kind="language")
+        provenance = {
+            "outputSchemaVersion": 3,
+            "outputAlgorithm": "language-output-verifier-v3",
+            "recognitionSchemaVersion": 2,
+            "recognitionAlgorithm": "apple-speech-file-consensus-v2",
+            "accuracyMetricVersion": "normalized-edit-rate-v1",
+            "requiredPassCount": 3,
+        }
+        valid["evidence"]["languageVerification"] = provenance
+        valid["takes"][0].update({
+            "accuracyMetric": "characterErrorRate",
+            "accuracyThreshold": 0.15,
+        })
+        valid["takes"][0]["metrics"].update({
+            "wordErrorRate": 0.125,
+            "characterErrorRate": 0.125,
+            "primaryAccuracyScore": 0.125,
+            "accuracyThreshold": 0.15,
+            "languageMatchScore": 0.9,
+            "outputLanguagePass": 1.0,
+            "outputAccuracyPass": 1.0,
+            "referenceTokenCount": 8.0,
+            "hypothesisTokenCount": 8.0,
+            "referenceCharacterCount": 32.0,
+            "hypothesisCharacterCount": 32.0,
+            "substitutions": 1.0,
+            "insertions": 0.0,
+            "deletions": 0.0,
+            "characterSubstitutions": 4.0,
+            "characterInsertions": 0.0,
+            "characterDeletions": 0.0,
+            "recognitionPassCount": 3.0,
+            "recognitionDurationSeconds": 0.3,
+        })
+        self.publish(valid, "accuracy-valid")
+
+        for index, mutate in enumerate((
+            lambda take: take.__setitem__("accuracyMetric", "unknown"),
+            lambda take: take.pop("accuracyThreshold"),
+            lambda take: take.__setitem__("accuracyThreshold", 2.0),
+        )):
+            record = record_fixture(run_id=f"accuracy-invalid-{index}", kind="language")
+            record["evidence"]["languageVerification"] = copy.deepcopy(provenance)
+            record["takes"][0].update({
+                "accuracyMetric": "wordErrorRate", "accuracyThreshold": 0.15,
+            })
+            record["takes"][0]["metrics"] = copy.deepcopy(valid["takes"][0]["metrics"])
+            mutate(record["takes"][0])
+            with self.subTest(index=index), self.assertRaises(history.HistoryError):
+                self.publish(record, f"accuracy-invalid-{index}")
+
+        missing_provenance = copy.deepcopy(valid)
+        missing_provenance["run"]["id"] = "accuracy-missing-provenance"
+        missing_provenance["evidence"].pop("languageVerification")
+        with self.assertRaisesRegex(history.HistoryError, "verifier provenance"):
+            self.publish(missing_provenance, "accuracy-missing-provenance")
+
+        tampered_counts = copy.deepcopy(valid)
+        tampered_counts["run"]["id"] = "accuracy-tampered-counts"
+        tampered_counts["takes"][0]["metrics"]["characterSubstitutions"] = 3.0
+        with self.assertRaisesRegex(history.HistoryError, "do not match tracked counts"):
+            self.publish(tampered_counts, "accuracy-tampered-counts")
+
     def test_nested_manifest_selects_only_current_run(self) -> None:
         payload = {
             "schemaVersion": 1,

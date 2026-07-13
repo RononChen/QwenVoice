@@ -1821,6 +1821,7 @@ struct StreamingExecutionContext: Sendable {
             // resolved transcript later refines the detection.
             "languageHint": GenerationSemantics.qwenLanguageHint(for: request),
         ]
+        tierNotes.merge(Self.samplingTelemetryNotes(for: request)) { current, _ in current }
         if let simLimit = IOSMemorySnapshot.simulatedProcessLimitBytes {
             // Restriction-simulation rows must self-identify — a simulated
             // iPhone-15-Pro run must never read as a real-device proof.
@@ -1950,6 +1951,19 @@ struct StreamingExecutionContext: Sendable {
         }
     }
 
+    /// Privacy-safe identity for the sampling policy applied to one request.
+    /// The seed is intentionally a decimal string because telemetry `notes`
+    /// are string-valued; nil variation is the public `expressive` default.
+    static func samplingTelemetryNotes(for request: GenerationRequest) -> [String: String] {
+        var notes = [
+            "samplingVariation": (request.variation ?? .expressive).rawValue,
+        ]
+        if let seed = request.seed {
+            notes["samplingSeed"] = String(seed)
+        }
+        return notes
+    }
+
     /// Re-open the atomically published WAV and derive the written-output half
     /// of the QC report from those exact persisted frames. Pre-limiter
     /// instability counters are retained from generation, while energy, DC and
@@ -2013,8 +2027,9 @@ struct StreamingExecutionContext: Sendable {
 
     /// Build the reference-free `AudioQCReport` from the limiter's per-sample
     /// metrics. Thresholds are conservative + tunable here — they exist to catch
-    /// GROSS defects (regression tripwire), not to judge subtle perceptual quality
-    /// (that's the listening pass). Fractions are relative to processed samples.
+    /// GROSS defects (regression tripwire), not to claim subjective naturalness.
+    /// Autonomous promotion combines this evidence with the applicable fixed-seed
+    /// ASR, prosody, and delivery gates. Fractions are relative to processed samples.
     static func makeAudioQCReport(
         metrics: PCM16StreamLimiter.Metrics,
         sampleRate: Int,
@@ -2057,9 +2072,9 @@ struct StreamingExecutionContext: Sendable {
         // punctuation mark, so the old fixed 400 ms fail line cried wolf on natural
         // delivery. Instead: count "long pauses" against the text's pause budget
         // (punctuation boundaries) and flag only an EXCESS beyond it, or a single
-        // EGREGIOUS gap no natural pause reaches. A real mid-phrase gap that merely
-        // replaces a punctuation pause (same count, same ballpark length) is
-        // ear-only — the listening pass stays the perceptual gate (telemetry doc).
+        // EGREGIOUS gap no natural pause reaches. A mid-phrase gap that merely
+        // replaces a punctuation pause cannot be classified by amplitude alone;
+        // fixed-seed exact-WAV, ASR-consensus, and prosody evidence own that gate.
         let longPauseMS = 350        // "sentence/long-comma" scale pause
         let egregiousMS = 1200       // no natural pause reaches this → always a defect
         let suspiciousSingleMS = 900 // above the observed natural max (~810 ms)

@@ -26,6 +26,7 @@ Successful benchmark validators write an untracked `benchmark-evidence.json`; th
 python3 scripts/benchmark_history.py record --artifact-dir build/path/to/run
 python3 scripts/benchmark_history.py validate --all
 python3 scripts/benchmark_history.py rebuild-index --check
+# Optional subjective annotation; never a PASS prerequisite.
 python3 scripts/benchmark_history.py annotate --run-id <id> --listening pass --note "reviewed"
 ```
 
@@ -65,7 +66,7 @@ mixed into normal timing trends.
 Each record binds UTC timing, matrix/status, source and pre/post workspace fingerprints, hardware
 and toolchain/executable identity, project/harness/model/fixture hashes, selected-evidence and
 result digests, ordered per-take metrics, per-cell median/IQR/min/max and worst-state summaries,
-and an independent listening block. Its canonical SHA-256 is computed with the `digest` field
+and an optional independent listening-annotation block. Its canonical SHA-256 is computed with the `digest` field
 omitted.
 
 The executable validator independently rechecks kind-specific success semantics after publication:
@@ -89,10 +90,11 @@ IDs, cells, layer verdicts, output/QC verdicts, and crash result; it never scans
 diagnostics tree. A publication failure after a successful run leaves the local evidence intact
 and prints the idempotent `record --artifact-dir` repair command.
 
-Listening review is independent from automated success and can be added later with `annotate`.
-Automated success and a listening pass answer different questions; neither is inferred from the
-other. `annotate` is the only supported post-publication mutation: it updates the listening block
-and recomputes the record digest without changing the captured run evidence.
+Listening review is optional metadata and can be added later with `annotate`; it never establishes,
+clears, or blocks automated benchmark success. Promotion-quality audio requires the applicable
+fixed-seed PCM QC, exact-output identity, locale-locked ASR consensus, and prosody/delivery gates.
+`annotate` is the only supported post-publication mutation: it updates the listening block and
+recomputes the record digest without changing the captured run evidence.
 
 Comparison metadata is derived from all tracked records, not insertion order. `rebuild-index`
 reconciles each compatible clean run with its nearest earlier equivalent and updates the record

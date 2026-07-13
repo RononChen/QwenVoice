@@ -65,12 +65,13 @@ The baseline flagged a real ~586 ms mid-utterance silence. Investigation: it rep
 long content (every long custom/design cell failed audioQC; clone passed), but objective analysis of fresh
 takes showed **every interior silence ≥150 ms maps to a punctuation mark** — they are the model's **natural
 prosodic pauses** at sentence/comma boundaries on long, slow narration, which the old fixed ≥400 ms detector
-over-flagged. The one agy-confirmed genuine mid-phrase gap is positionally **adjacent to a comma pause** and
-is indistinguishable from it by duration/amplitude alone (ear-only).
+over-flagged. The original investigation also recorded one subjective mid-phrase-gap report adjacent to a
+comma pause. That historical observation is not a current promotion gate; current diagnosis uses fixed-seed
+exact WAV evidence, chunk-spanning dropout metrics, locale-locked ASR, and the prosody cohort.
 
 **Decision:** a sampling-side fix (e.g. minP floor / silence-run penalty) would suppress the model's
 *natural* pauses to chase a rare, ear-only event — wrong tool, real prosody-degradation risk. Remediation
-shifted to **C** (fix the tripwire); the listening pass stays the gate for the residual mid-phrase gap.
+shifted to **C** (fix the tripwire). The residual case is now covered by the autonomous evidence stack.
 
 ## C — Punctuation-aware audioQC recalibration (done, verified — `ac86b8a`)
 
@@ -81,10 +82,11 @@ warn). Else `pass`. (`Sources/QwenVoiceCore/NativeStreamingSynthesisSession.swif
 
 **Verified** (re-bench custom,design × speed,quality × all lengths + deterministic replication on real WAVs
 + synthetic cases): **15/16 cells now `pass`** (every false-positive `fail`/`warn` cleared); the lone
-remaining `warn` is a **real-but-natural ~1116 ms sentence-boundary pause** (correctly routed to the ear).
+remaining `warn` is a **real-but-natural ~1116 ms sentence-boundary pause** (retained for deterministic
+fixed-seed diagnosis rather than manual waiver).
 Sensitivity retained — synthetic 1300 ms → fail, 11 long pauses → fail. Perf unchanged (engine untouched;
-see the `3da580d` row in `LEGACY_HISTORY.md` vs the `641a541` baseline). The residual rare mid-phrase gap is ear-only;
-the **mandatory listening pass remains the perceptual gate**.
+see the `3da580d` row in `LEGACY_HISTORY.md` vs the `641a541` baseline). A current promotion run must clear
+the applicable deterministic QC, ASR, and prosody gates; listening is optional annotation only.
 
 ## D — CodePredictor RoPE fusion (CLOSED — implemented in §H P3, `f3cd2aa`; kept for history)
 
@@ -110,8 +112,9 @@ quantize moved to a top-level fn), which touches the 4-bit (Speed) / 8-bit (Qual
 it's a core-MLX backend bump that can shift RTF/memory (what these benchmarks track). **When upgrading**
 (quarterly review, or when a fix/model requires it): branch → bump all pin sites (project.yml mlx-swift +
 vendored Package.swift mlx-swift & mlx-swift-lm, in lockstep) → `regenerate_project.sh` → both
-`build_foundation_targets.sh` → `vocello bench` vs `baseline-2026-05-31-641a541.md` + listening pass → keep
-only if RTF/quality/QC are unchanged; otherwise document the blocker and revert. Avoid the `mlx-swift-lm` 3.x
+`build_foundation_targets.sh` → `vocello bench` vs `baseline-2026-05-31-641a541.md` + fixed-seed
+QC/ASR/prosody proof → keep only if RTF/quality/QC are unchanged; otherwise document the blocker and revert.
+Avoid the `mlx-swift-lm` 3.x
 major line unless a feature specifically requires it.
 
 ## F — iPhone 1.7B 4-bit optimization program (2026-06-01)
@@ -602,14 +605,15 @@ now with the exact wall documented.
   binary identity every `build.sh cli`, invalidating the grant each rebuild (the same TCC-identity pain
   the app's stable dev-signing fixed).
 
-So WER-as-a-**headless gate** is not viable — which defeats the CLI's deterministic-driver purpose; a
+So WER-as-a-**macOS CLI headless gate** is not viable — which defeats that CLI's deterministic-driver purpose; a
 `transcribe` command that hangs in a bench run is a footgun. The spike code (a `transcribe` subcommand +
 the Info.plist build settings) was **reverted**. If revisited, the unblock options are: (a) a stably
 **Developer-ID-signed** CLI + a one-time interactive grant, (b) a **TCC-free local ASR** (e.g. a
 vendored whisper.cpp — but that fights the no-extra-deps/no-Python ethos), or (c) running transcription
-in the app's already-granted process. Until then, **text adherence has no objective CLI instrument**;
-delivery + voice/pitch are covered objectively by `scripts/analyze_delivery.py`, and text-match is
-agy-only (unreliable) or a manual listening pass.
+in the app's already-granted process. The current physical-iPhone language lane implements (c): it
+uses a predeclared fixed seed, exact persisted WAV, and three-pass locale-locked on-device Speech
+consensus. The macOS CLI lane remains hint-only; no workflow falls back to subjective listening as a
+required gate.
 
 ## Status
 

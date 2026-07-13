@@ -1,20 +1,47 @@
 import Foundation
 import QwenVoiceCore
 
-/// Post-generation output verification for benchmark/device-diagnostics lanes — transcribes a WAV
-/// in-process (Speech, on-device) and scores language match + word error rate vs the
-/// source script. Avoids CLI Speech TCC issues documented in benchmarks/OPTIMIZATION.md.
+/// Post-generation output verification for benchmark/device-diagnostics lanes. The same immutable
+/// WAV is transcribed three times with one pinned, on-device Speech locale. Scores are emitted only
+/// when every pass returns the same transcript, preventing retry-until-pass behavior.
 enum GenerationOutputVerifier {
+    enum AccuracyMetric: String, Codable, Sendable, Equatable {
+        case wordErrorRate
+        case characterErrorRate
+    }
+
     struct Result: Codable, Sendable, Equatable {
+        static let currentSchemaVersion = 3
+        static let currentAlgorithmVersion = "language-output-verifier-v3"
+        static let currentAccuracyMetricVersion = "normalized-edit-rate-v1"
+
+        var schemaVersion: Int
+        var algorithmVersion: String
         var transcript: String
         var detectedLanguage: String
         var expectedLanguage: String
         var languageMatchScore: Double
-        var wordErrorRate: Double
+        var wordErrorRate: Double?
+        var characterErrorRate: Double?
+        var accuracyMetricVersion: String
+        var accuracyMetric: AccuracyMetric
+        var accuracyThreshold: Double
+        var accuracyValue: Double?
+        var referenceTokenCount: Int?
+        var hypothesisTokenCount: Int?
+        var referenceCharacterCount: Int?
+        var hypothesisCharacterCount: Int?
+        var substitutions: Int?
+        var insertions: Int?
+        var deletions: Int?
+        var characterSubstitutions: Int?
+        var characterInsertions: Int?
+        var characterDeletions: Int?
         var languagePass: Bool
-        var accuracyPass: Bool
+        var accuracyPass: Bool?
         var pass: Bool
         var skipReason: String?
+        var recognition: VoiceClipTranscriber.VerificationEvidence
     }
 
     static func verify(
@@ -23,84 +50,194 @@ enum GenerationOutputVerifier {
         expectedLanguage: Qwen3SupportedLanguage,
         maxWordErrorRate: Double = VoiceClipTranscriber.outputVerificationDefaultMaxWordErrorRate
     ) async -> Result {
-        let expectedToken = expectedLanguage.rawValue
-
-        switch VoiceClipTranscriber.availability() {
-        case .denied, .siriDisabled:
-            return skipped(expectedLanguage: expectedToken, reason: "speech_recognition_unavailable")
-        case .notDetermined, .available:
-            break
-        }
-
-        guard let transcript = await VoiceClipTranscriber.transcribeForVerification(
+        let recognition = await VoiceClipTranscriber.verificationEvidence(
             url: audioURL,
             expectedLanguage: expectedLanguage
-        ) else {
+        )
+
+        return evaluate(
+            recognition: recognition,
+            expectedScript: expectedScript,
+            expectedLanguage: expectedLanguage,
+            maxWordErrorRate: maxWordErrorRate
+        )
+    }
+
+    /// Pure evaluation seam for deterministic tests and offline evidence revalidation. It performs
+    /// no Speech or file-system operation; the retained recognition evidence is the sole input.
+    static func evaluate(
+        recognition: VoiceClipTranscriber.VerificationEvidence,
+        expectedScript: String,
+        expectedLanguage: Qwen3SupportedLanguage,
+        maxWordErrorRate: Double = VoiceClipTranscriber.outputVerificationDefaultMaxWordErrorRate
+    ) -> Result {
+        let expectedToken = expectedLanguage.rawValue
+        let accuracyMetric = accuracyMetric(for: expectedLanguage)
+        let accuracyThreshold = maxWordErrorRate
+
+        guard accuracyThreshold.isFinite, (0 ... 1).contains(accuracyThreshold) else {
             return failed(
-                expectedLanguage: expectedToken,
-                reason: "transcription_failed",
-                transcript: "",
-                detectedLanguage: Qwen3SupportedLanguage.auto.rawValue
+                expectedLanguage: expectedLanguage,
+                recognition: recognition,
+                accuracyMetric: accuracyMetric,
+                accuracyThreshold: accuracyThreshold.isFinite ? accuracyThreshold : -1,
+                reason: "accuracy_threshold_invalid"
+            )
+        }
+        if recognition.consensusStatus == .consistent {
+            guard VoiceClipTranscriber.isValidConsistentEvidence(
+                recognition,
+                expectedLanguage: expectedLanguage
+            ) else {
+                return failed(
+                    expectedLanguage: expectedLanguage,
+                    recognition: recognition,
+                    accuracyMetric: accuracyMetric,
+                    accuracyThreshold: accuracyThreshold,
+                    reason: "speech_recognition_evidence_invalid"
+                )
+            }
+        }
+
+        guard recognition.consensusStatus == .consistent,
+              recognition.evidenceConsistency,
+              let transcript = recognition.transcript else {
+            return failed(
+                expectedLanguage: expectedLanguage,
+                recognition: recognition,
+                accuracyMetric: accuracyMetric,
+                accuracyThreshold: accuracyThreshold,
+                reason: failureReason(for: recognition)
             )
         }
 
+        // Exact transcript consensus also guarantees identical deterministic edit metrics for all
+        // repetitions. Compute them once only after the conservative consensus gate.
         let detected = PromptLanguageDetector.detect(transcript)
-        let detectedToken = detected == .auto ? expectedToken : detected.rawValue
         let languageScore = VoiceClipTranscriber.languageMatchScore(
             text: transcript,
             expected: expectedLanguage
         )
         let languagePass = languageScore >= VoiceClipTranscriber.outputVerificationLanguagePassScore
-        let wer = VoiceClipTranscriber.wordErrorRate(
+        let wordMetrics = VoiceClipTranscriber.wordErrorMetrics(
             reference: expectedScript,
             hypothesis: transcript
         )
-        let accuracyPass = wer <= maxWordErrorRate
-        let pass = languagePass && accuracyPass
+        let characterMetrics = VoiceClipTranscriber.characterErrorMetrics(
+            reference: expectedScript,
+            hypothesis: transcript,
+            expectedLanguage: expectedLanguage
+        )
+        let accuracyValue = switch accuracyMetric {
+        case .wordErrorRate: wordMetrics.errorRate
+        case .characterErrorRate: characterMetrics.errorRate
+        }
+        let accuracyPass = accuracyValue <= accuracyThreshold
 
         return Result(
+            schemaVersion: Result.currentSchemaVersion,
+            algorithmVersion: Result.currentAlgorithmVersion,
             transcript: transcript,
-            detectedLanguage: detectedToken,
+            detectedLanguage: detected.rawValue,
             expectedLanguage: expectedToken,
             languageMatchScore: languageScore,
-            wordErrorRate: wer,
+            wordErrorRate: wordMetrics.errorRate,
+            characterErrorRate: characterMetrics.errorRate,
+            accuracyMetricVersion: Result.currentAccuracyMetricVersion,
+            accuracyMetric: accuracyMetric,
+            accuracyThreshold: accuracyThreshold,
+            accuracyValue: accuracyValue,
+            referenceTokenCount: wordMetrics.referenceCount,
+            hypothesisTokenCount: wordMetrics.hypothesisCount,
+            referenceCharacterCount: characterMetrics.referenceCount,
+            hypothesisCharacterCount: characterMetrics.hypothesisCount,
+            substitutions: wordMetrics.substitutions,
+            insertions: wordMetrics.insertions,
+            deletions: wordMetrics.deletions,
+            characterSubstitutions: characterMetrics.substitutions,
+            characterInsertions: characterMetrics.insertions,
+            characterDeletions: characterMetrics.deletions,
             languagePass: languagePass,
             accuracyPass: accuracyPass,
-            pass: pass,
-            skipReason: nil
-        )
-    }
-
-    private static func skipped(expectedLanguage: String, reason: String) -> Result {
-        Result(
-            transcript: "",
-            detectedLanguage: Qwen3SupportedLanguage.auto.rawValue,
-            expectedLanguage: expectedLanguage,
-            languageMatchScore: 0,
-            wordErrorRate: 1,
-            languagePass: false,
-            accuracyPass: false,
-            pass: false,
-            skipReason: reason
+            pass: languagePass && accuracyPass,
+            skipReason: nil,
+            recognition: recognition
         )
     }
 
     private static func failed(
-        expectedLanguage: String,
-        reason: String,
-        transcript: String,
-        detectedLanguage: String
+        expectedLanguage: Qwen3SupportedLanguage,
+        recognition: VoiceClipTranscriber.VerificationEvidence,
+        accuracyMetric: AccuracyMetric,
+        accuracyThreshold: Double,
+        reason: String
     ) -> Result {
         Result(
-            transcript: transcript,
-            detectedLanguage: detectedLanguage,
-            expectedLanguage: expectedLanguage,
+            schemaVersion: Result.currentSchemaVersion,
+            algorithmVersion: Result.currentAlgorithmVersion,
+            transcript: "",
+            detectedLanguage: Qwen3SupportedLanguage.auto.rawValue,
+            expectedLanguage: expectedLanguage.rawValue,
             languageMatchScore: 0,
-            wordErrorRate: 1,
+            wordErrorRate: nil,
+            characterErrorRate: nil,
+            accuracyMetricVersion: Result.currentAccuracyMetricVersion,
+            accuracyMetric: accuracyMetric,
+            accuracyThreshold: accuracyThreshold,
+            accuracyValue: nil,
+            referenceTokenCount: nil,
+            hypothesisTokenCount: nil,
+            referenceCharacterCount: nil,
+            hypothesisCharacterCount: nil,
+            substitutions: nil,
+            insertions: nil,
+            deletions: nil,
+            characterSubstitutions: nil,
+            characterInsertions: nil,
+            characterDeletions: nil,
             languagePass: false,
-            accuracyPass: false,
+            accuracyPass: nil,
             pass: false,
-            skipReason: reason
+            skipReason: reason,
+            recognition: recognition
         )
+    }
+
+    static func accuracyMetric(for language: Qwen3SupportedLanguage) -> AccuracyMetric {
+        switch language {
+        case .chinese, .japanese:
+            return .characterErrorRate
+        case .auto, .english, .korean, .german, .french, .russian, .portuguese, .spanish, .italian:
+            return .wordErrorRate
+        }
+    }
+
+    private static func failureReason(
+        for evidence: VoiceClipTranscriber.VerificationEvidence
+    ) -> String {
+        switch evidence.consensusStatus {
+        case .inconsistent:
+            return "speech_recognition_inconsistent"
+        case .incomplete:
+            return "speech_recognition_incomplete"
+        case .unavailable:
+            return "speech_recognition_unavailable"
+        case .failed:
+            if evidence.authorizationStatus == .timedOut {
+                return "speech_authorization_timed_out"
+            }
+            if evidence.authorizationStatus != .authorized {
+                return "speech_recognition_unauthorized"
+            }
+            if evidence.repetitions.contains(where: { $0.finalResultStatus == .timedOut }) {
+                return "speech_recognition_timed_out"
+            }
+            if evidence.repetitions.contains(where: { $0.finalResultStatus == .recognitionError }) {
+                return "speech_recognition_error"
+            }
+            return "transcription_failed"
+        case .consistent:
+            return "transcription_failed"
+        }
     }
 }

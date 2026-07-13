@@ -123,6 +123,19 @@
           "type": "array"
         },
         "telemetrySchemaVersion": {"type": ["integer", "string"]},
+        "languageVerification": {
+          "additionalProperties": false,
+          "properties": {
+            "accuracyMetricVersion": {"const": "normalized-edit-rate-v1"},
+            "outputAlgorithm": {"const": "language-output-verifier-v3"},
+            "outputSchemaVersion": {"const": 3},
+            "recognitionAlgorithm": {"const": "apple-speech-file-consensus-v2"},
+            "recognitionSchemaVersion": {"const": 2},
+            "requiredPassCount": {"const": 3}
+          },
+          "required": ["outputSchemaVersion", "outputAlgorithm", "recognitionSchemaVersion", "recognitionAlgorithm", "accuracyMetricVersion", "requiredPassCount"],
+          "type": "object"
+        },
         "trace": {"$ref": "#/$defs/trace"},
         "validatorPassed": {"const": true},
         "validatorSchemaVersion": {"type": ["integer", "string"]}
@@ -261,6 +274,9 @@
         "modelRevision": {"pattern": "^[0-9a-f]{40}$", "type": "string"},
         "output": {"$ref": "#/$defs/output"},
         "runtimeProfileSignature": {"type": "string"},
+        "seed": {"minimum": 0, "type": "integer"},
+        "accuracyMetric": {"enum": ["wordErrorRate", "characterErrorRate"]},
+        "accuracyThreshold": {"maximum": 1, "minimum": 0, "type": "number"},
         "fixtureDigest": {"type": "string"},
         "status": {"enum": ["passed", "passedWithWarnings"]},
         "takeIndex": {"minimum": 1, "type": "integer"},

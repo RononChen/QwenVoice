@@ -618,8 +618,9 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
     public let chunkTimeline: [GenerationChunkTelemetry]?
     /// Reference-free audio-quality verdict for this take (defect detection on the
     /// final PCM — NaN/clip/click/dropout/level). The objective regression tripwire
-    /// for backend changes; nil when not computed. Perceptual quality still needs the
-    /// listening pass — this catches gross defects, not subtle "sounds worse".
+    /// for backend changes; nil when not computed. This catches gross defects rather
+    /// than subjective naturalness; autonomous promotion combines it with the
+    /// applicable fixed-seed ASR, prosody, and delivery evidence.
     public let audioQC: AudioQCReport?
     /// Typed v6+ payloads. The legacy dictionaries above remain encoded for
     /// historical tools; new validators use these stable fields.
@@ -727,9 +728,10 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
 /// `PCM16StreamLimiter` per-sample pass (no stored golden, no model). The objective
 /// half of the quality gate: it catches gross defects (unstable model output,
 /// clipping, chunk-boundary clicks/discontinuities, mid-utterance dropouts, dead
-/// output). It deliberately does NOT judge subtle perceptual quality — that's the
-/// human/agent listening pass. Thresholds are conservative + tunable (see the
-/// builder in `NativeStreamingSynthesisSession`).
+/// output). It deliberately does NOT claim subjective naturalness. Autonomous
+/// promotion combines it with the applicable ASR, prosody, and delivery gates;
+/// optional listening remains annotation only. Thresholds are conservative +
+/// tunable (see the builder in `NativeStreamingSynthesisSession`).
 public struct AudioQCReport: Hashable, Codable, Sendable {
     /// v2 fixed cross-chunk interior-silence localization. v3 derives the
     /// written-output verdict from the atomically published WAV frames rather

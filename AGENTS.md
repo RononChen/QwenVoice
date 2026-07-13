@@ -51,6 +51,7 @@ Model/speaker schema: [`Sources/Resources/qwenvoice_contract.json`](Sources/Reso
 | **Codex/ChatGPT Desktop only** | This repository has no compatibility layer for another agent IDE. Codex/ChatGPT Desktop, installed OpenAI plugins, repository skills, and repository scripts are the supported development environment. |
 | **Publishing is deterministic-only** | Commits, pushes, pull requests, ordinary merges, ordinary CI, and release packaging require deterministic verification only. Missing models, a physical device, or XCUITest evidence must never block preserving, sharing, signing, notarizing, or uploading work. UI lanes run only for explicit frontend QA. |
 | **Benchmark history is PASS-only** | Successful benchmark runners publish one privacy-safe record under `benchmarks/runs/` and regenerate `benchmarks/HISTORY.md`. Raw telemetry, WAVs, screenshots, traces, and `.xcresult` bundles remain untracked. Publication never stages, commits, pushes, or turns model/device availability into a development gate. |
+| **Audio QA is autonomous** | Engine/language promotion uses deterministic PCM QC, fixed-seed evidence, locale-locked ASR consensus, and the applicable prosody/delivery gates. Human listening is optional annotation only. A QC warning may be tracked as `passedWithWarnings`, but it is not promotion-quality until a deterministic rule or code fix clears it. |
 
 Every active invariant must live here, in a role playbook, or in an authoritative reference document.
 
@@ -121,6 +122,7 @@ python3 scripts/test_check_language_output.py                # offline output-ga
 scripts/macos_test.sh lang-bench --subset quick              # Phase 2 — macOS CLI hint gate (needs models)
 scripts/ios_device.sh lang-bench --subset quick --label "lang-quick"  # Phases 2–3 — on-device hint + output (needs Speed)
 scripts/ios_device.sh lang-bench --subset full --label "lang-full"   # full 19-cell matrix (hint + output gates)
+scripts/ios_device.sh lang-bench --diagnostic-cohort                  # fixed 15-take autonomous failure cohort; no history
 ```
 
 **Verify:** core-test + offline fixtures exit 0. iOS lang-bench must print **`hint_gate=PASS`**
@@ -129,6 +131,8 @@ and **`output_gate=PASS`** (quick: 6/6 output cells; full: 18/18 — negative co
 Phase 3 adds locale-locked ASR via `check_language_output.py`. **DE/ES/ZH/JA output cells**
 require on-device Speech assets — setup: [`language-bench.md`](docs/reference/language-bench.md)
 § Phase 3 prerequisites (dictation languages + Wi‑Fi download on the phone).
+No listening verdict is required: exact fixed-seed WAV evidence, three-pass on-device ASR consensus,
+PCM QC, and the applicable prosody gates own the automated result.
 
 ### Release QA
 
@@ -143,8 +147,9 @@ QWENVOICE_DEBUG=1 ./build/vocello bench --modes clone --variants speed \
 ```
 
 **Verify:** packaging requires the applicable deterministic platform release check. When an engine
-promotion benchmark is explicitly requested, that separate quality decision also requires its
-audio-QC, telemetry comparison, and listening verdict →
+promotion benchmark is explicitly requested, that separate quality decision also requires clean
+audio-QC, telemetry comparison, fixed-seed evidence, and the applicable automated language/prosody
+gates. Listening remains optional independent annotation →
 [`docs/reference/benchmarking-procedure.md`](docs/reference/benchmarking-procedure.md).
 
 ## Key paths

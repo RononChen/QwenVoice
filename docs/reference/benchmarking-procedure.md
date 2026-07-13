@@ -24,7 +24,7 @@ peaks**, **first-chunk latency**, or **audio quality**:
 - Model load path, prewarm, clone conditioning
 - Before explicitly promoting engine-adjacent work or cutting a macOS/iOS release
 
-Benchmarks that require models, listening, a device, or XCUITest are not prerequisites for a
+Benchmarks that require models, a device, or XCUITest are not prerequisites for a
 commit, push, pull request, ordinary merge, ordinary CI run, or release package. They remain useful
 promotion and release-QA evidence when explicitly requested.
 
@@ -34,10 +34,10 @@ A benchmark pass requires **all** of the following:
 
 | Gate | Criterion |
 |------|-----------|
-| **audioQC** | No `fail` in any cell (`pass` or `warn` only). Any `fail` blocks promotion. |
+| **audioQC** | Publication accepts `pass` or `warn`; promotion requires `pass` in every required cell. Any `fail` blocks both. |
 | **RTF** | `derivedMetrics.audioSecondsPerWallSecond` reviewed against the nearest compatible clean record in generated [`benchmarks/HISTORY.md`](../../benchmarks/HISTORY.md). |
 | **Memory** | No rising `physFoot` peak or non-zero `hardTrim` in `trims` on floor-tier runs. |
-| **Listening pass** | Mandatory human ear check for engine changes — automated QC is a tripwire, not a substitute. |
+| **Automated output proof** | Fixed-seed cohort, exact WAV identity, and applicable locale-locked ASR/prosody gates pass. Human listening is optional annotation and is never inferred. |
 
 **RTF > 1** means faster than realtime (more audio seconds produced per wall second).
 
@@ -165,8 +165,9 @@ QWENVOICE_DEBUG=1 ./build/vocello bench \
   --label "release-QA"
 ```
 
-Gate: all cells `QC=pass` (or documented `warn` with listening pass); RTF within noise of
-`HISTORY.md`; **listening pass by ear**.
+Gate: all required cells `QC=pass`; RTF within noise of `HISTORY.md`; fixed-seed identity and every
+applicable automated language/prosody gate pass. A `warn` may remain in history but is not an
+engine-promotion pass.
 
 ### 4.2 Quick multi-mode smoke (Speed, short matrix)
 
@@ -569,15 +570,17 @@ preserves the former manual ledger as incomplete historical evidence.
 
 ### Listening annotation
 
-Automated success and perceptual review are independent. Add the latter without rewriting the run:
+Automated success and optional perceptual review are independent. Add the latter without rewriting
+the run:
 
 ```sh
 python3 scripts/benchmark_history.py annotate --run-id <run-id> \
   --listening pass --note "reviewed representative takes"
 ```
 
-Use `fail` or `not-performed` when appropriate. Listening remains required for an explicit engine
-promotion decision, but its absence does not turn a successful automated benchmark into a failure.
+Use `fail` or `not-performed` when appropriate. Listening never changes the automated verdict and
+is not required for promotion; it records subjective observations that deterministic gates do not
+claim to measure.
 
 ### Baseline comparison (JSON, machine-gated)
 
@@ -638,17 +641,20 @@ stamps `notes.languageHint` (resolved Qwen3 token, not raw UI picker). Gate with
 `scripts/check_language_hints.py` against `config/language-bench-matrix.json`.
 Offline fixture self-test: `python3 scripts/test_check_language_hints.py`.
 
-### Layer 2.6 — Output language + WER (Phase 3, iOS device diagnostics)
+### Layer 2.6 — Output language + WER/CER (Phase 3, iOS device diagnostics)
 
-When `QVOICE_IOS_DEVICE_DIAGNOSTICS_VERIFY_OUTPUT=1`, the app transcribes each bench WAV
-in-process (Speech) and stamps `outputVerification` on `device-diagnostics-done.json`. Gate with
-`scripts/check_language_output.py`. Requires Speech Recognition permission on the phone once.
-Skip with `QVOICE_LANG_BENCH_SKIP_OUTPUT=1`. See [`language-bench.md`](language-bench.md).
+When `QVOICE_IOS_DEVICE_DIAGNOSTICS_VERIFY_OUTPUT=1`, the app transcribes each exact fixed-seed WAV
+three times in-process with one locale-locked on-device Speech recognizer and stamps the consensus
+evidence on `device-diagnostics-done.json`. `scripts/check_language_output.py` independently
+recomputes edit metrics from the corpus: WER is primary for word-delimited languages and CER for
+Chinese/Japanese, both with a 0.15 ceiling. Requires Speech Recognition permission on the phone
+once. Skip with `QVOICE_LANG_BENCH_SKIP_OUTPUT=1`. See [`language-bench.md`](language-bench.md).
 
-### Layer 3 — Listening pass (mandatory for engine promotion/release)
+### Layer 3 — Optional listening annotation
 
-Play takes; judge timbre, prosody, artifacts. Record the independent verdict with
-`scripts/benchmark_history.py annotate`; never edit `HISTORY.md` directly.
+When desired, play takes and record a subjective timbre/prosody observation with
+`scripts/benchmark_history.py annotate`; never edit `HISTORY.md` directly. This annotation is not
+an automated gate and does not authorize overriding a deterministic failure or warning.
 
 ---
 
@@ -704,7 +710,7 @@ Engine regression net remains **manual local** until a self-hosted macOS bench j
 | `preflightModels` fails Quality | Speed-only fixture | Install Quality weights or use `--variants speed` |
 | Summarizer empty | Wrong diagnostics dir / gate off | Confirm `QWENVOICE_DEBUG=1`; check `engine/generations.jsonl` |
 | RTF vs decode ms disagree | Different time bases + lazy MLX | Read §6.3; use signpost trace |
-| All QC warn:dropout on long | Often natural pauses | Listening pass; check punctuation-aware budget |
+| All QC warn:dropout on long | Often natural pauses | Run the fixed-seed exact-WAV cohort; inspect the punctuation-aware budget, ASR consensus, and prosody evidence |
 | iOS bench timeout | Model missing / device diagnostics did not complete | `scripts/ios_device.sh console`; install Speed model |
 | Clone cold row appears | Corrupt matrix ordering, generation map, or frozen evidence | **Hard failure:** inspect `bench-results.json` or the UI generation map plus `benchmark-evidence.json`, repair the producer/selection mismatch, and rerun. Never relabel or ignore a Clone cold row. |
 
