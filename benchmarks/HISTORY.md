@@ -116,6 +116,12 @@ from schema-v2 memory trends.
 |---|---|---|---|---|---|---:|---|---|---|---|
 | 2026-07-12 | [`ios-xcui-benchmark-20260712-194549-2b2a7d4f`](runs/ui-generation/ios-xcui-benchmark-20260712-194549-2b2a7d4f.json) | focused | exploratory | passed | memory-contract-incomplete | 2 | `1ef1669326b5` dirty | `excluded` | baseline | telemetry-v7-focused |
 
+## ui-generation / ios / iphone-17-pro / config `fc0fc2887412`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-14 | [`ios-xcui-benchmark-20260714-105423-4dddee2f`](runs/ui-generation/ios-xcui-benchmark-20260714-105423-4dddee2f.json) | focused | focused | passedWithWarnings | qualified-with-warnings | 5 | `4b79bb497f1b` | `fc0fc2887412` | baseline | ios-v2-focused |
+
 ## ui-generation / macos / mac-mini-m2-8gb / config `4a5bd9c374be`
 
 | completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
