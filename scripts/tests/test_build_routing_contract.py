@@ -254,10 +254,13 @@ class BuildRoutingContractTests(unittest.TestCase):
         build_index = profile.index("\n  cmd_build\n")
         install_index = profile.index("\n  cmd_install >/dev/null\n")
         snapshot_index = profile.index("\n  capture_benchmark_source \"$artifacts\"\n")
+        late_xctrace_index = profile.rindex('xctrace_dev="$(resolve_xctrace_device "$dev")"')
         launch_index = profile.index("xcrun devicectl device process launch")
         self.assertLess(build_index, install_index)
         self.assertLess(install_index, snapshot_index)
-        self.assertLess(snapshot_index, launch_index)
+        self.assertLess(snapshot_index, late_xctrace_index)
+        self.assertLess(late_xctrace_index, launch_index)
+        self.assertEqual(profile.count('xctrace_dev="$(resolve_xctrace_device "$dev")"'), 2)
 
     def test_ui_lifecycle_metadata_is_atomic_and_failure_aware(self) -> None:
         text = self.text("scripts/ui_test.sh")

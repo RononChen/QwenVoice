@@ -1290,6 +1290,9 @@ cmd_profile() {
   python3 "$ROOT_DIR/scripts/lib/profile_trace_retention.py" preflight \
     --root "$ROOT_DIR" --kind "$kind" >/dev/null \
     || die "profile disk-space preflight failed after build/install and before target launch"
+  # A long rebuild/install can change the CoreDevice-to-Instruments route. Resolve
+  # it again at the point of use rather than trusting the earlier fail-fast probe.
+  xctrace_dev="$(resolve_xctrace_device "$dev")"
   PROFILE_TRACE_PHASE="target-launch"
   xcrun devicectl device process launch --device "$dev" --terminate-existing --start-stopped \
     -e "$env_json" --json-output "$launch_json" "$BUNDLE_ID" \
