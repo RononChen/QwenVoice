@@ -91,7 +91,8 @@ uuid_set() {
 }
 
 validate_dsym_identity() {
-  local binary="$1" dsym="$2" dwarf="$dsym/Contents/Resources/DWARF/Vocello"
+  local binary="$1" dsym="$2"
+  local dwarf="$dsym/Contents/Resources/DWARF/Vocello"
   [[ -f "$binary" ]] || die "cannot validate dSYM: missing Mach-O $binary"
   [[ -f "$dwarf" ]] || die "cannot validate dSYM: missing DWARF binary $dwarf"
   local binary_uuids dsym_uuids
@@ -913,7 +914,8 @@ PY
   [[ -n "$cohort" ]] && cohort_args+=(--cohort "$cohort")
   python3 "$ROOT_DIR/scripts/language_bench_evidence.py" collect \
     --source "$dest" --plan "$plan" --output "$diag" \
-    --matrix "$matrix" --corpus "$corpus" --subset "$subset" "${cohort_args[@]}" \
+    --matrix "$matrix" --corpus "$corpus" --subset "$subset" \
+    ${cohort_args[@]+"${cohort_args[@]}"} \
     | tee "$artifacts/evidence-collection.txt" || collect_st=$?
 
   local hint_st=0 output_st=0
@@ -921,13 +923,14 @@ PY
   [[ -n "$cohort" ]] && hint_gate_args+=(--strict-qc)
   python3 "$ROOT_DIR/scripts/check_language_hints.py" "$diag" \
     --run-id "$run_id" --matrix "$matrix" --corpus "$corpus" --subset "$subset" --plan "$plan" \
-    "${hint_gate_args[@]}" "${cohort_args[@]}" \
+    ${hint_gate_args[@]+"${hint_gate_args[@]}"} \
+    ${cohort_args[@]+"${cohort_args[@]}"} \
     | tee "$artifacts/hint-gate.txt" || hint_st=$?
 
   if [[ "${QVOICE_LANG_BENCH_SKIP_OUTPUT:-0}" != "1" ]]; then
     python3 "$ROOT_DIR/scripts/check_language_output.py" "$diag" \
       --run-id "$run_id" --matrix "$matrix" --corpus "$corpus" --subset "$subset" --plan "$plan" \
-      "${cohort_args[@]}" \
+      ${cohort_args[@]+"${cohort_args[@]}"} \
       | tee "$artifacts/output-gate.txt" || output_st=$?
   fi
 
@@ -1241,7 +1244,9 @@ cmd_profile() {
   local xctrace_dev
   xctrace_dev="$(resolve_xctrace_device "$dev")"
 
-  [[ -d "$APP_PATH" ]] || cmd_build
+  # Profiling evidence must describe the current checkout, not merely whatever
+  # compatible app happens to remain in the persistent device cache.
+  cmd_build
   cmd_install >/dev/null
   local run_id
   run_id="ios-${kind}-profile-$(date -u +%Y%m%d-%H%M%S)-$(benchmark_nonce)"
@@ -1287,6 +1292,9 @@ cmd_profile() {
   python3 "$ROOT_DIR/scripts/lib/profile_trace_retention.py" preflight \
     --root "$ROOT_DIR" --kind "$kind" >/dev/null \
     || die "profile disk-space preflight failed after build/install and before target launch"
+  # A long rebuild/install can change the CoreDevice-to-Instruments route. Resolve
+  # it again at the point of use rather than trusting the earlier fail-fast probe.
+  xctrace_dev="$(resolve_xctrace_device "$dev")"
   PROFILE_TRACE_PHASE="target-launch"
   xcrun devicectl device process launch --device "$dev" --terminate-existing --start-stopped \
     -e "$env_json" --json-output "$launch_json" "$BUNDLE_ID" \

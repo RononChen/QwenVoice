@@ -186,7 +186,7 @@ enum BenchCommand {
         setenv("QVOICE_MAC_BENCH_RUN_ID", runID, 1)
         defer {
             unsetenv("QVOICE_MAC_BENCH_RUN_ID")
-            try? FileManager.default.removeItem(atPath: "/tmp/vocello-bench-current-take.json")
+            BenchRunContext.clearCurrentTakeFile()
         }
 
         // --force-class: run constrained-tier code paths on any Mac. Must be set
@@ -328,7 +328,7 @@ enum BenchCommand {
                     let coldText = try requiredText(for: coldLen)
                     total += 1
                     let cell = "\(mode.rawValue)/\(variantStr.lowercased())/\(coldLen)/cold#0"
-                    BenchRunContext.writeCurrentTakeFile(
+                    try BenchRunContext.writeCurrentTakeFile(
                         takeIndex: total, cell: cell, intendedWarmState: "cold"
                     )
                     takeResults.append(try await take(
@@ -351,7 +351,7 @@ enum BenchCommand {
                         let retainedWarmState = memoryQualification != nil && mode == .clone && n == 0
                             ? "cold"
                             : "warm"
-                        BenchRunContext.writeCurrentTakeFile(
+                        try BenchRunContext.writeCurrentTakeFile(
                             takeIndex: total, cell: cell, intendedWarmState: retainedWarmState
                         )
                         takeResults.append(try await take(
@@ -377,7 +377,7 @@ enum BenchCommand {
                             deliveryStyle: item.instruction)
                         total += 1
                         let cell = "\(mode.rawValue)/\(variantStr.lowercased())/medium/warm#delivery-\(item.id)"
-                        BenchRunContext.writeCurrentTakeFile(
+                        try BenchRunContext.writeCurrentTakeFile(
                             takeIndex: total, cell: cell, intendedWarmState: "warm"
                         )
                         takeResults.append(try await take(

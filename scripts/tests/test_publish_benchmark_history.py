@@ -629,6 +629,32 @@ class PublisherTests(unittest.TestCase):
         ):
             publisher.verify_canonical_hardware("ios", ios_evidence=evidence)
 
+    def test_ios_headless_hardware_evidence_uses_exact_run_manifest(self) -> None:
+        run_id = "ios-memory-run"
+        run_dir = self.root / run_id
+        run_dir.mkdir()
+        (run_dir / "manifest.json").write_text(json.dumps({
+            "runID": run_id,
+            "deviceModel": "iPhone",
+            "systemName": "iOS",
+            "systemVersion": "26.5",
+            "appSupportDirectory": "/private/sensitive/path",
+        }), encoding="utf-8")
+
+        self.assertEqual(
+            publisher.ios_run_hardware_evidence(self.root, run_id),
+            [{
+                "deviceModel": "iPhone",
+                "systemName": "iOS",
+                "systemVersion": "26.5",
+            }],
+        )
+        payload = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+        payload["runID"] = "wrong-run"
+        (run_dir / "manifest.json").write_text(json.dumps(payload), encoding="utf-8")
+        with self.assertRaisesRegex(publisher.PublicationError, "does not match"):
+            publisher.ios_run_hardware_evidence(self.root, run_id)
+
     def test_failed_qc_never_reaches_recording(self) -> None:
         row = engine_row("bad", qc="fail")
         with self.assertRaises(publisher.PublicationError):

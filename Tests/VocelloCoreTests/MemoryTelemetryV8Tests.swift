@@ -3,6 +3,35 @@ import Foundation
 import XCTest
 
 final class MemoryTelemetryV8Tests: XCTestCase {
+    func testBenchRunContextCurrentTakeFileRoundTripsAndClears() throws {
+        BenchRunContext.clearCurrentTakeFile()
+        defer { BenchRunContext.clearCurrentTakeFile() }
+
+        try BenchRunContext.writeCurrentTakeFile(
+            takeIndex: 7,
+            cell: "clone/speed/medium/retained#2",
+            intendedWarmState: "warm"
+        )
+
+        XCTAssertEqual(
+            BenchRunContext.currentTakeFileNotes(),
+            [
+                "benchTakeIndex": "7",
+                "benchCell": "clone/speed/medium/retained#2",
+                "benchWarmState": "warm",
+            ]
+        )
+        #if os(macOS)
+        XCTAssertEqual(
+            BenchRunContext.currentTakeFileURL.path,
+            "/tmp/vocello-bench-current-take.json"
+        )
+        #endif
+
+        BenchRunContext.clearCurrentTakeFile()
+        XCTAssertNil(BenchRunContext.currentTakeFileNotes())
+    }
+
     func testSchemaV7RowDecodesWithoutV8MemoryPayload() throws {
         let json = """
         {
@@ -339,6 +368,40 @@ final class MemoryTelemetryV8Tests: XCTestCase {
             failedCell: "custom/speed/medium/not-a-real-cell"
         )
         XCTAssertThrowsError(try invalid.validate())
+    }
+
+    func testIOSMemoryQualificationTelemetryFailureCodesRemainBoundedAndTyped() throws {
+        let codes: [IOSMemoryQualificationFailureCode] = [
+            .takeIdentityUnavailable,
+            .telemetryUnavailable,
+            .telemetryRowCountInvalid,
+            .telemetryIdentityInvalid,
+            .telemetryFinishInvalid,
+            .telemetryRunIdentityInvalid,
+            .telemetryOutputInvalid,
+            .telemetryMemoryEvidenceIncomplete,
+            .telemetrySampleSidecarUnavailable,
+            .telemetrySampleSidecarInvalid,
+            .telemetryBoundaryIncomplete,
+        ]
+
+        for code in codes {
+            let status = IOSMemoryQualificationFailureStatus(
+                runID: "ios-memory-qualification-typed-failure",
+                failedAt: "2026-07-14T12:00:00Z",
+                failureCode: code,
+                completedTakeCount: 0,
+                failedTakeIndex: 1,
+                failedCell: "custom/speed/medium/retained#0"
+            )
+            try status.validate()
+            let data = try JSONEncoder().encode(status)
+            XCTAssertLessThanOrEqual(
+                data.count,
+                IOSMemoryQualificationFailureStatus.maximumEncodedBytes
+            )
+            XCTAssertTrue(String(decoding: data, as: UTF8.self).contains(code.rawValue))
+        }
     }
 
     private func sample(

@@ -220,8 +220,47 @@ class BuildRoutingContractTests(unittest.TestCase):
         ios = self.text("scripts/ios_device.sh")
         self.assertIn("validate_dsym_identity", ios)
         self.assertIn("QVOICE_SYMBOLS_IOS", ios)
+        self.assertIn(
+            'local binary="$1" dsym="$2"\n  local dwarf="$dsym/Contents/Resources/DWARF/Vocello"',
+            ios,
+        )
         policy = self.text("scripts/build_output_policy.py")
         self.assertIn("_symbol_identity_violations", policy)
+
+    def test_benchmark_take_identity_uses_platform_appropriate_temporary_storage(self) -> None:
+        context = self.text("Sources/QwenVoiceCore/BenchRunContext.swift")
+        self.assertIn("#if os(iOS)", context)
+        self.assertIn("FileManager.default.temporaryDirectory", context)
+        self.assertIn(
+            'URL(fileURLWithPath: "/tmp/vocello-bench-current-take.json"',
+            context,
+        )
+        self.assertIn("try data.write(to: currentTakeFileURL, options: .atomic)", context)
+        self.assertIn("currentTakeFileNotes() == payload", context)
+
+        runner = self.text("Sources/iOS/IOSDeviceDiagnosticsRunner.swift")
+        self.assertIn("try BenchRunContext.writeCurrentTakeFile", runner)
+        self.assertIn("defer { BenchRunContext.clearCurrentTakeFile() }", runner)
+        self.assertNotIn(
+            'URL(fileURLWithPath: "/tmp/vocello-bench-current-take.json")',
+            runner,
+        )
+
+    def test_ios_profile_rebuilds_before_install_and_source_snapshot(self) -> None:
+        ios = self.text("scripts/ios_device.sh")
+        start = ios.index("cmd_profile() {")
+        end = ios.index("\n# memory", start)
+        profile = ios[start:end]
+        build_index = profile.index("\n  cmd_build\n")
+        install_index = profile.index("\n  cmd_install >/dev/null\n")
+        snapshot_index = profile.index("\n  capture_benchmark_source \"$artifacts\"\n")
+        late_xctrace_index = profile.rindex('xctrace_dev="$(resolve_xctrace_device "$dev")"')
+        launch_index = profile.index("xcrun devicectl device process launch")
+        self.assertLess(build_index, install_index)
+        self.assertLess(install_index, snapshot_index)
+        self.assertLess(snapshot_index, late_xctrace_index)
+        self.assertLess(late_xctrace_index, launch_index)
+        self.assertEqual(profile.count('xctrace_dev="$(resolve_xctrace_device "$dev")"'), 2)
 
     def test_ui_lifecycle_metadata_is_atomic_and_failure_aware(self) -> None:
         text = self.text("scripts/ui_test.sh")

@@ -25,6 +25,12 @@ from schema-v2 memory trends.
 |---|---|---|---|---|---|---:|---|---|---|---|
 | 2026-07-12 | [`macos-engine-20260712-204208-0cb5705c`](runs/engine-generation/macos-engine-20260712-204208-0cb5705c.json) | focused | exploratory | passed | memory-contract-incomplete | 2 | `1ef1669326b5` dirty | `excluded` | baseline | telemetry-v7-cli-focused |
 
+## instrument-profile / ios / iphone-17-pro / config `1259c1914031`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-14 | [`ios-memory-profile-20260714-112759-9a573224`](runs/instrument-profile/ios-memory-profile-20260714-112759-9a573224.json) | instrumented | instrumented | passedWithWarnings | qualified-with-warnings | 1 | `d416ad4b6f27` | `excluded` | baseline | instrument-memory-profile |
+
 ## instrument-profile / ios / iphone-17-pro / config `cf942dbf82f5`
 
 | completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
@@ -49,12 +55,25 @@ from schema-v2 memory trends.
 |---|---|---|---|---|---|---:|---|---|---|---|
 | 2026-07-12 | [`mac-profile-20260712-210447-f2761314`](runs/instrument-profile/mac-profile-20260712-210447-f2761314.json) | instrumented | exploratory | passed | memory-contract-incomplete | 2 | `1ef1669326b5` dirty | `excluded` | baseline | instrument-profile |
 
+## language / ios / iphone-17-pro / config `b79ed611e84b`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-14 | [`ios-lang-bench-20260714-115552-6abc66a9`](runs/language/ios-lang-bench-20260714-115552-6abc66a9.json) | focused | focused | passedWithWarnings | qualified-with-warnings | 7 | `c6157ee65880` | `b79ed611e84b` | baseline | ios-lang-quick-v2 |
+
 ## language / macos / mac-mini-m2-8gb / config `642f6a5a33ac`
 
 | completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
 |---|---|---|---|---|---|---:|---|---|---|---|
 | 2026-07-12 | [`mac-lang-bench-20260712-210629-ab917917`](runs/language/mac-lang-bench-20260712-210629-ab917917.json) | partial | exploratory | passed | memory-contract-incomplete | 7 | `1ef1669326b5` dirty | `excluded` | baseline | telemetry-v7-language-quick |
 | 2026-07-12 | [`mac-lang-bench-20260712-210714-0a22efca`](runs/language/mac-lang-bench-20260712-210714-0a22efca.json) | partial | exploratory | passed | memory-contract-incomplete | 7 | `1ef1669326b5` dirty | `excluded` | baseline | telemetry-v7-language-quick |
+
+## memory-qualification / ios / iphone-17-pro / config `7482ce732e47`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-14 | [`ios-memory-qualification-20260714-112015-8aa21f7e`](runs/memory-qualification/ios-memory-qualification-20260714-112015-8aa21f7e.json) | focused | exploratory | passedWithWarnings | qualified-with-warnings | 9 | `fe15820531a5` dirty | `excluded` | baseline | ios-memory-qualification-20260714-112015-8aa21f7e |
+| 2026-07-14 | [`ios-memory-qualification-20260714-112536-32554d95`](runs/memory-qualification/ios-memory-qualification-20260714-112536-32554d95.json) | focused | focused | passedWithWarnings | qualified-with-warnings | 9 | `ab102beda89b` | `7482ce732e47` | baseline | ios-memory-qualification-20260714-112536-32554d95 |
 
 ## memory-qualification / macos / mac-mini-m2-8gb / config `664a0267b9b5`
 
@@ -86,6 +105,12 @@ from schema-v2 memory trends.
 |---|---|---|---|---|---|---:|---|---|---|---|
 | 2026-07-13 | [`ios-xcui-benchmark-20260713-042913-57f9e32e`](runs/ui-generation/ios-xcui-benchmark-20260713-042913-57f9e32e.json) | focused | exploratory | passed | memory-contract-incomplete | 2 | `04083b15a4e2` dirty | `excluded` | baseline | focused-short-playback-repair-20260713 |
 
+## ui-generation / ios / iphone-17-pro / config `82d0f31be140`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-14 | [`ios-xcui-benchmark-20260714-113139-3b4b6d6c`](runs/ui-generation/ios-xcui-benchmark-20260714-113139-3b4b6d6c.json) | canonical | canonical | passedWithWarnings | qualified-with-warnings | 29 | `6ffdbfddff09` | `82d0f31be140` | baseline | ios-canonical-v2 |
+
 ## ui-generation / ios / iphone-17-pro / config `8784432a549e`
 
 | completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
@@ -115,6 +140,12 @@ from schema-v2 memory trends.
 | completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
 |---|---|---|---|---|---|---:|---|---|---|---|
 | 2026-07-12 | [`ios-xcui-benchmark-20260712-194549-2b2a7d4f`](runs/ui-generation/ios-xcui-benchmark-20260712-194549-2b2a7d4f.json) | focused | exploratory | passed | memory-contract-incomplete | 2 | `1ef1669326b5` dirty | `excluded` | baseline | telemetry-v7-focused |
+
+## ui-generation / ios / iphone-17-pro / config `fc0fc2887412`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-14 | [`ios-xcui-benchmark-20260714-105423-4dddee2f`](runs/ui-generation/ios-xcui-benchmark-20260714-105423-4dddee2f.json) | focused | focused | passedWithWarnings | qualified-with-warnings | 5 | `4b79bb497f1b` | `fc0fc2887412` | baseline | ios-v2-focused |
 
 ## ui-generation / macos / mac-mini-m2-8gb / config `4a5bd9c374be`
 

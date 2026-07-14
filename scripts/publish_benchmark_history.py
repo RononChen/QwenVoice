@@ -211,6 +211,26 @@ def verify_canonical_hardware(
     return {"profileID": str(profile["id"])}
 
 
+def ios_run_hardware_evidence(diagnostics: Path, run_id: str) -> list[dict[str, Any]]:
+    """Return privacy-reduced physical-device evidence for one headless iOS run."""
+    candidates = [diagnostics / run_id / "manifest.json"]
+    if diagnostics.name == run_id:
+        candidates.append(diagnostics / "manifest.json")
+    existing = list(dict.fromkeys(path for path in candidates if path.is_file()))
+    if len(existing) != 1:
+        raise PublicationError(
+            "iOS headless benchmark requires exactly one run-scoped diagnostics manifest"
+        )
+    manifest = load_json(existing[0])
+    if manifest.get("runID") != run_id:
+        raise PublicationError("iOS diagnostics manifest does not match the benchmark run")
+    return [{
+        "deviceModel": manifest.get("deviceModel"),
+        "systemName": manifest.get("systemName"),
+        "systemVersion": manifest.get("systemVersion"),
+    }]
+
+
 def canonical_bytes(value: Any) -> bytes:
     return json.dumps(
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False
@@ -1200,6 +1220,10 @@ def engine_command(args: argparse.Namespace, *, kind: str = "engine-generation",
     if selected_app:
         for take in takes:
             take["layers"] = ["engine", "app"]
+    hardware_evidence = (
+        ios_run_hardware_evidence(args.diagnostics, args.run_id)
+        if args.platform == "ios" else None
+    )
     try:
         qualified_memory, memory_run = qualify_memory_rows(
             rows=selected,
@@ -1309,6 +1333,7 @@ def engine_command(args: argparse.Namespace, *, kind: str = "engine-generation",
             ),
         },
         hardware=hardware_context(selected),
+        hardware_evidence=hardware_evidence,
         models=exact_models(args.platform, takes),
         crash_delta=crash_delta_from_snapshot(
             args.snapshot,
