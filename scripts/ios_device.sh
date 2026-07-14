@@ -91,7 +91,8 @@ uuid_set() {
 }
 
 validate_dsym_identity() {
-  local binary="$1" dsym="$2" dwarf="$dsym/Contents/Resources/DWARF/Vocello"
+  local binary="$1" dsym="$2"
+  local dwarf="$dsym/Contents/Resources/DWARF/Vocello"
   [[ -f "$binary" ]] || die "cannot validate dSYM: missing Mach-O $binary"
   [[ -f "$dwarf" ]] || die "cannot validate dSYM: missing DWARF binary $dwarf"
   local binary_uuids dsym_uuids

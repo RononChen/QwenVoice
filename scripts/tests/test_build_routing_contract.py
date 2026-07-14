@@ -220,6 +220,10 @@ class BuildRoutingContractTests(unittest.TestCase):
         ios = self.text("scripts/ios_device.sh")
         self.assertIn("validate_dsym_identity", ios)
         self.assertIn("QVOICE_SYMBOLS_IOS", ios)
+        self.assertIn(
+            'local binary="$1" dsym="$2"\n  local dwarf="$dsym/Contents/Resources/DWARF/Vocello"',
+            ios,
+        )
         policy = self.text("scripts/build_output_policy.py")
         self.assertIn("_symbol_identity_violations", policy)
 
