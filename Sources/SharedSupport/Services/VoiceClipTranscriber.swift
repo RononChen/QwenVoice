@@ -325,6 +325,10 @@ enum VoiceClipTranscriber {
               !selectedLocale.isEmpty,
               selectedLocale.lowercased() != "auto",
               evidence.selectedLocaleIdentifier == selectedLocale,
+              localeMatchesExpectedLanguage(
+                  identifier: selectedLocale,
+                  expected: expectedLanguage
+              ),
               let transcript = evidence.transcript?.trimmingCharacters(in: .whitespacesAndNewlines),
               !transcript.isEmpty,
               evidence.transcript == transcript,
@@ -382,15 +386,41 @@ enum VoiceClipTranscriber {
         guard !trimmed.isEmpty else { return 0 }
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(trimmed)
+        let hypotheses = recognizer.languageHypotheses(withMaximum: 5).map {
+            (languageIdentifier: $0.key.rawValue, probability: $0.value)
+        }
+        return boundedLanguageMatchScore(hypotheses: hypotheses, expected: expected)
+    }
+
+    /// Aggregates region/script variants into one base-language probability while preserving the
+    /// schema's [0, 1] range. `NLLanguageRecognizer` can report one variant at 1.0 plus a tiny
+    /// positive probability for another variant, so the raw floating-point sum is not bounded.
+    static func boundedLanguageMatchScore(
+        hypotheses: [(languageIdentifier: String, probability: Double)],
+        expected: Qwen3SupportedLanguage
+    ) -> Double {
+        guard expected != .auto else { return 0 }
         var score = 0.0
-        for (language, probability) in recognizer.languageHypotheses(withMaximum: 5) {
-            let code = Locale(identifier: language.rawValue).language.languageCode?.identifier
-                ?? language.rawValue
+        for (languageIdentifier, probability) in hypotheses
+        where probability.isFinite && probability > 0 {
+            let code = Locale(identifier: languageIdentifier).language.languageCode?.identifier
+                ?? languageIdentifier
             if Qwen3SupportedLanguage.normalized(code) == expected {
                 score += probability
             }
         }
-        return score
+        return min(1, max(0, score))
+    }
+
+    static func localeMatchesExpectedLanguage(
+        identifier: String,
+        expected: Qwen3SupportedLanguage
+    ) -> Bool {
+        guard expected != .auto,
+              let code = Locale(identifier: identifier).language.languageCode?.identifier else {
+            return false
+        }
+        return Qwen3SupportedLanguage.normalized(code) == expected
     }
 
     static func wordErrorMetrics(reference: String, hypothesis: String) -> EditMetrics {

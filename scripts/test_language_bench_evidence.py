@@ -64,6 +64,8 @@ def build_source(root: Path, plan: dict, *, stale: bool = False) -> None:
             "samplingVariation": take["samplingVariation"],
             "requestedLanguageHint": take["uiHint"],
             "languageHintSource": "auto" if take["uiHint"] == "auto" else "explicit",
+            "customSpeakerID": take.get("customSpeakerID"),
+            "fixtureDigest": take.get("designInstructionDigest"),
             "outputEvidence": {
                 "artifactRelativePath": "output.wav",
                 "sha256": sha256(wav),
@@ -179,6 +181,89 @@ class LanguageBenchEvidenceTests(unittest.TestCase):
         by_cell = {take["cellID"]: take for take in first["takes"]}
         self.assertEqual(by_cell["custom-en-pinned"]["seed"], by_cell["custom-en-auto"]["seed"])
         self.assertEqual(by_cell["custom-fr-pinned"]["seed"], by_cell["custom-fr-auto"]["seed"])
+        self.assertEqual(by_cell["custom-en-pinned"]["customSpeakerID"], "aiden")
+        self.assertEqual(by_cell["design-en-pinned"]["uiHint"], "english")
+        self.assertIsNone(by_cell["design-en-pinned"]["customSpeakerID"])
+        self.assertRegex(by_cell["design-en-pinned"]["designInstructionDigest"], r"^[0-9a-f]{64}$")
+        full = build_plan(
+            run_id="full-fixture",
+            matrix_path=MATRIX,
+            corpus_path=CORPUS,
+            subset="full",
+            cohort_path=None,
+        )
+        self.assertEqual(
+            len({
+                take["designInstructionDigest"]
+                for take in full["takes"]
+                if take["mode"] == "design"
+            }),
+            1,
+        )
+
+    def test_plan_rejects_short_scripts_and_auto_design_language(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            corpus_path = root / "corpus.json"
+            matrix_path = root / "matrix.json"
+            corpus = json.loads(CORPUS.read_text(encoding="utf-8"))
+            matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
+
+            corpus["languages"][0]["script"] = "Too short for promotion."
+            write_json_atomic(corpus_path, corpus)
+            write_json_atomic(matrix_path, matrix)
+            with self.assertRaisesRegex(EvidenceError, "requires at least 15"):
+                build_plan(
+                    run_id="short-script-fixture",
+                    matrix_path=matrix_path,
+                    corpus_path=corpus_path,
+                    subset="quick",
+                    cohort_path=None,
+                )
+
+            corpus = json.loads(CORPUS.read_text(encoding="utf-8"))
+            design = next(cell for cell in matrix["cells"] if cell["mode"] == "design")
+            design["uiHint"] = "auto"
+            write_json_atomic(corpus_path, corpus)
+            write_json_atomic(matrix_path, matrix)
+            with self.assertRaisesRegex(EvidenceError, "explicit target language"):
+                build_plan(
+                    run_id="auto-design-fixture",
+                    matrix_path=matrix_path,
+                    corpus_path=corpus_path,
+                    subset="quick",
+                    cohort_path=None,
+                )
+
+            corpus = json.loads(CORPUS.read_text(encoding="utf-8"))
+            matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
+            corpus["languages"][0]["customSpeakerID"] = "unknown_speaker"
+            write_json_atomic(corpus_path, corpus)
+            write_json_atomic(matrix_path, matrix)
+            with self.assertRaisesRegex(EvidenceError, "absent from qwenvoice_contract"):
+                build_plan(
+                    run_id="unknown-speaker-fixture",
+                    matrix_path=matrix_path,
+                    corpus_path=corpus_path,
+                    subset="quick",
+                    cohort_path=None,
+                )
+
+            corpus = json.loads(CORPUS.read_text(encoding="utf-8"))
+            matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
+            corpus["languages"][1]["designInstruction"] = (
+                "A distinctly different fixture that would confound language comparisons."
+            )
+            write_json_atomic(corpus_path, corpus)
+            write_json_atomic(matrix_path, matrix)
+            with self.assertRaisesRegex(EvidenceError, "share one corpus-owned instruction"):
+                build_plan(
+                    run_id="mixed-design-fixture",
+                    matrix_path=matrix_path,
+                    corpus_path=corpus_path,
+                    subset="quick",
+                    cohort_path=None,
+                )
 
     def test_diagnostic_cohort_has_all_fifteen_predeclared_takes(self) -> None:
         plan = build_plan(
@@ -361,6 +446,33 @@ class LanguageBenchEvidenceTests(unittest.TestCase):
             sentinel.write_text(json.dumps(record), encoding="utf-8")
             with self.assertRaisesRegex(EvidenceError, "requested language hint"):
                 collect(source, plan_path, output)
+
+    def test_mode_fixture_identity_is_rejected_when_tampered(self) -> None:
+        for mode, field, message in (
+            ("custom", "customSpeakerID", "Custom speaker"),
+            ("design", "fixtureDigest", "Design instruction"),
+        ):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                source = root / "source"
+                output = root / "output"
+                plan_path = root / "plan.json"
+                plan = build_plan(
+                    run_id=f"{mode}-fixture-identity",
+                    matrix_path=MATRIX,
+                    corpus_path=CORPUS,
+                    subset="quick",
+                    cohort_path=None,
+                )
+                write_json_atomic(plan_path, plan)
+                build_source(source, plan)
+                target = next(take for take in plan["takes"] if take["mode"] == mode)
+                sentinel_path = source / target["childRunID"] / "device-diagnostics-done.json"
+                sentinel = json.loads(sentinel_path.read_text(encoding="utf-8"))
+                sentinel[field] = "tampered"
+                sentinel_path.write_text(json.dumps(sentinel), encoding="utf-8")
+                with self.assertRaisesRegex(EvidenceError, message):
+                    collect(source, plan_path, output)
 
     def test_unexpected_current_run_app_generation_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

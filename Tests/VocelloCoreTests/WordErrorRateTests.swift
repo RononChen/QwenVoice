@@ -90,6 +90,63 @@ final class WordErrorRateTests: XCTestCase {
         XCTAssertEqual(selected.map(\.identifier), ["fr-CA", "en-GB"])
     }
 
+    func testLanguageProbabilityMassIsBoundedAfterCollapsingScriptVariants() {
+        let score = VoiceClipTranscriber.boundedLanguageMatchScore(
+            hypotheses: [
+                ("zh-Hans", 1.0),
+                ("zh-Hant", 0.000_000_000_184_127_2),
+                ("ja", 0.25),
+                ("zh-CN", .nan),
+                ("zh-TW", -0.1)
+            ],
+            expected: .chinese
+        )
+
+        XCTAssertEqual(score, 1)
+        XCTAssertEqual(
+            VoiceClipTranscriber.boundedLanguageMatchScore(
+                hypotheses: [("en", 0.75), ("fr", 0.25)],
+                expected: .french
+            ),
+            0.25,
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(
+            VoiceClipTranscriber.boundedLanguageMatchScore(
+                hypotheses: [("en", 1.0)],
+                expected: .auto
+            ),
+            0
+        )
+    }
+
+    func testRecognizerLocaleMustMatchExpectedLanguage() {
+        XCTAssertTrue(
+            VoiceClipTranscriber.localeMatchesExpectedLanguage(
+                identifier: "zh-Hans-CN",
+                expected: .chinese
+            )
+        )
+        XCTAssertTrue(
+            VoiceClipTranscriber.localeMatchesExpectedLanguage(
+                identifier: "fr_CA",
+                expected: .french
+            )
+        )
+        XCTAssertFalse(
+            VoiceClipTranscriber.localeMatchesExpectedLanguage(
+                identifier: "fr-FR",
+                expected: .chinese
+            )
+        )
+        XCTAssertFalse(
+            VoiceClipTranscriber.localeMatchesExpectedLanguage(
+                identifier: "auto",
+                expected: .auto
+            )
+        )
+    }
+
     func testThreePassConsensusRequiresExactAgreement() {
         let matching = (1 ... 3).map { pass(index: $0, transcript: "Bonjour le monde") }
         let consensus = VoiceClipTranscriber.consensus(for: matching)
@@ -388,6 +445,15 @@ final class WordErrorRateTests: XCTestCase {
         var wrongLocale = valid
         wrongLocale.repetitions[1].localeIdentifier = "en-GB"
         malformed.append(wrongLocale)
+
+        var wrongLanguageLocale = valid
+        wrongLanguageLocale.selectedLocaleIdentifier = "fr-FR"
+        wrongLanguageLocale.repetitions = wrongLanguageLocale.repetitions.map { repetition in
+            var repetition = repetition
+            repetition.localeIdentifier = "fr-FR"
+            return repetition
+        }
+        malformed.append(wrongLanguageLocale)
 
         var wrongTranscript = valid
         wrongTranscript.repetitions[1].transcript = "The train left a station"

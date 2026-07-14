@@ -18,14 +18,24 @@ CHECK = os.path.join(ROOT, "scripts", "check_language_output.py")
 MATRIX = os.path.join(ROOT, "config", "language-bench-matrix.json")
 CORPUS = os.path.join(ROOT, "config", "language-bench-corpus.json")
 
-QUICK_CELLS = (
-    ("custom-en-pinned", "english"),
-    ("custom-en-auto", "english"),
-    ("design-en-auto", "english"),
-    ("custom-fr-pinned", "french"),
-    ("custom-fr-auto", "french"),
-    ("design-fr-auto", "french"),
-)
+with open(MATRIX, encoding="utf-8") as handle:
+    QUICK_CELLS = tuple(
+        cell
+        for cell in json.load(handle)["cells"]
+        if cell.get("quick") and not cell.get("skipOutputVerification")
+    )
+LOCALES = {
+    "english": "en-US",
+    "chinese": "zh-CN",
+    "german": "de-DE",
+    "french": "fr-FR",
+    "russian": "ru-RU",
+    "portuguese": "pt-BR",
+    "spanish": "es-ES",
+    "italian": "it-IT",
+    "japanese": "ja-JP",
+    "korean": "ko-KR",
+}
 
 
 def verification(
@@ -36,7 +46,7 @@ def verification(
     inconsistent: bool = False,
     missing_metrics: bool = False,
 ) -> dict:
-    locale = "en-US" if expected_language == "english" else "fr-FR"
+    locale = LOCALES[expected_language]
     if script is None:
         script = (
             "The train left the station at dawn."
@@ -128,7 +138,11 @@ def write_fixture(
     inconsistent: bool = False,
     missing_metrics: bool = False,
 ) -> None:
-    for index, (cell_id, expected_language) in enumerate(QUICK_CELLS):
+    with open(CORPUS, encoding="utf-8") as handle:
+        scripts = {entry["id"]: entry["script"] for entry in json.load(handle)["languages"]}
+    for index, cell in enumerate(QUICK_CELLS):
+        cell_id = cell["id"]
+        expected_language = cell["expectedHint"]
         directory = os.path.join(diag, cell_id)
         os.makedirs(directory, exist_ok=True)
         if mismatch and index == 0:
@@ -138,6 +152,7 @@ def write_fixture(
             "status": "ok",
             "outputVerification": verification(
                 expected_language,
+                script=scripts[cell["scriptLang"]],
                 inconsistent=inconsistent and index == 0,
                 missing_metrics=missing_metrics and index == 0,
             ),
@@ -246,8 +261,9 @@ class CheckLanguageOutputTests(unittest.TestCase):
         run_id = "fixture-output-duplicate"
         with tempfile.TemporaryDirectory() as diag:
             write_fixture(diag, run_id)
-            source = os.path.join(diag, QUICK_CELLS[0][0], "device-diagnostics-done.json")
-            duplicate_dir = os.path.join(diag, "duplicate", QUICK_CELLS[0][0])
+            first_cell_id = QUICK_CELLS[0]["id"]
+            source = os.path.join(diag, first_cell_id, "device-diagnostics-done.json")
+            duplicate_dir = os.path.join(diag, "duplicate", first_cell_id)
             os.makedirs(duplicate_dir)
             with open(source, encoding="utf-8") as handle:
                 record = json.load(handle)
@@ -314,6 +330,42 @@ class CheckLanguageOutputTests(unittest.TestCase):
             "tampered",
         )
         self.assertTrue(any("WER does not match" in failure for failure in failures), failures)
+
+    def test_language_score_above_one_is_rejected(self) -> None:
+        value = verification("chinese", script="火车在黎明时分离开了车站。")
+        value["languageMatchScore"] = 1.000_000_000_184_127_2
+        failures = validate_structured_verification(
+            value,
+            "chinese",
+            "火车在黎明时分离开了车站。",
+            "score",
+        )
+        self.assertTrue(any("invalid languageMatchScore" in failure for failure in failures), failures)
+
+    def test_recognizer_locale_must_match_expected_language(self) -> None:
+        script = "火车在黎明时分离开了车站。"
+        value = verification("chinese", script=script)
+        value["recognition"]["selectedLocaleIdentifier"] = "fr-FR"
+        for repetition in value["recognition"]["repetitions"]:
+            repetition["localeIdentifier"] = "fr-FR"
+        failures = validate_structured_verification(value, "chinese", script, "locale")
+        self.assertTrue(any("locale does not match" in failure for failure in failures), failures)
+
+    def test_success_requires_null_skip_reason_and_trimmed_consensus(self) -> None:
+        script = "The train left the station at dawn."
+        skipped = verification("english", script=script)
+        skipped["skipReason"] = ""
+        failures = validate_structured_verification(skipped, "english", script, "skip")
+        self.assertTrue(any("skipReason" in failure for failure in failures), failures)
+
+        padded = verification("english", script=script)
+        transcript = f" {padded['transcript']} "
+        padded["transcript"] = transcript
+        padded["recognition"]["transcript"] = transcript
+        for repetition in padded["recognition"]["repetitions"]:
+            repetition["transcript"] = transcript
+        failures = validate_structured_verification(padded, "english", script, "trim")
+        self.assertTrue(any("not trimmed" in failure for failure in failures), failures)
 
     def test_cjk_uses_recomputed_character_error_rate(self) -> None:
         script = "火车在黎明时分离开了车站。"

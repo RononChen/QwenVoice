@@ -1,30 +1,42 @@
 {
-  "version": 1,
-  "description": "Native script snippets for language-bench (long enough for NLL + streaming smoke).",
+  "version": 2,
+  "description": "Predeclared multilingual smoke scripts and mode fixtures. Alphabetic scripts contain at least 15 normalized words; CJK scripts contain at least 24 normalized characters.",
   "languages": [
     {
       "id": "english",
-      "script": "The train left the station at dawn."
+      "script": "The morning train left the quiet station on time while the first sunlight appeared over the hills.",
+      "customSpeakerID": "aiden",
+      "designInstruction": "A warm, friendly narrator with a calm, measured pace."
     },
     {
       "id": "french",
-      "script": "Le train a quitté la gare à l'aube."
+      "script": "Le train du matin a quitté la gare tranquille à l'heure pendant que les premiers rayons du soleil apparaissaient sur les collines.",
+      "customSpeakerID": "aiden",
+      "designInstruction": "A warm, friendly narrator with a calm, measured pace."
     },
     {
       "id": "german",
-      "script": "Der Zug verließ den Bahnhof bei Tagesanbruch."
+      "script": "Am frühen Morgen fuhr der Zug pünktlich aus dem ruhigen Bahnhof, während das erste Sonnenlicht über den Hügeln erschien.",
+      "customSpeakerID": "aiden",
+      "designInstruction": "A warm, friendly narrator with a calm, measured pace."
     },
     {
       "id": "spanish",
-      "script": "El tren salió de la estación al amanecer."
+      "script": "El tren de la mañana salió puntualmente de la estación tranquila mientras la primera luz del sol aparecía sobre las colinas.",
+      "customSpeakerID": "aiden",
+      "designInstruction": "A warm, friendly narrator with a calm, measured pace."
     },
     {
       "id": "chinese",
-      "script": "火车在黎明时分离开了车站。"
+      "script": "今天天气很好，红色的火车离开安静的车站，准时开往远处的城市。",
+      "customSpeakerID": "vivian",
+      "designInstruction": "A warm, friendly narrator with a calm, measured pace."
     },
     {
       "id": "japanese",
-      "script": "列車は夜明けに駅を出発した。"
+      "script": "今日は天気がよく、赤い列車が静かな駅を出発して、遠くの町へ向かいます。",
+      "customSpeakerID": "ono_anna",
+      "designInstruction": "A warm, friendly narrator with a calm, measured pace."
     }
   ]
 }

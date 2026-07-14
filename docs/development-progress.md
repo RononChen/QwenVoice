@@ -58,7 +58,12 @@
   schema-v2 records remain exploratory and are excluded from canonical trends.
 - The physical-iPhone language lane predeclares a one-based, fixed-seed run plan; retains only the
   exact selected WAV and telemetry evidence; requires three-pass locale-locked on-device Speech
-  consensus; and offers a retry-free 15-take diagnostic cohort that never publishes history.
+  consensus; and offers a retry-free 15-take diagnostic cohort that never publishes history. Its
+  version-2 corpus uses at least 15 normalized words per alphabetic script and 24 normalized
+  characters per CJK script, pins Design to the known language, and records language-appropriate
+  Custom speakers where the Qwen contract supplies one. Custom pinned/Auto pairs test hint
+  equivalence, while the three Speech passes test recognizer reproducibility; neither is counted as
+  independent audio evidence.
 
 ## Publishing boundary
 
@@ -99,8 +104,13 @@ explicit macOS fixture repair/bootstrap step.
   and submission.
 - The 2026-07-14 attended Speech-asset bootstrap resolved and installed the supported DE/ES/JA/ZH
   DictationTranscriber modules, and fresh `SFSpeechRecognizer` instances passed Vocello's legacy
-  on-device gate. The clean seven-cell EN/FR quick language record is tracked; the full 19-cell,
-  18-output multilingual matrix remains the next promotion run.
+  on-device gate. The clean seven-cell EN/FR quick language record is tracked. The first post-asset
+  full attempt passed the 19/19 hint gate but failed the output gate; it correctly published no
+  history. That run exposed an out-of-range language-score producer bug plus genuine accuracy
+  failures under the original short corpus. The strict validator, version-2 corpus/matrix, and
+  CJK-aware punctuation pause budget subsequently passed a retry-free six-cell DE/ZH/JA diagnostic
+  cohort with 6/6 hint/QC and 6/6 output checks. That bounded local diagnostic intentionally
+  published no history; a fresh 19-cell, 18-output physical-iPhone acceptance run remains required.
 - Clean canonical macOS and iPhone schema-v2 UI baselines are complete. Rerun either canonical
   matrix after a relevant engine, model, compiler, toolchain, or performance change rather than for
   documentation-only revisions. Explicit quality runs remain independent from ordinary publishing

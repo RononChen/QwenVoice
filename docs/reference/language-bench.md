@@ -10,12 +10,25 @@ Headless matrix for the Qwen3 language path:
 
 | File | Role |
 | --- | --- |
-| `config/language-bench-corpus.json` | Native script snippets per language |
+| `config/language-bench-corpus.json` | Versioned scripts plus Custom speaker and Design delivery fixtures per language |
 | `config/language-bench-matrix.json` | Cells: mode, `uiHint`, `scriptLang`, `expectedHint` |
 | `config/language-bench-diagnostic-cohort.json` | Fixed cells and five predeclared seeds for autonomous failure diagnosis |
 
 Cells tagged `"quick": true` form the **quick** subset (English + French + negative control, 7 cells).
-**full** runs all 19 cells (6 languages × custom pinned/auto + design auto + negative).
+**full** runs all 19 cells (6 languages × Custom pinned/Auto + Design explicit-language + negative).
+
+The version-2 corpus is deliberately longer than the original smoke snippets: each alphabetic
+script contains at least 15 normalized words and each Chinese/Japanese script contains at least 24
+normalized characters. Design always receives the known target language explicitly. Custom uses a
+native-language speaker where the Qwen speaker contract provides one (Chinese `vivian`, Japanese
+`ono_anna`); the remaining languages use the contract's stable `aiden` fixture.
+
+The paired Custom pinned/Auto cells intentionally generate the same prompt with the same speaker,
+seed, and sampling policy. They prove that Auto resolves equivalently to the pinned hint; they are
+not independent audio samples. Likewise, the three sequential Speech recognitions prove that the
+on-device recognizer reproduced one transcript for one WAV. They do not provide three statistically
+independent accuracy observations. The 18 output cells remain strict per-cell multilingual smoke
+acceptance, not a population estimate of language quality.
 
 ## iOS (on-device)
 
@@ -94,7 +107,10 @@ Before the first launch, the driver atomically writes `language-run-plan.json` w
 indexes, child run IDs, cells, prompt-equivalence groups, seeds, and sampling variation. Normal
 quick/full matrices use one stable seed per mode/script language; pinned and Auto Custom cells for
 the same script intentionally share both prompt assembly and seed so the hint is the controlled
-variable. The diagnostic cohort is seed-major and evaluates exactly three cells across five fixed
+variable. The plan also freezes the corpus-owned Custom speaker and one shared Design delivery
+instruction; the shared Design fixture keeps language as the controlled variable and preserves one
+typed fixture identity for the model across the matrix.
+The diagnostic cohort is seed-major and evaluates exactly three cells across five fixed
 seeds (15 takes). It performs no retry and never publishes benchmark history.
 
 Gates:
@@ -117,7 +133,7 @@ Failed cells, missing typed telemetry/model identity, or a publication error lea
 registry unchanged; the untracked artifact directory retains the idempotent repair command.
 Passing the diagnostic cohort prints its verdict locally and intentionally creates no record.
 
-### Historical validation snapshot (2026-07-06)
+### Validation and diagnostic snapshot (through 2026-07-14)
 
 The table below is preserved as dated operational evidence; it is not the current acceptance
 state. Current PASS evidence must exist in `benchmarks/runs/language/` and appear in generated
@@ -132,13 +148,18 @@ with all 18 output-gated cells passing after the DE/ES/ZH/JA Speech-asset bootst
 | `ios-lang-bench-20260706-110143` | quick | **7/7 PASS** | — | Hint only (pre–Phase 3 output) |
 | `ios-lang-bench-20260706-112319` | quick | **7/7 PASS** | **6/6 PASS** | Locale-locked ASR + stored `pass`; negative control hint-only |
 | `ios-lang-bench-20260706-135146` | full | **19/19 PASS** | **7/18 FAIL** | DE/ES/ZH/JA `transcription_failed` — Speech Wi‑Fi assets pending on device |
+| `ios-lang-bench-20260714-134925-3e73b43d` | full | **19/19 PASS** | **10/18 FAIL** | Assets ready; exposed an out-of-range language-score producer bug and genuine failures in the original short corpus. No history record was published. |
+| `ios-lang-cohort-20260714-143612-f5e99664` | bounded DE/ZH/JA diagnostic | **6/6 PASS** | **6/6 PASS** | Retry-free validator/corpus-v2 confirmation after adding CJK punctuation to the deterministic pause budget. Diagnostic only; no history record was published. |
 
 Negative control `custom-fr-text-en-pinned` is **hint-only** (`skipOutputVerification`) — pinned
 English hint is sent, but synthesis still speaks French for a French script today.
 
-Re-run the full output gate after the Phase 3 prerequisites above are satisfied on the phone. A
-failed or incomplete run correctly creates no tracked history and cannot be replaced by this dated
-table or a listening judgment.
+The version-2 corpus, explicit Design language, native-language Custom fixtures where available,
+stricter validator correlation, and CJK-aware punctuation pause accounting address the defects
+exposed by the July 14 attempt. The bounded six-cell cohort confirms the affected DE/ZH/JA paths,
+but fresh full physical-iPhone acceptance is still required. A failed, incomplete, or diagnostic
+run correctly creates no tracked history and cannot be replaced by this dated table or a listening
+judgment.
 
 ## macOS (in-process CLI)
 

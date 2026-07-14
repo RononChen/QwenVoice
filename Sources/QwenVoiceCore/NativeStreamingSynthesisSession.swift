@@ -2308,7 +2308,10 @@ struct StreamingExecutionContext: Sendable {
     /// interior silences that is *expected* and benign. Short text with no interior
     /// punctuation gets a budget of 0, so any long interior pause there is flagged.
     static func expectedPauseCount(in text: String) -> Int {
-        let pausePunctuation: Set<Character> = [".", ",", ";", ":", "!", "?", "…", "—"]
+        let pausePunctuation: Set<Character> = [
+            ".", ",", ";", ":", "!", "?", "…", "—",
+            "。", "、", "，", "；", "：", "！", "？",
+        ]
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         var count = 0
         var inRun = false

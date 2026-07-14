@@ -26,10 +26,10 @@ def write_fixture(diag: str, run_id: str) -> None:
     quick_cells = [
         ("custom-en-pinned", "custom", "english"),
         ("custom-en-auto", "custom", "english"),
-        ("design-en-auto", "design", "english"),
+        ("design-en-pinned", "design", "english"),
         ("custom-fr-pinned", "custom", "french"),
         ("custom-fr-auto", "custom", "french"),
-        ("design-fr-auto", "design", "french"),
+        ("design-fr-pinned", "design", "french"),
         ("custom-fr-text-en-pinned", "custom", "english"),
     ]
     rows = []

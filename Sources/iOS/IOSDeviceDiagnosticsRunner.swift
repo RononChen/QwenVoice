@@ -56,6 +56,8 @@ enum IOSDeviceDiagnosticsRunner {
     private static let cloneVoiceIDEnvKey = "QVOICE_IOS_DEVICE_DIAGNOSTICS_CLONE_VOICE_ID"
     private static let seedEnvKey = "QVOICE_IOS_DEVICE_DIAGNOSTICS_SEED"
     private static let variationEnvKey = "QVOICE_IOS_DEVICE_DIAGNOSTICS_VARIATION"
+    private static let customSpeakerEnvKey = "QVOICE_IOS_DEVICE_DIAGNOSTICS_CUSTOM_SPEAKER"
+    private static let designInstructionEnvKey = "QVOICE_IOS_DEVICE_DIAGNOSTICS_DESIGN_INSTRUCTION"
 
     /// Default benchmark sentence — long enough to exercise streaming chunking,
     /// free of any personal/sensitive content.
@@ -440,6 +442,9 @@ enum IOSDeviceDiagnosticsRunner {
             record.modelName = model.name
 
             let payload = try await buildPayload(spec: spec, engine: engine)
+            if case .custom(let speakerID, _) = payload {
+                record.customSpeakerID = speakerID
+            }
             record.fixtureDigest = try fixtureDigest(for: payload)
             let seed = try diagnosticsSeed()
             let variation = try diagnosticsVariation()
@@ -811,13 +816,27 @@ enum IOSDeviceDiagnosticsRunner {
     ) async throws -> GenerationRequest.Payload {
         switch spec.mode {
         case .custom:
+            let speakerID = trimmedEnvironmentValue(customSpeakerEnvKey)
+                ?? ModelDescriptor.defaultSpeaker
+            guard speakerID.unicodeScalars.allSatisfy({
+                CharacterSet.lowercaseLetters.contains($0)
+                    || CharacterSet.decimalDigits.contains($0)
+                    || $0 == "_"
+            }), speakerID.count <= 32 else {
+                throw DiagnosticsError("\(customSpeakerEnvKey) contains an invalid speaker identifier")
+            }
             return .custom(
-                speakerID: ModelDescriptor.defaultSpeaker,
+                speakerID: speakerID,
                 deliveryStyle: nil
             )
         case .design:
+            let instruction = trimmedEnvironmentValue(designInstructionEnvKey)
+                ?? defaultVoiceBrief
+            guard instruction.count <= 240 else {
+                throw DiagnosticsError("\(designInstructionEnvKey) exceeds 240 characters")
+            }
             return .design(
-                voiceDescription: defaultVoiceBrief,
+                voiceDescription: instruction,
                 deliveryStyle: nil
             )
         case .clone:
@@ -1517,6 +1536,7 @@ enum IOSDeviceDiagnosticsRunner {
         var preGenerationWarmState: String?
         var modelID: String?
         var modelName: String?
+        var customSpeakerID: String?
         var fixtureDigest: String?
         var outputEvidence: OutputEvidence?
         var durationSeconds: Double?

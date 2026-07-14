@@ -43,6 +43,7 @@ from benchmark_memory import (  # noqa: E402
     REQUIRED_TELEMETRY_SCHEMA,
     qualify_memory_rows,
 )
+from language_bench_evidence import stable_default_seed  # noqa: E402
 SUCCESS_FINISH = {"eos", "max_tokens", "maxtokens", "completed", "complete", "success", "ok"}
 TRIM_SEVERITY = {"softTrim": 1, "hardTrim": 2, "fullUnload": 3}
 UINT64_MAX = (1 << 64) - 1
@@ -53,12 +54,28 @@ ASR_EVIDENCE_SCHEMA = 2
 ASR_EVIDENCE_ALGORITHM = "apple-speech-file-consensus-v2"
 ASR_REQUIRED_PASS_COUNT = 3
 LANGUAGE_ACCURACY_METRIC_VERSION = "normalized-edit-rate-v1"
+LANGUAGE_SEED_POLICY = "sha256-v1-mode-script-language-63bit"
+LANGUAGE_SAMPLING_VARIATION = "expressive"
 LANGUAGE_PASS_SCORE = 0.5
 LANGUAGE_ACCURACY_THRESHOLDS = {
     "wordErrorRate": 0.15,
     "characterErrorRate": 0.15,
 }
+LANGUAGE_LOCALE_CODES = {
+    "english": "en",
+    "chinese": "zh",
+    "german": "de",
+    "french": "fr",
+    "russian": "ru",
+    "portuguese": "pt",
+    "spanish": "es",
+    "italian": "it",
+    "japanese": "ja",
+    "korean": "ko",
+}
 SAFE_LOCALE = re.compile(r"^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*$")
+SAFE_CUSTOM_SPEAKER = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
+SAFE_DIGEST = re.compile(r"^[0-9a-f]{64}$")
 
 
 class PublicationError(RuntimeError):
@@ -1480,12 +1497,58 @@ def language_corpus_scripts(corpus_path: Path) -> dict[str, str]:
     return scripts
 
 
-def normalized_language_word_tokens(text: str) -> list[str]:
-    """Mirror Swift's POSIX lowercasing plus diacritic/width-insensitive tokenization."""
-    folded = unicodedata.normalize("NFKD", text)
-    folded = "".join(
-        character for character in folded if not unicodedata.category(character).startswith("M")
-    ).lower()
+def language_corpus_fixtures(corpus_path: Path) -> dict[str, dict[str, str]]:
+    payload = load_json(corpus_path)
+    languages = payload.get("languages")
+    if not isinstance(languages, list) or not languages:
+        raise PublicationError("language corpus has no mode fixtures")
+    fixtures: dict[str, dict[str, str]] = {}
+    for entry in languages:
+        if not isinstance(entry, dict):
+            raise PublicationError("language corpus contains a malformed mode fixture")
+        language_id = entry.get("id")
+        speaker_id = entry.get("customSpeakerID")
+        design_instruction = entry.get("designInstruction")
+        if (
+            not isinstance(language_id, str)
+            or re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", language_id) is None
+            or language_id in fixtures
+            or not isinstance(speaker_id, str)
+            or SAFE_CUSTOM_SPEAKER.fullmatch(speaker_id) is None
+            or not isinstance(design_instruction, str)
+            or not design_instruction
+            or design_instruction != design_instruction.strip()
+            or len(design_instruction) > 240
+        ):
+            raise PublicationError("language corpus contains an invalid or duplicate mode fixture")
+        fixtures[language_id] = {
+            "customSpeakerID": speaker_id,
+            "designInstruction": design_instruction,
+            "designInstructionDigest": digest_bytes(design_instruction.encode("utf-8")),
+        }
+    return fixtures
+
+
+def locale_matches_expected_language(identifier: str, expected_language: str) -> bool:
+    expected_code = LANGUAGE_LOCALE_CODES.get(expected_language)
+    if expected_code is None:
+        return False
+    return re.split(r"[-_]", identifier, maxsplit=1)[0].lower() == expected_code
+
+
+def normalized_language_word_tokens(
+    text: str, *, preserve_diacritics: bool = False
+) -> list[str]:
+    """Mirror Swift's language-aware POSIX lowercasing and tokenization."""
+    if preserve_diacritics:
+        folded = unicodedata.normalize("NFKC", text)
+    else:
+        folded = unicodedata.normalize("NFKD", text)
+        folded = "".join(
+            character for character in folded
+            if unicodedata.category(character) != "Mn"
+        )
+    folded = folded.lower()
     tokens: list[str] = []
     current: list[str] = []
     for character in folded:
@@ -1499,9 +1562,20 @@ def normalized_language_word_tokens(text: str) -> list[str]:
     return tokens
 
 
-def language_edit_metrics(reference: str, hypothesis: str, *, characters: bool) -> dict[str, Any]:
-    lhs_words = normalized_language_word_tokens(reference)
-    rhs_words = normalized_language_word_tokens(hypothesis)
+def language_edit_metrics(
+    reference: str,
+    hypothesis: str,
+    *,
+    characters: bool,
+    expected_language: str,
+) -> dict[str, Any]:
+    preserve_diacritics = characters and expected_language in {"chinese", "japanese"}
+    lhs_words = normalized_language_word_tokens(
+        reference, preserve_diacritics=preserve_diacritics
+    )
+    rhs_words = normalized_language_word_tokens(
+        hypothesis, preserve_diacritics=preserve_diacritics
+    )
     lhs: list[Any] = list("".join(lhs_words)) if characters else lhs_words
     rhs: list[Any] = list("".join(rhs_words)) if characters else rhs_words
     # Stable tie policy matches VoiceClipTranscriber: diagonal, deletion, insertion.
@@ -1573,6 +1647,12 @@ def load_language_plan(
         raise PublicationError("language run plan corpus digest does not match")
     if plan.get("subset") != args.subset or plan.get("requireEveryTakePass") is not True:
         raise PublicationError("language run plan scope or success policy does not match")
+    if plan.get("seedPolicy") != LANGUAGE_SEED_POLICY:
+        raise PublicationError("language run plan seed policy does not match the tracked contract")
+    if plan.get("samplingVariation") != LANGUAGE_SAMPLING_VARIATION:
+        raise PublicationError(
+            "language run plan sampling variation does not match the tracked contract"
+        )
     if plan.get("cohortID") is not None or plan.get("cohortDigest") is not None:
         raise PublicationError("diagnostic language cohorts are intentionally unpublished")
     takes = plan.get("takes")
@@ -1583,6 +1663,7 @@ def load_language_plan(
         raise PublicationError("language run plan cell ordering does not match the matrix")
     seen_children: set[str] = set()
     group_counts: dict[str, int] = {}
+    corpus_fixtures = language_corpus_fixtures(args.corpus)
     for index, (take, cell) in enumerate(zip(takes, cells), start=1):
         if not isinstance(take, dict) or take.get("takeIndex") != index:
             raise PublicationError("language run plan take indexes must be one-based and ordered")
@@ -1597,9 +1678,15 @@ def load_language_plan(
         seed = uint64_value(take.get("seed"))
         if seed is None or seed != take.get("seed"):
             raise PublicationError(f"language cell {cell['id']} has an invalid planned seed")
+        if take.get("seedIndex") is not None or seed != stable_default_seed(cell):
+            raise PublicationError(
+                f"language cell {cell['id']} does not use its deterministic tracked seed"
+            )
         variation = take.get("samplingVariation")
-        if variation not in {"expressive", "balanced", "consistent"}:
-            raise PublicationError(f"language cell {cell['id']} has an invalid sampling variation")
+        if variation != LANGUAGE_SAMPLING_VARIATION:
+            raise PublicationError(
+                f"language cell {cell['id']} must use expressive sampling variation"
+            )
         if (
             take.get("mode") != cell.get("mode")
             or take.get("variant", "speed") != cell.get("variant", "speed")
@@ -1611,6 +1698,30 @@ def load_language_plan(
             or take.get("promptEquivalenceGroup") != cell.get("promptEquivalenceGroup")
         ):
             raise PublicationError(f"language cell {cell['id']} plan identity does not match the matrix")
+        fixture = corpus_fixtures.get(str(cell.get("scriptLang")))
+        if fixture is None:
+            raise PublicationError(
+                f"language cell {cell['id']} has no corpus-owned mode fixture"
+            )
+        if take.get("mode") == "custom":
+            fixture_matches = (
+                take.get("customSpeakerID") == fixture["customSpeakerID"]
+                and take.get("designInstruction") is None
+                and take.get("designInstructionDigest") is None
+            )
+        elif take.get("mode") == "design":
+            fixture_matches = (
+                take.get("customSpeakerID") is None
+                and take.get("designInstruction") == fixture["designInstruction"]
+                and take.get("designInstructionDigest")
+                == fixture["designInstructionDigest"]
+            )
+        else:
+            fixture_matches = False
+        if not fixture_matches:
+            raise PublicationError(
+                f"language cell {cell['id']} mode fixture does not match the corpus"
+            )
         group = take.get("promptEquivalenceGroup")
         if group is not None:
             if not isinstance(group, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}", group) is None:
@@ -1659,6 +1770,58 @@ def validate_language_sampling_identity(
     if sentinel.get("languageHintSource") != expected_source:
         raise PublicationError(f"language cell {cell_id} hint source does not match the plan")
     return seed
+
+
+def validate_language_mode_fixture_identity(
+    *,
+    cell_id: str,
+    planned_take: dict[str, Any],
+    sentinel: dict[str, Any],
+) -> None:
+    """Bind the actual privacy-safe mode fixture to the immutable run plan."""
+    mode = planned_take.get("mode")
+    if mode == "custom":
+        speaker_id = planned_take.get("customSpeakerID")
+        if (
+            not isinstance(speaker_id, str)
+            or SAFE_CUSTOM_SPEAKER.fullmatch(speaker_id) is None
+            or planned_take.get("designInstruction") is not None
+            or planned_take.get("designInstructionDigest") is not None
+        ):
+            raise PublicationError(f"language cell {cell_id} has an invalid planned Custom fixture")
+        if sentinel.get("customSpeakerID") != speaker_id:
+            raise PublicationError(
+                f"language cell {cell_id} Custom speaker does not match the plan"
+            )
+        if sentinel.get("fixtureDigest") is not None:
+            raise PublicationError(
+                f"language cell {cell_id} Custom sentinel has an unexpected fixture digest"
+            )
+        return
+    if mode == "design":
+        instruction = planned_take.get("designInstruction")
+        instruction_digest = planned_take.get("designInstructionDigest")
+        if (
+            planned_take.get("customSpeakerID") is not None
+            or not isinstance(instruction, str)
+            or not instruction
+            or instruction != instruction.strip()
+            or len(instruction) > 240
+            or not isinstance(instruction_digest, str)
+            or SAFE_DIGEST.fullmatch(instruction_digest) is None
+            or digest_bytes(instruction.encode("utf-8")) != instruction_digest
+        ):
+            raise PublicationError(f"language cell {cell_id} has an invalid planned Design fixture")
+        if sentinel.get("customSpeakerID") is not None:
+            raise PublicationError(
+                f"language cell {cell_id} Design sentinel has an unexpected Custom speaker"
+            )
+        if sentinel.get("fixtureDigest") != instruction_digest:
+            raise PublicationError(
+                f"language cell {cell_id} Design fixture digest does not match the plan"
+            )
+        return
+    raise PublicationError(f"language cell {cell_id} has an unsupported planned mode fixture")
 
 
 def validate_prompt_equivalence(
@@ -1781,6 +1944,10 @@ def sanitized_asr_evidence(
     locale = recognition.get("selectedLocaleIdentifier")
     if not isinstance(locale, str) or SAFE_LOCALE.fullmatch(locale) is None:
         raise PublicationError(f"language cell {cell_id} has invalid locale evidence")
+    if not locale_matches_expected_language(locale, str(expected_language)):
+        raise PublicationError(
+            f"language cell {cell_id} locale does not match expected language"
+        )
     if (
         recognition.get("expectedLanguage") != expected_language
         or recognition.get("authorizationStatus") != "authorized"
@@ -1843,8 +2010,18 @@ def sanitized_asr_evidence(
         or not math.isclose(recognition_duration, pass_duration, rel_tol=1e-9, abs_tol=1e-9)
     ):
         raise PublicationError(f"language cell {cell_id} recognition consensus is inconsistent")
-    word_metrics = language_edit_metrics(reference_script, transcripts[0], characters=False)
-    character_metrics = language_edit_metrics(reference_script, transcripts[0], characters=True)
+    word_metrics = language_edit_metrics(
+        reference_script,
+        transcripts[0],
+        characters=False,
+        expected_language=str(expected_language),
+    )
+    character_metrics = language_edit_metrics(
+        reference_script,
+        transcripts[0],
+        characters=True,
+        expected_language=str(expected_language),
+    )
     recomputed_fields = {
         "referenceTokenCount": word_metrics["referenceCount"],
         "hypothesisTokenCount": word_metrics["hypothesisCount"],
@@ -2049,6 +2226,11 @@ def language_command(args: argparse.Namespace) -> Path:
                 sentinel=sentinel,
                 engine_row=row,
             )
+            validate_language_mode_fixture_identity(
+                cell_id=cell_id,
+                planned_take=planned_take,
+                sentinel=sentinel,
+            )
             if args.platform == "ios":
                 app_matches = app_by_generation.get(generation_id, [])
                 if len(app_matches) != 1:
@@ -2204,6 +2386,8 @@ def language_command(args: argparse.Namespace) -> Path:
                 "samplingVariation": planned.get("samplingVariation"),
                 "promptEquivalenceGroup": planned.get("promptEquivalenceGroup"),
                 "outputVerificationRequired": not bool(cell.get("skipOutputVerification")),
+                "customSpeakerID": planned.get("customSpeakerID"),
+                "designInstructionDigest": planned.get("designInstructionDigest"),
             }
             evidence = evidence_by_cell.get(cell_id)
             if evidence is not None:

@@ -920,7 +920,8 @@ cmd_lang_bench() {
   while IFS= read -r cell_json; do
     [[ -n "$cell_json" ]] || continue
     cell_count=$((cell_count + 1))
-    local cell_id mode variant ui_hint text child_run_id spec sentinel seed sampling_variation st
+    local cell_id mode variant ui_hint text child_run_id spec sentinel seed sampling_variation
+    local custom_speaker design_instruction st
     cell_id="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"])["cellID"])')"
     mode="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"])["mode"])')"
     variant="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"]).get("variant","speed"))')"
@@ -934,6 +935,8 @@ print(scripts[cell["scriptLang"]], end="")')"
     child_run_id="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"])["childRunID"])')"
     seed="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"])["seed"])')"
     sampling_variation="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"])["samplingVariation"])')"
+    custom_speaker="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"]).get("customSpeakerID") or "", end="")')"
+    design_instruction="$(CELL="$cell_json" python3 -c 'import json,os; print(json.loads(os.environ["CELL"]).get("designInstruction") or "", end="")')"
     spec="${mode}:${variant}:${text}"
 
     note "lang-bench take $cell_count: $cell_id ($mode, uiHint=$ui_hint, seed=$seed, variation=$sampling_variation)"
@@ -941,6 +944,16 @@ print(scripts[cell["scriptLang"]], end="")')"
     export QVOICE_MAC_BENCH_CELL="$cell_id"
     export QVOICE_IOS_DEVICE_DIAGNOSTICS_SEED="$seed"
     export QVOICE_IOS_DEVICE_DIAGNOSTICS_VARIATION="$sampling_variation"
+    if [[ -n "$custom_speaker" ]]; then
+      export QVOICE_IOS_DEVICE_DIAGNOSTICS_CUSTOM_SPEAKER="$custom_speaker"
+    else
+      unset QVOICE_IOS_DEVICE_DIAGNOSTICS_CUSTOM_SPEAKER
+    fi
+    if [[ -n "$design_instruction" ]]; then
+      export QVOICE_IOS_DEVICE_DIAGNOSTICS_DESIGN_INSTRUCTION="$design_instruction"
+    else
+      unset QVOICE_IOS_DEVICE_DIAGNOSTICS_DESIGN_INSTRUCTION
+    fi
     if [[ "$ui_hint" == "auto" ]]; then
       unset QVOICE_IOS_DEVICE_DIAGNOSTICS_LANGUAGE
     else
@@ -978,7 +991,8 @@ PY
 
   unset QVOICE_LAUNCH_RUN_ID QVOICE_MAC_BENCH_RUN_ID QVOICE_MAC_BENCH_CELL \
     QVOICE_IOS_DEVICE_DIAGNOSTICS_LANGUAGE QVOICE_IOS_DEVICE_DIAGNOSTICS_VERIFY_OUTPUT \
-    QVOICE_IOS_DEVICE_DIAGNOSTICS_SEED QVOICE_IOS_DEVICE_DIAGNOSTICS_VARIATION
+    QVOICE_IOS_DEVICE_DIAGNOSTICS_SEED QVOICE_IOS_DEVICE_DIAGNOSTICS_VARIATION \
+    QVOICE_IOS_DEVICE_DIAGNOSTICS_CUSTOM_SPEAKER QVOICE_IOS_DEVICE_DIAGNOSTICS_DESIGN_INSTRUCTION
 
   [[ "$cell_count" -gt 0 ]] || die "lang-bench: no cells for subset=$subset"
 

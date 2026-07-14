@@ -76,8 +76,13 @@ benchmark history and performs no generation.
 UInt64 seed plus sampling variation to every take. Its schema-v2 sentinel is published last and
 binds the resolved language, prompt-assembly digest, exact output-WAV digest/metadata, generation
 telemetry identity, and structured three-pass on-device Speech evidence. The collector retains only
-those plan-selected rows and files. `--diagnostic-cohort` runs the fixed 15-take English-Design and
-French pinned/Auto failure cohort without retries or history publication. Language acceptance is
+those plan-selected rows and files. Corpus v2 requires at least 15 normalized words for alphabetic
+scripts and 24 normalized characters for Chinese/Japanese, freezes the Custom speaker and shared
+Design instruction in the plan, and sends the known language explicitly for Design. Custom pinned/Auto
+pairs share the exact fixture and prove language-hint equivalence rather than independent audio
+quality; three transcription passes prove recognizer reproducibility rather than statistical
+independence. `--diagnostic-cohort` runs the fixed 15-take English-Design and
+French pinned/Auto regression cohort without retries or history publication. Language acceptance is
 fully autonomous; listening is optional annotation only. Its primary accuracy metric is WER for
 word-delimited languages and CER for Chinese/Japanese, both at the versioned 0.15 threshold; the
 Python validator and publisher recompute the edit evidence from the corpus rather than trusting the

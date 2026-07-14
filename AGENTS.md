@@ -145,6 +145,11 @@ ready; setup and interpretation: [`language-bench.md`](docs/reference/language-b
 § Phase 3 prerequisites.
 No listening verdict is required: exact fixed-seed WAV evidence, three-pass on-device ASR consensus,
 PCM QC, and the applicable prosody gates own the automated result.
+Corpus v2 requires at least 15 normalized words per alphabetic script and 24 normalized characters
+per CJK script. Design uses the known explicit target language; Custom uses a native-language
+speaker where the Qwen contract provides one. Custom pinned/Auto pairs prove hint equivalence, and
+the three ASR passes prove recognizer reproducibility; neither is statistically independent audio
+evidence.
 
 ### Release QA
 

@@ -397,6 +397,27 @@ final class GenerationTelemetrySchemaTests: XCTestCase {
         XCTAssertEqual(roundTrip.missingLayers, [.engineService, .engine])
     }
 
+    func testExpectedPauseCountRecognizesCJKPunctuation() {
+        XCTAssertEqual(
+            StreamingExecutionContext.expectedPauseCount(
+                in: "今日は天気がよく、赤い列車が駅を出発します。"
+            ),
+            1
+        )
+        XCTAssertEqual(
+            StreamingExecutionContext.expectedPauseCount(
+                in: "今天天气很好，红色的火车准时离开车站。"
+            ),
+            1
+        )
+        XCTAssertEqual(
+            StreamingExecutionContext.expectedPauseCount(
+                in: "最初の文です！次の文です？最後の文です。"
+            ),
+            2
+        )
+    }
+
     func testAudioQCSplitsInputInstabilityFromWrittenOutputDefects() throws {
         var unstableLimiter = PCM16StreamLimiter()
         var unstableDestination: [Int16] = []
