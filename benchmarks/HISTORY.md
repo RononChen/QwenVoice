@@ -25,6 +25,12 @@ from schema-v2 memory trends.
 |---|---|---|---|---|---|---:|---|---|---|---|
 | 2026-07-12 | [`macos-engine-20260712-204208-0cb5705c`](runs/engine-generation/macos-engine-20260712-204208-0cb5705c.json) | focused | exploratory | passed | memory-contract-incomplete | 2 | `1ef1669326b5` dirty | `excluded` | baseline | telemetry-v7-cli-focused |
 
+## instrument-profile / ios / iphone-17-pro / config `1259c1914031`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-14 | [`ios-memory-profile-20260714-112759-9a573224`](runs/instrument-profile/ios-memory-profile-20260714-112759-9a573224.json) | instrumented | instrumented | passedWithWarnings | qualified-with-warnings | 1 | `d416ad4b6f27` | `excluded` | baseline | instrument-memory-profile |
+
 ## instrument-profile / ios / iphone-17-pro / config `cf942dbf82f5`
 
 | completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
