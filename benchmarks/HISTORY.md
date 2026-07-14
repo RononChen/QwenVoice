@@ -56,6 +56,12 @@ from schema-v2 memory trends.
 | 2026-07-12 | [`mac-lang-bench-20260712-210629-ab917917`](runs/language/mac-lang-bench-20260712-210629-ab917917.json) | partial | exploratory | passed | memory-contract-incomplete | 7 | `1ef1669326b5` dirty | `excluded` | baseline | telemetry-v7-language-quick |
 | 2026-07-12 | [`mac-lang-bench-20260712-210714-0a22efca`](runs/language/mac-lang-bench-20260712-210714-0a22efca.json) | partial | exploratory | passed | memory-contract-incomplete | 7 | `1ef1669326b5` dirty | `excluded` | baseline | telemetry-v7-language-quick |
 
+## memory-qualification / ios / iphone-17-pro / config `7482ce732e47`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-14 | [`ios-memory-qualification-20260714-112015-8aa21f7e`](runs/memory-qualification/ios-memory-qualification-20260714-112015-8aa21f7e.json) | focused | exploratory | passedWithWarnings | qualified-with-warnings | 9 | `fe15820531a5` dirty | `excluded` | baseline | ios-memory-qualification-20260714-112015-8aa21f7e |
+
 ## memory-qualification / macos / mac-mini-m2-8gb / config `664a0267b9b5`
 
 | completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
