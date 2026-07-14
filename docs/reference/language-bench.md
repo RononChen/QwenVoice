@@ -151,6 +151,7 @@ with all 18 output-gated cells passing after the DE/ES/ZH/JA Speech-asset bootst
 | `ios-lang-bench-20260714-134925-3e73b43d` | full | **19/19 PASS** | **10/18 FAIL** | Assets ready; exposed an out-of-range language-score producer bug and genuine failures in the original short corpus. No history record was published. |
 | `ios-lang-cohort-20260714-143612-f5e99664` | bounded DE/ZH/JA diagnostic | **6/6 PASS** | **6/6 PASS** | Retry-free validator/corpus-v2 confirmation after adding CJK punctuation to the deterministic pause budget. Diagnostic only; no history record was published. |
 | `ios-lang-bench-20260714-145013-304721d6` | full | **19/19 PASS** | **13/18 FAIL** | Corpus-v2 evidence localized remaining fixed-seed failures to French Custom and all three German paths. No history record was published. |
+| `ios-lang-bench-20260714-153252-d2a3eea5` | full | **not evaluated** | **not evaluated** | Intentionally interrupted while take 7 was launching after six completed takes. No final gates or history record exist; this local partial run is not acceptance evidence. |
 
 Negative control `custom-fr-text-en-pinned` is **hint-only** (`skipOutputVerification`) — pinned
 English hint is sent, but synthesis still speaks French for a French script today.
@@ -161,9 +162,10 @@ exposed by the July 14 attempts. The bounded DE/ZH/JA cohort confirms those path
 retry-free cohorts exercised the revised French and German scripts at the exact normal-matrix seeds:
 French Custom pinned/Auto and Design all passed strict QC with zero WER, while German Custom
 pinned/Auto and Design passed strict QC at approximately 0.138 WER. Those six diagnostic takes do
-not replace a full run, so fresh physical-iPhone acceptance is still required. A failed, incomplete,
-or diagnostic run correctly creates no tracked history and cannot be replaced by this dated table
-or a listening judgment.
+not replace a full run. The later partial full run was intentionally stopped and cannot be resumed
+or promoted, so the next acceptance attempt must start a fresh 19-cell run from a clean committed
+revision. A failed, incomplete, or diagnostic run correctly creates no tracked history and cannot
+be replaced by this dated table or a listening judgment.
 
 ## macOS (in-process CLI)
 

@@ -113,8 +113,12 @@ explicit macOS fixture repair/bootstrap step.
   published no history. The first clean corpus-v2 full attempt then passed all 19 hint/QC checks
   but stopped at 13/18 output cells, correctly publishing no history; its failures were isolated to
   French Custom and the three German paths. Revised natural French and German scripts passed four
-  retry-free exact-canonical-seed cohorts with strict QC and all 6/6 output checks. A fresh 19-cell,
-  18-output physical-iPhone acceptance run remains required from that committed corpus.
+  retry-free exact-canonical-seed cohorts with strict QC and all 6/6 output checks. The subsequent
+  full run `ios-lang-bench-20260714-153252-d2a3eea5` was intentionally interrupted while take 7
+  was launching after six takes had completed. It produced no final hint/output gates and no
+  history record, so it is non-authoritative local evidence and must not be resumed or published.
+  A future session must start a fresh 19-cell, 18-output physical-iPhone acceptance run from the
+  committed corpus at or after checkpoint `eaf9d751`.
 - Clean canonical macOS and iPhone schema-v2 UI baselines are complete. Rerun either canonical
   matrix after a relevant engine, model, compiler, toolchain, or performance change rather than for
   documentation-only revisions. Explicit quality runs remain independent from ordinary publishing
