@@ -123,6 +123,22 @@ def build_source(root: Path, plan: dict, *, stale: bool = False) -> None:
 
 
 class LanguageBenchEvidenceTests(unittest.TestCase):
+    def test_optional_language_gate_arrays_are_safe_under_bash_nounset(self) -> None:
+        script = (ROOT / "scripts" / "ios_device.sh").read_text(encoding="utf-8")
+        start = script.index("cmd_lang_bench() {")
+        end = script.index("\ncmd_bench() {", start)
+        body = script[start:end]
+        self.assertNotIn('\n    "${cohort_args[@]}"', body)
+        self.assertNotIn('\n    "${hint_gate_args[@]}"', body)
+        self.assertEqual(
+            body.count('${cohort_args[@]+"${cohort_args[@]}"}'),
+            3,
+        )
+        self.assertEqual(
+            body.count('${hint_gate_args[@]+"${hint_gate_args[@]}"}'),
+            1,
+        )
+
     def test_cohort_control_flow_cannot_publish_history(self) -> None:
         script = (ROOT / "scripts" / "ios_device.sh").read_text(encoding="utf-8")
         start = script.index("cmd_lang_bench() {")

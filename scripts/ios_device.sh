@@ -914,7 +914,8 @@ PY
   [[ -n "$cohort" ]] && cohort_args+=(--cohort "$cohort")
   python3 "$ROOT_DIR/scripts/language_bench_evidence.py" collect \
     --source "$dest" --plan "$plan" --output "$diag" \
-    --matrix "$matrix" --corpus "$corpus" --subset "$subset" "${cohort_args[@]}" \
+    --matrix "$matrix" --corpus "$corpus" --subset "$subset" \
+    ${cohort_args[@]+"${cohort_args[@]}"} \
     | tee "$artifacts/evidence-collection.txt" || collect_st=$?
 
   local hint_st=0 output_st=0
@@ -922,13 +923,14 @@ PY
   [[ -n "$cohort" ]] && hint_gate_args+=(--strict-qc)
   python3 "$ROOT_DIR/scripts/check_language_hints.py" "$diag" \
     --run-id "$run_id" --matrix "$matrix" --corpus "$corpus" --subset "$subset" --plan "$plan" \
-    "${hint_gate_args[@]}" "${cohort_args[@]}" \
+    ${hint_gate_args[@]+"${hint_gate_args[@]}"} \
+    ${cohort_args[@]+"${cohort_args[@]}"} \
     | tee "$artifacts/hint-gate.txt" || hint_st=$?
 
   if [[ "${QVOICE_LANG_BENCH_SKIP_OUTPUT:-0}" != "1" ]]; then
     python3 "$ROOT_DIR/scripts/check_language_output.py" "$diag" \
       --run-id "$run_id" --matrix "$matrix" --corpus "$corpus" --subset "$subset" --plan "$plan" \
-      "${cohort_args[@]}" \
+      ${cohort_args[@]+"${cohort_args[@]}"} \
       | tee "$artifacts/output-gate.txt" || output_st=$?
   fi
 
