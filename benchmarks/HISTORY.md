@@ -99,6 +99,12 @@ from schema-v2 memory trends.
 |---|---|---|---|---|---|---:|---|---|---|---|
 | 2026-07-13 | [`ios-xcui-benchmark-20260713-042913-57f9e32e`](runs/ui-generation/ios-xcui-benchmark-20260713-042913-57f9e32e.json) | focused | exploratory | passed | memory-contract-incomplete | 2 | `04083b15a4e2` dirty | `excluded` | baseline | focused-short-playback-repair-20260713 |
 
+## ui-generation / ios / iphone-17-pro / config `82d0f31be140`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-14 | [`ios-xcui-benchmark-20260714-113139-3b4b6d6c`](runs/ui-generation/ios-xcui-benchmark-20260714-113139-3b4b6d6c.json) | canonical | canonical | passedWithWarnings | qualified-with-warnings | 29 | `6ffdbfddff09` | `82d0f31be140` | baseline | ios-canonical-v2 |
+
 ## ui-generation / ios / iphone-17-pro / config `8784432a549e`
 
 | completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
