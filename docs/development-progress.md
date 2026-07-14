@@ -110,7 +110,11 @@ explicit macOS fixture repair/bootstrap step.
   failures under the original short corpus. The strict validator, version-2 corpus/matrix, and
   CJK-aware punctuation pause budget subsequently passed a retry-free six-cell DE/ZH/JA diagnostic
   cohort with 6/6 hint/QC and 6/6 output checks. That bounded local diagnostic intentionally
-  published no history; a fresh 19-cell, 18-output physical-iPhone acceptance run remains required.
+  published no history. The first clean corpus-v2 full attempt then passed all 19 hint/QC checks
+  but stopped at 13/18 output cells, correctly publishing no history; its failures were isolated to
+  French Custom and the three German paths. Revised natural French and German scripts passed four
+  retry-free exact-canonical-seed cohorts with strict QC and all 6/6 output checks. A fresh 19-cell,
+  18-output physical-iPhone acceptance run remains required from that committed corpus.
 - Clean canonical macOS and iPhone schema-v2 UI baselines are complete. Rerun either canonical
   matrix after a relevant engine, model, compiler, toolchain, or performance change rather than for
   documentation-only revisions. Explicit quality runs remain independent from ordinary publishing

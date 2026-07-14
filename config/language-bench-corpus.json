@@ -10,13 +10,13 @@
     },
     {
       "id": "french",
-      "script": "Le train du matin a quitté la gare tranquille à l'heure pendant que les premiers rayons du soleil apparaissaient sur les collines.",
+      "script": "Ce matin, un train rouge traverse la ville, et arrive à la station avant midi. Beaucoup de personnes voient des maisons, des rues, des arbres, et un grand parc pendant le trajet.",
       "customSpeakerID": "aiden",
       "designInstruction": "A warm, friendly narrator with a calm, measured pace."
     },
     {
       "id": "german",
-      "script": "Am frühen Morgen fuhr der Zug pünktlich aus dem ruhigen Bahnhof, während das erste Sonnenlicht über den Hügeln erschien.",
+      "script": "Heute ist ein roter Zug in der Stadt unterwegs und kommt vor Mittag am Bahnhof an. Viele Menschen sehen Häuser, Straßen, Bäume und einen großen Park auf dem Weg.",
       "customSpeakerID": "aiden",
       "designInstruction": "A warm, friendly narrator with a calm, measured pace."
     },
