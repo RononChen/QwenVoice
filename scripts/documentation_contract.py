@@ -149,6 +149,15 @@ def validate_script_references(root: Path, paths: list[Path]) -> list[str]:
 
 def validate_repository_paths(root: Path, paths: list[Path]) -> list[str]:
     prefixes = ("Sources/", "Tests/", "scripts/", "config/", ".github/", ".agents/", "docs/", "benchmarks/", "website/", "third_party_patches/")
+    generated_roots: set[str] = set()
+    contract_path = root / CONTRACT_PATH
+    if contract_path.is_file():
+        contract = load_json(contract_path)
+        generated_roots = {
+            entry["path"].strip("/")
+            for entry in contract.get("generatedRepositoryPaths", [])
+            if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+        }
     errors: list[str] = []
     for source in paths:
         text = source.read_text(encoding="utf-8")
@@ -156,6 +165,9 @@ def validate_repository_paths(root: Path, paths: list[Path]) -> list[str]:
             candidate = value.strip().split()[0].rstrip(".,;:")
             candidate = re.sub(r":\d+(?:-\d+)?$", "", candidate)
             if not candidate.startswith(prefixes) or any(marker in candidate for marker in ("<", ">", "{", "}", "$", "...")):
+                continue
+            normalized = candidate.rstrip("/")
+            if any(normalized == root_path or normalized.startswith(root_path + "/") for root_path in generated_roots):
                 continue
             matches = glob.glob(str(root / candidate)) if "*" in candidate else []
             if not matches and (root / candidate).exists():

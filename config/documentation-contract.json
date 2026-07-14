@@ -1,6 +1,14 @@
 {
   "schemaVersion": 1,
   "indexPath": "docs/INDEX.md",
+  "generatedRepositoryPaths": [
+    {
+      "path": "website/dist",
+      "owner": "website",
+      "producer": "npm --prefix website run build",
+      "requiredInCheckout": false
+    }
+  ],
   "groups": [
     {
       "id": "onboarding",

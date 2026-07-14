@@ -76,6 +76,32 @@ class DocumentationContractTests(unittest.TestCase):
         self.write("config/missing-contract.json", "{}\n")
         self.assertEqual(DOCUMENTATION.validate_repository_paths(self.root, [source]), [])
 
+    def test_declared_generated_repository_path_need_not_exist_in_clean_checkout(self) -> None:
+        (self.root / "config/documentation-contract.json").write_text(
+            json.dumps(
+                {
+                    "generatedRepositoryPaths": [
+                        {
+                            "path": "website/dist",
+                            "owner": "website",
+                            "producer": "npm --prefix website run build",
+                            "requiredInCheckout": False,
+                        }
+                    ],
+                    "groups": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        source = self.write(
+            "README.md",
+            "Generated output is `website/dist/` and may contain `website/dist/assets/app.js`.\n",
+        )
+        self.assertFalse((self.root / "website/dist").exists())
+        self.assertEqual(DOCUMENTATION.validate_repository_paths(self.root, [source]), [])
+        source.write_text("Unknown generated output is `website/unowned-dist/`.\n", encoding="utf-8")
+        self.assertTrue(DOCUMENTATION.validate_repository_paths(self.root, [source]))
+
     def test_only_manifest_owned_build_paths_are_documented(self) -> None:
         source = self.write(
             "README.md",

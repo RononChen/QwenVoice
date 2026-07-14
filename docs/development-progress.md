@@ -99,11 +99,12 @@ explicit macOS fixture repair/bootstrap step.
   and submission.
 - Locale-locked iOS language-output verification depends on the corresponding on-device Speech
   assets; rerun the full language matrix when those assets or language behavior changes.
-- After committing the registry, telemetry, documentation, and build-policy upgrades, run fresh
-  full macOS and physical-iPhone 29-take UI benchmarks from the clean revision to create the first
-  clean canonical schema-v2 comparison baselines. Existing dirty schema-v2 successes remain valid
-  exploratory records but are excluded from canonical trends. These explicit quality runs remain
-  independent from ordinary publishing and release packaging.
+- The first clean canonical macOS schema-v2 comparison baseline is complete. When the physical
+  iPhone is available, run its focused acceptance sequence and full 29-take UI benchmark to create
+  the remaining clean canonical iPhone baseline. Rerun the macOS canonical matrix after a relevant
+  engine, model, compiler, toolchain, or performance change rather than for documentation-only
+  revisions. Explicit quality runs remain independent from ordinary publishing and release
+  packaging.
 - Physical-iPhone acceptance for telemetry v8/evidence v2 and the new exact-PID memory profile is
   `pending-device` until an attended device session. No Simulator or live-phone command was used to claim it in
   this checkpoint; run the focused device benchmark and memory profile before treating the iPhone
