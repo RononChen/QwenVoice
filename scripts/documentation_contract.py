@@ -52,7 +52,13 @@ def documentation_groups(root: Path) -> list[dict]:
 def active_markdown_paths(root: Path) -> list[Path]:
     if not (root / CONTRACT_PATH).is_file():
         # Small fixture fallback. Production inventory is always manifest-owned.
-        candidates = [root / "AGENTS.md", root / "README.md", root / "PRODUCT.md", root / "website/AGENTS.md"]
+        candidates = [
+            root / "AGENTS.md",
+            root / "README.md",
+            root / "CONTRIBUTING.md",
+            root / "PRODUCT.md",
+            root / "website/AGENTS.md",
+        ]
         candidates.extend((root / ".agents").glob("*.md"))
         candidates.extend((root / "docs/reference").glob("*.md"))
         return sorted(
@@ -309,14 +315,68 @@ def validate_facts(root: Path) -> list[str]:
         errors.append("public stable Mac release is missing from README or website copy")
     if public["ios"]["minimumDevice"] not in readme:
         errors.append("README minimum iPhone support differs from public-product-facts")
-    website_pending = any(phrase in website.lower() for phrase in ("arriving soon", "not public yet", "public distribution is not"))
-    if "arriving soon" not in readme.lower() or not website_pending:
+    pending_phrases = (
+        "arriving soon",
+        "distribution pending",
+        "not public yet",
+        "public distribution is not",
+        "awaiting public distribution",
+    )
+    readme_pending = any(phrase in readme.lower() for phrase in pending_phrases)
+    website_pending = any(phrase in website.lower() for phrase in pending_phrases)
+    if not readme_pending or not website_pending:
         errors.append("public iPhone distribution-pending status is missing from README or website")
     progress = (root / "docs/development-progress.md").read_text(encoding="utf-8")
     if benchmark_baseline_status(root, "macos") and "clean canonical macOS schema-v2 baseline exists" not in progress:
         errors.append("docs/development-progress.md: tracked history has a clean canonical macOS baseline but the checkpoint does not")
     if not benchmark_baseline_status(root, "ios") and "clean canonical iPhone schema-v2 baseline remains pending" not in progress:
         errors.append("docs/development-progress.md: iPhone clean canonical status must remain pending")
+    return errors
+
+
+def validate_readme_public_contract(root: Path) -> list[str]:
+    """Keep the GitHub landing page aligned with public product contracts."""
+    readme_path = root / "README.md"
+    if not readme_path.is_file():
+        return ["README.md: public product page is missing"]
+    readme = readme_path.read_text(encoding="utf-8")
+    public = load_json(root / PUBLIC_FACTS_PATH)
+    version = public["stableMacRelease"]["version"]
+    tag = public["stableMacRelease"]["tag"]
+    direct_dmg = (
+        "https://github.com/PowerBeef/QwenVoice/releases/download/"
+        f"{tag}/Vocello-macos26.dmg"
+    )
+    errors: list[str] = []
+    rejected = {
+        r"(?i)every generation records its sampling seed":
+            "interactive generations cannot be described as universally seed-replayable",
+        r"(?i)exactly like the Mac app":
+            "iPhone copy must preserve its platform-specific runtime and model-variant differences",
+        r"https://vocello\.vercel\.app/assets/screens/":
+            "README product screenshots must use repository-versioned assets",
+        r"(?i)social preview \(maintainers\)":
+            "repository administration instructions do not belong on the public product page",
+    }
+    for pattern, message in rejected.items():
+        if re.search(pattern, readme):
+            errors.append(f"README.md: {message}")
+    if direct_dmg not in readme:
+        errors.append(f"README.md: stable {version} install CTA must link directly to the DMG asset")
+    if "[mlx-audio-swift](https://github.com/Blaizzy/mlx-audio-swift)" not in readme:
+        errors.append("README.md: acknowledgements must identify the actual mlx-audio-swift upstream")
+    if not re.search(r"(?is)\|\s*Mac\s*\|[^\n]+Speed \(4-bit\) and Quality \(8-bit\)", readme):
+        errors.append("README.md: Mac model availability must state Speed and Quality")
+    if not re.search(r"(?is)\|\s*iPhone\s*\|[^\n]+\|\s*Speed \(4-bit\)\s*\|", readme):
+        errors.append("README.md: iPhone model availability must state Speed only")
+    if not re.search(r"(?i)Voice Cloning[^\n]+does not expose delivery controls", readme):
+        errors.append("README.md: delivery controls must be scoped away from Voice Cloning")
+    local_assets = set(re.findall(r"\]\((docs/(?:screenshots/[^)]+|readme_banner_vocello\.png))\)", readme))
+    if len(local_assets) < 5:
+        errors.append("README.md: expected repository-versioned banner and product screenshots are missing")
+    for asset in local_assets:
+        if not (root / asset).is_file():
+            errors.append(f"README.md: missing repository-versioned product asset {asset}")
     return errors
 
 
@@ -411,6 +471,7 @@ def validate(root: Path) -> list[str]:
     errors.extend(validate_retired_harness_terms(root, paths))
     errors.extend(validate_documented_subcommands(root, paths))
     errors.extend(validate_facts(root))
+    errors.extend(validate_readme_public_contract(root))
     errors.extend(validate_website_copy(root))
     errors.extend(validate_historical_banners(root))
     errors.extend(validate_index(root))

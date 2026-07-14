@@ -159,6 +159,51 @@ class DocumentationContractTests(unittest.TestCase):
         source.write_text('const copy = "Responsive native generation";\n', encoding="utf-8")
         self.assertEqual(DOCUMENTATION.validate_website_copy(self.root), [])
 
+    def test_readme_public_contract_rejects_claim_and_asset_drift(self) -> None:
+        self.write(
+            "config/public-product-facts.json",
+            json.dumps(
+                {
+                    "stableMacRelease": {"version": "2.1.0", "tag": "v2.1.0"},
+                }
+            ),
+        )
+        stale = self.write(
+            "README.md",
+            "Every generation records its sampling seed.\n\n"
+            "The iPhone works exactly like the Mac app.\n\n"
+            "![Screen](https://vocello.vercel.app/assets/screens/custom-voice.png)\n",
+        )
+        errors = DOCUMENTATION.validate_readme_public_contract(self.root)
+        self.assertGreaterEqual(len(errors), 8)
+        self.assertTrue(any("seed-replayable" in error for error in errors))
+        self.assertTrue(any("repository-versioned" in error for error in errors))
+
+        for relative in (
+            "docs/readme_banner_vocello.png",
+            "docs/screenshots/voice-design.png",
+            "docs/screenshots/voice-cloning.png",
+            "docs/screenshots/models.png",
+            "docs/screenshots/history.png",
+        ):
+            self.write(relative, "fixture")
+        stale.write_text(
+            "[Download](https://github.com/PowerBeef/QwenVoice/releases/download/v2.1.0/Vocello-macos26.dmg)\n\n"
+            "| Platform | Support | Model variants | Status |\n"
+            "| --- | --- | --- | --- |\n"
+            "| Mac | supported | Speed (4-bit) and Quality (8-bit) | available |\n"
+            "| iPhone | supported | Speed (4-bit) | pending |\n\n"
+            "Voice Cloning follows its reference and does not expose delivery controls.\n\n"
+            "[mlx-audio-swift](https://github.com/Blaizzy/mlx-audio-swift)\n\n"
+            "![Banner](docs/readme_banner_vocello.png)\n"
+            "![Design](docs/screenshots/voice-design.png)\n"
+            "![Clone](docs/screenshots/voice-cloning.png)\n"
+            "![Models](docs/screenshots/models.png)\n"
+            "![History](docs/screenshots/history.png)\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(DOCUMENTATION.validate_readme_public_contract(self.root), [])
+
     def test_historical_snapshot_may_retain_retired_terminology(self) -> None:
         active = self.write("README.md", "Computer Use is an old harness.\n")
         self.assertTrue(DOCUMENTATION.validate_retired_harness_terms(self.root, [active]))
