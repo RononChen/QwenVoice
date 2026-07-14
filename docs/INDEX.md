@@ -18,6 +18,7 @@ Review when: release facts; workflow changes; platform support.
 - [`.agents/release-qa-engineer.md`](../.agents/release-qa-engineer.md)
 - [`.agents/website-engineer.md`](../.agents/website-engineer.md)
 - [`AGENTS.md`](../AGENTS.md)
+- [`CONTRIBUTING.md`](../CONTRIBUTING.md)
 - [`PRODUCT.md`](../PRODUCT.md)
 - [`README.md`](../README.md)
 - [`website/AGENTS.md`](../website/AGENTS.md)
