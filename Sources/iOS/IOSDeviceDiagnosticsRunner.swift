@@ -334,8 +334,7 @@ enum IOSDeviceDiagnosticsRunner {
             let startedAt = ISO8601DateFormatter().string(from: Date())
             var takeResults: [MemoryQualificationTakeResult] = []
             var fixtureDigests: [String: String] = [:]
-            let takeFileURL = URL(fileURLWithPath: "/tmp/vocello-bench-current-take.json")
-            defer { try? FileManager.default.removeItem(at: takeFileURL) }
+            defer { BenchRunContext.clearCurrentTakeFile() }
 
             print("[device-memory] start runID=\(plan.runID) takes=\(plan.takes.count)")
             for plannedTake in plan.takes {
@@ -355,7 +354,8 @@ enum IOSDeviceDiagnosticsRunner {
                 }
 
                 let actualWarmState = engine.loadState.currentModelID == model.id ? "warm" : "cold"
-                BenchRunContext.writeCurrentTakeFile(
+                failureCode = .takeIdentityUnavailable
+                try BenchRunContext.writeCurrentTakeFile(
                     takeIndex: plannedTake.takeIndex,
                     cell: plannedTake.cell,
                     intendedWarmState: actualWarmState
@@ -406,17 +406,30 @@ enum IOSDeviceDiagnosticsRunner {
                     )
                     appTimelineSubmitted = false
 
+                    // Export the exact just-completed rows before validating them. A
+                    // fail-closed qualification must still preserve the row and raw
+                    // sample sidecar that explain which contract check rejected it.
+                    IOSPullableDiagnosticsMirror.syncGenerationTelemetryIfEnabled(
+                        generationID: generationID
+                    )
+
                     let audioURL = URL(fileURLWithPath: result.audioPath)
                     failureCode = .outputValidationFailed
                     _ = try makeOutputEvidence(for: audioURL)
                     failureCode = .telemetryValidationFailed
-                    let engineRecord = try requireQualificationTelemetry(
-                        generationID: generationID,
-                        expectedMode: mode,
-                        expectedModelID: model.id,
-                        expectedCell: plannedTake.cell,
-                        expectedTakeIndex: plannedTake.takeIndex
-                    )
+                    let engineRecord: GenerationTelemetryRecord
+                    do {
+                        engineRecord = try requireQualificationTelemetry(
+                            generationID: generationID,
+                            expectedMode: mode,
+                            expectedModelID: model.id,
+                            expectedCell: plannedTake.cell,
+                            expectedTakeIndex: plannedTake.takeIndex
+                        )
+                    } catch let validationError as QualificationTelemetryValidationError {
+                        failureCode = validationError.failureCode
+                        throw validationError
+                    }
                     failureCode = .outputMirrorFailed
                     let pullableOutput = try mirrorQualificationOutput(
                         audioURL,
@@ -668,7 +681,7 @@ enum IOSDeviceDiagnosticsRunner {
             .appendingPathComponent("engine", isDirectory: true)
         let rowsURL = engineDirectory.appendingPathComponent("generations.jsonl", isDirectory: false)
         guard let text = try? String(contentsOf: rowsURL, encoding: .utf8) else {
-            throw DiagnosticsError("memory qualification engine telemetry is unavailable")
+            throw QualificationTelemetryValidationError.telemetryUnavailable
         }
         let decoder = JSONDecoder()
         let matches = text.split(separator: "\n").compactMap { line -> GenerationTelemetryRecord? in
@@ -681,24 +694,22 @@ enum IOSDeviceDiagnosticsRunner {
             return row
         }
         guard matches.count == 1, let row = matches.first else {
-            throw DiagnosticsError(
-                "memory qualification expected one engine row for generation \(generationID.uuidString)"
-            )
+            throw QualificationTelemetryValidationError.rowCountInvalid
         }
         guard row.schemaVersion >= 8,
               row.mode == expectedMode.rawValue,
               row.modelID == expectedModelID,
               row.usedStreaming == true else {
-            throw DiagnosticsError("memory qualification engine telemetry identity is incomplete")
+            throw QualificationTelemetryValidationError.identityInvalid
         }
         let acceptedFinishReasons = Set(["eos", "max_tokens", "maxTokens", "completed"])
         guard row.finishReason.map(acceptedFinishReasons.contains) == true else {
-            throw DiagnosticsError("memory qualification generation did not finish successfully")
+            throw QualificationTelemetryValidationError.finishInvalid
         }
         guard row.notes["benchRunID"] == trimmedEnvironmentValue(runIDKey),
               row.notes["benchCell"] == expectedCell,
               row.notes["benchTakeIndex"] == String(expectedTakeIndex) else {
-            throw DiagnosticsError("memory qualification telemetry lost ordered run/take identity")
+            throw QualificationTelemetryValidationError.runIdentityInvalid
         }
         guard row.outputMetrics?.readableWAV == true,
               row.outputMetrics?.atomicallyPublished == true,
@@ -706,7 +717,7 @@ enum IOSDeviceDiagnosticsRunner {
               audioQC.verdict != .fail,
               audioQC.instabilityVerdict != .fail,
               audioQC.writtenOutputVerdict != .fail else {
-            throw DiagnosticsError("memory qualification output or audio QC proof failed")
+            throw QualificationTelemetryValidationError.outputInvalid
         }
         guard let summary = row.summary,
               let coverage = summary.captureCoverage,
@@ -722,7 +733,7 @@ enum IOSDeviceDiagnosticsRunner {
               memoryMetrics.captureCoverage == coverage,
               memoryMetrics.boundaryCoverage == boundaries,
               memoryMetrics.mlxStageCount > 0 else {
-            throw DiagnosticsError("memory qualification summary lacks complete v8 memory evidence")
+            throw QualificationTelemetryValidationError.memoryEvidenceIncomplete
         }
 
         let samplesURL = engineDirectory.appendingPathComponent(
@@ -730,26 +741,86 @@ enum IOSDeviceDiagnosticsRunner {
             isDirectory: false
         )
         guard let samplesText = try? String(contentsOf: samplesURL, encoding: .utf8) else {
-            throw DiagnosticsError("memory qualification verbose sample sidecar is unavailable")
+            throw QualificationTelemetryValidationError.sampleSidecarUnavailable
         }
         let sampleLines = samplesText.split(separator: "\n")
-        let samples = try sampleLines.map { line in
-            guard let data = line.data(using: .utf8) else {
-                throw DiagnosticsError("memory qualification sample sidecar is not UTF-8")
+        let samples: [TelemetrySample]
+        do {
+            samples = try sampleLines.map { line in
+                guard let data = line.data(using: .utf8) else {
+                    throw QualificationTelemetryValidationError.sampleSidecarInvalid
+                }
+                return try decoder.decode(TelemetrySample.self, from: data)
             }
-            return try decoder.decode(TelemetrySample.self, from: data)
+        } catch let validationError as QualificationTelemetryValidationError {
+            throw validationError
+        } catch {
+            throw QualificationTelemetryValidationError.sampleSidecarInvalid
         }
         guard samples.count == summary.sampleCount,
               samples.first?.kind == .start,
               samples.last?.kind == .stop else {
-            throw DiagnosticsError("memory qualification sample sidecar count/lifetime is incomplete")
+            throw QualificationTelemetryValidationError.sampleSidecarInvalid
         }
         let observedBoundaries = Set(samples.compactMap(\.boundary))
         guard observedBoundaries.contains("first_chunk"),
               observedBoundaries.contains("final_audio_materialized") else {
-            throw DiagnosticsError("memory qualification streaming/output boundaries are incomplete")
+            throw QualificationTelemetryValidationError.boundaryIncomplete
         }
         return row
+    }
+
+    private enum QualificationTelemetryValidationError: LocalizedError {
+        case telemetryUnavailable
+        case rowCountInvalid
+        case identityInvalid
+        case finishInvalid
+        case runIdentityInvalid
+        case outputInvalid
+        case memoryEvidenceIncomplete
+        case sampleSidecarUnavailable
+        case sampleSidecarInvalid
+        case boundaryIncomplete
+
+        var failureCode: IOSMemoryQualificationFailureCode {
+            switch self {
+            case .telemetryUnavailable: .telemetryUnavailable
+            case .rowCountInvalid: .telemetryRowCountInvalid
+            case .identityInvalid: .telemetryIdentityInvalid
+            case .finishInvalid: .telemetryFinishInvalid
+            case .runIdentityInvalid: .telemetryRunIdentityInvalid
+            case .outputInvalid: .telemetryOutputInvalid
+            case .memoryEvidenceIncomplete: .telemetryMemoryEvidenceIncomplete
+            case .sampleSidecarUnavailable: .telemetrySampleSidecarUnavailable
+            case .sampleSidecarInvalid: .telemetrySampleSidecarInvalid
+            case .boundaryIncomplete: .telemetryBoundaryIncomplete
+            }
+        }
+
+        var errorDescription: String? {
+            switch self {
+            case .telemetryUnavailable:
+                "memory qualification engine telemetry is unavailable"
+            case .rowCountInvalid:
+                "memory qualification expected exactly one engine telemetry row"
+            case .identityInvalid:
+                "memory qualification engine telemetry identity is incomplete"
+            case .finishInvalid:
+                "memory qualification generation did not finish successfully"
+            case .runIdentityInvalid:
+                "memory qualification telemetry lost ordered run/take identity"
+            case .outputInvalid:
+                "memory qualification output or audio QC proof failed"
+            case .memoryEvidenceIncomplete:
+                "memory qualification summary lacks complete v8 memory evidence"
+            case .sampleSidecarUnavailable:
+                "memory qualification verbose sample sidecar is unavailable"
+            case .sampleSidecarInvalid:
+                "memory qualification sample sidecar count, lifetime, or encoding is invalid"
+            case .boundaryIncomplete:
+                "memory qualification streaming/output boundaries are incomplete"
+            }
+        }
     }
 
     private static func qualificationEnvironment(

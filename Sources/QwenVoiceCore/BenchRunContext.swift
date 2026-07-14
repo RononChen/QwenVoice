@@ -21,7 +21,7 @@ public enum BenchRunContext {
     public static func telemetryNotes(intendedWarmState: String? = nil) -> [String: String] {
         guard TelemetryGate.resolvedEnabled else { return [:] }
         var notes = notesFromEnvironment(intendedWarmState: intendedWarmState)
-        if let fileNotes = notesFromTakeFile() {
+        if let fileNotes = currentTakeFileNotes() {
             // The engine service keeps the environment from its first launch,
             // while the benchmark advances multiple warm takes in that same
             // process. The current-take file is therefore authoritative for
@@ -33,26 +33,41 @@ public enum BenchRunContext {
         return notes
     }
 
-    /// Bench driver writes a current-take manifest in shared temporary storage so
+    /// Bench driver writes a current-take manifest in temporary storage so
     /// warm-session takes still stamp take index + cell without relaunching.
+    ///
+    /// macOS deliberately uses the global temporary directory because the app,
+    /// CLI, and XPC service must share this file. iOS runs the engine in-process
+    /// and must use its sandbox-owned temporary directory.
     public static func writeCurrentTakeFile(
         takeIndex: Int,
         cell: String,
         intendedWarmState: String
-    ) {
+    ) throws {
         let payload: [String: String] = [
             "benchTakeIndex": String(takeIndex),
             "benchCell": cell,
             "benchWarmState": intendedWarmState,
         ]
-        guard let data = try? JSONSerialization.data(withJSONObject: payload),
-              let text = String(data: data, encoding: .utf8) else {
-            return
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        try data.write(to: currentTakeFileURL, options: .atomic)
+        guard currentTakeFileNotes() == payload else {
+            throw BenchRunContextError.currentTakeReadbackMismatch
         }
-        try? text.write(to: takeFileURL, atomically: false, encoding: .utf8)
     }
 
-    private static let takeFileURL = URL(fileURLWithPath: "/tmp/vocello-bench-current-take.json")
+    public static func clearCurrentTakeFile() {
+        try? FileManager.default.removeItem(at: currentTakeFileURL)
+    }
+
+    static var currentTakeFileURL: URL {
+        #if os(iOS)
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocello-bench-current-take.json", isDirectory: false)
+        #else
+        URL(fileURLWithPath: "/tmp/vocello-bench-current-take.json", isDirectory: false)
+        #endif
+    }
 
     private static func notesFromEnvironment(intendedWarmState: String?) -> [String: String] {
         var notes: [String: String] = [:]
@@ -65,8 +80,8 @@ public enum BenchRunContext {
         return notes
     }
 
-    private static func notesFromTakeFile() -> [String: String]? {
-        guard let data = try? Data(contentsOf: takeFileURL),
+    static func currentTakeFileNotes() -> [String: String]? {
+        guard let data = try? Data(contentsOf: currentTakeFileURL),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
             return nil
         }
@@ -94,5 +109,13 @@ public enum BenchRunContext {
             return nil
         }
         return raw
+    }
+}
+
+private enum BenchRunContextError: LocalizedError {
+    case currentTakeReadbackMismatch
+
+    var errorDescription: String? {
+        "benchmark current-take identity could not be verified after writing"
     }
 }

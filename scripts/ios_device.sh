@@ -1242,7 +1242,9 @@ cmd_profile() {
   local xctrace_dev
   xctrace_dev="$(resolve_xctrace_device "$dev")"
 
-  [[ -d "$APP_PATH" ]] || cmd_build
+  # Profiling evidence must describe the current checkout, not merely whatever
+  # compatible app happens to remain in the persistent device cache.
+  cmd_build
   cmd_install >/dev/null
   local run_id
   run_id="ios-${kind}-profile-$(date -u +%Y%m%d-%H%M%S)-$(benchmark_nonce)"
