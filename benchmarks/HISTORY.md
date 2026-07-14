@@ -145,3 +145,9 @@ from schema-v2 memory trends.
 | completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
 |---|---|---|---|---|---|---:|---|---|---|---|
 | 2026-07-13 | [`macos-xcui-benchmark-20260713-093711-0fdf033f`](runs/ui-generation/macos-xcui-benchmark-20260713-093711-0fdf033f.json) | focused | exploratory | passedWithWarnings | qualified-with-warnings | 2 | `04083b15a4e2` dirty | `excluded` | baseline | memory-v8-final-focused |
+
+## ui-generation / macos / mac-mini-m2-8gb / config `aee1fb0470f3`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-13 | [`macos-xcui-benchmark-20260713-185716-7f12cd35`](runs/ui-generation/macos-xcui-benchmark-20260713-185716-7f12cd35.json) | canonical | canonical | passedWithWarnings | qualified-with-warnings | 29 | `4e05f6fd458c` | `aee1fb0470f3` | baseline | macos-xcui-benchmark-20260713-185716-7f12cd35 |
