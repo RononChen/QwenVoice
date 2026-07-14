@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "description": "Phase 2a headless language-hint matrix (custom + design, pinned + auto).",
+  "version": 2,
+  "description": "Headless language matrix: Custom compares pinned and Auto with identical fixtures; Design uses the known explicit target language.",
   "cells": [
     {
       "id": "custom-en-pinned",
@@ -23,10 +23,10 @@
       "quick": true
     },
     {
-      "id": "design-en-auto",
+      "id": "design-en-pinned",
       "mode": "design",
       "variant": "speed",
-      "uiHint": "auto",
+      "uiHint": "english",
       "scriptLang": "english",
       "expectedHint": "english",
       "quick": true
@@ -52,10 +52,10 @@
       "quick": true
     },
     {
-      "id": "design-fr-auto",
+      "id": "design-fr-pinned",
       "mode": "design",
       "variant": "speed",
-      "uiHint": "auto",
+      "uiHint": "french",
       "scriptLang": "french",
       "expectedHint": "french",
       "quick": true
@@ -90,10 +90,10 @@
       "promptEquivalenceGroup": "custom-german-v1"
     },
     {
-      "id": "design-de-auto",
+      "id": "design-de-pinned",
       "mode": "design",
       "variant": "speed",
-      "uiHint": "auto",
+      "uiHint": "german",
       "scriptLang": "german",
       "expectedHint": "german"
     },
@@ -116,10 +116,10 @@
       "promptEquivalenceGroup": "custom-spanish-v1"
     },
     {
-      "id": "design-es-auto",
+      "id": "design-es-pinned",
       "mode": "design",
       "variant": "speed",
-      "uiHint": "auto",
+      "uiHint": "spanish",
       "scriptLang": "spanish",
       "expectedHint": "spanish"
     },
@@ -142,10 +142,10 @@
       "promptEquivalenceGroup": "custom-chinese-v1"
     },
     {
-      "id": "design-zh-auto",
+      "id": "design-zh-pinned",
       "mode": "design",
       "variant": "speed",
-      "uiHint": "auto",
+      "uiHint": "chinese",
       "scriptLang": "chinese",
       "expectedHint": "chinese"
     },
@@ -168,10 +168,10 @@
       "promptEquivalenceGroup": "custom-japanese-v1"
     },
     {
-      "id": "design-ja-auto",
+      "id": "design-ja-pinned",
       "mode": "design",
       "variant": "speed",
-      "uiHint": "auto",
+      "uiHint": "japanese",
       "scriptLang": "japanese",
       "expectedHint": "japanese"
     }

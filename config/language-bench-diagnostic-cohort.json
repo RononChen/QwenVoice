@@ -1,9 +1,9 @@
 {
   "version": 1,
   "id": "language-quality-v1",
-  "description": "Fixed, predeclared seed cohort for autonomous diagnosis of the current English Design dropout and French Auto intelligibility failures.",
+  "description": "Fixed, predeclared regression cohort for autonomous diagnosis of the previously observed English Design dropout and French Auto intelligibility failures.",
   "cellIDs": [
-    "design-en-auto",
+    "design-en-pinned",
     "custom-fr-pinned",
     "custom-fr-auto"
   ],

@@ -21,6 +21,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import sys
 from typing import Any
 import unicodedata
@@ -37,6 +38,18 @@ from language_bench_evidence import (
 
 MAX_ACCURACY_ERROR_RATE = 0.15
 MIN_LANGUAGE_MATCH_SCORE = 0.5
+LANGUAGE_LOCALE_CODES = {
+    "english": "en",
+    "chinese": "zh",
+    "german": "de",
+    "french": "fr",
+    "russian": "ru",
+    "portuguese": "pt",
+    "spanish": "es",
+    "italian": "it",
+    "japanese": "ja",
+    "korean": "ko",
+}
 
 
 def find_sentinels(diag: str, run_id: str) -> dict[str, list[dict[str, Any]]]:
@@ -67,6 +80,14 @@ def nonnegative_int(value: Any) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
     return value
+
+
+def locale_matches_expected_language(identifier: str, expected_language: str) -> bool:
+    expected_code = LANGUAGE_LOCALE_CODES.get(expected_language)
+    if expected_code is None:
+        return False
+    base_code = re.split(r"[-_]", identifier, maxsplit=1)[0].lower()
+    return base_code == expected_code
 
 
 def normalized_word_tokens(text: str, *, preserve_diacritics: bool = False) -> list[str]:
@@ -168,6 +189,8 @@ def validate_structured_verification(
             f"{identity}: expectedLanguage {verification.get('expectedLanguage')!r} "
             f"!= matrix {expected_language!r}"
         )
+    if verification.get("skipReason") is not None:
+        failures.append(f"{identity}: output verification contains a skipReason")
 
     recognition = verification.get("recognition")
     if not isinstance(recognition, dict):
@@ -180,8 +203,15 @@ def validate_structured_verification(
     if recognition.get("expectedLanguage") != expected_language:
         failures.append(f"{identity}: recognizer expectedLanguage mismatch")
     locale = recognition.get("selectedLocaleIdentifier")
-    if not isinstance(locale, str) or not locale or locale.lower() == "auto":
+    if (
+        not isinstance(locale, str)
+        or not locale
+        or locale != locale.strip()
+        or locale.lower() == "auto"
+    ):
         failures.append(f"{identity}: missing exact recognizer locale")
+    elif not locale_matches_expected_language(locale, expected_language):
+        failures.append(f"{identity}: recognizer locale does not match expectedLanguage")
     if recognition.get("authorizationStatus") != "authorized":
         failures.append(f"{identity}: Speech authorization is not authorized")
     if recognition.get("recognizerAvailable") is not True:
@@ -228,6 +258,8 @@ def validate_structured_verification(
         transcript = repetition.get("transcript")
         if not isinstance(transcript, str) or not transcript.strip():
             failures.append(f"{identity}: recognition repetition {position} lacks a transcript")
+        elif transcript != transcript.strip():
+            failures.append(f"{identity}: recognition repetition {position} transcript is not trimmed")
         else:
             transcripts.append(transcript)
         duration = finite_number(repetition.get("recognitionDurationSeconds"))
@@ -277,6 +309,8 @@ def validate_structured_verification(
     consensus = recognition.get("transcript")
     if not isinstance(consensus, str) or not consensus.strip():
         failures.append(f"{identity}: recognition consensus transcript is missing")
+    elif consensus != consensus.strip():
+        failures.append(f"{identity}: recognition consensus transcript is not trimmed")
     if transcripts and (len(set(transcripts)) != 1 or consensus != transcripts[0]):
         failures.append(f"{identity}: recognition transcripts do not exactly agree")
     if verification.get("transcript") != consensus:
@@ -486,8 +520,6 @@ def main() -> int:
                 verification, expected_hint, expected_script, identity
             )
         )
-        if verification.get("skipReason"):
-            failures.append(f"{identity}: skipped ({verification.get('skipReason')})")
         if not verification.get("languagePass"):
             failures.append(
                 f"{identity}: languagePass=false score={verification.get('languageMatchScore')}"

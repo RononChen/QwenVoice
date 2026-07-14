@@ -568,7 +568,8 @@ dropouts, garbled words, "sounds worse"). Three layers, increasing in what they 
    sentence/clause boundary, so on long, slow content interior silences legitimately reach ~800 ms — a
    fixed ≥400 ms fail line cried wolf on natural delivery (every long-content silence mapped to a
    punctuation mark). Instead the detector counts *long pauses* (≥350 ms) against the text's **pause
-   budget** (interior punctuation boundaries, from `request.text`) and flags only an **excess** beyond it
+   budget** (interior punctuation boundaries, including CJK full-width marks, from `request.text`)
+   and flags only an **excess** beyond it
    (`dropout:excessN(long/budget)` — ≥2 = fail, 1 = warn) or a single **egregious** gap no natural pause
    reaches (≥1200 ms = fail `dropout:Nms`; ≥900 ms = warn). A genuine mid-phrase gap that merely *replaces*
    a punctuation pause (same count, ~same length) is positionally indistinguishable from a comma pause by

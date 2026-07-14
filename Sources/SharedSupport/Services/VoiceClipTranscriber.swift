@@ -107,6 +107,14 @@ enum VoiceClipTranscriber {
         var supportsOnDeviceRecognition: Bool
     }
 
+    struct LiveRecognizerObservation: Sendable, Equatable {
+        var requestedIdentifier: String
+        var recognizerIdentifier: String?
+        var language: Qwen3SupportedLanguage
+        var isAvailable: Bool
+        var supportsOnDeviceRecognition: Bool
+    }
+
     private struct CandidateLocale: Sendable, Equatable {
         var locale: Locale
         var language: Qwen3SupportedLanguage
@@ -317,6 +325,10 @@ enum VoiceClipTranscriber {
               !selectedLocale.isEmpty,
               selectedLocale.lowercased() != "auto",
               evidence.selectedLocaleIdentifier == selectedLocale,
+              localeMatchesExpectedLanguage(
+                  identifier: selectedLocale,
+                  expected: expectedLanguage
+              ),
               let transcript = evidence.transcript?.trimmingCharacters(in: .whitespacesAndNewlines),
               !transcript.isEmpty,
               evidence.transcript == transcript,
@@ -374,15 +386,41 @@ enum VoiceClipTranscriber {
         guard !trimmed.isEmpty else { return 0 }
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(trimmed)
+        let hypotheses = recognizer.languageHypotheses(withMaximum: 5).map {
+            (languageIdentifier: $0.key.rawValue, probability: $0.value)
+        }
+        return boundedLanguageMatchScore(hypotheses: hypotheses, expected: expected)
+    }
+
+    /// Aggregates region/script variants into one base-language probability while preserving the
+    /// schema's [0, 1] range. `NLLanguageRecognizer` can report one variant at 1.0 plus a tiny
+    /// positive probability for another variant, so the raw floating-point sum is not bounded.
+    static func boundedLanguageMatchScore(
+        hypotheses: [(languageIdentifier: String, probability: Double)],
+        expected: Qwen3SupportedLanguage
+    ) -> Double {
+        guard expected != .auto else { return 0 }
         var score = 0.0
-        for (language, probability) in recognizer.languageHypotheses(withMaximum: 5) {
-            let code = Locale(identifier: language.rawValue).language.languageCode?.identifier
-                ?? language.rawValue
+        for (languageIdentifier, probability) in hypotheses
+        where probability.isFinite && probability > 0 {
+            let code = Locale(identifier: languageIdentifier).language.languageCode?.identifier
+                ?? languageIdentifier
             if Qwen3SupportedLanguage.normalized(code) == expected {
                 score += probability
             }
         }
-        return score
+        return min(1, max(0, score))
+    }
+
+    static func localeMatchesExpectedLanguage(
+        identifier: String,
+        expected: Qwen3SupportedLanguage
+    ) -> Bool {
+        guard expected != .auto,
+              let code = Locale(identifier: identifier).language.languageCode?.identifier else {
+            return false
+        }
+        return Qwen3SupportedLanguage.normalized(code) == expected
     }
 
     static func wordErrorMetrics(reference: String, hypothesis: String) -> EditMetrics {
@@ -445,6 +483,48 @@ enum VoiceClipTranscriber {
                 if lhs.language != rhs.language { return lhs.language.rawValue < rhs.language.rawValue }
                 return lhs.identifier < rhs.identifier
             }
+    }
+
+    /// Reads the legacy Speech recognizer state for one exact locale. The iOS speech-asset
+    /// bootstrap uses this after installing the modern `DictationTranscriber` assets so its
+    /// report reflects the same `SFSpeechRecognizer.supportsOnDeviceRecognition` signal that
+    /// Vocello's output verifier consumes.
+    static func liveRecognizerObservation(for locale: Locale) -> LiveRecognizerObservation {
+        let recognizer = SFSpeechRecognizer(locale: locale)
+        return LiveRecognizerObservation(
+            requestedIdentifier: locale.identifier,
+            recognizerIdentifier: recognizer?.locale.identifier,
+            language: Qwen3SupportedLanguage.normalized(
+                locale.language.languageCode?.identifier
+            ),
+            isAvailable: recognizer?.isAvailable ?? false,
+            supportsOnDeviceRecognition: recognizer?.supportsOnDeviceRecognition ?? false
+        )
+    }
+
+    static func liveCapability(for locale: Locale) -> LocaleCapability {
+        let observation = liveRecognizerObservation(for: locale)
+        return LocaleCapability(
+            // Preserve the identifier supplied by `supportedLocales()`. Region ranking and the
+            // selected locale used for recognition must not change merely because a recognizer
+            // reports a canonicalized identifier.
+            identifier: locale.identifier,
+            language: observation.language,
+            isAvailable: observation.isAvailable,
+            supportsOnDeviceRecognition: observation.supportsOnDeviceRecognition
+        )
+    }
+
+    /// Re-evaluates the complete legacy locale inventory and applies Vocello's deterministic
+    /// selection policy. This is intentionally a fresh read rather than cached capability data.
+    static func liveSelectedCapabilities(
+        preferredLanguages: [String] = Locale.preferredLanguages
+    ) -> [LocaleCapability] {
+        let capabilities = SFSpeechRecognizer.supportedLocales().map(liveCapability(for:))
+        return selectedCapabilities(
+            from: capabilities,
+            preferredLanguages: preferredLanguages
+        )
     }
 
     private static func normalizedWordTokens(_ text: String) -> [String] {
@@ -525,16 +605,7 @@ enum VoiceClipTranscriber {
 
     /// One deterministic, available, on-device-capable locale per Qwen language.
     private static func candidateLocales() -> [CandidateLocale] {
-        let capabilities = SFSpeechRecognizer.supportedLocales().map { locale -> LocaleCapability in
-            let recognizer = SFSpeechRecognizer(locale: locale)
-            return LocaleCapability(
-                identifier: locale.identifier,
-                language: Qwen3SupportedLanguage.normalized(locale.language.languageCode?.identifier),
-                isAvailable: recognizer?.isAvailable ?? false,
-                supportsOnDeviceRecognition: recognizer?.supportsOnDeviceRecognition ?? false
-            )
-        }
-        return selectedCapabilities(from: capabilities, preferredLanguages: Locale.preferredLanguages)
+        liveSelectedCapabilities()
             .map {
                 CandidateLocale(
                     locale: Locale(identifier: $0.identifier),

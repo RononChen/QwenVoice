@@ -2139,7 +2139,7 @@ def validate_record(
                 or float(selected_score) > float(take["accuracyThreshold"])
                 or metrics["outputLanguagePass"] != 1.0
                 or metrics["outputAccuracyPass"] != 1.0
-                or metrics["languageMatchScore"] < 0.5
+                or not 0.5 <= metrics["languageMatchScore"] <= 1.0
                 or metrics["recognitionPassCount"] != 3.0
                 or metrics["recognitionDurationSeconds"] <= 0
             ):

@@ -55,19 +55,34 @@ Pro `iPhone18,1` profile. Dirty-source successes are exploratory even on that ha
 
 ## Headless device diagnostics
 
-`bench`, `lang-bench`, `profile`, `memory`, and the deliberate crash diagnostic launch
-`IOSDeviceDiagnosticsRunner` through a purpose-specific `QVOICE_IOS_DEVICE_DIAGNOSTICS_*`
-environment contract. The runner writes `device-diagnostics-done.json`; it never drives or inspects
-the app UI. Clone diagnostics require the exact prepared voice ID, and `--memory-profile` can apply a
+`bench`, `lang-bench`, `speech-assets`, `profile`, `memory`, and the deliberate crash diagnostic launch
+`IOSDeviceDiagnosticsRunner` through purpose-specific `QVOICE_IOS_*` environment contracts.
+Generation lanes write `device-diagnostics-done.json`; `speech-assets` writes its distinct
+`speech-assets-done.json` completion barrier. The runner never drives or inspects the app UI. Clone
+diagnostics require the exact prepared voice ID, and `--memory-profile` can apply a
 smaller-device memory budget while retaining the connected phone's real GPU and thermals. These
 operations are diagnostics, not a second frontend acceptance stack.
+
+`speech-assets` is an explicit, non-generation bootstrap for the language-output prerequisite. It
+resolves `de_DE`, `es_419`, `ja_JP`, and `zh_CN` through
+`DictationTranscriber.supportedLocale(equivalentTo:)`, creates one module per resolved locale,
+checks each status, performs one combined AssetInventory download/install request, and then requires
+every module to report installed. Its local sentinel also records a fresh
+`SFSpeechRecognizer.supportsOnDeviceRecognition` read and Vocello's deterministic legacy locale
+selection. Modern installation and legacy readiness are separate verdicts; the command publishes no
+benchmark history and performs no generation.
 
 `lang-bench` declares an immutable one-based run plan before generation and passes an explicit
 UInt64 seed plus sampling variation to every take. Its schema-v2 sentinel is published last and
 binds the resolved language, prompt-assembly digest, exact output-WAV digest/metadata, generation
 telemetry identity, and structured three-pass on-device Speech evidence. The collector retains only
-those plan-selected rows and files. `--diagnostic-cohort` runs the fixed 15-take English-Design and
-French pinned/Auto failure cohort without retries or history publication. Language acceptance is
+those plan-selected rows and files. Corpus v2 requires at least 15 normalized words for alphabetic
+scripts and 24 normalized characters for Chinese/Japanese, freezes the Custom speaker and shared
+Design instruction in the plan, and sends the known language explicitly for Design. Custom pinned/Auto
+pairs share the exact fixture and prove language-hint equivalence rather than independent audio
+quality; three transcription passes prove recognizer reproducibility rather than statistical
+independence. `--diagnostic-cohort` runs the fixed 15-take English-Design and
+French pinned/Auto regression cohort without retries or history publication. Language acceptance is
 fully autonomous; listening is optional annotation only. Its primary accuracy metric is WER for
 word-delimited languages and CER for Chinese/Japanese, both at the versioned 0.15 threshold; the
 Python validator and publisher recompute the edit evidence from the corpus rather than trusting the
@@ -155,9 +170,13 @@ generation IDs/cells and verdicts. A PASS publishes one privacy-safe record unde
 `benchmarks/runs/ui-generation/` and regenerates `benchmarks/HISTORY.md`. Raw pulled JSONL, WAVs,
 screenshots, traces, and `.xcresult` stay untracked; publication never stages, commits, or pushes.
 
-Physical-iPhone acceptance of the telemetry-v8/evidence-v2 memory contract and the new memory trace
-lane is `pending-device` until the next attended device session. Repository contract/unit checks do not substitute
-for that on-device run, and no Simulator result is accepted.
+Physical-iPhone acceptance of telemetry v8/evidence v2 is complete for the clean canonical
+[29-take UI matrix](../../benchmarks/runs/ui-generation/ios-xcui-benchmark-20260714-113139-3b4b6d6c.json),
+[retained-memory qualification](../../benchmarks/runs/memory-qualification/ios-memory-qualification-20260714-112536-32554d95.json),
+and the exact-PID [memory profile](../../benchmarks/runs/instrument-profile/ios-memory-profile-20260714-112759-9a573224.json).
+Each record proves only its exact source, toolchain, model, and hardware identities; repository
+contract tests and Simulator results never substitute for fresh physical-device evidence after a
+relevant change.
 
 ## Generated-output ownership
 

@@ -10,12 +10,25 @@ Headless matrix for the Qwen3 language path:
 
 | File | Role |
 | --- | --- |
-| `config/language-bench-corpus.json` | Native script snippets per language |
+| `config/language-bench-corpus.json` | Versioned scripts plus Custom speaker and Design delivery fixtures per language |
 | `config/language-bench-matrix.json` | Cells: mode, `uiHint`, `scriptLang`, `expectedHint` |
 | `config/language-bench-diagnostic-cohort.json` | Fixed cells and five predeclared seeds for autonomous failure diagnosis |
 
 Cells tagged `"quick": true` form the **quick** subset (English + French + negative control, 7 cells).
-**full** runs all 19 cells (6 languages × custom pinned/auto + design auto + negative).
+**full** runs all 19 cells (6 languages × Custom pinned/Auto + Design explicit-language + negative).
+
+The version-2 corpus is deliberately longer than the original smoke snippets: each alphabetic
+script contains at least 15 normalized words and each Chinese/Japanese script contains at least 24
+normalized characters. Design always receives the known target language explicitly. Custom uses a
+native-language speaker where the Qwen speaker contract provides one (Chinese `vivian`, Japanese
+`ono_anna`); the remaining languages use the contract's stable `aiden` fixture.
+
+The paired Custom pinned/Auto cells intentionally generate the same prompt with the same speaker,
+seed, and sampling policy. They prove that Auto resolves equivalently to the pinned hint; they are
+not independent audio samples. Likewise, the three sequential Speech recognitions prove that the
+on-device recognizer reproduced one transcript for one WAV. They do not provide three statistically
+independent accuracy observations. The 18 output cells remain strict per-cell multilingual smoke
+acceptance, not a population estimate of language quality.
 
 ## iOS (on-device)
 
@@ -46,13 +59,24 @@ the Swift verdict.
    Allemand, Espagnol, Japonais (Romaji), Chinois simplifié (Pinyin QWERTY).
 2. **Dictation languages:** Settings → search *dictée* → **Langues de Dictée** — enable
    Allemand, Espagnol, Japonais, Mandarin (and any variants listed for your locale).
-3. **Wi‑Fi download:** Keep the phone on Wi‑Fi until Settings no longer shows that voice
-   content for those languages will download later (French UI: *sera téléchargé plus tard
-   lorsque l'iPhone sera connecté au Wi‑Fi*).
-4. **Re-run** after assets finish: `scripts/ios_device.sh lang-bench --subset full --label "lang-full-output-v3"`.
+3. **Explicit asset bootstrap:** With the unlocked phone on Wi‑Fi, run
+   `scripts/ios_device.sh speech-assets`. Vocello resolves the device-supported equivalents for
+   `de_DE`, `es_419`, `ja_JP`, and `zh_CN`, creates DictationTranscriber modules, checks
+   AssetInventory before and after one combined `downloadAndInstall()` request, and requires every
+   resolved locale to report installed. The command also prints a separate
+   `vocello_legacy_gate` verdict from fresh SFSpeechRecognizer instances and the same deterministic
+   locale-selection policy used by the output verifier.
+4. **Interpret both results:** `asset_inventory=PASS` proves the modern assets installed.
+   `vocello_legacy_gate=PASS` is additionally required by the current Phase 3 verifier. If the
+   modern gate passes but the legacy gate remains blocked, do not claim language readiness or run
+   the full matrix as promotion evidence; preserve the local diagnostic result and investigate the
+   OS-level legacy recognizer state.
+5. **Re-run** once both are ready:
+   `scripts/ios_device.sh lang-bench --subset full --label "lang-full-output-v3"`.
 
-Confirm Speech assets visually in Settings on the physical device before running the matrix; this
-is an operational download prerequisite, not a subjective audio review.
+Settings remains useful for confirming enabled Dictation languages, but the explicit command owns
+asset installation and machine verification. This is an operational prerequisite, not a subjective
+audio review.
 Vocello UI expectations remain documented in [`ios-ui-reference.md`](ios-ui-reference.md).
 Language-benchmark labels are opaque privacy-safe identifiers matching
 `[A-Za-z0-9][A-Za-z0-9._-]{0,95}`; they are not free-form notes.
@@ -83,7 +107,10 @@ Before the first launch, the driver atomically writes `language-run-plan.json` w
 indexes, child run IDs, cells, prompt-equivalence groups, seeds, and sampling variation. Normal
 quick/full matrices use one stable seed per mode/script language; pinned and Auto Custom cells for
 the same script intentionally share both prompt assembly and seed so the hint is the controlled
-variable. The diagnostic cohort is seed-major and evaluates exactly three cells across five fixed
+variable. The plan also freezes the corpus-owned Custom speaker and one shared Design delivery
+instruction; the shared Design fixture keeps language as the controlled variable and preserves one
+typed fixture identity for the model across the matrix.
+The diagnostic cohort is seed-major and evaluates exactly three cells across five fixed
 seeds (15 takes). It performs no retry and never publishes benchmark history.
 
 Gates:
@@ -106,27 +133,39 @@ Failed cells, missing typed telemetry/model identity, or a publication error lea
 registry unchanged; the untracked artifact directory retains the idempotent repair command.
 Passing the diagnostic cohort prints its verdict locally and intentionally creates no record.
 
-### Historical validation snapshot (2026-07-06)
+### Validation and diagnostic snapshot (through 2026-07-14)
 
 The table below is preserved as dated operational evidence; it is not the current acceptance
 state. Current PASS evidence must exist in `benchmarks/runs/language/` and appear in generated
 `benchmarks/HISTORY.md`, while the active resume status lives in
 [`../development-progress.md`](../development-progress.md). The current tracked registry contains
-macOS hint-only records but no physical-iPhone language PASS record, so a fresh output-gated iOS
-run remains required before claiming current Phase 3 acceptance.
+a clean physical-iPhone quick PASS record covering the seven EN/FR cells, plus historical macOS
+hint-only records. Full Phase 3 multilingual acceptance still requires a clean 19-cell iPhone run
+with all 18 output-gated cells passing after the DE/ES/ZH/JA Speech-asset bootstrap.
 
 | Run | Subset | Hint gate | Output gate | Notes |
 | --- | --- | --- | --- | --- |
 | `ios-lang-bench-20260706-110143` | quick | **7/7 PASS** | — | Hint only (pre–Phase 3 output) |
 | `ios-lang-bench-20260706-112319` | quick | **7/7 PASS** | **6/6 PASS** | Locale-locked ASR + stored `pass`; negative control hint-only |
 | `ios-lang-bench-20260706-135146` | full | **19/19 PASS** | **7/18 FAIL** | DE/ES/ZH/JA `transcription_failed` — Speech Wi‑Fi assets pending on device |
+| `ios-lang-bench-20260714-134925-3e73b43d` | full | **19/19 PASS** | **10/18 FAIL** | Assets ready; exposed an out-of-range language-score producer bug and genuine failures in the original short corpus. No history record was published. |
+| `ios-lang-cohort-20260714-143612-f5e99664` | bounded DE/ZH/JA diagnostic | **6/6 PASS** | **6/6 PASS** | Retry-free validator/corpus-v2 confirmation after adding CJK punctuation to the deterministic pause budget. Diagnostic only; no history record was published. |
+| `ios-lang-bench-20260714-145013-304721d6` | full | **19/19 PASS** | **13/18 FAIL** | Corpus-v2 evidence localized remaining fixed-seed failures to French Custom and all three German paths. No history record was published. |
+| `ios-lang-bench-20260714-153252-d2a3eea5` | full | **not evaluated** | **not evaluated** | Intentionally interrupted while take 7 was launching after six completed takes. No final gates or history record exist; this local partial run is not acceptance evidence. |
 
 Negative control `custom-fr-text-en-pinned` is **hint-only** (`skipOutputVerification`) — pinned
 English hint is sent, but synthesis still speaks French for a French script today.
 
-Re-run the full output gate after the Phase 3 prerequisites above are satisfied on the phone. A
-failed or incomplete run correctly creates no tracked history and cannot be replaced by this dated
-table or a listening judgment.
+The version-2 corpus, explicit Design language, native-language Custom fixtures where available,
+stricter validator correlation, and CJK-aware punctuation pause accounting address the defects
+exposed by the July 14 attempts. The bounded DE/ZH/JA cohort confirms those paths. Four subsequent
+retry-free cohorts exercised the revised French and German scripts at the exact normal-matrix seeds:
+French Custom pinned/Auto and Design all passed strict QC with zero WER, while German Custom
+pinned/Auto and Design passed strict QC at approximately 0.138 WER. Those six diagnostic takes do
+not replace a full run. The later partial full run was intentionally stopped and cannot be resumed
+or promoted, so the next acceptance attempt must start a fresh 19-cell run from a clean committed
+revision. A failed, incomplete, or diagnostic run correctly creates no tracked history and cannot
+be replaced by this dated table or a listening judgment.
 
 ## macOS (in-process CLI)
 
@@ -144,6 +183,7 @@ macOS hint-only evidence is therefore explicitly `partial` in benchmark history.
 ## Offline gate tests
 
 ```sh
+python3 -m unittest scripts.test_check_ios_speech_assets
 python3 scripts/test_check_language_hints.py
 python3 scripts/test_check_language_output.py
 ```

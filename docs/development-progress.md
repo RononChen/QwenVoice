@@ -51,14 +51,19 @@
   `build/artifacts/macos/` and does
   not publish schema-v2 history. Its `off` lane deliberately constructs no sampler, so requiring
   in-process memory evidence there would change the experiment rather than qualify it.
-- A clean canonical macOS schema-v2 baseline exists: the 29-take Mac mini M2 8 GB run at source
-  commit `4e05f6fd…` passed with the allowed `memory.pressure.soft_trim` warning and is preserved in
-  the tracked registry. Earlier dirty schema-v2 records remain exploratory and are excluded from
-  canonical trends. The clean canonical iPhone schema-v2 baseline remains pending physical-device
-  acceptance.
+- A clean canonical macOS schema-v2 baseline exists, and so does the clean canonical iPhone
+  schema-v2 baseline: the 29-take Mac mini M2 8 GB run at source commit `4e05f6fd…` and the
+  29-take iPhone 17 Pro run at source commit `6ffdbfdd…` passed with the allowed
+  `memory.pressure.soft_trim` warning and are preserved in the tracked registry. Earlier dirty
+  schema-v2 records remain exploratory and are excluded from canonical trends.
 - The physical-iPhone language lane predeclares a one-based, fixed-seed run plan; retains only the
   exact selected WAV and telemetry evidence; requires three-pass locale-locked on-device Speech
-  consensus; and offers a retry-free 15-take diagnostic cohort that never publishes history.
+  consensus; and offers a retry-free 15-take diagnostic cohort that never publishes history. Its
+  version-2 corpus uses at least 15 normalized words per alphabetic script and 24 normalized
+  characters per CJK script, pins Design to the known language, and records language-appropriate
+  Custom speakers where the Qwen contract supplies one. Custom pinned/Auto pairs test hint
+  equivalence, while the three Speech passes test recognizer reproducibility; neither is counted as
+  independent audio evidence.
 
 ## Publishing boundary
 
@@ -97,18 +102,31 @@ explicit macOS fixture repair/bootstrap step.
 - The optional CI `archive-ios` lane is implemented. Public iOS distribution still requires
   maintainer-owned distribution credentials, the App Store Connect record and metadata, screenshots,
   and submission.
-- Locale-locked iOS language-output verification depends on the corresponding on-device Speech
-  assets; rerun the full language matrix when those assets or language behavior changes.
-- The first clean canonical macOS schema-v2 comparison baseline is complete. When the physical
-  iPhone is available, run its focused acceptance sequence and full 29-take UI benchmark to create
-  the remaining clean canonical iPhone baseline. Rerun the macOS canonical matrix after a relevant
-  engine, model, compiler, toolchain, or performance change rather than for documentation-only
-  revisions. Explicit quality runs remain independent from ordinary publishing and release
-  packaging.
-- Physical-iPhone acceptance for telemetry v8/evidence v2 and the new exact-PID memory profile is
-  `pending-device` until an attended device session. No Simulator or live-phone command was used to claim it in
-  this checkpoint; run the focused device benchmark and memory profile before treating the iPhone
-  memory contract as production-accepted.
+- The 2026-07-14 attended Speech-asset bootstrap resolved and installed the supported DE/ES/JA/ZH
+  DictationTranscriber modules, and fresh `SFSpeechRecognizer` instances passed Vocello's legacy
+  on-device gate. The clean seven-cell EN/FR quick language record is tracked. The first post-asset
+  full attempt passed the 19/19 hint gate but failed the output gate; it correctly published no
+  history. That run exposed an out-of-range language-score producer bug plus genuine accuracy
+  failures under the original short corpus. The strict validator, version-2 corpus/matrix, and
+  CJK-aware punctuation pause budget subsequently passed a retry-free six-cell DE/ZH/JA diagnostic
+  cohort with 6/6 hint/QC and 6/6 output checks. That bounded local diagnostic intentionally
+  published no history. The first clean corpus-v2 full attempt then passed all 19 hint/QC checks
+  but stopped at 13/18 output cells, correctly publishing no history; its failures were isolated to
+  French Custom and the three German paths. Revised natural French and German scripts passed four
+  retry-free exact-canonical-seed cohorts with strict QC and all 6/6 output checks. The subsequent
+  full run `ios-lang-bench-20260714-153252-d2a3eea5` was intentionally interrupted while take 7
+  was launching after six takes had completed. It produced no final hint/output gates and no
+  history record, so it is non-authoritative local evidence and must not be resumed or published.
+  A future session must start a fresh 19-cell, 18-output physical-iPhone acceptance run from the
+  committed corpus at or after checkpoint `eaf9d751`.
+- Clean canonical macOS and iPhone schema-v2 UI baselines are complete. Rerun either canonical
+  matrix after a relevant engine, model, compiler, toolchain, or performance change rather than for
+  documentation-only revisions. Explicit quality runs remain independent from ordinary publishing
+  and release packaging.
+- Physical-iPhone telemetry-v8/evidence-v2 acceptance is complete for the canonical UI matrix,
+  retained-memory qualification, and an exact-PID memory profile. The tracked records remain bound
+  to their exact source, toolchain, model, and hardware identities; new product changes require
+  proportionate fresh evidence rather than reuse of local raw artifacts.
 
 ## Resume rule
 

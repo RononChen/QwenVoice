@@ -20,11 +20,21 @@ import shutil
 import sys
 import tempfile
 from typing import Any, Iterable
+import unicodedata
 import wave
 
 
 SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,159}\Z")
 UINT64_MAX = (1 << 64) - 1
+MIN_ALPHABETIC_WORDS = 15
+MIN_CJK_CHARACTERS = 24
+CJK_LANGUAGES = {"chinese", "japanese"}
+SPEAKER_CONTRACT_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "Sources"
+    / "Resources"
+    / "qwenvoice_contract.json"
+)
 
 
 class EvidenceError(RuntimeError):
@@ -118,6 +128,37 @@ def stable_default_seed(cell: dict[str, Any]) -> int:
     return int.from_bytes(hashlib.sha256(identity).digest()[:8], "big") & ((1 << 63) - 1)
 
 
+def normalized_script_unit_count(text: str, language: str) -> int:
+    folded = unicodedata.normalize("NFKC", text).lower()
+    if language in CJK_LANGUAGES:
+        return sum(character.isalnum() for character in folded)
+    count = 0
+    in_token = False
+    for character in folded:
+        if character.isalnum():
+            if not in_token:
+                count += 1
+                in_token = True
+        else:
+            in_token = False
+    return count
+
+
+def supported_custom_speaker_ids() -> set[str]:
+    contract = load_json(SPEAKER_CONTRACT_PATH)
+    groups = contract.get("speakers")
+    if not isinstance(groups, dict) or not groups:
+        raise EvidenceError("qwenvoice_contract.json has no Custom speaker groups")
+    speakers: set[str] = set()
+    for values in groups.values():
+        if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+            raise EvidenceError("qwenvoice_contract.json contains malformed Custom speakers")
+        speakers.update(values)
+    if not speakers:
+        raise EvidenceError("qwenvoice_contract.json has no Custom speakers")
+    return speakers
+
+
 def build_plan(
     *,
     run_id: str,
@@ -131,11 +172,55 @@ def build_plan(
     matrix = load_json(matrix_path)
     corpus = load_json(corpus_path)
     cohort = load_json(cohort_path) if cohort_path else None
-    scripts: dict[str, str] = {}
+    supported_speakers = supported_custom_speaker_ids()
+    fixtures: dict[str, dict[str, str]] = {}
     for entry in corpus.get("languages") or []:
-        if isinstance(entry, dict) and isinstance(entry.get("id"), str) and isinstance(entry.get("script"), str):
-            scripts[entry["id"]] = entry["script"]
+        if not isinstance(entry, dict):
+            raise EvidenceError("language corpus contains a malformed entry")
+        language = entry.get("id")
+        script = entry.get("script")
+        speaker = entry.get("customSpeakerID")
+        instruction = entry.get("designInstruction")
+        if (
+            not isinstance(language, str)
+            or not re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", language)
+            or language in fixtures
+            or not isinstance(script, str)
+            or script != script.strip()
+            or not script
+            or not isinstance(speaker, str)
+            or not re.fullmatch(r"[a-z][a-z0-9_]{1,31}", speaker)
+            or not isinstance(instruction, str)
+            or instruction != instruction.strip()
+            or not 1 <= len(instruction) <= 240
+        ):
+            raise EvidenceError("language corpus contains an invalid or duplicate fixture")
+        if speaker not in supported_speakers:
+            raise EvidenceError(
+                f"{language}: Custom speaker {speaker!r} is absent from qwenvoice_contract.json"
+            )
+        unit_count = normalized_script_unit_count(script, language)
+        minimum = MIN_CJK_CHARACTERS if language in CJK_LANGUAGES else MIN_ALPHABETIC_WORDS
+        if unit_count < minimum:
+            raise EvidenceError(
+                f"{language}: script has {unit_count} normalized units; requires at least {minimum}"
+            )
+        fixtures[language] = {
+            "script": script,
+            "customSpeakerID": speaker,
+            "designInstruction": instruction,
+        }
     cells = selected_matrix_cells(matrix, subset, cohort)
+    design_instructions = {
+        fixtures[str(cell.get("scriptLang"))]["designInstruction"]
+        for cell in cells
+        if cell.get("mode") == "design"
+        and str(cell.get("scriptLang")) in fixtures
+    }
+    if len(design_instructions) > 1:
+        raise EvidenceError(
+            "language benchmark Design cells must share one corpus-owned instruction"
+        )
     seeds = validate_seeds(cohort)
     selected_groups = sorted(
         {
@@ -179,8 +264,20 @@ def build_plan(
     for seed_index, seed, cell in take_pairs:
         cell_id = cell["id"]
         script_lang = cell.get("scriptLang")
-        if script_lang not in scripts:
+        if script_lang not in fixtures:
             raise EvidenceError(f"{cell_id}: corpus lacks scriptLang {script_lang!r}")
+        mode = cell.get("mode")
+        if mode not in {"custom", "design"}:
+            raise EvidenceError(f"{cell_id}: unsupported language-benchmark mode {mode!r}")
+        if mode == "design" and (
+            cell.get("uiHint") == "auto"
+            or cell.get("uiHint") != cell.get("expectedHint")
+        ):
+            raise EvidenceError(
+                f"{cell_id}: Design language validation requires the explicit target language"
+            )
+        fixture = fixtures[script_lang]
+        design_instruction = fixture["designInstruction"] if mode == "design" else None
         child_id = f"{run_id}--{cell_id}"
         if cohort is not None:
             child_id += f"--s{seed_index + 1:02d}"
@@ -194,11 +291,17 @@ def build_plan(
                 "samplingVariation": "expressive",
                 "cellID": cell_id,
                 "childRunID": child_id,
-                "mode": cell.get("mode"),
+                "mode": mode,
                 "variant": cell.get("variant", "speed"),
                 "uiHint": cell.get("uiHint", "auto"),
                 "scriptLang": script_lang,
                 "expectedHint": cell.get("expectedHint"),
+                "customSpeakerID": fixture["customSpeakerID"] if mode == "custom" else None,
+                "designInstruction": design_instruction,
+                "designInstructionDigest": (
+                    hashlib.sha256(design_instruction.encode("utf-8")).hexdigest()
+                    if design_instruction is not None else None
+                ),
                 "promptEquivalenceGroup": cell.get("promptEquivalenceGroup"),
                 "skipOutputVerification": bool(cell.get("skipOutputVerification")),
             }
@@ -289,6 +392,28 @@ def validate_plan(plan: dict[str, Any]) -> list[dict[str, Any]]:
             raise EvidenceError(f"{child}: invalid seed")
         if take.get("samplingVariation") != "expressive":
             raise EvidenceError(f"{child}: language take must use expressive sampling")
+        mode = take.get("mode")
+        if mode == "custom":
+            if (
+                not isinstance(take.get("customSpeakerID"), str)
+                or not re.fullmatch(r"[a-z][a-z0-9_]{1,31}", take["customSpeakerID"])
+                or take.get("designInstruction") is not None
+                or take.get("designInstructionDigest") is not None
+            ):
+                raise EvidenceError(f"{child}: invalid Custom fixture contract")
+        elif mode == "design":
+            instruction = take.get("designInstruction")
+            digest = take.get("designInstructionDigest")
+            if (
+                take.get("customSpeakerID") is not None
+                or not isinstance(instruction, str)
+                or instruction != instruction.strip()
+                or not 1 <= len(instruction) <= 240
+                or digest != hashlib.sha256(instruction.encode("utf-8")).hexdigest()
+            ):
+                raise EvidenceError(f"{child}: invalid Design fixture contract")
+        else:
+            raise EvidenceError(f"{child}: unsupported language-benchmark mode")
         if kind == "languageBenchmark":
             if take.get("seedIndex") is not None or child != f"{run_id}--{take.get('cellID')}":
                 raise EvidenceError(f"{child}: invalid normal benchmark take identity")
@@ -515,6 +640,10 @@ def collect(
                 raise EvidenceError(f"{child}: sentinel requested language hint does not match the plan")
             if record.get("languageHintSource") != expected_language_hint_source(requested_hint):
                 raise EvidenceError(f"{child}: sentinel language-hint source does not match the plan")
+            if take["mode"] == "custom" and record.get("customSpeakerID") != take.get("customSpeakerID"):
+                raise EvidenceError(f"{child}: sentinel Custom speaker does not match the plan")
+            if take["mode"] == "design" and record.get("fixtureDigest") != take.get("designInstructionDigest"):
+                raise EvidenceError(f"{child}: sentinel Design instruction does not match the plan")
 
             run_dir = temp / "runs" / child
             run_dir.mkdir(parents=True)

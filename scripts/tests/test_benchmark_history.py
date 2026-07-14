@@ -505,6 +505,12 @@ class BenchmarkHistoryTests(unittest.TestCase):
         with self.assertRaisesRegex(history.HistoryError, "do not match tracked counts"):
             self.publish(tampered_counts, "accuracy-tampered-counts")
 
+        out_of_range_score = copy.deepcopy(valid)
+        out_of_range_score["run"]["id"] = "accuracy-out-of-range-score"
+        out_of_range_score["takes"][0]["metrics"]["languageMatchScore"] = 1.000_000_000_1
+        with self.assertRaisesRegex(history.HistoryError, "language accuracy gate metrics"):
+            self.publish(out_of_range_score, "accuracy-out-of-range-score")
+
     def test_schema_v2_language_requires_complete_memory_qualification(self) -> None:
         valid = record_fixture(run_id="language-memory-v2", kind="language")
         valid["schemaVersion"] = 2

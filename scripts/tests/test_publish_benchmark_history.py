@@ -142,8 +142,18 @@ def successful_asr_verification(
     reference: str = "un deux trois quatre cinq six sept huit",
     transcript: str = "un deux trois quatre cinq six sept neuf",
 ) -> dict:
-    word_metrics = publisher.language_edit_metrics(reference, transcript, characters=False)
-    character_metrics = publisher.language_edit_metrics(reference, transcript, characters=True)
+    word_metrics = publisher.language_edit_metrics(
+        reference,
+        transcript,
+        characters=False,
+        expected_language="french",
+    )
+    character_metrics = publisher.language_edit_metrics(
+        reference,
+        transcript,
+        characters=True,
+        expected_language="french",
+    )
     repetitions = [
         {
             "passIndex": index,
@@ -210,7 +220,11 @@ def successful_asr_verification(
     }
 
 
-def language_plan(*, matrix: Path, corpus: Path, run_id: str = "lang-ios", seed: int = 42) -> dict:
+def language_plan(
+    *, matrix: Path, corpus: Path, run_id: str = "lang-ios", seed: int | None = None
+) -> dict:
+    if seed is None:
+        seed = publisher.stable_default_seed({"mode": "custom", "scriptLang": "french"})
     plan = {
         "schemaVersion": 1,
         "runID": run_id,
@@ -220,7 +234,7 @@ def language_plan(*, matrix: Path, corpus: Path, run_id: str = "lang-ios", seed:
         "corpusDigest": publisher.digest_file(corpus),
         "cohortID": None,
         "cohortDigest": None,
-        "seedPolicy": "sha256-v1-mode-script-language",
+        "seedPolicy": publisher.LANGUAGE_SEED_POLICY,
         "samplingVariation": "expressive",
         "promptEquivalenceGroups": [],
         "requireEveryTakePass": True,
@@ -237,6 +251,9 @@ def language_plan(*, matrix: Path, corpus: Path, run_id: str = "lang-ios", seed:
             "uiHint": "auto",
             "scriptLang": "french",
             "expectedHint": "french",
+            "customSpeakerID": "aiden",
+            "designInstruction": None,
+            "designInstructionDigest": None,
             "promptEquivalenceGroup": None,
             "skipOutputVerification": False,
         }],
@@ -261,6 +278,8 @@ def language_sentinel(
         "samplingVariation": "expressive",
         "requestedLanguageHint": "auto",
         "languageHintSource": "auto",
+        "customSpeakerID": "aiden",
+        "fixtureDigest": None,
         "deviceModel": "iPhone",
         "systemName": "iOS",
         "systemVersion": "26.5",
@@ -810,6 +829,8 @@ class PublisherTests(unittest.TestCase):
         reference_script = "un deux trois quatre cinq six sept huit"
         corpus.write_text(json.dumps({"languages": [{
             "id": "french", "script": reference_script,
+            "customSpeakerID": "aiden",
+            "designInstruction": "A warm, friendly narrator with a calm, measured pace.",
         }]}))
         fr = engine_row("fr-id", run_id="lang-run", cell="fr")
         en = engine_row("en-id", run_id="lang-run", cell="en")
@@ -914,17 +935,21 @@ class PublisherTests(unittest.TestCase):
         reference_script = "un deux trois quatre cinq six sept huit"
         corpus.write_text(json.dumps({"languages": [{
             "id": "french", "script": reference_script,
+            "customSpeakerID": "aiden",
+            "designInstruction": "A warm, friendly narrator with a calm, measured pace.",
         }]}))
         plan_path = self.root / "language-run-plan.json"
         plan = language_plan(matrix=matrix, corpus=corpus)
         plan_path.write_text(json.dumps(plan))
         row = engine_row("fr-generation", run_id="lang-ios", cell="fr")
+        planned_seed = plan["takes"][0]["seed"]
+        row["notes"]["samplingSeed"] = str(planned_seed)
         row["notes"]["languageHint"] = "french"
         sentinel_dir = self.root / "diagnostics" / "lang-ios--fr"
         sentinel_dir.mkdir(parents=True)
         output_path = sentinel_dir / "output.wav"
         self.make_wave(output_path)
-        sentinel = language_sentinel(output_path=output_path)
+        sentinel = language_sentinel(output_path=output_path, seed=planned_seed)
         (sentinel_dir / "device-diagnostics-done.json").write_text(json.dumps(sentinel))
         args = SimpleNamespace(
             matrix=matrix, corpus=corpus, subset="quick", diagnostics=self.root / "diagnostics",
@@ -959,7 +984,7 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(take_metrics["substitutions"], 1.0)
         self.assertEqual(take_metrics["accuracyThreshold"], 0.15)
         self.assertEqual(take_metrics["primaryAccuracyScore"], 0.125)
-        self.assertEqual(manifest["historyRecord"]["takes"][0]["seed"], 42)
+        self.assertEqual(manifest["historyRecord"]["takes"][0]["seed"], planned_seed)
         self.assertEqual(
             manifest["historyRecord"]["takes"][0]["layers"], ["engine", "app"]
         )
@@ -972,6 +997,33 @@ class PublisherTests(unittest.TestCase):
         )
         self.assertRegex(
             manifest["historyRecord"]["inputs"]["analysisProfileHash"], r"^[0-9a-f]{64}$"
+        )
+        expected_analysis_profile = {
+            "contract": "autonomous-language-output-v3",
+            "seedPolicy": plan["seedPolicy"],
+            "takes": [{
+                "cell": "fr",
+                "seed": planned_seed,
+                "samplingVariation": "expressive",
+                "promptEquivalenceGroup": None,
+                "outputVerificationRequired": True,
+                "customSpeakerID": "aiden",
+                "designInstructionDigest": None,
+                "expectedLanguage": "french",
+                "selectedLocaleIdentifier": "fr-CA",
+                "accuracyMetricVersion": "normalized-edit-rate-v1",
+                "accuracyMetric": "wordErrorRate",
+                "accuracyThreshold": 0.15,
+                "outputVerifierSchemaVersion": 3,
+                "outputVerifierAlgorithm": "language-output-verifier-v3",
+                "recognitionSchemaVersion": 2,
+                "recognitionAlgorithm": "apple-speech-file-consensus-v2",
+                "requiredPassCount": 3,
+            }],
+        }
+        self.assertEqual(
+            manifest["historyRecord"]["inputs"]["analysisProfileHash"],
+            publisher.digest_bytes(publisher.canonical_bytes(expected_analysis_profile)),
         )
         self.assertEqual(manifest["historyRecord"]["evidence"]["languageVerification"], {
             "outputSchemaVersion": 3,
@@ -1025,10 +1077,64 @@ class PublisherTests(unittest.TestCase):
             ):
                 publisher.language_command(args)
 
+        tampered_sentinel = copy.deepcopy(sentinel)
+        tampered_sentinel["customSpeakerID"] = "vivian"
+        (sentinel_dir / "device-diagnostics-done.json").write_text(
+            json.dumps(tampered_sentinel)
+        )
+        with (
+            mock.patch.object(publisher, "load_engine_rows", return_value=[row]),
+            mock.patch.object(
+                publisher, "load_app_rows", return_value=[app_row("fr-generation")]
+            ),
+            self.assertRaisesRegex(publisher.PublicationError, "Custom speaker"),
+        ):
+            publisher.language_command(args)
+        (sentinel_dir / "device-diagnostics-done.json").write_text(json.dumps(sentinel))
+
         self.assertNotIn(
             successful_asr_verification()["transcript"],
             json.dumps(manifest, sort_keys=True),
         )
+
+    def test_language_publication_rejects_mode_fixture_tampering(self) -> None:
+        custom_take = {
+            "mode": "custom",
+            "customSpeakerID": "aiden",
+            "designInstruction": None,
+            "designInstructionDigest": None,
+        }
+        publisher.validate_language_mode_fixture_identity(
+            cell_id="custom-en-pinned",
+            planned_take=custom_take,
+            sentinel={"customSpeakerID": "aiden", "fixtureDigest": None},
+        )
+        with self.assertRaisesRegex(publisher.PublicationError, "Custom speaker"):
+            publisher.validate_language_mode_fixture_identity(
+                cell_id="custom-en-pinned",
+                planned_take=custom_take,
+                sentinel={"customSpeakerID": "vivian", "fixtureDigest": None},
+            )
+
+        instruction = "A warm, friendly narrator with a calm, measured pace."
+        instruction_digest = publisher.digest_bytes(instruction.encode("utf-8"))
+        design_take = {
+            "mode": "design",
+            "customSpeakerID": None,
+            "designInstruction": instruction,
+            "designInstructionDigest": instruction_digest,
+        }
+        publisher.validate_language_mode_fixture_identity(
+            cell_id="design-en-pinned",
+            planned_take=design_take,
+            sentinel={"customSpeakerID": None, "fixtureDigest": instruction_digest},
+        )
+        with self.assertRaisesRegex(publisher.PublicationError, "Design fixture digest"):
+            publisher.validate_language_mode_fixture_identity(
+                cell_id="design-en-pinned",
+                planned_take=design_take,
+                sentinel={"customSpeakerID": None, "fixtureDigest": "d" * 64},
+            )
 
     def test_ios_language_requires_a_non_cohort_immutable_plan(self) -> None:
         with self.assertRaisesRegex(publisher.PublicationError, "immutable run plan"):
@@ -1045,6 +1151,8 @@ class PublisherTests(unittest.TestCase):
         }]}))
         corpus.write_text(json.dumps({"languages": [{
             "id": "french", "script": "un deux trois quatre cinq six sept huit",
+            "customSpeakerID": "aiden",
+            "designInstruction": "A warm, friendly narrator with a calm, measured pace.",
         }]}))
         plan = language_plan(matrix=matrix, corpus=corpus)
         plan["cohortID"] = "diagnostic-cohort"
@@ -1067,15 +1175,48 @@ class PublisherTests(unittest.TestCase):
             "id": "fr", "quick": True, "expectedHint": "french",
             "mode": "custom", "variant": "speed", "scriptLang": "french",
         }]}))
-        corpus.write_text(json.dumps({"languages": []}))
+        corpus.write_text(json.dumps({"languages": [{
+            "id": "french", "script": "un deux trois quatre cinq six sept huit",
+            "customSpeakerID": "aiden",
+            "designInstruction": "A warm, friendly narrator with a calm, measured pace.",
+        }]}))
         cells = publisher.selected_language_cells(matrix, "quick")
         for name, mutate, message in (
             ("string-seed", lambda value: value["takes"][0].__setitem__("seed", "42"), "planned seed"),
+            (
+                "rehashed-numeric-seed",
+                lambda value: value["takes"][0].__setitem__(
+                    "seed", value["takes"][0]["seed"] + 1
+                ),
+                "deterministic tracked seed",
+            ),
+            (
+                "rehashed-take-variation",
+                lambda value: value["takes"][0].__setitem__(
+                    "samplingVariation", "balanced"
+                ),
+                "expressive sampling variation",
+            ),
+            (
+                "rehashed-seed-policy",
+                lambda value: value.__setitem__("seedPolicy", "alternate-policy"),
+                "seed policy",
+            ),
+            (
+                "rehashed-plan-variation",
+                lambda value: value.__setitem__("samplingVariation", "balanced"),
+                "sampling variation",
+            ),
             ("zero-index", lambda value: value["takes"][0].__setitem__("takeIndex", 0), "one-based"),
             (
                 "wrong-ui-hint",
                 lambda value: value["takes"][0].__setitem__("uiHint", "french"),
                 "plan identity",
+            ),
+            (
+                "rehashed-custom-speaker",
+                lambda value: value["takes"][0].__setitem__("customSpeakerID", "vivian"),
+                "mode fixture does not match the corpus",
             ),
         ):
             plan = language_plan(matrix=matrix, corpus=corpus)
@@ -1091,22 +1232,63 @@ class PublisherTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaisesRegex(publisher.PublicationError, message):
                 publisher.load_language_plan(args, cells)
 
+        design_matrix = self.root / "design-matrix.json"
+        design_matrix.write_text(json.dumps({"cells": [{
+            "id": "design-fr-pinned", "quick": True, "expectedHint": "french",
+            "mode": "design", "variant": "speed", "scriptLang": "french",
+            "uiHint": "french",
+        }]}))
+        design_plan = language_plan(matrix=design_matrix, corpus=corpus)
+        instruction = "A warm, friendly narrator with a calm, measured pace."
+        design_plan["takes"][0].update({
+            "cellID": "design-fr-pinned",
+            "childRunID": "lang-ios--design-fr-pinned",
+            "mode": "design",
+            "uiHint": "french",
+            "customSpeakerID": None,
+            "designInstruction": instruction,
+            "designInstructionDigest": publisher.digest_bytes(instruction.encode("utf-8")),
+        })
+        design_plan.pop("planDigest")
+        design_plan["planDigest"] = publisher.digest_bytes(
+            publisher.canonical_bytes(design_plan)
+        )
+        design_cells = publisher.selected_language_cells(design_matrix, "quick")
+        design_plan["takes"][0]["seed"] = publisher.stable_default_seed(design_cells[0])
+        design_plan["takes"][0]["designInstructionDigest"] = "d" * 64
+        design_plan.pop("planDigest")
+        design_plan["planDigest"] = publisher.digest_bytes(
+            publisher.canonical_bytes(design_plan)
+        )
+        design_path = self.root / "rehashed-design-fixture.json"
+        design_path.write_text(json.dumps(design_plan))
+        design_args = SimpleNamespace(
+            platform="ios", plan=design_path, run_id="lang-ios",
+            matrix=design_matrix, corpus=corpus, subset="quick",
+        )
+        with self.assertRaisesRegex(
+            publisher.PublicationError, "mode fixture does not match the corpus"
+        ):
+            publisher.load_language_plan(design_args, design_cells)
+
     def test_language_asr_requires_exact_on_device_consensus_and_sampling_identity(self) -> None:
         matrix = self.root / "matrix.json"
         corpus = self.root / "corpus.json"
         matrix.write_text(json.dumps({"cells": []}))
         corpus.write_text(json.dumps({"languages": []}))
         plan = language_plan(matrix=matrix, corpus=corpus)
+        planned_seed = plan["takes"][0]["seed"]
         output_path = self.root / "output.wav"
         self.make_wave(output_path)
-        baseline = language_sentinel(output_path=output_path)
+        baseline = language_sentinel(output_path=output_path, seed=planned_seed)
         row = engine_row("fr-generation", run_id="lang-ios", cell="fr")
+        row["notes"]["samplingSeed"] = str(planned_seed)
         cell = {"id": "fr", "expectedHint": "french"}
         reference_script = "un deux trois quatre cinq six sept huit"
 
         cases = []
         wrong_seed = copy.deepcopy(baseline)
-        wrong_seed["seed"] = 43
+        wrong_seed["seed"] = planned_seed + 1
         cases.append(("sentinel-seed", wrong_seed, row, "sentinel seed"))
         wrong_requested_hint = copy.deepcopy(baseline)
         wrong_requested_hint["requestedLanguageHint"] = "french"
@@ -1136,6 +1318,24 @@ class PublisherTests(unittest.TestCase):
         wrong_algorithm = copy.deepcopy(baseline)
         wrong_algorithm["outputVerification"]["recognition"]["schemaVersion"] = 1
         cases.append(("old-recognition", wrong_algorithm, row, "unsupported recognition"))
+        wrong_locale = copy.deepcopy(baseline)
+        wrong_locale["outputVerification"]["recognition"]["selectedLocaleIdentifier"] = "zh-CN"
+        for repetition in wrong_locale["outputVerification"]["recognition"]["repetitions"]:
+            repetition["localeIdentifier"] = "zh-CN"
+        cases.append(("wrong-locale", wrong_locale, row, "locale does not match"))
+        out_of_range_score = copy.deepcopy(baseline)
+        out_of_range_score["outputVerification"]["languageMatchScore"] = 1.000_000_000_1
+        cases.append(("out-of-range-score", out_of_range_score, row, "non-finite ASR scores"))
+        empty_skip_reason = copy.deepcopy(baseline)
+        empty_skip_reason["outputVerification"]["skipReason"] = ""
+        cases.append(("empty-skip-reason", empty_skip_reason, row, "failed output verification"))
+        padded_transcript = copy.deepcopy(baseline)
+        padded = f" {padded_transcript['outputVerification']['transcript']} "
+        padded_transcript["outputVerification"]["transcript"] = padded
+        padded_transcript["outputVerification"]["recognition"]["transcript"] = padded
+        for repetition in padded_transcript["outputVerification"]["recognition"]["repetitions"]:
+            repetition["transcript"] = padded
+        cases.append(("padded-transcript", padded_transcript, row, "recognition pass"))
 
         for name, sentinel, candidate_row, message in cases:
             with self.subTest(name=name), self.assertRaisesRegex(publisher.PublicationError, message):
@@ -1186,6 +1386,16 @@ class PublisherTests(unittest.TestCase):
                 )
                 self.assertEqual(evidence["accuracyMetric"], "characterErrorRate")
                 self.assertEqual(evidence["primaryAccuracyScore"], 0.0)
+
+    def test_language_character_metrics_preserve_japanese_dakuten(self) -> None:
+        metrics = publisher.language_edit_metrics(
+            "かきくけこ",
+            "がきくけこ",
+            characters=True,
+            expected_language="japanese",
+        )
+        self.assertEqual(metrics["substitutions"], 1)
+        self.assertEqual(metrics["errorRate"], 0.2)
 
     def test_language_output_is_independently_hashed_and_read(self) -> None:
         output_path = self.root / "output.wav"
