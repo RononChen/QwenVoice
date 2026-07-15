@@ -21,6 +21,7 @@ struct SettingsScreen: View {
     @Environment(\.openURL) private var openURL
 
     @AppStorage("autoPlay") private var autoPlay = true
+    @AppStorage("vocello.voiceCloningConsent.v1") private var cloneConsentAcknowledged = false
     @AppStorage(IOSGenerationVariationPreference.key) private var generationVariation = IOSGenerationVariationPreference.defaultValue
     @AppStorage(IOSAppDefaults.reduceMotionEnabledKey) private var reduceMotionEnabled = false
     @AppStorage(IOSAppDefaults.reduceTransparencyEnabledKey) private var reduceTransparencyEnabled = false
@@ -55,6 +56,16 @@ struct SettingsScreen: View {
         ) {
             IOSScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    IOSSettingsReferenceSection(title: "Voice cloning") {
+                        IOSSettingsReferenceToggleRow(
+                            symbol: "hand.raised.fill",
+                            title: "I own or have permission to clone the voices I use",
+                            accessibilityIdentifier: "voiceCloning_consentAcknowledgment",
+                            isOn: $cloneConsentAcknowledged,
+                            tint: IOSBrandTheme.clone
+                        )
+                    }
+
                     IOSSettingsReferenceSection(title: "Voice models") {
                         ForEach(TTSModel.all) { model in
                             IOSModelRow(

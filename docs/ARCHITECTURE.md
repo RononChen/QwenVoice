@@ -660,7 +660,7 @@ exposes a visible Retry action; macOS retries when History reloads or is re-ente
 described as having a dedicated Retry control until one exists.
 
 **`UserDefaults` keys**: `QwenVoice.DebugModeEnabled` (debug toggle, mirrored to
-`TelemetryGate`), `vocello.voiceCloningConsent.v1` (visible clone-consent acknowledgment), per-mode variant choices
+`TelemetryGate`), `vocello.voiceCloningConsent.v1` (visible Settings-owned clone-consent acknowledgment), per-mode variant choices
 (`QwenVoice.{CustomVoice,VoiceDesign,VoiceCloning}.VariantID`), and UI state
 (`QwenVoice.LastSelectedSidebarItem`, `QwenVoice.LastVoiceCloningSavedVoiceID`).
 

@@ -34,8 +34,9 @@ scripts/ui_test.sh macos benchmark --modes custom --lengths short --warm 1 --lab
 The runner targets the configured native Vocello test host. Before launch it resolves every matching
 Vocello and engine-service PID to its executable, fails fast if any process belongs to another app
 path, and signals only the exact app/service products under the runner's Release build directory.
-It uses stable accessibility identifiers and condition waits, leaves preferences and saved voices
-unchanged, and records failures as XCTest activities and attachments. It never retries through a
+It uses stable accessibility identifiers and condition waits, preserves saved voices, visibly
+enables the persistent Clone consent preference for acceptance, restores temporary Auto-play
+changes, and records failures as XCTest activities and attachments. It never retries through a
 display name or alternate app path.
 
 Benchmark accepts `--modes`, `--lengths`, `--warm`, and `--label`. Filters are explicit diagnostic

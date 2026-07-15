@@ -168,6 +168,28 @@ class VocelloiOSUITestCase: XCTestCase {
         restorePendingAutoplayPreference()
     }
 
+    /// Clone acceptance uses the same persistent preference as production.
+    /// Establish it through the genuine visible Settings row before any
+    /// relaunch so every benchmark session starts from an explicit consent
+    /// state without a hidden launch override.
+    func ensureCloneConsentEnabled() {
+        select(tab: .settings)
+        let consent = element("voiceCloning_consentAcknowledgment")
+        XCTAssertTrue(VocelloUIWait.exists(consent, timeout: 20))
+        guard let consentState = VocelloUIToggle.state(of: consent) else {
+            XCTFail("Clone consent exposed an unknown value; refusing to mutate it")
+            return
+        }
+        if !consentState {
+            XCTAssertTrue(VocelloUIPrimaryAction.perform(on: consent, timeout: 20))
+            XCTAssertTrue(
+                VocelloUIWait.condition("Clone consent to become enabled", timeout: 15) {
+                    VocelloUIToggle.state(of: consent) == true
+                }
+            )
+        }
+    }
+
     /// Idempotent visible-UI cleanup. The benchmark's explicit defer normally
     /// calls this first; endSession repeats it only when an earlier assertion
     /// prevented that defer from being registered or completed.
@@ -227,20 +249,6 @@ class VocelloiOSUITestCase: XCTestCase {
             )
             let selectedReference = element("studioChip_reference")
             XCTAssertTrue(VocelloUIWait.exists(selectedReference, timeout: 30))
-            let consent = element("voiceCloning_consentAcknowledgment")
-            XCTAssertTrue(VocelloUIWait.exists(consent, timeout: 20))
-            guard let consentState = VocelloUIToggle.state(of: consent) else {
-                XCTFail("Clone consent exposed an unknown value; refusing to mutate it")
-                return
-            }
-            if !consentState {
-                XCTAssertTrue(VocelloUIPrimaryAction.perform(on: consent, timeout: 20))
-                XCTAssertTrue(
-                    VocelloUIWait.condition("Clone consent to become enabled", timeout: 15) {
-                        VocelloUIToggle.state(of: consent) == true
-                    }
-                )
-            }
             // Proactive priming is a best-effort optimization. The production
             // Generate action performs required preparation on demand.
             XCTAssertTrue(

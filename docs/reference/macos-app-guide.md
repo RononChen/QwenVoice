@@ -71,7 +71,6 @@ Tests assert these visible production surfaces directly.
 | Record | `voiceCloning_recordReferenceButton` |
 | Active reference | `voiceCloning_activeReference` / `voiceCloning_referenceWarning` |
 | Transcript (optional) | `voiceCloning_transcriptInput`; blank selects genuine audio-only x-vector conditioning |
-| Consent | `voiceCloning_consentAcknowledgment`; Generate remains disabled until acknowledged |
 | Record clip sheet | `recordClip_record` / `_stop` / `_retake` / `_use` / `_cancel` / `_timer` |
 | Script + CTAs | `textInput_*` (shared) |
 
@@ -107,6 +106,7 @@ Retry button.
 | Download / cancel / repair | `settings_download_<id>` / `settings_cancel_<id>` / `settings_repair_<id>` / `settings_manage_<id>` |
 | Auto-play | `preferences_autoPlayToggle` |
 | Variation | `settings_generationVariation` (segmented: Expressive/Balanced/Consistent) |
+| Clone consent | `voiceCloning_consentAcknowledgment`; persistent and required before Clone Generate |
 | Output dir | `preferences_outputDirectory` / `preferences_browseButton` / `preferences_openFinderButton` |
 | Version label | tap 7× → toggles `QWENVOICE_DEBUG` mode |
 

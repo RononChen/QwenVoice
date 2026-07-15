@@ -18,7 +18,7 @@ Vocello opens on the Studio tab in Custom mode. The root tabs are:
 | Studio | Custom, Design, and Clone generation | `rootTab_studio`, `generateSection_*`, `studio_*`, `textInput_*` |
 | Voices | Saved voices and built-in speakers | `rootTab_voices`, `screen_voices`, `voicesRow_*` |
 | History | Generated takes, playback, export, deletion | `rootTab_history`, `historyModeFilter*`, `historyRow_*` |
-| Settings | Models, preferences, storage, permissions, About | `rootTab_settings`, `iosSettings_*`, `iosModel*` |
+| Settings | Models, preferences, clone consent, storage, permissions, About | `rootTab_settings`, `iosSettings_*`, `iosModel*`, `voiceCloning_consentAcknowledgment` |
 
 The Studio selector changes the composer in place. Cold launch selects Custom mode; explicit
 handoffs may change the in-session Studio mode.
@@ -48,8 +48,9 @@ install state instead of Generate.
 Clone requires a reference clip from a saved voice, the physical-device recording flow, or an
 imported WAV, MP3, AIFF, or M4A file. Automated smoke and benchmark tests use a prepared non-PII
 saved reference. Recording, Files-picker import, and permission enrollment are separate explicit
-product-acceptance scenarios. `voiceCloning_consentAcknowledgment` is a genuine visible control and
-Generate remains disabled until it is enabled. A transcript is optional: supplied text selects
+product-acceptance scenarios. The genuine visible
+`voiceCloning_consentAcknowledgment` control lives in Settings; Clone reads that persistent choice
+and keeps Generate disabled until it is enabled. A transcript is optional: supplied text selects
 transcript-backed conditioning, while an empty transcript selects the distinct audio-only x-vector
 path.
 
@@ -74,8 +75,11 @@ iOS has one Speed model for each generation mode. Rows expose stable install, pr
 ready, repair, and delete states. Normal smoke and benchmark lanes do not install or delete models;
 they visibly assert that Custom, Design, and Clone Speed are ready before generation.
 
-The minimal smoke and benchmark lanes inspect model readiness without changing preferences. System
-permission enrollment is attended setup.
+Settings also owns the persistent Clone consent row
+`voiceCloning_consentAcknowledgment`. Smoke and benchmark enable it through that visible row when
+needed so Clone acceptance starts from an explicit consent state; this preference intentionally
+remains enabled for later testing. The benchmark may temporarily enable Auto-play and restores its
+prior value. System permission enrollment is attended setup.
 
 ## Sheets and accessibility
 

@@ -11,6 +11,7 @@ final class VocelloMacSmokeUITests: VocelloMacUITestCase {
         }
 
         assertVisibleSpeedModelReadiness()
+        ensureCloneConsentEnabled()
         assertSavedCloneVoice()
 
         prepare(mode: .custom)

@@ -41,7 +41,7 @@
 | Voice Design | Voice Cloning |
 | --- | --- |
 | ![Vocello Voice Design screen](docs/screenshots/vocello-voice-design.png) | ![Vocello Voice Cloning screen](docs/screenshots/vocello-voice-cloning.png) |
-| Describe character, age, accent, texture, and delivery. Save a successful design as a reusable voice reference. | Record in the app or import WAV, MP3, AIFF, M4A, FLAC, OGG, or WebM. A transcript improves conditioning but is optional. Generation requires the visible consent acknowledgment; only clone voices you own or are authorized to use. |
+| Describe character, age, accent, texture, and delivery. Save a successful design as a reusable voice reference. | Record in the app or import WAV, MP3, AIFF, M4A, FLAC, OGG, or WebM. A transcript improves conditioning but is optional. Generation requires the visible consent acknowledgment in Settings; only clone voices you own or are authorized to use. |
 
 Custom Voice and Voice Design support ten delivery styles at subtle, normal, or strong intensity, plus a free-text delivery description. Voice Cloning follows the reference voice and does not expose delivery controls.
 
@@ -85,8 +85,8 @@ The Expressive, Balanced, and Consistent variation settings trade take-to-take v
 - Model installation downloads pinned model artifacts from Hugging Face.
 - Reference recording requests microphone access. Transcript auto-fill requests Speech Recognition access and uses on-device recognition with the required system language assets.
 - Voice cloning should only be used with voices you own or have permission to use.
-- Clone generation remains disabled until its visible consent acknowledgment is enabled; the
-  choice is stored locally and can be changed in the app.
+- Clone generation remains disabled until its visible consent acknowledgment is enabled in
+  Settings; the choice is stored locally and can be changed there.
 
 Storage locations and deletion behavior are documented in [`docs/reference/privacy-storage.md`](docs/reference/privacy-storage.md).
 

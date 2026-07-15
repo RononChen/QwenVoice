@@ -40,6 +40,7 @@ final class VocelloiOSBenchmarkUITests: VocelloiOSUITestCase {
         // Readiness is observed through Settings and Saved Voices before the
         // first generation; no headless inventory or model repair is invoked.
         assertVisibleModelReadiness()
+        ensureCloneConsentEnabled()
         _ = assertRequiredCloneVoice()
         let autoplayWasEnabled = ensureAutoplayEnabled()
         defer { restoreAutoplayPreference(originallyEnabled: autoplayWasEnabled) }

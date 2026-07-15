@@ -1288,7 +1288,7 @@ struct IOSVoiceCloningView: View {
 
     private var setupMessage: String? {
         if !cloneConsentAcknowledged {
-            return "Confirm that you own this voice or have permission to clone it."
+            return "Enable voice-cloning consent in Settings before generating."
         }
         if !isModelAvailable, let cloneModel {
             return "Install \(cloneModel.name) in Settings."
@@ -1390,14 +1390,6 @@ struct IOSVoiceCloningView: View {
     @ViewBuilder
     private var pageContent: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Toggle(
-                "I own this voice or have permission to clone it",
-                isOn: $cloneConsentAcknowledged
-            )
-            .font(.footnote.weight(.semibold))
-            .tint(IOSBrandTheme.clone)
-            .accessibilityIdentifier("voiceCloning_consentAcknowledgment")
-
             IOSStudioCanvas(
                 mode: .clone,
                 script: promptTextBinding,
@@ -1591,7 +1583,7 @@ struct IOSVoiceCloningView: View {
     private func generate() {
         guard !scriptLimitState.trimmedIsEmpty, ttsEngine.isReady, !ttsEngine.hasActiveGeneration else { return }
         guard cloneConsentAcknowledged else {
-            coordinator.fail("Confirm that you own this voice or have permission to clone it before generating.")
+            coordinator.fail("Enable voice-cloning consent in Settings before generating.")
             return
         }
         guard !scriptLimitState.isOverLimit else {

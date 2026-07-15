@@ -1642,7 +1642,7 @@ scripts/macos_test.sh test
   "features": [
     {"name":"Custom Voice","macos":"yes","ios":"yes","cli":"yes","note":"9 built-in speakers; delivery and language control"},
     {"name":"Voice Design","macos":"yes","ios":"yes","cli":"yes","note":"Natural-language brief; result can become a Saved Voice"},
-    {"name":"Voice Cloning","macos":"yes","ios":"yes","cli":"yes","note":"Transcript-backed or genuine audio-only x-vector conditioning; app generation requires visible consent"},
+    {"name":"Voice Cloning","macos":"yes","ios":"yes","cli":"yes","note":"Transcript-backed or genuine audio-only x-vector conditioning; app generation requires visible Settings consent"},
     {"name":"Delivery presets / custom tone","macos":"yes","ios":"yes","cli":"yes","note":"10 presets × intensity; Clone follows its reference"},
     {"name":"Language pin / Auto","macos":"yes","ios":"yes","cli":"yes","note":"10 spoken languages plus Auto"},
     {"name":"Speed (4-bit) models","macos":"yes","ios":"yes","cli":"yes","note":"iOS production tier; about 2.31–2.34 GB per mode"},
@@ -1696,7 +1696,7 @@ scripts/macos_test.sh test
     {
       "label":"Library",
       "title":"Saved Voices · History · Models",
-      "body":"Record or import references, optionally transcribe locally, acknowledge clone consent, cache mode-specific prepared prompts, replay/export generations, and manage per-mode model packages. iOS uses one durable ledger and app-lifetime background session; macOS uses terminally invalidated foreground sessions.",
+      "body":"Record or import references, optionally transcribe locally, acknowledge clone consent in Settings, cache mode-specific prepared prompts, replay/export generations, and manage per-mode model packages. iOS uses one durable ledger and app-lifetime background session; macOS uses terminally invalidated foreground sessions.",
       "chips":[
         {"t":"PreparedVoice","c":""},
         {"t":"LocalDocumentIO","c":""},
@@ -1904,7 +1904,7 @@ scripts/macos_test.sh test
       "children":[
         {"name":"Views/Generate/","desc":"Custom, Design, Clone and GenerationStudioShell"},
         {"name":"Views/Library/","desc":"History, Saved Voices, recording and save sheets"},
-        {"name":"Views/Settings/","desc":"Model downloads and preferences"},
+        {"name":"Views/Settings/","desc":"Model downloads, clone consent, and preferences"},
         {"name":"Services/","desc":"Database, audio, telemetry merge, XPC lifecycle, batch and warmup"}
       ]
     },
@@ -2121,7 +2121,7 @@ scripts/macos_test.sh test
       "id":"pro_clone","mode":"clone","title":"Voice Cloning · pro_clone",
       "speed":"mlx-community/Qwen3-TTS-12Hz-1.7B-Base-4bit · 2,336,075,167 B",
       "quality":"mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit · 3,104,158,788 B",
-      "ios":"Speed eligible; Quality macOS only","notes":"speaker encoder required · transcript-backed or genuine audio-only x-vector conditioning · visible app consent · no delivery control",
+      "ios":"Speed eligible; Quality macOS only","notes":"speaker encoder required · transcript-backed or genuine audio-only x-vector conditioning · visible Settings consent · no delivery control",
       "capabilities":{"familyType":"base_clone","supportsInstructionControl":false,"supportsVoiceClone":true,"requiresSpeakerEncoder":true,"sampleRateHz":24000,"frameRateHz":12.5},
       "variants":[
         {"id":"speed","repo":"mlx-community/Qwen3-TTS-12Hz-1.7B-Base-4bit","revision":"37e955a1deb861c088ae5f3a67043185f3d1a60c","estimatedDownloadBytes":2336075167,"platforms":["iOS","macOS"],"iosDownloadEligible":true},

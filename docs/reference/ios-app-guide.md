@@ -24,7 +24,7 @@ Four tabs across the bottom (`rootTab_*`), with **Studio** as the default surfac
 | Studio | `rootTab_studio` | Compose + generate (three modes — see below) |
 | Voices | `rootTab_voices` | Browse built-in speakers + saved (cloned/designed) voices |
 | History | `rootTab_history` | Past generations: replay, export, delete, search |
-| Settings | `rootTab_settings` | Model downloads, playback/variation/accessibility prefs |
+| Settings | `rootTab_settings` | Model downloads, clone consent, playback/variation/accessibility prefs |
 
 Three generation modes (Studio segmented control `generateSection_*`):
 
@@ -70,9 +70,9 @@ mode segments, composer, and primary action; there is no hidden screen-presence 
 | Design | `studioChip_voiceBrief` → brief editor · `studioChip_delivery` · `studioChip_language` |
 | Clone | `studioChip_reference` → record or saved voice · `studioChip_language` |
 
-Clone also exposes `voiceCloning_consentAcknowledgment`. Generate remains unavailable until the
-user acknowledges consent. The optional transcript selects transcript-backed conditioning; no
-transcript selects the separate audio-only x-vector path.
+Clone reads the persistent `voiceCloning_consentAcknowledgment` preference from Settings. Generate
+remains unavailable until the user acknowledges consent there. The optional transcript selects
+transcript-backed conditioning; no transcript selects the separate audio-only x-vector path.
 
 ### Bottom sheets — `Sources/iOS/Sheets/IOSBottomSheets.swift`
 
@@ -211,8 +211,8 @@ Generate rather than Install. Destructive install/cancel/delete actions are outs
   recordings can use on-device speech recognition. Enrollment saves an app-owned reference and
   hands it directly to Clone. The transcript is optional: its presence selects transcript-backed
   conditioning, while an empty transcript uses the genuine audio-only x-vector path. The visible
-  `voiceCloning_consentAcknowledgment` must be enabled before Generate. Saved voices from the Voices
-  tab are reusable references. Clone
+  Settings control `voiceCloning_consentAcknowledgment` must be enabled before Generate. Saved
+  voices from the Voices tab are reusable references. Clone
   cannot take a separate delivery instruction on current checkpoints — pick a reference clip that
   already carries the delivery you want.
 
@@ -259,12 +259,14 @@ Canonical flows remain:
 - Custom: select Custom, confirm model readiness, configure voice/delivery/language, compose,
   Generate, then verify the completed player and matching deterministic evidence.
 - Design: select Design, enter a voice brief, compose, Generate, and verify telemetry.
-- Clone: select Clone, choose a saved reference, compose, Generate, and verify telemetry.
+- Clone: enable consent through Settings, select Clone, choose a saved reference, compose,
+  Generate, and verify telemetry.
 - Import: Voices → `voices_importAudioFile` → choose a supported file in the native picker → confirm
   name/transcript through `saveVoice_*` → verify the saved row and Clone handoff. System-picker
   interaction is explicit product acceptance, not part of the minimal smoke or benchmark lane.
 - History: open the History tab, find the generated take, and replay it.
-- Settings: review model and preference state; restore any reversible preference change.
+- Settings: review model and preference state; visibly enable persistent Clone consent for
+  acceptance, and restore temporary reversible changes such as Auto-play.
 
 Gotchas:
 

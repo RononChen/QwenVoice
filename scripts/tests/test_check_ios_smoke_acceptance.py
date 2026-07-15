@@ -245,6 +245,34 @@ class IOSSmokeAcceptanceTests(unittest.TestCase):
             smoke,
         )
 
+    def test_clone_consent_is_settings_owned_and_visibly_enabled_by_ui_lanes(self) -> None:
+        settings = (
+            ROOT / "Sources" / "iOS" / "Settings" / "SettingsScreen.swift"
+        ).read_text(encoding="utf-8")
+        clone_view = (
+            ROOT / "Sources" / "iOS" / "IOSGenerationModeViews.swift"
+        ).read_text(encoding="utf-8")
+        test_case = (
+            ROOT / "Tests" / "VocelloiOSUITests" / "VocelloiOSUITestCase.swift"
+        ).read_text(encoding="utf-8")
+        benchmark = (
+            ROOT / "Tests" / "VocelloiOSUITests" / "VocelloiOSBenchmarkUITests.swift"
+        ).read_text(encoding="utf-8")
+        smoke = (
+            ROOT / "Tests" / "VocelloiOSUITests" / "VocelloiOSSmokeUITests.swift"
+        ).read_text(encoding="utf-8")
+
+        identifier = 'accessibilityIdentifier: "voiceCloning_consentAcknowledgment"'
+        self.assertEqual(settings.count(identifier), 1)
+        self.assertNotIn(identifier, clone_view)
+        self.assertIn('@AppStorage("vocello.voiceCloningConsent.v1")', clone_view)
+        self.assertIn("&& cloneConsentAcknowledged", clone_view)
+        self.assertIn("guard cloneConsentAcknowledged else", clone_view)
+        self.assertIn("func ensureCloneConsentEnabled()", test_case)
+        self.assertIn("select(tab: .settings)", test_case)
+        self.assertIn("ensureCloneConsentEnabled()", benchmark)
+        self.assertIn("ensureCloneConsentEnabled()", smoke)
+
     def test_successful_ios_ui_build_preserves_matching_symbols(self) -> None:
         runner = (ROOT / "scripts" / "ui_test.sh").read_text(encoding="utf-8")
         test_start = runner.rindex(

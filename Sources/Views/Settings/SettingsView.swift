@@ -5,7 +5,7 @@ import AppKit
 /// Unified Settings surface, modeled on macOS System Settings.
 ///
 /// Single in-app surface that hosts model downloads + playback +
-/// storage. Three grouped sections total:
+/// storage. Settings remain grouped by user-facing responsibility:
 ///
 /// 1. Model downloads. Compact status/action rows for the
 ///    locally managed Speed and Quality packages.
@@ -30,6 +30,8 @@ struct SettingsView: View {
     private let showsNavigationTitle: Bool
 
     @AppStorage("autoPlay", store: AppDefaults.store) private var autoPlay = true
+    @AppStorage("vocello.voiceCloningConsent.v1", store: AppDefaults.store)
+    private var cloneConsentAcknowledged = false
     @AppStorage("outputDirectory", store: AppDefaults.store) private var outputDirectory = ""
     @AppStorage(GenerationVariationPreference.key, store: AppDefaults.store)
     private var generationVariation = GenerationVariationPreference.defaultValue
@@ -55,6 +57,19 @@ struct SettingsView: View {
     var body: some View {
         ScrollViewReader { proxy in
             Form {
+                Section("Voice cloning") {
+                    Toggle(isOn: $cloneConsentAcknowledged) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("I own or have permission to clone the voices I use")
+                            Text("Only clone voices you own or have explicit permission to use.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .tint(AppTheme.voiceCloning)
+                    .accessibilityIdentifier("voiceCloning_consentAcknowledgment")
+                }
+
                 Section("Model downloads") {
                     ModelSetupSummaryRow(viewModel: viewModel)
 

@@ -38,6 +38,7 @@ final class VocelloMacBenchmarkUITests: VocelloMacUITestCase {
         }
 
         assertVisibleSpeedModelReadiness()
+        ensureCloneConsentEnabled()
         assertSavedCloneVoice()
         let autoplayWasEnabled = ensureAutoplayEnabled()
         defer { restoreAutoplayPreference(originallyEnabled: autoplayWasEnabled) }

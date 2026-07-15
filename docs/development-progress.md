@@ -25,10 +25,11 @@
   measured. `ActiveGenerationCoordinator` admits one active task, carries typed user,
   memory-pressure, superseded, or shutdown cancellation, and awaits the cancelled terminal barrier
   before trim, unload, ownership release, or persistence.
-- Clone conditioning is typed as transcript-backed or genuine audio-only x-vector. Both apps expose
-  the visible `voiceCloning_consentAcknowledgment`, persist the choice locally, and keep Generate
-  disabled until consent is acknowledged. The two conditioning modes retain distinct cache and
-  artifact identities.
+- Clone conditioning is typed as transcript-backed or genuine audio-only x-vector. Both apps own
+  the visible `voiceCloning_consentAcknowledgment` in Settings, persist the choice locally, and
+  keep Clone Generate disabled until consent is acknowledged. Smoke and benchmark enable it through
+  that real Settings control for later testing; there is no hidden test-state override. The two
+  conditioning modes retain distinct cache and artifact identities.
 - History persistence now fails closed with typed privacy-safe errors. An unavailable database is
   never presented as an empty library and destructive actions remain disabled; iOS exposes a Retry
   control, while macOS retries on reload or re-entry.

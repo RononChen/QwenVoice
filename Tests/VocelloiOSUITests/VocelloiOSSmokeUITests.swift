@@ -33,6 +33,7 @@ final class VocelloiOSSmokeUITests: VocelloiOSUITestCase {
         }
 
         assertVisibleModelReadiness()
+        ensureCloneConsentEnabled()
         VocelloUIScreenshot.attach(app, named: "ios-smoke-models-ready")
 
         _ = assertRequiredCloneVoice()

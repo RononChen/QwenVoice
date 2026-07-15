@@ -101,7 +101,7 @@ class VocelloMacUITestCase: XCTestCase {
         navigate(to: .settings)
         let toggle = element("preferences_autoPlayToggle")
         XCTAssertTrue(VocelloUIWait.exists(toggle, timeout: 20))
-        guard let wasEnabled = toggleState(of: toggle) else {
+        guard let wasEnabled = VocelloUIToggle.state(of: toggle) else {
             XCTFail("Could not read the visible Auto-play toggle state")
             return true
         }
@@ -121,6 +121,27 @@ class VocelloMacUITestCase: XCTestCase {
         guard !originallyEnabled else { return }
         pendingAutoplayPreferenceRestore = false
         restorePendingAutoplayPreference()
+    }
+
+    /// Establish the persistent Clone consent through the same visible
+    /// Settings control users operate. This is deliberately not a launch
+    /// environment shortcut or seeded application state.
+    func ensureCloneConsentEnabled() {
+        navigate(to: .settings)
+        let consent = element("voiceCloning_consentAcknowledgment")
+        XCTAssertTrue(VocelloUIWait.exists(consent, timeout: 20))
+        guard let consentState = VocelloUIToggle.state(of: consent) else {
+            XCTFail("Could not read the visible Clone consent state")
+            return
+        }
+        if !consentState {
+            XCTAssertTrue(VocelloUIPrimaryAction.perform(on: consent, timeout: 20))
+            XCTAssertTrue(
+                VocelloUIWait.condition("Clone consent to become enabled", timeout: 15) {
+                    VocelloUIToggle.state(of: consent) == true
+                }
+            )
+        }
     }
 
     private func restorePendingAutoplayPreference() {
@@ -187,11 +208,6 @@ class VocelloMacUITestCase: XCTestCase {
             XCTAssertTrue(VocelloUIPrimaryAction.perform(on: useButton, timeout: 20))
             XCTAssertTrue(VocelloUIWait.exists(element("screen_voiceCloning"), timeout: 20))
             XCTAssertTrue(VocelloUIWait.exists(element("voiceCloning_activeReference"), timeout: 20))
-            let consent = element("voiceCloning_consentAcknowledgment")
-            XCTAssertTrue(VocelloUIWait.exists(consent, timeout: 20))
-            if toggleState(of: consent) != true {
-                XCTAssertTrue(VocelloUIPrimaryAction.perform(on: consent, timeout: 20))
-            }
         }
     }
 

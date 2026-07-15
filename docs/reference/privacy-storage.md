@@ -91,11 +91,11 @@ native Files picker/document-open route. Only clone voices you own or have permi
 Reference clips, transcripts, and saved voices are local files, but the user remains responsible for
 rights and consent before recording, importing, or reusing them.
 
-Both apps expose the genuine `voiceCloning_consentAcknowledgment` control and keep Generate disabled
-until it is enabled. The choice is stored locally as `vocello.voiceCloningConsent.v1`; it is not
-telemetry or an upload. A transcript is optional: transcript-backed conditioning uses the supplied
-text, while a clip without text uses the distinct audio-only x-vector path. Those modes have
-separate cache/artifact identities.
+Both apps expose the genuine `voiceCloning_consentAcknowledgment` control in Settings and keep
+Clone Generate disabled until it is enabled. The choice is stored locally as
+`vocello.voiceCloningConsent.v1`; it is not telemetry or an upload. A transcript is optional:
+transcript-backed conditioning uses the supplied text, while a clip without text uses the distinct
+audio-only x-vector path. Those modes have separate cache/artifact identities.
 
 ## Microphone And On-Device Transcription
 
