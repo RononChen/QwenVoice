@@ -380,7 +380,11 @@ class VocelloiOSUITestCase: XCTestCase {
 
     func replaceHistorySearch(with query: String) {
         select(tab: .history)
-        let searchField = element("historySearchField")
+        // SwiftUI propagates the container identifier to the decorative
+        // magnifying-glass image as well as the underlying UITextField. Query
+        // the genuine editable control explicitly so the image can never win
+        // an `.any.firstMatch` lookup.
+        let searchField = app.textFields["historySearchField"].firstMatch
         XCTAssertTrue(VocelloUIWait.exists(searchField, timeout: 30))
         XCTAssertTrue(VocelloUITextEntry.replace(in: searchField, with: query, timeout: 20))
         XCTAssertTrue(
