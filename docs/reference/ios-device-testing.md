@@ -15,15 +15,11 @@ The generic physical-device SDK compile builds both the app and the standalone
 sufficient for routine commits, pushes, pull requests, ordinary merges, and ordinary CI. Missing
 models, a phone, or UI results must not block preserving and sharing development work.
 
-Pure iOS platform logic can be executed explicitly when the paired phone is available:
-
-```sh
-scripts/ios_device.sh logic-test
-```
-
 That app-host-free bundle covers catalog and delivery-ledger validation, memory policy,
-cancellation semantics, app-support path gating, and privacy-safe diagnostics. It performs no model
-load or network request. Physical-device execution is explicit assurance, not a publishing gate.
+cancellation semantics, app-support path gating, and privacy-safe diagnostics at compile time. Xcode
+26 reports tool-hosted testing as unavailable for physical-device destinations, so the repository
+does not expose a device execution command for this target. Physical runtime assurance remains in
+the existing headless diagnostics and genuine XCUITest lanes; no Simulator substitute is used.
 
 ## Device preparation
 

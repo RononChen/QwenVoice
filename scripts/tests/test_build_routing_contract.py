@@ -179,7 +179,6 @@ class BuildRoutingContractTests(unittest.TestCase):
             "release": [("$SCHEME", "$CONFIGURATION", "platform=macOS,arch=arm64")],
             "macos-test": [("QwenVoice", "Release", "platform=macOS,arch=arm64")],
             "ios-device": [("VocelloiOS", "Release", "generic/platform=iOS")],
-            "ios-device-logic": [("VocelloiOSLogic", "Release", "id=$dev")],
             "ui-macos": [("VocelloMacUI", "Release", "platform=macOS,arch=arm64")],
             "ui-ios": [("VocelloiOSUI", "Release", "generic/platform=iOS")],
         }

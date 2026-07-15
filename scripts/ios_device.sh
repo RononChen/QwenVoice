@@ -17,7 +17,6 @@
 # Usage:
 #   scripts/ios_device.sh doctor                  # environment + device preflight
 #   scripts/ios_device.sh build                   # signed device build (-Onone)
-#   scripts/ios_device.sh logic-test              # pure iOS XCTest bundle on the paired phone
 #   scripts/ios_device.sh install                 # install the built app
 #   scripts/ios_device.sh launch [spec]           # launch (with device diagnostics if spec given)
 #   scripts/ios_device.sh console [spec] [--voice-id SAVED_VOICE_ID]
@@ -541,43 +540,6 @@ cmd_build() {
 
   note "built $APP_PATH"
   warn_if_storage_bloated
-}
-
-cmd_logic_test() {
-  [[ $# -eq 0 ]] || die "logic-test takes no arguments"
-  require_team
-  ensure_project_regenerated
-  local team dev result_dir result_bundle
-  team="$(derive_team)"
-  dev="$(resolve_device)"
-  guard_device_state "$dev"
-  ensure_spm_resolved "$QVOICE_SCRATCH_PACKAGE_RESOLUTION" \
-    "$QVOICE_XCODE_SOURCE_PACKAGES" ios-device-logic VocelloiOSLogic Release \
-    "id=$dev"
-  result_dir="$QVOICE_ARTIFACTS_IOS/tests/logic-$(date -u +%Y%m%d-%H%M%S)"
-  result_bundle="$result_dir/VocelloiOSLogicTests.xcresult"
-  mkdir -p "$result_dir" "$DERIVED"
-  note "running pure iOS logic tests on the paired physical phone"
-  xcb_run \
-    -project "$PROJECT" \
-    -scheme VocelloiOSLogic \
-    -configuration "$CONFIG" \
-    -destination "id=$dev" \
-    -derivedDataPath "$DERIVED" \
-    -clonedSourcePackagesDirPath "$QVOICE_XCODE_SOURCE_PACKAGES" \
-    -disableAutomaticPackageResolution \
-    -onlyUsePackageVersionsFromResolvedFile \
-    -resultBundlePath "$result_bundle" \
-    -resultBundleVersion 3 \
-    -allowProvisioningUpdates \
-    DEVELOPMENT_TEAM="$team" \
-    CODE_SIGN_STYLE=Automatic \
-    ARCHS=arm64 \
-    ONLY_ACTIVE_ARCH=YES \
-    SWIFT_OPTIMIZATION_LEVEL=-Onone \
-    SWIFT_COMPILATION_MODE=incremental \
-    test
-  note "iOS logic tests PASS · $result_bundle"
 }
 
 cmd_install() {
@@ -1990,7 +1952,6 @@ main() {
   case "$sub" in
     doctor)  cmd_doctor "$@" ;;
     build)   cmd_build "$@" ;;
-    logic-test) cmd_logic_test "$@" ;;
     install) cmd_install "$@" ;;
     launch)  cmd_launch "$@" ;;
     console) cmd_console "$@" ;;
@@ -2010,7 +1971,7 @@ main() {
     gate)      cmd_gate "$@" ;;
     help|-h|--help)
       sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' >&2 ;;
-    *) die "unknown subcommand '$sub' (try: doctor|build|logic-test|install|launch|console|device-state|pull|bench|lang-bench|speech-assets|crashes|debug|logs|profile|memory|clone-conditioning|memory-field-report|preflight|gate|help)" ;;
+    *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|device-state|pull|bench|lang-bench|speech-assets|crashes|debug|logs|profile|memory|clone-conditioning|memory-field-report|preflight|gate|help)" ;;
   esac
 }
 

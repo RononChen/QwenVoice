@@ -11,8 +11,9 @@
   request, run ordinary CI, package a release, or create an iOS archive.
 - The ordinary iOS compile lane now typechecks both the app and a standalone app-host-free policy
   XCTest bundle for the generic physical-device SDK. It covers catalog/ledger, memory policy,
-  cancellation, storage-path gating, and diagnostic redaction without a phone; execution through
-  `scripts/ios_device.sh logic-test` remains explicit and physical-device-only.
+  cancellation, storage-path gating, and diagnostic redaction without a phone. Xcode 26 rejects
+  tool-hosted app-free XCTest execution on physical-device destinations, so this target remains
+  compile-only and device runtime proof stays in the headless diagnostics and XCUITest lanes.
 - The physical-iPhone smoke contract now covers two distinct cancellation paths. It first cancels
   one active stream through the genuine visible Cancel control, then relaunches with the registered
   one-shot critical-memory diagnostic, requires typed `memory_pressure` cancellation to complete

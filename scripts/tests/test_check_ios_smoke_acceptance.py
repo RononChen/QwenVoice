@@ -262,6 +262,45 @@ class IOSSmokeAcceptanceTests(unittest.TestCase):
             runner,
         )
 
+    def test_streaming_cancel_uses_phase_specific_hittable_button_contract(self) -> None:
+        canvas = (ROOT / "Sources" / "iOS" / "IOSStudioCanvas.swift").read_text(
+            encoding="utf-8"
+        )
+        player = (
+            ROOT
+            / "Sources"
+            / "iOS"
+            / "Studio"
+            / "IOSStudioInlinePlayerCard.swift"
+        ).read_text(encoding="utf-8")
+        test_case = (
+            ROOT / "Tests" / "VocelloiOSUITests" / "VocelloiOSUITestCase.swift"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('.accessibilityIdentifier("textInput_cancelButton")', canvas)
+        self.assertIn('.accessibilityIdentifier("studio_livePreview_cancel")', player)
+        streaming_start = test_case.index("func startGenerationAndWaitForLivePreview()")
+        streaming_end = test_case.index(
+            "func startGenerationAndWaitForAutomaticMemoryPressureTerminal()",
+            streaming_start,
+        )
+        streaming_contract = test_case[streaming_start:streaming_end]
+        self.assertEqual(
+            streaming_contract.count(
+                'let liveCancel = element("studio_livePreview_cancel")'
+            ),
+            2,
+        )
+        self.assertNotIn('element("textInput_cancelButton")', streaming_contract)
+
+        for source in (canvas, player):
+            stop_button = source.index('Image(systemName: "stop.fill")')
+            identifier = source.index(".accessibilityIdentifier", stop_button)
+            button_contract = source[stop_button:identifier]
+            self.assertIn(".frame(width: 44, height: 44)", button_contract)
+            self.assertIn(".buttonStyle(.plain)", button_contract)
+            self.assertNotIn(".onTapGesture", button_contract)
+
     def test_ui_runner_transport_names_are_exact_and_benchmarks_fail_closed(self) -> None:
         runner = (ROOT / "scripts" / "ui_test.sh").read_text(encoding="utf-8")
         suites = {

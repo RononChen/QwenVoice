@@ -300,7 +300,7 @@ class VocelloiOSUITestCase: XCTestCase {
     /// reached both its visible live player and its genuine Cancel control.
     func startGenerationAndWaitForLivePreview() {
         let generate = element("textInput_generateButton")
-        let cancel = element("textInput_cancelButton")
+        let liveCancel = element("studio_livePreview_cancel")
         let livePlayer = element("studio_livePreview_playPause")
         let completedPlayer = element("studio_inlinePlayer_playPause")
         let generationError = element("textInput_generationError")
@@ -311,7 +311,10 @@ class VocelloiOSUITestCase: XCTestCase {
         XCTAssertTrue(VocelloUIPrimaryAction.perform(on: generate, timeout: 20))
         XCTAssertTrue(
             VocelloUIWait.condition("streaming generation to expose live player and Cancel", timeout: 120) {
-                cancel.exists && cancel.isHittable && livePlayer.exists && !generationError.exists
+                liveCancel.exists
+                    && liveCancel.isHittable
+                    && livePlayer.exists
+                    && !generationError.exists
             }
         )
     }
@@ -320,15 +323,15 @@ class VocelloiOSUITestCase: XCTestCase {
     /// has reached a terminal, reusable state without retaining either player.
     func cancelActiveGenerationAndAssertTerminalUI() {
         let generate = element("textInput_generateButton")
-        let cancel = element("textInput_cancelButton")
+        let liveCancel = element("studio_livePreview_cancel")
         let livePlayer = element("studio_livePreview_playPause")
         let completedPlayer = element("studio_inlinePlayer_playPause")
         let generationError = element("textInput_generationError")
 
-        XCTAssertTrue(VocelloUIPrimaryAction.perform(on: cancel, timeout: 20))
+        XCTAssertTrue(VocelloUIPrimaryAction.perform(on: liveCancel, timeout: 20))
         XCTAssertTrue(
             VocelloUIWait.condition("cancelled generation to return to reusable terminal UI", timeout: 60) {
-                !cancel.exists
+                !liveCancel.exists
                     && !livePlayer.exists
                     && !completedPlayer.exists
                     && generate.exists

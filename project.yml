@@ -436,8 +436,9 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
 
   # Deterministic iOS-only unit logic. This deliberately has no application
-  # host and no hidden app behavior. CI compiles it for generic/platform=iOS;
-  # scripts/ios_device.sh logic-test is the explicit physical-device runner.
+  # host and no hidden app behavior. CI compiles it for generic/platform=iOS.
+  # Xcode 26 cannot execute a tool-hosted, app-host-free XCTest bundle on a
+  # physical-device destination, so this target is intentionally compile-only.
   VocelloiOSLogicTests:
     type: bundle.unit-test
     platform: iOS

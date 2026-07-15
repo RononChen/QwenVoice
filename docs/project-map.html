@@ -1980,7 +1980,7 @@ scripts/macos_test.sh test
         {"name":"runtime-debug-knobs.json · concurrency-safety.json","desc":"Master-gated runtime override registry and exhaustive owned concurrency-exception inventory"},
         {"name":"model-catalog-schema-v1.json · model-artifact-receipts.json","desc":"Complete fail-closed production catalog schema and trusted exact-artifact evidence"},
         {"name":"orchestration-contract.json · evidence-impact.json · project-health-contract.json · release-evidence-contract.json","desc":"Required-step, changed-path evidence, health, and release-candidate contracts"},
-        {"name":"ios_device.sh","desc":"Physical-device build/logic-test/bench/gate router"},
+        {"name":"ios_device.sh","desc":"Physical-device build/diagnostics/benchmark/gate router"},
         {"name":"release.sh","desc":"Optimized signing/notarization packaging"}
       ]
     },
@@ -2059,7 +2059,6 @@ scripts/macos_test.sh test
     ],
     "iOS device":[
       {"cmd":"scripts/ios_device.sh preflight","desc":"Paired-device, signing, state, app, and dSYM readiness"},
-      {"cmd":"scripts/ios_device.sh logic-test","desc":"Explicit app-host-free iOS policy XCTest execution on the paired phone"},
       {"cmd":"scripts/ui_test.sh ios smoke","desc":"Physical-iPhone semantic, accessibility, generation, and screenshot assertions"},
       {"cmd":"scripts/ui_test.sh ios benchmark","desc":"Physical-iPhone full UI matrix with run-scoped app/engine evidence"},
       {"cmd":"scripts/ios_device.sh lang-bench|profile|crashes","desc":"Headless language, exact-PID profiling, and crash evidence"},

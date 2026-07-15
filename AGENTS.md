@@ -50,7 +50,7 @@ source. Static completeness does not substitute for explicit post-change live de
 
 | Rule | Detail / verify |
 | --- | --- |
-| **iOS runtime/UI = physical device + XCUITest** | Never use Simulator. XCUITest drives the paired physical iPhone; scripts provide deterministic device/telemetry proof. The generic physical-device SDK compile builds the app and standalone iOS policy-test bundle without a phone. `scripts/ios_device.sh logic-test` executes that bundle explicitly on the paired phone; `gate` remains a physical-device runtime diagnostic, not a UI-result gate. |
+| **iOS runtime/UI = physical device + XCUITest** | Never use Simulator. XCUITest drives the paired physical iPhone; scripts provide deterministic device/telemetry proof. The generic physical-device SDK compile builds the app and standalone iOS policy-test bundle without a phone. Xcode 26 cannot execute that app-host-free tool-hosted bundle on a physical-device destination, so it remains compile-only; `gate` remains a physical-device runtime diagnostic, not a UI-result gate. |
 | **`project.yml`, not pbxproj** | After edit: `./scripts/regenerate_project.sh` + `./scripts/check_project_inputs.sh`. iOS resources: `sources:` + `buildPhase: resources` (not `resources:`). |
 | **Generated output follows one contract** | `config/build-output-policy.json` owns native repository output under `build/`. Persistent Xcode caches are `build/cache/xcode/{macos,ios-device}`; packages are shared; scratch, evidence, symbols, and distribution outputs stay in their classified trees. `website/dist` is Vite-owned website output. Run `python3 scripts/build_output_policy.py validate`; never add an ad hoc DerivedData or `.build`. |
 | **Release-only config** | The project has no Debug configuration or generic `DEBUG` symbol. Every production-affecting environment override is registered in `config/runtime-debug-knobs.json` and remains inert unless `QWENVOICE_DEBUG=1` enables the master runtime gate. Compile-time test isolation belongs in test targets or a narrowly named compilation condition, never hidden app behavior. |
@@ -198,7 +198,7 @@ gates. Listening remains optional independent annotation →
 | `Tests/UIAutomationSupport/` | Shared XCUITest waits, fixtures, queries, and evidence helpers |
 | `Tests/VocelloMacUITests/` | macOS smoke and benchmark UI tests |
 | `Tests/VocelloiOSUITests/` | Physical-iPhone smoke and benchmark UI tests |
-| `Tests/VocelloiOSLogicTests/` | App-host-free iOS policy tests; generic SDK compile in CI, explicit paired-phone execution |
+| `Tests/VocelloiOSLogicTests/` | App-host-free iOS policy contracts; compile-only generic device-SDK coverage in CI |
 | `scripts/ui_test.sh` | Unified explicit XCUITest entry point |
 | `docs/reference/model-delivery.md` | Shared downloader, iOS restoration ledger, retry/cancel, diagnostics, and isolated live proof |
 | `benchmarks/`, `scripts/benchmark_history.py` | PASS-only, privacy-safe benchmark registry and generated index |
@@ -226,7 +226,6 @@ scripts/ui_test.sh macos benchmark
 scripts/ui_test.sh ios smoke
 scripts/ui_test.sh ios benchmark
 scripts/ios_device.sh lang-bench --subset quick
-scripts/ios_device.sh logic-test
 scripts/ios_device.sh speech-assets
 scripts/ios_device.sh profile --kind memory
 scripts/ios_device.sh memory --voice-id <saved-voice-id> --label retained-check

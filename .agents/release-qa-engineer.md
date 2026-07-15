@@ -172,8 +172,9 @@ scripts/clean_build_caches.sh --routine
   hardened runtime, and `notarytool` stapling. CI uses App Store Connect API key auth.
 - **Ordinary CI is deterministic-only.** GitHub CI compiles the `VocelloiOS` app and standalone
   `VocelloiOSLogicTests` bundle with `generic/platform=iOS`, runs macOS deterministic verification,
-  and never executes XCUITest. The policy bundle executes only through the explicit paired-phone
-  `logic-test` command.
+  and never executes XCUITest. Xcode 26 cannot execute the app-host-free tool-hosted policy bundle
+  on a physical-device destination, so it remains compile-only; device runtime proof uses the
+  existing diagnostics and XCUITest lanes.
 - **Committed benchmark records ≤256 KB.** Records use a strict privacy allowlist; raw JSONL,
   WAVs, screenshots, result bundles, and traces are gitignored. `HISTORY.md` is generated, never
   manually appended.

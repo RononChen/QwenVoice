@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the app-host-free iOS logic-test scheme after XcodeGen.
+"""Render the compile-only app-host-free iOS policy-bundle scheme after XcodeGen.
 
 XcodeGen 2.45.4 traps while deriving a scheme configuration for a standalone
 iOS unit-test bundle. The target remains generated from project.yml; this

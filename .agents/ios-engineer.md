@@ -35,7 +35,6 @@ Before changing iOS UI or behavior, read:
 
 - **Shell scripts** are the only way to build/test/run real-engine iOS work on device:
   - `scripts/ios_device.sh preflight`
-  - `scripts/ios_device.sh logic-test` (standalone pure-policy XCTest on the paired phone)
   - `scripts/ios_device.sh build|install|launch`
   - `scripts/ios_device.sh bench|lang-bench`
   - `scripts/ios_device.sh speech-assets` (explicit DE/ES/JA/ZH DictationTranscriber install plus legacy Speech recheck)
@@ -66,11 +65,8 @@ Before changing iOS UI or behavior, read:
 ## Build / test commands
 
 ```sh
-# Ordinary development (app + pure logic-test bundle compile only; no device/UI prerequisite)
+# Ordinary development (app + policy-test bundle compile only; no device/UI prerequisite)
 ./scripts/build_foundation_targets.sh ios
-
-# Explicit pure iOS policy execution on the paired physical phone (no models/network)
-scripts/ios_device.sh logic-test
 
 # Explicit frontend acceptance only. Never use Simulator.
 scripts/ios_device.sh preflight
@@ -85,7 +81,9 @@ scripts/ios_device.sh gate            # deterministic physical-device/runtime pr
 - **All iOS runtime work is on-device only.** The MLX engine runs in-process on Metal. XCUITest
   drives the paired physical iPhone; scripts handle the device and telemetry. The generic
   physical-device SDK compile (app plus standalone policy-test bundle) is the sole no-phone iOS
-  development lane. The policy bundle executes only through the explicit paired-phone command.
+  development lane. Xcode 26 cannot execute its app-host-free, tool-hosted XCTest bundle on a
+  physical-device destination, so the policy target is compile-only; runtime proof uses the
+  existing headless diagnostics and XCUITest lanes.
 - **Typed cancellation barrier.** The in-process `MLXTTSEngine` conforms to
   `ActiveGenerationCancellable`. iOS forwards user and memory-pressure reasons, awaits the active
   task's terminal barrier before trim/unload or ownership release, and treats `.cancelled` as a

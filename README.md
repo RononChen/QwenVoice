@@ -123,8 +123,10 @@ scripts/macos_test.sh test
 ```
 
 The iOS command compiles both the app and its standalone, app-host-free platform-policy XCTest
-bundle for the physical-device SDK. It does not execute tests or require a connected phone;
-`scripts/ios_device.sh logic-test` is the explicit paired-phone execution route.
+bundle for the physical-device SDK. It does not execute tests or require a connected phone. Xcode
+26 does not support executing a tool-hosted, app-host-free XCTest bundle on a physical-device
+destination, so this bundle is compile-only; physical runtime and UI acceptance use the explicit
+device diagnostics and XCUITest lanes.
 
 These checks are sufficient for normal commits, pull requests, and merges. XCUITest is explicit frontend acceptance: native macOS or a paired physical iPhone, never Simulator. Models, a phone, and UI evidence are not prerequisites for sharing development work.
 
