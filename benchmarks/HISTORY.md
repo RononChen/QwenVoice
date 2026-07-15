@@ -75,6 +75,12 @@ from schema-v2 memory trends.
 | 2026-07-14 | [`ios-memory-qualification-20260714-112015-8aa21f7e`](runs/memory-qualification/ios-memory-qualification-20260714-112015-8aa21f7e.json) | focused | exploratory | passedWithWarnings | qualified-with-warnings | 9 | `fe15820531a5` dirty | `excluded` | baseline | ios-memory-qualification-20260714-112015-8aa21f7e |
 | 2026-07-14 | [`ios-memory-qualification-20260714-112536-32554d95`](runs/memory-qualification/ios-memory-qualification-20260714-112536-32554d95.json) | focused | focused | passedWithWarnings | qualified-with-warnings | 9 | `ab102beda89b` | `7482ce732e47` | baseline | ios-memory-qualification-20260714-112536-32554d95 |
 
+## memory-qualification / macos / mac-mini-m2-8gb / config `0efe7c615c69`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-15 | [`mac-memory-qualification-20260715-142146-84663e70`](runs/memory-qualification/mac-memory-qualification-20260715-142146-84663e70.json) | focused | focused | passedWithWarnings | qualified-with-warnings | 11 | `247b266b0f1c` | `0efe7c615c69` | baseline | owned-core-retained-247b266 |
+
 ## memory-qualification / macos / mac-mini-m2-8gb / config `664a0267b9b5`
 
 | completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
@@ -176,6 +182,12 @@ from schema-v2 memory trends.
 | completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
 |---|---|---|---|---|---|---:|---|---|---|---|
 | 2026-07-13 | [`macos-xcui-benchmark-20260713-093711-0fdf033f`](runs/ui-generation/macos-xcui-benchmark-20260713-093711-0fdf033f.json) | focused | exploratory | passedWithWarnings | qualified-with-warnings | 2 | `04083b15a4e2` dirty | `excluded` | baseline | memory-v8-final-focused |
+
+## ui-generation / macos / mac-mini-m2-8gb / config `ad660b134305`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-15 | [`macos-xcui-benchmark-20260715-140557-ab79eb71`](runs/ui-generation/macos-xcui-benchmark-20260715-140557-ab79eb71.json) | canonical | canonical | passedWithWarnings | qualified-with-warnings | 29 | `247b266b0f1c` | `ad660b134305` | baseline | owned-core-247b266 |
 
 ## ui-generation / macos / mac-mini-m2-8gb / config `aee1fb0470f3`
 
