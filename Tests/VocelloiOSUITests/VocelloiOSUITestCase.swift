@@ -355,11 +355,13 @@ class VocelloiOSUITestCase: XCTestCase {
         XCTAssertFalse(completedPlayer.exists)
         XCTAssertFalse(generationError.exists)
         XCTAssertTrue(VocelloUIPrimaryAction.perform(on: generate, timeout: 20))
-        XCTAssertTrue(
-            VocelloUIWait.condition("memory-pressure generation to visibly start", timeout: 20) {
-                cancel.exists || livePlayer.exists || !generate.exists || !generate.isEnabled
-            }
-        )
+
+        // The one-shot guard may cancel and fully unload before XCUITest can
+        // obtain its next accessibility snapshot. Do not require that brief
+        // loading state to remain visible. The run-scoped diagnostics gate
+        // proves the Generate tap produced the ordered critical signal,
+        // typed cancellation, and full unload; the checks below prove the UI
+        // returned cleanly and that the runtime can generate again afterward.
         XCTAssertTrue(
             VocelloUIWait.condition("memory-pressure generation to reach a terminal state", timeout: 120) {
                 generationError.exists || (

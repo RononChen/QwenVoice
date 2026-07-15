@@ -293,6 +293,16 @@ class IOSSmokeAcceptanceTests(unittest.TestCase):
         )
         self.assertNotIn('element("textInput_cancelButton")', streaming_contract)
 
+        memory_contract = test_case[streaming_end:]
+        self.assertIn(
+            'memory-pressure generation to reach a terminal state',
+            memory_contract,
+        )
+        self.assertNotIn(
+            'memory-pressure generation to visibly start',
+            memory_contract,
+        )
+
         for source in (canvas, player):
             stop_button = source.index('Image(systemName: "stop.fill")')
             identifier = source.index(".accessibilityIdentifier", stop_button)
