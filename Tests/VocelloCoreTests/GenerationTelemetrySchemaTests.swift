@@ -583,6 +583,47 @@ final class GenerationTelemetrySchemaTests: XCTestCase {
         )
     }
 
+    func testStreamingPostLoopClassifiesCancellationBeforeEmptyOutput() {
+        let cancelledEmptyStream = StreamingExecutionContext.postStreamTerminalError(
+            totalFramesWritten: 0,
+            isTaskCancelled: true
+        )
+        XCTAssertNotNil(cancelledEmptyStream)
+        XCTAssertEqual(
+            cancelledEmptyStream.map(NativeGenerationTerminalClassifier.reason(for:)),
+            .cancelled
+        )
+        let cancelledPartialStream = StreamingExecutionContext.postStreamTerminalError(
+            totalFramesWritten: 1,
+            isTaskCancelled: true
+        )
+        XCTAssertEqual(
+            cancelledPartialStream.map(NativeGenerationTerminalClassifier.reason(for:)),
+            .cancelled
+        )
+
+        let failedEmptyStream = StreamingExecutionContext.postStreamTerminalError(
+            totalFramesWritten: 0,
+            isTaskCancelled: false
+        )
+        XCTAssertNotNil(failedEmptyStream)
+        XCTAssertEqual(
+            failedEmptyStream.map(NativeGenerationTerminalClassifier.reason(for:)),
+            .failed
+        )
+        XCTAssertEqual(
+            failedEmptyStream?.localizedDescription,
+            "The native engine did not emit any audio chunks."
+        )
+
+        XCTAssertNil(
+            StreamingExecutionContext.postStreamTerminalError(
+                totalFramesWritten: 1,
+                isTaskCancelled: false
+            )
+        )
+    }
+
     func testTerminalGateAllowsExactlyOneDurableRowPerAttempt() async {
         let gate = NativeTelemetryTerminalGate()
         async let first = gate.claim()

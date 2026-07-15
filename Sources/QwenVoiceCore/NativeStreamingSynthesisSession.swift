@@ -1666,16 +1666,26 @@ struct StreamingExecutionContext: Sendable {
             throw error
         }
 
+        if let terminalError = Self.postStreamTerminalError(
+            totalFramesWritten: totalFramesWritten,
+            isTaskCancelled: Task.isCancelled
+        ) {
+            await writeFailureTelemetry(
+                error: terminalError,
+                usedStreaming: true,
+                counters: ["chunkCount": chunkIndex]
+            )
+            finalWriter.discard()
+            try? FileManager.default.removeItem(at: outputURL)
+            try? FileManager.default.removeItem(at: sessionDirectory)
+            Memory.clearCache()
+            throw terminalError
+        }
+
         Self.warnIfNonFiniteSamplesObserved(
             metrics: scratchBuffer.limiterMetrics,
             context: "streaming chunks"
         )
-
-        guard totalFramesWritten > 0 else {
-            let error = MLXTTSEngineError.generationFailed("The native engine did not emit any audio chunks.")
-            await writeFailureTelemetry(error: error, usedStreaming: true, counters: ["chunkCount": chunkIndex])
-            throw error
-        }
         if model.latestPreparationStringFlags["generation_end_reason"] == "token_cap" {
             let error = MLXTTSEngineError.generationFailed(
                 "Qwen3-TTS reached maxNewTokens before EOS. The output was discarded to avoid a truncated generation."
@@ -1828,6 +1838,26 @@ struct StreamingExecutionContext: Sendable {
             diagnosticStringFlags: finalStringFlags,
             telemetrySummary: summary
         )
+    }
+
+    /// Async streams may finish normally after their producer task is
+    /// cancelled. Check the task's cooperative cancellation state before
+    /// interpreting an empty stream as an engine failure so memory-pressure
+    /// cancellation retains its typed terminal reason and never surfaces a
+    /// false "no audio chunks" error in the frontend.
+    static func postStreamTerminalError(
+        totalFramesWritten: Int64,
+        isTaskCancelled: Bool
+    ) -> Error? {
+        if isTaskCancelled {
+            return CancellationError()
+        }
+        guard totalFramesWritten > 0 else {
+            return MLXTTSEngineError.generationFailed(
+                "The native engine did not emit any audio chunks."
+            )
+        }
+        return nil
     }
 
     private static func adaptiveStreamingInterval(
