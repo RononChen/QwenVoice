@@ -675,7 +675,12 @@ final class ModelManagerViewModel {
                 artifact.downloadFiles,
                 repo: artifact.repo,
                 revision: artifact.revision,
-                to: targetDir
+                to: targetDir,
+                requestIdentity: ModelDownloadRequestIdentity(
+                    logicalRequestID: UUID().uuidString,
+                    modelID: model.id,
+                    artifactVersion: artifact.artifactVersion
+                )
             )
             guard isCurrentEpoch(epoch, for: model.id) else { return }
             let postDownloadSnapshot = localModelInfo(for: model)

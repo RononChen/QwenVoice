@@ -925,10 +925,11 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
         }
     }
 
-    /// Download + verify + install a pre-resolved file list (no API call). iOS path — the caller
-    /// supplies files from its catalog, each optionally carrying a validated `absoluteURL`
-    /// (host-allowlist-enforced by the caller). `repo`/`revision` seed the integrity manifest and
-    /// the fallback resolve URL for any file without an `absoluteURL`.
+    /// Download + verify + install a pre-resolved catalog file list (no API call). The caller
+    /// supplies each file with an optional validated `absoluteURL` (host-allowlist-enforced by the
+    /// catalog) and a request identity so task metrics remain attributable to payload files on
+    /// foreground macOS/CLI runs and adoptable across iOS background-session relaunches.
+    /// `repo`/`revision` seed the integrity manifest and fallback resolve URL.
     public func downloadFiles(
         _ files: [RepoFile],
         repo: String,

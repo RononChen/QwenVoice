@@ -136,7 +136,12 @@ enum ModelsCommand {
                 artifact.downloadFiles,
                 repo: artifact.repo,
                 revision: artifact.revision,
-                to: targetDir
+                to: targetDir,
+                requestIdentity: ModelDownloadRequestIdentity(
+                    logicalRequestID: UUID().uuidString,
+                    modelID: modelID,
+                    artifactVersion: artifact.artifactVersion
+                )
             )
             diagnostics.recordSuccess(
                 expectedBytes: descriptor.estimatedDownloadBytes ?? directorySize(targetDir)
