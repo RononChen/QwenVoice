@@ -10,9 +10,9 @@
   "items": [
     {
       "id": "H1",
-      "vendorPatchID": "CONC-001",
+      "runtimeCapabilityID": "bounded-streaming",
       "title": "Generation-gate FIFO, cancellation transfer, holder failure, and deterministic stress",
-      "source": "third_party_patches/mlx-audio-swift/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift",
+      "source": "Packages/VocelloQwen3Core/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift",
       "tests": [
         "Qwen3RuntimeTests/Qwen3GenerationGateTests/testWaitersAcquireInFIFOOrder",
         "Qwen3RuntimeTests/Qwen3GenerationGateTests/testQueuedCancellationDoesNotReleaseCurrentOwner",
@@ -25,9 +25,9 @@
     },
     {
       "id": "H2",
-      "vendorPatchID": "PKG-001",
+      "runtimeCapabilityID": "package-surface",
       "title": "Dedicated owned Qwen3 runtime target with Metal resources",
-      "source": "third_party_patches/mlx-audio-swift/Package.swift",
+      "source": "Packages/VocelloQwen3Core/Package.swift",
       "tests": [
         "Qwen3RuntimeTests/Qwen3DecoderPartitionTests/testTimingInstrumentationDoesNotChangeWaveform"
       ],
@@ -36,9 +36,9 @@
     },
     {
       "id": "MH1",
-      "vendorPatchID": "LOAD-001",
+      "runtimeCapabilityID": "qwen3-loading-and-sampling",
       "title": "Requested learned tokenizer and speaker components require real weights",
-      "source": "third_party_patches/mlx-audio-swift/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift",
+      "source": "Packages/VocelloQwen3Core/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift",
       "tests": [
         "Qwen3RuntimeTests/Qwen3LearnedComponentWeightTests/testSpeakerComponentLoadingRejectsMissingWeights",
         "Qwen3RuntimeTests/Qwen3LearnedComponentWeightTests/testSpeechTokenizerLoadingRejectsMissingWeights"
@@ -48,9 +48,9 @@
     },
     {
       "id": "MH2",
-      "vendorPatchID": "CLONE-001",
+      "runtimeCapabilityID": "clone-artifacts",
       "title": "Clone artifact atomic publication, tensor round trip, integrity, and mode requirements",
-      "source": "third_party_patches/mlx-audio-swift/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift",
+      "source": "Packages/VocelloQwen3Core/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift",
       "tests": [
         "Qwen3RuntimeTests/Qwen3CloneArtifactIntegrityTests/testNonEmptyTensorRoundTripPreservesShapeDTypeAndValues",
         "Qwen3RuntimeTests/Qwen3CloneArtifactIntegrityTests/testAtomicReplacementPublishesOnlyCompleteNewArtifact",
@@ -59,6 +59,37 @@
         "Qwen3RuntimeTests/Qwen3CloneArtifactIntegrityTests/testMissingAndExtraFilesFailClosed",
         "Qwen3RuntimeTests/Qwen3CloneArtifactIntegrityTests/testShapeAndDTypeMetadataMismatchFailsClosed",
         "Qwen3RuntimeTests/Qwen3CloneArtifactIntegrityTests/testModeRequirementsRejectIncompleteArtifacts"
+      ],
+      "status": "implemented",
+      "remaining": []
+    },
+    {
+      "id": "SPEAKER",
+      "runtimeCapabilityID": "clone-artifacts",
+      "title": "Official Qwen speaker-feature parity and finite canonical embeddings",
+      "source": "Packages/VocelloQwen3Core/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTSSpeakerMelFrontend.swift",
+      "tests": [
+        "Qwen3RuntimeTests/Qwen3SpeakerMelFrontendTests/testContractConstantsMatchQwenSpeakerFrontend",
+        "Qwen3RuntimeTests/Qwen3SpeakerMelFrontendTests/testPeriodicHannWindowUsesQwenConvention",
+        "Qwen3RuntimeTests/Qwen3SpeakerMelFrontendTests/testDeterministicBatchProducesFiniteTimeMajorFeatures",
+        "Qwen3RuntimeTests/Qwen3SpeakerMelFrontendTests/testInvalidShapesAndShortAudioFailWithoutTrapping",
+        "Qwen3RuntimeTests/Qwen3SpeakerMelFrontendTests/testSpeakerEmbeddingValidationCanonicalizesOfficialVectorShape",
+        "Qwen3RuntimeTests/Qwen3SpeakerMelFrontendTests/testSpeakerEmbeddingValidationRejectsMalformedValues"
+      ],
+      "status": "implemented",
+      "remaining": []
+    },
+    {
+      "id": "CLONE-ID",
+      "title": "Clone prompt memory and disk identities include model-artifact, runtime, and speaker-feature contracts",
+      "source": "Sources/QwenVoiceCore/NativeCloneSupport.swift",
+      "tests": [
+        "VocelloCoreTests/CloneConditioningContractTests/testClonePromptIdentityInvalidatesForSpeakerFrontendAndRuntimeChanges",
+        "VocelloCoreTests/CloneConditioningContractTests/testClonePromptIdentityInvalidatesForEachModelArtifactField",
+        "VocelloCoreTests/CloneConditioningContractTests/testClonePromptModelArtifactIdentityFailsClosedWithoutImmutableFields",
+        "VocelloCoreTests/CloneConditioningContractTests/testClonePromptIdentityNormalizesLanguageAndEmptyRuntimeSignature",
+        "VocelloCoreTests/CloneConditioningContractTests/testClonePromptIdentityIncludesLanguage",
+        "Qwen3RuntimeTests/Qwen3CloneArtifactIntegrityTests/testExpectedModelArtifactIdentityRejectsEachChangedField"
       ],
       "status": "implemented",
       "remaining": []
@@ -81,9 +112,9 @@
     },
     {
       "id": "STREAM",
-      "vendorPatchID": "STREAM-001",
+      "runtimeCapabilityID": "bounded-streaming",
       "title": "Streaming bounded retention, scheduling, cancellation, and final barrier",
-      "source": "third_party_patches/mlx-audio-swift/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift",
+      "source": "Packages/VocelloQwen3Core/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift",
       "tests": [
         "Qwen3RuntimeTests/Qwen3StreamingContractTests/testPendingRetentionIsBoundedAndFirstLaterSchedulingIsExact",
         "Qwen3RuntimeTests/Qwen3StreamingContractTests/testCancellationStopsConsumerAndRunsTermination",
@@ -95,9 +126,9 @@
     },
     {
       "id": "DECODER",
-      "vendorPatchID": "CODEC-001",
+      "runtimeCapabilityID": "mimi-codec",
       "title": "Seeded Metal decoder partition invariance, reset isolation, and timing parity",
-      "source": "third_party_patches/mlx-audio-swift/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTSSpeechTokenizer.swift",
+      "source": "Packages/VocelloQwen3Core/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTSSpeechTokenizer.swift",
       "tests": [
         "Qwen3RuntimeTests/Qwen3DecoderPartitionTests/testFixedAndRandomizedPartitionsAreWaveformInvariant",
         "Qwen3RuntimeTests/Qwen3DecoderPartitionTests/testResetIsolationRestoresDeterministicWaveform",

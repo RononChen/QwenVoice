@@ -1,4 +1,5 @@
 import Foundation
+import QwenVoiceCore
 
 /// iOS filesystem paths — the iOS counterpart to `Sources/Services/AppPaths.swift`.
 ///
@@ -7,7 +8,10 @@ import Foundation
 /// so models, history, and saved voices live in a stable shared location. The
 /// engine runs in-process (`MLXTTSEngine`); the App Group container is retained
 /// so a future companion surface (widget, share extension) can read the same
-/// data without migration. `QVOICE_APP_SUPPORT_DIR` overrides the root.
+/// data without migration. `QVOICE_APP_SUPPORT_DIR` may override the root only
+/// when the explicit `QWENVOICE_DEBUG` runtime gate is enabled. Absolute paths
+/// are accepted for diagnostics; a single safe relative component is resolved
+/// beneath the app's managed Application Support root for hermetic XCUITest.
 enum AppPaths {
     static let appSupportOverrideEnvironmentKey = "QVOICE_APP_SUPPORT_DIR"
     private static let defaultSharedAppGroupIdentifier = "group.com.patricedery.vocello.shared"
@@ -51,16 +55,50 @@ enum AppPaths {
     }
 
     static func resolvedAppSupportDir(environment: [String: String]) -> URL {
-        if let overridePath = environment[appSupportOverrideEnvironmentKey]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !overridePath.isEmpty {
+        if let overridePath = debugAppSupportOverride(environment: environment) {
             if NSString(string: overridePath).isAbsolutePath {
                 return URL(fileURLWithPath: overridePath, isDirectory: true)
+                    .standardizedFileURL
             }
-            return managedAppSupportDir.appendingPathComponent(overridePath, isDirectory: true)
+            if isSafeManagedSupportChild(overridePath) {
+                return managedAppSupportDir
+                    .appendingPathComponent(overridePath, isDirectory: true)
+                    .standardizedFileURL
+            }
         }
 
         return sharedContainerDir ?? managedAppSupportDir
+    }
+
+    /// Returns the only override shape that is safe to use as an isolated
+    /// background-delivery namespace. Absolute diagnostic roots deliberately
+    /// do not participate: their private path must never become URLSession
+    /// identity, and they must not manufacture an unbounded family of sessions.
+    static func isolatedModelDeliverySupportRoot(environment: [String: String]) -> String? {
+        guard let overridePath = debugAppSupportOverride(environment: environment),
+              !NSString(string: overridePath).isAbsolutePath,
+              isSafeManagedSupportChild(overridePath) else {
+            return nil
+        }
+        return overridePath
+    }
+
+    private static func debugAppSupportOverride(environment: [String: String]) -> String? {
+        guard let value = RuntimeDebugGate.value(
+            for: appSupportOverrideEnvironmentKey,
+            environment: environment
+        )?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private static func isSafeManagedSupportChild(_ value: String) -> Bool {
+        guard value != ".", value != "..", !value.isEmpty else { return false }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        return value.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 
     static var modelsDir: URL {

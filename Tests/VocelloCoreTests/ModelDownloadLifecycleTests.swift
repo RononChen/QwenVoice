@@ -3,6 +3,34 @@ import Foundation
 import XCTest
 
 final class ModelDownloadLifecycleTests: XCTestCase {
+    private actor EventRecorder {
+        private var values: [String] = []
+
+        func append(_ value: String) {
+            values.append(value)
+        }
+
+        func snapshot() -> [String] {
+            values
+        }
+    }
+
+    private actor SuspensionGate {
+        private var isOpen = false
+        private var continuation: CheckedContinuation<Void, Never>?
+
+        func wait() async {
+            guard !isOpen else { return }
+            await withCheckedContinuation { continuation = $0 }
+        }
+
+        func open() {
+            isOpen = true
+            continuation?.resume()
+            continuation = nil
+        }
+    }
+
     private func identity(
         request: String = "request-a",
         model: String = "model-a",
@@ -27,6 +55,76 @@ final class ModelDownloadLifecycleTests: XCTestCase {
         XCTAssertEqual(decoded, original)
         XCTAssertFalse(encoded.contains("https"))
         XCTAssertFalse(encoded.contains("/Users/"))
+    }
+
+    func testArtifactURLPolicyRejectsUnsafeInitialHostsAndRedirects() throws {
+        let policy = ModelArtifactURLPolicy(
+            allowedInitialHosts: ["huggingface.co"],
+            allowedRedirectHostSuffixes: ["huggingface.co", "hf.co"]
+        )
+        let source = try XCTUnwrap(URL(string: "https://huggingface.co/org/model/resolve/"))
+        XCTAssertTrue(policy.allowsInitialRequest(source))
+        XCTAssertTrue(policy.allowsRedirect(
+            from: source,
+            to: try XCTUnwrap(URL(string: "https://cdn-lfs.huggingface.co/object"))
+        ))
+        XCTAssertTrue(policy.allowsRedirect(
+            from: source,
+            to: try XCTUnwrap(URL(string: "https://cas-bridge.xethub.hf.co/object"))
+        ))
+        for value in [
+            "http://huggingface.co/object",
+            "https://attacker.invalid/object",
+            "https://127.0.0.1/object",
+            "https://localhost/object",
+            "https://user:secret@huggingface.co/object",
+        ] {
+            XCTAssertFalse(policy.allowsRedirect(
+                from: source,
+                to: try XCTUnwrap(URL(string: value))
+            ), value)
+        }
+        XCTAssertFalse(policy.allowsRedirect(
+            from: try XCTUnwrap(URL(string: "https://attacker.invalid/source")),
+            to: try XCTUnwrap(URL(string: "https://huggingface.co/object"))
+        ))
+    }
+
+    func testTaskIdentityRejectsMissingDigestUnsafePathAndUnsafeIdentity() {
+        let missingDigest = ModelDownloadTaskIdentity(
+            logicalRequestID: "request",
+            modelID: "model",
+            artifactVersion: "v1",
+            relativePath: "weights/model.safetensors",
+            expectedSize: 42,
+            expectedSHA256: nil
+        )
+        let unsafePath = ModelDownloadTaskIdentity(
+            logicalRequestID: "request",
+            modelID: "model",
+            artifactVersion: "v1",
+            relativePath: "../model.safetensors",
+            expectedSize: 42,
+            expectedSHA256: String(repeating: "a", count: 64)
+        )
+        let unsafeModel = ModelDownloadTaskIdentity(
+            logicalRequestID: "request",
+            modelID: "https://attacker.invalid/model",
+            artifactVersion: "v1",
+            relativePath: "weights/model.safetensors",
+            expectedSize: 42,
+            expectedSHA256: String(repeating: "a", count: 64)
+        )
+
+        for identity in [missingDigest, unsafePath, unsafeModel] {
+            XCTAssertFalse(identity.isValidProductionIdentity)
+            XCTAssertNil(identity.encodedTaskDescription)
+            let plan = ModelDownloadTaskReconciler.plan(
+                expected: [self.identity()],
+                existing: [ModelDownloadExistingTask(taskID: 1, identity: identity)]
+            )
+            XCTAssertEqual(plan.cancelledTaskIDs, [1])
+        }
     }
 
     func testExistingTaskIsAdoptedWithNoDuplicateCreation() {
@@ -82,6 +180,70 @@ final class ModelDownloadLifecycleTests: XCTestCase {
             ModelDownloadProgressReconciler.visibleBytes(current: 120, persisted: 40, total: 100),
             100
         )
+    }
+
+    func testDelegateProgressGateBoundsIngressAndAlwaysForwardsTerminalBytes() {
+        var gate = ModelDownloadDelegateProgressGate()
+
+        XCTAssertTrue(gate.shouldForward(
+            taskID: 7,
+            totalBytesWritten: 1,
+            totalBytesExpected: 100,
+            uptime: 10
+        ))
+        XCTAssertFalse(gate.shouldForward(
+            taskID: 7,
+            totalBytesWritten: 50,
+            totalBytesExpected: 100,
+            uptime: 10.1
+        ))
+        XCTAssertFalse(gate.shouldForward(
+            taskID: 7,
+            totalBytesWritten: 1,
+            totalBytesExpected: 100,
+            uptime: 10.5
+        ))
+        XCTAssertTrue(gate.shouldForward(
+            taskID: 7,
+            totalBytesWritten: 60,
+            totalBytesExpected: 100,
+            uptime: 10.5
+        ))
+        XCTAssertTrue(gate.shouldForward(
+            taskID: 7,
+            totalBytesWritten: 100,
+            totalBytesExpected: 100,
+            uptime: 10.51
+        ))
+
+        gate.finish(taskID: 7)
+        XCTAssertTrue(gate.shouldForward(
+            taskID: 7,
+            totalBytesWritten: 1,
+            totalBytesExpected: 100,
+            uptime: 11
+        ))
+    }
+
+    func testDelegateTerminalSequencerAwaitsDurableStageBeforeCompletion() async {
+        let sequencer = ModelDownloadDelegateTerminalSequencer()
+        let suspension = SuspensionGate()
+        let events = EventRecorder()
+
+        sequencer.stage(taskID: 9) {
+            await suspension.wait()
+            await events.append("staged")
+        }
+        let completion = sequencer.complete(taskID: 9) {
+            await events.append("completed")
+        }
+
+        await suspension.open()
+        await completion.value
+
+        let recordedEvents = await events.snapshot()
+        XCTAssertEqual(recordedEvents, ["staged", "completed"])
+        XCTAssertEqual(sequencer.pendingStageCount, 0)
     }
 
     func testRetryPolicySeparatesTransientPermanentTLSDiskAndIntegrity() {
@@ -247,8 +409,8 @@ final class ModelDownloadLifecycleTests: XCTestCase {
             logicalRequestID: "logical",
             modelID: "model",
             artifactVersion: "v1",
-            repo: "repo",
-            revision: "revision",
+            repo: "org/repo",
+            revision: String(repeating: "a", count: 40),
             targetFolder: "model-folder",
             expectedFiles: ["weights/model.safetensors"],
             verifiedFiles: [],
@@ -289,8 +451,8 @@ final class ModelDownloadLifecycleTests: XCTestCase {
                 logicalRequestID: id,
                 modelID: "model",
                 artifactVersion: "v1",
-                repo: "repo",
-                revision: "revision",
+                repo: "org/repo",
+                revision: String(repeating: "a", count: 40),
                 targetFolder: "model-folder",
                 expectedFiles: [path],
                 verifiedFiles: [],
@@ -303,9 +465,40 @@ final class ModelDownloadLifecycleTests: XCTestCase {
 
         XCTAssertThrowsError(try IOSModelDownloadLedger(requests: [request(id: "a", path: "/tmp/file")]).validated())
         XCTAssertThrowsError(try IOSModelDownloadLedger(requests: [request(id: "a", path: "../file")]).validated())
+        XCTAssertThrowsError(try IOSModelDownloadLedger(requests: [request(id: "a", path: "%2e%2e/file")]).validated())
         XCTAssertThrowsError(try IOSModelDownloadLedger(requests: [
             request(id: "a", path: "one"),
             request(id: "b", path: "two"),
+        ]).validated())
+    }
+
+    func testLedgerRejectsMutableRevisionAndUnverifiedReceiptIdentity() {
+        func request(revision: String, verifiedSHA: String?) -> IOSModelDownloadLedger.Request {
+            IOSModelDownloadLedger.Request(
+                logicalRequestID: "logical",
+                modelID: "model",
+                artifactVersion: "v1",
+                repo: "org/repo",
+                revision: revision,
+                targetFolder: "model-folder",
+                expectedFiles: ["weights/model.safetensors"],
+                verifiedFiles: [IOSModelDownloadLedger.VerifiedFile(
+                    relativePath: "weights/model.safetensors",
+                    expectedSize: 42,
+                    sha256: verifiedSHA
+                )],
+                retryCount: 0,
+                receivedBytes: 42,
+                totalBytes: 42,
+                status: .verifying
+            )
+        }
+
+        XCTAssertThrowsError(try IOSModelDownloadLedger(requests: [
+            request(revision: "main", verifiedSHA: String(repeating: "a", count: 64))
+        ]).validated())
+        XCTAssertThrowsError(try IOSModelDownloadLedger(requests: [
+            request(revision: String(repeating: "a", count: 40), verifiedSHA: nil)
         ]).validated())
     }
 

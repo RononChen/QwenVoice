@@ -59,9 +59,6 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
     private let diagnosticsRecorder: IOSDeviceDiagnosticsRecorder?
     private(set) var latestMemoryContext: IOSMemoryContext
     private var changeObserver: AnyCancellable?
-    /// Drains the engine's full ordered event stream (preview PCM intact) and forwards each
-    /// `.chunk` to NotificationCenter for live playback. Runs for the store's lifetime.
-    private var chunkForwardTask: Task<Void, Never>?
     private var activeGenerationDepth = 0
     private var lastForwardedChunkIdentity: GenerationChunkDeliveryIdentity?
     private var activeGenerationMemoryGuardTask: Task<Void, Never>?
@@ -112,12 +109,10 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
                     self?.syncFromBackend()
                 }
             }
-        startChunkForwardingIfAvailable()
         startThermalObservation()
     }
 
     deinit {
-        chunkForwardTask?.cancel()
         activeGenerationMemoryGuardTask?.cancel()
         if let thermalObserverToken {
             NotificationCenter.default.removeObserver(thermalObserverToken)
@@ -161,20 +156,24 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
     }
 
     private var thermalAllowsProactiveWarm: Bool {
-        if ProcessInfo.processInfo.environment["QVOICE_IOS_THERMAL_GATE"] == "off" { return true }
+        if RuntimeDebugGate.value(for: "QVOICE_IOS_THERMAL_GATE") == "off" {
+            return true
+        }
         switch latestThermalState {
         case .serious, .critical: return false
         default: return true
         }
     }
 
-    /// For in-process engines (iOS), drain the FULL ordered event stream and forward each
-    /// streamed `.chunk` (with its preview PCM intact) to NotificationCenter. The snapshot path
-    /// (`syncFromSnapshot`) only sees the coalesced, preview-stripped `latestEvent`, so it can't
-    /// carry the audio needed for live playback — this is the channel that does.
-    private func startChunkForwardingIfAvailable() {
-        guard let events = backend.events else { return }
-        chunkForwardTask = Task { @MainActor [weak self] in
+    /// Drain only the active generation's bounded stream. Per-generation
+    /// subscriptions prevent stale chunks from a prior request from reaching
+    /// live playback and let the engine account for every dropped event.
+    private func chunkForwardingTask(for request: GenerationRequest) -> Task<Void, Never>? {
+        guard let generationID = request.generationID,
+              let events = backend.events(for: generationID) else {
+            return nil
+        }
+        return Task { @MainActor [weak self] in
             for await event in events {
                 guard let self else { return }
                 guard case .chunk(let chunk) = event else { continue }
@@ -293,37 +292,74 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         notifyMemoryContextDidChange()
     }
 
-    func cancelActiveGeneration() async throws {
-        defer {
-            activeGenerationDepth = 0
-            hasActiveGeneration = false
+    func cancelActiveGeneration(reason: GenerationCancellationReason = .user) async throws {
+        try await backend.cancelActiveGeneration(reason: reason)
+        // The backend call is the terminal barrier. Keep ownership intact if
+        // it throws so no observer can mistake a cancellation request for
+        // proven compute termination and begin trimming live MLX state.
+        // A store-owned critical-memory action also retains ownership after
+        // this barrier until its awaited full unload completes.
+        guard !criticalMemoryActionInFlight else {
             syncFromBackend()
             notifyMemoryContextDidChange()
+            return
         }
-        try await backend.cancelActiveGeneration()
+        activeGenerationDepth = 0
+        hasActiveGeneration = false
+        syncFromBackend()
+        notifyMemoryContextDidChange()
+    }
+
+    /// Handles an application-level critical-memory notification through the
+    /// same store-owned terminal barrier used by the active-generation guard.
+    /// Callers must not perform a second trim or release generation ownership.
+    func performCriticalMemoryPressureRelief(reason: String) async -> CriticalMemoryReliefOutcome {
+        let requiresCancellation = hasActiveGeneration
+        guard beginCriticalMemoryAction() else { return .alreadyInFlight }
+        let context = await refreshMemoryContext(reason: reason, source: "app_pressure")
+        return await enforceCriticalMemoryContext(
+            context,
+            actionAlreadyClaimed: true,
+            requiresCancellation: requiresCancellation
+        )
     }
 
     func generate(_ request: GenerationRequest) async throws -> GenerationResult {
         if case .unsupported(let reason) = supportDecision(for: request) {
             throw MLXTTSEngineError.unsupportedRequest(reason)
         }
-        try await guardModelAdmission(shouldSurfaceError: true, reason: "generation_admission")
-        guard !hasActiveGeneration else {
+        guard !hasActiveGeneration, !criticalMemoryActionInFlight else {
             throw MLXTTSEngineError.generationFailed(
-                "The engine is already generating audio. Wait for it to finish or cancel it before starting another generation."
+                "The engine is already generating audio or releasing memory. Wait for it to finish before starting another generation."
+            )
+        }
+        try await guardModelAdmission(shouldSurfaceError: true, reason: "generation_admission")
+        // Admission captures live memory asynchronously. Revalidate ownership
+        // because a critical-pressure action may have claimed the runtime while
+        // that snapshot was in flight.
+        guard !hasActiveGeneration, !criticalMemoryActionInFlight else {
+            throw MLXTTSEngineError.generationFailed(
+                "The engine began releasing memory before generation could start. Wait for it to finish and try again."
             )
         }
         activeGenerationDepth += 1
         hasActiveGeneration = activeGenerationDepth > 0
         startActiveGenerationMemoryGuard(reason: "generation_active")
         defer {
-            stopActiveGenerationMemoryGuard(reason: "generation_finished")
-            logActiveGenerationPeakMemoryContext()
-            activeGenerationPeakMemoryContext = nil
-            criticalMemoryActionInFlight = false
-            activeGenerationDepth = max(activeGenerationDepth - 1, 0)
-            hasActiveGeneration = activeGenerationDepth > 0
-            syncFromBackend()
+            if criticalMemoryActionInFlight {
+                // The memory-guard task owns this generation scope until its
+                // cancellation barrier and awaited full unload both finish.
+                // Cancelling that task here would make the UI appear idle
+                // while MLX state is still being released.
+                syncFromBackend()
+            } else {
+                stopActiveGenerationMemoryGuard(reason: "generation_finished")
+                logActiveGenerationPeakMemoryContext()
+                activeGenerationPeakMemoryContext = nil
+                activeGenerationDepth = max(activeGenerationDepth - 1, 0)
+                hasActiveGeneration = activeGenerationDepth > 0
+                syncFromBackend()
+            }
         }
 
         // The physical-device XCUITest benchmark uses the shared debug policy
@@ -334,7 +370,18 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
             try await unloadModel()
         }
 
-        let result = try await backend.generate(request)
+        let request = request.generationID == nil
+            ? request.withGenerationID(UUID())
+            : request
+        let chunkForwardingTask = chunkForwardingTask(for: request)
+        let result: GenerationResult
+        do {
+            result = try await backend.generate(request)
+            await chunkForwardingTask?.value
+        } catch {
+            await chunkForwardingTask?.value
+            throw error
+        }
         let postGenerationContext = await refreshMemoryContext(reason: "post_generation", source: "store")
         let postGenerationBand = postGenerationContext.pressureBand
         if let trimLevel = memoryBudgetPolicy.postGenerationTrimLevel(for: postGenerationBand) {
@@ -528,10 +575,10 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
             memoryBudgetPolicy.allowsProactiveWarmOperations(for: latestMemoryContext.pressureBand)
         )
 
-        // When the backend exposes its full event stream, `chunkForwardTask` forwards chunks
+        // When the backend exposes its full event stream, a generation-scoped task forwards chunks
         // (with preview PCM intact); the snapshot's `latestEvent` is coalesced + preview-stripped,
         // so skip the lossy snapshot forward to avoid posting payload-less duplicates.
-        guard backend.events == nil else { return }
+        guard !backend.supportsGenerationEventStreaming else { return }
 
         guard let latestEvent = rawLatestEvent,
               let chunkIdentity = latestEvent.chunkDeliveryIdentity,
@@ -593,7 +640,7 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         // increased-memory entitlement + the band guard, warm when the band is healthy on
         // all build configs. `QVOICE_IOS_DISABLE_PROACTIVE_PREFETCH=1` is an
         // optional escape hatch to force it off (A/B / battery testing).
-        if ProcessInfo.processInfo.environment["QVOICE_IOS_DISABLE_PROACTIVE_PREFETCH"] == "1" {
+        if RuntimeDebugGate.value(for: "QVOICE_IOS_DISABLE_PROACTIVE_PREFETCH") == "1" {
             diagnosticsRecorder?.recordAction(
                 event: "proactive_warm_blocked",
                 reason: "\(reason)_env_disabled",
@@ -659,8 +706,10 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
             guard let self else { return }
             let initialContext = await self.refreshMemoryContext(reason: reason, source: "active_generation_guard")
             if self.shouldEnforceCriticalMemoryContext(initialContext) {
-                await self.enforceCriticalMemoryContext(initialContext)
-                return
+                let outcome = await self.enforceCriticalMemoryContext(initialContext)
+                if outcome == .completed {
+                    return
+                }
             }
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -671,8 +720,10 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
                 )
                 let context = self.contextApplyingDebugCriticalOnceIfNeeded(sampledContext)
                 if self.shouldEnforceCriticalMemoryContext(context) {
-                    await self.enforceCriticalMemoryContext(context)
-                    break
+                    let outcome = await self.enforceCriticalMemoryContext(context)
+                    if outcome == .completed {
+                        break
+                    }
                 }
             }
         }
@@ -683,9 +734,14 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         activeGenerationMemoryGuardTask = nil
     }
 
-    private func enforceCriticalMemoryContext(_ context: IOSMemoryContext) async {
-        guard !criticalMemoryActionInFlight else { return }
-        criticalMemoryActionInFlight = true
+    private func enforceCriticalMemoryContext(
+        _ context: IOSMemoryContext,
+        actionAlreadyClaimed: Bool = false,
+        requiresCancellation: Bool = true
+    ) async -> CriticalMemoryReliefOutcome {
+        if !actionAlreadyClaimed {
+            guard beginCriticalMemoryAction() else { return .alreadyInFlight }
+        }
         Self.memoryLogger.fault(
             "Critical iOS memory context during \(context.reason, privacy: .public); aggregate=\(context.aggregatePressureBand.rawValue, privacy: .public), worst=\(context.worstProcessRole?.rawValue ?? "unknown", privacy: .public), headroomMB=\(context.minimumHeadroomBytes.map(Self.megabytesString) ?? "unknown", privacy: .public), combinedFootprintMB=\(context.combinedPhysFootprintBytes.map(Self.megabytesString) ?? "unknown", privacy: .public)"
         )
@@ -695,34 +751,87 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
             context: context
         )
 
-        if hasActiveGeneration {
-            do {
-                try await backend.cancelActiveGeneration()
-                diagnosticsRecorder?.recordAction(
+        if !requiresCancellation {
+            await applyCriticalFullUnload(context)
+            completeCriticalMemoryAction()
+            return .completed
+        }
+
+        var cancellationFailureMessage: String?
+        let outcome = await CriticalMemoryReliefExecutor.execute(
+            cancel: { reason in
+                do {
+                    try await self.backend.cancelActiveGeneration(reason: reason)
+                } catch {
+                    cancellationFailureMessage = error.localizedDescription
+                    throw error
+                }
+                self.diagnosticsRecorder?.recordAction(
                     event: "critical_generation_cancel",
-                    reason: context.reason,
+                    reason: GenerationCancellationReason.memoryPressure.rawValue,
                     context: context
                 )
-            } catch {
-                backend.setVisibleError(nil)
-                diagnosticsRecorder?.recordAction(
-                    event: "critical_generation_cancel_failed",
-                    reason: context.reason,
-                    context: context,
-                    message: error.localizedDescription
-                )
+            },
+            applyRelief: {
+                await self.applyCriticalFullUnload(context)
+            },
+            releaseOwnership: {
+                self.completeCriticalMemoryAction()
             }
-            activeGenerationDepth = 0
-            hasActiveGeneration = false
+        )
+
+        if outcome == .cancellationFailed {
+            backend.setVisibleError(nil)
+            diagnosticsRecorder?.recordAction(
+                event: "critical_generation_cancel_failed",
+                reason: context.reason,
+                context: context,
+                message: cancellationFailureMessage
+            )
+            // Never race a full unload against compute whose termination could
+            // not be proven. Leave generation ownership intact, but release
+            // the action claim so the still-running guard can retry later.
+            criticalMemoryActionInFlight = false
+            syncFromBackend()
+            notifyMemoryContextDidChange()
         }
+
+        return outcome
+    }
+
+    private func applyCriticalFullUnload(_ context: IOSMemoryContext) async {
+        await backend.trimMemory(
+            level: .fullUnload,
+            reason: "critical_memory_context"
+        )
+        // This event is a completion boundary: it is written only after the
+        // awaited full unload returns.
         diagnosticsRecorder?.recordAction(
             event: "critical_full_unload",
             reason: "critical_memory_context",
             context: context,
             trimLevel: .fullUnload
         )
-        await backend.trimMemory(level: .fullUnload, reason: "critical_memory_context")
         backend.clearGenerationActivity()
+    }
+
+    private func beginCriticalMemoryAction() -> Bool {
+        guard !criticalMemoryActionInFlight else { return false }
+        criticalMemoryActionInFlight = true
+        // Preserve one store-owned generation scope even if the backend's
+        // cancellation terminal races this MainActor task. `syncFromBackend`
+        // therefore cannot re-enable generation while fullUnload is awaited.
+        activeGenerationDepth = max(activeGenerationDepth, 1)
+        hasActiveGeneration = true
+        return true
+    }
+
+    private func completeCriticalMemoryAction() {
+        logActiveGenerationPeakMemoryContext()
+        activeGenerationPeakMemoryContext = nil
+        activeGenerationDepth = 0
+        hasActiveGeneration = false
+        criticalMemoryActionInFlight = false
         syncFromBackend()
         notifyMemoryContextDidChange()
     }
@@ -818,11 +927,16 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
         )
     }
 
-    // Runtime test knobs (env-gated, off by default) — usable on the Release device build.
+    // Runtime diagnostics are inert unless the explicit repository debug mode is enabled.
+    // This keeps the Release-only build topology without allowing an ambient environment
+    // variable to alter production memory policy.
     private static func debugForcedMemoryBand(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> IOSMemoryPressureBand? {
-        switch environment["QVOICE_IOS_MEMORY_GUARD_FORCE_BAND"]?
+        switch RuntimeDebugGate.value(
+            for: "QVOICE_IOS_MEMORY_GUARD_FORCE_BAND",
+            environment: environment
+        )?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() {
         case "guarded":
@@ -835,7 +949,10 @@ final class TTSEngineStore: ObservableObject, TTSEngine {
     private static func debugForceCriticalOnceEnabled(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Bool {
-        switch environment["QVOICE_IOS_MEMORY_GUARD_FORCE_CRITICAL_ONCE"]?
+        switch RuntimeDebugGate.value(
+            for: "QVOICE_IOS_MEMORY_GUARD_FORCE_CRITICAL_ONCE",
+            environment: environment
+        )?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() {
         case "1", "true", "yes", "on":
@@ -858,9 +975,9 @@ final class AnyTTSEngineBackend {
     let supportsModelManagementMutation: Bool
     let supportedModes: Set<GenerationMode>
     let stateDidChange: AnyPublisher<Void, Never>
-    /// Full, ordered event stream with per-chunk preview PCM intact (in-process engines only;
-    /// nil otherwise). The store drains this to forward streamed audio for live playback.
-    let events: AsyncStream<GenerationEvent>?
+    /// Full ordered per-generation stream with preview PCM intact.
+    let supportsGenerationEventStreaming: Bool
+    private let eventsBlock: (UUID) -> AsyncStream<GenerationEvent>?
 
     private let snapshotBlock: () -> TTSEngineFrontendState
     private let supportDecisionBlock: (GenerationRequest) -> GenerationSupportDecision
@@ -876,7 +993,7 @@ final class AnyTTSEngineBackend {
     private let prefetchInteractiveReadinessIfNeededBlock: (GenerationRequest) async -> InteractivePrefetchDiagnostics?
     private let ensureCloneReferencePrimedBlock: (String, CloneReference) async throws -> Void
     private let cancelClonePreparationIfNeededBlock: () async -> Void
-    private let cancelActiveGenerationBlock: () async throws -> Void
+    private let cancelActiveGenerationBlock: (GenerationCancellationReason) async throws -> Void
     private let generateBlock: (GenerationRequest) async throws -> GenerationResult
     private let listPreparedVoicesBlock: () async throws -> [PreparedVoice]
     private let enrollPreparedVoiceBlock: (String, String, String?) async throws -> PreparedVoice
@@ -910,7 +1027,15 @@ final class AnyTTSEngineBackend {
         self.stateDidChange = engine.objectWillChange
             .map { _ in () }
             .eraseToAnyPublisher()
-        self.events = (engine as? any TTSEngineEventStreaming)?.events
+        if let eventStreamingEngine = engine as? any TTSEngineEventStreaming {
+            self.supportsGenerationEventStreaming = true
+            self.eventsBlock = { generationID in
+                eventStreamingEngine.events(for: generationID)
+            }
+        } else {
+            self.supportsGenerationEventStreaming = false
+            self.eventsBlock = { _ in nil }
+        }
         self.snapshotBlock = {
             TTSEngineFrontendState(
                 isReady: engine.isReady,
@@ -939,9 +1064,15 @@ final class AnyTTSEngineBackend {
         self.ensureCloneReferencePrimedBlock = { try await engine.ensureCloneReferencePrimed(modelID: $0, reference: $1) }
         self.cancelClonePreparationIfNeededBlock = { await engine.cancelClonePreparationIfNeeded() }
         if let engine = engine as? any ActiveGenerationCancellable {
-            self.cancelActiveGenerationBlock = { try await engine.cancelActiveGeneration() }
+            self.cancelActiveGenerationBlock = { reason in
+                try await engine.cancelActiveGeneration(reason: reason)
+            }
         } else {
-            self.cancelActiveGenerationBlock = {}
+            self.cancelActiveGenerationBlock = { _ in
+                throw TTSEngineError.unsupportedRequest(
+                    "This engine host does not support active-generation cancellation."
+                )
+            }
         }
         self.generateBlock = { try await engine.generate($0) }
         self.listPreparedVoicesBlock = { try await engine.listPreparedVoices() }
@@ -1014,7 +1145,12 @@ final class AnyTTSEngineBackend {
         try await ensureCloneReferencePrimedBlock(modelID, reference)
     }
     func cancelClonePreparationIfNeeded() async { await cancelClonePreparationIfNeededBlock() }
-    func cancelActiveGeneration() async throws { try await cancelActiveGenerationBlock() }
+    func cancelActiveGeneration(reason: GenerationCancellationReason = .user) async throws {
+        try await cancelActiveGenerationBlock(reason)
+    }
+    func events(for generationID: UUID) -> AsyncStream<GenerationEvent>? {
+        eventsBlock(generationID)
+    }
     func generate(_ request: GenerationRequest) async throws -> GenerationResult { try await generateBlock(request) }
     func listPreparedVoices() async throws -> [PreparedVoice] { try await listPreparedVoicesBlock() }
     func enrollPreparedVoice(name: String, audioPath: String, transcript: String?) async throws -> PreparedVoice {

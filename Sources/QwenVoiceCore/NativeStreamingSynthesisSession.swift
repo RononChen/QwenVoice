@@ -2,8 +2,7 @@ import AVFoundation
 import CryptoKit
 import Foundation
 import MLX
-import MLXAudioCore
-@preconcurrency import MLXAudioTTS
+@preconcurrency import VocelloQwen3Core
 @preconcurrency import QwenVoiceBackendCore
 import OSLog
 
@@ -352,7 +351,7 @@ final class NativeStreamingSynthesisSession: NativeStreamingSessionRunning, @unc
         qwen3Capabilities: Qwen3TTSModelCapabilities,
         cloneConditioning: ResolvedCloneConditioning?,
         streamingInterval: Double
-    ) throws -> AsyncThrowingStream<AudioGeneration, Error> {
+    ) throws -> AsyncThrowingStream<VocelloQwen3GenerationSignal, Error> {
         switch request.payload {
         case .clone:
             guard let cloneConditioning else {
@@ -1124,7 +1123,7 @@ struct StreamingExecutionContext: Sendable {
 
         var mlxMemorySnapshots = initialMLXMemorySnapshots
         mlxMemorySnapshots["before_quality_generation"] = NativeMemoryPolicyResolver.snapshot()
-        let completion: AudioGenerationCompletion
+        let completion: VocelloQwen3GenerationCompletion
         do {
             completion = try await generateQualityFirstAudio()
         } catch {
@@ -1132,7 +1131,8 @@ struct StreamingExecutionContext: Sendable {
                 surfacedMessage: "Quality-first generation failed",
                 stage: NativeRuntimeStage.streamFailed.description,
                 underlyingError: error,
-                request: request
+                request: request,
+                appSupportDirectory: diagnosticAppSupportBox?.url
             )
             await writeFailureTelemetry(error: error, usedStreaming: false, counters: [:])
             Memory.clearCache()
@@ -1168,7 +1168,7 @@ struct StreamingExecutionContext: Sendable {
             "Native Final Audio Materialize",
             "runID=\(benchRunID, privacy: .public) generationID=\(generationID.uuidString, privacy: .public) takeIndex=\(benchTakeIndex, privacy: .public) cell=\(benchCell, privacy: .public)"
         )
-        let samples = completion.audio.asArray(Float.self)
+        let samples = completion.audio
         NativeStreamingSignposts.signposter.endInterval(
             "Native Final Audio Materialize",
             materializeSignpost,
@@ -1311,7 +1311,7 @@ struct StreamingExecutionContext: Sendable {
         )
     }
 
-    private func generateQualityFirstAudio() async throws -> AudioGenerationCompletion {
+    private func generateQualityFirstAudio() async throws -> VocelloQwen3GenerationCompletion {
         switch request.payload {
         case .clone:
             guard let cloneConditioning else {
@@ -1357,11 +1357,11 @@ struct StreamingExecutionContext: Sendable {
         }
     }
 
-    private static func mapFinishReason(_ reason: AudioGenerationFinishReason) -> GenerationFinishReason {
+    private static func mapFinishReason(_ reason: VocelloQwen3GenerationFinishReason) -> GenerationFinishReason {
         switch reason {
-        case .eos:
+        case .endOfSequence:
             return .eos
-        case .maxTokens:
+        case .maximumTokens:
             return .maxTokens
         case .cancelled:
             return .cancelled
@@ -1446,8 +1446,8 @@ struct StreamingExecutionContext: Sendable {
         let chunkQCActive = telemetryWorkPlan.computesChunkQC
         var chunkTimeline: [GenerationChunkTelemetry] = []
         var chunkQCReports: [AudioQCChunkReport] = []
-        var pendingChunkTimings: ChunkSubstageTimings?
-        var latestInfo: AudioGenerationInfo?
+        var pendingChunkTimings: VocelloQwen3ChunkTimings?
+        var latestInfo: VocelloQwen3GenerationInfo?
         await telemetrySampler?.captureBoundary("session_start")
         await telemetryRecorder?.mark(stage: .streamStartup)
         do {
@@ -1509,7 +1509,7 @@ struct StreamingExecutionContext: Sendable {
             request: request,
             policy: memoryPolicy
         )
-        let stream: AsyncThrowingStream<AudioGeneration, Error>
+        let stream: AsyncThrowingStream<VocelloQwen3GenerationSignal, Error>
         do {
             stream = try NativeStreamingSynthesisSession.buildStream(
                 request: request,
@@ -1543,8 +1543,7 @@ struct StreamingExecutionContext: Sendable {
                 case .info(let info):
                     if telemetryActive { latestInfo = info }
                     continue
-                case .audio(let samples):
-                    let chunkSamples = samples.asArray(Float.self)
+                case .audio(let chunkSamples):
                     guard !chunkSamples.isEmpty else { continue }
 
                     if chunkQCActive {
@@ -1652,7 +1651,8 @@ struct StreamingExecutionContext: Sendable {
                 surfacedMessage: "Streaming execution failed",
                 stage: NativeRuntimeStage.streamFailed.description,
                 underlyingError: error,
-                request: request
+                request: request,
+                appSupportDirectory: diagnosticAppSupportBox?.url
             )
             await writeFailureTelemetry(
                 error: error,
@@ -1666,16 +1666,26 @@ struct StreamingExecutionContext: Sendable {
             throw error
         }
 
+        if let terminalError = Self.postStreamTerminalError(
+            totalFramesWritten: totalFramesWritten,
+            isTaskCancelled: Task.isCancelled
+        ) {
+            await writeFailureTelemetry(
+                error: terminalError,
+                usedStreaming: true,
+                counters: ["chunkCount": chunkIndex]
+            )
+            finalWriter.discard()
+            try? FileManager.default.removeItem(at: outputURL)
+            try? FileManager.default.removeItem(at: sessionDirectory)
+            Memory.clearCache()
+            throw terminalError
+        }
+
         Self.warnIfNonFiniteSamplesObserved(
             metrics: scratchBuffer.limiterMetrics,
             context: "streaming chunks"
         )
-
-        guard totalFramesWritten > 0 else {
-            let error = MLXTTSEngineError.generationFailed("The native engine did not emit any audio chunks.")
-            await writeFailureTelemetry(error: error, usedStreaming: true, counters: ["chunkCount": chunkIndex])
-            throw error
-        }
         if model.latestPreparationStringFlags["generation_end_reason"] == "token_cap" {
             let error = MLXTTSEngineError.generationFailed(
                 "Qwen3-TTS reached maxNewTokens before EOS. The output was discarded to avoid a truncated generation."
@@ -1830,6 +1840,26 @@ struct StreamingExecutionContext: Sendable {
         )
     }
 
+    /// Async streams may finish normally after their producer task is
+    /// cancelled. Check the task's cooperative cancellation state before
+    /// interpreting an empty stream as an engine failure so memory-pressure
+    /// cancellation retains its typed terminal reason and never surfaces a
+    /// false "no audio chunks" error in the frontend.
+    static func postStreamTerminalError(
+        totalFramesWritten: Int64,
+        isTaskCancelled: Bool
+    ) -> Error? {
+        if isTaskCancelled {
+            return CancellationError()
+        }
+        guard totalFramesWritten > 0 else {
+            return MLXTTSEngineError.generationFailed(
+                "The native engine did not emit any audio chunks."
+            )
+        }
+        return nil
+    }
+
     private static func adaptiveStreamingInterval(
         for request: GenerationRequest,
         memoryPolicy: NativeMemoryPolicy
@@ -1938,7 +1968,7 @@ struct StreamingExecutionContext: Sendable {
             // Restriction-simulation rows must self-identify — a simulated
             // iPhone-15-Pro run must never read as a real-device proof.
             tierNotes["simulatedProcessLimitMB"] = String(simLimit / 1_048_576)
-            if let profile = ProcessInfo.processInfo.environment["QVOICE_IOS_MEMORY_PROFILE"] {
+            if let profile = RuntimeDebugGate.value(for: "QVOICE_IOS_MEMORY_PROFILE") {
                 tierNotes["memoryProfile"] = profile
             }
         }
@@ -1946,8 +1976,7 @@ struct StreamingExecutionContext: Sendable {
         // the summarizer can segregate instruct-bearing takes from the plain matrix.
         // Read via getenv (not ProcessInfo) because the in-process CLI updates it per
         // take; only the id is recorded, never user text.
-        if let rawDelivery = getenv("QWENVOICE_BENCH_DELIVERY") {
-            let delivery = String(cString: rawDelivery)
+        if let delivery = RuntimeDebugGate.value(for: "QWENVOICE_BENCH_DELIVERY") {
             if !delivery.isEmpty { tierNotes["delivery"] = delivery }
         }
         // MLX/Metal memory policy notes so each row self-identifies the substrate
@@ -2329,12 +2358,12 @@ struct StreamingExecutionContext: Sendable {
         return count
     }
 
-    /// Maps the vendored per-chunk `ChunkSubstageTimings` into the Codable
+    /// Maps the owned Qwen3 per-chunk timings into the Codable
     /// `GenerationChunkTelemetry`, stamping the chunk index and the wall-clock
     /// arrival (ms and ns since the shared telemetry start clock).
     private func makeChunkTelemetry(
         chunkIndex: Int,
-        timings: ChunkSubstageTimings,
+        timings: VocelloQwen3ChunkTimings,
         clock: NativeTelemetryClock?
     ) -> GenerationChunkTelemetry {
         let (arrivalMS, arrivalNS) = clock?.now() ?? (0, 0)
@@ -2362,7 +2391,7 @@ struct StreamingExecutionContext: Sendable {
     private static func computeDerivedMetrics(
         audioSeconds: Double,
         stageMarks: [NativeTelemetryStageMark],
-        info: AudioGenerationInfo?,
+        info: VocelloQwen3GenerationInfo?,
         modelTimingsMS: [String: Int]
     ) -> [String: Double] {
         var metrics: [String: Double] = ["audioSeconds": audioSeconds]

@@ -19,7 +19,7 @@ If anything here disagrees with the code, the code wins — fix this file.
 Run a benchmark when you change anything that can affect **decode throughput**, **memory
 peaks**, **first-chunk latency**, or **audio quality**:
 
-- MLX / vendored Qwen3-TTS or Mimi codec
+- MLX / owned Qwen3-TTS core runtime or Mimi codec
 - Memory policy, streaming interval, idle-unload, XPC lifecycle
 - Model load path, prewarm, clone conditioning
 - Before explicitly promoting engine-adjacent work or cutting a macOS/iOS release
@@ -309,6 +309,17 @@ app. `retained-memory-v1` compares first-to-last retained-take footprint growth 
 of physical-RAM limit; cross-mode model residency is diagnostic. The terminal sentinel is atomic and
 a PASS publishes `memory-qualification`, not `instrument-profile`.
 
+Clone-conditioning semantics have a separate local acceptance command:
+
+```sh
+scripts/ios_device.sh clone-conditioning --label focused-clone-proof
+```
+
+It proves transcript-backed and genuine x-vector-only conditioning with the exact canonical
+reference in one physical-iPhone process. It is intentionally not a timing matrix and never creates
+a benchmark-history record; the compact validation and its raw telemetry/WAV evidence remain under
+the untracked iOS artifact tree.
+
 ### 4.7c iOS benchmark ownership
 
 The XCUITest benchmark lane validates the only supported UI matrix. For engine RTF without UI
@@ -460,8 +471,8 @@ non-authoritative without the runner-owned crash delta and evidence manifest.
 | Logs / warm-admission | `scripts/macos_test.sh logs` and unified-log inspection |
 | Crash post-mortem | `scripts/macos_test.sh crashes`, dSYMs, and standard symbolication |
 
-Cold takes: app relaunch + `QWENVOICE_SUPPRESS_WARMUP=1` + `QWENVOICE_BENCH_FORCE_COLD=1`
-(debug-only unload before generate). Warm takes stay in-session.
+Cold takes: app relaunch + `QWENVOICE_DEBUG=1` + `QWENVOICE_SUPPRESS_WARMUP=1` +
+`QWENVOICE_BENCH_FORCE_COLD=1` (master-gated unload before generate). Warm takes stay in-session.
 
 ---
 
@@ -497,7 +508,8 @@ Defined in `BenchMatrixSpec` (`Sources/QwenVoiceCore/BenchMatrixSpec.swift`; sha
 | Clone | **none** (warm-by-design) | `--warm` × each length |
 
 CLI forces cold via explicit unload before cold take. UI cold uses app relaunch +
-`QWENVOICE_SUPPRESS_WARMUP=1` + `QWENVOICE_BENCH_FORCE_COLD=1` (see §4.10).
+`QWENVOICE_DEBUG=1` + `QWENVOICE_SUPPRESS_WARMUP=1` + `QWENVOICE_BENCH_FORCE_COLD=1`
+(see §4.10).
 
 ### Streaming default
 

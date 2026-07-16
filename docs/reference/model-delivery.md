@@ -26,6 +26,36 @@ diagnostics/model-downloads/
 models/
 ```
 
+### Cross-platform production catalog
+
+`Sources/Resources/qwenvoice_production_model_catalog.json` is the reproducible, bundled catalog
+contract for future convergence of macOS, CLI, and iPhone delivery. Its versioned shape is declared
+by `config/model-catalog-schema-v1.json`; it is generated only from the shared model contract and
+checked-in exact file evidence:
+
+```sh
+python3 scripts/model_catalog_contract.py rebuild --check
+python3 scripts/model_catalog_contract.py validate
+```
+
+Every covered artifact has a 40-character immutable Hugging Face revision, an allowlisted HTTPS
+resolve URL, safe relative paths, positive exact byte counts, and a lowercase SHA-256 for every
+required file. Source digests make independent edits to the shared contract, iPhone catalog, or
+generated catalog fail validation.
+
+Initial artifact requests remain restricted to the catalog's exact host. URLSession redirects are
+also policy-checked: only HTTPS destinations without credentials or IP/local hosts are accepted,
+and the destination must remain on the configured host or the explicit Hugging Face distribution
+suffixes `huggingface.co` and `hf.co`. A rejected redirect is never adopted as background work.
+
+The catalog is `complete`: the bundled iPhone evidence supplies the three Speed variants and
+`config/model-artifact-receipts.json` supplies the three Quality variants. All six packages pin a
+revision plus the exact size and SHA-256 of every required file; no hash or size is inferred.
+macOS and CLI now resolve `ProductionModelCatalog` and call the same exact-file `downloadFiles`
+route rather than enumerating a live repository. `validate --require-complete` proves this static
+contract. It does not replace the isolated Mac/iPhone lifecycle proofs, which must be refreshed as
+explicit quality evidence after redirect, restoration, or delivery-routing changes.
+
 The iOS ledger is atomically written, versioned, and contains only privacy-safe identifiers and
 relative paths. It records the logical request, model and artifact version, expected and verified
 files, retries, monotonic received bytes, and terminal state. A one-time migration cancels the old
@@ -40,7 +70,10 @@ encoded model/artifact/file identity exactly matches the ledger and current cata
 Unknown, stale, or duplicate tasks are cancelled, and only missing files receive new tasks.
 Delegate temporary files are synchronously moved into durable app-group staging before the callback
 returns. UIKit's background-session completion handler is released only after all delegate events
-and durable install/failure postprocessing finish.
+and durable install/failure postprocessing finish. Completion routing is exact-identifier scoped:
+the canonical and debug-isolated coordinators retain and acknowledge only their own session's
+handler. A foreign handler is neither stored nor completed, while an owned session with no durable
+work is completed after reconciliation.
 
 iPhone runs one model request at a time. macOS keeps its existing foreground concurrency. Both
 platforms keep per-file range chunking disabled by default.
@@ -53,9 +86,12 @@ transfer. A separate no-progress message appears after 20 seconds of an actively
 waiting-for-connectivity comes from the URLSession delegate.
 
 Explicit **Cancel** is a discard operation. The coordinator first persists `cancelRequested`, stops
-new task registration, awaits all resume-data cancellation callbacks and terminal tasks, and only
-then removes staging. **Retry** preserves already verified files and reconstructs progress from the
-ledger, staged partials, and adopted task byte counts.
+new task registration, awaits all resume-data cancellation callbacks and terminal tasks, persists
+the final deleted tombstone, and only then removes staging or reports deletion. If either critical
+ledger write fails, cancellation fails closed: tasks or staging are preserved as applicable, the UI
+shows a privacy-safe storage error, and relaunch cannot silently reinterpret the request as queued.
+**Retry** preserves already verified files and reconstructs progress from the ledger, staged
+partials, and adopted task byte counts.
 
 Transient connection failures and HTTP 408, 429, and 5xx responses retry up to three times. A
 `Retry-After` value is honored up to five minutes. One integrity mismatch receives one clean retry.
@@ -69,16 +105,21 @@ timing, protocol, redirect/reuse and constrained/expensive-network flags, transf
 sanitized failure class. A successful attempt also records expected and wire bytes, duplicate bytes,
 retry count, protocol set, thermal state, phase timings, and final-integrity status. Task completion
 waits for URLSession's terminal callback so the success summary cannot overtake final task metrics.
-They never contain a raw URL, absolute path, device identity, or user data.
+Foreground delegate callbacks are serialized, durable staging is sequenced before terminal
+completion, and high-frequency byte callbacks are reduced to bounded cumulative progress updates
+plus the exact terminal byte count. This prevents a completed transfer from being stranded behind
+its own progress backlog without sacrificing final byte accuracy.
+Diagnostic summaries never contain a raw URL, absolute path, device identity, or user data.
 
 Deterministic tests are model-free and Simulator-free. Live delivery is an explicit diagnostic:
 
 ```sh
 # isolated macOS/CLI data root
-./build/vocello models install pro_custom_speed \
-  --data-dir build/scratch/transient/model-download-acceptance/ --verbose
+./scripts/build.sh cli models install pro_custom_speed \
+  --data-dir "$PWD/build/scratch/transient/model-download-acceptance" --verbose
 
-# paired physical iPhone; isolated app-support root, visible Settings controls
+# paired physical iPhone; safe leaf under managed Application Support,
+# never the canonical App Group model tree
 scripts/ui_test.sh ios model-download
 ```
 
@@ -90,11 +131,31 @@ the lane pulls only its bounded model-download summaries into the local untracke
 
 The 2026-07-14 isolated Custom Speed acceptance passed on the Mac mini M2 8 GB and physical iPhone
 17 Pro. Both transfers moved the exact 2,312,057,897 expected bytes without retry or duplicate
-payload. Control-plane traffic such as the macOS catalog response is recorded separately and is
-never classified as duplicate model payload. The iPhone XCUITest completed its
+payload. Any control-plane traffic in earlier delivery routes was recorded separately and was never
+classified as duplicate model payload. The iPhone XCUITest completed its
 background/relaunch/install/visible-delete lifecycle in
 81.6 seconds and reported HTTP/2 plus HTTP/1.1 with fair thermal state. This is lifecycle evidence,
 not a performance baseline, and did not change concurrency or range-chunking defaults.
+
+The lane also enters canonical Settings before and after the isolated lifecycle and requires all
+three production models to remain installed with no visible canonical transfer in flight. The
+debug isolation override accepts only an absolute
+diagnostic path or one safe relative leaf; traversal and nested relative paths fail closed. Only
+the managed relative leaf selects a separate app-lifetime background session, and its identifier
+contains a one-way digest rather than the leaf itself. Production and absolute diagnostic roots
+retain the historical bundle-scoped session identifier, so private paths cannot create arbitrary
+URLSession namespaces.
+
+Post-policy physical-iPhone run `ios-xcui-model-download-20260716-163359-61377762` repeated the
+complete lifecycle. Expected and wire bytes both equaled 2,312,057,897, with zero retries or
+duplicate bytes, one accepted redirect per artifact inside the declared provider boundary, HTTP/3
+plus HTTP/1.1, nominal thermal state, final integrity, visible isolated cleanup, and canonical model
+state preserved. Post-catalog macOS/CLI proof `model-download-acceptance-9a8da87` then transferred
+the same exact 2,312,057,897 expected and wire bytes with zero control or duplicate bytes, zero
+retries, HTTP/3 plus HTTP/1.1, and nominal thermal state. It measured 35.638 seconds of network
+time, 0.003 seconds of verification, and 0.001 seconds of installation, reported final integrity,
+and removed the isolated payload after preserving only bounded local diagnostics. These single
+transfers are lifecycle evidence rather than concurrency tuning experiments.
 
 ## Tuning policy
 
@@ -104,3 +165,7 @@ without more retries, duplicate bytes, thermal regression, or restoration failur
 
 Background Assets was evaluated and not adopted in this change. See
 [`../decisions/model-delivery-background-assets.md`](../decisions/model-delivery-background-assets.md).
+
+Changed-path evidence expectations are classified by
+[`evidence-impact.md`](evidence-impact.md). Live model downloads remain explicit quality evidence,
+not ordinary commit, merge, or release-packaging blockers.

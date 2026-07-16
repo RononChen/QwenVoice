@@ -154,6 +154,7 @@ Shows each model's install state, on-disk size, and (for `status`) any missing r
 `install` uses the same `HuggingFaceDownloader` as the macOS app — a CLI-installed model is
 immediately usable in the app, and vice versa. Variant-scoped ids (`pro_custom_speed`, `…_quality`)
 are what `generate --variant` selects. Foreground sessions are invalidated on every terminal path;
+durable staging precedes terminal continuation, bounded progress retains the exact final count,
 transient retries preserve valid staging, explicit cancellation discards it, and compact local
 metrics are bounded under `diagnostics/model-downloads/`. See
 [`model-delivery.md`](model-delivery.md).

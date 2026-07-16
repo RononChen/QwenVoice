@@ -101,7 +101,7 @@ class BuildRoutingContractTests(unittest.TestCase):
         )
 
     def test_owned_runtime_uses_a_tracked_lock_in_xcode_lockstep(self) -> None:
-        runtime_lock = ROOT / "third_party_patches/mlx-audio-swift/Package.resolved"
+        runtime_lock = ROOT / "Packages/VocelloQwen3Core/Package.resolved"
         xcode_lock = ROOT / "QwenVoice.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
         self.assertTrue(runtime_lock.is_file(), "owned runtime Package.resolved must be tracked")
 
@@ -272,10 +272,10 @@ class BuildRoutingContractTests(unittest.TestCase):
         ):
             self.assertIn(token, text)
 
-    def test_vendored_runtime_never_owns_a_generated_dot_build(self) -> None:
+    def test_owned_runtime_never_owns_a_generated_dot_build(self) -> None:
         self.assertFalse(
-            (ROOT / "third_party_patches" / "mlx-audio-swift" / ".build").exists(),
-            "migrate the vendored SwiftPM cache to build/cache/swiftpm/mlx-audio-runtime",
+            (ROOT / "Packages" / "VocelloQwen3Core" / ".build").exists(),
+            "migrate the owned runtime SwiftPM cache to build/cache/swiftpm/mlx-audio-runtime",
         )
 
     def test_only_classified_top_level_build_roots_remain(self) -> None:

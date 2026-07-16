@@ -70,7 +70,7 @@ Tests assert these visible production surfaces directly.
 | Import | `voiceCloning_importButton` |
 | Record | `voiceCloning_recordReferenceButton` |
 | Active reference | `voiceCloning_activeReference` / `voiceCloning_referenceWarning` |
-| Transcript | `voiceCloning_transcriptInput` |
+| Transcript (optional) | `voiceCloning_transcriptInput`; blank selects genuine audio-only x-vector conditioning |
 | Record clip sheet | `recordClip_record` / `_stop` / `_retake` / `_use` / `_cancel` / `_timer` |
 | Script + CTAs | `textInput_*` (shared) |
 
@@ -82,6 +82,11 @@ Tests assert these visible production surfaces directly.
 | Sort | `history_sortPicker` (menu) |
 | Clear | `history_clearMenu` → `history_clearKeepFiles` / `history_clearDeleteFiles` |
 | Row | `historyRow_<genID>` / `historyRow_play_<genID>` / `historyRow_saveAs_<genID>` / `historyRow_delete_<genID>` |
+| Degraded database state | `history_errorState`; destructive actions stay disabled until a later reload/read succeeds |
+
+Database failures are typed and fail closed: an unavailable store is not shown as empty History.
+macOS retries when the surface reloads or is re-entered; it does not currently expose a dedicated
+Retry button.
 
 ### Saved Voices (`sidebar_voices` → `screen_voices`)
 
@@ -101,6 +106,7 @@ Tests assert these visible production surfaces directly.
 | Download / cancel / repair | `settings_download_<id>` / `settings_cancel_<id>` / `settings_repair_<id>` / `settings_manage_<id>` |
 | Auto-play | `preferences_autoPlayToggle` |
 | Variation | `settings_generationVariation` (segmented: Expressive/Balanced/Consistent) |
+| Clone consent | `voiceCloning_consentAcknowledgment`; persistent and required before Clone Generate |
 | Output dir | `preferences_outputDirectory` / `preferences_browseButton` / `preferences_openFinderButton` |
 | Version label | tap 7× → toggles `QWENVOICE_DEBUG` mode |
 
@@ -132,7 +138,8 @@ The shared foreground downloader distinguishes queued, waiting for connectivity,
 retrying, verifying, installing, and cancelling. Active transfer shows bytes, smoothed speed, ETA,
 and a separate 20-second no-progress indication. Transient failures retry up to three times; Retry
 preserves verified files, while explicit Cancel discards that package's staged data. Every terminal
-foreground path invalidates its URLSession. Details: [`model-delivery.md`](model-delivery.md).
+foreground path invalidates its URLSession after ordered durable-stage/terminal processing. Bounded
+progress ingress still emits the exact final byte count. Details: [`model-delivery.md`](model-delivery.md).
 
 The Studio's Generate CTA (`textInput_generateButton`) appears only when the mode's model
 is installed — otherwise the app prompts to download from Settings.

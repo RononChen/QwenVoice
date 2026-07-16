@@ -29,7 +29,9 @@
 
 - **Custom Voice:** choose one of nine built-in Qwen3 speakers, then set language and delivery.
 - **Voice Design:** describe a voice in plain language and generate it from that brief.
-- **Voice Cloning:** record or import a reference you have permission to use, transcribe it locally, and save it to your voice library.
+- **Voice Cloning:** record or import a reference you have permission to use, optionally transcribe
+  it locally, affirm consent, and save it to your voice library. A clip without a transcript uses
+  the genuine audio-only x-vector conditioning path.
 - **Private generation:** after model installation, scripts, reference clips, history, and generated audio stay in local app storage unless you export them.
 - **Ten languages:** Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, and Italian, with automatic detection or an explicit language choice.
 - **Local history and playback:** replay, search, export, or delete past generations without an account or a per-line subscription meter.
@@ -39,7 +41,7 @@
 | Voice Design | Voice Cloning |
 | --- | --- |
 | ![Vocello Voice Design screen](docs/screenshots/vocello-voice-design.png) | ![Vocello Voice Cloning screen](docs/screenshots/vocello-voice-cloning.png) |
-| Describe character, age, accent, texture, and delivery. Save a successful design as a reusable voice reference. | Record in the app or import WAV, MP3, AIFF, M4A, FLAC, OGG, or WebM. Only clone voices you own or are authorized to use. |
+| Describe character, age, accent, texture, and delivery. Save a successful design as a reusable voice reference. | Record in the app or import WAV, MP3, AIFF, M4A, FLAC, OGG, or WebM. A transcript improves conditioning but is optional. Generation requires the visible consent acknowledgment in Settings; only clone voices you own or are authorized to use. |
 
 Custom Voice and Voice Design support ten delivery styles at subtle, normal, or strong intensity, plus a free-text delivery description. Voice Cloning follows the reference voice and does not expose delivery controls.
 
@@ -68,7 +70,7 @@ Upgrading from Vocello 2.0 does not require reinstalling models. Application dat
 
 Speed is the recommended default and uses less memory. Quality is a Mac-only option for machines with more headroom. The three recommended Mac Speed packages total about 7 GB.
 
-Support floors and benchmark machines are different facts. Canonical evidence is produced on a Mac mini M2 with 8 GB and an iPhone 17 Pro. The current clean Mac record found that selected warm Custom medium and long cells reached approximately realtime, while Design, Clone, short, and cold cells remained below it. See the [tracked benchmark record](benchmarks/runs/ui-generation/macos-xcui-benchmark-20260713-185716-7f12cd35.json) for the exact matrix and conditions.
+Support floors and benchmark machines are different facts. Canonical evidence is produced on a Mac mini M2 with 8 GB and an iPhone 17 Pro. In the current clean owned-core Mac record, every Custom and Design aggregate cell generated at or faster than playback; Clone medium and long were approximately realtime or faster, while Clone short remained below realtime. The record is `passedWithWarnings` because accepted memory soft trims and long-cell audio-QC warnings remain visible rather than being hidden. See the [tracked benchmark record](benchmarks/runs/ui-generation/macos-xcui-benchmark-20260716-181853-b4c2e299.json) for the exact matrix and conditions.
 
 Macs on macOS 15 can use the legacy [QwenVoice 1.2.3 release](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3). No Vocello 2.x backport is planned.
 
@@ -83,6 +85,8 @@ The Expressive, Balanced, and Consistent variation settings trade take-to-take v
 - Model installation downloads pinned model artifacts from Hugging Face.
 - Reference recording requests microphone access. Transcript auto-fill requests Speech Recognition access and uses on-device recognition with the required system language assets.
 - Voice cloning should only be used with voices you own or have permission to use.
+- Clone generation remains disabled until its visible consent acknowledgment is enabled in
+  Settings; the choice is stored locally and can be changed there.
 
 Storage locations and deletion behavior are documented in [`docs/reference/privacy-storage.md`](docs/reference/privacy-storage.md).
 
@@ -90,7 +94,7 @@ Storage locations and deletion behavior are documented in [`docs/reference/priva
 
 | | |
 | --- | --- |
-| ![Vocello Studio running on iPhone](docs/screenshots/vocello-ios-studio.png) | The iPhone app uses the same local Qwen3-TTS and MLX foundation with an iPhone-specific in-process runtime. It provides Custom Voice, Voice Design, Voice Cloning, recording and Files import, local history, and the memory-conscious Speed models. On-device generation, physical-iPhone XCUITest, and an optional signed archive/TestFlight lane are implemented. Public distribution still requires the maintainer-owned App Store Connect release process. The fresh full multilingual physical-iPhone acceptance run remains an engineering checkpoint, not a claim that blocks ordinary development or packaging. |
+| ![Vocello Studio running on iPhone](docs/screenshots/vocello-ios-studio.png) | The iPhone app uses the same local Qwen3-TTS and MLX foundation with an iPhone-specific in-process runtime. It provides Custom Voice, Voice Design, Voice Cloning, recording and Files import, local history, and the memory-conscious Speed models. On-device generation, physical-iPhone XCUITest, and an optional signed archive/TestFlight lane are implemented. A fresh full multilingual physical-iPhone run passed all 19 hint/QC and 18 output gates with policy-accepted warnings; its exploratory record is excluded from clean performance trends. Public distribution still requires the maintainer-owned App Store Connect release process. |
 
 Current implementation and acceptance status: [`docs/development-progress.md`](docs/development-progress.md).
 
@@ -107,7 +111,7 @@ cd QwenVoice
 
 Repository scripts are the authoritative build and test interface. `project.yml` generates the Xcode project, so edit it instead of the generated project file. To work in Xcode after generation, open `QwenVoice.xcodeproj`.
 
-Generated native output is governed by [`config/build-output-policy.json`](config/build-output-policy.json): persistent platform caches live under `build/cache/`, temporary builds under `build/scratch/`, evidence and current symbols under `build/artifacts/`, and distribution products under `build/dist/`. Do not introduce another DerivedData root or a vendored `.build` directory.
+Generated native output is governed by [`config/build-output-policy.json`](config/build-output-policy.json): persistent platform caches live under `build/cache/`, temporary builds under `build/scratch/`, evidence and current symbols under `build/artifacts/`, and distribution products under `build/dist/`. Do not introduce another DerivedData root or a source-local `.build` directory.
 
 The ordinary deterministic checks are:
 
@@ -117,6 +121,12 @@ scripts/macos_test.sh test
 ./scripts/build.sh build
 ./scripts/build_foundation_targets.sh ios
 ```
+
+The iOS command compiles both the app and its standalone, app-host-free platform-policy XCTest
+bundle for the physical-device SDK. It does not execute tests or require a connected phone. Xcode
+26 does not support executing a tool-hosted, app-host-free XCTest bundle on a physical-device
+destination, so this bundle is compile-only; physical runtime and UI acceptance use the explicit
+device diagnostics and XCUITest lanes.
 
 These checks are sufficient for normal commits, pull requests, and merges. XCUITest is explicit frontend acceptance: native macOS or a paired physical iPhone, never Simulator. Models, a phone, and UI evidence are not prerequisites for sharing development work.
 
@@ -153,4 +163,4 @@ The CLI supports single generation, mode shortcuts, batches, saved voices, speak
 
 Vocello is available under the [MIT License](LICENSE).
 
-The project builds on [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), [MLX](https://github.com/ml-explore/mlx), [mlx-audio-swift](https://github.com/Blaizzy/mlx-audio-swift), and [GRDB.swift](https://github.com/groue/GRDB.swift). Vocello owns a selective Swift runtime fork derived from `mlx-audio-swift` v0.1.2; the exact baseline, retained surfaces, semantic changes, and removal criteria are tracked in [`third_party_patches/mlx-audio-swift/UPSTREAM.md`](third_party_patches/mlx-audio-swift/UPSTREAM.md) and [`PATCHES.json`](third_party_patches/mlx-audio-swift/PATCHES.json).
+The project builds on [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), [MLX](https://github.com/ml-explore/mlx), [mlx-audio-swift](https://github.com/Blaizzy/mlx-audio-swift), and [GRDB.swift](https://github.com/groue/GRDB.swift). Vocello owns the first-party [`VocelloQwen3Core`](Packages/VocelloQwen3Core/README.md) Swift package derived from `mlx-audio-swift` v0.1.2. Its immutable origin, preserved package compatibility, ownership boundary, current capabilities, and historical upstream deltas are tracked with the package.

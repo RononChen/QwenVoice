@@ -10,9 +10,16 @@ and UI automation are unsupported. XCUITest is the sole autonomous iOS app UI dr
 ./scripts/build_foundation_targets.sh ios
 ```
 
-The generic physical-device SDK compile requires no connected phone and is sufficient for routine
-commits, pushes, pull requests, ordinary merges, and ordinary CI. Missing models, a phone, or UI
-results must not block preserving and sharing development work.
+The generic physical-device SDK compile builds both the app and the standalone
+`VocelloiOSLogicTests` policy bundle without executing XCTest. It requires no connected phone and is
+sufficient for routine commits, pushes, pull requests, ordinary merges, and ordinary CI. Missing
+models, a phone, or UI results must not block preserving and sharing development work.
+
+That app-host-free bundle covers catalog and delivery-ledger validation, memory policy,
+cancellation semantics, app-support path gating, and privacy-safe diagnostics at compile time. Xcode
+26 reports tool-hosted testing as unavailable for physical-device destinations, so the repository
+does not expose a device execution command for this target. Physical runtime assurance remains in
+the existing headless diagnostics and genuine XCUITest lanes; no Simulator substitute is used.
 
 ## Device preparation
 
@@ -47,13 +54,16 @@ the iPhone lane never bypasses its user-facing script limit.
 
 | Lane | Scope |
 | --- | --- |
-| Smoke | Exact app launch, Studio mode and tab navigation, visible model and clone-reference readiness, one real Custom generation, completed player, and History |
+| Smoke | Exact app launch, Studio mode and tab navigation, visible model and clone-reference readiness, one visible user cancellation, one run-scoped critical-memory cancellation with cancel-before-unload diagnostics, post-pressure engine reuse, no cancelled History rows, and one real completed Custom History row |
 | Benchmark | Ordered, configurable Studio matrix with pulled telemetry, readable audio, audio QC, thermal and timing evidence; the default is exactly 29 takes |
 | Model delivery | One isolated Custom Speed install; background/process relaunch adoption, monotonic progress, integrity, and visible cleanup |
 
 Every lane uses the paired physical-device destination. Tests use stable accessibility identifiers,
 condition-based waits, XCTest activities, screenshots, and failure attachments. Coordinate tables,
 OCR taps, alternate UI drivers, and fixed sleeps are not supported.
+The smoke runner pulls its exact diagnostics and fails unless the one-shot event sequence is
+`debug_force_critical_once` → `critical_memory_action` → typed `memory_pressure` cancellation →
+`fullUnload`, followed by a successful generation from the same relaunched app process.
 
 Benchmark accepts `--modes`, `--lengths`, `--warm`, and `--label`. Filters are explicit diagnostic
 runs; invoking the command without filters is the canonical 29-take matrix on the tracked iPhone 17
@@ -109,8 +119,9 @@ History/database correlation, readable WAV validation, audio QC, crash deltas, t
 matrix ordering, and take counts. The app mints the generation UUID across Custom, Design, and Clone
 and writes its frontend row durably before only the matching run rows/verbose sidecars are mirrored.
 The 150-character boundary case remains explicitly `long`; no prompt-length inference is used.
-Smoke asserts visible completion and History plus the runner's device/crash checks; it
-does not claim the benchmark's per-take telemetry matrix. Headless `bench`, `lang-bench`, `profile`,
+Smoke asserts visible active-cancellation recovery, absence of a cancelled History row, subsequent
+completion and History persistence, plus the runner's device/crash checks. It does not claim the
+benchmark's per-take telemetry matrix or synthesize an operating-system pressure event. Headless `bench`, `lang-bench`, `profile`,
 `crashes`, logs, and console operations remain supported physical-device diagnostics.
 
 Profile commands launch or attach to the exact target PID, record CPU Profiler and `os_signpost`
@@ -160,6 +171,20 @@ at most 5% of physical RAM; cross-mode residency is diagnostic because different
 intentionally loaded. A PASS creates `memory-qualification`, while any generation, memory,
 retention, output, or crash failure leaves tracked history unchanged.
 
+### Clone-conditioning semantic acceptance
+
+```sh
+scripts/ios_device.sh clone-conditioning --label focused-clone-proof
+```
+
+This compile-gated physical-device lane runs exactly two Clone Speed generations in one app/engine
+process. It verifies the canonical saved Voice Design reference and transcript digests, then uses an
+exact purpose-owned copy without a `.txt` sidecar or prepared voice ID for the x-vector-only take.
+Both takes must pass typed conditioning flags, distinct prompt identities, strict output/ASR,
+telemetry-v8 memory coverage, app/engine correlation, crash delta, and interruption checks. The
+runner removes the audio-only scratch copy before PASS. It writes only local untracked validation
+evidence and never creates or repairs benchmark history; XCUITest remains the visible UI proof.
+
 MetricKit supplies a complementary delayed field view, not per-take benchmark attribution. After a
 normal explicit pull, summarize only the already-local privacy-reduced aggregate with:
 
@@ -177,7 +202,7 @@ generation IDs/cells and verdicts. A PASS publishes one privacy-safe record unde
 screenshots, traces, and `.xcresult` stay untracked; publication never stages, commits, or pushes.
 
 Physical-iPhone acceptance of telemetry v8/evidence v2 is complete for the clean canonical
-[29-take UI matrix](../../benchmarks/runs/ui-generation/ios-xcui-benchmark-20260714-113139-3b4b6d6c.json),
+[29-take UI matrix](../../benchmarks/runs/ui-generation/ios-xcui-benchmark-20260716-184106-48e3a3a6.json),
 [retained-memory qualification](../../benchmarks/runs/memory-qualification/ios-memory-qualification-20260714-112536-32554d95.json),
 and the exact-PID [memory profile](../../benchmarks/runs/instrument-profile/ios-memory-profile-20260714-112759-9a573224.json).
 Each record proves only its exact source, toolchain, model, and hardware identities; repository

@@ -15,17 +15,34 @@ for required_policy_surface in \
   config/build-output-policy.json \
   config/documentation-contract.json \
   config/public-product-facts.json \
+  config/orchestration-contract.json \
+  config/project-health-contract.json \
+  docs/project-health.md \
   scripts/build_output_policy.py \
   scripts/documentation_contract.py \
+  scripts/model_catalog_contract.py \
+  scripts/evidence_impact.py \
   scripts/vendor_runtime_contract.py \
+  scripts/supply_chain_contract.py \
+  scripts/release_evidence.py \
+  scripts/release_sbom.py \
+  scripts/required_step_ledger.py \
+  scripts/project_health.py \
   scripts/build_cleanup.py \
   scripts/clean_build_caches.sh \
   scripts/lib/build_paths.sh \
   scripts/lib/build_cache.sh \
+  scripts/lib/required_steps.sh \
   scripts/lib/profile_trace_retention.py \
   scripts/tests/test_build_output_policy.py \
   scripts/tests/test_documentation_contract.py \
+  scripts/tests/test_model_catalog_contract.py \
+  scripts/tests/test_evidence_impact.py \
   scripts/tests/test_vendor_runtime_contract.py \
+  scripts/tests/test_supply_chain_contract.py \
+  scripts/tests/test_release_evidence.py \
+  scripts/tests/test_required_step_ledger.py \
+  scripts/tests/test_project_health.py \
   scripts/tests/test_build_routing_contract.py \
   scripts/tests/test_clean_build_caches.py \
   scripts/tests/test_profile_trace_retention.py; do
@@ -96,7 +113,7 @@ for retired in \
   [[ ! -e "$retired" ]] || fail "retired UI harness artifact still exists: $retired"
 done
 
-active=(AGENTS.md README.md .gitignore .agents benchmarks docs scripts config .github project.yml QwenVoice.xcodeproj/project.pbxproj Sources Tests website third_party_patches/mlx-audio-swift)
+active=(AGENTS.md README.md .gitignore .agents benchmarks docs scripts config .github project.yml QwenVoice.xcodeproj/project.pbxproj Sources Tests website Packages/VocelloQwen3Core)
 excludes=(
   --glob '!scripts/check_test_workflows.sh'
   --glob '!scripts/clean_build_caches.sh'
@@ -117,7 +134,9 @@ retired_alias_pattern='(?x)(?:
   (?<![[:alnum:]_-])bench-ui(?![[:alnum:]_-])
   | (?<![[:alnum:]_-])ui-report(?![[:alnum:]_-])
   | (?:^|[[:space:]`])(?:(?:\./)?scripts/)?(?:macos_test|ios_device)\.sh[[:space:]]+(?:ui-test|review)\b
+  | (?:^|[[:space:]`])(?:(?:\./)?scripts/)?ios_device\.sh[[:space:]]+logic-test\b
   | ^[[:space:]]*(?:ui-test|review)\)
+  | ^[[:space:]]*logic-test\)
   | --suite(?:=|[[:space:]]+)(?:quick|full|benchmark)\b
 )'
 out="$(rg -n --pcre2 "$retired_alias_pattern" "${active[@]}" "${excludes[@]}" 2>/dev/null || true)"
@@ -134,7 +153,7 @@ out="$(rg -n --pcre2 "$release_ui_gate_pattern" AGENTS.md README.md .agents docs
 python3 scripts/documentation_contract.py \
   || fail "active documentation contract failed"
 python3 scripts/vendor_runtime_contract.py validate \
-  || fail "owned vendor-runtime contract failed"
+  || fail "owned Qwen3 runtime contract failed"
 
 # Current guidance uses the typed playback-scheduled and heartbeat metrics. Keep
 # the retired display names in compatibility code and historical evidence only.
@@ -213,13 +232,17 @@ PY
 
 python3 - <<'PY'
 from pathlib import Path
+import hashlib
+import re
 
 text = Path("scripts/lib/test_models.sh").read_text(encoding="utf-8")
 approved_clone_sha256 = "03187893a3d82d38264d433f24828982c67ed42cddb71eefccb776b37ab9fe35"
+approved_transcript_sha256 = "98a8e46ed2cd48354f6056dc889f9209641824e610a687eeb9ab91d310477234"
 required = (
     'MAC_TEST_CLONE_VOICE_BRIEF=',
     'MAC_TEST_CLONE_REF_TRANSCRIPT=',
     f'MAC_TEST_CLONE_REF_SHA256="{approved_clone_sha256}"',
+    f'MAC_TEST_CLONE_REF_TRANSCRIPT_SHA256="{approved_transcript_sha256}"',
     'generate --mode design --variant speed',
     '--voice-brief "$MAC_TEST_CLONE_VOICE_BRIEF"',
     'mac_test_clone_fixture_current',
@@ -229,8 +252,32 @@ required = (
 missing = [token for token in required if token not in text]
 if missing:
     raise SystemExit(f"clone benchmark fixture lost Voice Design provenance: {missing}")
+transcript_match = re.search(r'^MAC_TEST_CLONE_REF_TRANSCRIPT="([^"]+)"$', text, re.MULTILINE)
+if not transcript_match or hashlib.sha256(transcript_match.group(1).encode()).hexdigest() != approved_transcript_sha256:
+    raise SystemExit("clone fixture transcript digest no longer identifies the exact stored transcript")
 if 'generate --mode custom --variant speed' in text:
     raise SystemExit("clone benchmark fixture must not be synthesized from the default Custom speaker")
+
+device_script = Path("scripts/ios_device.sh").read_text(encoding="utf-8")
+runner = Path("Sources/iOS/IOSDeviceDiagnosticsRunner.swift").read_text(encoding="utf-8")
+validator = Path("scripts/check_ios_clone_conditioning.py")
+for token in (
+    "clone-conditioning)",
+    "cmd_build --device-diagnostics",
+    "check_ios_clone_conditioning.py",
+):
+    if token not in device_script:
+        raise SystemExit(f"physical-iPhone clone-conditioning contract lost {token!r}")
+for token in (
+    "#if QVOICE_DEVICE_DIAGNOSTICS",
+    'expectedConditioningMode: "transcript_backed"',
+    'expectedConditioningMode: "x_vector_only"',
+    "scratchCleanupVerified: true",
+):
+    if token not in runner:
+        raise SystemExit(f"compile-gated clone-conditioning runner lost {token!r}")
+if not validator.is_file():
+    raise SystemExit("clone-conditioning validator is missing")
 PY
 
 out="$(rg -n '\b(?:sleep|usleep)\s*\(|Thread\.sleep|coordinate\s*\(' \
@@ -333,6 +380,22 @@ for scheme in ("QwenVoice", "VocelloiOS"):
     body = match.group("body")
     if "VocelloMacUITests" in body or "VocelloiOSUITests" in body:
         raise SystemExit(f"ordinary scheme {scheme} must not include a UI-test bundle")
+
+logic_target = re.search(
+    r"^  VocelloiOSLogicTests:\n(?P<body>(?:    .*\n|\n)*)",
+    text,
+    re.MULTILINE,
+)
+logic_body = logic_target.group("body") if logic_target else ""
+if "type: bundle.unit-test" not in logic_body or "platform: iOS" not in logic_body:
+    raise SystemExit("VocelloiOSLogicTests must remain a standalone iOS unit-test bundle")
+if "TEST_TARGET_NAME" in logic_body:
+    raise SystemExit("VocelloiOSLogicTests must remain app-host-free")
+logic_template = Path("config/xcode-schemes/VocelloiOSLogic.xcscheme.template").read_text(
+    encoding="utf-8"
+)
+if "VocelloiOSLogicTests" not in logic_template or "TestableReference" not in logic_template:
+    raise SystemExit("VocelloiOSLogic generated scheme must own the standalone policy-test bundle")
 PY
 
 # Ordinary CI must neither compile UI-test bundles nor execute UI acceptance.
@@ -355,6 +418,10 @@ for path in paths:
 PY
 2>&1 || true)"
 [[ -z "$ci_error" ]] || fail "$ci_error"
+rg -q -- '-scheme VocelloiOSLogic' .github/workflows/ci.yml \
+  || fail "ordinary CI must compile the standalone iOS logic-test bundle"
+rg -q 'CODE_SIGNING_ALLOWED=NO' .github/workflows/ci.yml \
+  || fail "generic iOS CI compilation must remain signing-independent"
 
 # No simulator destination is supported for Vocello app UI automation.
 out="$(rg -n -i 'platform=iOS Simulator|build_run_sim|test_sim|launch_sim' \
@@ -438,7 +505,7 @@ for root in roots:
         if path != Path("docs/reference/backend-optimization-research-report.md")
     )
 allowed = {
-    "ios_device.sh": {"doctor", "build", "install", "launch", "console", "pull", "bench", "lang-bench", "speech-assets", "crashes", "debug", "logs", "profile", "memory", "memory-field-report", "preflight", "device-state", "gate", "help"},
+    "ios_device.sh": {"doctor", "build", "install", "launch", "console", "pull", "bench", "lang-bench", "clone-conditioning", "speech-assets", "crashes", "debug", "logs", "profile", "memory", "memory-field-report", "preflight", "device-state", "gate", "help"},
     "macos_test.sh": {"preflight", "core-test", "lang-bench", "test", "telemetry-overhead", "crashes", "debug", "logs", "profile", "memory", "gate", "release-readiness", "models", "help"},
     "ui_test.sh": {"macos", "ios"},
 }
@@ -482,7 +549,7 @@ for root in roots:
         for path in candidates
         if path != Path("docs/reference/backend-optimization-research-report.md")
     )
-prefixes = ("Sources/", "Tests/", "scripts/", "config/", ".github/")
+prefixes = ("Sources/", "Tests/", "scripts/", "config/", ".github/", "Packages/")
 errors = []
 for source in files:
     text = source.read_text(encoding="utf-8")
@@ -495,8 +562,8 @@ for source in files:
             continue
         matches = glob.glob(candidate) if "*" in candidate else ([candidate] if Path(candidate).exists() else [])
         if not matches and candidate.startswith("Sources/"):
-            vendored = Path("third_party_patches/mlx-audio-swift") / candidate
-            matches = [str(vendored)] if vendored.exists() else []
+            runtime = Path("Packages/VocelloQwen3Core") / candidate
+            matches = [str(runtime)] if runtime.exists() else []
         if not matches:
             errors.append(f"{source}: stale inline path {candidate}")
 if errors:
@@ -514,6 +581,10 @@ python3 scripts/validate_backend_risk_spine.py
 python3 -m unittest \
   scripts.tests.test_build_output_policy \
   scripts.tests.test_documentation_contract \
+  scripts.tests.test_model_catalog_contract \
+  scripts.tests.test_evidence_impact \
+  scripts.tests.test_required_step_ledger \
+  scripts.tests.test_project_health \
   scripts.tests.test_vendor_runtime_contract \
   scripts.tests.test_build_routing_contract \
   scripts.tests.test_clean_build_caches \
@@ -522,6 +593,8 @@ python3 -m unittest \
   scripts.tests.test_benchmark_history \
   scripts.tests.test_bench_command_contract \
   scripts.tests.test_publish_benchmark_history \
+  scripts.tests.test_check_ios_clone_conditioning \
+  scripts.tests.test_check_ios_smoke_acceptance \
   scripts.tests.test_ios_device_benchmark_contract \
   scripts.tests.test_ios_memory_field_report \
   scripts.tests.test_profile_capture_contract \

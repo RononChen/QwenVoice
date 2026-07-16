@@ -101,7 +101,7 @@ class VocelloMacUITestCase: XCTestCase {
         navigate(to: .settings)
         let toggle = element("preferences_autoPlayToggle")
         XCTAssertTrue(VocelloUIWait.exists(toggle, timeout: 20))
-        guard let wasEnabled = autoplayState(of: toggle) else {
+        guard let wasEnabled = VocelloUIToggle.state(of: toggle) else {
             XCTFail("Could not read the visible Auto-play toggle state")
             return true
         }
@@ -110,7 +110,7 @@ class VocelloMacUITestCase: XCTestCase {
             XCTAssertTrue(VocelloUIPrimaryAction.perform(on: toggle, timeout: 20))
             XCTAssertTrue(
                 VocelloUIWait.condition("Auto-play toggle to become enabled", timeout: 15) {
-                    self.autoplayState(of: toggle) == true
+                    VocelloUIToggle.state(of: toggle) == true
                 }
             )
         }
@@ -123,32 +123,42 @@ class VocelloMacUITestCase: XCTestCase {
         restorePendingAutoplayPreference()
     }
 
+    /// Establish the persistent Clone consent through the same visible
+    /// Settings control users operate. This is deliberately not a launch
+    /// environment shortcut or seeded application state.
+    func ensureCloneConsentEnabled() {
+        navigate(to: .settings)
+        let consent = element("voiceCloning_consentAcknowledgment")
+        XCTAssertTrue(VocelloUIWait.exists(consent, timeout: 20))
+        guard let consentState = VocelloUIToggle.state(of: consent) else {
+            XCTFail("Could not read the visible Clone consent state")
+            return
+        }
+        if !consentState {
+            XCTAssertTrue(VocelloUIPrimaryAction.perform(on: consent, timeout: 20))
+            XCTAssertTrue(
+                VocelloUIWait.condition("Clone consent to become enabled", timeout: 15) {
+                    VocelloUIToggle.state(of: consent) == true
+                }
+            )
+        }
+    }
+
     private func restorePendingAutoplayPreference() {
         guard pendingAutoplayPreferenceRestore == false, session != nil else { return }
         navigate(to: .settings)
         let toggle = element("preferences_autoPlayToggle")
         XCTAssertTrue(VocelloUIWait.exists(toggle, timeout: 20))
-        if autoplayState(of: toggle) != false {
+        if VocelloUIToggle.state(of: toggle) != false {
             XCTAssertTrue(VocelloUIPrimaryAction.perform(on: toggle, timeout: 20))
             XCTAssertTrue(
                 VocelloUIWait.condition("Auto-play toggle to restore disabled", timeout: 15) {
-                    self.autoplayState(of: toggle) == false
+                    VocelloUIToggle.state(of: toggle) == false
                 }
             )
         }
-        if autoplayState(of: toggle) == false {
+        if VocelloUIToggle.state(of: toggle) == false {
             pendingAutoplayPreferenceRestore = nil
-        }
-    }
-
-    private func autoplayState(of toggle: XCUIElement) -> Bool? {
-        if let value = toggle.value as? Bool { return value }
-        if let value = toggle.value as? NSNumber { return value.boolValue }
-        guard let value = toggle.value as? String else { return nil }
-        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "1", "on", "true", "selected": return true
-        case "0", "off", "false", "not selected": return false
-        default: return nil
         }
     }
 

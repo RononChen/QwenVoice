@@ -1,5 +1,6 @@
 import CryptoKit
 @preconcurrency import Foundation
+import Synchronization
 
 /// Downloads a HuggingFace model repository using native URLSession.
 public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
@@ -393,9 +394,11 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
 
         func setWaitingForConnectivity(_ waiting: Bool) {
             if waiting {
+                guard phase != .waitingForConnectivity else { return }
                 phase = .waitingForConnectivity
                 statusMessage = "Waiting for connectivity"
-            } else if phase == .waitingForConnectivity {
+            } else {
+                guard phase == .waitingForConnectivity else { return }
                 phase = .downloading
                 statusMessage = nil
             }
@@ -695,6 +698,8 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
     // all mutable transfer state remains isolated by DownloadStateRegistry.
     private nonisolated(unsafe) var session: URLSession!
     private let state: DownloadStateRegistry
+    private let delegateProgressGate = Mutex(ModelDownloadDelegateProgressGate())
+    private let terminalEventSequencer = ModelDownloadDelegateTerminalSequencer()
     private let apiBaseURL: URL
     private let resolveBaseURL: URL
     private let fileManagerBox: FileManagerBox
@@ -709,6 +714,7 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
     private let backgroundSessionCompletionHandler: (@Sendable (String) -> Void)?
     private let transferMetricsHandler: TransferMetricsHandlerBox?
     private let verifiedArtifactHandler: VerifiedArtifactHandlerBox?
+    private let artifactURLPolicy: ModelArtifactURLPolicy?
 
     static func validatedRelativeRepoPath(_ path: String) throws -> String {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -868,7 +874,8 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
         durableTemporaryDirectory: URL? = nil,
         transferMetricsHandler: (@Sendable (TransferMetrics) -> Void)? = nil,
         verifiedArtifactHandler: (@Sendable (VerifiedArtifactReceipt) async -> Void)? = nil,
-        backgroundSessionCompletionHandler: (@Sendable (String) -> Void)? = nil
+        backgroundSessionCompletionHandler: (@Sendable (String) -> Void)? = nil,
+        artifactURLPolicy: ModelArtifactURLPolicy? = nil
     ) {
         let progressBox = progressHandler.map(RepositoryProgressHandlerBox.init)
         state = DownloadStateRegistry(repositoryProgressHandler: progressBox)
@@ -879,6 +886,7 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
         self.backgroundSessionCompletionHandler = backgroundSessionCompletionHandler
         self.transferMetricsHandler = transferMetricsHandler.map(TransferMetricsHandlerBox.init)
         self.verifiedArtifactHandler = verifiedArtifactHandler.map(VerifiedArtifactHandlerBox.init)
+        self.artifactURLPolicy = artifactURLPolicy
         self.isBackgroundSession = sessionConfiguration.identifier != nil
         self.durableTemporaryDirectory = durableTemporaryDirectory ?? fileManager.temporaryDirectory
         super.init()
@@ -897,7 +905,10 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
             copy.httpMaximumConnectionsPerHost = 4
             config = copy
         }
-        session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        let delegateQueue = OperationQueue()
+        delegateQueue.maxConcurrentOperationCount = 1
+        delegateQueue.qualityOfService = .userInitiated
+        session = URLSession(configuration: config, delegate: self, delegateQueue: delegateQueue)
     }
 
     // MARK: - Public API
@@ -922,10 +933,11 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
         }
     }
 
-    /// Download + verify + install a pre-resolved file list (no API call). iOS path — the caller
-    /// supplies files from its catalog, each optionally carrying a validated `absoluteURL`
-    /// (host-allowlist-enforced by the caller). `repo`/`revision` seed the integrity manifest and
-    /// the fallback resolve URL for any file without an `absoluteURL`.
+    /// Download + verify + install a pre-resolved catalog file list (no API call). The caller
+    /// supplies each file with an optional validated `absoluteURL` (host-allowlist-enforced by the
+    /// catalog) and a request identity so task metrics remain attributable to payload files on
+    /// foreground macOS/CLI runs and adoptable across iOS background-session relaunches.
+    /// `repo`/`revision` seed the integrity manifest and fallback resolve URL.
     public func downloadFiles(
         _ files: [RepoFile],
         repo: String,
@@ -1022,12 +1034,15 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
                 partialRoot: partialRoot,
                 resumeRoot: resumeRoot
             )
+            try await throwIfCancellationRequested()
             await state.setPhase(.verifying)
+            try await throwIfCancellationRequested()
             try await verifyDownloadedFilesUsingReceipts(
                 files,
                 artifactVersion: requestIdentity?.artifactVersion ?? revision,
                 in: filesRoot
             )
+            try await throwIfCancellationRequested()
             try persistInstalledIntegrityManifest(
                 repo: repo,
                 revision: revision,
@@ -1035,8 +1050,14 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
                 files: files,
                 filesRoot: filesRoot
             )
+            try await throwIfCancellationRequested()
             await state.setPhase(.installing)
+            try await throwIfCancellationRequested()
             try installStagedRepository(filesRoot: filesRoot, targetDir: targetDir)
+            // Installation is synchronous, so check once more before publishing
+            // success. The iOS coordinator rolls back a target created by this
+            // narrow race before it durably records deletion.
+            try await throwIfCancellationRequested()
             Self.markExcludedFromBackup(targetDir)
             try? fileManager.removeItem(at: stagingRoot)
             await state.finishRepositoryDownload()
@@ -1057,6 +1078,15 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
     /// don't race against a removed directory.
     public func cancel() async {
         await state.requestCancellation()
+    }
+
+    private func throwIfCancellationRequested() async throws {
+        if Task.isCancelled {
+            throw DownloadError.cancelled
+        }
+        if await state.cancellationRequested() {
+            throw DownloadError.cancelled
+        }
     }
 
     /// Remove orphan or stale tasks when no durable request is eligible for adoption.
@@ -1265,6 +1295,9 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
             revision: revision,
             relativePath: relativePath
         )
+        if let artifactURLPolicy, !artifactURLPolicy.allowsInitialRequest(downloadURL) {
+            throw DownloadError.apiError("Rejected untrusted artifact URL for \(relativePath)")
+        }
 
         try await downloadFile(
             from: downloadURL,
@@ -1968,13 +2001,42 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
 
     public func urlSession(
         _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard let artifactURLPolicy else {
+            completionHandler(request)
+            return
+        }
+        let sourceURL = response.url ?? task.currentRequest?.url ?? task.originalRequest?.url
+        guard let destinationURL = request.url,
+              artifactURLPolicy.allowsRedirect(from: sourceURL, to: destinationURL) else {
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
+    }
+
+    public func urlSession(
+        _ session: URLSession,
         downloadTask: URLSessionDownloadTask,
         didWriteData bytesWritten: Int64,
         totalBytesWritten: Int64,
         totalBytesExpectedToWrite: Int64
     ) {
         let taskID = downloadTask.taskIdentifier
-        Task {
+        let shouldForward = delegateProgressGate.withLock { gate in
+            gate.shouldForward(
+                taskID: taskID,
+                totalBytesWritten: totalBytesWritten,
+                totalBytesExpected: totalBytesExpectedToWrite,
+                uptime: ProcessInfo.processInfo.systemUptime
+            )
+        }
+        guard shouldForward else { return }
+        Task(priority: .utility) {
             await state.setWaitingForConnectivity(false)
             await state.reportProgress(taskID: taskID, totalBytesWritten: totalBytesWritten)
         }
@@ -1992,7 +2054,7 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
         let retryAfterSeconds = Self.retryAfterSeconds(from: response)
         let contentRange = response?.value(forHTTPHeaderField: "Content-Range")
         if let statusCode, ![200, 206].contains(statusCode) {
-            Task {
+            terminalEventSequencer.stage(taskID: taskID) { [state] in
                 let path = await state.destinationPath(taskID: taskID)
                 await state.resumeFailure(
                     taskID: taskID,
@@ -2012,7 +2074,10 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
         do {
             try fileManager.createDirectory(at: durableTemporaryDirectory, withIntermediateDirectories: true)
             try fileManager.moveItem(at: location, to: safeTmp)
-            Task {
+            let finalBytes = downloadTask.countOfBytesReceived
+            terminalEventSequencer.stage(taskID: taskID) { [state] in
+                await state.setWaitingForConnectivity(false)
+                await state.reportProgress(taskID: taskID, totalBytesWritten: finalBytes)
                 await state.stageSuccess(
                     taskID: taskID,
                     identity: ModelDownloadTaskIdentity.decode(taskDescription: downloadTask.taskDescription),
@@ -2025,7 +2090,7 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
                 )
             }
         } catch {
-            Task {
+            terminalEventSequencer.stage(taskID: taskID) { [state] in
                 await state.resumeFailure(taskID: taskID, error: error)
             }
         }
@@ -2061,7 +2126,10 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
         didCompleteWithError error: Error?
     ) {
         let taskID = task.taskIdentifier
-        Task {
+        delegateProgressGate.withLock { gate in
+            gate.finish(taskID: taskID)
+        }
+        terminalEventSequencer.complete(taskID: taskID) { [state] in
             await state.setWaitingForConnectivity(false)
             guard let error else {
                 await state.completeStagedSuccess(taskID: taskID)

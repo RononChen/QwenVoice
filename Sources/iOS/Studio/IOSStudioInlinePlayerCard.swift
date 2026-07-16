@@ -272,7 +272,7 @@ struct IOSStudioPlayerCard: View {
                 Image(systemName: "stop.fill")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(IOSAppTheme.textPrimary)
-                    .frame(width: 36, height: 36)
+                    .frame(width: 44, height: 44)
                     .background { Circle().fill(IOSAppTheme.glassSurfaceFillMuted.opacity(0.7)) }
             }
             .buttonStyle(.plain)

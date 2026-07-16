@@ -41,6 +41,8 @@ enum VoiceCloningReferenceAudioSupport {
 }
 
 struct VoiceCloningView: View {
+    @AppStorage("vocello.voiceCloningConsent.v1", store: AppDefaults.store)
+    private var cloneConsentAcknowledged = false
     @Binding private var draft: VoiceCloningDraft
     @Binding private var pendingSavedVoiceHandoff: PendingVoiceCloningHandoff?
     @State private var coordinator = VoiceCloningCoordinator()
@@ -65,6 +67,7 @@ struct VoiceCloningView: View {
 
     private var canRunBatch: Bool {
         ttsEngineStore.isReady
+            && cloneConsentAcknowledged
             && draft.referenceAudioPath != nil
             && isModelAvailable
             && !ttsEngineStore.hasActiveGeneration
@@ -388,6 +391,7 @@ private extension VoiceCloningView {
                     batchAction: { coordinator.presentBatch(draft: draft) },
                     batchDisabled: !canRunBatch,
                     generateDisabled: !ttsEngineStore.isReady
+                        || !cloneConsentAcknowledged
                         || !isModelAvailable
                         || draft.referenceAudioPath == nil
                         || !draft.hasText
@@ -395,6 +399,7 @@ private extension VoiceCloningView {
                     isEmbedded: true,
                     usesFlexibleEmbeddedHeight: true,
                     onGenerate: {
+                        guard cloneConsentAcknowledged else { return }
                         coordinator.generate(
                             draft: $draft,
                             cloneModel: cloneModel,
