@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// HTTPS and host boundary applied to initial artifact requests and every
 /// URLSession redirect. Exact initial hosts come from the signed/bundled
@@ -219,6 +220,81 @@ public struct ModelDownloadBackgroundCompletionGate: Equatable, Sendable {
         guard eventsFinished, postprocessingFinished, !completionDelivered else { return false }
         completionDelivered = true
         return true
+    }
+}
+
+/// Bounds cumulative URLSession progress ingress before it crosses into actor isolation. Native
+/// download delegates can emit thousands of callbacks per second for multi-gigabyte artifacts;
+/// forwarding each callback as an unstructured task can delay terminal delegate events long after
+/// the final byte arrives. The next cumulative callback carries every skipped byte, and the exact
+/// terminal count is always forwarded.
+struct ModelDownloadDelegateProgressGate: Sendable {
+    private struct Entry: Sendable {
+        var bytes: Int64
+        var uptime: TimeInterval
+    }
+
+    private var entries: [Int: Entry] = [:]
+
+    mutating func shouldForward(
+        taskID: Int,
+        totalBytesWritten: Int64,
+        totalBytesExpected: Int64,
+        uptime: TimeInterval,
+        minimumInterval: TimeInterval = 0.25
+    ) -> Bool {
+        let bytes = max(totalBytesWritten, 0)
+        guard let previous = entries[taskID] else {
+            entries[taskID] = Entry(bytes: bytes, uptime: uptime)
+            return true
+        }
+        guard bytes > previous.bytes else { return false }
+
+        let reachedExpectedTotal = totalBytesExpected > 0 && bytes >= totalBytesExpected
+        guard reachedExpectedTotal || uptime - previous.uptime >= minimumInterval else {
+            return false
+        }
+        entries[taskID] = Entry(bytes: bytes, uptime: uptime)
+        return true
+    }
+
+    mutating func finish(taskID: Int) {
+        entries.removeValue(forKey: taskID)
+    }
+}
+
+/// Preserves URLSession's documented finish-before-completion ordering across the async actor
+/// bridge. `didFinishDownloadingTo` stages the durable file first; `didCompleteWithError` awaits
+/// that exact operation before it resumes or fails the caller continuation.
+final class ModelDownloadDelegateTerminalSequencer: Sendable {
+    private let pendingStages = Mutex<[Int: Task<Void, Never>]>([:])
+
+    func stage(taskID: Int, operation: @escaping @Sendable () async -> Void) {
+        pendingStages.withLock { stages in
+            let predecessor = stages[taskID]
+            stages[taskID] = Task(priority: .userInitiated) {
+                await predecessor?.value
+                await operation()
+            }
+        }
+    }
+
+    @discardableResult
+    func complete(
+        taskID: Int,
+        operation: @escaping @Sendable () async -> Void
+    ) -> Task<Void, Never> {
+        let predecessor = pendingStages.withLock { stages in
+            stages.removeValue(forKey: taskID)
+        }
+        return Task(priority: .userInitiated) {
+            await predecessor?.value
+            await operation()
+        }
+    }
+
+    var pendingStageCount: Int {
+        pendingStages.withLock { $0.count }
     }
 }
 

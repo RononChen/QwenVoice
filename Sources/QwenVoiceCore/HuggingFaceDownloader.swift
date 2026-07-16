@@ -1,5 +1,6 @@
 import CryptoKit
 @preconcurrency import Foundation
+import Synchronization
 
 /// Downloads a HuggingFace model repository using native URLSession.
 public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
@@ -393,9 +394,11 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
 
         func setWaitingForConnectivity(_ waiting: Bool) {
             if waiting {
+                guard phase != .waitingForConnectivity else { return }
                 phase = .waitingForConnectivity
                 statusMessage = "Waiting for connectivity"
-            } else if phase == .waitingForConnectivity {
+            } else {
+                guard phase == .waitingForConnectivity else { return }
                 phase = .downloading
                 statusMessage = nil
             }
@@ -695,6 +698,8 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
     // all mutable transfer state remains isolated by DownloadStateRegistry.
     private nonisolated(unsafe) var session: URLSession!
     private let state: DownloadStateRegistry
+    private let delegateProgressGate = Mutex(ModelDownloadDelegateProgressGate())
+    private let terminalEventSequencer = ModelDownloadDelegateTerminalSequencer()
     private let apiBaseURL: URL
     private let resolveBaseURL: URL
     private let fileManagerBox: FileManagerBox
@@ -900,7 +905,10 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
             copy.httpMaximumConnectionsPerHost = 4
             config = copy
         }
-        session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        let delegateQueue = OperationQueue()
+        delegateQueue.maxConcurrentOperationCount = 1
+        delegateQueue.qualityOfService = .userInitiated
+        session = URLSession(configuration: config, delegate: self, delegateQueue: delegateQueue)
     }
 
     // MARK: - Public API
@@ -2019,7 +2027,16 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
         totalBytesExpectedToWrite: Int64
     ) {
         let taskID = downloadTask.taskIdentifier
-        Task {
+        let shouldForward = delegateProgressGate.withLock { gate in
+            gate.shouldForward(
+                taskID: taskID,
+                totalBytesWritten: totalBytesWritten,
+                totalBytesExpected: totalBytesExpectedToWrite,
+                uptime: ProcessInfo.processInfo.systemUptime
+            )
+        }
+        guard shouldForward else { return }
+        Task(priority: .utility) {
             await state.setWaitingForConnectivity(false)
             await state.reportProgress(taskID: taskID, totalBytesWritten: totalBytesWritten)
         }
@@ -2037,7 +2054,7 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
         let retryAfterSeconds = Self.retryAfterSeconds(from: response)
         let contentRange = response?.value(forHTTPHeaderField: "Content-Range")
         if let statusCode, ![200, 206].contains(statusCode) {
-            Task {
+            terminalEventSequencer.stage(taskID: taskID) { [state] in
                 let path = await state.destinationPath(taskID: taskID)
                 await state.resumeFailure(
                     taskID: taskID,
@@ -2057,7 +2074,10 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
         do {
             try fileManager.createDirectory(at: durableTemporaryDirectory, withIntermediateDirectories: true)
             try fileManager.moveItem(at: location, to: safeTmp)
-            Task {
+            let finalBytes = downloadTask.countOfBytesReceived
+            terminalEventSequencer.stage(taskID: taskID) { [state] in
+                await state.setWaitingForConnectivity(false)
+                await state.reportProgress(taskID: taskID, totalBytesWritten: finalBytes)
                 await state.stageSuccess(
                     taskID: taskID,
                     identity: ModelDownloadTaskIdentity.decode(taskDescription: downloadTask.taskDescription),
@@ -2070,7 +2090,7 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
                 )
             }
         } catch {
-            Task {
+            terminalEventSequencer.stage(taskID: taskID) { [state] in
                 await state.resumeFailure(taskID: taskID, error: error)
             }
         }
@@ -2106,7 +2126,10 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
         didCompleteWithError error: Error?
     ) {
         let taskID = task.taskIdentifier
-        Task {
+        delegateProgressGate.withLock { gate in
+            gate.finish(taskID: taskID)
+        }
+        terminalEventSequencer.complete(taskID: taskID) { [state] in
             await state.setWaitingForConnectivity(false)
             guard let error else {
                 await state.completeStagedSuccess(taskID: taskID)

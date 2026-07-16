@@ -3,6 +3,34 @@ import Foundation
 import XCTest
 
 final class ModelDownloadLifecycleTests: XCTestCase {
+    private actor EventRecorder {
+        private var values: [String] = []
+
+        func append(_ value: String) {
+            values.append(value)
+        }
+
+        func snapshot() -> [String] {
+            values
+        }
+    }
+
+    private actor SuspensionGate {
+        private var isOpen = false
+        private var continuation: CheckedContinuation<Void, Never>?
+
+        func wait() async {
+            guard !isOpen else { return }
+            await withCheckedContinuation { continuation = $0 }
+        }
+
+        func open() {
+            isOpen = true
+            continuation?.resume()
+            continuation = nil
+        }
+    }
+
     private func identity(
         request: String = "request-a",
         model: String = "model-a",
@@ -152,6 +180,70 @@ final class ModelDownloadLifecycleTests: XCTestCase {
             ModelDownloadProgressReconciler.visibleBytes(current: 120, persisted: 40, total: 100),
             100
         )
+    }
+
+    func testDelegateProgressGateBoundsIngressAndAlwaysForwardsTerminalBytes() {
+        var gate = ModelDownloadDelegateProgressGate()
+
+        XCTAssertTrue(gate.shouldForward(
+            taskID: 7,
+            totalBytesWritten: 1,
+            totalBytesExpected: 100,
+            uptime: 10
+        ))
+        XCTAssertFalse(gate.shouldForward(
+            taskID: 7,
+            totalBytesWritten: 50,
+            totalBytesExpected: 100,
+            uptime: 10.1
+        ))
+        XCTAssertFalse(gate.shouldForward(
+            taskID: 7,
+            totalBytesWritten: 1,
+            totalBytesExpected: 100,
+            uptime: 10.5
+        ))
+        XCTAssertTrue(gate.shouldForward(
+            taskID: 7,
+            totalBytesWritten: 60,
+            totalBytesExpected: 100,
+            uptime: 10.5
+        ))
+        XCTAssertTrue(gate.shouldForward(
+            taskID: 7,
+            totalBytesWritten: 100,
+            totalBytesExpected: 100,
+            uptime: 10.51
+        ))
+
+        gate.finish(taskID: 7)
+        XCTAssertTrue(gate.shouldForward(
+            taskID: 7,
+            totalBytesWritten: 1,
+            totalBytesExpected: 100,
+            uptime: 11
+        ))
+    }
+
+    func testDelegateTerminalSequencerAwaitsDurableStageBeforeCompletion() async {
+        let sequencer = ModelDownloadDelegateTerminalSequencer()
+        let suspension = SuspensionGate()
+        let events = EventRecorder()
+
+        sequencer.stage(taskID: 9) {
+            await suspension.wait()
+            await events.append("staged")
+        }
+        let completion = sequencer.complete(taskID: 9) {
+            await events.append("completed")
+        }
+
+        await suspension.open()
+        await completion.value
+
+        let recordedEvents = await events.snapshot()
+        XCTAssertEqual(recordedEvents, ["staged", "completed"])
+        XCTAssertEqual(sequencer.pendingStageCount, 0)
     }
 
     func testRetryPolicySeparatesTransientPermanentTLSDiskAndIntegrity() {
