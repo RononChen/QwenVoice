@@ -10,9 +10,17 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / "scripts" / "project_health.py"
+ARTIFACT_ROOT = ROOT / "build" / "artifacts" / "project-health"
 
 
 class ProjectHealthTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Routine cleanup may remove the disposable project-health artifact root.
+        # Tests must be runnable from a fresh checkout and recreate their own
+        # generated-output parent before asking tempfile to allocate beneath it.
+        ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)
+
     def run_tool(self, *arguments: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["python3", str(TOOL), *arguments], text=True,
@@ -22,7 +30,7 @@ class ProjectHealthTests(unittest.TestCase):
     def test_contract_and_report_are_privacy_safe_and_complete(self) -> None:
         validation = self.run_tool("validate")
         self.assertEqual(validation.returncode, 0, validation.stdout + validation.stderr)
-        with tempfile.TemporaryDirectory(dir=ROOT / "build" / "artifacts" / "project-health") as directory:
+        with tempfile.TemporaryDirectory(dir=ARTIFACT_ROOT) as directory:
             result = self.run_tool("report", "--output", directory)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             payload = json.loads((Path(directory) / "project-health.json").read_text(encoding="utf-8"))
@@ -40,7 +48,7 @@ class ProjectHealthTests(unittest.TestCase):
             self.assertNotIn(str(ROOT), serialized)
 
     def test_hardware_freshness_is_derived_for_both_platforms(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT / "build" / "artifacts" / "project-health") as directory:
+        with tempfile.TemporaryDirectory(dir=ARTIFACT_ROOT) as directory:
             result = self.run_tool("report", "--output", directory)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             payload = json.loads((Path(directory) / "project-health.json").read_text(encoding="utf-8"))
