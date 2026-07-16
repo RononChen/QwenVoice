@@ -27,17 +27,17 @@ this doc.** All claims below are cited to a file or commit; re-verify before rel
   `NativeRuntimeFactory`); the ExtensionKit extension was removed (it could never load the model —
   see §1). iPhone runs the 4-bit Speed variant only; 8-bit Quality is macOS-only by contract.
 - **Faster than realtime with bounded memory.** The clean 29-take schema-v2 record
-  [`ios-xcui-benchmark-20260714-113139-3b4b6d6c`](../../benchmarks/runs/ui-generation/ios-xcui-benchmark-20260714-113139-3b4b6d6c.json)
-  measured per-cell median RTF **1.47–1.95** and peak physical footprint **2.54–3.51 GB**. Every
+  [`ios-xcui-benchmark-20260716-184106-48e3a3a6`](../../benchmarks/runs/ui-generation/ios-xcui-benchmark-20260716-184106-48e3a3a6.json)
+  measured per-cell median RTF **1.70–1.89** and peak physical footprint **2.56–3.52 GB**. Every
   take recorded the allowed `memory.pressure.soft_trim` warning, with no memory warning or exit (§6).
-- **Streaming-first is the headline RAM win.** The canonical path stays in the ~2.5–3.5 GB band
+- **Streaming-first is the headline RAM win.** The canonical path stays in the ~2.6–3.6 GB band
   vs ~7–8.7 GB for the legacy non-streaming bench path (`--no-stream`) — iOS never incurs the accumulation (§3).
 - **Entitlement enabled, self-serve.** `increased-memory-limit` is on the app App ID; measured
   entitled per-app limit ≈ **~6 GB** on the 17 Pro, ~5–5.5 GB on 8 GB devices. No hard
   `Memory.memoryLimit` on any tier (§2).
-- **Remaining work (§9):** a fresh clean canonical run after the current runtime-impacting changes,
-  an 8 GB-device proof (only the 17 Pro is measured), App Store credential/metadata setup, and the
-  gated mlx-swift 0.31 bump. (The 0.6B variant evaluation was **ruled out 2026-07-02** — see §9 P2.)
+- **Remaining work (§9):** an 8 GB-device proof (only the 17 Pro is measured), App Store
+  credential/metadata setup, and the gated mlx-swift 0.31 bump. (The 0.6B variant evaluation was
+  **ruled out 2026-07-02** — see §9 P2.)
 
 ---
 
@@ -75,7 +75,7 @@ per-app limit is computed as `impliedProcessLimitBytes = physFootprint + availab
 
 **Measured** (iPhone 17 Pro, 12 GB): entitled per-app limit ≈ **~6 GB**. 8 GB devices
 (15/16/17 non-Pro and Pro through 16 Pro Max) ≈ **~5–5.5 GB**. The latest clean canonical clone
-peak was 3.51 GB physical footprint (§6)
+peak was 3.52 GB physical footprint (§6)
 fits every entitled device. The entitlement is **self-serve** (enable on the App ID, regenerate the
 profile — no Apple grant) and is enabled on `com.patricedery.vocello`. Full detail + device-free
 verification: [`ios-increased-memory-entitlement-request.md`](ios-increased-memory-entitlement-request.md).
@@ -243,34 +243,33 @@ focuses on 1.7B variants only (mlx-swift bump when gated review passes, kernel-l
 ## 6. Measured on-device performance
 
 Latest clean canonical record: iPhone 17 Pro · Speed (4-bit) · in-process · streaming · 29 XCUITest
-takes · source `6ffdbfdd…` ·
-[`ios-xcui-benchmark-20260714-113139-3b4b6d6c`](../../benchmarks/runs/ui-generation/ios-xcui-benchmark-20260714-113139-3b4b6d6c.json).
+takes · source `bcb5265a…` ·
+[`ios-xcui-benchmark-20260716-184106-48e3a3a6`](../../benchmarks/runs/ui-generation/ios-xcui-benchmark-20260716-184106-48e3a3a6.json).
 Warm rows below are per-cell medians across three takes; cold rows contain one take. Peak footprint is
-the maximum within the cell. This record remains valid for its pinned source, but it does not prove
-later runtime-impacting changes.
+the maximum within the cell. This record directly covers the current owned-core runtime source.
 
 | mode | state/length | median RTF | peak physFoot MB | max soft trims | audioQC |
 |---|---|---:|---:|---:|---|
-| custom | cold/medium | 1.713 | 2536 | 1 | pass |
-| custom | warm/short | 1.756 | 2585 | 1 | pass |
-| custom | warm/medium | 1.832 | 2705 | 1 | pass |
-| custom | warm/long | 1.833 | 2700 | 1 | pass |
-| design | cold/medium | 1.948 | 3157 | 1 | pass |
-| design | warm/short | 1.887 | 2891 | 1 | pass |
-| design | warm/medium | 1.905 | 3109 | 1 | pass |
-| design | warm/long | 1.940 | 3114 | 1 | pass |
-| clone | warm/short | 1.474 | 2939 | 1 | pass |
-| clone | warm/medium | 1.525 | 3234 | 1 | pass |
-| clone | warm/long | 1.526 | 3507 | 1 | pass |
+| custom | cold/medium | 1.701 | 2649 | 1 | pass |
+| custom | warm/short | 1.728 | 2564 | 1 | pass |
+| custom | warm/medium | 1.804 | 2697 | 1 | pass |
+| custom | warm/long | 1.798 | 2704 | 1 | pass |
+| design | cold/medium | 1.892 | 3072 | 1 | pass |
+| design | warm/short | 1.854 | 2559 | 1 | pass |
+| design | warm/medium | 1.880 | 3079 | 1 | pass |
+| design | warm/long | 1.875 | 3134 | 1 | pass |
+| clone | warm/short | 1.862 | 3024 | 1 | pass |
+| clone | warm/medium | 1.841 | 3377 | 1 | pass |
+| clone | warm/long | 1.842 | 3517 | 1 | pass |
 
 **Reading it:**
 - **RTF > 1 in every canonical cell** — all three modes generated faster than realtime at this
   pinned source. Clone was slower than Custom and Design, so “1.6–1.9 everywhere” was not accurate.
-- **Peak physical footprint was 2.54–3.51 GB** — under the ~6 GB implied entitled limit. Clone was
+- **Peak physical footprint was 2.56–3.52 GB** — under the ~6 GB implied entitled limit. Clone was
   the heaviest because its encoders remain resident.
 - **Every take performed one policy soft trim.** The run is therefore `passedWithWarnings`, not a
   zero-trim pass. It recorded no iOS memory warning, critical pressure, memory-limit exit, hard trim,
-  or full unload.
+  or full unload. The run's worst thermal state was `fair`.
 - **Compare like with like:** use compatible iOS streaming records in
   [`benchmarks/HISTORY.md`](../../benchmarks/HISTORY.md). Historical macOS non-streaming or Quality
   baselines are not iPhone performance comparisons.
@@ -319,13 +318,8 @@ The blow-by-blow is in git history; per-run perf is in `benchmarks/HISTORY.md`.
 
 ## 9. Roadmap (prioritized)
 
-**P1 — refresh clean canonical evidence after runtime changes.** The source-pinned schema-v2 record
-in §6 remains valid, but later runtime, facade, and cancellation changes require a new clean 29-take
-run before claiming current-source performance. Preserve the same exact matrix, audioQC, memory,
-crash, and telemetry gates so the result remains comparable.
-
 **P1 — 8 GB-device proof.** All on-device numbers are from the 12 GB iPhone 17 Pro. The 8 GB tier
-(entitled ≈ 5–5.5 GB) is where Clone (up to 3.51 GB in the current canonical record) + headroom is
+(entitled ≈ 5–5.5 GB) is where Clone (up to 3.52 GB in the current canonical record) + headroom is
 tightest. Run `ios_device.sh bench` Custom + Clone on a real 8 GB device and confirm RTF, bounded
 soft-trim behavior, no memory warning/exit or hard trim, and clone-gate-on. Until then, 8 GB
 viability is inferred from the bounded streaming evidence, not proven.

@@ -220,7 +220,7 @@ class VendorRuntimeContractTests(unittest.TestCase):
         )
         self.assertEqual([entry["path"] for entry in rebuilt["entries"]], paths)
 
-    def test_old_benchmark_records_are_not_current_runtime_verification(self) -> None:
+    def test_current_benchmark_records_verify_runtime_capabilities(self) -> None:
         runtime = ROOT / MODULE.RUNTIME_RELATIVE
         contract = MODULE.load_json(runtime / MODULE.CAPABILITIES_NAME)
         records = MODULE.benchmark_records(ROOT)
@@ -229,8 +229,8 @@ class VendorRuntimeContractTests(unittest.TestCase):
         ]
         self.assertTrue(benchmark_capabilities)
         for item in benchmark_capabilities:
-            self.assertEqual(item["benchmarkEvidenceStatus"], "diagnostic")
-            self.assertFalse(MODULE.capability_benchmark_is_fresh(ROOT, runtime, item, records))
+            self.assertEqual(item["benchmarkEvidenceStatus"], "verified")
+            self.assertTrue(MODULE.capability_benchmark_is_fresh(ROOT, runtime, item, records))
 
     def test_stale_benchmark_cannot_be_reclassified_as_verified(self) -> None:
         runtime = ROOT / MODULE.RUNTIME_RELATIVE
@@ -239,6 +239,9 @@ class VendorRuntimeContractTests(unittest.TestCase):
         capability = copy.deepcopy(
             next(item for item in contract["capabilities"] if item["evidenceClass"] == "benchmark")
         )
+        capability["benchmarkRecordIDs"] = [
+            "macos-xcui-benchmark-20260713-185716-7f12cd35"
+        ]
         capability["benchmarkEvidenceStatus"] = "verified"
         errors = MODULE.capability_benchmark_evidence_errors(
             ROOT,

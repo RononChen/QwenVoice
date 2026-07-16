@@ -738,12 +738,15 @@ WAVs named by speaker id, played by `IOSVoicePreviewPlayer`).
 
 **Download** (`Sources/QwenVoiceCore/HuggingFaceDownloader.swift`): consume the catalog's exact
 pinned file descriptors, stage, verify exact size plus **CryptoKit SHA-256**, atomically swap the directory, and
-persist `ModelAssetIntegrityManifest.json`. A verified-artifact receipt avoids a second full-file
+persist `.qwenvoice-model-integrity.json`. A verified-artifact receipt avoids a second full-file
 hash in the same process; a relaunch rehashes staged data once before reuse. macOS and CLI own
 terminal foreground-session teardown. iPhone owns one bundle-aware background session for the app
 lifetime, an atomic schema-v2 ledger, exact task adoption, durable delegate staging, and UIKit
 completion deferral until postprocessing is durable. Explicit Cancel discards staging; Retry keeps
 verified files. Typed transient retries cover connection loss and HTTP 408/429/5xx, while permanent
+failures remain terminal. Shared URLSession callbacks use a serial delegate queue; durable file
+staging is sequenced before terminal continuation, and cumulative progress is bounded per task while
+the exact final byte count is always delivered.
 TLS/filesystem/configuration errors fail without retry. Compact local diagnostics are capped at 20
 records and 5 MB and contain no raw URLs or absolute paths. Downloads come from Hugging Face over
 HTTPS; **no cloud inference**. iOS catalog validation: `scripts/check_ios_catalog.sh`. Headless

@@ -105,14 +105,18 @@ timing, protocol, redirect/reuse and constrained/expensive-network flags, transf
 sanitized failure class. A successful attempt also records expected and wire bytes, duplicate bytes,
 retry count, protocol set, thermal state, phase timings, and final-integrity status. Task completion
 waits for URLSession's terminal callback so the success summary cannot overtake final task metrics.
-They never contain a raw URL, absolute path, device identity, or user data.
+Foreground delegate callbacks are serialized, durable staging is sequenced before terminal
+completion, and high-frequency byte callbacks are reduced to bounded cumulative progress updates
+plus the exact terminal byte count. This prevents a completed transfer from being stranded behind
+its own progress backlog without sacrificing final byte accuracy.
+Diagnostic summaries never contain a raw URL, absolute path, device identity, or user data.
 
 Deterministic tests are model-free and Simulator-free. Live delivery is an explicit diagnostic:
 
 ```sh
 # isolated macOS/CLI data root
-./build/vocello models install pro_custom_speed \
-  --data-dir build/scratch/transient/model-download-acceptance/ --verbose
+./scripts/build.sh cli models install pro_custom_speed \
+  --data-dir "$PWD/build/scratch/transient/model-download-acceptance" --verbose
 
 # paired physical iPhone; safe leaf under managed Application Support,
 # never the canonical App Group model tree
@@ -127,8 +131,8 @@ the lane pulls only its bounded model-download summaries into the local untracke
 
 The 2026-07-14 isolated Custom Speed acceptance passed on the Mac mini M2 8 GB and physical iPhone
 17 Pro. Both transfers moved the exact 2,312,057,897 expected bytes without retry or duplicate
-payload. Control-plane traffic such as the macOS catalog response is recorded separately and is
-never classified as duplicate model payload. The iPhone XCUITest completed its
+payload. Any control-plane traffic in earlier delivery routes was recorded separately and was never
+classified as duplicate model payload. The iPhone XCUITest completed its
 background/relaunch/install/visible-delete lifecycle in
 81.6 seconds and reported HTTP/2 plus HTTP/1.1 with fair thermal state. This is lifecycle evidence,
 not a performance baseline, and did not change concurrency or range-chunking defaults.
@@ -146,8 +150,12 @@ Post-policy physical-iPhone run `ios-xcui-model-download-20260716-163359-6137776
 complete lifecycle. Expected and wire bytes both equaled 2,312,057,897, with zero retries or
 duplicate bytes, one accepted redirect per artifact inside the declared provider boundary, HTTP/3
 plus HTTP/1.1, nominal thermal state, final integrity, visible isolated cleanup, and canonical model
-state preserved. This single transfer remains lifecycle evidence rather than a concurrency tuning
-experiment. A comparable post-catalog macOS/CLI live proof remains outstanding and nonblocking.
+state preserved. Post-catalog macOS/CLI proof `model-download-acceptance-9a8da87` then transferred
+the same exact 2,312,057,897 expected and wire bytes with zero control or duplicate bytes, zero
+retries, HTTP/3 plus HTTP/1.1, and nominal thermal state. It measured 35.638 seconds of network
+time, 0.003 seconds of verification, and 0.001 seconds of installation, reported final integrity,
+and removed the isolated payload after preserving only bounded local diagnostics. These single
+transfers are lifecycle evidence rather than concurrency tuning experiments.
 
 ## Tuning policy
 

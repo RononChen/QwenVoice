@@ -74,8 +74,11 @@
   artifacts, with exact pinned revisions, sizes, and per-file SHA-256 identities. macOS and CLI now
   use the bundled fail-closed `downloadFiles` route instead of live repository enumeration; iOS
   retains its one-session background lifecycle over the same exact artifact contract. Static
-  validation and fresh isolated iPhone post-cutover evidence pass. A comparable isolated macOS/CLI
-  post-cutover proof remains an explicit deferred quality task.
+  validation and fresh isolated iPhone and macOS/CLI post-cutover evidence pass. The isolated
+  macOS/CLI Custom Speed proof at source `9a8da874…` transferred exactly 2,312,057,897 expected and
+  wire bytes with zero control or duplicate bytes, zero retries, nominal thermal state, and final
+  integrity. Its bounded foreground delegate ingress preserved terminal staging and metrics before
+  completion, then the isolated 2.31 GB payload was removed.
 - Benchmark evidence now uses collision-resistant run IDs, atomic run-scoped manifests, and a
   privacy-safe PASS-only registry. `benchmarks/HISTORY.md` is generated from canonical JSON records;
   raw telemetry, audio, screenshots, traces, and `.xcresult` bundles remain untracked.
@@ -140,11 +143,14 @@
   `build/artifacts/macos/` and does
   not publish schema-v2 history. Its `off` lane deliberately constructs no sampler, so requiring
   in-process memory evidence there would change the experiment rather than qualify it.
-- A clean canonical macOS schema-v2 baseline exists, and so does the clean canonical iPhone
-  schema-v2 baseline: the 29-take Mac mini M2 8 GB run at source commit `4e05f6fd…` and the
-  29-take iPhone 17 Pro run at source commit `6ffdbfdd…` passed with the allowed
-  `memory.pressure.soft_trim` warning and are preserved in the tracked registry. Earlier dirty
-  schema-v2 records remain exploratory and are excluded from canonical trends.
+- A clean canonical macOS schema-v2 baseline exists for the owned Qwen3 core, and a clean canonical
+  iPhone schema-v2 baseline exists for the same implementation. Mac mini M2 8 GB run
+  `macos-xcui-benchmark-20260716-181853-b4c2e299` at source `9a8da874…` and iPhone 17 Pro run
+  `ios-xcui-benchmark-20260716-184106-48e3a3a6` at source `bcb5265a…` each completed the exact
+  29-take matrix with telemetry schema v8, complete layer correlation, qualified memory evidence,
+  clean crash deltas, and the allowed `memory.pressure.soft_trim` warning. Earlier canonical
+  records remain valid for their recorded source identities; dirty records remain exploratory and
+  are excluded from canonical trends.
 - The physical-iPhone language lane predeclares a one-based, fixed-seed run plan; retains only the
   exact selected WAV and telemetry evidence; requires three-pass locale-locked on-device Speech
   consensus; and offers a retry-free 15-take diagnostic cohort that never publishes history. Its
@@ -229,13 +235,13 @@ explicit macOS fixture repair/bootstrap step.
   retained-memory qualification, and an exact-PID memory profile. The tracked records remain bound
   to their exact source, toolchain, model, and hardware identities; new product changes require
   proportionate fresh evidence rather than reuse of local raw artifacts.
-- The records above remain valid for their recorded commits; they do not prove the current runtime
-  overhaul. Fresh physical-iPhone/live-model evidence now passes for typed user and memory-pressure
-  cancellation, the two-take Clone proof, redirect-enforced isolated iPhone delivery, Speech
-  prerequisites, and the full 19-cell language run, each bound to its recorded worktree
-  fingerprint. Comparable post-catalog macOS/CLI delivery evidence remains deferred. These explicit
-  quality tasks remain nonblocking for deterministic source publication, packaging, and release
-  artifact preservation.
+- Current owned-core evidence now passes on both platforms: the two canonical 29-take UI matrices,
+  typed user and memory-pressure cancellation, the two-take physical-iPhone Clone proof,
+  redirect-enforced isolated iPhone delivery, the isolated post-catalog macOS/CLI delivery proof,
+  Speech prerequisites, and the full 19-cell language run. Each result remains bound to its exact
+  source or worktree fingerprint; the language run remains exploratory rather than a clean trend
+  baseline. These explicit quality tasks remain nonblocking for deterministic source publication,
+  packaging, and release artifact preservation.
 
 ## Resume rule
 

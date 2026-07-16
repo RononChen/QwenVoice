@@ -53,9 +53,8 @@
       "testPatterns": ["Tests/Qwen3RuntimeTests/**"],
       "documentation": ["PERFORMANCE.md", "UPSTREAM.md"],
       "evidenceClass": "benchmark",
-      "benchmarkRecordIDs": ["macos-xcui-benchmark-20260713-185716-7f12cd35"],
-      "benchmarkEvidenceStatus": "diagnostic",
-      "benchmarkEvidenceReason": "The record predates current runtime-impacting loading, sampling, facade, and package changes.",
+      "benchmarkRecordIDs": ["macos-xcui-benchmark-20260716-181853-b4c2e299"],
+      "benchmarkEvidenceStatus": "verified",
       "upstreamDeltaIDs": ["LOAD-001", "SAMPLER-001", "COMPAT-001", "TEL-001"]
     },
     {
@@ -66,9 +65,8 @@
       "testPatterns": ["Tests/Qwen3RuntimeTests/Qwen3GenerationGateTests.swift", "Tests/Qwen3RuntimeTests/Qwen3StreamingContractTests.swift"],
       "documentation": ["PERFORMANCE.md"],
       "evidenceClass": "benchmark",
-      "benchmarkRecordIDs": ["macos-xcui-benchmark-20260713-185716-7f12cd35"],
-      "benchmarkEvidenceStatus": "diagnostic",
-      "benchmarkEvidenceReason": "The record predates current runtime-impacting streaming, cancellation, and memory-tuning changes.",
+      "benchmarkRecordIDs": ["macos-xcui-benchmark-20260716-181853-b4c2e299"],
+      "benchmarkEvidenceStatus": "verified",
       "upstreamDeltaIDs": ["CONC-001", "STREAM-001"]
     },
     {

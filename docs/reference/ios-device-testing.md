@@ -202,7 +202,7 @@ generation IDs/cells and verdicts. A PASS publishes one privacy-safe record unde
 screenshots, traces, and `.xcresult` stay untracked; publication never stages, commits, or pushes.
 
 Physical-iPhone acceptance of telemetry v8/evidence v2 is complete for the clean canonical
-[29-take UI matrix](../../benchmarks/runs/ui-generation/ios-xcui-benchmark-20260714-113139-3b4b6d6c.json),
+[29-take UI matrix](../../benchmarks/runs/ui-generation/ios-xcui-benchmark-20260716-184106-48e3a3a6.json),
 [retained-memory qualification](../../benchmarks/runs/memory-qualification/ios-memory-qualification-20260714-112536-32554d95.json),
 and the exact-PID [memory profile](../../benchmarks/runs/instrument-profile/ios-memory-profile-20260714-112759-9a573224.json).
 Each record proves only its exact source, toolchain, model, and hardware identities; repository

@@ -138,7 +138,8 @@ The shared foreground downloader distinguishes queued, waiting for connectivity,
 retrying, verifying, installing, and cancelling. Active transfer shows bytes, smoothed speed, ETA,
 and a separate 20-second no-progress indication. Transient failures retry up to three times; Retry
 preserves verified files, while explicit Cancel discards that package's staged data. Every terminal
-foreground path invalidates its URLSession. Details: [`model-delivery.md`](model-delivery.md).
+foreground path invalidates its URLSession after ordered durable-stage/terminal processing. Bounded
+progress ingress still emits the exact final byte count. Details: [`model-delivery.md`](model-delivery.md).
 
 The Studio's Generate CTA (`textInput_generateButton`) appears only when the mode's model
 is installed — otherwise the app prompts to download from Settings.

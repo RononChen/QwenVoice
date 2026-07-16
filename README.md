@@ -70,7 +70,7 @@ Upgrading from Vocello 2.0 does not require reinstalling models. Application dat
 
 Speed is the recommended default and uses less memory. Quality is a Mac-only option for machines with more headroom. The three recommended Mac Speed packages total about 7 GB.
 
-Support floors and benchmark machines are different facts. Canonical evidence is produced on a Mac mini M2 with 8 GB and an iPhone 17 Pro. The current clean Mac record found that selected warm Custom medium and long cells reached approximately realtime, while Design, Clone, short, and cold cells remained below it. See the [tracked benchmark record](benchmarks/runs/ui-generation/macos-xcui-benchmark-20260713-185716-7f12cd35.json) for the exact matrix and conditions.
+Support floors and benchmark machines are different facts. Canonical evidence is produced on a Mac mini M2 with 8 GB and an iPhone 17 Pro. In the current clean owned-core Mac record, every Custom and Design aggregate cell generated at or faster than playback; Clone medium and long were approximately realtime or faster, while Clone short remained below realtime. The record is `passedWithWarnings` because accepted memory soft trims and long-cell audio-QC warnings remain visible rather than being hidden. See the [tracked benchmark record](benchmarks/runs/ui-generation/macos-xcui-benchmark-20260716-181853-b4c2e299.json) for the exact matrix and conditions.
 
 Macs on macOS 15 can use the legacy [QwenVoice 1.2.3 release](https://github.com/PowerBeef/QwenVoice/releases/tag/v1.2.3). No Vocello 2.x backport is planned.
 
