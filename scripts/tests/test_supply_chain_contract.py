@@ -58,7 +58,12 @@ jobs:
     runner: macos-26
     steps:
       - name: Select and validate native toolchain
-        run: arch -arm64 /opt/homebrew/bin/brew install xcodegen xcbeautify ripgrep shellcheck
+        run: |
+          arch -arm64 /opt/homebrew/bin/brew install xcodegen xcbeautify ripgrep shellcheck
+          if ! xcrun metal --version >/dev/null 2>&1; then
+            xcodebuild -downloadComponent metalToolchain
+          fi
+          xcrun metal --version
       - name: Prepare Swift CodeQL build inputs
         if: matrix.language == 'swift'
         run: ./scripts/build.sh codeql-prepare
@@ -235,6 +240,18 @@ jobs:
         self.assertTrue(any("ARM Homebrew" in value for value in module.validate(self.root)))
         path.write_text(text.replace("runner: macos-26", "runner: macos-15"), encoding="utf-8")
         self.assertTrue(any("macos-26 ARM runner" in value for value in module.validate(self.root)))
+
+    def test_swift_codeql_requires_the_optional_metal_toolchain(self) -> None:
+        path = self.root / ".github/workflows/security.yml"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(
+            text.replace("xcodebuild -downloadComponent metalToolchain", "echo skip-metal-download"),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("optional Metal Toolchain" in value for value in module.validate(self.root)))
+
+        path.write_text(text.replace("xcrun metal --version", "true"), encoding="utf-8")
+        self.assertTrue(any("verify the Metal compiler" in value for value in module.validate(self.root)))
 
     def test_swift_codeql_build_must_remain_inside_tracing_shell(self) -> None:
         path = self.root / ".github/workflows/security.yml"

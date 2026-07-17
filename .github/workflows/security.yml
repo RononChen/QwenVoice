@@ -122,6 +122,13 @@ jobs:
           # macos-26 image. Invoke the ARM Homebrew binary explicitly so its
           # architecture guard does not reject the otherwise native runner.
           arch -arm64 /opt/homebrew/bin/brew install xcodegen xcbeautify ripgrep shellcheck
+          # Xcode 26 ships Metal as an optional component, and GitHub's fresh
+          # macos-26 images do not consistently include it. MLX compiles Metal
+          # sources, so install the component before CodeQL starts tracing.
+          if ! xcrun metal --version >/dev/null 2>&1; then
+            xcodebuild -downloadComponent metalToolchain
+          fi
+          xcrun metal --version
           python3 scripts/supply_chain_contract.py --installed native
 
       - name: Prepare Swift CodeQL build inputs
