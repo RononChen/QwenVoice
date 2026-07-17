@@ -57,10 +57,39 @@ jobs:
   codeql:
     runner: macos-26
     steps:
-      - run: arch -arm64 /opt/homebrew/bin/brew install xcodegen xcbeautify ripgrep shellcheck
-      - run: arch -arm64 /bin/bash ./scripts/build.sh build
+      - name: Select and validate native toolchain
+        run: arch -arm64 /opt/homebrew/bin/brew install xcodegen xcbeautify ripgrep shellcheck
+      - name: Prepare Swift CodeQL build inputs
+        if: matrix.language == 'swift'
+        run: ./scripts/build.sh codeql-prepare
+      - name: Initialize CodeQL
+      - name: Build Swift targets for CodeQL
+        if: matrix.language == 'swift'
+        run: ./scripts/build.sh codeql
+      - name: Analyze
 """ % self.sha
         (self.root / ".github/workflows/security.yml").write_text(security, encoding="utf-8")
+        (self.root / "scripts/build.sh").write_text(
+            '\n'.join((
+                '#!/usr/bin/env bash',
+                'DESTINATION="platform=macOS,arch=arm64"',
+                'CODEQL_DESTINATION="generic/platform=macOS"',
+                'ARCHS=arm64',
+                'cmd_codeql_prepare() {',
+                '  DESTINATION="$CODEQL_DESTINATION"',
+                '  prepare_build_inputs',
+                '}',
+                'cmd_codeql() {',
+                '  DESTINATION="$CODEQL_DESTINATION"',
+                '  build_app "scripts/build.sh codeql"',
+                '}',
+                'case "${1:-}" in',
+                '  codeql-prepare) ;;',
+                '  codeql) ;;',
+                'esac',
+            )),
+            encoding="utf-8",
+        )
         (self.root / ".github/dependabot.yml").write_text(
             '\n'.join(f'package-ecosystem: "{value}"' for value in ("github-actions", "npm", "swift")),
             encoding="utf-8",
@@ -207,25 +236,94 @@ jobs:
         path.write_text(text.replace("runner: macos-26", "runner: macos-15"), encoding="utf-8")
         self.assertTrue(any("macos-26 ARM runner" in value for value in module.validate(self.root)))
 
-    def test_swift_codeql_build_must_run_natively_without_duplicate_regeneration(self) -> None:
+    def test_swift_codeql_build_must_remain_inside_tracing_shell(self) -> None:
         path = self.root / ".github/workflows/security.yml"
         text = path.read_text(encoding="utf-8")
         path.write_text(
             text.replace(
-                "arch -arm64 /bin/bash ./scripts/build.sh build",
-                "./scripts/build.sh build",
+                "run: ./scripts/build.sh codeql\n",
+                "run: arch -arm64 /bin/bash ./scripts/build.sh codeql\n",
             ),
             encoding="utf-8",
         )
         self.assertTrue(any(
-            "authoritative macOS build through an ARM bash" in value
+            "inside the CodeQL tracing shell" in value
             for value in module.validate(self.root)
         ))
 
+    def test_swift_codeql_preparation_is_required_before_initialization(self) -> None:
+        path = self.root / ".github/workflows/security.yml"
+        text = path.read_text(encoding="utf-8")
+        prepare = (
+            "      - name: Prepare Swift CodeQL build inputs\n"
+            "        if: matrix.language == 'swift'\n"
+            "        run: ./scripts/build.sh codeql-prepare\n"
+        )
+        initialize = "      - name: Initialize CodeQL\n"
+        path.write_text(text.replace(prepare + initialize, initialize + prepare), encoding="utf-8")
+        self.assertTrue(any("toolchain -> prepare -> initialize" in value for value in module.validate(self.root)))
+
+    def test_swift_codeql_must_use_dedicated_traced_build_command(self) -> None:
+        path = self.root / ".github/workflows/security.yml"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(
+            text.replace("run: ./scripts/build.sh codeql\n", "run: ./scripts/build.sh build\n"),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("authoritative traced build" in value for value in module.validate(self.root)))
+
+    def test_swift_codeql_must_use_generic_arm64_build_contract(self) -> None:
+        path = self.root / "scripts/build.sh"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(
+            text.replace('CODEQL_DESTINATION="generic/platform=macOS"', 'CODEQL_DESTINATION="platform=macOS,arch=arm64"'),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("generic macOS destination" in value for value in module.validate(self.root)))
+
+        path.write_text(text.replace("ARCHS=arm64", "ARCHS=x86_64"), encoding="utf-8")
+        self.assertTrue(any("emit arm64 products" in value for value in module.validate(self.root)))
+
+    def test_swift_codeql_commands_must_each_select_the_generic_destination(self) -> None:
+        path = self.root / "scripts/build.sh"
+        text = path.read_text(encoding="utf-8")
         path.write_text(
             text.replace(
-                "arch -arm64 /bin/bash ./scripts/build.sh build",
-                "./scripts/regenerate_project.sh\n      - run: arch -arm64 /bin/bash ./scripts/build.sh build",
+                'cmd_codeql_prepare() {\n  DESTINATION="$CODEQL_DESTINATION"',
+                'cmd_codeql_prepare() {\n  DESTINATION="$DESTINATION"',
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("CodeQL preparation must select" in value for value in module.validate(self.root)))
+
+        path.write_text(
+            text.replace(
+                'cmd_codeql() {\n  DESTINATION="$CODEQL_DESTINATION"',
+                'cmd_codeql() {\n  DESTINATION="$DESTINATION"',
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("CodeQL build must select" in value for value in module.validate(self.root)))
+
+    def test_swift_codeql_special_steps_must_remain_swift_only(self) -> None:
+        path = self.root / ".github/workflows/security.yml"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(
+            text.replace(
+                "      - name: Prepare Swift CodeQL build inputs\n        if: matrix.language == 'swift'\n",
+                "      - name: Prepare Swift CodeQL build inputs\n",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("build inputs must remain Swift-only" in value for value in module.validate(self.root)))
+
+    def test_swift_codeql_must_not_duplicate_project_regeneration(self) -> None:
+        path = self.root / ".github/workflows/security.yml"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(
+            text.replace(
+                "run: ./scripts/build.sh codeql-prepare",
+                "run: ./scripts/regenerate_project.sh\n      - run: ./scripts/build.sh codeql-prepare",
             ),
             encoding="utf-8",
         )

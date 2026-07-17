@@ -12,6 +12,8 @@
 #
 # usage:
 #   scripts/build.sh build            # fast local build, no launch (alias: debug)
+#   scripts/build.sh codeql-prepare   # CI-only: prepare generated inputs/packages before tracing
+#   scripts/build.sh codeql           # CI-only: traced generic-destination arm64 build
 #   scripts/build.sh run [--logs|--telemetry|--verify|--debug]
 #   scripts/build.sh release [release.sh args...]
 #   scripts/build.sh clean
@@ -29,6 +31,7 @@ APP_NAME="Vocello"
 SCHEME_NAME="QwenVoice"
 BUNDLE_ID="com.qwenvoice.app"
 DESTINATION="platform=macOS,arch=arm64"
+CODEQL_DESTINATION="generic/platform=macOS"
 
 BUILD_DIR="$QVOICE_BUILD_ROOT"
 DERIVED_DATA="$QVOICE_XCODE_MACOS_DERIVED"
@@ -49,6 +52,8 @@ usage: scripts/build.sh <command> [options]
 
 commands:
   build                 Fast local build (-Onone). No launch. (alias: debug)
+  codeql-prepare        CI-only: prepare generated inputs and packages before CodeQL init.
+  codeql                CI-only: build arm64 through CodeQL's traced shell.
   run [--logs|--telemetry|--verify|--debug]
                         Build, then launch $APP_NAME.app.
   release [args...]     Run scripts/release.sh (optimized DMG) with the shared regen/SPM cache.
@@ -63,10 +68,15 @@ Set QWENVOICE_DEBUG=1 to launch with the runtime debug toggle on.
 EOF
 }
 
-build_app() {
+prepare_build_inputs() {
     ensure_project_regenerated
     ensure_spm_resolved "$QVOICE_SCRATCH_PACKAGE_RESOLUTION" "$SOURCE_PACKAGES_DIR" \
         dev QwenVoice Release "$DESTINATION"
+}
+
+build_app() {
+    local command_identity="${1:-scripts/build.sh build}"
+    prepare_build_inputs
 
     # Stable dev signing: a real Apple Development identity keeps the app's
     # designated requirement constant across rebuilds, so TCC grants
@@ -127,13 +137,23 @@ build_app() {
     local signing_class="apple-development"
     [[ "$signing_identity" != "-" ]] || signing_class="ad-hoc"
     write_build_provenance "$DERIVED_DATA/last-build.json" \
-        "scripts/build.sh build" "$SCHEME_NAME" Release "$DESTINATION" arm64 \
+        "$command_identity" "$SCHEME_NAME" Release "$DESTINATION" arm64 \
         Onone "$signing_class" "$DERIVED_DATA" "$SOURCE_PACKAGES_DIR"
     write_build_provenance "$QVOICE_SYMBOLS_MACOS/last-build.json" \
-        "scripts/build.sh build" "$SCHEME_NAME" Release "$DESTINATION" arm64 \
+        "$command_identity" "$SCHEME_NAME" Release "$DESTINATION" arm64 \
         Onone "$signing_class" "$DERIVED_DATA" "$SOURCE_PACKAGES_DIR"
     echo "==> Build ready: $APP_BUNDLE"
     prune_stale_builds
+}
+
+cmd_codeql_prepare() {
+    DESTINATION="$CODEQL_DESTINATION"
+    prepare_build_inputs
+}
+
+cmd_codeql() {
+    DESTINATION="$CODEQL_DESTINATION"
+    build_app "scripts/build.sh codeql"
 }
 
 # Preserve this build's dSYMs (app + XPC service + any others) so
@@ -287,6 +307,12 @@ main() {
     case "$command" in
         build|debug)
             build_app
+            ;;
+        codeql-prepare)
+            cmd_codeql_prepare
+            ;;
+        codeql)
+            cmd_codeql
             ;;
         run)
             cmd_run "$@"

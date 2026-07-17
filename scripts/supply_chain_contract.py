@@ -33,6 +33,14 @@ def _job_permissions(job: str) -> list[str]:
     return [line.strip() for line in match.group(1).splitlines() if line.strip()]
 
 
+def _shell_function(text: str, name: str) -> str:
+    match = re.search(rf"(?m)^{re.escape(name)}\(\)\s*\{{\s*$", text)
+    if not match:
+        return ""
+    end = re.search(r"(?m)^}\s*$", text[match.end():])
+    return text[match.start():match.end() + end.end()] if end else ""
+
+
 def _tool_output(command: list[str]) -> str:
     try:
         return subprocess.check_output(command, stderr=subprocess.STDOUT, text=True)
@@ -179,10 +187,54 @@ def validate(root: Path, installed: str | None = None) -> list[str]:
             errors.append("Swift CodeQL must retain the macos-26 ARM runner")
         if "arch -arm64 /opt/homebrew/bin/brew install xcodegen xcbeautify ripgrep shellcheck" not in codeql:
             errors.append("Swift CodeQL tooling must invoke ARM Homebrew explicitly on the macos-26 runner")
-        if "arch -arm64 /bin/bash ./scripts/build.sh build" not in codeql:
-            errors.append("Swift CodeQL must invoke the authoritative macOS build through an ARM bash")
+        if not re.search(r"(?m)^\s*(?:run:\s*)?\./scripts/build\.sh codeql-prepare\s*$", codeql):
+            errors.append("Swift CodeQL must prepare generated inputs and packages before tracing")
+        if not re.search(r"(?m)^\s*(?:run:\s*)?\./scripts/build\.sh codeql\s*$", codeql):
+            errors.append("Swift CodeQL must invoke the authoritative traced build command")
+        if re.search(r"(?m)^\s*(?:run:\s*)?\./scripts/build\.sh build\s*$", codeql):
+            errors.append("Swift CodeQL must not substitute the ordinary local build command")
         if "./scripts/regenerate_project.sh" in codeql:
             errors.append("Swift CodeQL must let build.sh own project regeneration")
+        if "arch -arm64 /bin/bash ./scripts/build.sh" in codeql:
+            errors.append("Swift CodeQL compilation must remain inside the CodeQL tracing shell")
+        for step_name in ("Prepare Swift CodeQL build inputs", "Build Swift targets for CodeQL"):
+            if not re.search(
+                rf"(?m)^\s*- name: {re.escape(step_name)}\s*$\n\s+if: matrix\.language == 'swift'\s*$",
+                codeql,
+            ):
+                errors.append(f"{step_name} must remain Swift-only")
+        codeql_order = [
+            "Select and validate native toolchain",
+            "Prepare Swift CodeQL build inputs",
+            "Initialize CodeQL",
+            "Build Swift targets for CodeQL",
+            "Analyze",
+        ]
+        codeql_positions = [codeql.find(value) for value in codeql_order]
+        if any(value < 0 for value in codeql_positions) or codeql_positions != sorted(codeql_positions):
+            errors.append(
+                "Swift CodeQL must preserve toolchain -> prepare -> initialize -> traced build -> analyze ordering"
+            )
+
+    build_path = root / "scripts/build.sh"
+    build_source = build_path.read_text(encoding="utf-8") if build_path.is_file() else ""
+    for token, message in (
+        ('DESTINATION="platform=macOS,arch=arm64"', "The ordinary macOS build destination must remain explicit"),
+        ('CODEQL_DESTINATION="generic/platform=macOS"', "CodeQL must use the generic macOS destination"),
+        ("ARCHS=arm64", "CodeQL must emit arm64 products"),
+        ("codeql-prepare)", "build.sh is missing the CodeQL preparation command"),
+        ("codeql)", "build.sh is missing the traced CodeQL build command"),
+    ):
+        if token not in build_source:
+            errors.append(message)
+    codeql_prepare_function = _shell_function(build_source, "cmd_codeql_prepare")
+    if 'DESTINATION="$CODEQL_DESTINATION"' not in codeql_prepare_function \
+            or "prepare_build_inputs" not in codeql_prepare_function:
+        errors.append("CodeQL preparation must select the generic destination and prepare build inputs")
+    codeql_build_function = _shell_function(build_source, "cmd_codeql")
+    if 'DESTINATION="$CODEQL_DESTINATION"' not in codeql_build_function \
+            or 'build_app "scripts/build.sh codeql"' not in codeql_build_function:
+        errors.append("CodeQL build must select the generic destination and reuse the authoritative app build")
 
     snapshot_path = root / "scripts/swift_dependency_snapshot.py"
     snapshot_source = snapshot_path.read_text(encoding="utf-8") if snapshot_path.is_file() else ""
