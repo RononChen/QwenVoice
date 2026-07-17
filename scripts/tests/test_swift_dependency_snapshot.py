@@ -103,6 +103,28 @@ let package = Package(
         )
         self.assertEqual(first["scanned"], "2026-07-17T00:00:00Z")
 
+    def test_detector_uses_only_api_permitted_properties(self) -> None:
+        snapshot = self.snapshot()
+        self.assertEqual(
+            set(snapshot),
+            {"version", "sha", "ref", "job", "detector", "metadata", "scanned", "manifests"},
+        )
+        self.assertEqual(
+            snapshot["detector"],
+            {
+                "name": module.DETECTOR_NAME,
+                "version": module.DETECTOR_VERSION,
+                "url": module.DETECTOR_URL,
+            },
+        )
+        self.assertEqual(
+            snapshot["metadata"],
+            {"format": "swift-package-resolved-v3", "manifest_count": 2},
+        )
+        root = snapshot["manifests"]["qwenvoice-root-xcode-workspace-v1"]
+        self.assertEqual(root["metadata"]["lockfile_version"], 3)
+        self.assertEqual(root["resolved"]["swift-nio"]["metadata"], {"revision": "c" * 40})
+
     def test_direct_relationships_are_derived_from_each_declaration(self) -> None:
         manifests = self.snapshot()["manifests"]
         root = manifests["qwenvoice-root-xcode-workspace-v1"]["resolved"]
@@ -165,6 +187,7 @@ let package = Package(
         self.assertEqual(payload["version"], 0)
         self.assertEqual(payload["sha"], "e" * 40)
         self.assertEqual(len(payload["manifests"]), 2)
+        self.assertNotIn("metadata", payload["detector"])
 
 
 if __name__ == "__main__":

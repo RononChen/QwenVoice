@@ -249,8 +249,8 @@ def build_snapshot(
             "name": DETECTOR_NAME,
             "version": DETECTOR_VERSION,
             "url": DETECTOR_URL,
-            "metadata": {"format": "swift-package-resolved-v3", "manifest_count": len(manifests)},
         },
+        "metadata": {"format": "swift-package-resolved-v3", "manifest_count": len(manifests)},
         "scanned": _validated_scanned(scanned),
         "manifests": manifests,
     }
