@@ -124,7 +124,10 @@ jobs:
         if: matrix.language == 'swift'
         run: |
           sudo xcode-select -s /Applications/Xcode_26.6.app
-          brew install xcodegen xcbeautify ripgrep shellcheck
+          # CodeQL's tracing shell currently runs through Rosetta on the ARM
+          # macos-26 image. Invoke the ARM Homebrew binary explicitly so its
+          # architecture guard does not reject the otherwise native runner.
+          arch -arm64 /opt/homebrew/bin/brew install xcodegen xcbeautify ripgrep shellcheck
           python3 scripts/supply_chain_contract.py --installed native
 
       - name: Build Swift targets for CodeQL

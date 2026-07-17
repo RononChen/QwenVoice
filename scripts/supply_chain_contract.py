@@ -171,6 +171,15 @@ def validate(root: Path, installed: str | None = None) -> list[str]:
         if "npm --prefix website audit --package-lock-only --audit-level=high" not in npm_audit:
             errors.append("npm advisory audit must inspect the committed website lock at high severity")
 
+    codeql = _workflow_job(security, "codeql")
+    if not codeql:
+        errors.append("security workflow is missing CodeQL")
+    else:
+        if "runner: macos-26" not in codeql:
+            errors.append("Swift CodeQL must retain the macos-26 ARM runner")
+        if "arch -arm64 /opt/homebrew/bin/brew install xcodegen xcbeautify ripgrep shellcheck" not in codeql:
+            errors.append("Swift CodeQL tooling must invoke ARM Homebrew explicitly on the macos-26 runner")
+
     snapshot_path = root / "scripts/swift_dependency_snapshot.py"
     snapshot_source = snapshot_path.read_text(encoding="utf-8") if snapshot_path.is_file() else ""
     for lock_path in (

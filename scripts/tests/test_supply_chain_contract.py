@@ -54,6 +54,10 @@ jobs:
       contents: read
     steps:
       - run: npm --prefix website audit --package-lock-only --audit-level=high
+  codeql:
+    runner: macos-26
+    steps:
+      - run: arch -arm64 /opt/homebrew/bin/brew install xcodegen xcbeautify ripgrep shellcheck
 """ % self.sha
         (self.root / ".github/workflows/security.yml").write_text(security, encoding="utf-8")
         (self.root / ".github/dependabot.yml").write_text(
@@ -187,6 +191,20 @@ jobs:
             encoding="utf-8",
         )
         self.assertTrue(any("audit must run only" in value for value in module.validate(self.root)))
+
+    def test_swift_codeql_tooling_must_run_homebrew_natively(self) -> None:
+        path = self.root / ".github/workflows/security.yml"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(
+            text.replace(
+                "arch -arm64 /opt/homebrew/bin/brew install xcodegen xcbeautify ripgrep shellcheck",
+                "brew install xcodegen xcbeautify ripgrep shellcheck",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("ARM Homebrew" in value for value in module.validate(self.root)))
+        path.write_text(text.replace("runner: macos-26", "runner: macos-15"), encoding="utf-8")
+        self.assertTrue(any("macos-26 ARM runner" in value for value in module.validate(self.root)))
 
     def test_swift_dependency_snapshot_must_cover_both_tracked_locks(self) -> None:
         path = self.root / "scripts/swift_dependency_snapshot.py"
