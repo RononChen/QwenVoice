@@ -79,7 +79,8 @@ jobs:
                 '#!/usr/bin/env bash',
                 'DESTINATION="platform=macOS,arch=arm64"',
                 'CODEQL_DESTINATION="generic/platform=macOS"',
-                'CODEQL_EXCLUDE_METAL_SOURCES=0',
+                'CODEQL_DERIVED_DATA="$QVOICE_SCRATCH_CI/codeql-macos"',
+                'CODEQL_BUILD_PHASE="none"',
                 'ARCHS=arm64',
                 'assert_mlx_metallibs() {',
                 '  local app_bundle="$1"',
@@ -92,22 +93,50 @@ jobs:
                 '}',
                 'build_app() {',
                 '  local -a build_tail=(build)',
-                '  if [ "$CODEQL_EXCLUDE_METAL_SOURCES" = "1" ]; then',
+                '  if [ "$CODEQL_BUILD_PHASE" = "trace" ]; then',
                 "    build_tail=('EXCLUDED_SOURCE_FILE_NAMES=*.metal' build)",
                 '  fi',
+                '  if [ "$CODEQL_BUILD_PHASE" = "none" ]; then',
+                '    sync_dev_signing_cache "$signing_identity" "$XCODEBUILD_APP" "$APP_BUNDLE"',
+                '  fi',
                 '  echo "${build_tail[@]}"',
+                '  if [ ! -d "$XCODEBUILD_APP" ]; then',
+                '    return 1',
+                '  fi',
+                '  if [ "$CODEQL_BUILD_PHASE" = "trace" ]; then',
+                '    assert_macos_bundle_arm64_only "$XCODEBUILD_APP"',
+                '    return 0',
+                '  fi',
                 '  assert_mlx_metallibs "$XCODEBUILD_APP"',
+                '  assert_macos_bundle_arm64_only "$XCODEBUILD_APP"',
+                '  assert_signing_identity "$XCODEBUILD_APP" "$signing_identity"',
+                '  if [ "$CODEQL_BUILD_PHASE" = "prepare" ]; then',
+                '    return 0',
+                '  fi',
+                '  if [ -e "$APP_BUNDLE" ] || [ -L "$APP_BUNDLE" ]; then',
+                '    quit_app_if_running',
+                '    rm -rf "$APP_BUNDLE"',
+                '  fi',
+                '  ln -s "$XCODEBUILD_APP" "$APP_BUNDLE"',
+                '  preserve_dsyms',
+                '  write_build_provenance',
+                '  record_dev_signing_identity',
+                '}',
+                'configure_codeql_build() {',
+                '  CODEQL_BUILD_PHASE="$1"',
+                '  DESTINATION="$CODEQL_DESTINATION"',
+                '  DERIVED_DATA="$CODEQL_DERIVED_DATA"',
+                '  XCODEBUILD_APP="$DERIVED_DATA/Build/Products/Release/$APP_NAME.app"',
                 '}',
                 'cmd_codeql_prepare() {',
-                '  DESTINATION="$CODEQL_DESTINATION"',
+                '  configure_codeql_build prepare',
                 '  build_app "scripts/build.sh codeql-prepare"',
                 '}',
                 'touch_codeql_sources() {',
                 '  find "$ROOT_DIR/Sources" "$ROOT_DIR/Packages/VocelloQwen3Core/Sources" -name "*.swift" -exec touch {} +',
                 '}',
                 'cmd_codeql() {',
-                '  DESTINATION="$CODEQL_DESTINATION"',
-                '  CODEQL_EXCLUDE_METAL_SOURCES=1',
+                '  configure_codeql_build trace',
                 '  touch_codeql_sources',
                 '  build_app "scripts/build.sh codeql"',
                 '}',
@@ -329,21 +358,23 @@ jobs:
         text = path.read_text(encoding="utf-8")
         path.write_text(
             text.replace(
-                'cmd_codeql_prepare() {\n  DESTINATION="$CODEQL_DESTINATION"',
-                'cmd_codeql_prepare() {\n  DESTINATION="$DESTINATION"',
+                "  configure_codeql_build prepare\n",
+                "  configure_codeql_build trace\n",
+                1,
             ),
             encoding="utf-8",
         )
-        self.assertTrue(any("CodeQL preparation must select" in value for value in module.validate(self.root)))
+        self.assertTrue(any("preparation must build and validate" in value for value in module.validate(self.root)))
 
         path.write_text(
             text.replace(
-                'cmd_codeql() {\n  DESTINATION="$CODEQL_DESTINATION"',
-                'cmd_codeql() {\n  DESTINATION="$DESTINATION"',
+                "  configure_codeql_build trace\n",
+                "  configure_codeql_build prepare\n",
+                1,
             ),
             encoding="utf-8",
         )
-        self.assertTrue(any("CodeQL build must" in value for value in module.validate(self.root)))
+        self.assertTrue(any("CodeQL build must select" in value for value in module.validate(self.root)))
 
     def test_swift_codeql_traced_build_must_invalidate_all_owned_swift(self) -> None:
         path = self.root / "scripts/build.sh"
@@ -364,31 +395,117 @@ jobs:
         path = self.root / "scripts/build.sh"
         text = path.read_text(encoding="utf-8")
         path.write_text(
-            text.replace("  CODEQL_EXCLUDE_METAL_SOURCES=1\n", ""),
+            text.replace("  configure_codeql_build trace\n", ""),
             encoding="utf-8",
         )
-        self.assertTrue(any("exclude Metal sources" in value for value in module.validate(self.root)))
+        self.assertTrue(any("isolated trace phase" in value for value in module.validate(self.root)))
 
         path.write_text(
             text.replace(
-                '  if [ "$CODEQL_EXCLUDE_METAL_SOURCES" = "1" ]; then',
+                '  if [ "$CODEQL_BUILD_PHASE" = "trace" ]; then',
                 '  if true; then',
+                1,
             ),
             encoding="utf-8",
         )
         self.assertTrue(any("scoped to the dedicated traced build" in value for value in module.validate(self.root)))
 
         path.write_text(
-            text.replace("CODEQL_EXCLUDE_METAL_SOURCES=0", "CODEQL_EXCLUDE_METAL_SOURCES=1"),
+            text.replace('CODEQL_BUILD_PHASE="none"', 'CODEQL_BUILD_PHASE="trace"'),
             encoding="utf-8",
         )
-        self.assertTrue(any("Ordinary macOS builds must compile Metal" in value for value in module.validate(self.root)))
+        self.assertTrue(any("complete runnable products" in value for value in module.validate(self.root)))
+
+        path.write_text(
+            text.replace(
+                'CODEQL_DERIVED_DATA="$QVOICE_SCRATCH_CI/codeql-macos"',
+                'CODEQL_DERIVED_DATA="$QVOICE_XCODE_MACOS_DERIVED"',
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("managed CI scratch" in value for value in module.validate(self.root)))
 
         path.write_text(
             text.replace("  local -a build_tail=(build)\n", "  local -a build_tail=()\n"),
             encoding="utf-8",
         )
         self.assertTrue(any("scoped to the dedicated traced build" in value for value in module.validate(self.root)))
+
+    def test_swift_codeql_scratch_phases_cannot_mutate_public_products(self) -> None:
+        path = self.root / "scripts/build.sh"
+        text = path.read_text(encoding="utf-8")
+
+        path.write_text(
+            text.replace(
+                '  if [ "$CODEQL_BUILD_PHASE" = "none" ]; then',
+                '  if true; then',
+                1,
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("must not synchronize" in value for value in module.validate(self.root)))
+
+        path.write_text(
+            text.replace(
+                '  if [ "$CODEQL_BUILD_PHASE" = "none" ]; then\n'
+                '    sync_dev_signing_cache "$signing_identity" "$XCODEBUILD_APP" "$APP_BUNDLE"\n'
+                '  fi\n',
+                '  if [ "$CODEQL_BUILD_PHASE" = "none" ]; then\n'
+                '    true\n'
+                '  fi\n'
+                '  sync_dev_signing_cache "$signing_identity" "$XCODEBUILD_APP" "$APP_BUNDLE"\n',
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("must not synchronize" in value for value in module.validate(self.root)))
+
+        path.write_text(
+            text.replace(
+                '    assert_macos_bundle_arm64_only "$XCODEBUILD_APP"\n    return 0\n',
+                '    assert_macos_bundle_arm64_only "$XCODEBUILD_APP"\n    rm -rf "$APP_BUNDLE"\n    return 0\n',
+                1,
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("trace phase contains a public-product mutation" in value for value in module.validate(self.root)))
+
+        path.write_text(
+            text.replace(
+                '  if [ "$CODEQL_BUILD_PHASE" = "prepare" ]; then\n    return 0\n',
+                '  if [ "$CODEQL_BUILD_PHASE" = "prepare" ]; then\n    preserve_dsyms\n    return 0\n',
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("preparation contains a public-product mutation" in value for value in module.validate(self.root)))
+
+    def test_swift_codeql_scratch_phases_validate_before_returning(self) -> None:
+        path = self.root / "scripts/build.sh"
+        text = path.read_text(encoding="utf-8")
+
+        path.write_text(
+            text.replace('  if [ ! -d "$XCODEBUILD_APP" ]; then\n    return 1\n  fi\n', ""),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("only after the traced build succeeds" in value for value in module.validate(self.root)))
+
+        path.write_text(
+            text.replace(
+                '    assert_macos_bundle_arm64_only "$XCODEBUILD_APP"\n',
+                "    true\n",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("verify an arm64 product" in value for value in module.validate(self.root)))
+
+        path.write_text(
+            text.replace(
+                '  if [ "$CODEQL_BUILD_PHASE" = "prepare" ]; then\n    return 0\n',
+                '  if [ "$CODEQL_BUILD_PHASE" = "prepare" ]; then\n    true\n',
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("preparation must validate Metal" in value for value in module.validate(self.root)))
 
     def test_swift_codeql_must_verify_prebuilt_metal_libraries(self) -> None:
         path = self.root / "scripts/build.sh"

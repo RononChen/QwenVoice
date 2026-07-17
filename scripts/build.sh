@@ -32,7 +32,8 @@ SCHEME_NAME="QwenVoice"
 BUNDLE_ID="com.qwenvoice.app"
 DESTINATION="platform=macOS,arch=arm64"
 CODEQL_DESTINATION="generic/platform=macOS"
-CODEQL_EXCLUDE_METAL_SOURCES=0
+CODEQL_DERIVED_DATA="$QVOICE_SCRATCH_CI/codeql-macos"
+CODEQL_BUILD_PHASE="none"
 
 BUILD_DIR="$QVOICE_BUILD_ROOT"
 DERIVED_DATA="$QVOICE_XCODE_MACOS_DERIVED"
@@ -90,10 +91,17 @@ assert_mlx_metallibs() {
 
 build_app() {
     local command_identity="${1:-scripts/build.sh build}"
+    case "$CODEQL_BUILD_PHASE" in
+        none|prepare|trace) ;;
+        *)
+            echo "error: unsupported CodeQL build phase: $CODEQL_BUILD_PHASE" >&2
+            return 1
+            ;;
+    esac
     # Keep this array non-empty: macOS /bin/bash 3.2 treats expansion of an
     # empty array as an unbound variable under `set -u`.
     local -a build_tail=(build)
-    if [ "$CODEQL_EXCLUDE_METAL_SOURCES" = "1" ]; then
+    if [ "$CODEQL_BUILD_PHASE" = "trace" ]; then
         # CodeQL's translated tracing shell cannot execute Xcode 26's Metal
         # compiler. codeql-prepare has already built the exact native Metal
         # products in this DerivedData; exclude only their source files while
@@ -115,7 +123,9 @@ build_app() {
     else
         echo "==> Code signing identity: $signing_identity"
     fi
-    sync_dev_signing_cache "$signing_identity" "$XCODEBUILD_APP" "$APP_BUNDLE"
+    if [ "$CODEQL_BUILD_PHASE" = "none" ]; then
+        sync_dev_signing_cache "$signing_identity" "$XCODEBUILD_APP" "$APP_BUNDLE"
+    fi
 
     echo "==> Building $SCHEME_NAME (single config, -Onone dev build, $DESTINATION)..."
     xcb_run \
@@ -142,10 +152,23 @@ build_app() {
         echo "error: built app bundle not found at $XCODEBUILD_APP" >&2
         exit 1
     fi
+    if [ "$CODEQL_BUILD_PHASE" = "trace" ]; then
+        # This product intentionally excludes Metal sources so CodeQL's
+        # translated shell can trace Swift. Xcode removes the corresponding
+        # metallib as stale. It lives only in managed CI scratch, and the
+        # complete scratch app was already validated by codeql-prepare.
+        assert_macos_bundle_arm64_only "$XCODEBUILD_APP"
+        echo "==> CodeQL traced Swift build completed (analysis-only product)"
+        return 0
+    fi
     assert_mlx_metallibs "$XCODEBUILD_APP"
     assert_macos_bundle_arm64_only "$XCODEBUILD_APP"
     assert_signing_identity "$XCODEBUILD_APP" "$signing_identity"
     assert_signing_identity "$XCODEBUILD_APP/Contents/XPCServices/QwenVoiceEngineService.xpc" "$signing_identity"
+    if [ "$CODEQL_BUILD_PHASE" = "prepare" ]; then
+        echo "==> CodeQL native preparation completed (validated scratch product)"
+        return 0
+    fi
     if [ -e "$APP_BUNDLE" ] || [ -L "$APP_BUNDLE" ]; then
         quit_app_if_running
         rm -rf "$APP_BUNDLE"
@@ -171,8 +194,15 @@ build_app() {
     prune_stale_builds
 }
 
-cmd_codeql_prepare() {
+configure_codeql_build() {
+    CODEQL_BUILD_PHASE="$1"
     DESTINATION="$CODEQL_DESTINATION"
+    DERIVED_DATA="$CODEQL_DERIVED_DATA"
+    XCODEBUILD_APP="$DERIVED_DATA/Build/Products/Release/$APP_NAME.app"
+}
+
+cmd_codeql_prepare() {
+    configure_codeql_build prepare
     build_app "scripts/build.sh codeql-prepare"
 }
 
@@ -194,8 +224,7 @@ touch_codeql_sources() {
 }
 
 cmd_codeql() {
-    DESTINATION="$CODEQL_DESTINATION"
-    CODEQL_EXCLUDE_METAL_SOURCES=1
+    configure_codeql_build trace
     # The native prebuild materializes MLX's Metal outputs. Only owned Swift
     # needs to be newer for the translated CodeQL shell, whose tracer cannot
     # execute Xcode 26's optional Metal compiler.
