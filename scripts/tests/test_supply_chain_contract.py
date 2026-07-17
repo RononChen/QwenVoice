@@ -79,7 +79,25 @@ jobs:
                 '#!/usr/bin/env bash',
                 'DESTINATION="platform=macOS,arch=arm64"',
                 'CODEQL_DESTINATION="generic/platform=macOS"',
+                'CODEQL_EXCLUDE_METAL_SOURCES=0',
                 'ARCHS=arm64',
+                'assert_mlx_metallibs() {',
+                '  local app_bundle="$1"',
+                '  local relative_path',
+                '  for relative_path in "Contents/Resources/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib" "Contents/XPCServices/QwenVoiceEngineService.xpc/Contents/Resources/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib"; do',
+                '    if [ ! -s "$app_bundle/$relative_path" ]; then',
+                '      return 1',
+                '    fi',
+                '  done',
+                '}',
+                'build_app() {',
+                '  local -a build_tail=(build)',
+                '  if [ "$CODEQL_EXCLUDE_METAL_SOURCES" = "1" ]; then',
+                "    build_tail=('EXCLUDED_SOURCE_FILE_NAMES=*.metal' build)",
+                '  fi',
+                '  echo "${build_tail[@]}"',
+                '  assert_mlx_metallibs "$XCODEBUILD_APP"',
+                '}',
                 'cmd_codeql_prepare() {',
                 '  DESTINATION="$CODEQL_DESTINATION"',
                 '  build_app "scripts/build.sh codeql-prepare"',
@@ -89,6 +107,7 @@ jobs:
                 '}',
                 'cmd_codeql() {',
                 '  DESTINATION="$CODEQL_DESTINATION"',
+                '  CODEQL_EXCLUDE_METAL_SOURCES=1',
                 '  touch_codeql_sources',
                 '  build_app "scripts/build.sh codeql"',
                 '}',
@@ -324,7 +343,7 @@ jobs:
             ),
             encoding="utf-8",
         )
-        self.assertTrue(any("CodeQL build must touch" in value for value in module.validate(self.root)))
+        self.assertTrue(any("CodeQL build must" in value for value in module.validate(self.root)))
 
     def test_swift_codeql_traced_build_must_invalidate_all_owned_swift(self) -> None:
         path = self.root / "scripts/build.sh"
@@ -340,6 +359,60 @@ jobs:
             encoding="utf-8",
         )
         self.assertTrue(any("VocelloQwen3Core/Sources" in value for value in module.validate(self.root)))
+
+    def test_swift_codeql_metal_exclusion_is_traced_build_only(self) -> None:
+        path = self.root / "scripts/build.sh"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(
+            text.replace("  CODEQL_EXCLUDE_METAL_SOURCES=1\n", ""),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("exclude Metal sources" in value for value in module.validate(self.root)))
+
+        path.write_text(
+            text.replace(
+                '  if [ "$CODEQL_EXCLUDE_METAL_SOURCES" = "1" ]; then',
+                '  if true; then',
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("scoped to the dedicated traced build" in value for value in module.validate(self.root)))
+
+        path.write_text(
+            text.replace("CODEQL_EXCLUDE_METAL_SOURCES=0", "CODEQL_EXCLUDE_METAL_SOURCES=1"),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("Ordinary macOS builds must compile Metal" in value for value in module.validate(self.root)))
+
+        path.write_text(
+            text.replace("  local -a build_tail=(build)\n", "  local -a build_tail=()\n"),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("scoped to the dedicated traced build" in value for value in module.validate(self.root)))
+
+    def test_swift_codeql_must_verify_prebuilt_metal_libraries(self) -> None:
+        path = self.root / "scripts/build.sh"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(
+            text.replace('  assert_mlx_metallibs "$XCODEBUILD_APP"\n', ""),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("must verify the required" in value for value in module.validate(self.root)))
+
+        path.write_text(
+            text.replace(
+                "Contents/XPCServices/QwenVoiceEngineService.xpc/Contents/Resources/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib",
+                "Contents/XPCServices/QwenVoiceEngineService.xpc/missing.metallib",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("XPCServices" in value for value in module.validate(self.root)))
+
+        path.write_text(
+            text.replace('if [ ! -s "$app_bundle/$relative_path" ]; then', 'if [ ! -e "$app_bundle/$relative_path" ]; then'),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("fail closed" in value for value in module.validate(self.root)))
 
     def test_swift_codeql_special_steps_must_remain_swift_only(self) -> None:
         path = self.root / ".github/workflows/security.yml"

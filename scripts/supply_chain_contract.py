@@ -225,6 +225,7 @@ def validate(root: Path, installed: str | None = None) -> list[str]:
     for token, message in (
         ('DESTINATION="platform=macOS,arch=arm64"', "The ordinary macOS build destination must remain explicit"),
         ('CODEQL_DESTINATION="generic/platform=macOS"', "CodeQL must use the generic macOS destination"),
+        ("CODEQL_EXCLUDE_METAL_SOURCES=0", "Ordinary macOS builds must compile Metal sources"),
         ("ARCHS=arm64", "CodeQL must emit arm64 products"),
         ("codeql-prepare)", "build.sh is missing the CodeQL preparation command"),
         ("codeql)", "build.sh is missing the traced CodeQL build command"),
@@ -237,9 +238,30 @@ def validate(root: Path, installed: str | None = None) -> list[str]:
         errors.append("CodeQL preparation must select the generic destination and prebuild the app natively")
     codeql_build_function = _shell_function(build_source, "cmd_codeql")
     if 'DESTINATION="$CODEQL_DESTINATION"' not in codeql_build_function \
+            or "CODEQL_EXCLUDE_METAL_SOURCES=1" not in codeql_build_function \
             or "touch_codeql_sources" not in codeql_build_function \
             or 'build_app "scripts/build.sh codeql"' not in codeql_build_function:
-        errors.append("CodeQL build must touch owned Swift and reuse the authoritative generic-destination app build")
+        errors.append(
+            "CodeQL build must exclude Metal sources, touch owned Swift, and reuse the authoritative "
+            "generic-destination app build"
+        )
+    build_app_function = _shell_function(build_source, "build_app")
+    if 'if [ "$CODEQL_EXCLUDE_METAL_SOURCES" = "1" ]; then' not in build_app_function \
+            or "local -a build_tail=(build)" not in build_app_function \
+            or "build_tail=('EXCLUDED_SOURCE_FILE_NAMES=*.metal' build)" not in build_app_function \
+            or '"${build_tail[@]}"' not in build_app_function:
+        errors.append("CodeQL Metal exclusion must remain scoped to the dedicated traced build")
+    if 'assert_mlx_metallibs "$XCODEBUILD_APP"' not in build_app_function:
+        errors.append("Every macOS app build must verify the required app and XPC MLX Metal libraries")
+    metallib_function = _shell_function(build_source, "assert_mlx_metallibs")
+    if 'if [ ! -s "$app_bundle/$relative_path" ]; then' not in metallib_function:
+        errors.append("MLX Metal verification must fail closed for missing or empty libraries")
+    for required_path in (
+        "Contents/Resources/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib",
+        "Contents/XPCServices/QwenVoiceEngineService.xpc/Contents/Resources/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib",
+    ):
+        if required_path not in metallib_function:
+            errors.append(f"MLX Metal verification is missing required bundle path: {required_path}")
     touch_function = _shell_function(build_source, "touch_codeql_sources")
     for source_root in ("$ROOT_DIR/Sources", "$ROOT_DIR/Packages/VocelloQwen3Core/Sources"):
         if source_root not in touch_function:

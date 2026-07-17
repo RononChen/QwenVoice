@@ -32,6 +32,7 @@ SCHEME_NAME="QwenVoice"
 BUNDLE_ID="com.qwenvoice.app"
 DESTINATION="platform=macOS,arch=arm64"
 CODEQL_DESTINATION="generic/platform=macOS"
+CODEQL_EXCLUDE_METAL_SOURCES=0
 
 BUILD_DIR="$QVOICE_BUILD_ROOT"
 DERIVED_DATA="$QVOICE_XCODE_MACOS_DERIVED"
@@ -74,8 +75,31 @@ prepare_build_inputs() {
         dev QwenVoice Release "$DESTINATION"
 }
 
+assert_mlx_metallibs() {
+    local app_bundle="$1"
+    local relative_path
+    for relative_path in \
+        "Contents/Resources/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib" \
+        "Contents/XPCServices/QwenVoiceEngineService.xpc/Contents/Resources/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib"; do
+        if [ ! -s "$app_bundle/$relative_path" ]; then
+            echo "error: required native MLX Metal library is missing or empty: $app_bundle/$relative_path" >&2
+            return 1
+        fi
+    done
+}
+
 build_app() {
     local command_identity="${1:-scripts/build.sh build}"
+    # Keep this array non-empty: macOS /bin/bash 3.2 treats expansion of an
+    # empty array as an unbound variable under `set -u`.
+    local -a build_tail=(build)
+    if [ "$CODEQL_EXCLUDE_METAL_SOURCES" = "1" ]; then
+        # CodeQL's translated tracing shell cannot execute Xcode 26's Metal
+        # compiler. codeql-prepare has already built the exact native Metal
+        # products in this DerivedData; exclude only their source files while
+        # the tracing shell recompiles repository-owned Swift.
+        build_tail=('EXCLUDED_SOURCE_FILE_NAMES=*.metal' build)
+    fi
     prepare_build_inputs
 
     # Stable dev signing: a real Apple Development identity keeps the app's
@@ -112,12 +136,13 @@ build_app() {
         SWIFT_OPTIMIZATION_LEVEL="-Onone" \
         SWIFT_COMPILATION_MODE="incremental" \
         GCC_OPTIMIZATION_LEVEL="0" \
-        build
+        "${build_tail[@]}"
 
     if [ ! -d "$XCODEBUILD_APP" ]; then
         echo "error: built app bundle not found at $XCODEBUILD_APP" >&2
         exit 1
     fi
+    assert_mlx_metallibs "$XCODEBUILD_APP"
     assert_macos_bundle_arm64_only "$XCODEBUILD_APP"
     assert_signing_identity "$XCODEBUILD_APP" "$signing_identity"
     assert_signing_identity "$XCODEBUILD_APP/Contents/XPCServices/QwenVoiceEngineService.xpc" "$signing_identity"
@@ -170,6 +195,7 @@ touch_codeql_sources() {
 
 cmd_codeql() {
     DESTINATION="$CODEQL_DESTINATION"
+    CODEQL_EXCLUDE_METAL_SOURCES=1
     # The native prebuild materializes MLX's Metal outputs. Only owned Swift
     # needs to be newer for the translated CodeQL shell, whose tracer cannot
     # execute Xcode 26's optional Metal compiler.
