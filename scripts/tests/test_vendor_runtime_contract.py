@@ -221,25 +221,33 @@ class VendorRuntimeContractTests(unittest.TestCase):
         )
         self.assertEqual([entry["path"] for entry in rebuilt["entries"]], paths)
 
-    def test_current_benchmark_records_verify_runtime_capabilities(self) -> None:
+    def test_current_benchmark_records_have_truthful_runtime_capability_status(self) -> None:
         runtime = ROOT / MODULE.RUNTIME_RELATIVE
         contract = MODULE.load_json(runtime / MODULE.CAPABILITIES_NAME)
         records = MODULE.benchmark_records(ROOT)
-        benchmark_capabilities = [
-            item for item in contract["capabilities"] if item["evidenceClass"] == "benchmark"
+        measured_capabilities = [
+            item for item in contract["capabilities"] if item.get("benchmarkRecordIDs")
         ]
-        self.assertTrue(benchmark_capabilities)
-        for item in benchmark_capabilities:
-            self.assertEqual(item["benchmarkEvidenceStatus"], "verified")
-            self.assertTrue(MODULE.capability_benchmark_is_fresh(ROOT, runtime, item, records))
+        self.assertTrue(measured_capabilities)
+        for item in measured_capabilities:
+            fresh = MODULE.capability_benchmark_is_fresh(ROOT, runtime, item, records)
+            if item["evidenceClass"] == "benchmark":
+                self.assertEqual(item["benchmarkEvidenceStatus"], "verified")
+                self.assertTrue(fresh)
+            else:
+                self.assertEqual(item["evidenceClass"], "diagnostic")
+                self.assertEqual(item["benchmarkEvidenceStatus"], "diagnostic")
+                self.assertTrue(item["benchmarkEvidenceReason"])
+                self.assertFalse(fresh)
 
     def test_stale_benchmark_cannot_be_reclassified_as_verified(self) -> None:
         runtime = ROOT / MODULE.RUNTIME_RELATIVE
         contract = MODULE.load_json(runtime / MODULE.CAPABILITIES_NAME)
         records = MODULE.benchmark_records(ROOT)
         capability = copy.deepcopy(
-            next(item for item in contract["capabilities"] if item["evidenceClass"] == "benchmark")
+            next(item for item in contract["capabilities"] if item.get("benchmarkRecordIDs"))
         )
+        capability["evidenceClass"] = "benchmark"
         capability["benchmarkRecordIDs"] = [
             "macos-xcui-benchmark-20260713-185716-7f12cd35"
         ]

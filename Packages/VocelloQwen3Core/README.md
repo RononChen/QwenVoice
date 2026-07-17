@@ -8,8 +8,9 @@ upstream model families remain recoverable from Git history or the recorded upst
 ## Checked-in products
 
 - **`VocelloQwen3Core`** — the stable first-party product boundary used by Vocello. It owns typed
-  model-bundle, capability, sampling, memory, request, ordered generation session/event, terminal,
-  cancellation, and diagnostic contracts, plus narrowly scoped runtime adapters.
+  model-bundle, capability, sampling, memory, request, engine-lease, classified generation-session,
+  terminal, cancellation, finalization, and diagnostic contracts, plus narrowly scoped runtime
+  adapters.
 - **`MLXAudioCore`** — generation protocols and shared audio utilities.
 - **`MLXAudioCodecs`** — the Mimi codec subset used by the Qwen3 speech tokenizer.
 - **`MLXAudioTTS`** — Qwen3-TTS only.
@@ -41,6 +42,15 @@ Xcode project. Product sources import that facade rather than the compatibility 
 `QwenVoiceCore` coordinates the product engine while this package owns Qwen3 model loading,
 sampling, streaming, Mimi decoding, and clone artifacts. `QwenVoiceBackendCore` contains shared
 provenance/policy vocabulary; it does not re-export this package.
+
+The staged convergence boundary is `VocelloQwen3Engine`. It keeps loaded-model identity separate
+from operation phase and retains one lease from reservation through explicit product finalization.
+A reserved generation remains inert until its one mandatory audio consumer is claimed. Core audio
+then uses a direct caller-isolated Qwen producer and frame-bounded suspending channel. Lazy audio is
+materialized to `[Float]` before the awaited send, so no `MLXArray` crosses a task or actor boundary;
+prepared state, coalesced progress, model terminal, bounded PCM-free diagnostics, cancellation, and
+product finalization remain independent. The old combined facade event session is a temporary
+compatibility surface and is not the target product authority.
 
 The `MLXAudioCore`, `MLXAudioCodecs`, and `MLXAudioTTS` products remain checked in for implementation
 compatibility. They may be used inside this package, but are not the application-layer dependency

@@ -52,10 +52,11 @@
       "sourcePatterns": ["Sources/MLXAudioCore/ModelUtils.swift", "Sources/MLXAudioTTS/ModelDiagnostics.swift", "Sources/MLXAudioTTS/TextProcessor.swift", "Sources/MLXAudioTTS/Models/Qwen3TTS/**"],
       "testPatterns": ["Tests/Qwen3RuntimeTests/**"],
       "documentation": ["PERFORMANCE.md", "UPSTREAM.md"],
-      "evidenceClass": "benchmark",
+      "evidenceClass": "diagnostic",
       "benchmarkRecordIDs": ["macos-xcui-benchmark-20260716-181853-b4c2e299"],
-      "benchmarkEvidenceStatus": "verified",
-      "upstreamDeltaIDs": ["LOAD-001", "SAMPLER-001", "COMPAT-001", "TEL-001"]
+      "benchmarkEvidenceStatus": "diagnostic",
+      "benchmarkEvidenceReason": "Request-local sampling v2 and staged runtime ownership changed the measured source identity; fresh promotion evidence is pending.",
+      "upstreamDeltaIDs": ["LOAD-001", "SAMPLER-001", "SAMPLER-002", "COMPAT-001", "TEL-001"]
     },
     {
       "id": "bounded-streaming",
@@ -64,9 +65,10 @@
       "sourcePatterns": ["Sources/MLXAudioTTS/RuntimeDebugGate.swift", "Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3StreamingMemoryTuning.swift", "Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift"],
       "testPatterns": ["Tests/Qwen3RuntimeTests/Qwen3GenerationGateTests.swift", "Tests/Qwen3RuntimeTests/Qwen3StreamingContractTests.swift"],
       "documentation": ["PERFORMANCE.md"],
-      "evidenceClass": "benchmark",
+      "evidenceClass": "diagnostic",
       "benchmarkRecordIDs": ["macos-xcui-benchmark-20260716-181853-b4c2e299"],
-      "benchmarkEvidenceStatus": "verified",
+      "benchmarkEvidenceStatus": "diagnostic",
+      "benchmarkEvidenceReason": "Staged classified-session convergence changed the measured source identity; fresh promotion evidence is pending.",
       "upstreamDeltaIDs": ["CONC-001", "STREAM-001"]
     },
     {

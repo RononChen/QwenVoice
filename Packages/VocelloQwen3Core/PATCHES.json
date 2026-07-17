@@ -81,7 +81,8 @@
       "documentation": ["PERFORMANCE.md"],
       "evidenceClass": "benchmark",
       "benchmarkRecordIDs": ["macos-xcui-benchmark-20260716-181853-b4c2e299"],
-      "benchmarkEvidenceStatus": "verified",
+      "benchmarkEvidenceStatus": "diagnostic",
+      "benchmarkEvidenceReason": "Runtime convergence changed the measured source identity; the historical record remains a control, not verification of the current runtime.",
       "upstreamDisposition": "local-only",
       "upstreamEquivalentCommit": null,
       "removalCriteria": "Remove only when an upstream loader provides the same revision, capability, trust, and cache contracts."
@@ -101,10 +102,35 @@
       "documentation": ["PERFORMANCE.md"],
       "evidenceClass": "benchmark",
       "benchmarkRecordIDs": ["macos-xcui-benchmark-20260716-181853-b4c2e299"],
-      "benchmarkEvidenceStatus": "verified",
+      "benchmarkEvidenceStatus": "diagnostic",
+      "benchmarkEvidenceReason": "Sampling algorithm v2 changes random-state ownership and requires fresh fixed-seed quality evidence.",
       "upstreamDisposition": "upstreamable",
       "upstreamEquivalentCommit": null,
       "removalCriteria": "Remove individual optimizations only after upstream parity and deterministic waveform tests."
+    },
+    {
+      "id": "SAMPLER-002",
+      "title": "Request-local versioned MLX random state and independent subtalker policy",
+      "category": "sampling",
+      "state": "active",
+      "files": [
+        "Sources/MLXAudioTTS/Generation.swift",
+        "Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift",
+        "Sources/VocelloQwen3Core/Contracts.swift",
+        "Sources/VocelloQwen3Core/LoadedModel.swift",
+        "Tests/Qwen3RuntimeTests/Qwen3RequestSamplingTests.swift",
+        "Tests/Qwen3RuntimeTests/VocelloQwen3FacadeTests.swift"
+      ],
+      "tests": [
+        "Tests/Qwen3RuntimeTests/Qwen3RequestSamplingTests.swift",
+        "Tests/Qwen3RuntimeTests/VocelloQwen3FacadeTests.swift"
+      ],
+      "documentation": ["PERFORMANCE.md"],
+      "evidenceClass": "unmeasured",
+      "benchmarkRecordIDs": [],
+      "upstreamDisposition": "upstreamable",
+      "upstreamEquivalentCommit": null,
+      "removalCriteria": "Remove only after an upstream API carries versioned talker/subtalker policy and request-local reproducible random state without process-global mutation."
     },
     {
       "id": "STREAM-001",
@@ -122,7 +148,8 @@
       "documentation": ["PERFORMANCE.md"],
       "evidenceClass": "benchmark",
       "benchmarkRecordIDs": ["macos-xcui-benchmark-20260716-181853-b4c2e299"],
-      "benchmarkEvidenceStatus": "verified",
+      "benchmarkEvidenceStatus": "diagnostic",
+      "benchmarkEvidenceReason": "Runtime convergence changed the streaming/session source identity; fresh promotion evidence is pending.",
       "upstreamDisposition": "upstreamable",
       "upstreamEquivalentCommit": null,
       "removalCriteria": "Remove only after upstream proves bounded retention, cancellation, ordering, and final barrier parity."
@@ -224,14 +251,18 @@
       "state": "active",
       "files": [
         "Sources/VocelloQwen3Core/CompatibilityExports.swift",
+        "Sources/VocelloQwen3Core/ClassifiedGenerationSession.swift",
         "Sources/VocelloQwen3Core/Contracts.swift",
+        "Sources/VocelloQwen3Core/Engine.swift",
         "Sources/VocelloQwen3Core/GenerationSession.swift",
         "Sources/VocelloQwen3Core/LoadedModel.swift",
+        "Sources/VocelloQwen3Core/ProductOutputAdapter.swift",
         "Sources/VocelloQwen3Core/Runtime.swift",
+        "Tests/Qwen3RuntimeTests/ClassifiedGenerationSessionTests.swift",
         "Tests/Qwen3RuntimeTests/VocelloQwen3FacadeTests.swift"
       ],
-      "tests": ["Tests/Qwen3RuntimeTests/VocelloQwen3FacadeTests.swift"],
-      "documentation": ["README.md", "COMPATIBILITY.json", "OWNERSHIP.json"],
+      "tests": ["Tests/Qwen3RuntimeTests/ClassifiedGenerationSessionTests.swift", "Tests/Qwen3RuntimeTests/VocelloQwen3FacadeTests.swift"],
+      "documentation": ["README.md", "COMPATIBILITY.json", "OWNERSHIP.json", "PERFORMANCE.md"],
       "evidenceClass": "static",
       "benchmarkRecordIDs": [],
       "upstreamDisposition": "local-only",

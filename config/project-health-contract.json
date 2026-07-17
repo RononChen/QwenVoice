@@ -65,6 +65,8 @@
         "Sources/QwenVoiceCore/HuggingFaceDownloader.swift",
         "Sources/QwenVoiceCore/IOSModelDownloadLedger.swift",
         "Sources/QwenVoiceCore/ProductionModelCatalog.swift",
+        "Sources/QwenVoiceCore/SharedModelComponentStore.swift",
+        "Sources/QwenVoiceCore/ModelAssets.swift",
         "Sources/Models/TTSContract.swift",
         "Sources/Models/TTSModel.swift",
         "Sources/Resources/qwenvoice*model_catalog.json",
@@ -74,7 +76,8 @@
         "Sources/iOS/*ModelDownload*.swift",
         "Sources/iOSSupport/Services/IOSModelDeliverySupport.swift",
         "config/model-artifact-receipts.json",
-        "config/model-catalog-schema-v1.json"
+        "config/model-catalog-schema-v1.json",
+        "config/model-catalog-schema-v2.json"
       ],
       "testGlobs": [
         "Tests/VocelloCoreTests/ModelDownloadLifecycleTests.swift",

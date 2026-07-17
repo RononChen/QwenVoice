@@ -35,14 +35,6 @@ private final class CachedTokenizerBox: @unchecked Sendable {
     }
 }
 
-private final class CachedSpeechTokenizerBox: @unchecked Sendable {
-    let speechTokenizer: Qwen3TTSSpeechTokenizer
-
-    init(speechTokenizer: Qwen3TTSSpeechTokenizer) {
-        self.speechTokenizer = speechTokenizer
-    }
-}
-
 private struct LoadedTalkerComponents: @unchecked Sendable {
     let talker: Qwen3TTSTalkerForConditionalGeneration
     let speakerEncoder: Qwen3TTSSpeakerEncoder?
@@ -61,7 +53,6 @@ private struct LoadedTokenizerComponent: Sendable {
 
 private struct LoadedSpeechTokenizerComponent: @unchecked Sendable {
     let speechTokenizer: Qwen3TTSSpeechTokenizer?
-    let cacheHit: Bool
     let loadMS: Int
     let booleanFlags: [String: Bool]
 }
@@ -291,68 +282,6 @@ private enum Qwen3GenerationSpeedProfile: String, Sendable {
     }
 }
 
-/// Sampling knobs that MLXLMCommon's `GenerateParameters` cannot carry
-/// (it has no topK/minP fields) plus the official `generation_config`'s
-/// independent subtalker (code-predictor) sampling surface. Defaults
-/// reproduce the official checkpoint behavior exactly: talker topK 50,
-/// minP off, subtalker inheriting the talker values (the official
-/// subtalker_{temperature,top_k,top_p} ship identical to the talker's).
-/// Env knobs exist for delivery-tuning A/Bs (dev workflow; resolved once):
-///   QWENVOICE_TALKER_TOPK / QWENVOICE_TALKER_MINP
-///   QWENVOICE_SUBTALKER_TEMP / QWENVOICE_SUBTALKER_TOPK / QWENVOICE_SUBTALKER_TOPP
-struct Qwen3SamplingOverrides: Sendable {
-    var talkerTopK: Int = 50
-    var talkerMinP: Float = 0.0
-    /// nil = inherit the talker's effective value for that knob.
-    var subtalkerTemperature: Float?
-    var subtalkerTopK: Int?
-    var subtalkerTopP: Float?
-
-    static let shared = resolveFromEnvironment()
-
-    static func resolveFromEnvironment(
-        _ env: [String: String] = ProcessInfo.processInfo.environment
-    ) -> Qwen3SamplingOverrides {
-        var overrides = Qwen3SamplingOverrides()
-        if let raw = VocelloQwen3ImplementationDebugGate.value(
-            for: "QWENVOICE_TALKER_TOPK",
-            environment: env
-        ), let value = Int(raw), value > 0 {
-            overrides.talkerTopK = value
-        }
-        if let raw = VocelloQwen3ImplementationDebugGate.value(
-            for: "QWENVOICE_TALKER_MINP",
-            environment: env
-        ), let value = Float(raw), value >= 0 {
-            overrides.talkerMinP = value
-        }
-        if let raw = VocelloQwen3ImplementationDebugGate.value(
-            for: "QWENVOICE_SUBTALKER_TEMP",
-            environment: env
-        ), let value = Float(raw), value > 0 {
-            overrides.subtalkerTemperature = value
-        }
-        if let raw = VocelloQwen3ImplementationDebugGate.value(
-            for: "QWENVOICE_SUBTALKER_TOPK",
-            environment: env
-        ), let value = Int(raw), value > 0 {
-            overrides.subtalkerTopK = value
-        }
-        if let raw = VocelloQwen3ImplementationDebugGate.value(
-            for: "QWENVOICE_SUBTALKER_TOPP",
-            environment: env
-        ), let value = Float(raw), value > 0 {
-            overrides.subtalkerTopP = value
-        }
-        return overrides
-    }
-
-    var isOfficialDefault: Bool {
-        talkerTopK == 50 && talkerMinP == 0
-            && subtalkerTemperature == nil && subtalkerTopK == nil && subtalkerTopP == nil
-    }
-}
-
 private enum Qwen3StreamingGenerationMode: String, Sendable {
     case custom
     case design
@@ -431,94 +360,67 @@ private enum Qwen3StreamStepEvalPolicy: String, Sendable {
 private let talkerEvalLayerBatchSize = 4
 private let speechTokenizerEvalBatchSize = 8
 
-private actor Qwen3TTSPreparedComponentCache {
+/// Thread-safe cache for the immutable text tokenizer only. Speech tokenizers
+/// contain mutable decoder streaming state and remain owned by one loaded model;
+/// sharing them across engines would bypass each engine's operation lease.
+private final class Qwen3TTSPreparedComponentCache: Sendable {
+    private struct State {
+        var tokenizersByPreparedKey: [String: CachedTokenizerBox] = [:]
+        var tokenizerLRU: [String] = []
+    }
+
     static let shared = Qwen3TTSPreparedComponentCache()
 
 #if os(iOS)
     private let tokenizerLimit = 1
-    private let speechTokenizerLimit = 1
 #else
     private let tokenizerLimit = 3
-    private let speechTokenizerLimit = 3
 #endif
-    private var tokenizersByPreparedKey: [String: CachedTokenizerBox] = [:]
-    private var speechTokenizersByPreparedKey: [String: CachedSpeechTokenizerBox] = [:]
-    private var tokenizerLRU: [String] = []
-    private var speechTokenizerLRU: [String] = []
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
     func cachedTokenizer(for preparedKey: String) -> CachedTokenizerBox? {
-        guard let box = tokenizersByPreparedKey[preparedKey] else {
-            return nil
-        }
-        touchTokenizer(preparedKey)
-        return box
-    }
-
-    func cachedSpeechTokenizer(for preparedKey: String) -> CachedSpeechTokenizerBox? {
-        if let box = speechTokenizersByPreparedKey[preparedKey] {
-            touchSpeechTokenizer(preparedKey)
-            box.speechTokenizer.decoder.resetStreamingState()
+        state.withLock { value in
+            guard let box = value.tokenizersByPreparedKey[preparedKey] else {
+                return nil
+            }
+            Self.touch(preparedKey, in: &value.tokenizerLRU)
             return box
         }
-        return nil
     }
 
     func storeTokenizer(_ tokenizer: Tokenizer, for preparedKey: String) {
-        tokenizersByPreparedKey[preparedKey] = CachedTokenizerBox(tokenizer: tokenizer)
-        touchTokenizer(preparedKey)
-        trimTokenizersIfNeeded()
-    }
-
-    func storeSpeechTokenizer(_ speechTokenizer: Qwen3TTSSpeechTokenizer, for preparedKey: String) {
-        speechTokenizer.decoder.resetStreamingState()
-        speechTokenizersByPreparedKey[preparedKey] = CachedSpeechTokenizerBox(
-            speechTokenizer: speechTokenizer
-        )
-        touchSpeechTokenizer(preparedKey)
-        trimSpeechTokenizersIfNeeded()
-    }
-
-    func storeSpeechTokenizerAndReturn(
-        _ speechTokenizer: Qwen3TTSSpeechTokenizer,
-        for preparedKey: String
-    ) -> CachedSpeechTokenizerBox {
-        speechTokenizer.decoder.resetStreamingState()
-        let box = CachedSpeechTokenizerBox(speechTokenizer: speechTokenizer)
-        speechTokenizersByPreparedKey[preparedKey] = box
-        touchSpeechTokenizer(preparedKey)
-        trimSpeechTokenizersIfNeeded()
-        return box
-    }
-
-    func clear() {
-        tokenizersByPreparedKey.removeAll()
-        speechTokenizersByPreparedKey.removeAll()
-        tokenizerLRU.removeAll()
-        speechTokenizerLRU.removeAll()
-        Memory.clearCache()
-    }
-
-    private func touchTokenizer(_ preparedKey: String) {
-        tokenizerLRU.removeAll { $0 == preparedKey }
-        tokenizerLRU.append(preparedKey)
-    }
-
-    private func touchSpeechTokenizer(_ preparedKey: String) {
-        speechTokenizerLRU.removeAll { $0 == preparedKey }
-        speechTokenizerLRU.append(preparedKey)
-    }
-
-    private func trimTokenizersIfNeeded() {
-        while tokenizerLRU.count > tokenizerLimit, let evicted = tokenizerLRU.first {
-            tokenizerLRU.removeFirst()
-            tokenizersByPreparedKey.removeValue(forKey: evicted)
+        let box = CachedTokenizerBox(tokenizer: tokenizer)
+        state.withLock { value in
+            value.tokenizersByPreparedKey[preparedKey] = box
+            Self.touch(preparedKey, in: &value.tokenizerLRU)
+            Self.trim(
+                keys: &value.tokenizerLRU,
+                values: &value.tokenizersByPreparedKey,
+                limit: tokenizerLimit
+            )
         }
     }
 
-    private func trimSpeechTokenizersIfNeeded() {
-        while speechTokenizerLRU.count > speechTokenizerLimit, let evicted = speechTokenizerLRU.first {
-            speechTokenizerLRU.removeFirst()
-            speechTokenizersByPreparedKey.removeValue(forKey: evicted)
+    func clear() {
+        state.withLock { value in
+            value.tokenizersByPreparedKey.removeAll()
+            value.tokenizerLRU.removeAll()
+        }
+    }
+
+    private static func touch(_ key: String, in keys: inout [String]) {
+        keys.removeAll { $0 == key }
+        keys.append(key)
+    }
+
+    private static func trim<Value>(
+        keys: inout [String],
+        values: inout [String: Value],
+        limit: Int
+    ) {
+        while keys.count > limit, let evicted = keys.first {
+            keys.removeFirst()
+            values.removeValue(forKey: evicted)
         }
     }
 }
@@ -1118,8 +1020,11 @@ private final class Qwen3TTSStreamingDecoderBucketCache: @unchecked Sendable {
 }
 
 public enum Qwen3TTSMemoryCaches {
-    public static func clearAll() async {
-        await Qwen3TTSPreparedComponentCache.shared.clear()
+    public static func clearAll(
+        isolation: isolated (any Actor)? = #isolation
+    ) async {
+        _ = isolation
+        Qwen3TTSPreparedComponentCache.shared.clear()
         Qwen3TTSConditioningPrefixCache.shared.clear()
         Qwen3TTSStreamingDecoderBucketCache.shared.clear()
         Memory.clearCache()
@@ -1188,17 +1093,17 @@ actor Qwen3TTSGenerationGate {
 
     var queuedWaiterCount: Int { waiters.count }
 
-    func withPermit<T: Sendable>(
+    nonisolated func withPermit<T: Sendable>(
         _ operation: @Sendable () async throws -> T
     ) async throws -> T {
         try await acquire()
         do {
             try Task.checkCancellation()
             let result = try await operation()
-            release()
+            await release()
             return result
         } catch {
-            release()
+            await release()
             throw error
         }
     }
@@ -1267,7 +1172,7 @@ struct Qwen3StreamChunkSchedule: Sendable {
 
 // MARK: - Qwen3TTS Model
 
-public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedSpeechGenerationModel, Qwen3CustomVoicePrewarmDepthControlling, SpeechGenerationModelDiagnosticsProvider, @unchecked Sendable {
+public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedSpeechGenerationModel, Qwen3SuspendingSpeechGenerationModel, Qwen3CustomVoicePrewarmDepthControlling, SpeechGenerationModelDiagnosticsProvider, @unchecked Sendable {
     private static let productionMinimumGeneratedCodeTokensBeforeEOS = 2
     private static let productionFullResultMemoryClearCadence = 0
 
@@ -1730,8 +1635,11 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         preparationEvalTimingKey: String? = nil,
         streamStepEvalTimingKey: String? = nil,
         streamStepWarmBooleanFlag: String? = nil,
-        precompileDecoderBuckets: Bool = true
+        precompileDecoderBuckets: Bool = true,
+        memoryPolicy: Qwen3RequestMemoryPolicy = .compatibilityDefault,
+        isolation: isolated (any Actor)? = #isolation
     ) async throws {
+        _ = isolation
         guard let speechTokenizer else {
             throw AudioGenerationError.modelNotInitialized("Speech tokenizer not loaded")
         }
@@ -1740,7 +1648,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         }
 
         let cache: [any KVCache]
-        if let talkerKVWindow = Qwen3StreamingMemoryTuning.talkerKVGeneratedWindow {
+        if let talkerKVWindow = memoryPolicy.talkerKVGeneratedWindow {
             // Sliding-window talker KV (constrained tiers): keep = the conditioning
             // prefill length (control + full text, always at the front of the
             // sequence), so only old generated audio-codec tokens rotate out.
@@ -1883,7 +1791,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         language: String,
         speaker: String,
         instruct: String?,
-        generationParameters: GenerateParameters
+        generationParameters: GenerateParameters,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        isolation: isolated (any Actor)? = #isolation
     ) async throws {
         try await prepareCustomVoice(
             text: text,
@@ -1891,7 +1801,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             speaker: speaker,
             instruct: instruct,
             generationParameters: generationParameters,
-            customPrewarmDepth: nil
+            memoryPolicy: memoryPolicy,
+            customPrewarmDepth: nil,
+            isolation: isolation
         )
     }
 
@@ -1901,9 +1813,11 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         speaker: String,
         instruct: String?,
         generationParameters _: GenerateParameters,
-        customPrewarmDepth: String?
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        customPrewarmDepth: String?,
+        isolation: isolated (any Actor)? = #isolation
     ) async throws {
-        try await withGenerationGate {
+        try await withGenerationGate(isolation: isolation) {
         guard speechTokenizer != nil else {
             throw AudioGenerationError.modelNotInitialized("Speech tokenizer not loaded")
         }
@@ -1933,7 +1847,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             preparationEvalTimingKey: "custom_prewarm_eval_ms",
             streamStepEvalTimingKey: prewarmDepth.warmsStreamStep ? "custom_stream_step_warm_ms" : nil,
             streamStepWarmBooleanFlag: "custom_stream_step_prewarmed",
-            precompileDecoderBuckets: prewarmDepth.precompileDecoderBuckets
+            precompileDecoderBuckets: prewarmDepth.precompileDecoderBuckets,
+            memoryPolicy: memoryPolicy,
+            isolation: isolation
         )
         }
     }
@@ -1942,9 +1858,11 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         text: String,
         language: String,
         voiceDescription: String,
-        generationParameters _: GenerateParameters
+        generationParameters _: GenerateParameters,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        isolation: isolated (any Actor)? = #isolation
     ) async throws {
-        try await withGenerationGate {
+        try await withGenerationGate(isolation: isolation) {
         guard speechTokenizer != nil else {
             throw AudioGenerationError.modelNotInitialized("Speech tokenizer not loaded")
         }
@@ -1970,7 +1888,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             additionalTimingsMS: designPrefixPrepareMS,
             preparationEvalTimingKey: "design_prewarm_eval_ms",
             streamStepEvalTimingKey: "design_stream_step_warm_ms",
-            streamStepWarmBooleanFlag: "design_stream_step_prewarmed"
+            streamStepWarmBooleanFlag: "design_stream_step_prewarmed",
+            memoryPolicy: memoryPolicy,
+            isolation: isolation
         )
         }
     }
@@ -2027,9 +1947,11 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         text: String,
         language: String,
         voiceClonePrompt: Qwen3TTSVoiceClonePrompt,
-        generationParameters _: GenerateParameters
+        generationParameters _: GenerateParameters,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        isolation: isolated (any Actor)? = #isolation
     ) async throws {
-        try await withGenerationGate {
+        try await withGenerationGate(isolation: isolation) {
         guard speechTokenizer != nil else {
             throw AudioGenerationError.modelNotInitialized("Speech tokenizer not loaded")
         }
@@ -2048,7 +1970,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             inputPreparationMS: startedAt.elapsedMilliseconds,
             booleanFlags: [
                 "clone_prompt_used": true,
-            ]
+            ],
+            memoryPolicy: memoryPolicy,
+            isolation: isolation
         )
         }
     }
@@ -2141,9 +2065,20 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
     }
 
     private func withGenerationGate<T: Sendable>(
-        _ operation: @Sendable () async throws -> T
+        isolation: isolated (any Actor)? = #isolation,
+        _ operation: () async throws -> T
     ) async throws -> T {
-        try await generationGate.withPermit(operation)
+        _ = isolation
+        try await generationGate.acquire()
+        do {
+            try Task.checkCancellation()
+            let result = try await operation()
+            await generationGate.release()
+            return result
+        } catch {
+            await generationGate.release()
+            throw error
+        }
     }
 
     // MARK: - SpeechGenerationModel protocol
@@ -2167,20 +2102,22 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         // VoiceDesign: voice parameter is the instruct (voice description)
         let instruct = voice
 
-        let audio = try generateVoiceDesign(
-            text: text,
-            instruct: instruct,
-            language: language ?? "auto",
-            refAudio: refAudio,
-            refText: refText,
-            temperature: generationParameters.temperature,
-            topK: Qwen3SamplingOverrides.shared.talkerTopK,
-            topP: generationParameters.topP,
-            repetitionPenalty: generationParameters.repetitionPenalty ?? 1.05,
-            minP: Qwen3SamplingOverrides.shared.talkerMinP,
-            maxTokens: generationParameters.maxTokens ?? 4096,
-            memoryClearCadence: Self.productionFullResultMemoryClearCadence
+        let samplingPolicy = Qwen3RequestSamplingPolicy.official(
+            generationParameters,
+            effectiveSeed: UInt64.random(in: UInt64.min ... UInt64.max)
         )
+        let audio = try await samplingPolicy.runWithRandomState {
+            try await generateVoiceDesign(
+                text: text,
+                instruct: instruct,
+                language: language ?? "auto",
+                refAudio: refAudio,
+                refText: refText,
+                samplingPolicy: samplingPolicy,
+                memoryPolicy: .compatibilityDefault,
+                memoryClearCadence: Self.productionFullResultMemoryClearCadence
+            )
+        }
         return audio
         }
     }
@@ -2230,44 +2167,41 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 // VoiceDesign: voice parameter is the instruct (voice description)
                 let instruct = voice
                 let lang = language ?? "auto"
-                let temp = generationParameters.temperature
-                let topP = generationParameters.topP
-                let repPenalty = generationParameters.repetitionPenalty ?? 1.05
-                let maxTokens = generationParameters.maxTokens ?? 4096
-
-                _ = try generateVoiceDesign(
-                    text: text,
-                    instruct: instruct,
-                    language: lang,
-                    refAudio: refAudio,
-                    refText: refText,
-                    temperature: temp,
-                    topK: Qwen3SamplingOverrides.shared.talkerTopK,
-                    topP: topP,
-                    repetitionPenalty: repPenalty,
-                    minP: Qwen3SamplingOverrides.shared.talkerMinP,
-                    maxTokens: maxTokens,
-                    streamingInterval: streamingInterval,
-                    streamStepEvalPolicy: nil,
-                    generationSpeedProfile: nil,
-                    memoryClearCadence: nil,
-                    onToken: { tokenId in
-                        guard !Task.isCancelled else { return }
-                        continuation.yield(.token(tokenId))
-                    },
-                    onInfo: { info in
-                        guard !Task.isCancelled else { return }
-                        continuation.yield(.info(info))
-                    },
-                    onAudioChunk: { chunk in
-                        guard !Task.isCancelled else { return }
-                        continuation.yield(.audio(chunk))
-                    },
-                    onAudioChunkTimings: enableChunkTimings ? { timings in
-                        guard !Task.isCancelled else { return }
-                        continuation.yield(.chunkTimings(timings))
-                    } : nil
+                let samplingPolicy = Qwen3RequestSamplingPolicy.official(
+                    generationParameters,
+                    effectiveSeed: UInt64.random(in: UInt64.min ... UInt64.max)
                 )
+                _ = try await samplingPolicy.runWithRandomState {
+                    try await generateVoiceDesign(
+                        text: text,
+                        instruct: instruct,
+                        language: lang,
+                        refAudio: refAudio,
+                        refText: refText,
+                        samplingPolicy: samplingPolicy,
+                        memoryPolicy: .compatibilityDefault,
+                        streamingInterval: streamingInterval,
+                        streamStepEvalPolicy: nil,
+                        generationSpeedProfile: nil,
+                        memoryClearCadence: nil,
+                        onToken: { tokenId in
+                            guard !Task.isCancelled else { return }
+                            continuation.yield(.token(tokenId))
+                        },
+                        onInfo: { info in
+                            guard !Task.isCancelled else { return }
+                            continuation.yield(.info(info))
+                        },
+                        onAudioChunk: { chunk in
+                            guard !Task.isCancelled else { return }
+                            continuation.yield(.audio(chunk))
+                        },
+                        onAudioChunkTimings: enableChunkTimings ? { timings in
+                            guard !Task.isCancelled else { return }
+                            continuation.yield(.chunkTimings(timings))
+                        } : nil
+                    )
+                }
                 }
                 continuation.finish()
             } catch {
@@ -2285,30 +2219,30 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         language: String,
         speaker: String,
         instruct: String?,
-        generationParameters: GenerateParameters
+        generationParameters _: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy
     ) async throws -> AudioGenerationCompletion {
         try await withGenerationGate {
         var generationInfo: AudioGenerationInfo?
-        let audio = try generateVoiceDesign(
-            text: text,
-            instruct: instruct,
-            language: language,
-            speaker: speaker,
-            refAudio: nil,
-            refText: nil,
-            temperature: generationParameters.temperature,
-            topK: Qwen3SamplingOverrides.shared.talkerTopK,
-            topP: generationParameters.topP,
-            repetitionPenalty: generationParameters.repetitionPenalty ?? 1.05,
-            minP: Qwen3SamplingOverrides.shared.talkerMinP,
-            maxTokens: generationParameters.maxTokens ?? 2_048,
-            textConditioningMode: .fullTextNonStreaming,
-            customVoiceProfile: nil,
-            streamStepEvalPolicy: nil,
-            generationSpeedProfile: nil,
-            memoryClearCadence: Self.productionFullResultMemoryClearCadence,
-            onInfo: { generationInfo = $0 }
-        )
+        let audio = try await samplingPolicy.runWithRandomState {
+            try await generateVoiceDesign(
+                text: text,
+                instruct: instruct,
+                language: language,
+                speaker: speaker,
+                refAudio: nil,
+                refText: nil,
+                samplingPolicy: samplingPolicy,
+                memoryPolicy: memoryPolicy,
+                textConditioningMode: .fullTextNonStreaming,
+                customVoiceProfile: nil,
+                streamStepEvalPolicy: nil,
+                generationSpeedProfile: nil,
+                memoryClearCadence: Self.productionFullResultMemoryClearCadence,
+                onInfo: { generationInfo = $0 }
+            )
+        }
         return AudioGenerationCompletion(
             audio: audio,
             info: generationInfo,
@@ -2321,29 +2255,29 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         text: String,
         language: String,
         voiceDescription: String,
-        generationParameters: GenerateParameters
+        generationParameters _: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy
     ) async throws -> AudioGenerationCompletion {
         try await withGenerationGate {
         var generationInfo: AudioGenerationInfo?
-        let audio = try generateVoiceDesign(
-            text: text,
-            instruct: voiceDescription,
-            language: language,
-            refAudio: nil,
-            refText: nil,
-            temperature: generationParameters.temperature,
-            topK: Qwen3SamplingOverrides.shared.talkerTopK,
-            topP: generationParameters.topP,
-            repetitionPenalty: generationParameters.repetitionPenalty ?? 1.05,
-            minP: Qwen3SamplingOverrides.shared.talkerMinP,
-            maxTokens: generationParameters.maxTokens ?? 2_048,
-            textConditioningMode: .fullTextNonStreaming,
-            customVoiceProfile: nil,
-            streamStepEvalPolicy: nil,
-            generationSpeedProfile: nil,
-            memoryClearCadence: Self.productionFullResultMemoryClearCadence,
-            onInfo: { generationInfo = $0 }
-        )
+        let audio = try await samplingPolicy.runWithRandomState {
+            try await generateVoiceDesign(
+                text: text,
+                instruct: voiceDescription,
+                language: language,
+                refAudio: nil,
+                refText: nil,
+                samplingPolicy: samplingPolicy,
+                memoryPolicy: memoryPolicy,
+                textConditioningMode: .fullTextNonStreaming,
+                customVoiceProfile: nil,
+                streamStepEvalPolicy: nil,
+                generationSpeedProfile: nil,
+                memoryClearCadence: Self.productionFullResultMemoryClearCadence,
+                onInfo: { generationInfo = $0 }
+            )
+        }
         return AudioGenerationCompletion(
             audio: audio,
             info: generationInfo,
@@ -2356,31 +2290,31 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         text: String,
         language: String,
         voiceClonePrompt: Qwen3TTSVoiceClonePrompt,
-        generationParameters: GenerateParameters
+        generationParameters _: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy
     ) async throws -> AudioGenerationCompletion {
         try await withGenerationGate {
         var generationInfo: AudioGenerationInfo?
-        let audio = try generateVoiceDesign(
-            text: text,
-            instruct: nil,
-            language: language,
-            speaker: nil,
-            refAudio: nil,
-            refText: nil,
-            voiceClonePrompt: voiceClonePrompt,
-            temperature: generationParameters.temperature,
-            topK: Qwen3SamplingOverrides.shared.talkerTopK,
-            topP: generationParameters.topP,
-            repetitionPenalty: generationParameters.repetitionPenalty ?? 1.05,
-            minP: Qwen3SamplingOverrides.shared.talkerMinP,
-            maxTokens: generationParameters.maxTokens ?? 2_048,
-            textConditioningMode: .fullTextNonStreaming,
-            customVoiceProfile: nil,
-            streamStepEvalPolicy: nil,
-            generationSpeedProfile: nil,
-            memoryClearCadence: Self.productionFullResultMemoryClearCadence,
-            onInfo: { generationInfo = $0 }
-        )
+        let audio = try await samplingPolicy.runWithRandomState {
+            try await generateVoiceDesign(
+                text: text,
+                instruct: nil,
+                language: language,
+                speaker: nil,
+                refAudio: nil,
+                refText: nil,
+                voiceClonePrompt: voiceClonePrompt,
+                samplingPolicy: samplingPolicy,
+                memoryPolicy: memoryPolicy,
+                textConditioningMode: .fullTextNonStreaming,
+                customVoiceProfile: nil,
+                streamStepEvalPolicy: nil,
+                generationSpeedProfile: nil,
+                memoryClearCadence: Self.productionFullResultMemoryClearCadence,
+                onInfo: { generationInfo = $0 }
+            )
+        }
         return AudioGenerationCompletion(
             audio: audio,
             info: generationInfo,
@@ -2407,7 +2341,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         language: String,
         speaker: String,
         instruct: String?,
-        generationParameters: GenerateParameters,
+        generationParameters _: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
         streamingInterval: Double,
         customVoiceProfile: String?,
         streamStepEvalPolicy: String?,
@@ -2421,41 +2357,39 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             do {
                 try await withGenerationGate {
                 try Task.checkCancellation()
-                _ = try generateVoiceDesign(
-                    text: text,
-                    instruct: instruct,
-                    language: language,
-                    speaker: speaker,
-                    refAudio: nil,
-                    refText: nil,
-                    temperature: generationParameters.temperature,
-                    topK: Qwen3SamplingOverrides.shared.talkerTopK,
-                    topP: generationParameters.topP,
-                    repetitionPenalty: generationParameters.repetitionPenalty ?? 1.05,
-                    minP: Qwen3SamplingOverrides.shared.talkerMinP,
-                    maxTokens: generationParameters.maxTokens ?? 4096,
-                    streamingInterval: streamingInterval,
-                    customVoiceProfile: customVoiceProfile,
-                    streamStepEvalPolicy: streamStepEvalPolicy,
-                    generationSpeedProfile: generationSpeedProfile,
-                    memoryClearCadence: memoryClearCadence,
-                    onToken: {
-                        guard !Task.isCancelled else { return }
-                        continuation.yield(.token($0))
-                    },
-                    onInfo: {
-                        guard !Task.isCancelled else { return }
-                        continuation.yield(.info($0))
-                    },
-                    onAudioChunk: {
-                        guard !Task.isCancelled else { return }
-                        continuation.yield(.audio($0))
-                    },
-                    onAudioChunkTimings: enableChunkTimings ? {
-                        guard !Task.isCancelled else { return }
-                        continuation.yield(.chunkTimings($0))
-                    } : nil
-                )
+                _ = try await samplingPolicy.runWithRandomState {
+                    try await generateVoiceDesign(
+                        text: text,
+                        instruct: instruct,
+                        language: language,
+                        speaker: speaker,
+                        refAudio: nil,
+                        refText: nil,
+                        samplingPolicy: samplingPolicy,
+                        memoryPolicy: memoryPolicy,
+                        streamingInterval: streamingInterval,
+                        customVoiceProfile: customVoiceProfile,
+                        streamStepEvalPolicy: streamStepEvalPolicy,
+                        generationSpeedProfile: generationSpeedProfile,
+                        memoryClearCadence: memoryClearCadence,
+                        onToken: {
+                            guard !Task.isCancelled else { return }
+                            continuation.yield(.token($0))
+                        },
+                        onInfo: {
+                            guard !Task.isCancelled else { return }
+                            continuation.yield(.info($0))
+                        },
+                        onAudioChunk: {
+                            guard !Task.isCancelled else { return }
+                            continuation.yield(.audio($0))
+                        },
+                        onAudioChunkTimings: enableChunkTimings ? {
+                            guard !Task.isCancelled else { return }
+                            continuation.yield(.chunkTimings($0))
+                        } : nil
+                    )
+                }
                 }
                 continuation.finish()
             } catch {
@@ -2472,7 +2406,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         text: String,
         language: String,
         voiceDescription: String,
-        generationParameters: GenerateParameters,
+        generationParameters _: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
         streamingInterval: Double,
         streamStepEvalPolicy: String?,
         generationSpeedProfile: String?,
@@ -2485,39 +2421,37 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             do {
                 try await withGenerationGate {
                 try Task.checkCancellation()
-                _ = try generateVoiceDesign(
-                    text: text,
-                    instruct: voiceDescription,
-                    language: language,
-                    refAudio: nil,
-                    refText: nil,
-                    temperature: generationParameters.temperature,
-                    topK: Qwen3SamplingOverrides.shared.talkerTopK,
-                    topP: generationParameters.topP,
-                    repetitionPenalty: generationParameters.repetitionPenalty ?? 1.05,
-                    minP: Qwen3SamplingOverrides.shared.talkerMinP,
-                    maxTokens: generationParameters.maxTokens ?? 4096,
-                    streamingInterval: streamingInterval,
-                    streamStepEvalPolicy: streamStepEvalPolicy,
-                    generationSpeedProfile: generationSpeedProfile,
-                    memoryClearCadence: memoryClearCadence,
-                    onToken: {
-                        guard !Task.isCancelled else { return }
-                        continuation.yield(.token($0))
-                    },
-                    onInfo: {
-                        guard !Task.isCancelled else { return }
-                        continuation.yield(.info($0))
-                    },
-                    onAudioChunk: {
-                        guard !Task.isCancelled else { return }
-                        continuation.yield(.audio($0))
-                    },
-                    onAudioChunkTimings: enableChunkTimings ? {
-                        guard !Task.isCancelled else { return }
-                        continuation.yield(.chunkTimings($0))
-                    } : nil
-                )
+                _ = try await samplingPolicy.runWithRandomState {
+                    try await generateVoiceDesign(
+                        text: text,
+                        instruct: voiceDescription,
+                        language: language,
+                        refAudio: nil,
+                        refText: nil,
+                        samplingPolicy: samplingPolicy,
+                        memoryPolicy: memoryPolicy,
+                        streamingInterval: streamingInterval,
+                        streamStepEvalPolicy: streamStepEvalPolicy,
+                        generationSpeedProfile: generationSpeedProfile,
+                        memoryClearCadence: memoryClearCadence,
+                        onToken: {
+                            guard !Task.isCancelled else { return }
+                            continuation.yield(.token($0))
+                        },
+                        onInfo: {
+                            guard !Task.isCancelled else { return }
+                            continuation.yield(.info($0))
+                        },
+                        onAudioChunk: {
+                            guard !Task.isCancelled else { return }
+                            continuation.yield(.audio($0))
+                        },
+                        onAudioChunkTimings: enableChunkTimings ? {
+                            guard !Task.isCancelled else { return }
+                            continuation.yield(.chunkTimings($0))
+                        } : nil
+                    )
+                }
                 }
                 continuation.finish()
             } catch {
@@ -2534,7 +2468,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         text: String,
         language: String,
         voiceClonePrompt: Qwen3TTSVoiceClonePrompt,
-        generationParameters: GenerateParameters,
+        generationParameters _: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
         streamingInterval: Double,
         streamStepEvalPolicy: String?,
         generationSpeedProfile: String?,
@@ -2547,41 +2483,39 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             do {
                 try await withGenerationGate {
                 try Task.checkCancellation()
-                _ = try generateVoiceDesign(
-                    text: text,
-                    instruct: nil,
-                    language: language,
-                    speaker: nil,
-                    refAudio: nil,
-                    refText: nil,
-                    voiceClonePrompt: voiceClonePrompt,
-                    temperature: generationParameters.temperature,
-                    topK: Qwen3SamplingOverrides.shared.talkerTopK,
-                    topP: generationParameters.topP,
-                    repetitionPenalty: generationParameters.repetitionPenalty ?? 1.05,
-                    minP: Qwen3SamplingOverrides.shared.talkerMinP,
-                    maxTokens: generationParameters.maxTokens ?? 4096,
-                    streamingInterval: streamingInterval,
-                    streamStepEvalPolicy: streamStepEvalPolicy,
-                    generationSpeedProfile: generationSpeedProfile,
-                    memoryClearCadence: memoryClearCadence,
-                    onToken: {
-                        guard !Task.isCancelled else { return }
-                        continuation.yield(.token($0))
-                    },
-                    onInfo: {
-                        guard !Task.isCancelled else { return }
-                        continuation.yield(.info($0))
-                    },
-                    onAudioChunk: {
-                        guard !Task.isCancelled else { return }
-                        continuation.yield(.audio($0))
-                    },
-                    onAudioChunkTimings: enableChunkTimings ? {
-                        guard !Task.isCancelled else { return }
-                        continuation.yield(.chunkTimings($0))
-                    } : nil
-                )
+                _ = try await samplingPolicy.runWithRandomState {
+                    try await generateVoiceDesign(
+                        text: text,
+                        instruct: nil,
+                        language: language,
+                        speaker: nil,
+                        refAudio: nil,
+                        refText: nil,
+                        voiceClonePrompt: voiceClonePrompt,
+                        samplingPolicy: samplingPolicy,
+                        memoryPolicy: memoryPolicy,
+                        streamingInterval: streamingInterval,
+                        streamStepEvalPolicy: streamStepEvalPolicy,
+                        generationSpeedProfile: generationSpeedProfile,
+                        memoryClearCadence: memoryClearCadence,
+                        onToken: {
+                            guard !Task.isCancelled else { return }
+                            continuation.yield(.token($0))
+                        },
+                        onInfo: {
+                            guard !Task.isCancelled else { return }
+                            continuation.yield(.info($0))
+                        },
+                        onAudioChunk: {
+                            guard !Task.isCancelled else { return }
+                            continuation.yield(.audio($0))
+                        },
+                        onAudioChunkTimings: enableChunkTimings ? {
+                            guard !Task.isCancelled else { return }
+                            continuation.yield(.chunkTimings($0))
+                        } : nil
+                    )
+                }
                 }
                 continuation.finish()
             } catch {
@@ -2592,6 +2526,141 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             producerTask.cancel()
         }
         return stream
+    }
+
+    // MARK: - Suspending materialized generation
+
+    /// Runs Custom Voice generation in the caller's task. Audio is evaluated
+    /// and copied to `[Float]` before the sink is awaited, so backpressure from
+    /// the facade's frame-bounded channel suspends this actual token/decode
+    /// producer without transferring an `MLXArray` to another task.
+    public func produceCustomVoice(
+        text: String,
+        language: String,
+        speaker: String,
+        instruct: String?,
+        generationParameters _: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        streamingInterval: Double,
+        customVoiceProfile: String?,
+        streamStepEvalPolicy: String?,
+        generationSpeedProfile: String?,
+        memoryClearCadence: Int?,
+        enableChunkTimings: Bool,
+        sink: @escaping Qwen3MaterializedGenerationSink,
+        isolation: isolated (any Actor)? = #isolation
+    ) async throws -> AudioGenerationFinishReason {
+        try await withGenerationGate(isolation: isolation) {
+            try Task.checkCancellation()
+            let finishReason = try await samplingPolicy.runWithRandomState(isolation: isolation) {
+                _ = try await generateVoiceDesign(
+                    text: text,
+                    instruct: instruct,
+                    language: language,
+                    speaker: speaker,
+                    refAudio: nil,
+                    refText: nil,
+                    samplingPolicy: samplingPolicy,
+                    memoryPolicy: memoryPolicy,
+                    streamingInterval: streamingInterval,
+                    customVoiceProfile: customVoiceProfile,
+                    streamStepEvalPolicy: streamStepEvalPolicy,
+                    generationSpeedProfile: generationSpeedProfile,
+                    memoryClearCadence: memoryClearCadence,
+                    materializedEventSink: sink,
+                    emitMaterializedChunkTimings: enableChunkTimings,
+                    isolation: isolation
+                )
+                return latestAudioGenerationFinishReason()
+            }
+            try Task.checkCancellation()
+            return finishReason
+        }
+    }
+
+    public func produceVoiceDesign(
+        text: String,
+        language: String,
+        voiceDescription: String,
+        generationParameters _: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        streamingInterval: Double,
+        streamStepEvalPolicy: String?,
+        generationSpeedProfile: String?,
+        memoryClearCadence: Int?,
+        enableChunkTimings: Bool,
+        sink: @escaping Qwen3MaterializedGenerationSink,
+        isolation: isolated (any Actor)? = #isolation
+    ) async throws -> AudioGenerationFinishReason {
+        try await withGenerationGate(isolation: isolation) {
+            try Task.checkCancellation()
+            let finishReason = try await samplingPolicy.runWithRandomState(isolation: isolation) {
+                _ = try await generateVoiceDesign(
+                    text: text,
+                    instruct: voiceDescription,
+                    language: language,
+                    refAudio: nil,
+                    refText: nil,
+                    samplingPolicy: samplingPolicy,
+                    memoryPolicy: memoryPolicy,
+                    streamingInterval: streamingInterval,
+                    streamStepEvalPolicy: streamStepEvalPolicy,
+                    generationSpeedProfile: generationSpeedProfile,
+                    memoryClearCadence: memoryClearCadence,
+                    materializedEventSink: sink,
+                    emitMaterializedChunkTimings: enableChunkTimings,
+                    isolation: isolation
+                )
+                return latestAudioGenerationFinishReason()
+            }
+            try Task.checkCancellation()
+            return finishReason
+        }
+    }
+
+    public func produceVoiceClone(
+        text: String,
+        language: String,
+        voiceClonePrompt: Qwen3TTSVoiceClonePrompt,
+        generationParameters _: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        streamingInterval: Double,
+        streamStepEvalPolicy: String?,
+        generationSpeedProfile: String?,
+        memoryClearCadence: Int?,
+        enableChunkTimings: Bool,
+        sink: @escaping Qwen3MaterializedGenerationSink,
+        isolation: isolated (any Actor)? = #isolation
+    ) async throws -> AudioGenerationFinishReason {
+        try await withGenerationGate(isolation: isolation) {
+            try Task.checkCancellation()
+            let finishReason = try await samplingPolicy.runWithRandomState(isolation: isolation) {
+                _ = try await generateVoiceDesign(
+                    text: text,
+                    instruct: nil,
+                    language: language,
+                    speaker: nil,
+                    refAudio: nil,
+                    refText: nil,
+                    voiceClonePrompt: voiceClonePrompt,
+                    samplingPolicy: samplingPolicy,
+                    memoryPolicy: memoryPolicy,
+                    streamingInterval: streamingInterval,
+                    streamStepEvalPolicy: streamStepEvalPolicy,
+                    generationSpeedProfile: generationSpeedProfile,
+                    memoryClearCadence: memoryClearCadence,
+                    materializedEventSink: sink,
+                    emitMaterializedChunkTimings: enableChunkTimings,
+                    isolation: isolation
+                )
+                return latestAudioGenerationFinishReason()
+            }
+            try Task.checkCancellation()
+            return finishReason
+        }
     }
 
     // MARK: - Decode chunk helper
@@ -2630,26 +2699,34 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         refAudio: MLXArray?,
         refText: String?,
         voiceClonePrompt: Qwen3TTSVoiceClonePrompt? = nil,
-        temperature: Float,
-        topK: Int,
-        topP: Float,
-        repetitionPenalty: Float,
-        minP: Float,
-        maxTokens: Int,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
         streamingInterval: Double = 2.0,
         textConditioningMode: Qwen3TextConditioningMode = .streamingTrailingText,
         customVoiceProfile explicitCustomVoiceProfile: String? = nil,
         streamStepEvalPolicy explicitStreamStepEvalPolicy: String? = nil,
         generationSpeedProfile explicitGenerationSpeedProfile: String? = nil,
-        memoryClearCadence explicitMemoryClearCadence: Int? = nil,
+        memoryClearCadence _: Int? = nil,
         onToken: ((Int) -> Void)? = nil,
         onInfo: ((AudioGenerationInfo) -> Void)? = nil,
         onAudioChunk: ((MLXArray) -> Void)? = nil,
-        onAudioChunkTimings: ((ChunkSubstageTimings) -> Void)? = nil
-    ) throws -> MLXArray {
+        onAudioChunkTimings: ((ChunkSubstageTimings) -> Void)? = nil,
+        materializedEventSink: Qwen3MaterializedGenerationSink? = nil,
+        emitMaterializedChunkTimings: Bool = false,
+        isolation: isolated (any Actor)? = #isolation
+    ) async throws -> MLXArray {
+        _ = isolation
         guard let speechTokenizer, tokenizer != nil else {
             throw AudioGenerationError.modelNotInitialized("Speech tokenizer or text tokenizer not loaded")
         }
+
+        let temperature = samplingPolicy.talker.temperature
+        let topK = samplingPolicy.talker.topK
+        let topP = samplingPolicy.talker.topP
+        let repetitionPenalty = samplingPolicy.repetitionPenalty
+        let minP = samplingPolicy.talker.minP
+        let maxTokens = samplingPolicy.maximumCodecTokens
+        let subtalkerSampling = samplingPolicy.subtalker
 
         let talkerConfig = config.talkerConfig!
         let isPureVoiceDesign = speaker == nil && refAudio == nil && voiceClonePrompt == nil
@@ -2769,10 +2846,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             defaultMaxTokens: maxTokens,
             targetTokenCount: preparedTargetTokenCount
         )
-        let memoryClearCadence = Qwen3StreamingMemoryTuning.tokenMemoryClearCadenceOverride
-            ?? generationSpeedProfile.memoryClearCadence(
-                explicitCadence: explicitMemoryClearCadence
-            )
+        let memoryClearCadence = memoryPolicy.tokenMemoryClearCadence
         let streamStepEvalPolicy = Qwen3StreamStepEvalPolicy.resolve(
             explicitPolicy: explicitStreamStepEvalPolicy
         )
@@ -2806,10 +2880,16 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             ])
         }
 
+        if let materializedEventSink {
+            try Task.checkCancellation()
+            try await materializedEventSink(.prepared)
+            try Task.checkCancellation()
+        }
+
         // Initialize cache and timing
         let startTime = Date()
         let cache: [any KVCache]
-        if let talkerKVWindow = Qwen3StreamingMemoryTuning.talkerKVGeneratedWindow {
+        if let talkerKVWindow = memoryPolicy.talkerKVGeneratedWindow {
             // Sliding-window talker KV (constrained tiers): keep = the conditioning
             // prefill length (control + full text, always at the front of the
             // sequence), so only old generated audio-codec tokens rotate out.
@@ -2819,7 +2899,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         } else {
             cache = talker.makeCache()
         }
-        let isStreaming = onAudioChunk != nil
+        let isStreaming = onAudioChunk != nil || materializedEventSink != nil
         var generatedCodes = [MLXArray]()
         if !isStreaming {
             generatedCodes.reserveCapacity(effectiveMaxTokens)
@@ -3005,11 +3085,11 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         // (identical every frame — the cache is trimmed to 0 below).
         let codePredictorStepConstants = CodePredictorStepConstants()
 
-        if onAudioChunk != nil {
+        if isStreaming {
             speechTokenizer.decoder.resetStreamingState()
         }
         defer {
-            if onAudioChunk != nil {
+            if isStreaming {
                 speechTokenizer.decoder.resetStreamingState()
             }
         }
@@ -3104,18 +3184,15 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 if codePredictorScratch == nil {
                     codePredictorScratch = Qwen3SamplerScratch(vocabSize: codeLogits.dim(-1))
                 }
-                // Subtalker (code-predictor) sampling: the official
-                // generation_config carries independent subtalker_* knobs that
-                // ship identical to the talker's — inherit by default, override
-                // via Qwen3SamplingOverrides for delivery-tuning A/Bs (e.g. a
-                // lower subtalker temperature for steadier timbre at constant
-                // talker prosody).
+                // Subtalker (code-predictor) sampling is explicitly request
+                // owned. It defaults to the talker stage, but may vary without
+                // inheriting the talker's repetition penalty.
                 let nextCode = sampleToken(
                     codeLogits,
-                    temperature: Qwen3SamplingOverrides.shared.subtalkerTemperature ?? temperature,
-                    topP: Qwen3SamplingOverrides.shared.subtalkerTopP ?? topP,
-                    topK: Qwen3SamplingOverrides.shared.subtalkerTopK ?? topK,
-                    minP: minP,
+                    temperature: subtalkerSampling.temperature,
+                    topP: subtalkerSampling.topP,
+                    topK: subtalkerSampling.topK,
+                    minP: subtalkerSampling.minP,
                     scratch: codePredictorScratch
                 )
                 Qwen3Signposts.signposter.endInterval(
@@ -3179,7 +3256,13 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             }
 
             let tokenId = Int(nextToken[0, 0].item(Int32.self))
-            onToken?(tokenId)
+            if let materializedEventSink {
+                try Task.checkCancellation()
+                try await materializedEventSink(.token(tokenId))
+                try Task.checkCancellation()
+            } else {
+                onToken?(tokenId)
+            }
             let eosReadStartedAt = ContinuousClock.now
             let eosReadSignpost = Qwen3Signposts.signposter.beginInterval("EOS Read")
             let reachedEOS = isEOS.item(Bool.self)
@@ -3208,7 +3291,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             }
 
             // Streaming: decode and yield audio chunks during generation
-            if let onAudioChunk {
+            if isStreaming {
                 let requiredStreamChunkSize = streamChunkSchedule.requiredChunkSize
                 if pendingStreamCodes.count >= requiredStreamChunkSize {
                     try Task.checkCancellation()
@@ -3227,7 +3310,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     let streamDecoderStartedAt = ContinuousClock.now
                     let decoderSignpost = Qwen3Signposts.signposter.beginInterval("Audio Decoder")
                     let decoded: MLXArray
-                    if onAudioChunkTimings != nil {
+                    if onAudioChunkTimings != nil || emitMaterializedChunkTimings {
                         let decodedWithTimings = speechTokenizer.decoder.streamingStepWithTimings(codesForDecoder)
                         decoded = decodedWithTimings.audio.squeezed(axis: 1)
                         mimiDecoderBreakdownTotal = mimiDecoderBreakdownTotal.adding(decodedWithTimings.timings)
@@ -3241,7 +3324,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     let audioChunkEvalStartedAt = ContinuousClock.now
                     let audioChunkEvalSignpost = Qwen3Signposts.signposter.beginInterval("Audio Chunk Eval")
                     // STREAM-001: non-final chunks evaluate asynchronously so decoding can
-                    // overlap the next token loop; the consumer materializes samples off-path.
+                    // overlap the next token loop on the compatibility path. The suspending
+                    // actor path materializes in this task before it awaits its sink, so an
+                    // MLX value never crosses a task or actor boundary.
                     asyncEval(audioChunk)
                     Qwen3Signposts.signposter.endInterval("Audio Chunk Eval", audioChunkEvalSignpost)
                     let audioChunkEvalElapsed = audioChunkEvalStartedAt.elapsedMilliseconds
@@ -3256,7 +3341,15 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
 
                     pendingStreamCodes.removeAll(keepingCapacity: true)
                     streamChunkSchedule.didEmit()
-                    if let onAudioChunkTimings {
+                    let materializedSamples: [Float]?
+                    if materializedEventSink != nil {
+                        eval(audioChunk)
+                        try Task.checkCancellation()
+                        materializedSamples = audioChunk.asArray(Float.self)
+                    } else {
+                        materializedSamples = nil
+                    }
+                    if onAudioChunkTimings != nil || emitMaterializedChunkTimings {
                         let kvDiagnostics = makeChunkKVCacheDiagnostics()
                         let chunkMimiBreakdown = mimiDecoderBreakdownTotal.subtracting(lastChunkMimiDecoderBreakdown)
                         let timings = ChunkSubstageTimings(
@@ -3280,11 +3373,22 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                         lastChunkStreamStepEOSReadMS = streamStepEOSReadTotalMS
                         lastChunkAudioChunkEvalMS = audioChunkEvalTotalMS
                         lastChunkMimiDecoderBreakdown = mimiDecoderBreakdownTotal
-                        onAudioChunkTimings(timings)
+                        if let materializedEventSink {
+                            try Task.checkCancellation()
+                            try await materializedEventSink(.chunkTimings(timings))
+                            try Task.checkCancellation()
+                        } else {
+                            onAudioChunkTimings?(timings)
+                        }
                     }
                     try Task.checkCancellation()
-                    onAudioChunk(audioChunk)
-                    if Qwen3StreamingMemoryTuning.clearCacheOnStreamChunkEmit {
+                    if let materializedEventSink, let materializedSamples {
+                        try await materializedEventSink(.audio(materializedSamples))
+                        try Task.checkCancellation()
+                    } else {
+                        onAudioChunk?(audioChunk)
+                    }
+                    if memoryPolicy.clearCacheOnStreamChunkEmit {
                         clearGenerationCache()
                     }
                 }
@@ -3330,7 +3434,13 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             tokensPerSecond: Double(tokenCount) / generateTime,
             peakMemoryUsage: Double(Memory.peakMemory) / 1e9
         )
-        onInfo?(info)
+        if let materializedEventSink {
+            try Task.checkCancellation()
+            try await materializedEventSink(.info(info))
+            try Task.checkCancellation()
+        } else {
+            onInfo?(info)
+        }
         mergePreparationBooleanFlags([
             "generation_ended_by_eos": generationEndReason == "eos",
             "generation_hit_token_cap": generationEndReason == "token_cap",
@@ -3349,14 +3459,14 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         }
 
         // Streaming path: yield remaining tokens and return early
-        if let onAudioChunk {
+        if isStreaming {
             if !pendingStreamCodes.isEmpty {
                 try Task.checkCancellation()
                 let codesChunk = stacked(pendingStreamCodes, axis: 1)
                 let codesForDecoder = codesChunk.transposed(0, 2, 1)
                 let streamDecoderStartedAt = ContinuousClock.now
                 let decoded: MLXArray
-                if onAudioChunkTimings != nil {
+                if onAudioChunkTimings != nil || emitMaterializedChunkTimings {
                     let decodedWithTimings = speechTokenizer.decoder.streamingStepWithTimings(codesForDecoder)
                     decoded = decodedWithTimings.audio.squeezed(axis: 1)
                     mimiDecoderBreakdownTotal = mimiDecoderBreakdownTotal.adding(decodedWithTimings.timings)
@@ -3389,7 +3499,14 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 } else if isVoiceCloneGeneration {
                     cloneAudioChunkEvalTotalMS += audioChunkEvalElapsed
                 }
-                if let onAudioChunkTimings {
+                let materializedSamples: [Float]?
+                if materializedEventSink != nil {
+                    try Task.checkCancellation()
+                    materializedSamples = audioChunk.asArray(Float.self)
+                } else {
+                    materializedSamples = nil
+                }
+                if onAudioChunkTimings != nil || emitMaterializedChunkTimings {
                     let kvDiagnostics = makeChunkKVCacheDiagnostics()
                     let chunkMimiBreakdown = mimiDecoderBreakdownTotal.subtracting(lastChunkMimiDecoderBreakdown)
                     let timings = ChunkSubstageTimings(
@@ -3413,10 +3530,21 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                     lastChunkStreamStepEOSReadMS = streamStepEOSReadTotalMS
                     lastChunkAudioChunkEvalMS = audioChunkEvalTotalMS
                     lastChunkMimiDecoderBreakdown = mimiDecoderBreakdownTotal
-                    onAudioChunkTimings(timings)
+                    if let materializedEventSink {
+                        try Task.checkCancellation()
+                        try await materializedEventSink(.chunkTimings(timings))
+                        try Task.checkCancellation()
+                    } else {
+                        onAudioChunkTimings?(timings)
+                    }
                 }
                 try Task.checkCancellation()
-                onAudioChunk(audioChunk)
+                if let materializedEventSink, let materializedSamples {
+                    try await materializedEventSink(.audio(materializedSamples))
+                    try Task.checkCancellation()
+                } else {
+                    onAudioChunk?(audioChunk)
+                }
                 streamChunkSchedule.didEmit()
                 // Capture final KV-cache footprint before clearing; when the
                 // chunk-timing callback is not registered this is the only
@@ -4304,7 +4432,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
     public static func fromPretrained(
         _ modelRepo: String,
         cache: HubCache = .default,
-        revision: String = "main"
+        revision: String = "main",
+        isolation: isolated (any Actor)? = #isolation
     ) async throws -> Qwen3TTSModel {
         let repoID = Repo.ID(rawValue: modelRepo)!
         let modelDir = try await ModelUtils.resolveOrDownloadModel(
@@ -4313,14 +4442,19 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             revision: revision,
             cache: cache
         )
-        return try await fromPreparedDirectory(modelDir, modelRepo: modelRepo)
+        return try await fromPreparedDirectory(
+            modelDir,
+            modelRepo: modelRepo,
+            isolation: isolation
+        )
     }
 
     public static func fromPreparedDirectory(
         _ modelDir: URL,
         modelRepo _: String,
         loadBehavior: QwenPreparedLoadBehavior = .fullCapabilities,
-        diagnosticEventSink: (@Sendable (String, [String: String]) async -> Void)? = nil
+        diagnosticEventSink: (@Sendable (String, [String: String]) async -> Void)? = nil,
+        isolation: isolated (any Actor)? = #isolation
     ) async throws -> Qwen3TTSModel {
         await emitPreparedLoadDiagnostic(
             diagnosticEventSink,
@@ -4362,15 +4496,18 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 loadSpeechTokenizerEncoder: loadBehavior.loadSpeechTokenizerEncoder,
                 skipSpeechTokenizerEval: loadBehavior.skipSpeechTokenizerEval
             ),
-            diagnosticEventSink: diagnosticEventSink
+            diagnosticEventSink: diagnosticEventSink,
+            isolation: isolation
         )
     }
 
     private static func loadModelContents(
         modelDir: URL,
         loadOptions: QwenPreparedLoadOptions,
-        diagnosticEventSink: (@Sendable (String, [String: String]) async -> Void)?
+        diagnosticEventSink: (@Sendable (String, [String: String]) async -> Void)?,
+        isolation: isolated (any Actor)?
     ) async throws -> Qwen3TTSModel {
+        _ = isolation
         await emitPreparedLoadDiagnostic(
             diagnosticEventSink,
             action: "qwen-load-before-config-read",
@@ -4417,7 +4554,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             modelDir: modelDir,
             config: config,
             loadOptions: loadOptions,
-            diagnosticEventSink: diagnosticEventSink
+            diagnosticEventSink: diagnosticEventSink,
+            isolation: isolation
         )
         await emitPreparedLoadDiagnostic(
             diagnosticEventSink,
@@ -4487,10 +4625,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         let speechTokenizerResult = try await loadSpeechTokenizerComponent(
             modelDir: modelDir,
             preparedKey: preparedKey,
-            componentCache: componentCache,
             loadOptions: loadOptions,
             includeEncoder: loadOptions.loadSpeechTokenizerEncoder ?? (config.ttsModelType == "base"),
-            diagnosticEventSink: diagnosticEventSink
+            diagnosticEventSink: diagnosticEventSink,
+            isolation: isolation
         )
         await emitPreparedLoadDiagnostic(
             diagnosticEventSink,
@@ -4501,7 +4639,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 extra: [
                     "ttsModelType": config.ttsModelType,
                     "preparedKey": preparedKey,
-                    "speechTokenizerCacheHit": speechTokenizerResult.cacheHit ? "true" : "false",
+                    "speechTokenizerCacheHit": "false",
+                    "speechTokenizerModelLocal": "true",
                     "speechTokenizerDecoderLoaded": speechTokenizerResult.speechTokenizer == nil ? "false" : "true",
                     "speechTokenizerEncoderLoaded": (speechTokenizerResult.booleanFlags[
                         "speech_tokenizer_encoder_loaded"
@@ -4510,6 +4649,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             )
         )
         model.speechTokenizer = speechTokenizerResult.speechTokenizer
+        model.speechTokenizer?.decoder.resetStreamingState()
 
         var loadTimingsMS = talkerComponents.timingsMS
         loadTimingsMS["talker_weight_load"] = talkerComponents.talkerWeightLoadMS
@@ -4523,7 +4663,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         loadBooleanFlags["tokenizer_cache_hit"] = tokenizerResult.cacheHit
         loadBooleanFlags["tokenizer_direct_config_load"] = tokenizerResult.directConfigLoadUsed
         loadBooleanFlags["tokenizer_direct_config_fallback"] = tokenizerResult.directConfigFallbackUsed
-        loadBooleanFlags["speech_tokenizer_cache_hit"] = speechTokenizerResult.cacheHit
+        // Retain the old key as an explicit false compatibility projection.
+        // Mutable decoder state is never shared between loaded model instances.
+        loadBooleanFlags["speech_tokenizer_cache_hit"] = false
+        loadBooleanFlags["speech_tokenizer_model_local"] = true
         loadBooleanFlags["speech_tokenizer_encoder_loaded"] = speechTokenizerResult.booleanFlags[
             "speech_tokenizer_encoder_loaded"
         ] ?? false
@@ -4541,8 +4684,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         modelDir: URL,
         config: Qwen3TTSModelConfig,
         loadOptions: QwenPreparedLoadOptions,
-        diagnosticEventSink: (@Sendable (String, [String: String]) async -> Void)?
+        diagnosticEventSink: (@Sendable (String, [String: String]) async -> Void)?,
+        isolation: isolated (any Actor)?
     ) async throws -> LoadedTalkerComponents {
+        _ = isolation
         let talkerConfig = config.talkerConfig ?? {
             let json = "{}".data(using: .utf8)!
             return try! JSONDecoder().decode(Qwen3TTSTalkerConfig.self, from: json)
@@ -4890,7 +5035,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         var tokenizer: (any Tokenizer)?
 
         do {
-            if let cachedTokenizer = await componentCache.cachedTokenizer(for: preparedKey) {
+            if let cachedTokenizer = componentCache.cachedTokenizer(for: preparedKey) {
                 tokenizer = cachedTokenizer.tokenizer
                 cacheHit = true
             } else {
@@ -4903,7 +5048,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 }
 
                 if let tokenizer {
-                    await componentCache.storeTokenizer(tokenizer, for: preparedKey)
+                    componentCache.storeTokenizer(tokenizer, for: preparedKey)
                 }
             }
         } catch {
@@ -4940,83 +5085,68 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
     private static func loadSpeechTokenizerComponent(
         modelDir: URL,
         preparedKey: String,
-        componentCache: Qwen3TTSPreparedComponentCache,
         loadOptions: QwenPreparedLoadOptions,
         includeEncoder: Bool,
-        diagnosticEventSink: (@Sendable (String, [String: String]) async -> Void)?
+        diagnosticEventSink: (@Sendable (String, [String: String]) async -> Void)?,
+        isolation: isolated (any Actor)?
     ) async throws -> LoadedSpeechTokenizerComponent {
+        _ = isolation
         let speechTokenizerPath = modelDir.appendingPathComponent("speech_tokenizer")
         var isDirectory: ObjCBool = false
         let speechTokenizerLoadStartedAt = ContinuousClock.now
-        var cacheHit = false
         let fileManager = FileManager.default
         var speechTokenizer: Qwen3TTSSpeechTokenizer?
-        let speechTokenizerCacheKey = speechTokenizerCacheKey(
-            for: preparedKey,
-            includeEncoder: includeEncoder
-        )
 
         if fileManager.fileExists(atPath: speechTokenizerPath.path, isDirectory: &isDirectory),
            isDirectory.boolValue {
-            if let cachedSpeechTokenizer = await componentCache.cachedSpeechTokenizer(
-                for: speechTokenizerCacheKey
-            ) {
-                speechTokenizer = cachedSpeechTokenizer.speechTokenizer
-                cacheHit = true
-            } else {
-                do {
-                    await emitPreparedLoadDiagnostic(
-                        diagnosticEventSink,
-                        action: "qwen-speech-tokenizer-component-before-load",
-                        details: diagnosticDetails(
-                            modelDir: modelDir,
-                            loadOptions: loadOptions,
-                            extra: [
-                                "preparedKey": preparedKey,
-                                "includeEncoder": includeEncoder ? "true" : "false",
-                            ]
-                        )
+            do {
+                await emitPreparedLoadDiagnostic(
+                    diagnosticEventSink,
+                    action: "qwen-speech-tokenizer-component-before-load",
+                    details: diagnosticDetails(
+                        modelDir: modelDir,
+                        loadOptions: loadOptions,
+                        extra: [
+                            "preparedKey": preparedKey,
+                            "includeEncoder": includeEncoder ? "true" : "false",
+                        ]
                     )
-                    let loadedSpeechTokenizer = try await loadSpeechTokenizer(
-                        path: speechTokenizerPath,
-                        trustPreparedCheckpoint: loadOptions.trustPreparedCheckpoint,
-                        includeEncoder: includeEncoder,
-                        skipSpeechTokenizerEval: loadOptions.skipSpeechTokenizerEval,
-                        diagnosticEventSink: diagnosticEventSink
+                )
+                speechTokenizer = try await loadSpeechTokenizer(
+                    path: speechTokenizerPath,
+                    trustPreparedCheckpoint: loadOptions.trustPreparedCheckpoint,
+                    includeEncoder: includeEncoder,
+                    skipSpeechTokenizerEval: loadOptions.skipSpeechTokenizerEval,
+                    diagnosticEventSink: diagnosticEventSink,
+                    isolation: isolation
+                )
+                await emitPreparedLoadDiagnostic(
+                    diagnosticEventSink,
+                    action: "qwen-speech-tokenizer-component-after-load",
+                    details: diagnosticDetails(
+                        modelDir: modelDir,
+                        loadOptions: loadOptions,
+                        extra: [
+                            "preparedKey": preparedKey,
+                            "includeEncoder": includeEncoder ? "true" : "false",
+                        ]
                     )
-                    await emitPreparedLoadDiagnostic(
-                        diagnosticEventSink,
-                        action: "qwen-speech-tokenizer-component-after-load",
-                        details: diagnosticDetails(
-                            modelDir: modelDir,
-                            loadOptions: loadOptions,
-                            extra: [
-                                "preparedKey": preparedKey,
-                                "includeEncoder": includeEncoder ? "true" : "false",
-                            ]
-                        )
+                )
+            } catch {
+                await emitPreparedLoadDiagnostic(
+                    diagnosticEventSink,
+                    action: "qwen-speech-tokenizer-component-load-failed",
+                    details: diagnosticDetails(
+                        modelDir: modelDir,
+                        loadOptions: loadOptions,
+                        extra: [
+                            "preparedKey": preparedKey,
+                            "includeEncoder": includeEncoder ? "true" : "false",
+                            "error": String(reflecting: error),
+                        ]
                     )
-                    let storedSpeechTokenizer = await componentCache.storeSpeechTokenizerAndReturn(
-                        loadedSpeechTokenizer,
-                        for: speechTokenizerCacheKey
-                    )
-                    speechTokenizer = storedSpeechTokenizer.speechTokenizer
-                } catch {
-                    await emitPreparedLoadDiagnostic(
-                        diagnosticEventSink,
-                        action: "qwen-speech-tokenizer-component-load-failed",
-                        details: diagnosticDetails(
-                            modelDir: modelDir,
-                            loadOptions: loadOptions,
-                            extra: [
-                                "preparedKey": preparedKey,
-                                "includeEncoder": includeEncoder ? "true" : "false",
-                                "error": String(reflecting: error),
-                            ]
-                        )
-                    )
-                    throw error
-                }
+                )
+                throw error
             }
         } else if fileManager.fileExists(atPath: speechTokenizerPath.path) {
             qwen3TTSLog("speech_tokenizer is not a directory (stale cache), clearing model cache...")
@@ -5030,7 +5160,6 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
 
         return LoadedSpeechTokenizerComponent(
             speechTokenizer: speechTokenizer,
-            cacheHit: cacheHit,
             loadMS: speechTokenizerLoadStartedAt.elapsedMilliseconds,
             booleanFlags: [
                 "speech_tokenizer_verify_relaxed": loadOptions.trustPreparedCheckpoint,
@@ -5121,13 +5250,6 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         modelDir.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
-    private static func speechTokenizerCacheKey(
-        for preparedKey: String,
-        includeEncoder: Bool
-    ) -> String {
-        "\(preparedKey)|speechTokenizer:\(includeEncoder ? "full" : "decoderOnly")"
-    }
-
     private static func loadWeights(
         from directory: URL,
         directSafetensorsFileName: String
@@ -5162,8 +5284,10 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         trustPreparedCheckpoint: Bool,
         includeEncoder: Bool,
         skipSpeechTokenizerEval: Bool,
-        diagnosticEventSink: (@Sendable (String, [String: String]) async -> Void)?
+        diagnosticEventSink: (@Sendable (String, [String: String]) async -> Void)?,
+        isolation: isolated (any Actor)? = #isolation
     ) async throws -> Qwen3TTSSpeechTokenizer {
+        _ = isolation
         await emitPreparedLoadDiagnostic(
             diagnosticEventSink,
             action: "qwen-speech-tokenizer-load-start",

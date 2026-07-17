@@ -1,5 +1,69 @@
 import Foundation
 
+/// Main-actor admission latch for critical memory-pressure relief.
+///
+/// Model-operation ownership also lives on `MLXTTSEngine`'s main-actor
+/// isolation domain. Keeping the latch there makes "gate is open" and
+/// "operation became active" one atomic, non-suspending decision. An actor
+/// hop here would leave a check-then-enter race between those two states.
+@MainActor
+final class CriticalMemoryReliefAdmission {
+    private struct Waiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
+    private(set) var isClosed = false
+    private var waiters: [Waiter] = []
+
+    var allowsProactiveOperation: Bool {
+        !isClosed
+    }
+
+    func close() {
+        isClosed = true
+    }
+
+    func waitUntilOpen() async throws {
+        try Task.checkCancellation()
+        while isClosed {
+            let waiterID = UUID()
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    if Task.isCancelled || !isClosed {
+                        continuation.resume()
+                    } else {
+                        waiters.append(
+                            Waiter(id: waiterID, continuation: continuation)
+                        )
+                    }
+                }
+            } onCancel: {
+                Task { @MainActor in
+                    self.cancelWaiter(id: waiterID)
+                }
+            }
+            try Task.checkCancellation()
+        }
+    }
+
+    func reopen() {
+        guard isClosed else { return }
+        isClosed = false
+        let pending = waiters
+        waiters.removeAll(keepingCapacity: false)
+        pending.forEach { $0.continuation.resume() }
+    }
+
+    private func cancelWaiter(id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let waiter = waiters.remove(at: index)
+        waiter.continuation.resume()
+    }
+}
+
 /// Owns the one task that may currently execute model generation.
 ///
 /// Callers register the task's cancellation and terminal wait operations as

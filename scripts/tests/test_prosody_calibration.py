@@ -108,6 +108,7 @@ class ProsodyCalibrationTests(unittest.TestCase):
         with open(out, "r", encoding="utf-8") as f:
             profile = json.load(f)
         self.assertEqual(profile["schema_version"], 1)
+        self.assertEqual(profile["analyzer_algorithm_version"], 2)
         self.assertIn("thresholds", profile)
         for key in ["monotone_f0_std_hz", "pause_max_seconds", "pause_ratio_max"]:
             self.assertIn(key, profile["thresholds"])

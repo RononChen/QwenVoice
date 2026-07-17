@@ -648,13 +648,27 @@ final class ModelManagerViewModel {
                 await staleDownloader.cancel()
                 await staleTask?.value
             }
+            let delivery: ProductionModelCatalog.ArtifactDeliveryPlan
+            do {
+                let catalog = downloadPlan.catalog
+                let artifact = downloadPlan.artifact
+                delivery = try await Task.detached(priority: .utility) {
+                    try catalog.deliveryPlan(for: artifact, modelsRoot: modelsDirectory)
+                }.value
+            } catch {
+                guard self.isCurrentEpoch(epoch, for: modelID) else { return }
+                self.lastFailureMessages[modelID] = error.localizedDescription
+                await self.handleMutationCompletion(for: modelID)
+                return
+            }
             await self.runModelDownload(
                 model: model,
                 epoch: epoch,
                 downloader: downloader,
                 targetDir: targetDir,
                 diagnostics: diagnostics,
-                artifact: downloadPlan.artifact
+                artifact: downloadPlan.artifact,
+                delivery: delivery
             )
         }
         downloadTasks[modelID] = task
@@ -668,11 +682,12 @@ final class ModelManagerViewModel {
         downloader: HuggingFaceDownloader,
         targetDir: URL,
         diagnostics: ModelDownloadDiagnosticsStore,
-        artifact: ProductionModelCatalog.Artifact
+        artifact: ProductionModelCatalog.Artifact,
+        delivery: ProductionModelCatalog.ArtifactDeliveryPlan
     ) async {
         do {
             try await downloader.downloadFiles(
-                artifact.downloadFiles,
+                delivery.filesToDownload,
                 repo: artifact.repo,
                 revision: artifact.revision,
                 to: targetDir,
@@ -680,7 +695,9 @@ final class ModelManagerViewModel {
                     logicalRequestID: UUID().uuidString,
                     modelID: model.id,
                     artifactVersion: artifact.artifactVersion
-                )
+                ),
+                installedFiles: delivery.installedFiles,
+                sharedComponentPlan: delivery.sharedComponentPlan
             )
             guard isCurrentEpoch(epoch, for: model.id) else { return }
             let postDownloadSnapshot = localModelInfo(for: model)
@@ -747,7 +764,15 @@ final class ModelManagerViewModel {
         await stopAndClear(for: model.id)
 
         let modelDir = model.installDirectory(in: modelsDirectory)
-        try? fileManager.removeItem(at: modelDir)
+        do {
+            try SharedModelComponentStore(modelsRoot: modelsDirectory).deleteModel(
+                modelFolder: modelDir.lastPathComponent
+            )
+        } catch {
+            lastFailureMessages[model.id] = error.localizedDescription
+            await handleMutationCompletion(for: model.id)
+            return
+        }
         // Also drop any orphaned staging tree (partials/resume data/staged files) so a
         // deleted model doesn't leave multi-GB under `.qwenvoice-downloads/`.
         HuggingFaceDownloader.discardStaging(forTargetDirectory: modelDir)

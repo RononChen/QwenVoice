@@ -67,17 +67,32 @@ These could be added as an optional general-quality signal, but they do not solv
 
 Constraint: the target machine has **8 GB RAM** and `librosa` is not installed. Loading heavy neural quality models (DNSMOS/NISQA/SQUIM) would also push memory and add weakly prosody-specific dependencies.
 
-Final choice: **numpy + stdlib `wave`** (zero new dependencies, tiny memory). Hand-rolled pitch tracking (NCF), syllable-nuclei detection, and pause/energy analysis are sufficient for a dev/benchmark gate and keep the pipeline deterministic and privacy-safe.
+Final choice: **numpy + stdlib `wave`** (zero new dependencies, bounded memory). Hand-rolled pitch tracking (NCF), syllable-nuclei detection, and pause/energy analysis are sufficient for a dev/benchmark gate and keep the pipeline deterministic and privacy-safe.
 
 ## Implemented solution
+
+The Swift `GenerationQualityReport`, `QualityGateRegistry`, and `QualityReviewPolicy` types are a
+deterministic convergence foundation for composing Fast, Standard, and Canonical evidence. They do
+not yet replace this analyzer, persisted-WAV Fast QC, three-pass ASR, delivery adherence, or the
+existing benchmark validators. Until one shipping scheduler emits and validates the unified report,
+those specialized gates remain authoritative and one-pass ASR remains diagnostic only.
 
 ### New scripts
 
 - **`scripts/analyze_prosody.py`** — numpy-only reference-free prosody analyzer:
+  - **Bounded execution**: analyzer algorithm v2 makes exactly two fixed-block passes, retains no
+    complete PCM or two-dimensional frame matrix, and reports both its measured managed-buffer
+    high-water mark and a conservative estimated peak working set. The estimate excludes the
+    already-loaded Python and NumPy runtimes.
   - **F0 contour**: median/mean/std/range/p10/p90, voiced fraction, rising/falling rates, turning-point rate.
+  - **Relative pitch**: semitone standard deviation/range and p10/p90 offsets relative to the clip's
+    median pitch, so cross-speaker comparisons do not confuse register with expressiveness.
   - **Speaking rate**: syllable-nuclei rate, local-rate mean/std/CV/p10/p90.
   - **Pauses**: count, total/mean/max duration, pause-to-speech ratio.
   - **Energy**: RMS mean/std/dynamic range, envelope roughness.
+  - **Signal and boundaries**: clipping, adjacent-sample click evidence, and optional declared
+    boundary sample/RMS/pitch/silence discontinuity aggregates. Boundary positions are supplied by
+    the caller; the analyzer does not infer chunk or segment identity from audio.
 - **`scripts/prosody_quality_gate.py`** — flags monotone, rushed, flat/slurred, and pause-issue takes with conservative thresholds. Run per-clip or import `evaluate(path)`.
 - **`scripts/bench_delivery_prosody.py`** — post-processes `vocello bench --delivery` WAVs, pairs each instructed take with its neutral reference, and writes `diagnostics/bench-prosody.json`.
 
@@ -107,3 +122,16 @@ listening note cannot waive a machine failure or warning.
 ### Calibration note
 
 Thresholds in `prosody_quality_gate.py` and weights in `delivery_adherence.py` are intentionally conservative defaults. They should be calibrated against a labeled corpus of good/bad Vocello takes once enough examples are collected.
+
+Analyzer algorithm v2 preserves the established consumer keys, but its p10, median, and p90 values
+come from deterministic fixed-width histograms instead of duration-sized arrays. F0 quantiles can
+therefore move by up to roughly half of the 0.25 Hz bin width, and RMS quantiles by roughly half of
+the 0.05 dB bin width; a threshold exactly on a bin edge can change classification. New calibration
+profiles record `analyzer_algorithm_version = 2`. Existing schema-v1 profiles remain readable, but
+promotion should recalibrate or explicitly review their thresholds rather than claiming exact
+numeric parity with the legacy full-array method.
+
+Persisted Vocello outputs are PCM16, so NaN and infinity cannot exist in a supported WAV. The
+analyzer reports a zero non-finite count for validated PCM16 and rejects float/unsupported sample
+formats before producing signal claims. Pre-conversion NaN/Inf remains owned by the Swift limiter
+and persisted-WAV QC path.

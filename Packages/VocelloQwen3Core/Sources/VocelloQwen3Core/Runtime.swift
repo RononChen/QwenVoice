@@ -48,7 +48,8 @@ public enum VocelloQwen3Runtime {
         _ bundle: VocelloQwen3PreparedModelBundle,
         loadBehavior: VocelloQwen3LoadBehavior? = nil,
         cachePolicy: VocelloQwen3CachePolicy = .systemDefault,
-        diagnosticSink: VocelloQwen3DiagnosticSink? = nil
+        diagnosticSink: VocelloQwen3DiagnosticSink? = nil,
+        isolation: isolated (any Actor)? = #isolation
     ) async throws -> VocelloQwen3LoadedModel {
         let compatibilitySink: (@Sendable (String, [String: String]) async -> Void)?
         if let diagnosticSink {
@@ -66,7 +67,8 @@ public enum VocelloQwen3Runtime {
             trustPreparedCheckpoint: bundle.trustedPreparedCheckpoint,
             qwenPreparedLoadBehavior: loadBehavior?.compatibilityValue,
             diagnosticEventSink: compatibilitySink,
-            cache: cachePolicy.compatibilityValue
+            cache: cachePolicy.compatibilityValue,
+            isolation: isolation
         )
         return try VocelloQwen3LoadedModel(
             compatibilityModel: compatibilityModel,
@@ -82,7 +84,8 @@ public enum VocelloQwen3Runtime {
         _ bundle: VocelloQwen3PreparedModelBundle,
         loadBehavior: VocelloQwen3LoadBehavior? = nil,
         cachePolicy: VocelloQwen3CachePolicy = .systemDefault,
-        compatibilityDiagnosticSink: (@Sendable (String, [String: String]) async -> Void)?
+        compatibilityDiagnosticSink: (@Sendable (String, [String: String]) async -> Void)?,
+        isolation: isolated (any Actor)? = #isolation
     ) async throws -> VocelloQwen3LoadedModel {
         let compatibilityModel = try await TTS.loadModel(
             fromPreparedDirectory: bundle.preparedDirectory,
@@ -91,7 +94,8 @@ public enum VocelloQwen3Runtime {
             trustPreparedCheckpoint: bundle.trustedPreparedCheckpoint,
             qwenPreparedLoadBehavior: loadBehavior?.compatibilityValue,
             diagnosticEventSink: compatibilityDiagnosticSink,
-            cache: cachePolicy.compatibilityValue
+            cache: cachePolicy.compatibilityValue,
+            isolation: isolation
         )
         return try VocelloQwen3LoadedModel(
             compatibilityModel: compatibilityModel,
@@ -100,20 +104,21 @@ public enum VocelloQwen3Runtime {
         )
     }
 
+    /// Compatibility validation seam retained while callers migrate to passing
+    /// memory configuration with each generation request. This deliberately
+    /// performs no process-global mutation.
+    @available(*, deprecated, message: "Pass memory configuration with each generation request.")
     public static func apply(memoryConfiguration: VocelloQwen3MemoryConfiguration) throws {
-        let configuration = try memoryConfiguration.validated()
-        Qwen3StreamingMemoryTuning.apply(
-            clearOnStreamChunk: configuration.clearCacheOnStreamChunk,
-            tokenCadence: configuration.tokenMemoryClearCadence
-        )
-        Qwen3StreamingMemoryTuning.applyTalkerKVWindow(configuration.talkerKVGeneratedWindow)
+        _ = try memoryConfiguration.validated()
     }
 
     /// Clears Qwen3-owned prepared, conditioning, and decoder caches after the
     /// host has proven that active generation terminated. The product controls
     /// when this lifecycle boundary is safe; cache implementation stays here.
-    public static func clearRuntimeCaches() async {
-        await Qwen3TTSMemoryCaches.clearAll()
+    public static func clearRuntimeCaches(
+        isolation: isolated (any Actor)? = #isolation
+    ) async {
+        await Qwen3TTSMemoryCaches.clearAll(isolation: isolation)
     }
 
     static func typedDiagnosticEvent(

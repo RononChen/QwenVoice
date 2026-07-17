@@ -310,7 +310,7 @@ final class Qwen3TTSTalkerModel: Module {
     }
 
     func makeCache() -> [any KVCache] {
-        if let bits = Qwen3StreamingMemoryTuning.talkerKVQuantBits {
+        if let bits = Qwen3LoadTimeMemoryTuning.talkerKVQuantBits {
             latestCreatedCacheType = "quantized"
             return layers.map { _ in QuantizedKVCache(groupSize: 64, bits: bits) }
         }
@@ -322,7 +322,7 @@ final class Qwen3TTSTalkerModel: Module {
     /// first `keep` positions (the conditioning prefix — control + full text) pinned
     /// forever and rotates only generated audio-codec tokens beyond a window of
     /// `window` positions. Caps peak KV at `keep + window` instead of growing with
-    /// audio length. Gated by the host via `Qwen3StreamingMemoryTuning.talkerKVGeneratedWindow`.
+    /// audio length. The window is supplied by the immutable request memory policy.
     /// NEVER quantized (RotatingKVCache.toQuantized is unimplemented upstream).
     func makeRotatingCache(keep: Int, window: Int) -> [any KVCache] {
         latestCreatedCacheType = "rotating"

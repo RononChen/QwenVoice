@@ -15,7 +15,7 @@ Usage:
 """
 import sys, json, argparse, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from analyze_prosody import analyze
+from analyze_prosody import ANALYZER_ALGORITHM_VERSION, analyze
 from prosody_profile import builtin_profile, load_profile, threshold
 
 
@@ -27,6 +27,9 @@ def evaluate(path, profile=None):
     if "error" in pros:
         return {
             "clip": pros.get("clip", path.split("/")[-1]),
+            "analyzerAlgorithmVersion": pros.get(
+                "analyzerAlgorithmVersion", ANALYZER_ALGORITHM_VERSION
+            ),
             "passed": False,
             "flags": ["analysis_failed"],
             "reason": pros["error"],
@@ -64,10 +67,15 @@ def evaluate(path, profile=None):
         "pause_ratio": pros["pauses_pause_speech_ratio"],
         "max_pause_sec": pros["pauses_max_pause_seconds"],
         "envelope_roughness": pros["energy_envelope_roughness"],
+        "pitch_std_semitones": pros["f0_std_semitones"],
+        "pitch_range_semitones": pros["f0_range_semitones"],
+        "boundary_discontinuity": pros["boundaries_max_sample_jump"],
+        "analyzer_peak_working_set_bytes": pros["analysisEstimatedPeakWorkingSetBytes"],
     }
 
     return {
         "clip": pros["clip"],
+        "analyzerAlgorithmVersion": pros["analyzerAlgorithmVersion"],
         "passed": len(flags) == 0,
         "flags": flags,
         "reason": "; ".join(flags) if flags else "prosody gate passed",

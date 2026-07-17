@@ -90,19 +90,23 @@ public enum NativeMemoryPolicyResolver {
     }
 
     public static func apply(_ policy: NativeMemoryPolicy) {
+        // MLX exposes process-wide allocator limits. Resolve these once at the
+        // host boundary before model preparation; request-varying Qwen cache
+        // behavior is carried separately by `memoryConfiguration(for:)`.
         Memory.cacheLimit = policy.cacheLimitBytes
         if let memoryLimitBytes = policy.memoryLimitBytes {
             Memory.memoryLimit = memoryLimitBytes
         }
-        // Sliding-window talker KV cache (generated-audio-token window). Env override
-        // is the universal testing/sweep knob on any tier; the per-tier default +
-        // user-facing Settings toggle are layered on in the engine wiring step.
-        try? VocelloQwen3Runtime.apply(
-            memoryConfiguration: VocelloQwen3MemoryConfiguration(
-                clearCacheOnStreamChunk: policy.clearMLXCacheOnStreamChunkEmit,
-                tokenMemoryClearCadence: policy.mlxTokenMemoryClearCadence,
-                talkerKVGeneratedWindow: talkerKVGeneratedWindowOverride()
-            )
+    }
+
+    public static func memoryConfiguration(
+        for policy: NativeMemoryPolicy,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> VocelloQwen3MemoryConfiguration {
+        VocelloQwen3MemoryConfiguration(
+            clearCacheOnStreamChunk: policy.clearMLXCacheOnStreamChunkEmit,
+            tokenMemoryClearCadence: policy.mlxTokenMemoryClearCadence,
+            talkerKVGeneratedWindow: resolvedTalkerKVGeneratedWindow(environment: environment)
         )
     }
 
@@ -130,7 +134,7 @@ public enum NativeMemoryPolicyResolver {
     /// `QVOICE_TALKER_KV_WINDOW` (a positive integer enables it; absent/invalid =
     /// disabled → unbounded KVCacheSimple). Used for Mac-CLI testing + the window
     /// sweep before the per-tier defaults land.
-    private static func talkerKVGeneratedWindowOverride(
+    public static func resolvedTalkerKVGeneratedWindow(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Int? {
         guard let raw = RuntimeDebugGate.value(

@@ -110,6 +110,7 @@ final class IOSModelDownloadCoordinator {
     private var inflight: [String: InFlightDownload] = [:]
     private var pending: [ModelDescriptor] = []
     private var cachedCatalog: IOSModelCatalogDocument?
+    private var cachedProductionCatalog: ProductionModelCatalog?
     private var operationGeneration: UInt64 = 0
     private var lastLedgerProgressWrite: [String: TimeInterval] = [:]
     /// Prevents already-enqueued progress callbacks from weakening a durable
@@ -151,6 +152,7 @@ final class IOSModelDownloadCoordinator {
             in: try await fetchCatalog(),
             configuration: configuration
         )
+        _ = try await productionDeliveryPlan(for: model, matching: entry)
         let totalBytes = entry.totalBytes > 0
             ? entry.totalBytes
             : entry.files.reduce(Int64(0)) { $0 + $1.sizeBytes }
@@ -256,9 +258,9 @@ final class IOSModelDownloadCoordinator {
             generation: generation
         )
         let targetDir = model.installDirectory(in: AppPaths.modelsDir)
-        if fileManager.fileExists(atPath: targetDir.path) {
-            try fileManager.removeItem(at: targetDir)
-        }
+        try SharedModelComponentStore(modelsRoot: AppPaths.modelsDir).deleteModel(
+            modelFolder: targetDir.lastPathComponent
+        )
         discardStaging(modelID: model.id)
         markLedgerTerminal(modelID: model.id, status: .deleted)
         publishTerminal(modelID: model.id, phase: .deleted)
@@ -349,7 +351,10 @@ final class IOSModelDownloadCoordinator {
                 in: catalog,
                 configuration: configuration
             )
-            let files = resolveFiles(entry: entry)
+            let delivery = try await productionDeliveryPlan(for: model, matching: entry)
+            let installedFiles = resolveFiles(entry: entry)
+            let downloadPaths = Set(delivery.filesToDownload.map(\.path))
+            let files = installedFiles.filter { downloadPaths.contains($0.path) }
             let totalBytes = entry.totalBytes > 0
                 ? entry.totalBytes
                 : entry.files.reduce(Int64(0)) { $0 + $1.sizeBytes }
@@ -373,7 +378,9 @@ final class IOSModelDownloadCoordinator {
                     targetDir: targetDir,
                     stagingRoot: stagingRoot,
                     generation: generation,
-                    totalBytes: totalBytes
+                    totalBytes: totalBytes,
+                    installedFiles: installedFiles,
+                    sharedComponentPlan: delivery.sharedComponentPlan
                 )
             }
             inflight[model.id] = InFlightDownload(
@@ -402,7 +409,9 @@ final class IOSModelDownloadCoordinator {
         targetDir: URL,
         stagingRoot: URL,
         generation: UInt64,
-        totalBytes: Int64
+        totalBytes: Int64,
+        installedFiles: [HuggingFaceDownloader.RepoFile],
+        sharedComponentPlan: SharedComponentMigrationPlan?
     ) async {
         do {
             try await downloader.downloadFiles(
@@ -415,7 +424,9 @@ final class IOSModelDownloadCoordinator {
                     modelID: request.modelID,
                     artifactVersion: request.artifactVersion
                 ),
-                stagingRoot: stagingRoot
+                stagingRoot: stagingRoot,
+                installedFiles: installedFiles,
+                sharedComponentPlan: sharedComponentPlan
             )
             guard inflight[model.id]?.operationGeneration == generation,
                   !cancellationBarriers.contains(model.id) else { return }
@@ -581,6 +592,54 @@ final class IOSModelDownloadCoordinator {
         return document
     }
 
+    private func productionDeliveryPlan(
+        for model: ModelDescriptor,
+        matching entry: IOSModelCatalogEntry
+    ) async throws -> ProductionModelCatalog.ArtifactDeliveryPlan {
+        let catalog: ProductionModelCatalog
+        if let cachedProductionCatalog {
+            catalog = cachedProductionCatalog
+        } else {
+            guard let url = Bundle.main.url(
+                forResource: "qwenvoice_production_model_catalog",
+                withExtension: "json"
+            ) else {
+                throw ProductionModelCatalog.Error.unreadable(
+                    "Bundled production model catalog is missing."
+                )
+            }
+            catalog = try ProductionModelCatalog(contentsOf: url)
+            cachedProductionCatalog = catalog
+        }
+        let artifact = try catalog.artifactMatchingDescriptor(
+            platform: .iOS,
+            folder: model.folder,
+            repo: model.huggingFaceRepo,
+            revision: model.huggingFaceRevision,
+            artifactVersion: model.artifactVersion,
+            estimatedDownloadBytes: model.estimatedDownloadBytes,
+            requiredRelativePaths: model.requiredRelativePaths
+        )
+        let productionFiles = Dictionary(uniqueKeysWithValues: artifact.files.map {
+            ($0.relativePath, ($0.sizeBytes, $0.sha256))
+        })
+        guard artifact.totalBytes == entry.totalBytes,
+              productionFiles.count == entry.files.count,
+              entry.files.allSatisfy({ file in
+                  guard let expected = productionFiles[file.relativePath] else { return false }
+                  return expected.0 == file.sizeBytes && expected.1 == file.sha256
+              }) else {
+            throw ProductionModelCatalog.Error.descriptorMismatch(
+                identity: artifact.identity,
+                reason: "iPhone delivery catalog differs from the authenticated production catalog"
+            )
+        }
+        let modelsRoot = AppPaths.modelsDir
+        return try await Task.detached(priority: .utility) {
+            try catalog.deliveryPlan(for: artifact, modelsRoot: modelsRoot)
+        }.value
+    }
+
     private func makeLedgerRequest(
         model: ModelDescriptor,
         entry: IOSModelCatalogEntry,
@@ -737,7 +796,9 @@ final class IOSModelDownloadCoordinator {
             return true
         }
         do {
-            try fileManager.removeItem(at: active.targetDir)
+            try SharedModelComponentStore(modelsRoot: AppPaths.modelsDir).deleteModel(
+                modelFolder: active.targetDir.lastPathComponent
+            )
             return true
         } catch {
             diagnosticsStore.recordFailure(

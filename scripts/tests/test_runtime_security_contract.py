@@ -59,6 +59,51 @@ class RuntimeSecurityContractTests(unittest.TestCase):
     def test_release_evidence_is_publish_last(self) -> None:
         self.assertEqual(MODULE.validate_release_contract(), [])
 
+    def test_runtime_refactor_contract_is_shadow_only_and_grounded(self) -> None:
+        self.assertEqual(MODULE.validate_runtime_refactor_contract(), [])
+
+    def test_runtime_refactor_contract_rejects_chunk_and_shadow_drift(self) -> None:
+        contract = MODULE.load_json(ROOT / "config/runtime-refactor-contract.json")
+        contract["shippingPolicy"] = "run-shadow-generation"
+        contract["constrainedTierChunkFrames"]["clone"]["later"] = 7
+
+        errors = MODULE.runtime_refactor_contract_errors(contract)
+        self.assertTrue(any("second shadow generation" in error for error in errors))
+        self.assertTrue(any("chunk frames drifted" in error for error in errors))
+
+    def test_runtime_refactor_contract_rejects_foundation_as_shipping_claim(self) -> None:
+        contract = MODULE.load_json(ROOT / "config/runtime-refactor-contract.json")
+        contract["phaseStatus"]["modeCutover"] = "implemented"
+        contract["phaseStatus"]["telemetryV9"] = "shipping"
+
+        errors = MODULE.runtime_refactor_contract_errors(contract)
+        self.assertTrue(any("mode cutover" in error for error in errors))
+        self.assertTrue(any("telemetry v9" in error for error in errors))
+
+    def test_runtime_refactor_contract_requires_every_numbered_plan_phase(self) -> None:
+        for key in (
+            "chunkAndPreviewExperiments",
+            "runtimeComponentReuse",
+            "spokenTextPlanning",
+            "longFormV4",
+            "boundedAnalyzers",
+            "mechanicalRetirement",
+        ):
+            contract = MODULE.load_json(ROOT / "config/runtime-refactor-contract.json")
+            del contract["phaseStatus"][key]
+            errors = MODULE.runtime_refactor_contract_errors(contract)
+            self.assertTrue(
+                any("every convergence phase status" in error for error in errors),
+                msg=f"missing {key} was accepted",
+            )
+
+    def test_runtime_refactor_contract_rejects_acceptance_only_cutover_claim(self) -> None:
+        contract = MODULE.load_json(ROOT / "config/runtime-refactor-contract.json")
+        contract["phaseStatus"]["modeCutover"] = "pending-focused-platform-acceptance"
+
+        errors = MODULE.runtime_refactor_contract_errors(contract)
+        self.assertTrue(any("mode cutover" in error for error in errors))
+
     def test_security_adrs_exist(self) -> None:
         self.assertEqual(MODULE.validate_docs(), [])
 

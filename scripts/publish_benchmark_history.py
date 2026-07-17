@@ -3284,6 +3284,10 @@ def prosody_command(args: argparse.Namespace) -> Path:
     if not isinstance(thresholds, dict) or not isinstance(flag_rates, dict):
         raise PublicationError("prosody calibration lacks threshold or flag-rate evidence")
     metric_sources = {
+        "analyzerAlgorithmVersion": result.get(
+            "analyzerAlgorithmVersion",
+            profile.get("analyzer_algorithm_version", 1),
+        ),
         "goodClipCount": result.get("goodClipCount"),
         "badClipCount": result.get("badClipCount"),
         "targetFalsePositiveRate": result.get("targetFalsePositiveRate"),

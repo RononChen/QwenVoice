@@ -25,7 +25,10 @@ QWENVOICE_APP_SUPPORT_DIR=/path/to/custom/app-support
 
 Maintained macOS subtrees and preferences:
 
-- `models/` stores installed Hugging Face model files. Speed and Quality folders for the same generation mode can coexist on macOS.
+- `models/` stores installed Hugging Face model files. Speed and Quality folders for the same
+  generation mode can coexist on macOS. Catalog-v2 installs may also use the hidden
+  `.qwenvoice-components-v1/` content-addressed store; ordinary model paths remain regular hard
+  links, and component liveness is derived from strict installed manifests.
 - `.qwenvoice-downloads/` stores staged model downloads, partial files, resume data, and download-state metadata while a download is in progress.
 - `diagnostics/model-downloads/` stores allowlisted transfer/failure summaries, capped at 20 records and 5 MB; raw URLs and absolute paths are excluded.
 - `outputs/CustomVoice/`, `outputs/VoiceDesign/`, and `outputs/Clones/` store generated audio unless the user chooses a different output directory. If a user-chosen directory becomes missing or unwritable, new audio falls back to these default folders and Settings shows a warning — a generation is never lost to a vanished folder.
@@ -37,7 +40,11 @@ Maintained macOS subtrees and preferences:
   on reload or re-entry; it does not currently expose a dedicated Retry button.
 - Active macOS model-quality choices are stored in app preferences, keyed per generation mode. `DebugMode` isolates preferences to `com.qwenvoice.app.debug`; Release builds use `UserDefaults.standard`.
 
-Delete local macOS app data by quitting the app and removing the app support root or the specific subtree above. Deleting `models/` removes installed model files and requires downloading them again; it does not by itself clear normal app preferences such as the active model-quality choice.
+Delete local macOS app data by quitting the app and removing the app support root or the specific
+subtree above. Use the model manager for an individual model so shared components still referenced
+by another installed manifest remain valid. Deleting the whole `models/` root removes both model
+folders and the component store and requires downloading them again; it does not by itself clear
+normal app preferences such as the active model-quality choice.
 
 ## iPhone Storage
 
@@ -67,7 +74,9 @@ its historical bundle-scoped background-session identifier when the debug master
 
 Maintained iPhone subtrees:
 
-- `models/` stores verified installed model files.
+- `models/` stores verified installed model files plus the hidden catalog-v2
+  `.qwenvoice-components-v1/` content-addressed store. Model-visible component paths are regular
+  hard links; deletion preserves blobs still live in another strict installed manifest.
 - `downloads/ios_model_delivery_state.json` is the atomic schema-v2 delivery ledger. It stores only privacy-safe identifiers, relative paths, receipts, retry counts, byte progress, and terminal state.
 - `downloads/staging/` is the only iPhone delivery staging tree; it holds durable delegate files plus per-model verified files, partials, and resume data.
 - `diagnostics/model-downloads/` stores allowlisted local transfer/failure summaries, capped at 20 records and 5 MB. It excludes raw URLs, absolute paths, device identity, and user data.

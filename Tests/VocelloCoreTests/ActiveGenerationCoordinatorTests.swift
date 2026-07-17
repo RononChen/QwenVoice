@@ -21,11 +21,17 @@ private actor TestGenerationGate {
 }
 
 private enum TestMemoryPressureAction: Equatable, Sendable {
+    case admissionClosed
     case observed(NativeMemoryTrimLevel)
     case cancellationRequested(GenerationCancellationReason)
     case workerTerminated
     case terminalBarrierPassed
+    case modelOperationBarrierStarted
+    case modelOperationsQuiesced
     case trimmed(NativeMemoryTrimLevel, String)
+    case reliefPublished
+    case operationAttempted(String)
+    case operationEntered(String)
 }
 
 private actor TestMemoryPressureActionLog {
@@ -184,6 +190,15 @@ final class ActiveGenerationCoordinatorTests: XCTestCase {
             },
             trim: { level, reason in
                 await actions.append(.trimmed(level, reason))
+            },
+            closeAdmissionForCriticalRelief: {
+                await actions.append(.admissionClosed)
+            },
+            awaitModelOperationsQuiesced: {
+                await actions.append(.modelOperationsQuiesced)
+            },
+            publishCriticalReliefCompletion: {
+                await actions.append(.reliefPublished)
             }
         )
 
@@ -194,11 +209,12 @@ final class ActiveGenerationCoordinatorTests: XCTestCase {
             )
         }
 
-        await actions.waitForCount(2)
+        await actions.waitForCount(3)
         let beforeTerminal = await actions.snapshot()
         XCTAssertEqual(
             beforeTerminal,
             [
+                .admissionClosed,
                 .observed(.hardTrim),
                 .cancellationRequested(.memoryPressure),
             ]
@@ -220,15 +236,174 @@ final class ActiveGenerationCoordinatorTests: XCTestCase {
         XCTAssertEqual(
             afterTerminal,
             [
+                .admissionClosed,
                 .observed(.hardTrim),
                 .cancellationRequested(.memoryPressure),
                 .workerTerminated,
                 .terminalBarrierPassed,
+                .modelOperationsQuiesced,
                 .trimmed(.hardTrim, "test_kernel_pressure_hardTrim"),
+                .reliefPublished,
             ]
         )
         let terminalReason = await coordinator.finish(registration)
         XCTAssertEqual(terminalReason, .memoryPressure)
+    }
+
+    func testFirstCancellationReasonWinsAcrossConcurrentRequests() async throws {
+        let coordinator = ActiveGenerationCoordinator()
+        let terminalGate = TestGenerationGate()
+        let worker = Task {
+            await terminalGate.wait()
+            try Task.checkCancellation()
+        }
+        let registration = try await coordinator.register(
+            cancel: { worker.cancel() },
+            waitForTermination: { _ = await worker.result }
+        )
+
+        let criticalCancellation = Task {
+            await coordinator.cancelCurrent(reason: .memoryPressure)
+        }
+        for _ in 0..<100 {
+            if await coordinator.currentCancellationReason == .memoryPressure { break }
+            await Task.yield()
+        }
+        let firstReason = await coordinator.currentCancellationReason
+        XCTAssertEqual(firstReason, .memoryPressure)
+
+        let laterCancellation = Task {
+            await coordinator.cancelCurrent(reason: .shutdown)
+        }
+        await Task.yield()
+        let reasonAfterLaterRequest = await coordinator.currentCancellationReason
+        XCTAssertEqual(
+            reasonAfterLaterRequest,
+            .memoryPressure,
+            "A later cancellation request must not replace the first typed reason"
+        )
+
+        await terminalGate.open()
+        await criticalCancellation.value
+        await laterCancellation.value
+        let terminalReason = await coordinator.finish(registration)
+        XCTAssertEqual(terminalReason, .memoryPressure)
+    }
+
+    @MainActor
+    func testCriticalReliefBlocksLoadPrewarmAndGenerationUntilPublication() async throws {
+        let admission = CriticalMemoryReliefAdmission()
+        let quiescenceGate = TestGenerationGate()
+        let actions = TestMemoryPressureActionLog()
+        let executor = NativeMemoryPressureResponseExecutor(
+            recordObservation: { level in
+                await actions.append(.observed(level))
+            },
+            cancelActiveGeneration: { reason in
+                await actions.append(.cancellationRequested(reason))
+            },
+            trim: { level, reason in
+                await actions.append(.trimmed(level, reason))
+            },
+            closeAdmissionForCriticalRelief: {
+                await admission.close()
+                await actions.append(.admissionClosed)
+            },
+            awaitModelOperationsQuiesced: {
+                await actions.append(.modelOperationBarrierStarted)
+                await quiescenceGate.wait()
+                await actions.append(.modelOperationsQuiesced)
+            },
+            publishCriticalReliefCompletion: {
+                await actions.append(.reliefPublished)
+                await admission.reopen()
+            }
+        )
+
+        let response = Task {
+            await executor.execute(
+                level: .hardTrim,
+                reason: "test_continuous_critical_relief"
+            )
+        }
+        await actions.waitForCount(4)
+
+        let load = Task { @MainActor in
+            await actions.append(.operationAttempted("load"))
+            try await admission.waitUntilOpen()
+            await actions.append(.operationEntered("load"))
+        }
+        let generation = Task { @MainActor in
+            await actions.append(.operationAttempted("generation"))
+            try await admission.waitUntilOpen()
+            await actions.append(.operationEntered("generation"))
+        }
+        await actions.append(.operationAttempted("prewarm"))
+        if admission.allowsProactiveOperation {
+            await actions.append(.operationEntered("prewarm"))
+        }
+
+        await actions.waitForCount(7)
+        let whileSuspended = await actions.snapshot()
+        XCTAssertFalse(whileSuspended.contains(.operationEntered("load")))
+        XCTAssertFalse(whileSuspended.contains(.operationEntered("generation")))
+        XCTAssertFalse(whileSuspended.contains(.operationEntered("prewarm")))
+        XCTAssertFalse(
+            whileSuspended.contains {
+                if case .trimmed = $0 { return true }
+                return false
+            }
+        )
+
+        await quiescenceGate.open()
+        await response.value
+        try await load.value
+        try await generation.value
+
+        let completed = await actions.snapshot()
+        let publicationIndex = try XCTUnwrap(
+            completed.firstIndex(of: .reliefPublished)
+        )
+        let loadIndex = try XCTUnwrap(
+            completed.firstIndex(of: .operationEntered("load"))
+        )
+        let generationIndex = try XCTUnwrap(
+            completed.firstIndex(of: .operationEntered("generation"))
+        )
+        XCTAssertLessThan(publicationIndex, loadIndex)
+        XCTAssertLessThan(publicationIndex, generationIndex)
+        XCTAssertFalse(completed.contains(.operationEntered("prewarm")))
+    }
+
+    func testPressureSnapshotSupportsConcurrentReadsAndTransitions() async {
+        let state = NativeMemoryPressureSnapshotState()
+
+        await withTaskGroup(of: Void.self) { group in
+            for writer in 0..<8 {
+                group.addTask {
+                    for iteration in 0..<2_000 {
+                        let value: NativeMemoryTrimLevel? = switch (writer + iteration) % 3 {
+                        case 0: .softTrim
+                        case 1: .hardTrim
+                        default: nil
+                        }
+                        state.transition(to: value)
+                    }
+                }
+            }
+            for _ in 0..<8 {
+                group.addTask {
+                    for _ in 0..<4_000 {
+                        _ = state.currentLevel
+                    }
+                }
+            }
+        }
+
+        state.transition(to: .hardTrim)
+        XCTAssertEqual(state.currentLevel, .hardTrim)
+        XCTAssertEqual(state.transition(to: nil), .hardTrim)
+        XCTAssertNil(state.currentLevel)
     }
 
     func testWarningKernelPressureSoftTrimsWithoutCancellingGeneration() async {
@@ -242,6 +417,15 @@ final class ActiveGenerationCoordinatorTests: XCTestCase {
             },
             trim: { level, reason in
                 await actions.append(.trimmed(level, reason))
+            },
+            closeAdmissionForCriticalRelief: {
+                await actions.append(.admissionClosed)
+            },
+            awaitModelOperationsQuiesced: {
+                await actions.append(.modelOperationsQuiesced)
+            },
+            publishCriticalReliefCompletion: {
+                await actions.append(.reliefPublished)
             }
         )
 

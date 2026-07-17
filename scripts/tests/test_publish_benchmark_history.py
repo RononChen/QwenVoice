@@ -1695,6 +1695,7 @@ class PublisherTests(unittest.TestCase):
         ):
             publisher.prosody_command(args)
         metrics = captured["manifest"]["historyRecord"]["takes"][0]["metrics"]
+        self.assertEqual(metrics["analyzerAlgorithmVersion"], 1.0)
         self.assertEqual(metrics["goodClipCount"], 3.0)
         self.assertEqual(metrics["observedTruePositiveRate"], 0.75)
         self.assertEqual(metrics["maximumPauseThresholdSeconds"], 1.5)

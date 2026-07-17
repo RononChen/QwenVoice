@@ -11,7 +11,9 @@ Every file is matched to the model contract or the bundled iOS catalog, download
 checked against its exact byte count and SHA-256, and installed by an atomic directory swap. A
 newly assembled file is hashed once. A same-process verified-artifact receipt permits finalization
 without reading the complete file again; after a relaunch the staged file is hashed once before a
-new receipt is trusted. Installed models retain the existing integrity-manifest format.
+new receipt is trusted. Installed models retain the existing integrity-manifest format. Catalog-v2
+artifacts additionally carry a shared-component installation plan: the installer publishes verified
+component blobs before atomically presenting complete ordinary model folders.
 
 macOS and CLI staging remains next to the model store under `.qwenvoice-downloads/`. iPhone has one
 layout under the app-support root:
@@ -24,13 +26,14 @@ downloads/
     <model-id>/{files,partials,resume-data}/
 diagnostics/model-downloads/
 models/
+  .qwenvoice-components-v1/  # content-addressed shared-component blobs and publication state
 ```
 
 ### Cross-platform production catalog
 
 `Sources/Resources/qwenvoice_production_model_catalog.json` is the reproducible, bundled catalog
-contract for future convergence of macOS, CLI, and iPhone delivery. Its versioned shape is declared
-by `config/model-catalog-schema-v1.json`; it is generated only from the shared model contract and
+contract used by macOS, CLI, and iPhone delivery. Its versioned shape is declared
+by `config/model-catalog-schema-v2.json`; it is generated only from the shared model contract and
 checked-in exact file evidence:
 
 ```sh
@@ -51,10 +54,42 @@ suffixes `huggingface.co` and `hf.co`. A rejected redirect is never adopted as b
 The catalog is `complete`: the bundled iPhone evidence supplies the three Speed variants and
 `config/model-artifact-receipts.json` supplies the three Quality variants. All six packages pin a
 revision plus the exact size and SHA-256 of every required file; no hash or size is inferred.
-macOS and CLI now resolve `ProductionModelCatalog` and call the same exact-file `downloadFiles`
-route rather than enumerating a live repository. `validate --require-complete` proves this static
-contract. It does not replace the isolated Mac/iPhone lifecycle proofs, which must be refreshed as
-explicit quality evidence after redirect, restoration, or delivery-routing changes.
+Schema v2 also proves that the four files beneath `speech_tokenizer/` have the same content across
+all six artifacts. It gives that component separate content identity (ordered path, size, and
+SHA-256) and compatibility identity (content plus component schema, loader ABI, runtime profile,
+and encoder capability), along with ordered source artifacts. Schema-v1 catalog documents remain
+read-compatible but cannot claim shared-component reuse.
+
+macOS, CLI, and iOS now resolve `ProductionModelCatalog.deliveryPlan(...)` rather than enumerating a
+live repository. `validate --require-complete` proves this static contract. It does not replace the
+isolated Mac/iPhone lifecycle proofs, which must be refreshed after redirect, restoration,
+delivery-routing, or shared-component changes.
+
+## Shared component store
+
+`SharedModelComponentStore` is the one content-addressed storage implementation. It lives beneath
+the existing model root, not in another cache, and provides these fail-closed rules:
+
+- A component is reusable only after every blob passes the catalog's exact size and SHA-256.
+- When the store is verified, a later artifact's delivery plan omits only those exact component
+  files and records the reused byte count; all other files still download normally.
+- New component bytes are published immutably. The installed model exposes regular hard links to
+  the verified blobs, never symlinks, so existing regular-file and deep-integrity checks still hold.
+- Hashing and full replica validation happen outside the cross-process publication lock. Only the
+  stale-safe atomic exchange, tombstone, and liveness publication hold the lock.
+- Deleting a model never removes blobs needed by another installed manifest. Pruning derives
+  liveness from strict installed manifests rather than mutable reference counts.
+- Corrupt/missing blobs, symlink traversal, a concurrently changed model, or failed post-install
+  validation aborts or rolls back without replacing the last valid model.
+
+The production install path is integrated for all hosts. Resolving a schema-v2 delivery plan also
+reconciles an existing installed artifact one at a time: every catalog file is authenticated before
+the model can publish component bytes, and a healthy model is left alone while a damaged linked
+presentation is repaired only from verified store blobs. A failed local authentication leaves the
+existing directory untouched, grants no reuse, and lets the ordinary downloader repair it from the
+network. Live validation of all six macOS artifacts and the three iOS Speed artifacts is still
+pending. Do not report the projected disk or network savings as observed production evidence until
+those runs complete.
 
 The iOS ledger is atomically written, versioned, and contains only privacy-safe identifiers and
 relative paths. It records the logical request, model and artifact version, expected and verified

@@ -5,7 +5,7 @@
   "targets": {
     "VocelloQwen3Core": {
       "sourceRoot": "Sources/VocelloQwen3Core",
-      "allowedImports": ["Foundation", "HuggingFace", "MLX", "MLXAudioCore", "MLXAudioTTS", "MLXLMCommon"],
+      "allowedImports": ["Foundation", "HuggingFace", "MLX", "MLXAudioCore", "MLXAudioTTS", "MLXLMCommon", "os"],
       "allowedRuntimeTargetDependencies": ["MLXAudioCore", "MLXAudioTTS"]
     },
     "MLXAudioCore": {

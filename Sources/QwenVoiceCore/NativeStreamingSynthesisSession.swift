@@ -930,6 +930,7 @@ final class IncrementalPCM16WAVFileWriter {
     private let finalURL: URL
     private let temporaryURL: URL
     private var published = false
+    private var stagingFinalized = false
     private let signpostCorrelation: NativeSignpostCorrelation
 
     init(
@@ -993,27 +994,52 @@ final class IncrementalPCM16WAVFileWriter {
     }
 
     func finish() throws {
+        _ = try finishStaging()
+        try publish()
+    }
+
+    /// Closes and synchronizes the staged WAV without making it visible at the
+    /// destination. The converged adapter validates this exact file first.
+    @discardableResult
+    func finishStaging() throws -> URL {
+        if stagingFinalized { return temporaryURL }
         let finalizeSignpost = NativeStreamingSignposts.signposter.beginInterval(
             "Native Final WAV AVAudioFile Finalize",
             "\(self.signpostCorrelation.message, privacy: .public)"
         )
         reusableBuffer = nil
         file = nil
-        try AtomicFilePublisher.publishAtomically(
-            temporaryURL: temporaryURL,
-            finalURL: finalURL
-        )
-        published = true
+        if let handle = try? FileHandle(forWritingTo: temporaryURL) {
+            try? handle.synchronize()
+            try? handle.close()
+        }
+        stagingFinalized = true
         NativeStreamingSignposts.signposter.endInterval(
             "Native Final WAV AVAudioFile Finalize",
             finalizeSignpost,
             "\(self.signpostCorrelation.message, privacy: .public)"
         )
+        return temporaryURL
+    }
+
+    func publish() throws {
+        guard stagingFinalized else {
+            throw MLXTTSEngineError.generationFailed(
+                "The native WAV writer must finalize staging before publication."
+            )
+        }
+        guard !published else { return }
+        try AtomicFilePublisher.publishAtomically(
+            temporaryURL: temporaryURL,
+            finalURL: finalURL
+        )
+        published = true
     }
 
     func discard() {
         reusableBuffer = nil
         file = nil
+        stagingFinalized = true
         try? FileManager.default.removeItem(at: temporaryURL)
     }
 
@@ -1533,6 +1559,11 @@ struct StreamingExecutionContext: Sendable {
                 try Task.checkCancellation()
 
                 switch event {
+                case .prepared:
+                    // The shipping compatibility stream performs preparation
+                    // before yielding model events. Phase 3's explicit marker
+                    // is consumed by the actor/session path after cutover.
+                    continue
                 case .token:
                     continue
                 case .chunkTimings(let timings):
@@ -1964,6 +1995,22 @@ struct StreamingExecutionContext: Sendable {
             "languageHint": GenerationSemantics.qwenLanguageHint(for: request),
         ]
         tierNotes.merge(Self.samplingTelemetryNotes(for: request)) { current, _ in current }
+        if let algorithmVersion = stringFlags["sampling_algorithm_version"] {
+            tierNotes["samplingAlgorithmVersion"] = algorithmVersion
+        }
+        if let effectiveSeed = stringFlags["sampling_effective_seed"] {
+            // `samplingSeed` now means the resolved effective seed. This keeps
+            // the existing telemetry field while ensuring unseeded requests
+            // are reproducible from their evidence.
+            tierNotes["samplingSeed"] = effectiveSeed
+            tierNotes["samplingSeedSource"] = request.seed == nil ? "generated" : "requested"
+        }
+        if let talkerTopK = stringFlags["sampling_talker_top_k"] {
+            tierNotes["samplingTalkerTopK"] = talkerTopK
+        }
+        if let subtalkerTopK = stringFlags["sampling_subtalker_top_k"] {
+            tierNotes["samplingSubtalkerTopK"] = subtalkerTopK
+        }
         if let simLimit = IOSMemorySnapshot.simulatedProcessLimitBytes {
             // Restriction-simulation rows must self-identify — a simulated
             // iPhone-15-Pro run must never read as a real-device proof.
@@ -1983,6 +2030,24 @@ struct StreamingExecutionContext: Sendable {
         // it ran under (cache limit, memory limit, clear cadence, KV window).
         let policyNotes = NativeMemoryPolicyResolver.currentPolicyNotes(for: memoryPolicy)
         tierNotes.merge(policyNotes) { _, policy in policy }
+
+        // Nested telemetry-v9 transition identity. These values are the
+        // privacy-safe shadow-plan digests already compared with independently
+        // resolved shipping inputs; missing values remain explicitly
+        // unavailable in the v9 bridge rather than being synthesized here.
+        let v9IdentityNotes: [(source: String, digest: String, version: String, versionValue: String)] = [
+            ("generation_plan_shadow_complete_digest", "streamingV9PlanDigest", "streamingV9PlanVersion", "1"),
+            ("generation_plan_shadow_sampling_digest", "streamingV9SamplingDigest", "streamingV9SamplingVersion", stringFlags["sampling_algorithm_version"] ?? "1"),
+            ("generation_plan_shadow_chunking_digest", "streamingV9ChunkDigest", "streamingV9ChunkVersion", "1"),
+            ("generation_plan_shadow_memory_digest", "streamingV9MemoryDigest", "streamingV9MemoryVersion", "1"),
+            ("generation_plan_shadow_output_digest", "streamingV9OutputPolicyDigest", "streamingV9OutputPolicyVersion", "1"),
+            ("generation_plan_shadow_quality_digest", "streamingV9QualityPolicyDigest", "streamingV9QualityPolicyVersion", "1"),
+        ]
+        for identity in v9IdentityNotes {
+            guard let digest = stringFlags[identity.source] else { continue }
+            tierNotes[identity.digest] = digest
+            tierNotes[identity.version] = identity.versionValue
+        }
 
         // On iOS, derive the worst pressure band from the sampler summary using the
         // shipping process-budget thresholds so Jetsam-adjacent runs are visible on
@@ -2088,9 +2153,9 @@ struct StreamingExecutionContext: Sendable {
         }
     }
 
-    /// Privacy-safe identity for the sampling policy applied to one request.
-    /// The seed is intentionally a decimal string because telemetry `notes`
-    /// are string-valued; nil variation is the public `expressive` default.
+    /// Privacy-safe request-origin sampling notes. The writer later replaces
+    /// `samplingSeed` with the resolved effective seed from the immutable
+    /// runtime policy, including for originally unseeded requests.
     static func samplingTelemetryNotes(for request: GenerationRequest) -> [String: String] {
         var notes = [
             "samplingVariation": (request.variation ?? .expressive).rawValue,
@@ -2118,32 +2183,49 @@ struct StreamingExecutionContext: Sendable {
                 "The finalized WAV contains no readable audio frames."
             )
         }
+        // Keep persisted-output verification bounded for long clips. The
+        // limiter owns cross-block continuity and silence-run state, so the
+        // exact QC result is independent of this block size.
+        let blockFrameCount = min(frameCount, 16_384)
         guard let buffer = AVAudioPCMBuffer(
             pcmFormat: file.processingFormat,
-            frameCapacity: AVAudioFrameCount(frameCount)
+            frameCapacity: AVAudioFrameCount(blockFrameCount)
         ) else {
             throw MLXTTSEngineError.generationFailed(
                 "The finalized WAV could not allocate a verification buffer."
             )
         }
-        try file.read(into: buffer)
-        let count = Int(buffer.frameLength)
-        let persistedSamples: [Float]
-        if let floats = buffer.floatChannelData {
-            persistedSamples = Array(UnsafeBufferPointer(start: floats[0], count: count))
-        } else if let integers = buffer.int16ChannelData {
-            persistedSamples = UnsafeBufferPointer(start: integers[0], count: count).map {
-                Float($0) / Float(Int16.max)
-            }
-        } else {
-            throw MLXTTSEngineError.generationFailed(
-                "The finalized WAV uses an unsupported verification format."
-            )
-        }
-
         var persistedLimiter = PCM16StreamLimiter()
         var discardedPCM: [Int16] = []
-        persistedLimiter.append(persistedSamples, into: &discardedPCM)
+        discardedPCM.reserveCapacity(blockFrameCount)
+        var observedFrameCount = 0
+        while observedFrameCount < frameCount {
+            buffer.frameLength = 0
+            let requested = min(blockFrameCount, frameCount - observedFrameCount)
+            try file.read(into: buffer, frameCount: AVAudioFrameCount(requested))
+            let count = Int(buffer.frameLength)
+            guard count > 0 else { break }
+            let persistedSamples: [Float]
+            if let floats = buffer.floatChannelData {
+                persistedSamples = Array(UnsafeBufferPointer(start: floats[0], count: count))
+            } else if let integers = buffer.int16ChannelData {
+                persistedSamples = UnsafeBufferPointer(start: integers[0], count: count).map {
+                    Float($0) / Float(Int16.max)
+                }
+            } else {
+                throw MLXTTSEngineError.generationFailed(
+                    "The finalized WAV uses an unsupported verification format."
+                )
+            }
+            discardedPCM.removeAll(keepingCapacity: true)
+            persistedLimiter.append(persistedSamples, into: &discardedPCM)
+            observedFrameCount += count
+        }
+        guard observedFrameCount == frameCount else {
+            throw MLXTTSEngineError.generationFailed(
+                "The finalized WAV ended before every audio frame could be verified."
+            )
+        }
         let persisted = persistedLimiter.metrics
         var combined = preWriteMetrics ?? persisted
         combined.processedSamples = persisted.processedSamples
@@ -2156,7 +2238,7 @@ struct StreamingExecutionContext: Sendable {
         return makeAudioQCReport(
             metrics: combined,
             sampleRate: Int(file.processingFormat.sampleRate.rounded()),
-            durationSeconds: Double(count) / file.processingFormat.sampleRate,
+            durationSeconds: Double(observedFrameCount) / file.processingFormat.sampleRate,
             expectedPauseCount: expectedPauseCount,
             chunkQC: chunkQC
         )

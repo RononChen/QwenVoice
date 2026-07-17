@@ -78,7 +78,8 @@ public struct AssetIntegrity: Hashable, Codable, Sendable {
 
 public struct ModelAssetIntegrityManifest: Hashable, Codable, Sendable {
     public static let filename = ".qwenvoice-model-integrity.json"
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 2
+    public static let supportedSchemaVersions: Set<Int> = [1, 2]
 
     public let schemaVersion: Int
     public let repo: String
@@ -86,6 +87,8 @@ public struct ModelAssetIntegrityManifest: Hashable, Codable, Sendable {
     public let targetFolder: String
     public let createdAtUTC: String
     public let files: [FileEntry]
+    public let sharedComponentContentIdentity: SharedComponentContentIdentity?
+    public let sharedComponentCompatibilityIdentity: SharedComponentCompatibilityIdentity?
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
@@ -94,6 +97,8 @@ public struct ModelAssetIntegrityManifest: Hashable, Codable, Sendable {
         case targetFolder = "target_folder"
         case createdAtUTC = "created_at_utc"
         case files
+        case sharedComponentContentIdentity = "shared_component_content_identity"
+        case sharedComponentCompatibilityIdentity = "shared_component_compatibility_identity"
     }
 
     public init(
@@ -102,7 +107,9 @@ public struct ModelAssetIntegrityManifest: Hashable, Codable, Sendable {
         revision: String,
         targetFolder: String,
         createdAtUTC: String,
-        files: [FileEntry]
+        files: [FileEntry],
+        sharedComponentContentIdentity: SharedComponentContentIdentity? = nil,
+        sharedComponentCompatibilityIdentity: SharedComponentCompatibilityIdentity? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.repo = repo
@@ -110,6 +117,44 @@ public struct ModelAssetIntegrityManifest: Hashable, Codable, Sendable {
         self.targetFolder = targetFolder
         self.createdAtUTC = createdAtUTC
         self.files = files
+        self.sharedComponentContentIdentity = sharedComponentContentIdentity
+        self.sharedComponentCompatibilityIdentity = sharedComponentCompatibilityIdentity
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let schemaVersion = try values.decode(Int.self, forKey: .schemaVersion)
+        guard Self.supportedSchemaVersions.contains(schemaVersion) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion,
+                in: values,
+                debugDescription: "Unsupported model integrity manifest schema"
+            )
+        }
+        let content = try values.decodeIfPresent(
+            SharedComponentContentIdentity.self,
+            forKey: .sharedComponentContentIdentity
+        )
+        let compatibility = try values.decodeIfPresent(
+            SharedComponentCompatibilityIdentity.self,
+            forKey: .sharedComponentCompatibilityIdentity
+        )
+        guard (content == nil) == (compatibility == nil),
+              compatibility?.contentDigest == content?.digest else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .sharedComponentCompatibilityIdentity,
+                in: values,
+                debugDescription: "Incomplete or mismatched shared component identity"
+            )
+        }
+        self.schemaVersion = schemaVersion
+        repo = try values.decode(String.self, forKey: .repo)
+        revision = try values.decode(String.self, forKey: .revision)
+        targetFolder = try values.decode(String.self, forKey: .targetFolder)
+        createdAtUTC = try values.decode(String.self, forKey: .createdAtUTC)
+        files = try values.decode([FileEntry].self, forKey: .files)
+        sharedComponentContentIdentity = content
+        sharedComponentCompatibilityIdentity = compatibility
     }
 
     public struct FileEntry: Hashable, Codable, Sendable {
@@ -283,7 +328,7 @@ public struct LocalModelAssetStore: ModelAssetStore, Hashable, Sendable {
         guard let manifest = try? JSONDecoder().decode(ModelAssetIntegrityManifest.self, from: manifestData) else {
             return .unavailable(reason: "manifest unreadable")
         }
-        guard manifest.schemaVersion == ModelAssetIntegrityManifest.currentSchemaVersion else {
+        guard ModelAssetIntegrityManifest.supportedSchemaVersions.contains(manifest.schemaVersion) else {
             return .unavailable(reason: "manifest schema unsupported")
         }
         guard manifest.targetFolder == descriptor.installFolder else {
@@ -292,14 +337,39 @@ public struct LocalModelAssetStore: ModelAssetStore, Hashable, Sendable {
 
         let requiredPaths = Set(descriptor.artifacts.map(\.relativePath))
         let entries = manifest.files.filter { requiredPaths.contains($0.path) }
-        guard !entries.isEmpty else {
+        guard Set(entries.map(\.path)) == requiredPaths else {
             return .unavailable(reason: "manifest has no required file entries")
+        }
+
+        if let content = manifest.sharedComponentContentIdentity,
+           let compatibility = manifest.sharedComponentCompatibilityIdentity {
+            let sharedManifestURL = root.appendingPathComponent(
+                SharedComponentInstalledModelManifest.filename,
+                isDirectory: false
+            )
+            guard let sharedData = try? Data(contentsOf: sharedManifestURL),
+                  let shared = try? JSONDecoder().decode(
+                      SharedComponentInstalledModelManifest.self,
+                      from: sharedData
+                  ),
+                  shared.contentIdentity == content,
+                  shared.compatibilityIdentity == compatibility else {
+                return .failed(
+                    message: "The installed shared-component identity is missing or inconsistent.",
+                    failedRelativePaths: content.files.map(\.relativePath).sorted()
+                )
+            }
         }
 
         var failures: [String] = []
         for entry in entries {
             let url = root.appendingPathComponent(entry.path, isDirectory: false)
-            guard FileManager.default.fileExists(atPath: url.path) else {
+            guard FileManager.default.fileExists(atPath: url.path),
+                  let values = try? url.resourceValues(
+                      forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
+                  ),
+                  values.isRegularFile == true,
+                  values.isSymbolicLink != true else {
                 failures.append(entry.path)
                 continue
             }

@@ -56,7 +56,7 @@ source. Static completeness does not substitute for explicit post-change live de
 | **Release-only config** | The project has no Debug configuration or generic `DEBUG` symbol. Every production-affecting environment override is registered in `config/runtime-debug-knobs.json` and remains inert unless `QWENVOICE_DEBUG=1` enables the master runtime gate. Compile-time test isolation belongs in test targets or a narrowly named compilation condition, never hidden app behavior. |
 | **Concurrency exceptions are registered** | Every owned `@unchecked Sendable` or other unsafe concurrency declaration must be justified and covered by `config/concurrency-safety.json`. Prefer actors, `Mutex`, immutable adapters, or value types; run `python3 scripts/runtime_security_contract.py` after changing either registry or a covered declaration. |
 | **MLX pins in lockstep** | `mlx-swift` + `mlx-swift-lm` together; no Core ML. → [`.agents/backend-mlx.md`](.agents/backend-mlx.md) |
-| **Engine invariants** | Prewarm slots, event streams, cancellation, memory policy → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| **Engine invariants** | Prewarm slots, event streams, cancellation, request-local sampling/memory policy, and staged actor/session authority → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`config/runtime-refactor-contract.json`](config/runtime-refactor-contract.json). A nested partial v9 projection in a shipping v8 telemetry row does not make the complete v9 path authoritative. Do not treat a foundation marked non-shipping as product authority. |
 | **Privacy** | No PII, device identity, usernames, absolute paths, prompts, transcripts, secrets, or private metadata in any tracked content. |
 | **All app UI = XCUITest** | XCUITest is the sole autonomous app UI driver for the native macOS test host and the paired physical iPhone. No Simulator, alternate desktop-control MCP, or coordinate bridge is active. |
 | **No hidden test UI** | XCUITest observes genuine visible controls. Test-only code belongs in test targets; shippable app targets must not contain preview routes, invisible state markers, seeded UI state, or onboarding bypasses. |
@@ -187,7 +187,8 @@ gates. Listening remains optional independent annotation →
 | `Sources/QwenVoiceCore/` | Engine, download, generation semantics |
 | `Sources/QwenVoiceBackendCore/` | Backend provenance, defaults, policy vocabulary, finish reason, and minimal synthesis abstraction |
 | `Packages/VocelloQwen3Core/` | Owned Qwen3-TTS and Mimi core runtime; stable `VocelloQwen3Core` product facade, compatibility-preserved `MLXAudio*` implementation products, lineage, capabilities, and deterministic runtime tests |
-| `Sources/Resources/qwenvoice_production_model_catalog.json`, `config/model-artifact-receipts.json` | Complete exact artifact identities for all six Speed/Quality packages; fail-closed production delivery contract |
+| `Sources/Resources/qwenvoice_production_model_catalog.json`, `config/model-catalog-schema-v2.json`, `config/model-artifact-receipts.json` | Complete exact artifact and shared-component identities for all six Speed/Quality packages; fail-closed production delivery contract |
+| `config/runtime-refactor-contract.json`, `docs/decisions/runtime-streaming-quality-convergence.md` | Current shipping versus foundation authority for the staged runtime convergence program |
 | `config/runtime-debug-knobs.json`, `config/concurrency-safety.json` | Runtime-debug master-gate and owned concurrency-exception registries |
 | `Sources/QwenVoiceNative/`, `Sources/QwenVoiceEngineService/`, `Sources/QwenVoiceEngineSupport/` | macOS XPC stack |
 | `Sources/iOS/`, `Sources/iOSSupport/` | iOS app |

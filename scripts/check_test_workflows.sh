@@ -11,6 +11,15 @@ command -v rg >/dev/null 2>&1 || fail "ripgrep is required"
 
 echo "==> XCUITest workflow consistency check" >&2
 
+# The memory-pressure synchronization stress suite has an explicit sanitizer
+# escape hatch, but ordinary deterministic checks must remain sanitizer-free.
+rg -q 'QWENVOICE_ENABLE_TSAN:-0' scripts/macos_test.sh \
+  || fail "macOS core-test lost its opt-in Thread Sanitizer switch"
+rg -q 'sanitizer_setting="YES"' scripts/macos_test.sh \
+  || fail "macOS core-test no longer enables Thread Sanitizer for the opt-in value"
+rg -q -- '-enableThreadSanitizer "\$sanitizer_setting"' scripts/macos_test.sh \
+  || fail "macOS core-test no longer routes the opt-in switch to xcodebuild"
+
 for required_policy_surface in \
   config/build-output-policy.json \
   config/documentation-contract.json \
@@ -604,6 +613,7 @@ python3 -m unittest \
   scripts.tests.test_profile_capture_contract \
   scripts.tests.test_telemetry_overhead \
   scripts.tests.test_summarize_generation_telemetry \
+  scripts.tests.test_analyze_prosody \
   scripts.tests.test_prosody_calibration \
   scripts.test_check_macos_xpc_bench \
   scripts.test_check_ios_ui_benchmark \

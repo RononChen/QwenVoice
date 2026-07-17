@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate runtime debug, unchecked concurrency, and release-evidence contracts."""
+"""Validate runtime debug, concurrency, convergence, and release contracts."""
 
 from __future__ import annotations
 
@@ -291,10 +291,165 @@ def validate_release_contract() -> list[str]:
     return errors
 
 
+def runtime_refactor_contract_errors(
+    contract: dict, *, decision_exists: bool = True
+) -> list[str]:
+    errors: list[str] = []
+    if contract.get("schemaVersion") != 1:
+        errors.append("runtime-refactor-contract schemaVersion must be 1")
+    if contract.get("status") != "active-staged-convergence":
+        errors.append("runtime-refactor-contract must remain an active staged convergence")
+    if contract.get("shippingPolicy") != "shadow-contracts-must-not-run-a-second-model-generation":
+        errors.append("runtime-refactor-contract must prohibit a second shadow generation")
+    if contract.get("rollbackPolicy") != "revert-the-owning-small-pull-request":
+        errors.append("runtime-refactor-contract must use pull-request reversion for rollback")
+    if not decision_exists:
+        errors.append("runtime-refactor-contract decision does not resolve")
+
+    checkpoint = contract.get("reviewCheckpoint")
+    if not isinstance(checkpoint, dict):
+        errors.append("runtime-refactor-contract review checkpoint must be an object")
+    else:
+        review_date = checkpoint.get("date")
+        if not isinstance(review_date, str) or re.fullmatch(r"\d{4}-\d{2}-\d{2}", review_date) is None:
+            errors.append("runtime-refactor-contract review checkpoint date must use YYYY-MM-DD")
+        base_revision = checkpoint.get("baseRevision")
+        if (
+            not isinstance(base_revision, str)
+            or len(base_revision) != 40
+            or any(character not in "0123456789abcdef" for character in base_revision)
+        ):
+            errors.append("runtime-refactor-contract review base revision must be a full Git SHA")
+        source_state = checkpoint.get("sourceState")
+        if (
+            not isinstance(source_state, str)
+            or not source_state
+            or any(
+                not (character.islower() or character.isdigit() or character == "-")
+                for character in source_state
+            )
+        ):
+            errors.append("runtime-refactor-contract review source state must be a safe token")
+        verification = checkpoint.get("deterministicVerification")
+        if not isinstance(verification, dict) or verification.get("status") != "passed":
+            errors.append("runtime-refactor-contract deterministic checkpoint must report PASS")
+        elif any(
+            not isinstance(verification.get(key), int) or verification[key] <= 0
+            for key in ("coreTests", "xpcIntegrationTests", "ownedRuntimeTests")
+        ):
+            errors.append("runtime-refactor-contract deterministic test counts must be positive")
+        if checkpoint.get("promotionEvidence") != "not-run-for-convergence-worktree":
+            errors.append("runtime-refactor-contract cannot claim unperformed promotion evidence")
+
+    versions = contract.get("contractVersions")
+    required_versions = {
+        "productPlan": 1,
+        "corePlan": 1,
+        "evidenceIdentity": 1,
+        "sampling": 2,
+        "chunking": 1,
+        "memory": 1,
+        "telemetry": 8,
+        "telemetryTransition": 9,
+        "benchmarkEvidence": 2,
+    }
+    if versions != required_versions:
+        errors.append("runtime-refactor-contract versions differ from shipping/shadow schemas")
+
+    chunks = contract.get("constrainedTierChunkFrames")
+    expected_chunks = {
+        "custom": {"first": 7, "later": 7},
+        "design": {"first": 7, "later": 14},
+        "clone": {"first": 7, "later": 14},
+    }
+    if chunks != expected_chunks:
+        errors.append("runtime-refactor-contract constrained-tier chunk frames drifted")
+
+    characterization = contract.get("characterization")
+    if not isinstance(characterization, dict):
+        errors.append("runtime-refactor-contract characterization must be an object")
+    else:
+        if characterization.get("candidateBudgetsAreHypotheses") is not True:
+            errors.append("runtime-refactor-contract candidate budgets must remain hypotheses")
+        for key, minimum in (
+            ("minimumCleanControlRuns", 3),
+            ("minimumWarmTakesPerPromotedCell", 10),
+            ("minimumColdTakesPerPromotedCell", 3),
+        ):
+            value = characterization.get(key)
+            if not isinstance(value, int) or value < minimum:
+                errors.append(f"runtime-refactor-contract {key} must be at least {minimum}")
+        maximum_noise = characterization.get("maximumAcceptedTimingNoisePercent")
+        if not isinstance(maximum_noise, (int, float)) or maximum_noise > 8:
+            errors.append("runtime-refactor-contract cannot accept timing noise above 8 percent")
+
+    authorities = contract.get("currentShippingAuthorities")
+    if not isinstance(authorities, dict) or set(authorities) != {
+        "runtime", "productSession", "ownedRuntimeFacade", "sampling", "memory",
+        "planShadow", "telemetry", "benchmarkHistory", "modelStorage", "longForm",
+        "quality", "custom", "design", "clone"
+    }:
+        errors.append("runtime-refactor-contract must name every current shipping authority")
+    phases = contract.get("phaseStatus")
+    required_phases = {
+        "characterizationContract", "xpcReserveBeforeSideEffects",
+        "synchronizedPressureSnapshot", "continuousCriticalReliefAdmission",
+        "immutablePlans", "engineActor", "classifiedSessionChannels",
+        "productOutputAdapter", "modeCutover", "requestLocalSamplingV2",
+        "telemetryV9", "chunkAndPreviewExperiments", "sharedComponentStorage",
+        "runtimeComponentReuse", "spokenTextPlanning", "longFormV4",
+        "boundedAnalyzers", "unifiedQuality", "historyV3", "mechanicalRetirement",
+    }
+    if not isinstance(phases, dict) or set(phases) != required_phases:
+        errors.append("runtime-refactor-contract must name every convergence phase status")
+    elif not all(
+        isinstance(value, str)
+        and value
+        and value == value.strip()
+        and all(character.islower() or character.isdigit() or character == "-" for character in value)
+        for value in phases.values()
+    ):
+        errors.append("runtime-refactor-contract phase statuses must be safe tokens")
+    elif isinstance(authorities, dict):
+        compatibility_modes = {authorities.get(mode) for mode in ("custom", "design", "clone")}
+        if compatibility_modes == {"compatibility-path"} and phases.get("modeCutover") != (
+            "pending-implementation-and-focused-platform-acceptance"
+        ):
+            errors.append("runtime-refactor-contract cannot claim mode cutover while compatibility modes ship")
+        if isinstance(versions, dict) and versions.get("telemetry") == 8:
+            expected_transition = (
+                "partial-transition-projection-embedded-in-v8-"
+                "complete-writer-merger-publication-pending"
+            )
+            if phases.get("telemetryV9") != expected_transition or authorities.get("telemetry") != (
+                "generation-telemetry-v8-with-partial-v9-transition-projection"
+            ):
+                errors.append(
+                    "runtime-refactor-contract cannot claim complete telemetry v9 while schema v8 ships"
+                )
+        if isinstance(versions, dict) and versions.get("benchmarkEvidence") == 2 and phases.get("historyV3") != "pending-stable-plan-session-quality-identities":
+            errors.append("runtime-refactor-contract cannot claim history v3 while schema v2 ships")
+    compatibility = contract.get("temporaryCompatibilitySurfaces")
+    if not isinstance(compatibility, list) or not compatibility or len(compatibility) != len(set(compatibility)):
+        errors.append("runtime-refactor-contract compatibility surfaces must be unique and non-empty")
+    invariants = contract.get("invariants")
+    if not isinstance(invariants, list) or not invariants or len(invariants) != len(set(invariants)):
+        errors.append("runtime-refactor-contract invariants must be unique and non-empty")
+    return errors
+
+
+def validate_runtime_refactor_contract() -> list[str]:
+    contract = load_json(ROOT / "config/runtime-refactor-contract.json")
+    decision = contract.get("decision")
+    decision_exists = isinstance(decision, str) and (ROOT / decision).is_file()
+    return runtime_refactor_contract_errors(contract, decision_exists=decision_exists)
+
+
 def validate_docs() -> list[str]:
     errors: list[str] = []
     threat = ROOT / "docs/decisions/runtime-hardening-and-trust-boundary.md"
     naming = ROOT / "docs/decisions/product-identity-compatibility.md"
+    convergence = ROOT / "docs/decisions/runtime-streaming-quality-convergence.md"
     if not threat.is_file():
         errors.append("missing runtime hardening threat-model ADR")
     else:
@@ -304,6 +459,8 @@ def validate_docs() -> list[str]:
                 errors.append(f"runtime hardening ADR missing entitlement: {required}")
     if not naming.is_file():
         errors.append("missing product identity compatibility ADR")
+    if not convergence.is_file():
+        errors.append("missing runtime streaming and quality convergence ADR")
     return errors
 
 
@@ -312,6 +469,7 @@ def main() -> int:
     try:
         errors.extend(validate_debug_contract())
         errors.extend(validate_concurrency_contract())
+        errors.extend(validate_runtime_refactor_contract())
         errors.extend(validate_release_contract())
         errors.extend(validate_docs())
     except ValueError as exc:

@@ -100,9 +100,13 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
     /// and makes terminal delivery accounting generation-exact.
     nonisolated private let eventRouter = GenerationScopedEventRouter()
     private let activeGenerationCoordinator = ActiveGenerationCoordinator()
+    private let criticalMemoryReliefAdmission = CriticalMemoryReliefAdmission()
 
     public var isReady: Bool {
-        isInitialized && activeModelOperation?.kind.isGeneration != true && loadState.isReady
+        isInitialized
+            && !criticalMemoryReliefAdmission.isClosed
+            && activeModelOperation?.kind.isGeneration != true
+            && loadState.isReady
     }
 
     public var sidebarStatus: EngineLoadState {
@@ -219,7 +223,26 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
 
     private func beginUserModelOperation(_ kind: ModelOperationKind) async throws -> UUID {
         try Task.checkCancellation()
-        while let active = activeModelOperation {
+        while true {
+            // Preserve the existing immediate rejection when a generation is
+            // already active, even if critical relief has also been latched.
+            if activeModelOperation?.kind.isGeneration == true {
+                throw MLXTTSEngineError.generationFailed(
+                    "The engine is already working on audio. Wait for it to finish or cancel it before starting another generation."
+                )
+            }
+
+            // This check and the operation assignment below both execute on
+            // MainActor without an intervening suspension once the latch is
+            // open. Critical pressure therefore cannot enter between them.
+            try await criticalMemoryReliefAdmission.waitUntilOpen()
+
+            guard let active = activeModelOperation else {
+                let id = UUID()
+                objectWillChange.send()
+                activeModelOperation = ActiveModelOperation(id: id, kind: kind)
+                return id
+            }
             if active.kind.isGeneration {
                 throw MLXTTSEngineError.generationFailed(
                     "The engine is already working on audio. Wait for it to finish or cancel it before starting another generation."
@@ -243,10 +266,6 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             }
             try Task.checkCancellation()
         }
-        let id = UUID()
-        objectWillChange.send()
-        activeModelOperation = ActiveModelOperation(id: id, kind: kind)
-        return id
     }
 
     private func cancelModelOperationWaiter(id: UUID) {
@@ -258,7 +277,10 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
     }
 
     private func beginProactiveModelOperation(_ kind: ModelOperationKind) -> UUID? {
-        guard activeModelOperation == nil else { return nil }
+        guard criticalMemoryReliefAdmission.allowsProactiveOperation,
+              activeModelOperation == nil else {
+            return nil
+        }
         let id = UUID()
         objectWillChange.send()
         activeModelOperation = ActiveModelOperation(id: id, kind: kind)
@@ -271,9 +293,35 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         activeModelOperation = nil
         let waiters = modelOperationWaiters
         modelOperationWaiters.removeAll()
+        let quiescenceWaiters = modelOperationQuiescenceWaiters
+        modelOperationQuiescenceWaiters.removeAll()
         for waiter in waiters {
             waiter.continuation.resume()
         }
+        for waiter in quiescenceWaiters {
+            waiter.resume()
+        }
+    }
+
+    private func closeAdmissionForCriticalMemoryRelief() {
+        cancelIdleUnload()
+        guard !criticalMemoryReliefAdmission.isClosed else { return }
+        objectWillChange.send()
+        criticalMemoryReliefAdmission.close()
+    }
+
+    private func waitForModelOperationsToQuiesce() async {
+        while activeModelOperation != nil {
+            await withCheckedContinuation { continuation in
+                modelOperationQuiescenceWaiters.append(continuation)
+            }
+        }
+    }
+
+    private func publishCriticalMemoryReliefCompletion() {
+        guard criticalMemoryReliefAdmission.isClosed else { return }
+        objectWillChange.send()
+        criticalMemoryReliefAdmission.reopen()
     }
 
     public private(set) var visibleErrorMessage: String?
@@ -294,6 +342,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
     private var idleUnloadToken: UUID?
     private var activeModelOperation: ActiveModelOperation?
     private var modelOperationWaiters: [ModelOperationWaiter] = []
+    private var modelOperationQuiescenceWaiters: [CheckedContinuation<Void, Never>] = []
 
     private struct ModelOperationWaiter {
         let id: UUID
@@ -529,7 +578,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         latestEventDrainTask?.cancel()
         latestEventDrainTask = nil
         latestEventCoalescer.clear()
-        memoryPressureTask?.cancel()
+        let previousMemoryPressureTask = memoryPressureTask
+        previousMemoryPressureTask?.cancel()
         memoryPressureTask = nil
         memoryPressureMonitor.stop()
         memoryPressureMonitor = NativeMemoryPressureMonitor()
@@ -538,6 +588,10 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         let previousCleanupTask = stopCleanupTask
         stopCleanupTask = Task.detached(priority: .utility) {
             await previousCleanupTask?.value
+            // If a critical response was already in progress, let it finish
+            // its fail-closed trim and reopen publication before this engine
+            // instance can be initialized again.
+            await previousMemoryPressureTask?.value
             await activeGenerationCoordinator.cancelCurrent(reason: .shutdown)
             await runtime.configure(normalizedCloneReferenceDirectory: nil, voicesDirectory: nil)
             await runtime.stop()
@@ -573,8 +627,17 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
                 // clear MLX state while generation is still using it.
                 await activeGenerationCoordinator.cancelCurrent(reason: reason)
             },
-            trim: { level, reason in
-                await runtime.trimMemory(level: level, reason: reason)
+            trim: { [weak self] level, reason in
+                await self?.applyMemoryPressureTrim(level: level, reason: reason)
+            },
+            closeAdmissionForCriticalRelief: { [weak self] in
+                await self?.closeAdmissionForCriticalMemoryRelief()
+            },
+            awaitModelOperationsQuiesced: { [weak self] in
+                await self?.waitForModelOperationsToQuiesce()
+            },
+            publishCriticalReliefCompletion: { [weak self] in
+                await self?.publishCriticalMemoryReliefCompletion()
             }
         )
         memoryPressureTask = Task { [memoryPressureMonitor, responseExecutor] in
@@ -1565,6 +1628,13 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
     }
 
     public func trimMemory(level: NativeMemoryTrimLevel, reason: String) async {
+        await applyMemoryPressureTrim(level: level, reason: reason)
+    }
+
+    private func applyMemoryPressureTrim(
+        level: NativeMemoryTrimLevel,
+        reason: String
+    ) async {
         if level == .fullUnload {
             cancelIdleUnload()
         }

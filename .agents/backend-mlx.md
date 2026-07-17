@@ -105,7 +105,21 @@ warning.
   unload, or ownership release. Cancellation emits `.cancelled`, not `.failed`, and no late result
   may reach persistence. The generate catch must still restore `loadState` on every terminal path.
 - **Per-tier memory.** `NativeMemoryPolicyResolver` sets policy per device class. There is
-  **no hard `Memory.memoryLimit` in production** and **no Quality→Speed OOM fallback**.
+  **no hard `Memory.memoryLimit` in production** and **no Quality→Speed OOM fallback**. MLX
+  allocator limits are host-boundary process state; request-varying Qwen clear cadence and KV
+  window travel in immutable `VocelloQwen3MemoryConfiguration`/
+  `Qwen3RequestMemoryPolicy` values and must never return to a mutable singleton.
+- **Sampling is request-local.** Algorithm v2 gives every request an effective seed and fresh
+  `MLXRandom.RandomState`; talker and subtalker stages remain independently configurable, and all
+  categorical draws for one request use that state. Do not reintroduce `MLXRandom.seed` or another
+  process-global sampling override.
+- **Convergence authority is explicit.** `config/runtime-refactor-contract.json` distinguishes the
+  shipping compatibility path from actor/session/output/telemetry/long-form/quality foundations.
+  A schema-v8 row may carry the partial v9 transition projection, but that nested evidence does not
+  make the complete v9 writer/merger/publication path or the actor session shipping authority.
+  Task cancellation of a producer suspended on the foundation channel must continue to wake the
+  pending send rather than publish or strand it.
+  Never route product generation through a foundation before its mode-specific promotion gates pass.
 - **Decoder drift.** The owned `Qwen3TTSSpeechTokenizer` uses input-side overlap-and-discard.
   Do not "fix" drift by changing the output side.
 - **SPM pins move in lockstep.** `mlx-swift` and `mlx-swift-lm` are bumped together, never
@@ -118,9 +132,12 @@ warning.
   `config/runtime-debug-knobs.json` and is inert without the `QWENVOICE_DEBUG` master gate. Every
   owned unchecked/unsafe concurrency declaration must remain justified in
   `config/concurrency-safety.json`; validate both with `scripts/runtime_security_contract.py`.
-- **Catalog activation is fail closed.** The generated production catalog is complete for all six
-  Speed/Quality artifacts, and macOS/CLI now use its exact `downloadFiles` descriptors. Never
-  reintroduce live repository enumeration, infer a digest, or accept a staged/missing identity.
+- **Catalog activation is fail closed.** The generated schema-v2 production catalog is complete for
+  all six Speed/Quality artifacts, and every host uses an exact delivery plan. Reuse a shared
+  component only after exact store verification; installed component paths remain regular hard
+  links, never symlinks. Never reintroduce live repository enumeration, infer a digest, or accept a
+  staged/missing identity. Delivery-plan resolution may automatically reconcile an existing model
+  only after every catalog file authenticates; a failed local check must grant no reusable bytes.
   `model_catalog_contract.py validate --require-complete` is deterministic contract proof; a fresh
   isolated Mac/iPhone delivery run is separate explicit quality evidence after delivery changes.
 

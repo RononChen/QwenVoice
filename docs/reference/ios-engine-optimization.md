@@ -176,14 +176,17 @@ How the streaming path stays flat (all `iPhonePro`-tuned, §2.2):
   chunk's `previewAudio` PCM is emitted (`NativeStreamingPreviewDataPolicy` → `.emit`). Opt out with
   debug-gated `QWENVOICE_STREAMING_PREVIEW_DATA=off` for memory-isolated benchmarks or debugging.
   (`SemanticTypes.swift` / `NativeStreamingSynthesisSession.swift`.)
-- **Per-chunk + per-50-token MLX cache clears** (`Qwen3StreamingMemoryTuning`,
-  `clearCacheOnStreamChunkEmit=true`, `tokenMemoryClearCadenceOverride=50`).
+- **Per-chunk + per-50-token MLX cache clears.** `NativeMemoryPolicyResolver` resolves
+  `VocelloQwen3MemoryConfiguration` at the host boundary; the facade converts it into one immutable
+  request-local `Qwen3RequestMemoryPolicy` with `clearCacheOnStreamChunk=true` and
+  `tokenMemoryClearCadence=50`. Generation never mutates a process-global tuning singleton.
 - **Streaming requests everywhere.** Custom / Design / Clone all build their `GenerationRequest` with
   `shouldStream: true` (the three coordinators in `Sources/ViewModels/`).
 
-`Qwen3StreamingMemoryTuning.talkerKVGeneratedWindow` is `nil` (unbounded `KVCacheSimple`) — the
-talker-KV sliding window is shipped **env-only and off** (`QVOICE_TALKER_KV_WINDOW`), because it's
-inert at the current token cap (§9, OPTIMIZATION.md §F.2).
+`Qwen3RequestMemoryPolicy.talkerKVGeneratedWindow` is `nil` by default (unbounded
+`KVCacheSimple`). The talker-KV sliding window remains **debug-gated and off** through
+`QVOICE_TALKER_KV_WINDOW`; its value is resolved into the request before generation and is inert at
+the current token cap (§9, OPTIMIZATION.md §F.2).
 
 ---
 

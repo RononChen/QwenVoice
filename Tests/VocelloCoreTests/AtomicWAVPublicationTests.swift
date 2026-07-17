@@ -44,6 +44,25 @@ final class AtomicWAVPublicationTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path), ["take.wav"])
     }
 
+    func testStreamingWriterCanValidateStagingBeforeAtomicPublication() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocello-staged-wav-\(UUID().uuidString)", isDirectory: true)
+        let output = directory.appendingPathComponent("take.wav")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let writer = try IncrementalPCM16WAVFileWriter(sampleRate: 24_000, outputURL: output)
+        try writer.append(pcmSamples: Array(repeating: Int16(500), count: 480))
+
+        let stagingURL = try writer.finishStaging()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stagingURL.path))
+        XCTAssertEqual(try AVAudioFile(forReading: stagingURL).length, 480)
+
+        try writer.publish()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagingURL.path))
+    }
+
     func testPersistedWAVQCReadsWrittenFramesAndRetainsPreWriteInstability() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("vocello-persisted-qc-\(UUID().uuidString)", isDirectory: true)
@@ -94,6 +113,27 @@ final class AtomicWAVPublicationTests: XCTestCase {
         let report = try PersistedWAVAudioQCAnalyzer.evaluate(url: output)
         XCTAssertEqual(report.writtenOutputVerdict, .warn)
         XCTAssertGreaterThan(try XCTUnwrap(report.dcOffset), 0.09)
+    }
+
+    func testPersistedWAVQCKeepsSilenceRunAcrossBoundedReadBlocks() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocello-persisted-block-qc-\(UUID().uuidString)", isDirectory: true)
+        let output = directory.appendingPathComponent("take.wav")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let audible = Array(repeating: Int16(4_000), count: 5_000)
+        let silence = Array(repeating: Int16(0), count: 20_000)
+        try AtomicPCM16WAVWriter.write(
+            pcmSamples: audible + silence + audible,
+            sampleRate: 24_000,
+            outputURL: output
+        )
+
+        let report = try PersistedWAVAudioQCAnalyzer.evaluate(url: output)
+
+        XCTAssertEqual(report.longestSilenceMS, 833, accuracy: 1)
+        XCTAssertEqual(try XCTUnwrap(report.longestSilenceStartMS), 208, accuracy: 1)
+        XCTAssertEqual(report.writtenOutputVerdict, .warn)
     }
 
     private func assertRIFFWAVE(_ url: URL) throws {

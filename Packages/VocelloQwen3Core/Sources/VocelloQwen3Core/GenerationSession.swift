@@ -1,6 +1,8 @@
 import Foundation
 
-/// Emitted once the runtime has accepted and prepared a generation request.
+/// Emitted when the Qwen producer has completed request/input preparation and
+/// is ready to enter token generation. Reservation acceptance or task startup
+/// alone must not publish this event.
 public struct VocelloQwen3PreparedEvent: Codable, Hashable, Sendable {
     public let generationID: UUID
     public let model: VocelloQwen3ModelIdentity
@@ -257,14 +259,6 @@ public final class VocelloQwen3ModelGenerationSession: VocelloQwen3GenerationSes
             var tokenCount = 0
             var frameCount = 0
             do {
-                try VocelloQwen3Runtime.apply(memoryConfiguration: request.memory)
-                try await Self.offer(.prepared(VocelloQwen3PreparedEvent(
-                    generationID: request.generationID,
-                    model: model.identity,
-                    mode: request.mode,
-                    elapsedMilliseconds: startedAt.elapsedMilliseconds
-                )), to: channel)
-
                 let stream = try Self.stream(
                     model: model,
                     request: request,
@@ -273,9 +267,25 @@ public final class VocelloQwen3ModelGenerationSession: VocelloQwen3GenerationSes
                     enableChunkTimings: enableChunkTimings
                 )
                 var sequence = 0
+                var publishedPrepared = false
                 for try await signal in stream {
                     try Task.checkCancellation()
+                    if !publishedPrepared {
+                        // The compatibility stream has no explicit prepared
+                        // event. Its first model-produced signal is the
+                        // earliest truthful evidence that input preparation
+                        // completed, so do not publish readiness at task start.
+                        try await Self.offer(.prepared(VocelloQwen3PreparedEvent(
+                            generationID: request.generationID,
+                            model: model.identity,
+                            mode: request.mode,
+                            elapsedMilliseconds: startedAt.elapsedMilliseconds
+                        )), to: channel)
+                        publishedPrepared = true
+                    }
                     switch signal {
+                    case .prepared:
+                        continue
                     case .token:
                         tokenCount += 1
                     case .info(let info):
@@ -387,6 +397,7 @@ public final class VocelloQwen3ModelGenerationSession: VocelloQwen3GenerationSes
                 speaker: speakerID,
                 instruction: instruction,
                 sampling: request.sampling,
+                memory: request.memory,
                 streamingInterval: streamingInterval,
                 enableChunkTimings: enableChunkTimings
             )
@@ -396,6 +407,7 @@ public final class VocelloQwen3ModelGenerationSession: VocelloQwen3GenerationSes
                 language: request.language,
                 description: description,
                 sampling: request.sampling,
+                memory: request.memory,
                 streamingInterval: streamingInterval,
                 enableChunkTimings: enableChunkTimings
             )
@@ -406,6 +418,7 @@ public final class VocelloQwen3ModelGenerationSession: VocelloQwen3GenerationSes
                 language: request.language,
                 prompt: clonePrompt,
                 sampling: request.sampling,
+                memory: request.memory,
                 streamingInterval: streamingInterval,
                 enableChunkTimings: enableChunkTimings
             )

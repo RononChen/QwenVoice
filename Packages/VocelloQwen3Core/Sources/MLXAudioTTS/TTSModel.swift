@@ -67,7 +67,8 @@ public enum TTS {
         textProcessor _: TextProcessor? = nil,
         hfToken: String? = nil,
         cache: HubCache = .default,
-        revision: String = "main"
+        revision: String = "main",
+        isolation: isolated (any Actor)? = #isolation
     ) async throws -> SpeechGenerationModel {
         guard let repoID = Repo.ID(rawValue: modelRepo) else {
             throw TTSModelError.invalidRepositoryID(modelRepo)
@@ -83,7 +84,8 @@ public enum TTS {
             modelRepo: modelRepo,
             modelType: modelType,
             cache: cache,
-            revision: revision
+            revision: revision,
+            isolation: isolation
         )
     }
 
@@ -95,7 +97,8 @@ public enum TTS {
         qwenPreparedLoadBehavior: QwenPreparedLoadBehavior? = nil,
         diagnosticEventSink: (@Sendable (String, [String: String]) async -> Void)? = nil,
         textProcessor _: TextProcessor? = nil,
-        cache: HubCache = .default
+        cache: HubCache = .default,
+        isolation: isolated (any Actor)? = #isolation
     ) async throws -> SpeechGenerationModel {
         let resolvedType = normalizedModelType(modelType) ?? inferModelType(from: modelRepo)
         guard let resolvedType, resolvedType == "qwen3_tts" else {
@@ -122,7 +125,8 @@ public enum TTS {
             loadBehavior: qwenPreparedLoadBehavior ?? QwenPreparedLoadBehavior(
                 trustPreparedCheckpoint: trustPreparedCheckpoint
             ),
-            diagnosticEventSink: diagnosticEventSink
+            diagnosticEventSink: diagnosticEventSink,
+            isolation: isolation
         )
         if let diagnosticEventSink {
             await diagnosticEventSink(
@@ -146,7 +150,8 @@ public enum TTS {
         modelType: String?,
         textProcessor _: TextProcessor? = nil,
         cache: HubCache = .default,
-        revision: String = "main"
+        revision: String = "main",
+        isolation: isolated (any Actor)? = #isolation
     ) async throws -> SpeechGenerationModel {
         let resolvedType = normalizedModelType(modelType) ?? inferModelType(from: modelRepo)
         guard let resolvedType, resolvedType == "qwen3_tts" else {
@@ -155,7 +160,8 @@ public enum TTS {
         return try await Qwen3TTSModel.fromPretrained(
             modelRepo,
             cache: cache,
-            revision: revision
+            revision: revision,
+            isolation: isolation
         )
     }
 

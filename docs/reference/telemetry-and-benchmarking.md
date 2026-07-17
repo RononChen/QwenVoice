@@ -179,6 +179,16 @@ file) is front‑trimmed past ~8 MB (`QWENVOICE_DIAGNOSTICS_MAX_MB` scales it), 
 v1–v7 rows remain decodable. New history publication that claims qualified memory requires v8;
 older rows stay readable but are marked memory-contract-incomplete and excluded from memory trends.
 
+> **Convergence status:** `GenerationStreamingTelemetryV9` is the complete target contract, not a
+> shipping top-level telemetry schema. Every newly constructed schema-v8 row now automatically
+> embeds a nested `GenerationStreamingTelemetryTransitionV9` projection. It includes valid safe
+> plan/policy digests and the typed transport/frontend evidence already owned by that row, and lists
+> every unobserved actor-session, output-adapter, exact codec-range, and first-render field with an
+> explicit reason instead of encoding a measured zero. The projection remains partial: no shipping
+> merger, validator, summarizer, or history publisher consumes a complete v9 record yet.
+> Operational runs and publication therefore continue to use schema v8 plus benchmark-evidence v2
+> until that complete path is implemented and promoted.
+
 | Field | Type | Notes |
 |---|---|---|
 | `schemaVersion` | Int | 8 (v2 derived/memory/chunk; v3 model/warm state; v4 audioQC; v5 high-resolution clocks; v6 typed payloads; v7 sampler accuracy/resource deltas and playback-scheduled naming; v8 independently qualified memory captures, absolute uptime, aligned snapshots, and coverage). |
@@ -201,6 +211,7 @@ older rows stay readable but are marked memory-contract-incomplete and excluded 
 | `chunkTimeline` | `[GenerationChunkTelemetry]?` | Per‑chunk decode substages, with `arrivalNS` (v5) and optional `mimiDecoderBreakdownMS` (v5) (see §6.3). |
 | `audioQC` | `AudioQCReport?` | Versioned reference‑free overall, model-instability, and written-output verdicts plus flags, defect offsets, and optional per‑chunk QC. Algorithm v3 preserves chunk-spanning silence state and derives written-output evidence from the atomically published WAV frames. |
 | `summary` | `TelemetrySummary?` | Owning-process resident/physical-footprint/compressed/headroom/Metal start, end, delta, peak/min and aligned extrema snapshots; total RAM and implied process limit; independent memory/thread/headroom/Metal coverage; sampler cadence/boundaries; and process CPU/page-fault/context-switch/block-I/O deltas. `timeToPeakMS` tracks the physical-footprint peak. |
+| `streamingTelemetryV9` | `GenerationStreamingTelemetryTransitionV9?` | Nested partial v9 transition projection carried by new schema-v8 rows. Invalid generation IDs may omit it; otherwise missing producer domains are explicit `unavailable` entries and never inferred as zero. It is not a publishable schema-v9 envelope. |
 | `notes` | `[String: String]` | Bounded compatibility metadata such as `deviceClass`, `promptChars`, privacy-safe `promptDigest`, and memory pressure. Raw script, transcript, voice description, file path, and failure message are forbidden; prompts/failures use SHA-256 identity rather than content. |
 | `recordedAt` / `processName` / `processIdentifier` | | Provenance. |
 
@@ -595,7 +606,12 @@ dropouts, garbled words, "sounds worse"). Three layers, increasing in what they 
    `dRough` in the delivery table. A benchmark without `--delivery` does not run that paired gate.
    `scripts/prosody_quality_gate.py` analyzes individual takes for monotone, rushed, flat, and
    pause-issue signatures only when invoked explicitly, and `scripts/delivery_adherence.py` is an
-   explicit corpus workflow. All are deterministic, reference-free, and operate on bench WAVs.
+   explicit corpus workflow. Analyzer algorithm v2 reads the persisted PCM16 in exactly two
+   fixed-block passes, retains no whole-file PCM or frame matrix, adds semitone-relative pitch and
+   caller-declared boundary continuity summaries, and reports bounded managed-buffer/working-set
+   evidence. Its fixed-bin quantiles may differ slightly from the legacy full-array algorithm, so
+   the algorithm version is carried by newly calibrated profiles and results. All are deterministic,
+   reference-free, and operate on bench WAVs.
    A JSON **prosody profile** (`scripts/prosody_profile.py`) supplies thresholds and delivery-effect
    weights. The canonical procedure owns calibration and benchmark invocation; the built-in profile
    is used when none is supplied.

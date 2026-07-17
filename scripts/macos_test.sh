@@ -9,6 +9,7 @@
 # usage:
 #   scripts/macos_test.sh preflight [--strict-models]  # Xcode + app + dSYMs + XPC + model status
 #   scripts/macos_test.sh core-test                 # VocelloCoreTests (language semantics, no models)
+#                                                    # opt-in: QWENVOICE_ENABLE_TSAN=1
 #   scripts/macos_test.sh lang-bench [--subset quick|full] [--label RUN_ID]
 #                                                 # headless macOS language-hint matrix (vocello CLI)
 #   scripts/macos_test.sh test                      # Core + XPC transport + Qwen3 runtime tests (no UI)
@@ -137,6 +138,14 @@ ensure_app() { [[ -d "$APP_BUNDLE" ]] || "$SCRIPT_DIR/build.sh" build; }
 # then execute the built deterministic bundles directly through the native runner.
 build_mac_test_bundles() {
   local log_path="$1"
+  local tsan="${QWENVOICE_ENABLE_TSAN:-0}"
+  [[ "$tsan" == "0" || "$tsan" == "1" ]] \
+    || die "QWENVOICE_ENABLE_TSAN must be 0 or 1"
+  local sanitizer_setting="NO"
+  if [[ "$tsan" == "1" ]]; then
+    sanitizer_setting="YES"
+    note "Thread Sanitizer enabled for this deterministic test build"
+  fi
   mkdir -p "$(dirname "$log_path")"
   ensure_project_regenerated || return 1
   ensure_spm_resolved "$QVOICE_SCRATCH_PACKAGE_RESOLUTION" "$QVOICE_XCODE_SOURCE_PACKAGES" \
@@ -147,6 +156,7 @@ build_mac_test_bundles() {
     -derivedDataPath "$QVOICE_XCODE_MACOS_DERIVED" \
     -clonedSourcePackagesDirPath "$QVOICE_XCODE_SOURCE_PACKAGES" \
     -disableAutomaticPackageResolution -onlyUsePackageVersionsFromResolvedFile \
+    -enableThreadSanitizer "$sanitizer_setting" \
     ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="-" \
     CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION=YES \
     SWIFT_OPTIMIZATION_LEVEL="-Onone" SWIFT_COMPILATION_MODE="incremental" \

@@ -138,6 +138,7 @@ public struct VocelloQwen3ChunkTimings: Codable, Hashable, Sendable {
 /// Product-facing stream signal. Audio is materialized exactly where the old
 /// product adapter materialized it, but the MLX tensor itself remains private.
 public enum VocelloQwen3GenerationSignal: Sendable {
+    case prepared
     case token(Int)
     case info(VocelloQwen3GenerationInfo)
     case audio([Float])
@@ -319,13 +320,16 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
     private final class ModelBox: @unchecked Sendable {
         let base: any SpeechGenerationModel
         let optimized: any Qwen3OptimizedSpeechGenerationModel
+        let suspending: any Qwen3SuspendingSpeechGenerationModel
 
         init(_ base: any SpeechGenerationModel) throws {
-            guard let optimized = base as? any Qwen3OptimizedSpeechGenerationModel else {
+            guard let optimized = base as? any Qwen3OptimizedSpeechGenerationModel,
+                  let suspending = base as? any Qwen3SuspendingSpeechGenerationModel else {
                 throw VocelloQwen3ContractError.incompatibleLoadedModel
             }
             self.base = base
             self.optimized = optimized
+            self.suspending = suspending
         }
     }
 
@@ -376,6 +380,41 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
         return parameters
     }
 
+    private func requestSamplingPolicy(
+        _ policy: VocelloQwen3SamplingConfiguration
+    ) throws -> Qwen3RequestSamplingPolicy {
+        let policy = try policy.validatedForCompatibilityAdapter()
+        return Qwen3RequestSamplingPolicy(
+            algorithmVersion: policy.algorithmVersion,
+            effectiveSeed: policy.effectiveSeed,
+            talker: Qwen3SamplingStage(
+                temperature: policy.talker.temperature,
+                topP: policy.talker.topP,
+                topK: policy.talker.topK,
+                minP: policy.talker.minP
+            ),
+            subtalker: Qwen3SamplingStage(
+                temperature: policy.subtalker.temperature,
+                topP: policy.subtalker.topP,
+                topK: policy.subtalker.topK,
+                minP: policy.subtalker.minP
+            ),
+            repetitionPenalty: policy.repetitionPenalty,
+            maximumCodecTokens: policy.maxNewTokens
+        )
+    }
+
+    private func requestMemoryPolicy(
+        _ configuration: VocelloQwen3MemoryConfiguration
+    ) throws -> Qwen3RequestMemoryPolicy {
+        let configuration = try configuration.validated()
+        return Qwen3RequestMemoryPolicy(
+            clearCacheOnStreamChunkEmit: configuration.clearCacheOnStreamChunk,
+            tokenMemoryClearCadence: configuration.tokenMemoryClearCadence,
+            talkerKVGeneratedWindow: configuration.talkerKVGeneratedWindow
+        )
+    }
+
     func streamFinishReason(maximumTokens: Int, observedTokens: Int) -> VocelloQwen3FinishReason {
         let provider = box.base as? any SpeechGenerationModelDiagnosticsProvider
         switch provider?.latestPreparationStringFlags["generation_end_reason"] {
@@ -391,13 +430,112 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
         }
     }
 
+    /// Drives the materialized, suspending producer directly in the caller's
+    /// actor isolation. This is the Phase 3 engine foundation; compatibility
+    /// `AsyncThrowingStream` entry points remain available to the shipping
+    /// product path until the Phase 4 mode cutovers complete.
+    func produce(
+        request: VocelloQwen3SynthesisRequest,
+        clonePrompt: VocelloQwen3ClonePrompt?,
+        sink: @escaping @Sendable (VocelloQwen3GenerationSignal) async throws -> Void,
+        isolation: isolated (any Actor)? = #isolation
+    ) async throws -> VocelloQwen3GenerationFinishReason {
+        let parameters = try parameters(request.sampling)
+        let samplingPolicy = try requestSamplingPolicy(request.sampling)
+        let memoryPolicy = try requestMemoryPolicy(request.memory)
+        let eventSink: Qwen3MaterializedGenerationSink = { event in
+            let signal: VocelloQwen3GenerationSignal = switch event {
+            case .prepared:
+                .prepared
+            case .token(let token):
+                .token(token)
+            case .info(let info):
+                .info(VocelloQwen3GenerationInfo(info))
+            case .audio(let samples):
+                .audio(samples)
+            case .chunkTimings(let timings):
+                .chunkTimings(VocelloQwen3ChunkTimings(timings))
+            }
+            try await sink(signal)
+        }
+
+        let compatibilityFinishReason: AudioGenerationFinishReason
+        switch request.input {
+        case .customVoice(let speakerID, let instruction):
+            compatibilityFinishReason = try await box.suspending.produceCustomVoice(
+                text: request.text,
+                language: request.language,
+                speaker: speakerID,
+                instruct: instruction,
+                generationParameters: parameters,
+                samplingPolicy: samplingPolicy,
+                memoryPolicy: memoryPolicy,
+                streamingInterval: request.chunking.compatibilityStreamingInterval,
+                customVoiceProfile: nil,
+                streamStepEvalPolicy: nil,
+                generationSpeedProfile: nil,
+                memoryClearCadence: nil,
+                enableChunkTimings: true,
+                sink: eventSink,
+                isolation: isolation
+            )
+        case .voiceDesign(let description):
+            compatibilityFinishReason = try await box.suspending.produceVoiceDesign(
+                text: request.text,
+                language: request.language,
+                voiceDescription: description,
+                generationParameters: parameters,
+                samplingPolicy: samplingPolicy,
+                memoryPolicy: memoryPolicy,
+                streamingInterval: request.chunking.compatibilityStreamingInterval,
+                streamStepEvalPolicy: nil,
+                generationSpeedProfile: nil,
+                memoryClearCadence: nil,
+                enableChunkTimings: true,
+                sink: eventSink,
+                isolation: isolation
+            )
+        case .voiceClone:
+            guard let clonePrompt else {
+                throw VocelloQwen3ContractError.missingClonePrompt
+            }
+            compatibilityFinishReason = try await box.suspending.produceVoiceClone(
+                text: request.text,
+                language: request.language,
+                voiceClonePrompt: clonePrompt.compatibilityValue,
+                generationParameters: parameters,
+                samplingPolicy: samplingPolicy,
+                memoryPolicy: memoryPolicy,
+                streamingInterval: request.chunking.compatibilityStreamingInterval,
+                streamStepEvalPolicy: nil,
+                generationSpeedProfile: nil,
+                memoryClearCadence: nil,
+                enableChunkTimings: true,
+                sink: eventSink,
+                isolation: isolation
+            )
+        }
+        switch compatibilityFinishReason {
+        case .eos:
+            return .endOfSequence
+        case .maxTokens:
+            return .maximumTokens
+        case .cancelled:
+            return .cancelled
+        case .failed:
+            return .failed
+        }
+    }
+
     public func prewarmCustomVoice(
         text: String,
         language: String,
         speaker: String,
         instruction: String?,
         sampling: VocelloQwen3SamplingConfiguration,
-        depth: String?
+        memory: VocelloQwen3MemoryConfiguration = .compatibilityDefault,
+        depth: String?,
+        isolation: isolated (any Actor)? = #isolation
     ) async throws {
         let parameters = try parameters(sampling)
         if let configurable = box.optimized as? any Qwen3CustomVoicePrewarmDepthControlling {
@@ -407,7 +545,9 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
                 speaker: speaker,
                 instruct: instruction,
                 generationParameters: parameters,
-                customPrewarmDepth: depth
+                memoryPolicy: try requestMemoryPolicy(memory),
+                customPrewarmDepth: depth,
+                isolation: isolation
             )
         } else {
             try await box.optimized.prepareCustomVoice(
@@ -415,7 +555,9 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
                 language: language,
                 speaker: speaker,
                 instruct: instruction,
-                generationParameters: parameters
+                generationParameters: parameters,
+                memoryPolicy: try requestMemoryPolicy(memory),
+                isolation: isolation
             )
         }
     }
@@ -426,6 +568,7 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
         speaker: String,
         instruction: String?,
         sampling: VocelloQwen3SamplingConfiguration,
+        memory: VocelloQwen3MemoryConfiguration = .compatibilityDefault,
         streamingInterval: Double,
         enableChunkTimings: Bool
     ) throws -> AsyncThrowingStream<VocelloQwen3GenerationSignal, Error> {
@@ -435,6 +578,8 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
             speaker: speaker,
             instruct: instruction,
             generationParameters: try parameters(sampling),
+            samplingPolicy: try requestSamplingPolicy(sampling),
+            memoryPolicy: try requestMemoryPolicy(memory),
             streamingInterval: streamingInterval,
             customVoiceProfile: nil,
             streamStepEvalPolicy: nil,
@@ -449,14 +594,17 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
         language: String,
         speaker: String,
         instruction: String?,
-        sampling: VocelloQwen3SamplingConfiguration
+        sampling: VocelloQwen3SamplingConfiguration,
+        memory: VocelloQwen3MemoryConfiguration = .compatibilityDefault
     ) async throws -> VocelloQwen3GenerationCompletion {
         VocelloQwen3GenerationCompletion(try await box.optimized.generateCustomVoice(
             text: text,
             language: language,
             speaker: speaker,
             instruct: instruction,
-            generationParameters: try parameters(sampling)
+            generationParameters: try parameters(sampling),
+            samplingPolicy: try requestSamplingPolicy(sampling),
+            memoryPolicy: try requestMemoryPolicy(memory)
         ))
     }
 
@@ -464,13 +612,17 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
         text: String,
         language: String,
         description: String,
-        sampling: VocelloQwen3SamplingConfiguration
+        sampling: VocelloQwen3SamplingConfiguration,
+        memory: VocelloQwen3MemoryConfiguration = .compatibilityDefault,
+        isolation: isolated (any Actor)? = #isolation
     ) async throws {
         try await box.optimized.prepareVoiceDesign(
             text: text,
             language: language,
             voiceDescription: description,
-            generationParameters: try parameters(sampling)
+            generationParameters: try parameters(sampling),
+            memoryPolicy: try requestMemoryPolicy(memory),
+            isolation: isolation
         )
     }
 
@@ -479,6 +631,7 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
         language: String,
         description: String,
         sampling: VocelloQwen3SamplingConfiguration,
+        memory: VocelloQwen3MemoryConfiguration = .compatibilityDefault,
         streamingInterval: Double,
         enableChunkTimings: Bool
     ) throws -> AsyncThrowingStream<VocelloQwen3GenerationSignal, Error> {
@@ -487,6 +640,8 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
             language: language,
             voiceDescription: description,
             generationParameters: try parameters(sampling),
+            samplingPolicy: try requestSamplingPolicy(sampling),
+            memoryPolicy: try requestMemoryPolicy(memory),
             streamingInterval: streamingInterval,
             streamStepEvalPolicy: nil,
             generationSpeedProfile: nil,
@@ -499,13 +654,16 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
         text: String,
         language: String,
         description: String,
-        sampling: VocelloQwen3SamplingConfiguration
+        sampling: VocelloQwen3SamplingConfiguration,
+        memory: VocelloQwen3MemoryConfiguration = .compatibilityDefault
     ) async throws -> VocelloQwen3GenerationCompletion {
         VocelloQwen3GenerationCompletion(try await box.optimized.generateVoiceDesign(
             text: text,
             language: language,
             voiceDescription: description,
-            generationParameters: try parameters(sampling)
+            generationParameters: try parameters(sampling),
+            samplingPolicy: try requestSamplingPolicy(sampling),
+            memoryPolicy: try requestMemoryPolicy(memory)
         ))
     }
 
@@ -525,13 +683,17 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
         text: String,
         language: String,
         prompt: VocelloQwen3ClonePrompt,
-        sampling: VocelloQwen3SamplingConfiguration
+        sampling: VocelloQwen3SamplingConfiguration,
+        memory: VocelloQwen3MemoryConfiguration = .compatibilityDefault,
+        isolation: isolated (any Actor)? = #isolation
     ) async throws {
         try await box.optimized.prepareVoiceClone(
             text: text,
             language: language,
             voiceClonePrompt: prompt.compatibilityValue,
-            generationParameters: try parameters(sampling)
+            generationParameters: try parameters(sampling),
+            memoryPolicy: try requestMemoryPolicy(memory),
+            isolation: isolation
         )
     }
 
@@ -540,6 +702,7 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
         language: String,
         prompt: VocelloQwen3ClonePrompt,
         sampling: VocelloQwen3SamplingConfiguration,
+        memory: VocelloQwen3MemoryConfiguration = .compatibilityDefault,
         streamingInterval: Double,
         enableChunkTimings: Bool
     ) throws -> AsyncThrowingStream<VocelloQwen3GenerationSignal, Error> {
@@ -548,6 +711,8 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
             language: language,
             voiceClonePrompt: prompt.compatibilityValue,
             generationParameters: try parameters(sampling),
+            samplingPolicy: try requestSamplingPolicy(sampling),
+            memoryPolicy: try requestMemoryPolicy(memory),
             streamingInterval: streamingInterval,
             streamStepEvalPolicy: nil,
             generationSpeedProfile: nil,
@@ -560,13 +725,16 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
         text: String,
         language: String,
         prompt: VocelloQwen3ClonePrompt,
-        sampling: VocelloQwen3SamplingConfiguration
+        sampling: VocelloQwen3SamplingConfiguration,
+        memory: VocelloQwen3MemoryConfiguration = .compatibilityDefault
     ) async throws -> VocelloQwen3GenerationCompletion {
         VocelloQwen3GenerationCompletion(try await box.optimized.generateVoiceClone(
             text: text,
             language: language,
             voiceClonePrompt: prompt.compatibilityValue,
-            generationParameters: try parameters(sampling)
+            generationParameters: try parameters(sampling),
+            samplingPolicy: try requestSamplingPolicy(sampling),
+            memoryPolicy: try requestMemoryPolicy(memory)
         ))
     }
 

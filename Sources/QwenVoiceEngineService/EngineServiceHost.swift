@@ -12,52 +12,6 @@ private final class EngineReplyHandlerBox: @unchecked Sendable {
     }
 }
 
-private actor ServiceActiveGenerationCoordinator {
-    private struct ActiveGeneration {
-        let id: UUID
-        let cancel: @Sendable () -> Void
-        let waitForTermination: @Sendable () async -> Void
-    }
-
-    private var activeGeneration: ActiveGeneration?
-
-    var hasActive: Bool {
-        activeGeneration != nil
-    }
-
-    func register(
-        cancel: @escaping @Sendable () -> Void,
-        waitForTermination: @escaping @Sendable () async -> Void
-    ) throws -> UUID {
-        guard activeGeneration == nil else {
-            throw TTSEngineError.generationFailed(
-                "The engine is already generating audio. Wait for it to finish or cancel it before starting another generation."
-            )
-        }
-        let id = UUID()
-        activeGeneration = ActiveGeneration(
-            id: id,
-            cancel: cancel,
-            waitForTermination: waitForTermination
-        )
-        return id
-    }
-
-    func finish(id: UUID) {
-        guard activeGeneration?.id == id else { return }
-        activeGeneration = nil
-    }
-
-    func cancelCurrent() async {
-        guard let current = activeGeneration else { return }
-        current.cancel()
-        await current.waitForTermination()
-        if activeGeneration?.id == current.id {
-            activeGeneration = nil
-        }
-    }
-}
-
 /// Serializes diagnostic JSONL appends so concurrent detached Tasks don't
 /// interleave partial lines or race on file-handle creation.
 private actor DiagnosticEventRecorder {
@@ -350,38 +304,69 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
                 ? request.withGenerationID(UUID())
                 : request
             let requestGenerationID = request.generationID!
+            let generationCoordinator = activeGenerationCoordinator
+            // Reserve before touching timing, transport, or model work. A
+            // rejected second request therefore cannot cancel the accepted
+            // request's forwarder or start a task that reaches the engine.
+            let reservation = try await generationCoordinator.reserve()
+            let generationTask = Task { @MainActor in
+                guard await generationCoordinator.waitUntilOpen(reservation) else {
+                    throw CancellationError()
+                }
+                // Enter the engine even when cancellation arrived after bind:
+                // its generation-scoped router must begin and publish the
+                // accepted request's normal cancellation terminal so the
+                // already-installed event forwarder can drain and retire.
+                return try await runtimeContext.engine.generate(request)
+            }
+
+            let mayOpen: Bool
+            do {
+                mayOpen = try await generationCoordinator.bind(
+                    reservation,
+                    cancel: { generationTask.cancel() },
+                    waitForTermination: { _ = await generationTask.result }
+                )
+            } catch {
+                generationTask.cancel()
+                await generationCoordinator.abort(reservation)
+                _ = await generationTask.result
+                throw error
+            }
+            guard mayOpen else {
+                generationTask.cancel()
+                _ = await generationTask.result
+                await generationCoordinator.finish(reservation)
+                throw CancellationError()
+            }
+
             runtimeContext.requestTimings.recordAcceptance(for: requestGenerationID)
-            runtimeContext.eventForwardingTask?.cancel()
             let eventForwardingTask = startEventForwarding(
                 generationID: requestGenerationID,
                 runtimeContext: runtimeContext
             )
             runtimeContext.eventForwardingTask = eventForwardingTask
-            let generationTask = Task { @MainActor in
-                try await runtimeContext.engine.generate(request)
-            }
-            let generationID: UUID
+            var didOpen = false
             do {
-                generationID = try await activeGenerationCoordinator.register(
-                    cancel: { generationTask.cancel() },
-                    waitForTermination: { _ = await generationTask.result }
-                )
+                try await generationCoordinator.open(reservation)
+                didOpen = true
+                let result = try await generationTask.value
+                await eventForwardingTask.value
+                runtimeContext.eventForwardingTask = nil
+                await generationCoordinator.finish(reservation)
+                return .generationResult(result)
             } catch {
                 runtimeContext.requestTimings.discard(requestGenerationID)
                 generationTask.cancel()
                 _ = await generationTask.result
-                await eventForwardingTask.value
-                throw error
-            }
-            do {
-                let result = try await generationTask.value
-                await eventForwardingTask.value
-                await activeGenerationCoordinator.finish(id: generationID)
-                return .generationResult(result)
-            } catch {
-                runtimeContext.requestTimings.discard(requestGenerationID)
-                await eventForwardingTask.value
-                await activeGenerationCoordinator.finish(id: generationID)
+                if didOpen {
+                    await eventForwardingTask.value
+                } else {
+                    eventForwardingTask.cancel()
+                    await eventForwardingTask.value
+                }
+                runtimeContext.eventForwardingTask = nil
+                await generationCoordinator.finish(reservation)
                 throw error
             }
         case .generateBatch(let commandID, let requests):
@@ -389,7 +374,13 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
                 return .generationResults([])
             }
             let runtimeContext = try requireRuntimeContext()
+            let generationCoordinator = activeGenerationCoordinator
+            let reservation = try await generationCoordinator.reserve()
             let generationTask = Task { @MainActor [weak self] in
+                guard await generationCoordinator.waitUntilOpen(reservation) else {
+                    throw CancellationError()
+                }
+                try Task.checkCancellation()
                 let results = try await runtimeContext.engine.generateBatch(requests) { fraction, message in
                     self?.publish(
                         .batchProgress(
@@ -403,22 +394,35 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
                 }
                 return results.map(Self.normalizedBatchResult(from:))
             }
-            let generationID: UUID
+
+            let mayOpen: Bool
             do {
-                generationID = try await activeGenerationCoordinator.register(
+                mayOpen = try await generationCoordinator.bind(
+                    reservation,
                     cancel: { generationTask.cancel() },
                     waitForTermination: { _ = await generationTask.result }
                 )
             } catch {
                 generationTask.cancel()
+                await generationCoordinator.abort(reservation)
+                _ = await generationTask.result
                 throw error
             }
+            guard mayOpen else {
+                generationTask.cancel()
+                _ = await generationTask.result
+                await generationCoordinator.finish(reservation)
+                throw CancellationError()
+            }
             do {
+                try await generationCoordinator.open(reservation)
                 let results = try await generationTask.value
-                await activeGenerationCoordinator.finish(id: generationID)
+                await generationCoordinator.finish(reservation)
                 return .generationResults(results)
             } catch {
-                await activeGenerationCoordinator.finish(id: generationID)
+                generationTask.cancel()
+                _ = await generationTask.result
+                await generationCoordinator.finish(reservation)
                 throw error
             }
         case .cancelActiveGeneration:

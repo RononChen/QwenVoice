@@ -290,18 +290,25 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
             heartbeatTask = nil
         }
 
-        func beginRepositoryDownload(totalBytes: Int64, totalFiles: Int, phase: DownloadPhase = .downloading) {
+        func beginRepositoryDownload(
+            totalBytes: Int64,
+            totalFiles: Int,
+            preverifiedBytes: Int64 = 0,
+            preverifiedFiles: Int = 0,
+            phase: DownloadPhase = .downloading
+        ) {
             repositoryTotalBytes = max(0, totalBytes)
             repositoryTotalFiles = max(0, totalFiles)
-            repositoryCompletedFiles = 0
-            completedFilesBytes = 0
+            repositoryCompletedFiles = max(0, min(preverifiedFiles, repositoryTotalFiles))
+            completedFilesBytes = max(0, min(preverifiedBytes, repositoryTotalBytes))
             taskFileIndex.removeAll()
             taskBytes.removeAll()
             self.phase = phase
             let now = ProcessInfo.processInfo.systemUptime
             lastProgressAdvanceTime = now
             lastSpeedSampleTime = now
-            lastSpeedSampleBytes = 0
+            // Reused verified bytes are progress, not network throughput.
+            lastSpeedSampleBytes = completedFilesBytes
             lastMeasuredBytesPerSecond = nil
             emitRepositoryProgress(isStalled: false)
             startHeartbeatIfNeeded()
@@ -944,7 +951,9 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
         revision: String,
         to targetDir: URL,
         requestIdentity: ModelDownloadRequestIdentity? = nil,
-        stagingRoot explicitStagingRoot: URL? = nil
+        stagingRoot explicitStagingRoot: URL? = nil,
+        installedFiles: [RepoFile]? = nil,
+        sharedComponentPlan: SharedComponentMigrationPlan? = nil
     ) async throws {
         await state.resetForNewRepositoryDownload(preserveUnclaimedCompletions: isBackgroundSession)
         try await runDownload(
@@ -954,7 +963,9 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
             targetDir: targetDir,
             persistStateManifest: false,
             requestIdentity: requestIdentity,
-            explicitStagingRoot: explicitStagingRoot
+            explicitStagingRoot: explicitStagingRoot,
+            installedFiles: installedFiles,
+            sharedComponentPlan: sharedComponentPlan
         )
     }
 
@@ -967,10 +978,33 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
         targetDir: URL,
         persistStateManifest: Bool,
         requestIdentity: ModelDownloadRequestIdentity? = nil,
-        explicitStagingRoot: URL? = nil
+        explicitStagingRoot: URL? = nil,
+        installedFiles: [RepoFile]? = nil,
+        sharedComponentPlan: SharedComponentMigrationPlan? = nil
     ) async throws {
-        let totalBytes = files.reduce(Int64(0)) { $0 + $1.size }
-        await state.beginRepositoryDownload(totalBytes: totalBytes, totalFiles: files.count)
+        let installedFiles = installedFiles ?? files
+        let installedPaths = Set(installedFiles.map(\.path))
+        let downloadPaths = Set(files.map(\.path))
+        guard installedPaths.count == installedFiles.count,
+              downloadPaths.count == files.count,
+              downloadPaths.isSubset(of: installedPaths) else {
+            throw DownloadError.apiError("Invalid authenticated installation file plan")
+        }
+        if let sharedComponentPlan {
+            guard sharedComponentPlan.modelFolder == targetDir.lastPathComponent,
+                  Set(sharedComponentPlan.manifest.contentIdentity.files.map(\.relativePath))
+                    .isSubset(of: installedPaths) else {
+                throw DownloadError.apiError("Shared component installation plan does not match the artifact")
+            }
+        }
+        let reusedFiles = installedFiles.filter { !downloadPaths.contains($0.path) }
+        let totalBytes = installedFiles.reduce(Int64(0)) { $0 + $1.size }
+        await state.beginRepositoryDownload(
+            totalBytes: totalBytes,
+            totalFiles: installedFiles.count,
+            preverifiedBytes: reusedFiles.reduce(Int64(0)) { $0 + $1.size },
+            preverifiedFiles: reusedFiles.count
+        )
 
         let stagingRoot = explicitStagingRoot ?? Self.stagingRoot(forTargetDirectory: targetDir)
         let filesRoot = stagingRoot.appendingPathComponent("files", isDirectory: true)
@@ -1047,13 +1081,31 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
                 repo: repo,
                 revision: revision,
                 targetDir: targetDir,
-                files: files,
-                filesRoot: filesRoot
+                files: installedFiles,
+                filesRoot: filesRoot,
+                sharedComponentManifest: sharedComponentPlan?.manifest
             )
             try await throwIfCancellationRequested()
             await state.setPhase(.installing)
             try await throwIfCancellationRequested()
-            try installStagedRepository(filesRoot: filesRoot, targetDir: targetDir)
+            if let sharedComponentPlan {
+                let store = SharedModelComponentStore(modelsRoot: targetDir.deletingLastPathComponent())
+                _ = try store.installStagedModel(
+                    sharedComponentPlan,
+                    stagedModelURL: filesRoot
+                ) { stagedModel in
+                    try Self.validateStagedRepository(
+                        at: stagedModel,
+                        repo: repo,
+                        revision: revision,
+                        targetFolder: targetDir.lastPathComponent,
+                        files: installedFiles,
+                        sharedComponentManifest: sharedComponentPlan.manifest
+                    )
+                }
+            } else {
+                try installStagedRepository(filesRoot: filesRoot, targetDir: targetDir)
+            }
             // Installation is synchronous, so check once more before publishing
             // success. The iOS coordinator rolls back a target created by this
             // narrow race before it durably records deletion.
@@ -1877,7 +1929,8 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
         revision: String,
         targetDir: URL,
         files: [RepoFile],
-        filesRoot: URL
+        filesRoot: URL,
+        sharedComponentManifest: SharedComponentInstalledModelManifest?
     ) throws {
         let manifest = ModelAssetIntegrityManifest(
             repo: repo,
@@ -1890,13 +1943,72 @@ public final class HuggingFaceDownloader: NSObject, URLSessionDownloadDelegate {
                     size: $0.size,
                     sha256: $0.sha256
                 )
-            }
+            },
+            sharedComponentContentIdentity: sharedComponentManifest?.contentIdentity,
+            sharedComponentCompatibilityIdentity: sharedComponentManifest?.compatibilityIdentity
         )
         let data = try JSONEncoder().encode(manifest)
         try data.write(
             to: filesRoot.appendingPathComponent(ModelAssetIntegrityManifest.filename, isDirectory: false),
             options: .atomic
         )
+    }
+
+    private static func validateStagedRepository(
+        at root: URL,
+        repo: String,
+        revision: String,
+        targetFolder: String,
+        files: [RepoFile],
+        sharedComponentManifest: SharedComponentInstalledModelManifest
+    ) throws {
+        let manifestURL = root.appendingPathComponent(ModelAssetIntegrityManifest.filename)
+        let manifest = try JSONDecoder().decode(
+            ModelAssetIntegrityManifest.self,
+            from: Data(contentsOf: manifestURL)
+        )
+        guard manifest.schemaVersion == ModelAssetIntegrityManifest.currentSchemaVersion,
+              manifest.repo == repo,
+              manifest.revision == revision,
+              manifest.targetFolder == targetFolder,
+              manifest.sharedComponentContentIdentity == sharedComponentManifest.contentIdentity,
+              manifest.sharedComponentCompatibilityIdentity == sharedComponentManifest.compatibilityIdentity else {
+            throw DownloadError.integrityCheckFailed(
+                path: ModelAssetIntegrityManifest.filename,
+                reason: "installed manifest identity mismatch"
+            )
+        }
+        let expectedEntries = Dictionary(uniqueKeysWithValues: files.map {
+            ($0.path, ($0.size, normalizedSHA256($0.sha256)))
+        })
+        let manifestEntries = Dictionary(uniqueKeysWithValues: manifest.files.map {
+            ($0.path, ($0.size, normalizedSHA256($0.sha256)))
+        })
+        guard expectedEntries.count == files.count,
+              manifestEntries.count == expectedEntries.count,
+              expectedEntries.allSatisfy({ path, expected in
+                  guard let actual = manifestEntries[path] else { return false }
+                  return actual.0 == expected.0 && actual.1 == expected.1
+              }) else {
+            throw DownloadError.integrityCheckFailed(
+                path: ModelAssetIntegrityManifest.filename,
+                reason: "installed file identity mismatch"
+            )
+        }
+        for file in files {
+            let url = try validatedDestinationURL(for: file.path, in: root)
+            let values = try url.resourceValues(
+                forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
+            )
+            guard values.isRegularFile == true,
+                  values.isSymbolicLink != true,
+                  Int64(values.fileSize ?? -1) == file.size else {
+                throw DownloadError.integrityCheckFailed(
+                    path: file.path,
+                    reason: "installed file is missing, linked by pathname, or has the wrong size"
+                )
+            }
+        }
     }
 
     private func persistDownloadState(
