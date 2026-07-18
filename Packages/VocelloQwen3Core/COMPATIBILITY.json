@@ -53,19 +53,19 @@
         "VocelloQwen3ClonePrompt",
         "VocelloQwen3CompatibilityDiagnostics",
         "VocelloQwen3LoadedModel",
+        "VocelloQwen3Engine.init(adoptingCompatibilityModel:)",
+        "VocelloQwen3Engine.adoptValidatedClonePrompt",
         "VocelloQwen3Runtime.loadPreparedModel",
         "VocelloQwen3Runtime.clearRuntimeCaches"
       ],
       "consumerAllowlist": [
         "Sources/QwenVoiceCore/MLXModelLoadCoordinator.swift",
-        "Sources/QwenVoiceCore/MLXTTSEngine.swift",
         "Sources/QwenVoiceCore/NativeCloneSupport.swift",
         "Sources/QwenVoiceCore/NativeEngineRuntime.swift",
-        "Sources/QwenVoiceCore/NativeStreamingSynthesisSession.swift",
         "Sources/QwenVoiceCore/UnsafeSpeechGenerationModel.swift"
       ],
       "consumerAllowlistEnforcement": "scripts/vendor_runtime_contract.py::LEGACY_COMPATIBILITY_SPI_CONSUMERS",
-      "policy": "This named SPI preserves the unchanged shipping compatibility bridge. It is not normal public facade authority and retires only after the Phase 4 mode cutovers pass."
+      "policy": "This named SPI is limited to transitional prepared-model loading, prewarm/conditioning, loaded-model adoption, and validated schema-3 clone-prompt adoption. Custom, Design, and Clone generation run through the public actor and classified session; the SPI is not product generation authority."
     },
     "internalCharacterizationSurfaces": [
       "VocelloQwen3GenerationSession",
@@ -77,7 +77,7 @@
       "MLXAudioCodecs",
       "MLXAudioTTS"
     ],
-    "policy": "Vocello product targets consume the owned facade. QwenVoiceCore imports the named legacy SPI only for the unchanged shipping compatibility bridge until Phase 4 cutover. The MLXAudio package, products, targets, modules, and public APIs remain available as implementation compatibility surfaces."
+    "policy": "Vocello product generation consumes the owned engine actor, classified session, and product finalization contracts. QwenVoiceCore imports the named legacy SPI only for the remaining load/prewarm and schema-3 conditioning bridge. The MLXAudio package, products, targets, modules, and public APIs remain available as implementation compatibility surfaces."
   },
   "modelContract": "../../Sources/Resources/qwenvoice_contract.json",
   "validation": [

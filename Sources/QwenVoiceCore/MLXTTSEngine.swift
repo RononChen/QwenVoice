@@ -2,7 +2,7 @@ import AVFoundation
 import Combine
 import Foundation
 @preconcurrency import MLX
-@_spi(VocelloQwen3LegacyCompatibility) @preconcurrency import VocelloQwen3Core
+@preconcurrency import VocelloQwen3Core
 
 /// Engine-protocol-level error type. Adopted by every conformer of
 /// `TTSEngine` and by every throwing function on that protocol once the
@@ -61,21 +61,22 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         Int,
         GenerationRequest,
         UnsafeSpeechGenerationModel,
+        VocelloQwen3SynthesisRequest,
+        VocelloQwen3CloneHandle?,
+        GenerationCancellationIngress,
         URL,
         EngineWarmState,
         [String: Int],
         [String: Bool],
         [String: String],
-        ResolvedCloneConditioning?,
         Bool,
         NativeTelemetryRecorder?,
         NativeTelemetrySampler?,
         NativeTelemetryTerminalPolicy,
         NativeLoadCapabilityProfile,
-        Qwen3TTSModelCapabilities,
         NativeMemoryPolicy,
         [String: NativeMLXMemorySnapshot]
-    ) -> any NativeStreamingSessionRunning
+    ) -> any GenerationOutputAdapting
 
     public let modelRegistry: any ModelRegistry
     public let modelAssetStore: any ModelAssetStore
@@ -420,7 +421,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
                     ].merging(preparedMetadata.qwenRuntimeProfile.diagnosticStringFlags()) { _, rhs in rhs },
                     appSupportDirectoryURL: diagnosticAppSupportBox.url
                 )
-                let base = try await VocelloQwen3Runtime.loadPreparedModel(
+                let base = try await MLXModelLoadCoordinator.loadPreparedCompatibilityModel(
                         descriptor.vocelloQwen3PreparedBundle(
                             directory: preparedMetadata.preparedDirectory,
                             modelType: preparedMetadata.modelType,
@@ -452,7 +453,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
                     ].merging(preparedMetadata.qwenRuntimeProfile.diagnosticStringFlags()) { _, rhs in rhs },
                     appSupportDirectoryURL: diagnosticAppSupportBox.url
                 )
-                return UnsafeSpeechGenerationModel.qwen3Optimized(model: base)
+                return base
             },
             telemetryRecorder: telemetryRecorder,
             diagnosticEventSink: { action, details in
@@ -484,24 +485,25 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         pcmScratchBuffer: PCM16ScratchBuffer,
         diagnosticAppSupportBox: DiagnosticAppSupportBox
     ) -> StreamingSessionFactory {
-        { generationID, requestID, request, model, streamSessionsDirectory, warmState, timingOverridesMS, booleanFlags, stringFlags, cloneConditioning, wasPrimed, telemetryRecorder, telemetrySampler, telemetryTerminalPolicy, loadCapabilityProfile, qwen3Capabilities, memoryPolicy, mlxMemorySnapshots in
-            NativeStreamingSynthesisSession(
+        { generationID, requestID, request, model, actorRequest, cloneHandle, cancellationIngress, streamSessionsDirectory, warmState, timingOverridesMS, booleanFlags, stringFlags, wasPrimed, telemetryRecorder, telemetrySampler, telemetryTerminalPolicy, loadCapabilityProfile, memoryPolicy, mlxMemorySnapshots in
+            GenerationOutputAdapter(
                 generationID: generationID,
                 requestID: requestID,
                 request: request,
                 model: model,
+                actorRequest: actorRequest,
+                cloneHandle: cloneHandle,
+                cancellationIngress: cancellationIngress,
                 streamSessionsDirectory: streamSessionsDirectory,
                 warmState: warmState,
                 timingOverridesMS: timingOverridesMS,
                 booleanFlags: booleanFlags,
                 stringFlags: stringFlags,
-                cloneConditioning: cloneConditioning,
                 wasPrimed: wasPrimed,
                 telemetryRecorder: telemetryRecorder,
                 telemetrySampler: telemetrySampler,
                 telemetryTerminalPolicy: telemetryTerminalPolicy,
                 loadCapabilityProfile: loadCapabilityProfile,
-                qwen3Capabilities: qwen3Capabilities,
                 memoryPolicy: memoryPolicy,
                 mlxMemorySnapshots: mlxMemorySnapshots,
                 pcmScratchBuffer: pcmScratchBuffer,
@@ -885,16 +887,23 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             : request
         let deliveryGenerationID = request.generationID!
         eventRouter.beginGeneration(deliveryGenerationID)
+        let cancellationIngress = GenerationCancellationIngress()
         let gate = GenerationTaskStartGate()
         let task = Task { @MainActor [self] in
             await gate.wait()
             try Task.checkCancellation()
-            return try await performGenerate(request)
+            return try await performGenerate(
+                request,
+                cancellationIngress: cancellationIngress
+            )
         }
         let registration: ActiveGenerationCoordinator.Registration
         do {
             registration = try await activeGenerationCoordinator.register(
-                cancel: { task.cancel() },
+                cancel: { reason in
+                    cancellationIngress.request(reason)
+                    task.cancel()
+                },
                 waitForTermination: { _ = await task.result }
             )
         } catch {
@@ -902,7 +911,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             await gate.open()
             _ = await task.result
             let terminal = GenerationEvent.failed(error.localizedDescription)
-            yieldEvent(terminal, generationID: deliveryGenerationID)
+            await yieldEvent(terminal, generationID: deliveryGenerationID)
             let delivery = eventRouter.snapshot(for: deliveryGenerationID)
             await recordEventDeliveryLossIfNeeded(delivery, request: request)
             _ = eventRouter.snapshot(for: deliveryGenerationID, consuming: true)
@@ -915,13 +924,17 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         do {
             let result = try await withTaskCancellationHandler(
                 operation: { try await task.value },
-                onCancel: { task.cancel() }
+                onCancel: {
+                    cancellationIngress.request(.user)
+                    task.cancel()
+                }
             )
             await activeGenerationCoordinator.finish(registration)
             _ = eventRouter.snapshot(for: deliveryGenerationID, consuming: true)
             return result
         } catch {
-            let cancellationReason = await activeGenerationCoordinator.finish(registration)
+            let coordinatorCancellationReason = await activeGenerationCoordinator.finish(registration)
+            let cancellationReason = cancellationIngress.reason ?? coordinatorCancellationReason
             var delivery = eventRouter.snapshot(for: deliveryGenerationID)
             if delivery.terminalYielded == 0 {
                 let terminal: GenerationEvent
@@ -935,7 +948,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
                 } else {
                     terminal = .failed(error.localizedDescription)
                 }
-                yieldEvent(terminal, generationID: deliveryGenerationID)
+                await yieldEvent(terminal, generationID: deliveryGenerationID)
                 delivery = eventRouter.snapshot(for: deliveryGenerationID)
                 await recordEventDeliveryLossIfNeeded(delivery, request: request)
             }
@@ -944,10 +957,17 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         }
     }
 
-    private func performGenerate(_ request: GenerationRequest) async throws -> GenerationResult {
+    private func performGenerate(
+        _ request: GenerationRequest,
+        cancellationIngress: GenerationCancellationIngress
+    ) async throws -> GenerationResult {
         let operationID = try await beginUserModelOperation(.generation)
         defer { finishModelOperation(id: operationID) }
-        return try await generate(request, allowsBatchRequest: false)
+        return try await generate(
+            request,
+            allowsBatchRequest: false,
+            cancellationIngress: cancellationIngress
+        )
     }
 
     public func generateBatch(
@@ -957,16 +977,24 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         let requests = requests.map { request in
             request.generationID == nil ? request.withGenerationID(UUID()) : request
         }
+        let cancellationIngress = GenerationCancellationIngress()
         let gate = GenerationTaskStartGate()
         let task = Task { @MainActor [self] in
             await gate.wait()
             try Task.checkCancellation()
-            return try await performGenerateBatch(requests, progressHandler: progressHandler)
+            return try await performGenerateBatch(
+                requests,
+                progressHandler: progressHandler,
+                cancellationIngress: cancellationIngress
+            )
         }
         let registration: ActiveGenerationCoordinator.Registration
         do {
             registration = try await activeGenerationCoordinator.register(
-                cancel: { task.cancel() },
+                cancel: { reason in
+                    cancellationIngress.request(reason)
+                    task.cancel()
+                },
                 waitForTermination: { _ = await task.result }
             )
         } catch {
@@ -982,7 +1010,10 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         do {
             let results = try await withTaskCancellationHandler(
                 operation: { try await task.value },
-                onCancel: { task.cancel() }
+                onCancel: {
+                    cancellationIngress.request(.user)
+                    task.cancel()
+                }
             )
             await activeGenerationCoordinator.finish(registration)
             return results
@@ -994,7 +1025,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
 
     private func performGenerateBatch(
         _ requests: [GenerationRequest],
-        progressHandler: (@MainActor (Double?, String) -> Void)?
+        progressHandler: (@MainActor (Double?, String) -> Void)?,
+        cancellationIngress: GenerationCancellationIngress
     ) async throws -> [GenerationResult] {
         try ensureInitialized()
         guard !requests.isEmpty else { return [] }
@@ -1016,7 +1048,11 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
                 Double(index) / Double(max(requests.count, 1)),
                 "Generating item \(index + 1)/\(requests.count)"
             )
-            let result = try await generate(request, allowsBatchRequest: true)
+            let result = try await generate(
+                request,
+                allowsBatchRequest: true,
+                cancellationIngress: cancellationIngress
+            )
             results.append(result)
             clearGenerationActivity()
         }
@@ -1039,7 +1075,11 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         await activeGenerationCoordinator.cancelCurrent(reason: reason)
     }
 
-    private func generate(_ request: GenerationRequest, allowsBatchRequest: Bool) async throws -> GenerationResult {
+    private func generate(
+        _ request: GenerationRequest,
+        allowsBatchRequest: Bool,
+        cancellationIngress: GenerationCancellationIngress
+    ) async throws -> GenerationResult {
         try ensureInitialized()
         cancelIdleUnload()
         if !allowsBatchRequest {
@@ -1058,7 +1098,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         do {
             let result = try await runGenerationAttempt(
                 request,
-                telemetryTerminalPolicy: .deferRetryableAllocationFailure
+                telemetryTerminalPolicy: .deferRetryableAllocationFailure,
+                cancellationIngress: cancellationIngress
             )
             loadState = .loaded(modelID: request.modelID)
             visibleErrorMessage = nil
@@ -1089,8 +1130,9 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
                 try? FileManager.default.removeItem(at: URL(fileURLWithPath: request.outputPath))
                 // Preserve the UI's no-visible-error cancellation contract while
                 // still closing the service-layer transport accumulator.
-                let reason = await activeGenerationCoordinator.currentCancellationReason ?? .user
-                yieldEvent(
+                let coordinatorReason = await activeGenerationCoordinator.currentCancellationReason
+                let reason = cancellationIngress.reason ?? coordinatorReason ?? .user
+                await yieldEvent(
                     .cancelled(
                         GenerationCancellationSummary(
                             generationID: request.generationID,
@@ -1112,7 +1154,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
                 do {
                     let retryResult = try await runGenerationAttempt(
                         request,
-                        telemetryTerminalPolicy: .publish
+                        telemetryTerminalPolicy: .publish,
+                        cancellationIngress: cancellationIngress
                     )
                     loadState = .loaded(modelID: request.modelID)
                     visibleErrorMessage = nil
@@ -1136,8 +1179,9 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
                     if NativeGenerationTerminalClassifier.reason(for: error) == .cancelled {
                         loadState = .loaded(modelID: request.modelID)
                         try? FileManager.default.removeItem(at: URL(fileURLWithPath: request.outputPath))
-                        let reason = await activeGenerationCoordinator.currentCancellationReason ?? .user
-                        yieldEvent(
+                        let coordinatorReason = await activeGenerationCoordinator.currentCancellationReason
+                        let reason = cancellationIngress.reason ?? coordinatorReason ?? .user
+                        await yieldEvent(
                             .cancelled(
                                 GenerationCancellationSummary(
                                     generationID: request.generationID,
@@ -1165,7 +1209,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
                     )
                     handle(surfacedError)
                     let failureEvent = GenerationEvent.failed(surfacedError.localizedDescription)
-                    yieldEvent(failureEvent, generationID: deliveryGenerationID)
+                    await yieldEvent(failureEvent, generationID: deliveryGenerationID)
                     latestEvent = failureEvent
                     let delivery = eventRouter.snapshot(for: deliveryGenerationID)
                     await recordEventDeliveryLossIfNeeded(delivery, request: request)
@@ -1187,7 +1231,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             )
             handle(surfacedError)
             let failureEvent = GenerationEvent.failed(surfacedError.localizedDescription)
-            yieldEvent(failureEvent, generationID: deliveryGenerationID)
+            await yieldEvent(failureEvent, generationID: deliveryGenerationID)
             latestEvent = failureEvent
             let delivery = eventRouter.snapshot(for: deliveryGenerationID)
             await recordEventDeliveryLossIfNeeded(delivery, request: request)
@@ -1197,7 +1241,8 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
 
     private func runGenerationAttempt(
         _ request: GenerationRequest,
-        telemetryTerminalPolicy: NativeTelemetryTerminalPolicy
+        telemetryTerminalPolicy: NativeTelemetryTerminalPolicy,
+        cancellationIngress: GenerationCancellationIngress
     ) async throws -> GenerationResult {
         // The per-generation stage recorder is created inside `prepareGeneration`
         // (started before model load) and returned in `prepared` so the session's
@@ -1217,18 +1262,19 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             prepared.requestID,
             request,
             prepared.model,
+            prepared.actorRequest,
+            prepared.cloneHandle,
+            cancellationIngress,
             streamSessionsDirectory,
             prepared.warmState,
             prepared.timingOverridesMS,
             prepared.booleanFlags,
             prepared.stringFlags,
-            prepared.cloneConditioning,
             prepared.wasPrimed,
             prepared.telemetryRecorder,
             prepared.telemetrySampler,
             prepared.telemetryTerminalPolicy,
             prepared.loadCapabilityProfile,
-            prepared.qwen3Capabilities,
             prepared.memoryPolicy,
             prepared.mlxMemorySnapshots
         )
@@ -1237,13 +1283,16 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
             // Yield to the generation-scoped stream BEFORE the @Published
             // slot. The stream is the chunk-delivery transport; the slot is
             // for snapshot consumers.
-            self?.yieldEvent(event, generationID: deliveryGenerationID)
+            await self?.yieldEvent(event, generationID: deliveryGenerationID)
             self?.latestEventCoalescer.push(event.withoutPreviewAudioPayload())
         }
     }
 
-    nonisolated private func yieldEvent(_ event: GenerationEvent, generationID: UUID) {
-        eventRouter.yield(event, for: generationID)
+    nonisolated private func yieldEvent(
+        _ event: GenerationEvent,
+        generationID: UUID
+    ) async {
+        await eventRouter.yield(event, for: generationID)
     }
 
     private func recordEventDeliveryLossIfNeeded(

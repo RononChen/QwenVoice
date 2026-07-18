@@ -392,6 +392,47 @@ public protocol Qwen3OptimizedSpeechGenerationModel: AnyObject {
     ) async throws -> AudioGenerationCompletion
 }
 
+/// Quality-first generation with an exact producer-prepared boundary.
+///
+/// The callback is separate from the materialized streaming sink so using it
+/// does not switch the Qwen implementation into streaming text conditioning
+/// or chunked decoder behavior.
+public protocol Qwen3PreparedQualityGenerationModel: AnyObject {
+    func generateCustomVoiceQualityFirst(
+        text: String,
+        language: String,
+        speaker: String,
+        instruct: String?,
+        generationParameters: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        onPrepared: @escaping @Sendable () async throws -> Void,
+        isolation: isolated (any Actor)?
+    ) async throws -> AudioGenerationCompletion
+
+    func generateVoiceDesignQualityFirst(
+        text: String,
+        language: String,
+        voiceDescription: String,
+        generationParameters: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        onPrepared: @escaping @Sendable () async throws -> Void,
+        isolation: isolated (any Actor)?
+    ) async throws -> AudioGenerationCompletion
+
+    func generateVoiceCloneQualityFirst(
+        text: String,
+        language: String,
+        voiceClonePrompt: Qwen3TTSVoiceClonePrompt,
+        generationParameters: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        onPrepared: @escaping @Sendable () async throws -> Void,
+        isolation: isolated (any Actor)?
+    ) async throws -> AudioGenerationCompletion
+}
+
 public protocol Qwen3CustomVoicePrewarmDepthControlling: AnyObject {
     func prepareCustomVoice(
         text: String,

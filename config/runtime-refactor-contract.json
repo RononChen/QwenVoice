@@ -7,8 +7,8 @@
   "rollbackPolicy": "revert-the-owning-small-pull-request",
   "reviewCheckpoint": {
     "date": "2026-07-17",
-    "baseRevision": "5bafd639f890e39307aef717939badf667b7da72",
-    "sourceState": "in-progress-checkpoint-branch-on-recorded-base",
+    "baseRevision": "a9ebafff246b0d36b0b205fc895f15ec67b04fbd",
+    "sourceState": "phase2-checkpoint-before-phase4-cutover",
     "deterministicVerification": {
       "status": "passed",
       "coreTests": 243,
@@ -31,8 +31,8 @@
     "benchmarkEvidence": 2
   },
   "currentShippingAuthorities": {
-    "runtime": "NativeEngineRuntime",
-    "productSession": "NativeStreamingSynthesisSession",
+    "runtime": "VocelloQwen3Engine",
+    "productSession": "GenerationOutputAdapter",
     "ownedRuntimeFacade": "VocelloQwen3Core",
     "sampling": "request-local-mlx-random-state-v2",
     "memory": "request-local-qwen-memory-policy-v1",
@@ -42,20 +42,18 @@
     "modelStorage": "catalog-v2-shared-component-store-with-authenticated-auto-reconciliation-and-legacy-reads",
     "longForm": "manifest-v3-nonstreaming",
     "quality": "persisted-fast-qc-plus-specialized-gates",
-    "custom": "compatibility-path",
-    "design": "compatibility-path",
-    "clone": "compatibility-path"
+    "custom": "classified-session-generation-output-adapter",
+    "design": "classified-session-generation-output-adapter",
+    "clone": "classified-session-generation-output-adapter"
   },
   "phase2PublicMutationBoundary": {
-    "status": "complete-nonshipping",
+    "status": "complete-foundation-shipping-through-phase4",
     "normalPublicMutationAuthority": "VocelloQwen3Engine",
     "legacyShippingSPI": "VocelloQwen3LegacyCompatibility",
     "legacyShippingSPIConsumers": [
       "Sources/QwenVoiceCore/MLXModelLoadCoordinator.swift",
-      "Sources/QwenVoiceCore/MLXTTSEngine.swift",
       "Sources/QwenVoiceCore/NativeCloneSupport.swift",
       "Sources/QwenVoiceCore/NativeEngineRuntime.swift",
-      "Sources/QwenVoiceCore/NativeStreamingSynthesisSession.swift",
       "Sources/QwenVoiceCore/UnsafeSpeechGenerationModel.swift"
     ],
     "consumerAllowlistEnforcement": "scripts/vendor_runtime_contract.py::LEGACY_COMPATIBILITY_SPI_CONSUMERS",
@@ -76,7 +74,24 @@
       "fullUnload": "invalidates-handles-and-increments-model-epoch",
       "modelReload": "invalidates-handles-and-increments-model-epoch"
     },
-    "shippingAuthorityChanged": false
+    "shippingAuthorityChanged": true
+  },
+  "phase4ProductCutover": {
+    "implementationStatus": "complete",
+    "shippingRuntime": "VocelloQwen3Engine",
+    "shippingProductSession": "GenerationOutputAdapter",
+    "modeAuthority": "classified-session-generation-output-adapter",
+    "modes": ["custom", "design", "clone"],
+    "shippingImplementationSources": [
+      "Sources/QwenVoiceCore/NativeStreamingSynthesisSession.swift"
+    ],
+    "directModeStreamCallsAllowed": false,
+    "audioBearingBufferedEventsAllowed": false,
+    "mixedShippingAuthorityAllowed": false,
+    "deterministicVerification": "passed",
+    "macosFocusedAcceptance": "passed",
+    "physicalIPhoneFocusedAcceptance": "pending-device",
+    "overallPromotion": "pending"
   },
   "phaseStatus": {
     "characterizationContract": "partial-model-free-characterization-exact-mode-token-pcm-and-shipping-longform-fixtures-pending",
@@ -84,10 +99,10 @@
     "synchronizedPressureSnapshot": "implemented",
     "continuousCriticalReliefAdmission": "implemented-current-product-gate",
     "immutablePlans": "implemented-independent-shadow-comparison-only",
-    "engineActor": "complete-nonshipping-abort-critical-full-unload-and-bounded-clone-handle-correctness-closed-legacy-shipping-bridge-spi-quarantined",
-    "classifiedSessionChannels": "implemented-end-to-end-suspending-materialized-producer-foundation-not-shipping",
-    "productOutputAdapter": "implemented-with-atomic-fast-qc-sink-not-cut-over",
-    "modeCutover": "pending-implementation-and-focused-platform-acceptance",
+    "engineActor": "shipping-through-phase4-implementation-complete-promotion-pending",
+    "classifiedSessionChannels": "shipping-through-phase4-implementation-complete-promotion-pending",
+    "productOutputAdapter": "shipping-implementation-complete-promotion-pending",
+    "modeCutover": "implementation-complete-promotion-pending-physical-iphone",
     "requestLocalSamplingV2": "shipping-live-quality-promotion-and-derived-subseed-integration-pending",
     "telemetryV9": "partial-transition-projection-embedded-in-v8-complete-writer-merger-publication-pending",
     "chunkAndPreviewExperiments": "not-started-shipping-v9-and-clean-ab-evidence-required",
@@ -118,7 +133,7 @@
   },
   "temporaryCompatibilitySurfaces": [
     "NativeEngineRuntime",
-    "NativeStreamingSynthesisSession",
+    "GenerationOutputAdapter",
     "UnsafeSpeechGenerationModel",
     "VocelloQwen3LoadedModel",
     "VocelloQwen3ModelGenerationSession",

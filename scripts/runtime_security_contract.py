@@ -25,8 +25,7 @@ LEGACY_COMPATIBILITY_SPI_PATTERN = re.compile(
 )
 VOCELLO_QWEN3_CORE_IMPORT_PATTERN = re.compile(r"\bimport\s+VocelloQwen3Core\b")
 PHASE2_ENGINE_ACTOR_STATUS = (
-    "complete-nonshipping-abort-critical-full-unload-and-bounded-clone-handle-"
-    "correctness-closed-legacy-shipping-bridge-spi-quarantined"
+    "shipping-through-phase4-implementation-complete-promotion-pending"
 )
 PHASE2_ACTOR_CORRECTNESS_CLOSURE = {
     "abortLifecycle": "reserved-generating-aborting-single-owner-with-duplicate-abort-join",
@@ -56,6 +55,15 @@ PHASE2_INTERNAL_CHARACTERIZATION_SURFACES = {
     "VocelloQwen3GenerationEvent",
     "VocelloQwen3ModelGenerationSession",
 }
+PHASE4_MODE_AUTHORITY = "classified-session-generation-output-adapter"
+PHASE4_IMPLEMENTATION_STATUS = "complete"
+PHASE4_VERIFICATION_STATES = {"pending", "passed"}
+PHASE4_IPHONE_ACCEPTANCE_STATES = {"pending-device", "passed"}
+PHASE4_DIRECT_MODE_CALL_PATTERN = re.compile(
+    r"\.(?:customVoiceStream|voiceDesignStream|voiceCloneStream|"
+    r"generateCustomVoiceStream|generateVoiceDesignStream|generateVoiceCloneStream|"
+    r"generateCustomVoice|generateVoiceDesign|generateVoiceClone)\s*\("
+)
 
 
 def load_json(path: Path) -> dict:
@@ -96,6 +104,32 @@ def string_list_set(value: object) -> set[str] | None:
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         return None
     return set(value)
+
+
+def phase4_direct_mode_call_sites(
+    source_paths: object,
+    *,
+    root: Path = ROOT,
+) -> list[str]:
+    """Return product-adapter call sites that bypass the classified session.
+
+    Compatibility wrappers may continue to define the old methods temporarily, but the
+    shipping product adapter may not invoke them after Phase 4 claims mode authority.
+    """
+    if not isinstance(source_paths, list):
+        return []
+    sites: list[str] = []
+    for relative in source_paths:
+        if not isinstance(relative, str):
+            continue
+        path = root / relative
+        if not path.is_file():
+            continue
+        source = path.read_text(encoding="utf-8")
+        for match in PHASE4_DIRECT_MODE_CALL_PATTERN.finditer(source):
+            line = source.count("\n", 0, match.start()) + 1
+            sites.append(f"{relative}:{line}")
+    return sites
 
 
 def debug_gate_enforcement_errors(
@@ -480,8 +514,10 @@ def runtime_refactor_contract_errors(
             "runtime-refactor-contract must define the complete Phase 2 public mutation boundary"
         )
         phase2 = phase2 if isinstance(phase2, dict) else {}
-    if phase2.get("status") != "complete-nonshipping":
-        errors.append("runtime-refactor-contract Phase 2 must remain complete non-shipping")
+    if phase2.get("status") != "complete-foundation-shipping-through-phase4":
+        errors.append(
+            "runtime-refactor-contract Phase 2 foundation must ship only through Phase 4"
+        )
     if phase2.get("normalPublicMutationAuthority") != "VocelloQwen3Engine":
         errors.append("runtime-refactor-contract Phase 2 mutation authority must be the engine actor")
     if phase2.get("legacyShippingSPI") != LEGACY_COMPATIBILITY_SPI:
@@ -498,8 +534,8 @@ def runtime_refactor_contract_errors(
         errors.append("runtime-refactor-contract Phase 2 actor correctness closure drifted")
     if phase2.get("cloneHandleLifecycle") != PHASE2_CLONE_HANDLE_LIFECYCLE:
         errors.append("runtime-refactor-contract Phase 2 clone-handle lifecycle drifted")
-    if phase2.get("shippingAuthorityChanged") is not False:
-        errors.append("runtime-refactor-contract Phase 2 must not change shipping authority")
+    if phase2.get("shippingAuthorityChanged") is not True:
+        errors.append("runtime-refactor-contract must record the Phase 4 shipping-authority change")
 
     source_compatibility_value = compatibility.get("sourceCompatibility", {})
     source_compatibility = (
@@ -537,12 +573,105 @@ def runtime_refactor_contract_errors(
         internal_surfaces = set()
     if internal_surfaces != PHASE2_INTERNAL_CHARACTERIZATION_SURFACES:
         errors.append("COMPATIBILITY internal characterization surface inventory drifted")
-    if isinstance(authorities, dict) and (
-        authorities.get("runtime") != "NativeEngineRuntime"
-        or authorities.get("productSession") != "NativeStreamingSynthesisSession"
-        or authorities.get("ownedRuntimeFacade") != "VocelloQwen3Core"
+    phase4 = contract.get("phase4ProductCutover")
+    expected_phase4_keys = {
+        "implementationStatus",
+        "shippingRuntime",
+        "shippingProductSession",
+        "modeAuthority",
+        "modes",
+        "shippingImplementationSources",
+        "directModeStreamCallsAllowed",
+        "audioBearingBufferedEventsAllowed",
+        "mixedShippingAuthorityAllowed",
+        "deterministicVerification",
+        "macosFocusedAcceptance",
+        "physicalIPhoneFocusedAcceptance",
+        "overallPromotion",
+    }
+    if not isinstance(phase4, dict) or set(phase4) != expected_phase4_keys:
+        errors.append("runtime-refactor-contract must define the complete Phase 4 product cutover")
+        phase4 = phase4 if isinstance(phase4, dict) else {}
+    if phase4.get("implementationStatus") != PHASE4_IMPLEMENTATION_STATUS:
+        errors.append("runtime-refactor-contract Phase 4 implementation must be complete")
+    if phase4.get("shippingRuntime") != "VocelloQwen3Engine":
+        errors.append("runtime-refactor-contract Phase 4 runtime must be VocelloQwen3Engine")
+    if phase4.get("shippingProductSession") != "GenerationOutputAdapter":
+        errors.append("runtime-refactor-contract Phase 4 product session must be GenerationOutputAdapter")
+    if phase4.get("modeAuthority") != PHASE4_MODE_AUTHORITY:
+        errors.append("runtime-refactor-contract Phase 4 mode authority drifted")
+    if phase4.get("modes") != ["custom", "design", "clone"]:
+        errors.append("runtime-refactor-contract Phase 4 must cut over Custom, Design, and Clone together")
+    implementation_sources = phase4.get("shippingImplementationSources")
+    if (
+        not isinstance(implementation_sources, list)
+        or not implementation_sources
+        or len(implementation_sources) != len(set(implementation_sources))
+        or any(not isinstance(item, str) or not (ROOT / item).is_file() for item in implementation_sources)
     ):
-        errors.append("runtime-refactor-contract Phase 2 shipping authorities drifted")
+        errors.append("runtime-refactor-contract Phase 4 shipping sources must resolve uniquely")
+    else:
+        adapter_sources = [
+            item
+            for item in implementation_sources
+            if "GenerationOutputAdapter" in (ROOT / item).read_text(encoding="utf-8")
+        ]
+        if not adapter_sources:
+            errors.append("runtime-refactor-contract Phase 4 shipping sources omit GenerationOutputAdapter")
+        direct_sites = phase4_direct_mode_call_sites(implementation_sources)
+        if direct_sites:
+            errors.append(
+                "runtime-refactor-contract Phase 4 shipping adapter invokes direct mode streams: "
+                + ", ".join(direct_sites)
+            )
+        preview_is_published = any(
+            "previewAudio: previewAudio" in (ROOT / item).read_text(encoding="utf-8")
+            for item in implementation_sources
+        )
+        event_router = ROOT / "Sources/QwenVoiceCore/GenerationEventDeliveryProbe.swift"
+        event_router_uses_dropping_buffer = (
+            event_router.is_file()
+            and ".bufferingNewest" in event_router.read_text(encoding="utf-8")
+        )
+        if preview_is_published and event_router_uses_dropping_buffer:
+            errors.append(
+                "runtime-refactor-contract Phase 4 adapter still routes preview PCM through "
+                "the dropping GenerationEvent path"
+            )
+    if phase4.get("directModeStreamCallsAllowed") is not False:
+        errors.append("runtime-refactor-contract Phase 4 cannot allow direct mode-stream calls")
+    if phase4.get("audioBearingBufferedEventsAllowed") is not False:
+        errors.append("runtime-refactor-contract Phase 4 cannot allow audio-bearing buffered events")
+    if phase4.get("mixedShippingAuthorityAllowed") is not False:
+        errors.append("runtime-refactor-contract Phase 4 cannot allow mixed shipping authority")
+    if phase4.get("deterministicVerification") not in PHASE4_VERIFICATION_STATES:
+        errors.append("runtime-refactor-contract Phase 4 deterministic verification state is invalid")
+    if phase4.get("macosFocusedAcceptance") not in PHASE4_VERIFICATION_STATES:
+        errors.append("runtime-refactor-contract Phase 4 macOS acceptance state is invalid")
+    if phase4.get("physicalIPhoneFocusedAcceptance") not in PHASE4_IPHONE_ACCEPTANCE_STATES:
+        errors.append("runtime-refactor-contract Phase 4 iPhone acceptance state is invalid")
+    all_verification_passed = (
+        phase4.get("deterministicVerification") == "passed"
+        and phase4.get("macosFocusedAcceptance") == "passed"
+        and phase4.get("physicalIPhoneFocusedAcceptance") == "passed"
+    )
+    if all_verification_passed:
+        if phase4.get("overallPromotion") not in {"pending", "passed"}:
+            errors.append("runtime-refactor-contract Phase 4 promotion state is invalid")
+    elif phase4.get("overallPromotion") != "pending":
+        errors.append("runtime-refactor-contract cannot promote Phase 4 before all acceptance passes")
+
+    if isinstance(authorities, dict):
+        expected_phase4_authorities = {
+            "runtime": phase4.get("shippingRuntime"),
+            "productSession": phase4.get("shippingProductSession"),
+            "ownedRuntimeFacade": "VocelloQwen3Core",
+            "custom": phase4.get("modeAuthority"),
+            "design": phase4.get("modeAuthority"),
+            "clone": phase4.get("modeAuthority"),
+        }
+        if any(authorities.get(key) != value for key, value in expected_phase4_authorities.items()):
+            errors.append("runtime-refactor-contract current authorities differ from Phase 4 cutover")
 
     phases = contract.get("phaseStatus")
     required_phases = {
@@ -566,10 +695,12 @@ def runtime_refactor_contract_errors(
         errors.append("runtime-refactor-contract phase statuses must be safe tokens")
     elif isinstance(authorities, dict):
         compatibility_modes = {authorities.get(mode) for mode in ("custom", "design", "clone")}
-        if compatibility_modes == {"compatibility-path"} and phases.get("modeCutover") != (
-            "pending-implementation-and-focused-platform-acceptance"
+        if compatibility_modes != {PHASE4_MODE_AUTHORITY}:
+            errors.append("runtime-refactor-contract cannot claim Phase 4 with mixed mode authority")
+        if phases.get("modeCutover") != (
+            "implementation-complete-promotion-pending-physical-iphone"
         ):
-            errors.append("runtime-refactor-contract cannot claim mode cutover while compatibility modes ship")
+            errors.append("runtime-refactor-contract Phase 4 mode-cutover status drifted")
         if isinstance(versions, dict) and versions.get("telemetry") == 8:
             expected_transition = (
                 "partial-transition-projection-embedded-in-v8-"
@@ -584,7 +715,15 @@ def runtime_refactor_contract_errors(
         if isinstance(versions, dict) and versions.get("benchmarkEvidence") == 2 and phases.get("historyV3") != "pending-stable-plan-session-quality-identities":
             errors.append("runtime-refactor-contract cannot claim history v3 while schema v2 ships")
     if isinstance(phases, dict) and phases.get("engineActor") != PHASE2_ENGINE_ACTOR_STATUS:
-        errors.append("runtime-refactor-contract Phase 2 engine actor status drifted")
+        errors.append("runtime-refactor-contract engine actor shipping status drifted")
+    if isinstance(phases, dict) and phases.get("classifiedSessionChannels") != (
+        "shipping-through-phase4-implementation-complete-promotion-pending"
+    ):
+        errors.append("runtime-refactor-contract classified-session shipping status drifted")
+    if isinstance(phases, dict) and phases.get("productOutputAdapter") != (
+        "shipping-implementation-complete-promotion-pending"
+    ):
+        errors.append("runtime-refactor-contract product-output-adapter status drifted")
     compatibility_surfaces = contract.get("temporaryCompatibilitySurfaces")
     if not isinstance(compatibility_surfaces, list) or not compatibility_surfaces or len(compatibility_surfaces) != len(set(compatibility_surfaces)):
         errors.append("runtime-refactor-contract compatibility surfaces must be unique and non-empty")

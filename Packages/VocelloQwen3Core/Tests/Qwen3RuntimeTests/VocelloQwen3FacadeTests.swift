@@ -37,12 +37,14 @@ final class VocelloQwen3FacadeTests: XCTestCase {
                     as? [String: Any]
             )
             object.removeValue(forKey: "chunking")
+            object.removeValue(forKey: "executionStyle")
             let legacyData = try JSONSerialization.data(withJSONObject: object)
             let decoded = try JSONDecoder().decode(
                 VocelloQwen3SynthesisRequest.self,
                 from: legacyData
             )
             XCTAssertEqual(decoded.chunking, request.chunking)
+            XCTAssertEqual(decoded.executionStyle, .streaming)
         }
     }
 
@@ -1566,7 +1568,10 @@ final class VocelloQwen3FacadeTests: XCTestCase {
         }
 
         let preserved = try await engine.reserveGeneration(
-            request: makeCloneRequest(generationID: UUID()),
+            request: makeCloneRequest(
+                generationID: UUID(),
+                conditioningDigest: second.conditioningDigest
+            ),
             cloneHandle: second,
             audioCapacityFrames: 24_000
         )
@@ -1574,7 +1579,10 @@ final class VocelloQwen3FacadeTests: XCTestCase {
         try await engine.relieveMemory(.cacheTrim)
 
         let afterBenignTrim = try await engine.reserveGeneration(
-            request: makeCloneRequest(generationID: UUID()),
+            request: makeCloneRequest(
+                generationID: UUID(),
+                conditioningDigest: second.conditioningDigest
+            ),
             cloneHandle: second,
             audioCapacityFrames: 24_000
         )
@@ -1663,6 +1671,296 @@ final class VocelloQwen3FacadeTests: XCTestCase {
         let snapshot = await engine.snapshot()
         XCTAssertEqual(snapshot.phase, .ready)
         XCTAssertNil(snapshot.activeOperation)
+    }
+
+    func testProductOutputAdapterDrainsEveryStreamingModeWithTypedEvidence() async throws {
+        let cloneConditioningDigest = String(repeating: "a", count: 64)
+        let cases: [(VocelloQwen3SynthesisInput, Double, VocelloQwen3CloneHandleCapability?)] = [
+            (.customVoice(speakerID: "fixture", deliveryInstruction: nil), 7.0 / 12.5, nil),
+            (.voiceDesign(description: "Calm and resonant"), 7.0 / 12.5, nil),
+            (.voiceClone(referenceID: cloneConditioningDigest), 7.0 / 12.5, .decoderOnly),
+        ]
+
+        for (input, expectedInterval, cloneCapability) in cases {
+            let compatibilityModel = FacadeCompatibilityModel(
+                emitsInfo: true,
+                emitsChunkTimings: true
+            )
+            let loadedModel = try makeLoadedFixture(
+                compatibilityModel: compatibilityModel,
+                capabilities: VocelloQwen3CapabilitySet([
+                    .streaming,
+                    .customVoice,
+                    .voiceDesign,
+                    .voiceClone,
+                ])
+            )
+            let engine = VocelloQwen3Engine(adoptingCompatibilityModel: loadedModel)
+            let cloneHandle: VocelloQwen3CloneHandle?
+            if let cloneCapability {
+                let prompt = try loadedModel.makeClonePrompt(
+                    referenceSamples: [0.1, 0.2],
+                    referenceText: nil,
+                    xVectorOnlyMode: true
+                )
+                cloneHandle = try await engine.adoptValidatedClonePrompt(
+                    prompt,
+                    capability: cloneCapability,
+                    conditioningDigest: cloneConditioningDigest
+                )
+            } else {
+                cloneHandle = nil
+            }
+            let request = makeRequest(
+                generationID: UUID(),
+                input: input,
+                executionStyle: .streaming
+            )
+            let reservation = try await engine.reserveGeneration(
+                request: request,
+                cloneHandle: cloneHandle,
+                audioCapacityFrames: 24_000
+            )
+            let sink = RecordingProductOutputSink()
+            let previews = PreviewChunkRecorder()
+            let adapter = VocelloQwen3ProductOutputAdapter(
+                previewPublisher: { chunk in await previews.record(chunk) }
+            )
+
+            let terminal = try await adapter.run(
+                engine: engine,
+                reservation: reservation,
+                sink: sink
+            )
+
+            let chunks = await sink.chunks
+            let previewChunks = await previews.values
+            XCTAssertEqual(chunks.map(\.sequence), [0], "mode=\(input.mode)")
+            XCTAssertEqual(chunks.first?.frameCount, 1, "mode=\(input.mode)")
+            XCTAssertEqual(chunks.first?.timings?.talkerForwardMS, 1, "mode=\(input.mode)")
+            XCTAssertEqual(previewChunks.map(\.sequence), [0], "mode=\(input.mode)")
+            XCTAssertEqual(terminal.modelTerminal.generationInfo?.generationTokenCount, 1)
+            XCTAssertEqual(
+                terminal.modelTerminal.diagnostics?.stringFlags["generation_end_reason"],
+                "eos"
+            )
+            XCTAssertEqual(compatibilityModel.capturedStreamingIntervals.count, 1)
+            XCTAssertEqual(
+                compatibilityModel.capturedStreamingIntervals[0],
+                expectedInterval,
+                accuracy: 0.000_001
+            )
+            let snapshot = await engine.snapshot()
+            XCTAssertEqual(snapshot.phase, .ready)
+            XCTAssertNil(snapshot.activeOperation)
+        }
+    }
+
+    func testQualityFirstAllModesUseOneAdapterAndSuppressPreview() async throws {
+        let cloneConditioningDigest = String(repeating: "b", count: 64)
+        let inputs: [VocelloQwen3SynthesisInput] = [
+            .customVoice(speakerID: "fixture", deliveryInstruction: nil),
+            .voiceDesign(description: "Calm and resonant"),
+            .voiceClone(referenceID: cloneConditioningDigest),
+        ]
+
+        for input in inputs {
+            let compatibilityModel = FacadeCompatibilityModel(emitsInfo: true)
+            let loadedModel = try makeLoadedFixture(
+                compatibilityModel: compatibilityModel,
+                capabilities: VocelloQwen3CapabilitySet([
+                    .streaming,
+                    .customVoice,
+                    .voiceDesign,
+                    .voiceClone,
+                ])
+            )
+            let engine = VocelloQwen3Engine(adoptingCompatibilityModel: loadedModel)
+            let cloneHandle: VocelloQwen3CloneHandle?
+            if input.mode == .voiceClone {
+                let prompt = try loadedModel.makeClonePrompt(
+                    referenceSamples: [0.1, 0.2],
+                    referenceText: nil,
+                    xVectorOnlyMode: true
+                )
+                cloneHandle = try await engine.adoptValidatedClonePrompt(
+                    prompt,
+                    capability: .decoderOnly,
+                    conditioningDigest: cloneConditioningDigest
+                )
+            } else {
+                cloneHandle = nil
+            }
+            let reservation = try await engine.reserveGeneration(
+                request: makeRequest(
+                    generationID: UUID(),
+                    input: input,
+                    executionStyle: .qualityFirst
+                ),
+                cloneHandle: cloneHandle,
+                audioCapacityFrames: 24_000
+            )
+            let sink = RecordingProductOutputSink()
+            let previews = PreviewChunkRecorder()
+            let adapter = VocelloQwen3ProductOutputAdapter(
+                previewPublisher: { chunk in await previews.record(chunk) }
+            )
+
+            let terminal = try await adapter.run(
+                engine: engine,
+                reservation: reservation,
+                sink: sink
+            )
+
+            let qualityChunks = await sink.chunks
+            let qualityPreviews = await previews.values
+            let prepared = await reservation.session.prepared.snapshot()
+            XCTAssertEqual(qualityChunks.count, 1, "mode=\(input.mode)")
+            XCTAssertEqual(qualityPreviews.count, 0, "mode=\(input.mode)")
+            XCTAssertEqual(terminal.modelTerminal.emittedAudioFrameCount, 1)
+            XCTAssertEqual(terminal.modelTerminal.generationInfo?.generationTokenCount, 1)
+            XCTAssertNotNil(prepared)
+            XCTAssertEqual(compatibilityModel.capturedStreamingIntervals, [])
+            let snapshot = await engine.snapshot()
+            XCTAssertEqual(snapshot.phase, .ready)
+        }
+    }
+
+    func testQualityFirstWaveformIsSplitAtFrameCapacityWithoutPreviewLoss() async throws {
+        let expectedSamples = (0 ..< 10).map { Float($0) / 10 }
+        let compatibilityModel = FacadeCompatibilityModel(
+            emitsInfo: true,
+            qualityFirstAudio: expectedSamples
+        )
+        let engine = VocelloQwen3Engine(
+            adoptingCompatibilityModel: try makeLoadedFixture(
+                compatibilityModel: compatibilityModel
+            )
+        )
+        let reservation = try await engine.reserveGeneration(
+            request: makeRequest(
+                generationID: UUID(),
+                input: .customVoice(
+                    speakerID: "fixture",
+                    deliveryInstruction: nil
+                ),
+                executionStyle: .qualityFirst
+            ),
+            audioCapacityFrames: 3
+        )
+        let sink = RecordingProductOutputSink()
+        let previews = PreviewChunkRecorder()
+        let adapter = VocelloQwen3ProductOutputAdapter(
+            previewPublisher: { chunk in await previews.record(chunk) }
+        )
+
+        let terminal = try await adapter.run(
+            engine: engine,
+            reservation: reservation,
+            sink: sink
+        )
+
+        let chunks = await sink.chunks
+        let previewChunks = await previews.values
+        XCTAssertEqual(chunks.map(\.sequence), [0, 1, 2, 3])
+        XCTAssertEqual(chunks.map(\.frameCount), [3, 3, 3, 1])
+        XCTAssertTrue(chunks.allSatisfy { $0.frameCount <= 3 })
+        XCTAssertEqual(chunks.flatMap(\.samples), expectedSamples)
+        XCTAssertEqual(previewChunks.count, 0)
+        XCTAssertEqual(terminal.modelTerminal.emittedAudioFrameCount, expectedSamples.count)
+        XCTAssertEqual(terminal.disposition, .published)
+    }
+
+    func testCloneReservationBindsRequestReferenceToHandleConditioningDigest() async throws {
+        let loadedModel = try makeLoadedFixture(
+            compatibilityModel: FacadeCompatibilityModel(),
+            capabilities: VocelloQwen3CapabilitySet([.streaming, .voiceClone])
+        )
+        let engine = VocelloQwen3Engine(adoptingCompatibilityModel: loadedModel)
+        let prompt = try loadedModel.makeClonePrompt(
+            referenceSamples: [0.1, 0.2],
+            referenceText: nil,
+            xVectorOnlyMode: true
+        )
+        let conditioningDigest = String(repeating: "e", count: 64)
+        let handle = try await engine.adoptValidatedClonePrompt(
+            prompt,
+            capability: .decoderOnly,
+            conditioningDigest: conditioningDigest
+        )
+
+        do {
+            _ = try await engine.reserveGeneration(
+                request: makeCloneRequest(
+                    generationID: UUID(),
+                    conditioningDigest: String(repeating: "f", count: 64)
+                ),
+                cloneHandle: handle,
+                audioCapacityFrames: 24_000
+            )
+            XCTFail("a request must not pair a clone identity with another prompt")
+        } catch {
+            XCTAssertEqual(
+                error as? VocelloQwen3EngineError,
+                .cloneConditioningIdentityMismatch
+            )
+        }
+
+        let reservation = try await engine.reserveGeneration(
+            request: makeCloneRequest(
+                generationID: UUID(),
+                conditioningDigest: conditioningDigest
+            ),
+            cloneHandle: handle,
+            audioCapacityFrames: 24_000
+        )
+        let released = await engine.releaseCloneHandle(handle)
+        XCTAssertTrue(released)
+        let terminal = try await VocelloQwen3ProductOutputAdapter().run(
+            engine: engine,
+            reservation: reservation,
+            sink: RecordingProductOutputSink()
+        )
+        XCTAssertEqual(terminal.disposition, .published)
+    }
+
+    func testValidatedClonePromptAdoptionRejectsCapabilityAndIdentityMismatch() async throws {
+        let loadedModel = try makeLoadedFixture(
+            compatibilityModel: FacadeCompatibilityModel(),
+            capabilities: VocelloQwen3CapabilitySet([.streaming, .voiceClone])
+        )
+        let engine = VocelloQwen3Engine(adoptingCompatibilityModel: loadedModel)
+        let prompt = try loadedModel.makeClonePrompt(
+            referenceSamples: [0.1, 0.2],
+            referenceText: nil,
+            xVectorOnlyMode: true
+        )
+
+        do {
+            _ = try await engine.adoptValidatedClonePrompt(
+                prompt,
+                capability: .encoderAndDecoder,
+                conditioningDigest: String(repeating: "c", count: 64)
+            )
+            XCTFail("prompt capability mismatch must fail closed")
+        } catch {
+            XCTAssertEqual(error as? VocelloQwen3EngineError, .invalidCloneHandle)
+        }
+
+        let mismatched = prompt.withArtifactMetadata(VocelloQwen3CloneArtifactMetadata(
+            modelID: "another-model",
+            xVectorOnlyMode: true
+        ))
+        do {
+            _ = try await engine.adoptValidatedClonePrompt(
+                mismatched,
+                capability: .decoderOnly,
+                conditioningDigest: String(repeating: "d", count: 64)
+            )
+            XCTFail("artifact identity mismatch must fail closed")
+        } catch {
+            XCTAssertEqual(error as? VocelloQwen3EngineError, .invalidCloneHandle)
+        }
     }
 
     func testProductOutputAdapterAbortsAndReleasesLeaseAfterSinkFailure() async throws {
@@ -1762,12 +2060,16 @@ final class VocelloQwen3FacadeTests: XCTestCase {
         )
     }
 
-    private func makeCustomRequest(generationID: UUID) -> VocelloQwen3SynthesisRequest {
+    private func makeRequest(
+        generationID: UUID,
+        input: VocelloQwen3SynthesisInput,
+        executionStyle: VocelloQwen3ExecutionStyle = .streaming
+    ) -> VocelloQwen3SynthesisRequest {
         VocelloQwen3SynthesisRequest(
             generationID: generationID,
             text: "Facade terminal fixture.",
             language: "en-US",
-            input: .customVoice(speakerID: "fixture-speaker", deliveryInstruction: nil),
+            input: input,
             sampling: VocelloQwen3SamplingConfiguration(
                 maxNewTokens: 32,
                 temperature: 0.8,
@@ -1778,27 +2080,25 @@ final class VocelloQwen3FacadeTests: XCTestCase {
             memory: VocelloQwen3MemoryConfiguration(
                 clearCacheOnStreamChunk: false,
                 tokenMemoryClearCadence: 16
-            )
+            ),
+            executionStyle: executionStyle
         )
     }
 
-    private func makeCloneRequest(generationID: UUID) -> VocelloQwen3SynthesisRequest {
-        VocelloQwen3SynthesisRequest(
+    private func makeCustomRequest(generationID: UUID) -> VocelloQwen3SynthesisRequest {
+        makeRequest(
             generationID: generationID,
-            text: "Facade clone fixture.",
-            language: "en-US",
-            input: .voiceClone(referenceID: "fixture-reference"),
-            sampling: VocelloQwen3SamplingConfiguration(
-                maxNewTokens: 32,
-                temperature: 0.8,
-                topP: 0.9,
-                topK: VocelloQwen3SamplingConfiguration.compatibilityDefaultTopK,
-                repetitionPenalty: 1
-            ),
-            memory: VocelloQwen3MemoryConfiguration(
-                clearCacheOnStreamChunk: false,
-                tokenMemoryClearCadence: 16
-            )
+            input: .customVoice(speakerID: "fixture-speaker", deliveryInstruction: nil)
+        )
+    }
+
+    private func makeCloneRequest(
+        generationID: UUID,
+        conditioningDigest: String = "fixture-reference"
+    ) -> VocelloQwen3SynthesisRequest {
+        makeRequest(
+            generationID: generationID,
+            input: .voiceClone(referenceID: conditioningDigest)
         )
     }
 }
@@ -1849,6 +2149,14 @@ private actor ProductTerminalRecorder {
 
     func record(_ terminal: VocelloQwen3ProductTerminal) {
         values.append(terminal)
+    }
+}
+
+private actor PreviewChunkRecorder {
+    private(set) var values: [VocelloQwen3PreviewAudioChunk] = []
+
+    func record(_ chunk: VocelloQwen3PreviewAudioChunk) {
+        values.append(chunk)
     }
 }
 
@@ -1923,7 +2231,7 @@ private enum FacadeCompatibilityFixtureError: Error {
     case unsupported
 }
 
-private final class FacadeCompatibilityModel: SpeechGenerationModel, Qwen3OptimizedSpeechGenerationModel, Qwen3SuspendingSpeechGenerationModel, SpeechGenerationModelDiagnosticsProvider, @unchecked Sendable {
+private final class FacadeCompatibilityModel: SpeechGenerationModel, Qwen3OptimizedSpeechGenerationModel, Qwen3PreparedQualityGenerationModel, Qwen3SuspendingSpeechGenerationModel, SpeechGenerationModelDiagnosticsProvider, @unchecked Sendable {
     let sampleRate = 24_000
     let defaultGenerationParameters = GenerateParameters()
     private let eventCount: Int
@@ -1932,6 +2240,9 @@ private final class FacadeCompatibilityModel: SpeechGenerationModel, Qwen3Optimi
     private let prewarmGate: SuspendedEngineOperationGate?
     private let producerGate: SuspendedEngineOperationGate?
     private let emitsAudio: Bool
+    private let emitsInfo: Bool
+    private let emitsChunkTimings: Bool
+    private let qualityFirstAudio: [Float]
     private let captureLock = NSLock()
     private var _capturedGenerationParameters: GenerateParameters?
     private var _capturedSamplingPolicy: Qwen3RequestSamplingPolicy?
@@ -1944,7 +2255,10 @@ private final class FacadeCompatibilityModel: SpeechGenerationModel, Qwen3Optimi
         streamOverride: AsyncThrowingStream<AudioGeneration, Error>? = nil,
         prewarmGate: SuspendedEngineOperationGate? = nil,
         producerGate: SuspendedEngineOperationGate? = nil,
-        emitsAudio: Bool = true
+        emitsAudio: Bool = true,
+        emitsInfo: Bool = false,
+        emitsChunkTimings: Bool = false,
+        qualityFirstAudio: [Float] = [0.1]
     ) {
         self.eventCount = eventCount
         self.generationEndReason = generationEndReason
@@ -1952,6 +2266,9 @@ private final class FacadeCompatibilityModel: SpeechGenerationModel, Qwen3Optimi
         self.prewarmGate = prewarmGate
         self.producerGate = producerGate
         self.emitsAudio = emitsAudio
+        self.emitsInfo = emitsInfo
+        self.emitsChunkTimings = emitsChunkTimings
+        self.qualityFirstAudio = qualityFirstAudio
     }
 
     var capturedGenerationParameters: GenerateParameters? {
@@ -2071,11 +2388,37 @@ private final class FacadeCompatibilityModel: SpeechGenerationModel, Qwen3Optimi
         language _: String,
         speaker _: String,
         instruct _: String?,
-        generationParameters _: GenerateParameters,
-        samplingPolicy _: Qwen3RequestSamplingPolicy,
-        memoryPolicy _: Qwen3RequestMemoryPolicy
+        generationParameters: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy
     ) async throws -> AudioGenerationCompletion {
-        AudioGenerationCompletion(audio: MLXArray([Float(0)]), info: nil, finishReason: .eos)
+        capture(
+            generationParameters,
+            samplingPolicy: samplingPolicy,
+            memoryPolicy: memoryPolicy
+        )
+        return fixtureCompletion()
+    }
+
+    func generateCustomVoiceQualityFirst(
+        text _: String,
+        language _: String,
+        speaker _: String,
+        instruct _: String?,
+        generationParameters: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        onPrepared: @escaping @Sendable () async throws -> Void,
+        isolation: isolated (any Actor)?
+    ) async throws -> AudioGenerationCompletion {
+        _ = isolation
+        capture(
+            generationParameters,
+            samplingPolicy: samplingPolicy,
+            memoryPolicy: memoryPolicy
+        )
+        try await onPrepared()
+        return fixtureCompletion()
     }
 
     func produceCustomVoice(
@@ -2124,49 +2467,91 @@ private final class FacadeCompatibilityModel: SpeechGenerationModel, Qwen3Optimi
         isolation: isolated (any Actor)?
     ) async throws {
         _ = isolation
-        throw FacadeCompatibilityFixtureError.unsupported
     }
 
     func generateVoiceDesignStream(
         text _: String,
         language _: String,
         voiceDescription _: String,
-        generationParameters _: GenerateParameters,
-        samplingPolicy _: Qwen3RequestSamplingPolicy,
-        memoryPolicy _: Qwen3RequestMemoryPolicy,
-        streamingInterval _: Double,
+        generationParameters: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        streamingInterval: Double,
         streamStepEvalPolicy _: String?,
         generationSpeedProfile _: String?,
         memoryClearCadence _: Int?,
         enableChunkTimings _: Bool
-    ) -> AsyncThrowingStream<AudioGeneration, Error> { failingFixtureStream() }
+    ) -> AsyncThrowingStream<AudioGeneration, Error> {
+        capture(
+            generationParameters,
+            samplingPolicy: samplingPolicy,
+            memoryPolicy: memoryPolicy,
+            streamingInterval: streamingInterval
+        )
+        return fixtureStream()
+    }
 
     func generateVoiceDesign(
         text _: String,
         language _: String,
         voiceDescription _: String,
-        generationParameters _: GenerateParameters,
-        samplingPolicy _: Qwen3RequestSamplingPolicy,
-        memoryPolicy _: Qwen3RequestMemoryPolicy
-    ) async throws -> AudioGenerationCompletion { throw FacadeCompatibilityFixtureError.unsupported }
+        generationParameters: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy
+    ) async throws -> AudioGenerationCompletion {
+        capture(
+            generationParameters,
+            samplingPolicy: samplingPolicy,
+            memoryPolicy: memoryPolicy
+        )
+        return fixtureCompletion()
+    }
+
+    func generateVoiceDesignQualityFirst(
+        text _: String,
+        language _: String,
+        voiceDescription _: String,
+        generationParameters: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        onPrepared: @escaping @Sendable () async throws -> Void,
+        isolation: isolated (any Actor)?
+    ) async throws -> AudioGenerationCompletion {
+        _ = isolation
+        capture(
+            generationParameters,
+            samplingPolicy: samplingPolicy,
+            memoryPolicy: memoryPolicy
+        )
+        try await onPrepared()
+        return fixtureCompletion()
+    }
 
     func produceVoiceDesign(
         text _: String,
         language _: String,
         voiceDescription _: String,
-        generationParameters _: GenerateParameters,
-        samplingPolicy _: Qwen3RequestSamplingPolicy,
-        memoryPolicy _: Qwen3RequestMemoryPolicy,
-        streamingInterval _: Double,
+        generationParameters: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        streamingInterval: Double,
         streamStepEvalPolicy _: String?,
         generationSpeedProfile _: String?,
         memoryClearCadence _: Int?,
         enableChunkTimings _: Bool,
-        sink _: @escaping Qwen3MaterializedGenerationSink,
+        sink: @escaping Qwen3MaterializedGenerationSink,
         isolation: isolated (any Actor)?
     ) async throws -> AudioGenerationFinishReason {
         _ = isolation
-        throw FacadeCompatibilityFixtureError.unsupported
+        capture(
+            generationParameters,
+            samplingPolicy: samplingPolicy,
+            memoryPolicy: memoryPolicy,
+            streamingInterval: streamingInterval
+        )
+        try await sink(.prepared)
+        try await emitFixtureEvents(to: sink)
+        return fixtureFinishReason()
     }
 
     func createVoiceClonePrompt(
@@ -2192,56 +2577,108 @@ private final class FacadeCompatibilityModel: SpeechGenerationModel, Qwen3Optimi
         isolation: isolated (any Actor)?
     ) async throws {
         _ = isolation
-        throw FacadeCompatibilityFixtureError.unsupported
     }
 
     func generateVoiceCloneStream(
         text _: String,
         language _: String,
         voiceClonePrompt _: Qwen3TTSVoiceClonePrompt,
-        generationParameters _: GenerateParameters,
-        samplingPolicy _: Qwen3RequestSamplingPolicy,
-        memoryPolicy _: Qwen3RequestMemoryPolicy,
-        streamingInterval _: Double,
+        generationParameters: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        streamingInterval: Double,
         streamStepEvalPolicy _: String?,
         generationSpeedProfile _: String?,
         memoryClearCadence _: Int?,
         enableChunkTimings _: Bool
-    ) -> AsyncThrowingStream<AudioGeneration, Error> { failingFixtureStream() }
+    ) -> AsyncThrowingStream<AudioGeneration, Error> {
+        capture(
+            generationParameters,
+            samplingPolicy: samplingPolicy,
+            memoryPolicy: memoryPolicy,
+            streamingInterval: streamingInterval
+        )
+        return fixtureStream()
+    }
 
     func generateVoiceClone(
         text _: String,
         language _: String,
         voiceClonePrompt _: Qwen3TTSVoiceClonePrompt,
-        generationParameters _: GenerateParameters,
-        samplingPolicy _: Qwen3RequestSamplingPolicy,
-        memoryPolicy _: Qwen3RequestMemoryPolicy
-    ) async throws -> AudioGenerationCompletion { throw FacadeCompatibilityFixtureError.unsupported }
+        generationParameters: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy
+    ) async throws -> AudioGenerationCompletion {
+        capture(
+            generationParameters,
+            samplingPolicy: samplingPolicy,
+            memoryPolicy: memoryPolicy
+        )
+        return fixtureCompletion()
+    }
+
+    func generateVoiceCloneQualityFirst(
+        text _: String,
+        language _: String,
+        voiceClonePrompt _: Qwen3TTSVoiceClonePrompt,
+        generationParameters: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        onPrepared: @escaping @Sendable () async throws -> Void,
+        isolation: isolated (any Actor)?
+    ) async throws -> AudioGenerationCompletion {
+        _ = isolation
+        capture(
+            generationParameters,
+            samplingPolicy: samplingPolicy,
+            memoryPolicy: memoryPolicy
+        )
+        try await onPrepared()
+        return fixtureCompletion()
+    }
 
     func produceVoiceClone(
         text _: String,
         language _: String,
         voiceClonePrompt _: Qwen3TTSVoiceClonePrompt,
-        generationParameters _: GenerateParameters,
-        samplingPolicy _: Qwen3RequestSamplingPolicy,
-        memoryPolicy _: Qwen3RequestMemoryPolicy,
-        streamingInterval _: Double,
+        generationParameters: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        streamingInterval: Double,
         streamStepEvalPolicy _: String?,
         generationSpeedProfile _: String?,
         memoryClearCadence _: Int?,
         enableChunkTimings _: Bool,
-        sink _: @escaping Qwen3MaterializedGenerationSink,
+        sink: @escaping Qwen3MaterializedGenerationSink,
         isolation: isolated (any Actor)?
     ) async throws -> AudioGenerationFinishReason {
         _ = isolation
-        throw FacadeCompatibilityFixtureError.unsupported
+        capture(
+            generationParameters,
+            samplingPolicy: samplingPolicy,
+            memoryPolicy: memoryPolicy,
+            streamingInterval: streamingInterval
+        )
+        try await sink(.prepared)
+        try await emitFixtureEvents(to: sink)
+        return fixtureFinishReason()
     }
 
     private func fixtureStream() -> AsyncThrowingStream<AudioGeneration, Error> {
         if let streamOverride { return streamOverride }
         return AsyncThrowingStream { continuation in
             for token in 1 ... eventCount { continuation.yield(.token(token)) }
+            if emitsInfo {
+                continuation.yield(.info(fixtureInfo()))
+            }
             if emitsAudio {
+                if emitsChunkTimings {
+                    continuation.yield(.chunkTimings(ChunkSubstageTimings(
+                        talkerForwardMS: 1,
+                        codePredictorMS: 2,
+                        audioDecoderMS: 3
+                    )))
+                }
                 continuation.yield(.audio(MLXArray([Float(0.1)])))
             }
             continuation.finish()
@@ -2268,6 +2705,34 @@ private final class FacadeCompatibilityModel: SpeechGenerationModel, Qwen3Optimi
             case .chunkTimings(let timings):
                 try await sink(.chunkTimings(timings))
             }
+        }
+    }
+
+    private func fixtureCompletion() -> AudioGenerationCompletion {
+        AudioGenerationCompletion(
+            audio: MLXArray(qualityFirstAudio),
+            info: emitsInfo ? fixtureInfo() : nil,
+            finishReason: fixtureFinishReason()
+        )
+    }
+
+    private func fixtureInfo() -> AudioGenerationInfo {
+        AudioGenerationInfo(
+            promptTokenCount: 2,
+            generationTokenCount: eventCount,
+            prefillTime: 0.01,
+            generateTime: 0.02,
+            tokensPerSecond: 50,
+            peakMemoryUsage: 0.25
+        )
+    }
+
+    private func fixtureFinishReason() -> AudioGenerationFinishReason {
+        switch generationEndReason {
+        case "eos": return .eos
+        case "token_cap", "max_tokens": return .maxTokens
+        case "cancelled": return .cancelled
+        default: return .failed
         }
     }
 

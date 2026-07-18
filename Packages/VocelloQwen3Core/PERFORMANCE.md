@@ -55,16 +55,16 @@ must use the tracked benchmark registry or an Instruments profile with the runti
 
 The producer retains only pending codes needed for the next decode. A mode/profile-specific first
 chunk establishes initial playback; later chunks may be larger to amortize decoder work. The Mimi
-decoder maintains causal state across partitions. The temporary compatibility stream may enqueue
-non-final `asyncEval` work before its consumer synchronizes. The actor-owned suspending producer
-instead materializes `[Float]` in the caller's isolation before its awaited sink, and the final chunk
-always has an explicit barrier before terminal completion and atomic WAV publication.
+decoder maintains causal state across partitions. The shipping actor-owned suspending producer
+materializes `[Float]` in the caller's isolation before its awaited sink, and the final chunk always
+has an explicit barrier before terminal completion and atomic WAV publication. Compatibility stream
+methods remain only behind the narrowed load/prewarm bridge and are not product generation authority.
 
 Cancellation terminates the producer, resets reusable state, and produces exactly one terminal
 result. The generation gate permits one owner, transfers FIFO, and handles cancellation after
 ownership transfer without releasing another task’s permit.
 
-The staged engine session separates delivery by semantic class. Custom, Design, and Clone expose a
+The shipping engine session separates delivery by semantic class. Custom, Design, and Clone expose a
 direct materialized producer to that engine without an intermediate `AsyncThrowingStream` or MLX
 value crossing isolation. Core audio has one mandatory consumer and a suspending capacity measured
 in frames, so a slow output adapter applies bounded backpressure to the actual token/decode loop
@@ -78,8 +78,8 @@ audio drain, and model EOS transitions the same operation lease to product final
 releasing it. The adapter must drain every frame, finalize and reopen the WAV, run mandatory Fast
 QC, publish or clean up atomically, and return the opaque generation/lease token. An identical
 repeated acknowledgment is idempotent; a stale or conflicting token cannot release a newer lease.
-The old fixed-count mixed facade event channel remains only as a characterized compatibility
-surface until Custom, Design, and Clone have each completed product cutover.
+The old fixed-count mixed facade event channel remains only as a package characterization surface;
+QwenVoiceCore product generation does not use it.
 
 ## Memory and caches
 

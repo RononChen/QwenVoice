@@ -285,23 +285,22 @@ Measured on the same ~70 s custom/Speed input (`benchmarks/OPTIMIZATION.md` §F.
 
 The streaming peak is **flat with length** — short, medium, and long inputs all peak around 3 GB. This is why iPhone generation is viable despite the lower device RAM.
 
-### 6.1 Both event streams are bounded and measured
+### 6.1 Core audio and frontend events use different suspending contracts
 
-`MLXTTSEngine.events` is the `AsyncStream` that delivers chunks to the UI:
+`MLXTTSEngine.events` is an `AsyncStream` view over a custom per-generation suspending router:
 
-- **macOS**: `.bufferingNewest(256)`.
-- **iOS**: `.bufferingNewest(96)` to keep memory bounded under the shared-process budget.
+- **macOS**: capacity 256.
+- **iOS**: capacity 96 to stay bounded under the shared-process budget.
 
-`GenerationEventDeliveryProbe` records accepted and dropped chunk, progress, terminal, and
-termination yields. Consumers must drain continuously, and validators must treat a dropped yield as
-evidence rather than assuming bounded delivery was lossless. Do not change either capacity or the
-probe contract without a memory-and-playback review.
+`GenerationEventDeliveryProbe` records accepted, terminated, and unobserved sends. A full router
+suspends the producer until the sole consumer advances; preview/status events are never evicted.
 
-The staged `ClassifiedGenerationSession` uses a different single-consumer, frame-bounded suspending
-audio channel. Synthetic tests prove that cancelling a producer task while it is suspended on
-backpressure removes the pending send and wakes the producer with `CancellationError`. No shipping
-mode uses that channel yet, so this foundation does not change the compatibility-stream verdict
-above or prove current frontend delivery lossless.
+Final PCM uses `ClassifiedGenerationSession`'s separate single-consumer, frame-bounded suspending
+audio channel for Custom, Design, and Clone. Cancelling a producer task while it is suspended on
+backpressure removes the pending send and wakes the producer with `CancellationError`.
+`GenerationOutputAdapter` writes every drained frame before frontend publication and completes the
+product-finalization acknowledgment. Do not reintroduce `bufferingNewest` or another eviction
+policy for audio-bearing product events.
 
 ---
 
@@ -467,8 +466,8 @@ Do not regress these without a maintainer decision:
 - **No output-side silence gating.** Suppressing natural pauses masks real defects.
 - **Do not revert the input-side decoder-drift fix (`4fab110`).**
 - **Do not pipeline the 15-pass Code Predictor loop.** It is autoregressive; pipelining would change sampling semantics.
-- **macOS `MLXTTSEngine.events` stays `.bufferingNewest(256)`; iOS stays
-  `.bufferingNewest(96)`.** Keep the delivery probe and continuous drains with them.
+- **Do not reintroduce `bufferingNewest` for product events.** Keep the 256-event macOS and 96-event
+  iOS suspending router plus delivery accounting; audio-bearing preview sends backpressure.
 - **Streaming-first on iOS, the macOS app, and the macOS CLI** (`vocello generate` /
   `vocello bench`). The three macOS app coordinators set `shouldStream: true`; `--no-stream` is an
   explicit CLI diagnostic, not the app quality path.

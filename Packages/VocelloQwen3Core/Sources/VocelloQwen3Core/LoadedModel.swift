@@ -63,6 +63,25 @@ public struct VocelloQwen3GenerationInfo: Codable, Hashable, Sendable {
     }
 }
 
+/// Privacy-safe finalized model diagnostics captured while the engine actor
+/// still owns the loaded model. Product adapters receive only typed scalar
+/// maps; no prompt, transcript, path, tensor, or raw error crosses isolation.
+public struct VocelloQwen3GenerationDiagnostics: Codable, Hashable, Sendable {
+    public let timingsMilliseconds: [String: Int]
+    public let booleanFlags: [String: Bool]
+    public let stringFlags: [String: String]
+
+    public init(
+        timingsMilliseconds: [String: Int] = [:],
+        booleanFlags: [String: Bool] = [:],
+        stringFlags: [String: String] = [:]
+    ) {
+        self.timingsMilliseconds = timingsMilliseconds
+        self.booleanFlags = booleanFlags
+        self.stringFlags = stringFlags
+    }
+}
+
 public struct VocelloQwen3KVCacheDiagnostics: Codable, Hashable, Sendable {
     public let cacheType: String
     public let effectiveSeqLength: Int
@@ -325,15 +344,18 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
     private final class ModelBox: @unchecked Sendable {
         let base: any SpeechGenerationModel
         let optimized: any Qwen3OptimizedSpeechGenerationModel
+        let quality: any Qwen3PreparedQualityGenerationModel
         let suspending: any Qwen3SuspendingSpeechGenerationModel
 
         init(_ base: any SpeechGenerationModel) throws {
             guard let optimized = base as? any Qwen3OptimizedSpeechGenerationModel,
+                  let quality = base as? any Qwen3PreparedQualityGenerationModel,
                   let suspending = base as? any Qwen3SuspendingSpeechGenerationModel else {
                 throw VocelloQwen3ContractError.incompatibleLoadedModel
             }
             self.base = base
             self.optimized = optimized
+            self.quality = quality
             self.suspending = suspending
         }
     }
@@ -365,6 +387,15 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
     public var latestPreparationDiagnostics: VocelloQwen3CompatibilityDiagnostics {
         let provider = box.base as? any SpeechGenerationModelDiagnosticsProvider
         return VocelloQwen3CompatibilityDiagnostics(
+            timingsMilliseconds: provider?.latestPreparationTimingsMS ?? [:],
+            booleanFlags: provider?.latestPreparationBooleanFlags ?? [:],
+            stringFlags: provider?.latestPreparationStringFlags ?? [:]
+        )
+    }
+
+    var finalizedGenerationDiagnostics: VocelloQwen3GenerationDiagnostics {
+        let provider = box.base as? any SpeechGenerationModelDiagnosticsProvider
+        return VocelloQwen3GenerationDiagnostics(
             timingsMilliseconds: provider?.latestPreparationTimingsMS ?? [:],
             booleanFlags: provider?.latestPreparationBooleanFlags ?? [:],
             stringFlags: provider?.latestPreparationStringFlags ?? [:]
@@ -435,10 +466,10 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
         }
     }
 
-    /// Drives the materialized, suspending producer directly in the caller's
-    /// actor isolation. This is the Phase 3 engine foundation; compatibility
-    /// `AsyncThrowingStream` entry points remain available to the shipping
-    /// product path until the Phase 4 mode cutovers complete.
+    /// Drives the shipping materialized, suspending producer directly in the
+    /// engine actor's isolation. Legacy `AsyncThrowingStream` entry points
+    /// remain SPI-only compatibility surfaces until the surrounding runtime
+    /// load/prewarm migration retires them.
     func produce(
         request: VocelloQwen3SynthesisRequest,
         clonePrompt: VocelloQwen3ClonePrompt?,
@@ -530,6 +561,73 @@ public final class VocelloQwen3LoadedModel: @unchecked Sendable {
         case .failed:
             return .failed
         }
+    }
+
+    /// Runs the existing full-text, non-streaming model algorithm while still
+    /// draining its one materialized payload through the classified product
+    /// session. The prepared callback is emitted at the real model boundary;
+    /// merely entering this method never claims producer readiness.
+    func produceQualityFirst(
+        request: VocelloQwen3SynthesisRequest,
+        clonePrompt: VocelloQwen3ClonePrompt?,
+        sink: @escaping @Sendable (VocelloQwen3GenerationSignal) async throws -> Void,
+        isolation: isolated (any Actor)? = #isolation
+    ) async throws -> VocelloQwen3GenerationFinishReason {
+        let parameters = try parameters(request.sampling)
+        let samplingPolicy = try requestSamplingPolicy(request.sampling)
+        let memoryPolicy = try requestMemoryPolicy(request.memory)
+        let onPrepared: @Sendable () async throws -> Void = {
+            try await sink(.prepared)
+        }
+        let rawCompletion: AudioGenerationCompletion
+        switch request.input {
+        case .customVoice(let speakerID, let instruction):
+            rawCompletion = try await box.quality.generateCustomVoiceQualityFirst(
+                text: request.text,
+                language: request.language,
+                speaker: speakerID,
+                instruct: instruction,
+                generationParameters: parameters,
+                samplingPolicy: samplingPolicy,
+                memoryPolicy: memoryPolicy,
+                onPrepared: onPrepared,
+                isolation: isolation
+            )
+        case .voiceDesign(let description):
+            rawCompletion = try await box.quality.generateVoiceDesignQualityFirst(
+                text: request.text,
+                language: request.language,
+                voiceDescription: description,
+                generationParameters: parameters,
+                samplingPolicy: samplingPolicy,
+                memoryPolicy: memoryPolicy,
+                onPrepared: onPrepared,
+                isolation: isolation
+            )
+        case .voiceClone:
+            guard let clonePrompt else {
+                throw VocelloQwen3ContractError.missingClonePrompt
+            }
+            rawCompletion = try await box.quality.generateVoiceCloneQualityFirst(
+                text: request.text,
+                language: request.language,
+                voiceClonePrompt: clonePrompt.compatibilityValue,
+                generationParameters: parameters,
+                samplingPolicy: samplingPolicy,
+                memoryPolicy: memoryPolicy,
+                onPrepared: onPrepared,
+                isolation: isolation
+            )
+        }
+        let completion = VocelloQwen3GenerationCompletion(rawCompletion)
+        try Task.checkCancellation()
+        if let info = completion.info {
+            try await sink(.info(info))
+            try Task.checkCancellation()
+        }
+        try await sink(.audio(completion.audio))
+        try Task.checkCancellation()
+        return completion.finishReason
     }
 
     public func prewarmCustomVoice(

@@ -60,7 +60,7 @@ class RuntimeSecurityContractTests(unittest.TestCase):
     def test_release_evidence_is_publish_last(self) -> None:
         self.assertEqual(MODULE.validate_release_contract(), [])
 
-    def test_runtime_refactor_contract_is_shadow_only_and_grounded(self) -> None:
+    def test_runtime_refactor_contract_is_grounded_for_phase4_shipping(self) -> None:
         self.assertEqual(MODULE.validate_runtime_refactor_contract(), [])
 
     def test_runtime_refactor_contract_rejects_chunk_and_shadow_drift(self) -> None:
@@ -72,20 +72,31 @@ class RuntimeSecurityContractTests(unittest.TestCase):
         self.assertTrue(any("second shadow generation" in error for error in errors))
         self.assertTrue(any("chunk frames drifted" in error for error in errors))
 
-    def test_runtime_refactor_contract_rejects_foundation_as_shipping_claim(self) -> None:
+    def test_runtime_refactor_contract_rejects_unverified_or_mixed_shipping_claims(self) -> None:
         contract = MODULE.load_json(ROOT / "config/runtime-refactor-contract.json")
         contract["phaseStatus"]["modeCutover"] = "implemented"
         contract["phaseStatus"]["telemetryV9"] = "shipping"
         contract["phaseStatus"]["engineActor"] = "shipping"
-        contract["phase2PublicMutationBoundary"]["status"] = "complete-shipping"
-        contract["phase2PublicMutationBoundary"]["shippingAuthorityChanged"] = True
+        contract["phase2PublicMutationBoundary"]["status"] = "complete-nonshipping"
+        contract["phase2PublicMutationBoundary"]["shippingAuthorityChanged"] = False
 
         errors = MODULE.runtime_refactor_contract_errors(contract)
-        self.assertTrue(any("mode cutover" in error for error in errors))
+        self.assertTrue(any("mode-cutover" in error for error in errors))
         self.assertTrue(any("telemetry v9" in error for error in errors))
-        self.assertTrue(any("complete non-shipping" in error for error in errors))
-        self.assertTrue(any("must not change shipping authority" in error for error in errors))
-        self.assertTrue(any("engine actor status" in error for error in errors))
+        self.assertTrue(any("foundation must ship only through Phase 4" in error for error in errors))
+        self.assertTrue(any("shipping-authority change" in error for error in errors))
+        self.assertTrue(any("engine actor shipping status" in error for error in errors))
+
+        contract = MODULE.load_json(ROOT / "config/runtime-refactor-contract.json")
+        contract["currentShippingAuthorities"]["clone"] = "compatibility-path"
+        contract["phase4ProductCutover"]["mixedShippingAuthorityAllowed"] = True
+        contract["phase4ProductCutover"]["audioBearingBufferedEventsAllowed"] = True
+        contract["phase4ProductCutover"]["overallPromotion"] = "passed"
+        errors = MODULE.runtime_refactor_contract_errors(contract)
+        self.assertTrue(any("mixed shipping authority" in error for error in errors))
+        self.assertTrue(any("current authorities differ" in error for error in errors))
+        self.assertTrue(any("audio-bearing buffered events" in error for error in errors))
+        self.assertTrue(any("before all acceptance passes" in error for error in errors))
 
         contract = MODULE.load_json(ROOT / "config/runtime-refactor-contract.json")
         compatibility = MODULE.load_json(
@@ -137,7 +148,33 @@ class RuntimeSecurityContractTests(unittest.TestCase):
         contract["phaseStatus"]["modeCutover"] = "pending-focused-platform-acceptance"
 
         errors = MODULE.runtime_refactor_contract_errors(contract)
-        self.assertTrue(any("mode cutover" in error for error in errors))
+        self.assertTrue(any("mode-cutover" in error for error in errors))
+
+    def test_runtime_refactor_contract_rejects_direct_product_mode_calls(self) -> None:
+        contract = MODULE.load_json(ROOT / "config/runtime-refactor-contract.json")
+        contract["phase4ProductCutover"]["shippingImplementationSources"].append(
+            "Sources/QwenVoiceCore/UnsafeSpeechGenerationModel.swift"
+        )
+
+        errors = MODULE.runtime_refactor_contract_errors(contract)
+        self.assertTrue(any("invokes direct mode streams" in error for error in errors))
+
+    def test_runtime_refactor_contract_allows_pending_device_without_promotion(self) -> None:
+        contract = MODULE.load_json(ROOT / "config/runtime-refactor-contract.json")
+        self.assertEqual(
+            contract["phase4ProductCutover"]["deterministicVerification"],
+            "passed",
+        )
+        self.assertEqual(
+            contract["phase4ProductCutover"]["macosFocusedAcceptance"],
+            "passed",
+        )
+        self.assertEqual(
+            contract["phase4ProductCutover"]["physicalIPhoneFocusedAcceptance"],
+            "pending-device",
+        )
+        self.assertEqual(contract["phase4ProductCutover"]["overallPromotion"], "pending")
+        self.assertEqual(MODULE.runtime_refactor_contract_errors(contract), [])
 
     def test_security_adrs_exist(self) -> None:
         self.assertEqual(MODULE.validate_docs(), [])

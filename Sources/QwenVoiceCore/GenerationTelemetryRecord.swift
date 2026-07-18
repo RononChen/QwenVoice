@@ -952,7 +952,7 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
 /// output). It deliberately does NOT claim subjective naturalness. Autonomous
 /// promotion combines it with the applicable ASR, prosody, and delivery gates;
 /// optional listening remains annotation only. Thresholds are conservative +
-/// tunable (see the builder in `NativeStreamingSynthesisSession`).
+/// tunable (see the builder in `GenerationOutputAdapter`).
 public struct AudioQCReport: Hashable, Codable, Sendable {
     /// v2 fixed cross-chunk interior-silence localization. v3 derives the
     /// written-output verdict from the atomically published WAV frames rather

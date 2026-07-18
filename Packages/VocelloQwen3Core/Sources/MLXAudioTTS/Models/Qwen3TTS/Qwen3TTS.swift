@@ -1172,7 +1172,7 @@ struct Qwen3StreamChunkSchedule: Sendable {
 
 // MARK: - Qwen3TTS Model
 
-public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedSpeechGenerationModel, Qwen3SuspendingSpeechGenerationModel, Qwen3CustomVoicePrewarmDepthControlling, SpeechGenerationModelDiagnosticsProvider, @unchecked Sendable {
+public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedSpeechGenerationModel, Qwen3PreparedQualityGenerationModel, Qwen3SuspendingSpeechGenerationModel, Qwen3CustomVoicePrewarmDepthControlling, SpeechGenerationModelDiagnosticsProvider, @unchecked Sendable {
     private static let productionMinimumGeneratedCodeTokensBeforeEOS = 2
     private static let productionFullResultMemoryClearCadence = 0
 
@@ -1812,7 +1812,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         language: String,
         speaker: String,
         instruct: String?,
-        generationParameters _: GenerateParameters,
+        generationParameters: GenerateParameters,
         memoryPolicy: Qwen3RequestMemoryPolicy,
         customPrewarmDepth: String?,
         isolation: isolated (any Actor)? = #isolation
@@ -2219,13 +2219,37 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         language: String,
         speaker: String,
         instruct: String?,
-        generationParameters _: GenerateParameters,
+        generationParameters: GenerateParameters,
         samplingPolicy: Qwen3RequestSamplingPolicy,
         memoryPolicy: Qwen3RequestMemoryPolicy
     ) async throws -> AudioGenerationCompletion {
-        try await withGenerationGate {
-        var generationInfo: AudioGenerationInfo?
-        let audio = try await samplingPolicy.runWithRandomState {
+        try await generateCustomVoiceQualityFirst(
+            text: text,
+            language: language,
+            speaker: speaker,
+            instruct: instruct,
+            generationParameters: generationParameters,
+            samplingPolicy: samplingPolicy,
+            memoryPolicy: memoryPolicy,
+            onPrepared: {},
+            isolation: #isolation
+        )
+    }
+
+    public func generateCustomVoiceQualityFirst(
+        text: String,
+        language: String,
+        speaker: String,
+        instruct: String?,
+        generationParameters _: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        onPrepared: @escaping @Sendable () async throws -> Void,
+        isolation: isolated (any Actor)?
+    ) async throws -> AudioGenerationCompletion {
+        try await withGenerationGate(isolation: isolation) {
+        let generationInfo = OSAllocatedUnfairLock<AudioGenerationInfo?>(initialState: nil)
+        let audio = try await samplingPolicy.runWithRandomState(isolation: isolation) {
             try await generateVoiceDesign(
                 text: text,
                 instruct: instruct,
@@ -2240,12 +2264,14 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 streamStepEvalPolicy: nil,
                 generationSpeedProfile: nil,
                 memoryClearCadence: Self.productionFullResultMemoryClearCadence,
-                onInfo: { generationInfo = $0 }
+                onInfo: { info in generationInfo.withLock { $0 = info } },
+                onPrepared: onPrepared,
+                isolation: isolation
             )
         }
         return AudioGenerationCompletion(
             audio: audio,
-            info: generationInfo,
+            info: generationInfo.withLock { $0 },
             finishReason: latestAudioGenerationFinishReason()
         )
         }
@@ -2255,13 +2281,35 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         text: String,
         language: String,
         voiceDescription: String,
-        generationParameters _: GenerateParameters,
+        generationParameters: GenerateParameters,
         samplingPolicy: Qwen3RequestSamplingPolicy,
         memoryPolicy: Qwen3RequestMemoryPolicy
     ) async throws -> AudioGenerationCompletion {
-        try await withGenerationGate {
-        var generationInfo: AudioGenerationInfo?
-        let audio = try await samplingPolicy.runWithRandomState {
+        try await generateVoiceDesignQualityFirst(
+            text: text,
+            language: language,
+            voiceDescription: voiceDescription,
+            generationParameters: generationParameters,
+            samplingPolicy: samplingPolicy,
+            memoryPolicy: memoryPolicy,
+            onPrepared: {},
+            isolation: #isolation
+        )
+    }
+
+    public func generateVoiceDesignQualityFirst(
+        text: String,
+        language: String,
+        voiceDescription: String,
+        generationParameters _: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        onPrepared: @escaping @Sendable () async throws -> Void,
+        isolation: isolated (any Actor)?
+    ) async throws -> AudioGenerationCompletion {
+        try await withGenerationGate(isolation: isolation) {
+        let generationInfo = OSAllocatedUnfairLock<AudioGenerationInfo?>(initialState: nil)
+        let audio = try await samplingPolicy.runWithRandomState(isolation: isolation) {
             try await generateVoiceDesign(
                 text: text,
                 instruct: voiceDescription,
@@ -2275,12 +2323,14 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 streamStepEvalPolicy: nil,
                 generationSpeedProfile: nil,
                 memoryClearCadence: Self.productionFullResultMemoryClearCadence,
-                onInfo: { generationInfo = $0 }
+                onInfo: { info in generationInfo.withLock { $0 = info } },
+                onPrepared: onPrepared,
+                isolation: isolation
             )
         }
         return AudioGenerationCompletion(
             audio: audio,
-            info: generationInfo,
+            info: generationInfo.withLock { $0 },
             finishReason: latestAudioGenerationFinishReason()
         )
         }
@@ -2290,13 +2340,35 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         text: String,
         language: String,
         voiceClonePrompt: Qwen3TTSVoiceClonePrompt,
-        generationParameters _: GenerateParameters,
+        generationParameters: GenerateParameters,
         samplingPolicy: Qwen3RequestSamplingPolicy,
         memoryPolicy: Qwen3RequestMemoryPolicy
     ) async throws -> AudioGenerationCompletion {
-        try await withGenerationGate {
-        var generationInfo: AudioGenerationInfo?
-        let audio = try await samplingPolicy.runWithRandomState {
+        try await generateVoiceCloneQualityFirst(
+            text: text,
+            language: language,
+            voiceClonePrompt: voiceClonePrompt,
+            generationParameters: generationParameters,
+            samplingPolicy: samplingPolicy,
+            memoryPolicy: memoryPolicy,
+            onPrepared: {},
+            isolation: #isolation
+        )
+    }
+
+    public func generateVoiceCloneQualityFirst(
+        text: String,
+        language: String,
+        voiceClonePrompt: Qwen3TTSVoiceClonePrompt,
+        generationParameters _: GenerateParameters,
+        samplingPolicy: Qwen3RequestSamplingPolicy,
+        memoryPolicy: Qwen3RequestMemoryPolicy,
+        onPrepared: @escaping @Sendable () async throws -> Void,
+        isolation: isolated (any Actor)?
+    ) async throws -> AudioGenerationCompletion {
+        try await withGenerationGate(isolation: isolation) {
+        let generationInfo = OSAllocatedUnfairLock<AudioGenerationInfo?>(initialState: nil)
+        let audio = try await samplingPolicy.runWithRandomState(isolation: isolation) {
             try await generateVoiceDesign(
                 text: text,
                 instruct: nil,
@@ -2312,12 +2384,14 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 streamStepEvalPolicy: nil,
                 generationSpeedProfile: nil,
                 memoryClearCadence: Self.productionFullResultMemoryClearCadence,
-                onInfo: { generationInfo = $0 }
+                onInfo: { info in generationInfo.withLock { $0 = info } },
+                onPrepared: onPrepared,
+                isolation: isolation
             )
         }
         return AudioGenerationCompletion(
             audio: audio,
-            info: generationInfo,
+            info: generationInfo.withLock { $0 },
             finishReason: latestAudioGenerationFinishReason()
         )
         }
@@ -2713,6 +2787,7 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         onAudioChunkTimings: ((ChunkSubstageTimings) -> Void)? = nil,
         materializedEventSink: Qwen3MaterializedGenerationSink? = nil,
         emitMaterializedChunkTimings: Bool = false,
+        onPrepared: (@Sendable () async throws -> Void)? = nil,
         isolation: isolated (any Actor)? = #isolation
     ) async throws -> MLXArray {
         _ = isolation
@@ -2883,6 +2958,11 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
         if let materializedEventSink {
             try Task.checkCancellation()
             try await materializedEventSink(.prepared)
+            try Task.checkCancellation()
+        }
+        if let onPrepared {
+            try Task.checkCancellation()
+            try await onPrepared()
             try Task.checkCancellation()
         }
 

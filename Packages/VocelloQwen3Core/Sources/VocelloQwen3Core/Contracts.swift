@@ -317,6 +317,15 @@ public enum VocelloQwen3SynthesisInput: Codable, Hashable, Sendable {
     }
 }
 
+/// Selects the owned model execution path without changing product output
+/// policy. Quality-first requests still drain through the mandatory product
+/// adapter, but the model emits one complete materialized payload and the
+/// product suppresses preview publication.
+public enum VocelloQwen3ExecutionStyle: String, Codable, Hashable, Sendable {
+    case streaming
+    case qualityFirst = "quality_first"
+}
+
 /// Product request boundary. Reference audio/tensors are resolved separately by
 /// the host so this value remains portable and deterministic.
 public struct VocelloQwen3SynthesisRequest: Codable, Hashable, Sendable {
@@ -327,6 +336,7 @@ public struct VocelloQwen3SynthesisRequest: Codable, Hashable, Sendable {
     public let sampling: VocelloQwen3SamplingConfiguration
     public let memory: VocelloQwen3MemoryConfiguration
     public let chunking: VocelloQwen3StreamChunkConfiguration
+    public let executionStyle: VocelloQwen3ExecutionStyle
 
     public init(
         generationID: UUID,
@@ -335,7 +345,8 @@ public struct VocelloQwen3SynthesisRequest: Codable, Hashable, Sendable {
         input: VocelloQwen3SynthesisInput,
         sampling: VocelloQwen3SamplingConfiguration,
         memory: VocelloQwen3MemoryConfiguration,
-        chunking: VocelloQwen3StreamChunkConfiguration? = nil
+        chunking: VocelloQwen3StreamChunkConfiguration? = nil,
+        executionStyle: VocelloQwen3ExecutionStyle = .streaming
     ) {
         self.generationID = generationID
         self.text = text
@@ -344,6 +355,7 @@ public struct VocelloQwen3SynthesisRequest: Codable, Hashable, Sendable {
         self.sampling = sampling
         self.memory = memory
         self.chunking = chunking ?? .currentConstrainedDefault(for: input.mode)
+        self.executionStyle = executionStyle
     }
 
     public var mode: VocelloQwen3SynthesisMode { input.mode }
@@ -365,7 +377,7 @@ public struct VocelloQwen3SynthesisRequest: Codable, Hashable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case generationID, text, language, input, sampling, memory, chunking
+        case generationID, text, language, input, sampling, memory, chunking, executionStyle
     }
 
     public init(from decoder: any Decoder) throws {
@@ -387,6 +399,10 @@ public struct VocelloQwen3SynthesisRequest: Codable, Hashable, Sendable {
             VocelloQwen3StreamChunkConfiguration.self,
             forKey: .chunking
         ) ?? .currentConstrainedDefault(for: input.mode)
+        self.executionStyle = try container.decodeIfPresent(
+            VocelloQwen3ExecutionStyle.self,
+            forKey: .executionStyle
+        ) ?? .streaming
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -398,6 +414,7 @@ public struct VocelloQwen3SynthesisRequest: Codable, Hashable, Sendable {
         try container.encode(sampling, forKey: .sampling)
         try container.encode(memory, forKey: .memory)
         try container.encode(chunking, forKey: .chunking)
+        try container.encode(executionStyle, forKey: .executionStyle)
     }
 }
 

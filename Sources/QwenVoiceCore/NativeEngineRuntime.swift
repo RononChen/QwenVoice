@@ -148,6 +148,8 @@ struct NativePreparedGeneration: Sendable {
     let generationID: UUID
     let requestID: Int
     let model: UnsafeSpeechGenerationModel
+    let actorRequest: VocelloQwen3SynthesisRequest
+    let cloneHandle: VocelloQwen3CloneHandle?
     let warmState: EngineWarmState
     let timingOverridesMS: [String: Int]
     let booleanFlags: [String: Bool]
@@ -771,6 +773,33 @@ actor NativeEngineRuntime {
             booleanFlags: &booleanFlags,
             stringFlags: &stringFlags
         )
+        let actorRequest = try Self.makeActorRequest(
+            request: request,
+            generationID: generationID,
+            capabilities: loadResult.qwen3Capabilities,
+            memoryPolicy: memoryPolicy,
+            samplingConfiguration: samplingConfiguration,
+            requestMemory: requestMemory,
+            cloneConditioning: cloneConditioning
+        )
+        let cloneHandle: VocelloQwen3CloneHandle?
+        if case .voiceClone = actorRequest.input {
+            guard let cloneConditioning,
+                  let prompt = cloneConditioning.voiceClonePrompt else {
+                throw MLXTTSEngineError.unsupportedRequest(
+                    "Voice Cloning requires validated schema-3 conditioning before generation."
+                )
+            }
+            cloneHandle = try await model.engine.adoptValidatedClonePrompt(
+                prompt,
+                capability: cloneConditioning.conditioningMode.isXVectorOnly
+                    ? .decoderOnly
+                    : .encoderAndDecoder,
+                conditioningDigest: cloneConditioning.internalIdentity.digest
+            )
+        } else {
+            cloneHandle = nil
+        }
         await telemetrySampler?.captureBoundary("after_preparation")
         return NativePreparedGeneration(
             // Reuse the app-minted ID so app/middle/engine telemetry rows correlate;
@@ -778,6 +807,8 @@ actor NativeEngineRuntime {
             generationID: generationID,
             requestID: takeNextRequestID(),
             model: model,
+            actorRequest: actorRequest,
+            cloneHandle: cloneHandle,
             warmState: loadResult.didLoad ? .cold : .warm,
             timingOverridesMS: timingOverridesMS,
             booleanFlags: booleanFlags,
@@ -844,6 +875,63 @@ actor NativeEngineRuntime {
             }
             throw error
         }
+    }
+
+    private static func makeActorRequest(
+        request: GenerationRequest,
+        generationID: UUID,
+        capabilities: Qwen3TTSModelCapabilities,
+        memoryPolicy: NativeMemoryPolicy,
+        samplingConfiguration: VocelloQwen3SamplingConfiguration,
+        requestMemory: VocelloQwen3MemoryConfiguration,
+        cloneConditioning: ResolvedCloneConditioning?
+    ) throws -> VocelloQwen3SynthesisRequest {
+        let effectiveInterval = NativeMemoryPolicyResolver.effectiveStreamingInterval(
+            requested: request.streamingInterval,
+            request: request,
+            policy: memoryPolicy
+        )
+        let chunkPolicy = StreamChunkPolicy.currentShippingDefault(
+            for: request.mode,
+            effectiveStreamingInterval: effectiveInterval
+        )
+        let prompt = GenerationSemantics.qwen3PromptAssembly(
+            for: request,
+            capabilities: capabilities,
+            resolvedCloneTranscript: cloneConditioning?.resolvedTranscript
+        )
+        let input: VocelloQwen3SynthesisInput
+        switch request.payload {
+        case .custom:
+            input = .customVoice(
+                speakerID: prompt.speakerID ?? GenerationSemantics.canonicalCustomWarmSpeaker,
+                deliveryInstruction: prompt.instruct
+            )
+        case .design:
+            input = .voiceDesign(description: prompt.instruct ?? "")
+        case .clone:
+            guard let conditioningDigest = cloneConditioning?.internalIdentity.digest else {
+                throw MLXTTSEngineError.unsupportedRequest(
+                    "Voice Cloning needs a validated conditioning identity."
+                )
+            }
+            input = .voiceClone(referenceID: conditioningDigest)
+        }
+        return VocelloQwen3SynthesisRequest(
+            generationID: generationID,
+            text: request.text,
+            language: prompt.language,
+            input: input,
+            sampling: samplingConfiguration,
+            memory: requestMemory,
+            chunking: VocelloQwen3StreamChunkConfiguration(
+                firstCodecFrames: chunkPolicy.firstCodecFrames,
+                laterCodecFrames: chunkPolicy.laterCodecFrames,
+                pendingFrameLimit: chunkPolicy.pendingFrameLimit,
+                materializationLeadSteps: chunkPolicy.materializationLeadSteps
+            ),
+            executionStyle: request.shouldStream ? .streaming : .qualityFirst
+        )
     }
 
     func primeCloneReference(
@@ -1497,7 +1585,7 @@ actor NativeEngineRuntime {
                 // breakdown (Qwen3TTS yields it before each .audio
                 // event). Clone priming only cares about first-chunk
                 // arrival, so the timings are ignored here — bench
-                // tracing via NativeStreamingSynthesisSession is the
+                // tracing via GenerationOutputAdapter is the
                 // canonical consumer.
                 continue
             }

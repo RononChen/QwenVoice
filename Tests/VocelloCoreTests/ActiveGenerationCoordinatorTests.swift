@@ -1,5 +1,16 @@
 import XCTest
+import os
 @testable import QwenVoiceCore
+
+private final class TestLockedValue<Value: Sendable>: Sendable {
+    private let storage = OSAllocatedUnfairLock<Value?>(initialState: nil)
+
+    var value: Value? { storage.withLock { $0 } }
+
+    func store(_ value: Value) {
+        storage.withLock { $0 = value }
+    }
+}
 
 private actor TestGenerationGate {
     private var isOpen = false
@@ -63,6 +74,30 @@ private actor TestMemoryPressureActionLog {
 }
 
 final class ActiveGenerationCoordinatorTests: XCTestCase {
+    func testCancellationIngressReplaysTypedReasonInstalledAfterRequest() throws {
+        let ingress = GenerationCancellationIngress()
+        let observed = TestLockedValue<GenerationCancellationReason>()
+
+        XCTAssertTrue(ingress.request(.memoryPressure))
+        XCTAssertFalse(ingress.request(.shutdown))
+        ingress.install { reason in observed.store(reason) }
+
+        XCTAssertEqual(ingress.reason, .memoryPressure)
+        XCTAssertEqual(observed.value, .memoryPressure)
+        XCTAssertThrowsError(try ingress.checkCancellation()) { error in
+            XCTAssertTrue(error is CancellationError)
+        }
+    }
+
+    func testCancellationIngressDeliversTypedReasonToInstalledHandler() {
+        let ingress = GenerationCancellationIngress()
+        let observed = TestLockedValue<GenerationCancellationReason>()
+        ingress.install { reason in observed.store(reason) }
+
+        XCTAssertTrue(ingress.request(.superseded))
+        XCTAssertEqual(observed.value, .superseded)
+    }
+
     func testCancellationRetainsOwnershipUntilTaskTerminates() async throws {
         let coordinator = ActiveGenerationCoordinator()
         let terminalGate = TestGenerationGate()
@@ -70,7 +105,7 @@ final class ActiveGenerationCoordinatorTests: XCTestCase {
             await terminalGate.wait()
         }
         let registration = try await coordinator.register(
-            cancel: { worker.cancel() },
+            cancel: { _ in worker.cancel() },
             waitForTermination: { _ = await worker.result }
         )
 
@@ -118,7 +153,7 @@ final class ActiveGenerationCoordinatorTests: XCTestCase {
                 try Task.checkCancellation()
             }
             let registration = try await coordinator.register(
-                cancel: { worker.cancel() },
+                cancel: { _ in worker.cancel() },
                 waitForTermination: { _ = await worker.result }
             )
 
@@ -147,12 +182,12 @@ final class ActiveGenerationCoordinatorTests: XCTestCase {
             await terminalGate.wait()
         }
         let registration = try await coordinator.register(
-            cancel: { worker.cancel() },
+            cancel: { _ in worker.cancel() },
             waitForTermination: { _ = await worker.result }
         )
 
         do {
-            _ = try await coordinator.register(cancel: {}, waitForTermination: {})
+            _ = try await coordinator.register(cancel: { _ in }, waitForTermination: {})
             XCTFail("A second generation must not acquire the engine")
         } catch let error as TTSEngineError {
             guard case .generationFailed = error else {
@@ -176,7 +211,7 @@ final class ActiveGenerationCoordinatorTests: XCTestCase {
             await actions.append(.workerTerminated)
         }
         let registration = try await coordinator.register(
-            cancel: { worker.cancel() },
+            cancel: { _ in worker.cancel() },
             waitForTermination: { _ = await worker.result }
         )
         let executor = NativeMemoryPressureResponseExecutor(
@@ -258,7 +293,7 @@ final class ActiveGenerationCoordinatorTests: XCTestCase {
             try Task.checkCancellation()
         }
         let registration = try await coordinator.register(
-            cancel: { worker.cancel() },
+            cancel: { _ in worker.cancel() },
             waitForTermination: { _ = await worker.result }
         )
 

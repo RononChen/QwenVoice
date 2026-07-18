@@ -21,9 +21,9 @@
       "upstreamDeltaIDs": ["FACADE-001"]
     },
     {
-      "id": "staged-runtime-foundations",
-      "title": "Staged non-shipping actor, classified-session, and output-adapter foundations",
-      "state": "internal",
+      "id": "actor-classified-generation",
+      "title": "Shipping actor, classified-session, and product-finalization authority",
+      "state": "production",
       "sourcePatterns": [
         "Sources/VocelloQwen3Core/ClassifiedGenerationSession.swift",
         "Sources/VocelloQwen3Core/Engine.swift",
@@ -76,9 +76,13 @@
       "testPatterns": ["Tests/Qwen3RuntimeTests/**"],
       "documentation": ["PERFORMANCE.md", "UPSTREAM.md"],
       "evidenceClass": "diagnostic",
-      "benchmarkRecordIDs": ["macos-xcui-benchmark-20260716-181853-b4c2e299"],
+      "benchmarkRecordIDs": [
+        "macos-xcui-benchmark-20260717-192747-0ae9d73c",
+        "macos-xcui-benchmark-20260717-193323-f8506265",
+        "macos-xcui-benchmark-20260717-193608-51fef175"
+      ],
       "benchmarkEvidenceStatus": "diagnostic",
-      "benchmarkEvidenceReason": "Request-local sampling v2 and staged runtime ownership changed the measured source identity; fresh promotion evidence is pending.",
+      "benchmarkEvidenceReason": "Focused macOS Custom, Design, and Clone runs exercised request-local sampling v2 on the current dirty worktree; clean fixed-seed controls and focused physical-iPhone promotion evidence remain pending.",
       "upstreamDeltaIDs": ["LOAD-001", "SAMPLER-001", "SAMPLER-002", "COMPAT-001", "TEL-001"]
     },
     {
@@ -89,9 +93,13 @@
       "testPatterns": ["Tests/Qwen3RuntimeTests/Qwen3GenerationGateTests.swift", "Tests/Qwen3RuntimeTests/Qwen3StreamingContractTests.swift"],
       "documentation": ["PERFORMANCE.md"],
       "evidenceClass": "diagnostic",
-      "benchmarkRecordIDs": ["macos-xcui-benchmark-20260716-181853-b4c2e299"],
+      "benchmarkRecordIDs": [
+        "macos-xcui-benchmark-20260717-192747-0ae9d73c",
+        "macos-xcui-benchmark-20260717-193323-f8506265",
+        "macos-xcui-benchmark-20260717-193608-51fef175"
+      ],
       "benchmarkEvidenceStatus": "diagnostic",
-      "benchmarkEvidenceReason": "Staged classified-session convergence changed the measured source identity; fresh promotion evidence is pending.",
+      "benchmarkEvidenceReason": "Focused macOS Custom, Design, and Clone classified-session runs passed on the current dirty worktree; clean canonical controls and focused physical-iPhone promotion evidence remain pending.",
       "upstreamDeltaIDs": ["CONC-001", "STREAM-001"]
     },
     {

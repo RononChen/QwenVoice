@@ -109,7 +109,9 @@ public struct VocelloQwen3ProductOutputAdapter: Sendable {
                     // Persisted output is authoritative. Preview is emitted
                     // only after the sink accepted this exact ordered chunk.
                     let previewChunk = try await sink.consume(chunk)
-                    await previewPublisher(previewChunk)
+                    if reservation.executionStyle == .streaming {
+                        await previewPublisher(previewChunk)
+                    }
                 }
             } catch {
                 // Cancellation ingress is deliberately independent of the

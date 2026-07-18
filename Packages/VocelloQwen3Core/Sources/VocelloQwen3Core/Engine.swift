@@ -102,6 +102,7 @@ public enum VocelloQwen3EngineError: Error, Equatable, Sendable {
     case finalizationAlreadyReleased
     case invalidCloneHandle
     case invalidConditioningDigest
+    case cloneConditioningIdentityMismatch
 }
 
 public enum VocelloQwen3CloneHandleCapability: String, Codable, Hashable, Sendable {
@@ -114,7 +115,7 @@ public enum VocelloQwen3CloneHandleCapability: String, Codable, Hashable, Sendab
 /// The handle intentionally exposes no tensor storage and is never a portable
 /// artifact identifier. Loading another model or unloading this engine
 /// invalidates it even when a caller retains the value.
-public struct VocelloQwen3CloneHandle: Codable, Hashable, Sendable {
+public struct VocelloQwen3CloneHandle: Hashable, Sendable {
     fileprivate let id: UUID
     public let model: VocelloQwen3ModelIdentity
     public let modelEpoch: UInt64
@@ -140,24 +141,28 @@ public struct VocelloQwen3GenerationReservation: Sendable {
     public let id: UUID
     public let lease: VocelloQwen3RuntimeOperationLease
     public let session: VocelloQwen3ClassifiedGenerationSession
+    public let executionStyle: VocelloQwen3ExecutionStyle
 
     fileprivate init(
         id: UUID,
         lease: VocelloQwen3RuntimeOperationLease,
-        session: VocelloQwen3ClassifiedGenerationSession
+        session: VocelloQwen3ClassifiedGenerationSession,
+        executionStyle: VocelloQwen3ExecutionStyle
     ) {
         self.id = id
         self.lease = lease
         self.session = session
+        self.executionStyle = executionStyle
     }
 }
 
 /// The converged owner for all public MLX-mutating runtime operations.
 ///
-/// This actor begins as a compatibility authority beside the shipping product
-/// coordinator. Mode cutover removes those callers one at a time; it never
-/// runs a shadow generation. The inner Qwen generation gate remains active as
-/// defense-in-depth while compatibility streams are still used.
+/// All shipping generation modes reserve and execute through this actor. The
+/// temporary compatibility adoption seam reuses the product's already-loaded
+/// model while load/prewarm/trim ownership finishes converging; it never runs
+/// a shadow generation or loads a second weight set. The inner Qwen generation
+/// gate remains active as defense-in-depth during that migration.
 public actor VocelloQwen3Engine {
     private enum GenerationLifecycle: Sendable, Equatable {
         case reserved
@@ -175,6 +180,10 @@ public actor VocelloQwen3Engine {
         let lease: VocelloQwen3RuntimeOperationLease
         let request: VocelloQwen3SynthesisRequest
         let clonePrompt: VocelloQwen3ClonePrompt?
+        /// Privacy-safe binding between the product request and the actor-owned
+        /// prompt. This is the conditioning digest, never transcript/audio.
+        let cloneConditioningDigest: String?
+        let audioCapacityFrames: Int
         let session: VocelloQwen3ClassifiedGenerationSession
         let abortCompletion = VocelloQwen3AbortCompletionBarrier()
         var lifecycle: GenerationLifecycle = .reserved
@@ -183,6 +192,8 @@ public actor VocelloQwen3Engine {
         var generatedTokenCount = 0
         var emittedAudioFrameCount = 0
         var nextAudioSequence = 0
+        var pendingChunkTimings: VocelloQwen3ChunkTimings?
+        var generationInfo: VocelloQwen3GenerationInfo?
     }
 
     private struct LastFinalization {
@@ -222,6 +233,22 @@ public actor VocelloQwen3Engine {
         memoryReliefHook = { _ in }
         finalizationReliefClaimHook = {}
         finalizationReliefRollbackHook = {}
+    }
+
+    /// Transitional shipping seam for the Phase 4 mode cutover. The actor
+    /// adopts the exact already-loaded model instance so product integration
+    /// cannot double-load weights. The SPI disappears when loading itself is
+    /// fully actor-owned.
+    @_spi(VocelloQwen3LegacyCompatibility)
+    public init(adoptingCompatibilityModel loadedModel: VocelloQwen3LoadedModel) {
+        self.loadedModel = loadedModel
+        modelEpoch = 1
+        cloneHandleCapacity = 1
+        abortLifecycleHook = { _ in }
+        memoryReliefHook = { _ in }
+        finalizationReliefClaimHook = {}
+        finalizationReliefRollbackHook = {}
+        phase = .ready
     }
 
     /// Deterministic package-test seam. Production always starts unloaded and
@@ -354,6 +381,53 @@ public actor VocelloQwen3Engine {
         }
     }
 
+    /// Adopts a prompt already validated by the schema-3 artifact reader. The
+    /// compatibility bridge exposes only an epoch-bound handle; prompt tensors
+    /// remain actor-owned and cannot be serialized through the handle.
+    @_spi(VocelloQwen3LegacyCompatibility)
+    public func adoptValidatedClonePrompt(
+        _ prompt: VocelloQwen3ClonePrompt,
+        capability: VocelloQwen3CloneHandleCapability,
+        conditioningDigest: String
+    ) throws -> VocelloQwen3CloneHandle {
+        guard let model = loadedModel else {
+            throw VocelloQwen3EngineError.noLoadedModel
+        }
+        guard model.capabilities.contains(.voiceClone) else {
+            throw VocelloQwen3ContractError.unsupportedMode(.voiceClone)
+        }
+        let expectedCapability: VocelloQwen3CloneHandleCapability =
+            prompt.xVectorOnlyMode ? .decoderOnly : .encoderAndDecoder
+        guard capability == expectedCapability else {
+            throw VocelloQwen3EngineError.invalidCloneHandle
+        }
+        let digest = conditioningDigest.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !digest.isEmpty else {
+            throw VocelloQwen3EngineError.invalidConditioningDigest
+        }
+        if let metadata = prompt.artifactMetadata {
+            guard metadata.modelID == nil || metadata.modelID == model.identity.modelID,
+                  metadata.modelRepository == nil
+                    || metadata.modelRepository == model.identity.repositoryID,
+                  metadata.modelRevision == nil
+                    || metadata.modelRevision == model.identity.revision,
+                  metadata.modelArtifactVersion == nil
+                    || metadata.modelArtifactVersion == model.identity.artifactVersion,
+                  metadata.xVectorOnlyMode == nil
+                    || metadata.xVectorOnlyMode == prompt.xVectorOnlyMode else {
+                throw VocelloQwen3EngineError.invalidCloneHandle
+            }
+        }
+        let handle = VocelloQwen3CloneHandle(
+            model: model.identity,
+            modelEpoch: modelEpoch,
+            capability: capability,
+            conditioningDigest: digest
+        )
+        insertCloneRecord(CloneRecord(handle: handle, prompt: prompt))
+        return handle
+    }
+
     /// Releases an opaque conditioning handle without exposing its tensors.
     /// A prompt already retained by an active reservation remains valid for
     /// that reservation, while future lookups fail closed.
@@ -433,18 +507,26 @@ public actor VocelloQwen3Engine {
         diagnosticCapacity: Int = 128
     ) async throws -> VocelloQwen3GenerationReservation {
         let prompt: VocelloQwen3ClonePrompt?
-        if case .voiceClone = request.input {
+        let cloneConditioningDigest: String?
+        if case .voiceClone(let referenceID) = request.input {
             guard let cloneHandle,
                   let record = validCloneRecord(for: cloneHandle) else {
                 throw VocelloQwen3EngineError.invalidCloneHandle
             }
+            try validateCloneConditioningIdentity(
+                requestReferenceID: referenceID,
+                conditioningDigest: record.handle.conditioningDigest
+            )
             prompt = record.prompt
+            cloneConditioningDigest = record.handle.conditioningDigest
         } else {
             prompt = nil
+            cloneConditioningDigest = nil
         }
         return try await reserveGeneration(
             request: request,
             clonePrompt: prompt,
+            cloneConditioningDigest: cloneConditioningDigest,
             audioCapacityFrames: audioCapacityFrames,
             diagnosticCapacity: diagnosticCapacity
         )
@@ -453,6 +535,7 @@ public actor VocelloQwen3Engine {
     private func reserveGeneration(
         request: VocelloQwen3SynthesisRequest,
         clonePrompt: VocelloQwen3ClonePrompt? = nil,
+        cloneConditioningDigest: String? = nil,
         audioCapacityFrames: Int,
         diagnosticCapacity: Int = 128
     ) async throws -> VocelloQwen3GenerationReservation {
@@ -463,10 +546,20 @@ public actor VocelloQwen3Engine {
             throw VocelloQwen3EngineError.noLoadedModel
         }
         _ = try request.validated(for: model.capabilities)
-        if case .voiceClone = request.input, clonePrompt == nil {
-            throw VocelloQwen3ContractError.missingClonePrompt
+        if case .voiceClone(let referenceID) = request.input {
+            guard clonePrompt != nil else {
+                throw VocelloQwen3ContractError.missingClonePrompt
+            }
+            guard let cloneConditioningDigest else {
+                throw VocelloQwen3EngineError.cloneConditioningIdentityMismatch
+            }
+            try validateCloneConditioningIdentity(
+                requestReferenceID: referenceID,
+                conditioningDigest: cloneConditioningDigest
+            )
         }
 
+        let boundedAudioCapacityFrames = max(1, audioCapacityFrames)
         let lease = try beginOperation(
             kind: .generation,
             generationID: request.generationID,
@@ -476,7 +569,7 @@ public actor VocelloQwen3Engine {
         let session = VocelloQwen3ClassifiedGenerationSession(
             generationID: request.generationID,
             leaseID: lease.id,
-            audioCapacityFrames: audioCapacityFrames,
+            audioCapacityFrames: boundedAudioCapacityFrames,
             diagnosticCapacity: diagnosticCapacity
         )
         pendingGeneration = PendingGeneration(
@@ -484,12 +577,15 @@ public actor VocelloQwen3Engine {
             lease: lease,
             request: request,
             clonePrompt: clonePrompt,
+            cloneConditioningDigest: cloneConditioningDigest,
+            audioCapacityFrames: boundedAudioCapacityFrames,
             session: session
         )
         return VocelloQwen3GenerationReservation(
             id: reservationID,
             lease: lease,
-            session: session
+            session: session,
+            executionStyle: request.executionStyle
         )
     }
 
@@ -529,6 +625,15 @@ public actor VocelloQwen3Engine {
         try revalidate(current.lease)
         guard !pressure.admissionClosed else {
             throw VocelloQwen3EngineError.admissionClosedForMemoryRelief
+        }
+        if case .voiceClone(let referenceID) = current.request.input {
+            guard let cloneConditioningDigest = current.cloneConditioningDigest else {
+                throw VocelloQwen3EngineError.cloneConditioningIdentityMismatch
+            }
+            try validateCloneConditioningIdentity(
+                requestReferenceID: referenceID,
+                conditioningDigest: cloneConditioningDigest
+            )
         }
 
         current.lifecycle = .generating
@@ -875,19 +980,33 @@ public actor VocelloQwen3Engine {
             try revalidate(pending.lease)
             try pending.session.cancellation.checkCancellation()
 
-            let finishReason = try await model.produce(
-                request: pending.request,
-                clonePrompt: pending.clonePrompt,
-                sink: { [self] signal in
-                    try await consumeGenerationSignal(
-                        signal,
-                        reservationID: reservationID,
-                        modelIdentity: model.identity,
-                        sampleRate: model.sampleRate,
-                        startedAt: startedAt
-                    )
-                }
-            )
+            let sink: @Sendable (VocelloQwen3GenerationSignal) async throws -> Void = {
+                [self] signal in
+                try await consumeGenerationSignal(
+                    signal,
+                    reservationID: reservationID,
+                    modelIdentity: model.identity,
+                    sampleRate: model.sampleRate,
+                    startedAt: startedAt
+                )
+            }
+            let finishReason: VocelloQwen3GenerationFinishReason
+            switch pending.request.executionStyle {
+            case .streaming:
+                finishReason = try await model.produce(
+                    request: pending.request,
+                    clonePrompt: pending.clonePrompt,
+                    sink: sink,
+                    isolation: self
+                )
+            case .qualityFirst:
+                finishReason = try await model.produceQualityFirst(
+                    request: pending.request,
+                    clonePrompt: pending.clonePrompt,
+                    sink: sink,
+                    isolation: self
+                )
+            }
             try revalidate(pending.lease)
             guard let completed = pendingGeneration,
                   completed.reservationID == reservationID else {
@@ -920,7 +1039,9 @@ public actor VocelloQwen3Engine {
                 outcome: outcome,
                 generatedTokenCount: completed.generatedTokenCount,
                 emittedAudioFrameCount: completed.emittedAudioFrameCount,
-                elapsedMilliseconds: startedAt.elapsedMilliseconds
+                elapsedMilliseconds: startedAt.elapsedMilliseconds,
+                generationInfo: completed.generationInfo,
+                diagnostics: model.finalizedGenerationDiagnostics
             )
             try revalidate(pending.lease)
             phase = .awaitingProductFinalization
@@ -955,7 +1076,9 @@ public actor VocelloQwen3Engine {
                     outcome: .cancelled(reason),
                     generatedTokenCount: tokenCount,
                     emittedAudioFrameCount: frameCount,
-                    elapsedMilliseconds: startedAt.elapsedMilliseconds
+                    elapsedMilliseconds: startedAt.elapsedMilliseconds,
+                    generationInfo: current?.generationInfo,
+                    diagnostics: model.finalizedGenerationDiagnostics
                 )
                 await pending.session.cancelModelTerminal(terminal, reason: reason)
             } else {
@@ -964,7 +1087,9 @@ public actor VocelloQwen3Engine {
                     outcome: .failed(.runtime),
                     generatedTokenCount: tokenCount,
                     emittedAudioFrameCount: frameCount,
-                    elapsedMilliseconds: startedAt.elapsedMilliseconds
+                    elapsedMilliseconds: startedAt.elapsedMilliseconds,
+                    generationInfo: current?.generationInfo,
+                    diagnostics: model.finalizedGenerationDiagnostics
                 )
                 await pending.session.failModelTerminal(
                     terminal,
@@ -1010,8 +1135,11 @@ public actor VocelloQwen3Engine {
                 pending.generatedTokenCount,
                 info.generationTokenCount
             )
+            pending.generationInfo = info
             pendingGeneration = pending
-        case .chunkTimings:
+        case .chunkTimings(let timings):
+            pending.pendingChunkTimings = timings
+            pendingGeneration = pending
             await pending.session.recordDiagnostic(VocelloQwen3DiagnosticEvent(
                 generationID: pending.request.generationID,
                 phase: .decode,
@@ -1022,22 +1150,37 @@ public actor VocelloQwen3Engine {
             try revalidate(pending.lease)
             try pending.session.cancellation.checkCancellation()
         case .audio(let samples):
-            let chunk = VocelloQwen3AudioChunkEvent(
-                generationID: pending.request.generationID,
-                sequence: pending.nextAudioSequence,
-                samples: samples,
-                sampleRate: sampleRate
-            )
-            try await pending.session.publishAudio(chunk)
-            guard var current = pendingGeneration,
-                  current.reservationID == reservationID else {
-                throw VocelloQwen3EngineError.staleOperation
+            // Quality-first generation materializes the whole waveform at
+            // once. Keep product output lossless while respecting the exact
+            // frame capacity that governs the classified audio channel.
+            let maximumFrames = pending.request.executionStyle == .qualityFirst
+                ? pending.audioCapacityFrames
+                : samples.count
+            var lowerBound = 0
+            while lowerBound < samples.count {
+                let upperBound = min(samples.count, lowerBound + maximumFrames)
+                let boundedSamples = Array(samples[lowerBound ..< upperBound])
+                let chunk = VocelloQwen3AudioChunkEvent(
+                    generationID: pending.request.generationID,
+                    sequence: pending.nextAudioSequence,
+                    samples: boundedSamples,
+                    sampleRate: sampleRate,
+                    timings: pending.pendingChunkTimings
+                )
+                try await pending.session.publishAudio(chunk)
+                guard var current = pendingGeneration,
+                      current.reservationID == reservationID else {
+                    throw VocelloQwen3EngineError.staleOperation
+                }
+                try revalidate(current.lease)
+                try current.session.cancellation.checkCancellation()
+                current.emittedAudioFrameCount += chunk.frameCount
+                current.nextAudioSequence += 1
+                current.pendingChunkTimings = nil
+                pendingGeneration = current
+                pending = current
+                lowerBound = upperBound
             }
-            try revalidate(current.lease)
-            try current.session.cancellation.checkCancellation()
-            current.emittedAudioFrameCount += chunk.frameCount
-            current.nextAudioSequence += 1
-            pendingGeneration = current
         }
 
         guard let current = pendingGeneration,
@@ -1118,6 +1261,20 @@ public actor VocelloQwen3Engine {
         }
         touchCloneRecord(handle.id)
         return record
+    }
+
+    /// `voiceClone.referenceID` is defined as the privacy-safe conditioning
+    /// digest minted by the product's validated clone-conditioning resolver.
+    /// It must match the selected actor handle exactly; no transcript, audio,
+    /// path, or portable handle UUID participates in this binding.
+    private func validateCloneConditioningIdentity(
+        requestReferenceID: String,
+        conditioningDigest: String
+    ) throws {
+        guard !requestReferenceID.isEmpty,
+              requestReferenceID == conditioningDigest else {
+            throw VocelloQwen3EngineError.cloneConditioningIdentityMismatch
+        }
     }
 
     private func insertCloneRecord(_ record: CloneRecord) {

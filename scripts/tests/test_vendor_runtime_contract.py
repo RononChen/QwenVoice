@@ -180,15 +180,15 @@ public func stableFacadeEntryPoint() -> Bool { true }
         self.assertEqual(MODULE.facade_capability_boundary_errors(contract), [])
 
         drifted = copy.deepcopy(contract)
-        staged = next(
+        actor_generation = next(
             item
             for item in drifted["capabilities"]
-            if item["id"] == MODULE.STAGED_FOUNDATION_CAPABILITY_ID
+            if item["id"] == MODULE.SHIPPING_ACTOR_CAPABILITY_ID
         )
-        staged["state"] = "production"
+        actor_generation["state"] = "internal"
         self.assertTrue(
             any(
-                "must remain internal" in error
+                "shipping actor/session capability" in error
                 for error in MODULE.facade_capability_boundary_errors(drifted)
             )
         )

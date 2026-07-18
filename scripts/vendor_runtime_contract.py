@@ -60,8 +60,8 @@ PRODUCTION_FACADE_SOURCES = frozenset({
     "Sources/VocelloQwen3Core/LoadedModel.swift",
     "Sources/VocelloQwen3Core/Runtime.swift",
 })
-STAGED_FOUNDATION_CAPABILITY_ID = "staged-runtime-foundations"
-STAGED_FOUNDATION_SOURCES = frozenset({
+SHIPPING_ACTOR_CAPABILITY_ID = "actor-classified-generation"
+SHIPPING_ACTOR_SOURCES = frozenset({
     "Sources/VocelloQwen3Core/ClassifiedGenerationSession.swift",
     "Sources/VocelloQwen3Core/Engine.swift",
     "Sources/VocelloQwen3Core/GenerationSession.swift",
@@ -95,10 +95,8 @@ LEGACY_COMPATIBILITY_DECLARATION = re.compile(
 VOCELLO_QWEN3_CORE_IMPORT = re.compile(r"\bimport\s+VocelloQwen3Core\b")
 LEGACY_COMPATIBILITY_SPI_CONSUMERS = frozenset({
     "Sources/QwenVoiceCore/MLXModelLoadCoordinator.swift",
-    "Sources/QwenVoiceCore/MLXTTSEngine.swift",
     "Sources/QwenVoiceCore/NativeCloneSupport.swift",
     "Sources/QwenVoiceCore/NativeEngineRuntime.swift",
-    "Sources/QwenVoiceCore/NativeStreamingSynthesisSession.swift",
     "Sources/QwenVoiceCore/UnsafeSpeechGenerationModel.swift",
 })
 LEGACY_COMPATIBILITY_SPI_SURFACES = frozenset({
@@ -107,6 +105,8 @@ LEGACY_COMPATIBILITY_SPI_SURFACES = frozenset({
     "VocelloQwen3ClonePrompt",
     "VocelloQwen3CompatibilityDiagnostics",
     "VocelloQwen3LoadedModel",
+    "VocelloQwen3Engine.init(adoptingCompatibilityModel:)",
+    "VocelloQwen3Engine.adoptValidatedClonePrompt",
     "VocelloQwen3Runtime.loadPreparedModel",
     "VocelloQwen3Runtime.clearRuntimeCaches",
 })
@@ -431,12 +431,12 @@ def facade_capability_boundary_errors(capabilities: dict) -> list[str]:
         errors.append(
             "RUNTIME_CAPABILITIES production facade must cover only shipping facade sources"
         )
-    staged = by_id.get(STAGED_FOUNDATION_CAPABILITY_ID, {})
-    if staged.get("state") != "internal" or set(
-        staged.get("sourcePatterns", [])
-    ) != STAGED_FOUNDATION_SOURCES:
+    actor_generation = by_id.get(SHIPPING_ACTOR_CAPABILITY_ID, {})
+    if actor_generation.get("state") != "production" or set(
+        actor_generation.get("sourcePatterns", [])
+    ) != SHIPPING_ACTOR_SOURCES:
         errors.append(
-            "RUNTIME_CAPABILITIES staged actor/session foundations must remain internal"
+            "RUNTIME_CAPABILITIES shipping actor/session capability is missing or stale"
         )
     return errors
 

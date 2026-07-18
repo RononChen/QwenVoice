@@ -43,20 +43,19 @@ Xcode project. Product sources import that facade rather than the compatibility 
 sampling, streaming, Mimi decoding, and clone artifacts. `QwenVoiceBackendCore` contains shared
 provenance/policy vocabulary; it does not re-export this package.
 
-The staged convergence boundary is `VocelloQwen3Engine`. It keeps loaded-model identity separate
+The shipping generation boundary is `VocelloQwen3Engine`. It keeps loaded-model identity separate
 from operation phase and retains one lease from reservation through explicit product finalization.
 A reserved generation remains inert until its one mandatory audio consumer is claimed. Core audio
 then uses a direct caller-isolated Qwen producer and frame-bounded suspending channel. Lazy audio is
 materialized to `[Float]` before the awaited send, so no `MLXArray` crosses a task or actor boundary;
 prepared state, coalesced progress, model terminal, bounded PCM-free diagnostics, cancellation, and
-product finalization remain independent. The old combined facade event session is a temporary
-package-internal characterization surface and is not the target product authority. The normal
-public mutation boundary is therefore the actor. The unchanged shipping bridge imports loaded-model,
-stream, clone-artifact, load, and cache adapters through the named
-`VocelloQwen3LegacyCompatibility` SPI. That SPI is temporary, is not product authority, and does not
-imply the Phase 4 mode cutover.
+product finalization remain independent. Custom, Design, and Clone now use that classified session
+through QwenVoiceCore's `GenerationOutputAdapter`; direct compatibility streams are not product
+generation authority. The old combined facade event session remains a package-internal
+characterization surface only. The named `VocelloQwen3LegacyCompatibility` SPI is now limited to
+the transitional prepared-model load/prewarm bridge and validated schema-3 clone-prompt adoption.
 
-The actor foundation closes its inert-reservation and critical-relief lifecycle explicitly.
+The actor closes its inert-reservation and critical-relief lifecycle explicitly.
 Reserved, generating, and aborting states prevent open-after-abort and make duplicate aborts join
 one finalization. Typed cache-trim or full-unload relief carries the generation lease through the
 release operation and reopens critical admission only after relief completes. A rejected atomic

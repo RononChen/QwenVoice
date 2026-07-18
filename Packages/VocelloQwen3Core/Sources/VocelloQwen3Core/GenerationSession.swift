@@ -29,19 +29,25 @@ public struct VocelloQwen3AudioChunkEvent: Codable, Hashable, Sendable {
     public let samples: [Float]
     public let sampleRate: Int
     public let channelCount: Int
+    /// Timing evidence emitted immediately before this exact audio payload.
+    /// Quality-first requests and compatibility producers without timing
+    /// support leave this nil rather than attaching stale evidence.
+    public let timings: VocelloQwen3ChunkTimings?
 
     public init(
         generationID: UUID,
         sequence: Int,
         samples: [Float],
         sampleRate: Int,
-        channelCount: Int = 1
+        channelCount: Int = 1,
+        timings: VocelloQwen3ChunkTimings? = nil
     ) {
         self.generationID = generationID
         self.sequence = sequence
         self.samples = samples
         self.sampleRate = sampleRate
         self.channelCount = channelCount
+        self.timings = timings
     }
 
     public var frameCount: Int {
@@ -78,19 +84,29 @@ public struct VocelloQwen3TerminalEvent: Codable, Hashable, Sendable {
     public let generatedTokenCount: Int
     public let emittedAudioFrameCount: Int
     public let elapsedMilliseconds: Int
+    /// Final generation statistics captured before the actor releases model
+    /// ownership. This remains nil when a producer fails before reporting it.
+    public let generationInfo: VocelloQwen3GenerationInfo?
+    /// Privacy-safe scalar diagnostics copied while the actor still owns the
+    /// loaded model. No text, path, tensor, or raw error crosses this boundary.
+    public let diagnostics: VocelloQwen3GenerationDiagnostics?
 
     public init(
         generationID: UUID,
         outcome: VocelloQwen3TerminalOutcome,
         generatedTokenCount: Int,
         emittedAudioFrameCount: Int,
-        elapsedMilliseconds: Int
+        elapsedMilliseconds: Int,
+        generationInfo: VocelloQwen3GenerationInfo? = nil,
+        diagnostics: VocelloQwen3GenerationDiagnostics? = nil
     ) {
         self.generationID = generationID
         self.outcome = outcome
         self.generatedTokenCount = generatedTokenCount
         self.emittedAudioFrameCount = emittedAudioFrameCount
         self.elapsedMilliseconds = elapsedMilliseconds
+        self.generationInfo = generationInfo
+        self.diagnostics = diagnostics
     }
 }
 

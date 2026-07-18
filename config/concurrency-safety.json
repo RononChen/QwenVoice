@@ -131,11 +131,11 @@
       "tests": ["Tests/VocelloCoreTests/GenerationEventDeliveryProbeTests.swift", "Tests/VocelloCoreTests/GenerationFailureDiagnosticLoggerTests.swift", "Tests/VocelloCoreTests/ActiveGenerationCoordinatorTests.swift"]
     },
     {
-      "id": "streaming-session",
+      "id": "generation-output-adapter",
       "source": "Sources/QwenVoiceCore/NativeStreamingSynthesisSession.swift",
-      "types": ["NativeStreamingSynthesisSession", "PCM16ScratchBuffer"],
-      "owner": "single active generation session and scratch-buffer lock",
-      "invariant": "A session has one compute owner; reusable PCM storage never escapes concurrent mutable access.",
+      "types": ["GenerationOutputAdapter", "PCM16ScratchBuffer"],
+      "owner": "single active product output adapter and scratch-buffer lock",
+      "invariant": "The adapter drains one classified-session consumer and holds product finalization through atomic output and Fast QC; reusable PCM storage never escapes concurrent mutable access.",
       "tests": ["Tests/VocelloCoreTests/ActiveGenerationCoordinatorTests.swift"]
     },
     {

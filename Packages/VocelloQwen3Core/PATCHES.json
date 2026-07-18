@@ -147,9 +147,13 @@
       "tests": ["Tests/Qwen3RuntimeTests/Qwen3StreamingContractTests.swift"],
       "documentation": ["PERFORMANCE.md"],
       "evidenceClass": "benchmark",
-      "benchmarkRecordIDs": ["macos-xcui-benchmark-20260716-181853-b4c2e299"],
+      "benchmarkRecordIDs": [
+        "macos-xcui-benchmark-20260717-192747-0ae9d73c",
+        "macos-xcui-benchmark-20260717-193323-f8506265",
+        "macos-xcui-benchmark-20260717-193608-51fef175"
+      ],
       "benchmarkEvidenceStatus": "diagnostic",
-      "benchmarkEvidenceReason": "Runtime convergence changed the streaming/session source identity; fresh promotion evidence is pending.",
+      "benchmarkEvidenceReason": "Focused macOS Custom, Design, and Clone classified-session runs passed on the current dirty worktree; clean canonical controls and focused physical-iPhone promotion evidence remain pending.",
       "upstreamDisposition": "upstreamable",
       "upstreamEquivalentCommit": null,
       "removalCriteria": "Remove only after upstream proves bounded retention, cancellation, ordering, and final barrier parity."
@@ -246,7 +250,7 @@
     },
     {
       "id": "FACADE-001",
-      "title": "Vocello-owned typed runtime facade and generation session boundary",
+      "title": "Vocello-owned engine actor, classified generation, and finalization boundary",
       "category": "architecture",
       "state": "active",
       "files": [
@@ -267,7 +271,7 @@
       "benchmarkRecordIDs": [],
       "upstreamDisposition": "local-only",
       "upstreamEquivalentCommit": null,
-      "removalCriteria": "Retain as the stable product boundary even if compatibility implementation modules are later replaced."
+      "removalCriteria": "Retain as the shipping product-generation boundary even if the remaining load/prewarm compatibility bridge or implementation modules are later replaced."
     },
     {
       "id": "COMPAT-001",

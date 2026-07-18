@@ -1,6 +1,6 @@
 # Runtime, streaming, and quality convergence
 
-- **Status:** Accepted as a staged convergence program
+- **Status:** Accepted; Phase 4 source cutover implemented, platform promotion pending
 - **Date:** 2026-07-17
 - **Owners:** Backend/MLX, macOS, iOS, and Release/QA
 - **Machine contract:** [`config/runtime-refactor-contract.json`](../../config/runtime-refactor-contract.json)
@@ -62,12 +62,12 @@ conditioning. The initial plan types are shadow-only and cannot run a second mod
 
 ## Delivery and rollback
 
-Correctness prerequisites land before actor/session cutover. Plans and actor state first operate in
-shadow or compatibility mode. Custom, Design, and Clone then cut over independently, each with
-deterministic proof and focused platform acceptance. Sampling, telemetry, preview calibration,
-component storage, long-form, and unified quality remain separately promotable changes.
-Compatibility mode uses the named `VocelloQwen3LegacyCompatibility` SPI for the unchanged shipping
-bridge; it is outside the normal public facade mutation boundary and is not a second product backend.
+Correctness prerequisites landed before actor/session cutover. Plans remain in comparison-only
+shadow mode, while Custom, Design, and Clone now share the actor/classified-session/product-adapter
+source path. The named `VocelloQwen3LegacyCompatibility` SPI remains only for prepared-model
+load/prewarm and validated schema-3 conditioning adoption; it is not product generation authority.
+Sampling, telemetry, preview calibration, component storage, long-form, and unified quality remain
+separately promotable changes.
 
 No permanent feature flag or dual backend is introduced. Each small pull request must leave `main`
 releasable and is independently revertible. Protected remote history is the rollback surface; no
@@ -109,18 +109,17 @@ must not yet be treated as product authority. At this checkpoint:
   model generation. Raw text, conditioning, and destination plans are non-encodable; only the safe
   evidence identity is serializable. The shipping runtime captures its resolved prompt, model,
   sampling, chunk, memory, output, and quality values independently before comparing every field.
-- The engine actor, frame-bounded suspending channel, classified session, stale-safe finalization
-  acknowledgment, atomic WAV output sink, and typed quality registry are compiled foundations.
-  The engine drives a direct caller-isolated Custom, Design, or Clone producer. Each lazy audio
+- The engine actor, frame-bounded suspending channel, classified session, and stale-safe
+  finalization acknowledgment now serve Custom, Design, and Clone product generation through
+  QwenVoiceCore's `GenerationOutputAdapter`. Each lazy audio
   chunk is evaluated and copied to `[Float]` before an awaited channel send, so channel pressure
   suspends the actual Qwen token/decode loop without transferring `MLXArray` across isolation.
   Deterministic coverage includes delayed drains, receiver and producer cancellation, consumer
   failure, maximum-length ordering, bounded high-water evidence, and terminal/finalization lease
-  ordering. Phase 2's normal public mutation boundary is complete as a non-shipping foundation:
-  `VocelloQwen3Engine` owns mutation, loaded-model/stream/clone/load/cache adapters are quarantined
-  under `VocelloQwen3LegacyCompatibility`, and the old combined event session is package-internal.
-  QwenVoiceCore imports that SPI only for the unchanged shipping bridge. This is API-boundary
-  completion, not mode cutover or actor promotion. The actor correctness closure is also complete:
+  ordering. `VocelloQwen3Engine` is the shipping generation-mutation authority; the old combined
+  event session is package-internal. QwenVoiceCore imports `VocelloQwen3LegacyCompatibility` only
+  for the remaining load/prewarm and conditioning bridge, so the actor is not yet described as the
+  sole MLX mutator. The actor correctness closure remains complete:
   explicit reserved/generating/aborting ownership makes duplicate aborts join one finalization and
   rejects open after abort ownership begins; typed cache-trim/full-unload relief transfers the
   generation lease directly into critical relief and reopens admission only after that relief
@@ -128,9 +127,10 @@ must not yet be treated as product authority. At this checkpoint:
   ordinary finalization cannot strand the generation lease in either acknowledgment ordering.
   Epoch-bound Clone handles retain one prompt by default, use bounded LRU eviction when
   configured larger, support explicit fail-closed release, survive noncritical cache trim, and are
-  invalidated by model reload, critical trim, or full unload. Custom, Design, and Clone still
-  require product wiring and focused macOS and physical-iPhone acceptance before the compatibility
-  product session can be retired.
+  invalidated by model reload, critical trim, or full unload. The source wiring, deterministic
+  verification, and focused macOS Custom/Design/Clone acceptance have passed. Focused
+  physical-iPhone acceptance remains `pending-device` until the phone is available, so platform
+  promotion remains open.
 - Production catalog schema v2 and the shared-component store are integrated into macOS, CLI, and
   iOS delivery. Exact verified content is published atomically, surfaced through ordinary hard
   links, and read alongside legacy schema-v1 installations. Delivery-plan resolution now
@@ -147,6 +147,6 @@ must not yet be treated as product authority. At this checkpoint:
   but complete v9 actor/session/output-adapter capture, merging, validation, and publication remain
   pending until those product paths stabilize.
 
-This explicit split prevents a compiled foundation from being mistaken for completed convergence.
-The full program remains open until the superseded compatibility authorities are removed and clean
-canonical platform evidence passes for the converged runtime.
+This explicit split prevents source cutover from being mistaken for platform promotion or complete
+convergence. The full program remains open until pending platform evidence passes and later phases
+retire the remaining compatibility, telemetry, long-form, and quality foundations.

@@ -82,15 +82,21 @@ enum Qwen3TalkerSamplingOverride {
 /// no raw MLXAudio protocol or model instance crosses this boundary.
 final class UnsafeSpeechGenerationModel: @unchecked Sendable {
     private let model: VocelloQwen3LoadedModel
+    /// One actor is paired with one loaded model. Request-bound wrappers share
+    /// this exact authority so a generation cutover can never load or mutate a
+    /// second copy of the model behind the product coordinator's back.
+    let engine: VocelloQwen3Engine
     private let requestSampling: VocelloQwen3SamplingConfiguration?
     private let requestMemory: VocelloQwen3MemoryConfiguration?
 
     init(
         model: VocelloQwen3LoadedModel,
+        engine: VocelloQwen3Engine? = nil,
         requestSampling: VocelloQwen3SamplingConfiguration? = nil,
         requestMemory: VocelloQwen3MemoryConfiguration? = nil
     ) {
         self.model = model
+        self.engine = engine ?? VocelloQwen3Engine(adoptingCompatibilityModel: model)
         self.requestSampling = requestSampling
         self.requestMemory = requestMemory
     }
@@ -105,6 +111,7 @@ final class UnsafeSpeechGenerationModel: @unchecked Sendable {
     ) -> UnsafeSpeechGenerationModel {
         UnsafeSpeechGenerationModel(
             model: model,
+            engine: engine,
             requestSampling: sampling,
             requestMemory: memory
         )

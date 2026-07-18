@@ -169,13 +169,15 @@ cross-length evidence instead of generalizing the older ~3 GB experiment.
 
 How the streaming path stays flat (all `iPhonePro`-tuned, §2.2):
 
-- **Bounded, measured event buffers.** `MLXTTSEngine.events` uses `.bufferingNewest(96)` on iOS and
-  `.bufferingNewest(256)` on macOS. `GenerationEventDeliveryProbe` accounts for accepted/dropped
-  yields; consumers drain continuously. (`MLXTTSEngine.swift`.)
-- **Inline PCM preview emitted by default.** On every platform, including physical iOS, the streaming
-  chunk's `previewAudio` PCM is emitted (`NativeStreamingPreviewDataPolicy` → `.emit`). Opt out with
-  debug-gated `QWENVOICE_STREAMING_PREVIEW_DATA=off` for memory-isolated benchmarks or debugging.
-  (`SemanticTypes.swift` / `NativeStreamingSynthesisSession.swift`.)
+- **Lossless bounded core audio.** Final PCM uses the single-consumer, frame-bounded suspending
+  classified-session channel. `MLXTTSEngine.events` is backed by a separate per-generation
+  suspending router with capacity 96 on iOS and 256 on macOS;
+  `GenerationEventDeliveryProbe` accounts for accepted/terminated/unobserved sends.
+- **Preview only after durable drain.** `GenerationOutputAdapter` writes each frame to the
+  incremental WAV before frontend preview publication. Preview PCM uses the bounded suspending
+  event router and is never evicted. The debug-gated `QWENVOICE_STREAMING_PREVIEW_DATA=off` remains
+  available for memory-isolated benchmarks or debugging. (The type remains in
+  `NativeStreamingSynthesisSession.swift` until Phase 14.)
 - **Per-chunk + per-50-token MLX cache clears.** `NativeMemoryPolicyResolver` resolves
   `VocelloQwen3MemoryConfiguration` at the host boundary; the facade converts it into one immutable
   request-local `Qwen3RequestMemoryPolicy` with `clearCacheOnStreamChunk=true` and
@@ -386,8 +388,9 @@ memctx cosmetic cleanup (`72c95fc`).
 
 ## 10. Invariants / do-NOT (iOS-specific)
 
-- **`MLXTTSEngine.events` is `.bufferingNewest(96)` on iOS and `.bufferingNewest(256)` on macOS.**
-  Keep `GenerationEventDeliveryProbe` accounting and continuous consumers with both policies.
+- **Do not reintroduce `bufferingNewest` for product events.** Keep the 96-event iOS and 256-event
+  macOS suspending router plus `GenerationEventDeliveryProbe` accounting; audio-bearing preview
+  sends must backpressure rather than evict an older event.
 - **No hard `Memory.memoryLimit` on any tier** (reverted in `b77c08e`) — it over-promised headroom
   and caused spurious downgrades. Gate on `os_proc_available_memory()` / the band instead.
 - **`Qwen3TTSMemoryCaches.clearAll()` runs on iPhone hard-trim/unload/failure only** — macOS preserves

@@ -123,7 +123,7 @@ test-target-only keys are separately classified. Never add an undocumented envir
  │ Coordinators              │  ───────► │ NativeEngineRuntime.prepareGeneration      │
  │   mint generationID       │ generate  │   creates per‑generation recorder          │
  │ AudioPlayerViewModel      │           │ MLXModelLoadCoordinator (load/tokenize)    │
- │   submit→firstChunk→       │ ◄──────   │ NativeStreamingSynthesisSession            │
+ │   submit→firstChunk→       │ ◄──────   │ GenerationOutputAdapter                    │
  │   playbackScheduled→done  │  chunks   │   decode loop + shared sampler/session      │
  │ AppGenerationTimeline      │           │   reads MLX timings, per‑chunk substages   │
  │ GenerationTelemetryMerger  │           │ Qwen3TTS (owned) emits timings/counters │
@@ -640,7 +640,8 @@ committed bounded quality summaries and baselines remain permitted.
   `memory_trim` — no enum/schema change, the mark flows through `stageMarks` automatically).
   In v5 prefer typed metadata (`recorder.mark(stage:, metadata:)`) over string formatting for
   numeric metadata.
-- **New derived KPI:** extend `computeDerivedMetrics` in `NativeStreamingSynthesisSession`.
+- **New derived KPI:** extend `computeDerivedMetrics` in `GenerationOutputAdapter` (temporarily
+  located in `NativeStreamingSynthesisSession.swift` until Phase 14).
 - **New signpost interval:** wrap the span with `NativeTelemetrySignpostInterval.begin/end`
   and merge the resulting key into `timingsMS`.
 - **New field on the record:** add an optional field to `GenerationTelemetryRecord` (so old

@@ -253,7 +253,7 @@
     },
     {
       "path": "Sources/MLXAudioTTS/Generation.swift",
-      "sha256": "a17d2be9540a25d9d23686976a0c44c1ec0f5d9fbd6d9b95993af86c1555037f",
+      "sha256": "65c038c7a67b30ace0c9cd0432a114adf4e54e06f5a7f44279ffb6acc34bdf7b",
       "upstreamStatus": "modified"
     },
     {
@@ -268,7 +268,7 @@
     },
     {
       "path": "Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift",
-      "sha256": "cb45abda74ff4c92eb9058708ded70560209e3c7d9482e7e0cf22f32e1170194",
+      "sha256": "e8626df72c270b9b535ee98b96c7bb4d2035125c1719284746dd4146a6069b16",
       "upstreamStatus": "modified"
     },
     {
@@ -333,27 +333,27 @@
     },
     {
       "path": "Sources/VocelloQwen3Core/Contracts.swift",
-      "sha256": "e14fd559c689a96547d4123430abe66421b584a9d25aed72965937d7a29ad8f5",
+      "sha256": "2e664f25d7becaedff0d1ba76e81c093211ef5f659f01d35fc7474ec93d248d4",
       "upstreamStatus": "added"
     },
     {
       "path": "Sources/VocelloQwen3Core/Engine.swift",
-      "sha256": "f52d911d045658df75659e5f4b47011853c7a2671834638b98454671b6b684c6",
+      "sha256": "1cb5a234a68dd7e0c2216efcaf31dc9faece5eb85555654fc57fd6a1fc0018f6",
       "upstreamStatus": "added"
     },
     {
       "path": "Sources/VocelloQwen3Core/GenerationSession.swift",
-      "sha256": "f4c8382d32bea2b002e3367b55adf77524bcd8e41581b1a00842e19bf3fad373",
+      "sha256": "072ec116e64a997b408a013b3fb4f74587a970c5a9f7c551466d8afe9f550fcd",
       "upstreamStatus": "added"
     },
     {
       "path": "Sources/VocelloQwen3Core/LoadedModel.swift",
-      "sha256": "d4ccb4cbce8c7a4a6d26c2394d442a7ab9b60cf7a0ecb5931df5ec051b7725b6",
+      "sha256": "646fba209cbc80241dd244e62623895e07fcdc3e4885dc158d227c7a47c52acb",
       "upstreamStatus": "added"
     },
     {
       "path": "Sources/VocelloQwen3Core/ProductOutputAdapter.swift",
-      "sha256": "a7fa6873175b2e02d9569e42801525f77131b02fd403a9d733687c9cf8cee2ff",
+      "sha256": "48ecf71477cf80b93db55456b7379627f1e7dda641baa0fd5a47d57298fd563e",
       "upstreamStatus": "added"
     },
     {
@@ -398,7 +398,7 @@
     },
     {
       "path": "Tests/Qwen3RuntimeTests/VocelloQwen3FacadeTests.swift",
-      "sha256": "bb4323562b93fc1af001d9f3bc72412709788403e26013207b38927ed70ba999",
+      "sha256": "e130d7a8c223adc70d247eff599c792ae511294049436972f260b7746a44e300",
       "upstreamStatus": "added"
     }
   ],
