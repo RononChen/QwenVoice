@@ -40,6 +40,21 @@ engine/service/app evidence, readable output, Fast QC, and no crash delta. They 
 they are focused parity evidence, not clean canonical controls. Physical-iPhone Phase 4 evidence is
 deferred because the phone is unavailable and remains `pending-device`, never passed or skipped.
 
+### Local storage-policy verification — 2026-07-18
+
+The current storage-containment/build-policy worktree passed its macOS deterministic tests and
+arm64 app build after bounded cleanup. The subsequent generic iPhoneOS SDK compile is
+`pending-toolchain`, not a source failure: after external Xcode component cleanup, Xcode 26.6 still
+listed `iphoneos26.5` but had no matching available iOS 26.5 runtime component, so both
+`generic/platform=iOS` and the physical iPhone destination became ineligible before source
+compilation began. The earlier successful iOS compile above remains valid historical evidence for
+its recorded source state.
+
+All repository iOS build routes now run `scripts/lib/ios_platform_preflight.py check` before cache
+creation or package resolution. A future session must explicitly restore the matching component in
+Xcode → Settings → Components, then rerun `./scripts/build_foundation_targets.sh ios`. The preflight
+is read-only, the repair needs no phone, and neither action authorizes Simulator execution.
+
 ## Current implementation
 
 - Native app UI acceptance uses one shared XCUITest stack: `macos smoke|benchmark` on the native
@@ -194,6 +209,12 @@ deferred because the phone is unavailable and remains `pending-device`, never pa
   Xcode caches, one shared package checkout, ephemeral scratch builds, bounded evidence/current
   symbols, and release-only `build/dist/` outputs. Public `build/Vocello.app` and `build/vocello`
   paths are symlinks to canonical macOS products; local macOS products are arm64-only.
+- Repository storage inventory now distinguishes automatically eligible, blocked, and explicitly
+  acknowledged evidence. UI lifecycle retention covers smoke, benchmark, and model-download lanes;
+  failed raw profile traces require an exact run ID for manual compaction, while superseded or
+  resolved failures compact automatically; platform/package/runtime caches can
+  be removed independently. Manifest-owned free-space preflights stop heavy lanes before they create
+  partial output, while ordinary successful builds remain non-destructive.
 - The Qwen3/Mimi implementation is now an explicitly owned monorepo core package at
   `Packages/VocelloQwen3Core`. Product targets depend on the `VocelloQwen3Core` facade, whose typed
   model-bundle, capability, sampling, memory, request, terminal, cancellation, and diagnostic

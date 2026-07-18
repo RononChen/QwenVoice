@@ -44,6 +44,9 @@ for required_policy_surface in \
   scripts/lib/build_cache.sh \
   scripts/lib/required_steps.sh \
   scripts/lib/profile_trace_retention.py \
+  scripts/lib/build_artifact_retention.py \
+  scripts/lib/storage_preflight.py \
+  scripts/lib/ios_platform_preflight.py \
   scripts/tests/test_build_output_policy.py \
   scripts/tests/test_documentation_contract.py \
   scripts/tests/test_model_catalog_contract.py \
@@ -56,7 +59,9 @@ for required_policy_surface in \
   scripts/tests/test_project_health.py \
   scripts/tests/test_build_routing_contract.py \
   scripts/tests/test_clean_build_caches.py \
-  scripts/tests/test_profile_trace_retention.py; do
+  scripts/tests/test_profile_trace_retention.py \
+  scripts/tests/test_storage_preflight.py \
+  scripts/tests/test_ios_platform_preflight.py; do
   [[ -f "$required_policy_surface" ]] \
     || fail "required build-output policy surface is missing: $required_policy_surface"
 done
@@ -602,6 +607,8 @@ python3 -m unittest \
   scripts.tests.test_build_routing_contract \
   scripts.tests.test_clean_build_caches \
   scripts.tests.test_profile_trace_retention \
+  scripts.tests.test_storage_preflight \
+  scripts.tests.test_ios_platform_preflight \
   scripts.tests.test_benchmark_memory \
   scripts.tests.test_benchmark_history \
   scripts.tests.test_bench_command_contract \

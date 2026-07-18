@@ -151,10 +151,20 @@ block byte-for-byte, so a manifest change cannot silently leave documentation st
 | `build/artifacts/project-health/` | Generated project-health inventory and release-readiness diagnostics | `artifact` | `routine` | Local detailed reports are disposable; the compact reproducible snapshot is tracked under docs |
 | `build/artifacts/symbols/macos/` | macOS build and release identity checks | `artifact` | `preserve` | Keep only symbols whose UUIDs match the current macOS app and XPC products |
 | `build/artifacts/symbols/ios/` | Physical-device iOS build and archive identity checks | `artifact` | `preserve` | Keep only symbols whose UUIDs match the current iOS app product |
-| `build/artifacts/foundation/` | Foundation compile-safety result bundles and logs | `artifact` | `routine` | Retain the latest useful compile-safety result; older output is disposable |
+| `build/artifacts/foundation/` | Foundation compile-safety result bundles and logs | `artifact` | `routine` | Compile-safety result bundles and logs are disposable after the command verdict |
 | `build/dist/macos/` | macOS signing, notarization, and packaging lane | `distribution` | `dist` | Never remove during routine or aggressive cleanup; explicit distribution cleanup only |
 | `build/dist/ios/` | iOS archive and TestFlight export lane | `distribution` | `dist` | Never remove during routine or aggressive cleanup; explicit distribution cleanup only |
 <!-- END GENERATED BUILD OUTPUT POLICY TABLE -->
+
+### External Xcode components are not repository cache
+
+Repository inventory and cleanup own only the paths declared by
+`config/build-output-policy.json`. They never delete, download, install, or manage Xcode Platform
+Support, CoreSimulator runtime components, or global Xcode DerivedData. Removing all compatible iOS
+runtime components can make `generic/platform=iOS` unavailable on current Xcode 26 toolchains even
+while `xcodebuild -showsdks` still lists `iphoneos`. That state is an external toolchain issue, not
+reclaimable repository output. Use `scripts/lib/ios_platform_preflight.py check`, then make any
+multi-gigabyte component installation explicitly through Xcode Settings.
 
 The public `build/Vocello.app` and `build/vocello` paths are manifest-owned symlinks to the current
 canonical macOS products; they are not independent application or CLI copies.
@@ -175,12 +185,37 @@ than leaking state through scheme-less `-target` invocations.
 Exact-PID Allocations traces can grow by multiple gigabytes during one cold model run, so successful
 profiles publish compact evidence and discard the raw trace unless `--keep-trace` is explicit. Use
 `scripts/clean_build_caches.sh` for a read-only inventory and `--routine --dry-run` for the bounded
-cleanup preview. `--routine` removes eligible scratch and superseded evidence while preserving
+cleanup preview. Inventory reports filesystem free space, automatically eligible bytes, blocked
+evidence, and failed-profile bytes that require explicit acknowledgement. `--routine` removes
+eligible scratch while preserving
 source, tracked benchmark history, persistent caches, current UUID-matched dSYMs, distribution
 outputs, publication-repair evidence, and model stores. `--aggressive` additionally removes
 persistent compilation/package caches and the public aliases. `--prune-ui-results` and `--dist`
 target only their named class; `--clobber --yes` removes ignored repository-local generated state.
 `./scripts/build.sh clean` delegates to bounded aggressive cleanup rather than deleting the whole
-tree. Model deletion remains a separate explicit `--models` action. A passed benchmark result is pruned
-only when its compact registry record validates, and evidence needed to repair a failed publication
-is preserved.
+tree. Model deletion remains a separate explicit `--models` action. UI pruning includes smoke,
+benchmark, and model-download lanes: it keeps the latest pass, preserves matching benchmark
+publication-repair evidence, and reduces resolved failures or unrepairable unpublished results to
+small lifecycle summaries. Legacy/malformed or explicitly pinned results stay blocked. A failed
+profile trace is compacted only after a newer same-kind capture resolves it or through the exact,
+reviewable command `--compact-profile-failure RUN_ID`. An explicit retention pin always wins.
+Compaction keeps the required marker and summary plus at most 8 MiB of allowlisted auxiliary
+diagnostics; each retained log is capped at 1 MiB. Copied or misrouted public app/CLI products make
+selective or aggressive cache cleanup fail closed instead of deleting the unexpected product.
+
+Persistent caches are independently selectable:
+
+```sh
+scripts/clean_build_caches.sh --cache macos --dry-run
+scripts/clean_build_caches.sh --cache ios --dry-run
+scripts/clean_build_caches.sh --cache packages --dry-run
+scripts/clean_build_caches.sh --cache runtime --dry-run
+```
+
+Heavy local lanes read their minimum free-space requirement and cleanup hint from the same manifest.
+They fail before regeneration, compilation, target launch, or evidence creation when the floor is
+not met. Profile tracer stages retain their 5 GiB CPU and 15 GiB memory checks; their prerequisite
+macOS/iOS builds still require 8 GiB and 10 GiB respectively, making those the effective full CPU
+command floors. No runner
+automatically applies a global routine or cache cleanup after success; UI/profile runners only apply
+their own validator-safe retention transaction.

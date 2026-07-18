@@ -754,6 +754,15 @@ lifetime table is maintained in [`reference/privacy-storage.md`](reference/priva
 The website has an independent Vite lifecycle: `website/dist/` is website-owned deployment output,
 not a native DerivedData, evidence, symbol, or distribution path in the build-output manifest.
 
+The same manifest owns lifecycle rules below artifact roots and minimum free-space floors for heavy
+lanes. UI retention keeps the latest passing result per platform/lane, preserves matching benchmark
+publication-repair evidence, compacts resolved failures and unrepairable unpublished runs, and
+includes the opt-in model-download lane. Failed Instruments traces remain explicit diagnostics:
+the status inventory reports them separately and only `--compact-profile-failure RUN_ID` (or a
+newer profile of the same platform/kind) may remove their raw trace. Persistent caches can be
+reclaimed independently with `--cache macos|ios|packages|runtime`; ordinary successful builds never
+run a global cleanup as a side effect.
+
 ---
 
 ## 11. Model management & contract

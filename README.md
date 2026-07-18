@@ -111,7 +111,18 @@ cd QwenVoice
 
 Repository scripts are the authoritative build and test interface. `project.yml` generates the Xcode project, so edit it instead of the generated project file. To work in Xcode after generation, open `QwenVoice.xcodeproj`.
 
-Generated native output is governed by [`config/build-output-policy.json`](config/build-output-policy.json): persistent platform caches live under `build/cache/`, temporary builds under `build/scratch/`, evidence and current symbols under `build/artifacts/`, and distribution products under `build/dist/`. Do not introduce another DerivedData root or a source-local `.build` directory.
+Generated native output is governed by [`config/build-output-policy.json`](config/build-output-policy.json): persistent platform caches live under `build/cache/`, temporary builds under `build/scratch/`, evidence and current symbols under `build/artifacts/`, and distribution products under `build/dist/`. The same contract owns child-result retention and free-space floors for heavy lanes, so a low-space run stops before creating another partial cache or result. Do not introduce another DerivedData root or a source-local `.build` directory.
+
+Inspect before deleting anything:
+
+```sh
+python3 scripts/build_output_policy.py status
+scripts/clean_build_caches.sh --routine --dry-run
+scripts/clean_build_caches.sh --prune-ui-results --dry-run
+scripts/clean_build_caches.sh --compact-profile-failure <run-id> --dry-run
+```
+
+Status separates automatically eligible bytes from blocked evidence and explicit failed-profile reclamation. If only one persistent cache is stale, use `--cache macos`, `--cache ios`, `--cache packages`, or `--cache runtime` rather than `--aggressive`. See [`docs/reference/privacy-storage.md`](docs/reference/privacy-storage.md) for the exact retention and compaction rules.
 
 The ordinary deterministic checks are:
 
@@ -126,7 +137,9 @@ The iOS command compiles both the app and its standalone, app-host-free platform
 bundle for the physical-device SDK. It does not execute tests or require a connected phone. Xcode
 26 does not support executing a tool-hosted, app-host-free XCTest bundle on a physical-device
 destination, so this bundle is compile-only; physical runtime and UI acceptance use the explicit
-device diagnostics and XCUITest lanes.
+device diagnostics and XCUITest lanes. The selected Xcode must still have matching iOS Platform
+Support/runtime availability for `generic/platform=iOS`; the repository checks this before package
+resolution and never downloads or runs a Simulator component automatically.
 
 These checks are sufficient for normal commits, pull requests, and merges. XCUITest is explicit frontend acceptance: native macOS or a paired physical iPhone, never Simulator. Models, a phone, and UI evidence are not prerequisites for sharing development work.
 

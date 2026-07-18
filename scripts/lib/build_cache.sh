@@ -32,6 +32,18 @@ PROJECT_YML="$ROOT_DIR/project.yml"
 PROJECT_FILE="$ROOT_DIR/QwenVoice.xcodeproj"
 PROJECT_RESOLVED="$PROJECT_FILE/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 QVOICE_ACTIVE_PACKAGE_LOCK=""
+QVOICE_IOS_PLATFORM_PREFLIGHT_COMPLETE="${QVOICE_IOS_PLATFORM_PREFLIGHT_COMPLETE:-0}"
+
+# Current Xcode releases require matching installed iOS Platform Support even
+# for the generic physical-device SDK destination. This is a read-only host
+# toolchain check: it never downloads a component or executes a Simulator.
+require_ios_xcode_platform() {
+    if [[ "$QVOICE_IOS_PLATFORM_PREFLIGHT_COMPLETE" == "1" ]]; then
+        return 0
+    fi
+    python3 "$ROOT_DIR/scripts/lib/ios_platform_preflight.py" check || return 1
+    QVOICE_IOS_PLATFORM_PREFLIGHT_COMPLETE=1
+}
 
 acquire_package_store_lock() {
     local source_packages="$1" lock_dir="$1/.qwenvoice-package-store.lock"
@@ -124,6 +136,13 @@ ensure_spm_resolved() {
         || [ -z "$scheme" ] || [ -z "$configuration" ] || [ -z "$destination" ]; then
         echo "error: ensure_spm_resolved requires <derived-data>, <source-packages>, <context>, <scheme>, <configuration>, and <destination>" >&2
         return 1
+    fi
+
+    # Fail before creating cache paths or resolving packages. `-showsdks`
+    # alone is insufficient: Xcode may list iphoneos while the matching
+    # component needed by generic/platform=iOS is absent.
+    if [[ "$destination" == *"platform=iOS"* ]]; then
+        require_ios_xcode_platform || return 1
     fi
 
     mkdir -p "$BUILD_CACHE_DIR" "$source_packages"
@@ -485,6 +504,19 @@ prune_stale_builds() {
     warn_if_storage_bloated
 }
 
+# Fail before a heavy build/test lane creates another partial cache or result
+# tree. Thresholds and bounded cleanup guidance are owned by the checked-in
+# build-output policy; callers pass only the stable lane identifier.
+require_build_free_space() {
+    local lane="${1:-}"
+    [ -n "$lane" ] || {
+        echo "error: require_build_free_space needs a governed lane identifier" >&2
+        return 2
+    }
+    python3 "$ROOT_DIR/scripts/lib/storage_preflight.py" check \
+        --root "$ROOT_DIR" --lane "$lane" >/dev/null
+}
+
 # Print a one-line reclaim hint if <dir> exceeds <limit_gb>. Advisory only; uses
 # stat-based `du -sk` (fast) and is a no-op when the dir is absent.
 _storage_warn_dir() {
@@ -498,7 +530,11 @@ _storage_warn_dir() {
     limit_kb=$(( limit_gb * 1024 * 1024 ))
     if [ "$kb" -gt "$limit_kb" ]; then
         gb=$(( kb / 1048576 ))
-        echo "==> [storage] ${label} is ~${gb} GB (>${limit_gb} GB) — reclaim with: scripts/clean_build_caches.sh ${flag}" >&2
+        echo "==> [storage] ${label} is ~${gb} GB (>${limit_gb} GB)" >&2
+        [[ "$label" != "build/" ]] \
+            || echo "==> [storage] inspect governed ownership: python3 scripts/build_output_policy.py status" >&2
+        [[ -z "$flag" ]] \
+            || echo "==> [storage] bounded reclaim: scripts/clean_build_caches.sh ${flag}" >&2
     fi
 }
 
@@ -507,7 +543,7 @@ _storage_warn_dir() {
 # NEVER blocks. Thresholds (GB) overridable via env: QWENVOICE_BUILD_WARN_GB,
 # QWENVOICE_MODELS_WARN_GB.
 warn_if_storage_bloated() {
-    _storage_warn_dir "$ROOT_DIR/build" "${QWENVOICE_BUILD_WARN_GB:-12}" "build/" "--aggressive"
+    _storage_warn_dir "$ROOT_DIR/build" "${QWENVOICE_BUILD_WARN_GB:-12}" "build/" "--routine"
     _storage_warn_dir "$HOME/Library/Application Support/QwenVoice-Debug/models" \
         "${QWENVOICE_MODELS_WARN_GB:-10}" "QwenVoice-Debug/models" "--models"
 }

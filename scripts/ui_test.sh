@@ -96,6 +96,13 @@ if warm < 1:
     raise SystemExit("error: --warm must be at least 1")
 PY
 
+if [[ "$platform" == "ios" ]]; then
+  require_ios_xcode_platform \
+    || die "iOS UI build is blocked by the selected Xcode toolchain"
+fi
+require_build_free_space "ui-$lane" \
+  || die "$platform $lane storage preflight failed before build or target launch"
+
 if [[ "$platform" == "macos" && "$lane" == "benchmark" && ",${modes}," == *",clone,"* ]]; then
   mac_test_clone_fixture_current \
     || die "benchmark clone reference is stale; run: scripts/macos_test.sh models ensure"

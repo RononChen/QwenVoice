@@ -366,13 +366,25 @@ only** — not the production XPC
 path. The lane is PASS-only: a tracer failure, benchmark failure, invalid trace, or failed publication
 returns nonzero without creating history. It retains only the newest raw failure per platform and
 profile kind; older failures are compacted to small diagnostic summaries.
+Explicitly pinned failures are never compacted. An unpinned compacted failure retains the required
+retention marker and summary plus at most 8 MiB of allowlisted auxiliary diagnostics; individual
+logs are capped at 1 MiB. Inspect and acknowledge a current failed capture by exact run ID:
+
+```sh
+python3 scripts/build_output_policy.py status
+scripts/clean_build_caches.sh --compact-profile-failure <run-id> --dry-run
+scripts/clean_build_caches.sh --compact-profile-failure <run-id>
+```
+
 The profiler launches or attaches to the exact target PID, requires a successful tracer exit, and
 validates the trace through `xctrace export --toc`; there is no blind startup sleep. For XPC, attach
 to the exact `QwenVoiceEngineService` PID while generating via UI. Traces remain untracked. On
 success the registry retains the digest, settings, extracted summary, original ephemeral path, and
 retention policy, then the runner removes the raw trace. Pass `--keep-trace` to retain it
-explicitly. CPU profiles require at least 5 GiB free before target launch; memory profiles require
-15 GiB because Allocations can emit tens of megabytes per second.
+explicitly. The tracer stage requires at least 5 GiB free for CPU profiles and 15 GiB for memory
+profiles. The prerequisite macOS CLI build has an 8 GiB floor, so the complete CPU-profile command
+effectively requires 8 GiB; memory remains 15 GiB because Allocations can emit tens of megabytes
+per second.
 
 The separate retained-memory lane is:
 

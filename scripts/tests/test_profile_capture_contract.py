@@ -160,8 +160,11 @@ class ProfileCaptureContractTests(unittest.TestCase):
     def test_memory_qualification_is_separate_from_instruments_profiles(self) -> None:
         mac = (REPO / "scripts" / "macos_test.sh").read_text(encoding="utf-8")
         ios = (REPO / "scripts" / "ios_device.sh").read_text(encoding="utf-8")
-        self.assertIn('memory)  cmd_memory "$@"', mac)
-        self.assertIn('memory)  cmd_memory "$@"', ios)
+        for script in (mac, ios):
+            main = shell_function(script, "main")
+            memory_case = main[main.index("memory)") :]
+            self.assertIn('cmd_memory "$@"', memory_case)
+            self.assertIn("require_build_free_space memory-qualification", memory_case)
         mac_memory = shell_function(mac, "cmd_memory")
         self.assertIn('--memory-qualification retained-memory-v1', mac_memory)
         self.assertIn('mkdir -p "$runtime/voices"', mac_memory)

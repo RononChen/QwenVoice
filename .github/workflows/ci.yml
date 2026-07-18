@@ -64,6 +64,7 @@ jobs:
       - name: Resolve SwiftPM dependencies
         run: |
           set -euo pipefail
+          python3 scripts/lib/ios_platform_preflight.py check
           mkdir -p build/cache/xcode/source-packages build/scratch/derived-data/ci/ios-compile
           xcodebuild -resolvePackageDependencies \
             -project QwenVoice.xcodeproj \

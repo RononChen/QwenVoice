@@ -136,6 +136,21 @@ class BuildOutputPolicyTests(unittest.TestCase):
         with self.assertRaises(POLICY.PolicyError):
             POLICY.load_policy(self.root, self.manifest)
 
+    def test_manifest_rejects_invalid_heavy_lane_preflight(self) -> None:
+        missing_lane = copy.deepcopy(self.document)
+        del missing_lane["heavyLanePreflight"]["lanes"]["ui-benchmark"]
+        self.write_manifest(missing_lane)
+        with self.assertRaises(POLICY.PolicyError):
+            POLICY.load_policy(self.root, self.manifest)
+
+        unsafe_hint = copy.deepcopy(self.document)
+        unsafe_hint["heavyLanePreflight"]["lanes"]["release"]["cleanupHint"] = (
+            "scripts/clean_build_caches.sh --routine; rm -rf build"
+        )
+        self.write_manifest(unsafe_hint)
+        with self.assertRaises(POLICY.PolicyError):
+            POLICY.load_policy(self.root, self.manifest)
+
         invalid_migration = copy.deepcopy(self.document)
         invalid_migration["migrations"][0]["source"] = "benchmarks/HISTORY.md"
         self.write_manifest(invalid_migration)
@@ -202,6 +217,8 @@ class BuildOutputPolicyTests(unittest.TestCase):
         self.assertEqual(len(reported["matchingEntries"]), 1)
         self.assertTrue(matching.exists())
         self.assertTrue(other.exists())
+        self.assertIn("filesystem", status)
+        self.assertGreater(status["filesystem"]["totalBytes"], 0)
 
     def test_status_and_validate_expose_unowned_top_level_build_roots(self) -> None:
         unknown = self.root / "build/ad-hoc-derived-data"

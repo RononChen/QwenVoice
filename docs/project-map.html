@@ -2035,6 +2035,7 @@ scripts/macos_test.sh test
     {"name":"Hugging Face","role":"Pinned model repository downloads over HTTPS","boundary":"No inference or user-script upload"},
     {"name":"GitHub Actions / Releases","role":"Deterministic CI, security analysis, verified candidate/SBOM/provenance, and draft-last release publication","boundary":"UI acceptance remains explicit and local"},
     {"name":"Apple Developer services","role":"Developer ID signing, notarytool, App Store Connect, optional TestFlight","boundary":"Secrets stay in CI or local keychains"},
+    {"name":"Xcode iOS Platform Support","role":"Makes generic/platform=iOS and physical-device destinations eligible","boundary":"Read-only preflight; repository cleanup never removes or downloads components, and no Simulator execution is authorized"},
     {"name":"CoreDevice and paired iPhone","role":"Physical-device install, launch, diagnostics, XCUITest, and profiling","boundary":"Simulator is prohibited"},
     {"name":"Vercel","role":"Marketing-site deployment from website/","boundary":"Separate from native app runtime"},
     {"name":"On-device Speech assets","role":"Locale-locked language-output verification","boundary":"Some locales require Wi-Fi asset download"}
@@ -2045,6 +2046,7 @@ scripts/macos_test.sh test
       {"cmd":"./scripts/check_project_inputs.sh","desc":"Validate generated inputs and resource conventions"},
       {"cmd":"./scripts/build.sh build|run|cli","desc":"Primary macOS app/CLI local loop; Release config at -Onone"},
       {"cmd":"./scripts/build_foundation_targets.sh macos|ios","desc":"Compile-safety for shared framework targets"},
+      {"cmd":"python3 scripts/lib/ios_platform_preflight.py check","desc":"Read-only matching Xcode iOS Platform Support check before any iOS package/build side effect"},
       {"cmd":"./scripts/release.sh","desc":"Isolated optimized signing/notarization under build/scratch and build/dist"},
       {"cmd":"python3 scripts/build_output_policy.py status|validate","desc":"Inventory and enforce the two-cache classified output contract"}
     ],

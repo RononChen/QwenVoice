@@ -431,6 +431,7 @@ cmd_doctor() {
   note "Vocello iOS device doctor"
   command -v xcrun >/dev/null || die "xcrun not found (install Xcode)"
   printf '  xcode: %s\n' "$(xcodebuild -version 2>/dev/null | head -1)" >&2
+  require_ios_xcode_platform || die "selected Xcode lacks usable iOS Platform Support"
   local team_d
   if team_d="$(derive_team 2>/dev/null)" && [[ -n "$team_d" ]]; then
     local src="keychain"; [[ -n "${QWENVOICE_DEVELOPMENT_TEAM:-}" ]] && src="env"
@@ -460,6 +461,8 @@ cmd_doctor() {
 }
 
 cmd_build() {
+  require_ios_xcode_platform || die "iOS build is blocked by the selected Xcode toolchain"
+  require_build_free_space device-build || die "iOS build storage preflight failed"
   local diagnostics_build=0
   case "${1:-}" in
     --device-diagnostics|--device-diagnostics-crash-test)
@@ -1957,18 +1960,33 @@ main() {
     console) cmd_console "$@" ;;
     device-state) cmd_device_state "$@" ;;
     pull)    cmd_pull "$@" ;;
-    bench)   cmd_bench "$@" ;;
-    lang-bench) cmd_lang_bench "$@" ;;
+    bench)
+      require_build_free_space memory-qualification || die "iOS benchmark storage preflight failed"
+      cmd_bench "$@"
+      ;;
+    lang-bench)
+      require_build_free_space language-benchmark || die "iOS language benchmark storage preflight failed"
+      cmd_lang_bench "$@"
+      ;;
     speech-assets) cmd_speech_assets "$@" ;;
     crashes) cmd_crashes "$@" ;;
     debug)   cmd_debug "$@" ;;
     logs)    cmd_logs "$@" ;;
     profile) cmd_profile "$@" ;;
-    memory)  cmd_memory "$@" ;;
-    clone-conditioning) cmd_clone_conditioning "$@" ;;
+    memory)
+      require_build_free_space memory-qualification || die "iOS memory qualification storage preflight failed"
+      cmd_memory "$@"
+      ;;
+    clone-conditioning)
+      require_build_free_space memory-qualification || die "iOS clone-conditioning storage preflight failed"
+      cmd_clone_conditioning "$@"
+      ;;
     memory-field-report) cmd_memory_field_report "$@" ;;
     preflight) cmd_preflight "$@" ;;
-    gate)      cmd_gate "$@" ;;
+    gate)
+      require_build_free_space memory-qualification || die "iOS gate storage preflight failed"
+      cmd_gate "$@"
+      ;;
     help|-h|--help)
       sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' >&2 ;;
     *) die "unknown subcommand '$sub' (try: doctor|build|install|launch|console|device-state|pull|bench|lang-bench|speech-assets|crashes|debug|logs|profile|memory|clone-conditioning|memory-field-report|preflight|gate|help)" ;;

@@ -1126,14 +1126,36 @@ main() {
     debug)   cmd_debug "$@" ;;
     logs)    cmd_logs "$@" ;;
     profile) cmd_profile "$@" ;;
-    memory)  cmd_memory "$@" ;;
+    memory)
+      require_build_free_space memory-qualification \
+        || die "macOS memory qualification storage preflight failed"
+      cmd_memory "$@"
+      ;;
     preflight) cmd_preflight "$@" ;;
-    core-test) cmd_core_test "$@" ;;
-    lang-bench) cmd_lang_bench "$@" ;;
-    test)      cmd_test "$@" ;;
-    telemetry-overhead) cmd_telemetry_overhead "$@" ;;
-    gate)      cmd_gate "$@" ;;
-    release-readiness) cmd_release_readiness "$@" ;;
+    core-test)
+      require_build_free_space runtime-tests || die "macOS test storage preflight failed"
+      cmd_core_test "$@"
+      ;;
+    lang-bench)
+      require_build_free_space language-benchmark || die "language benchmark storage preflight failed"
+      cmd_lang_bench "$@"
+      ;;
+    test)
+      require_build_free_space runtime-tests || die "macOS test storage preflight failed"
+      cmd_test "$@"
+      ;;
+    telemetry-overhead)
+      require_build_free_space telemetry-overhead || die "telemetry-overhead storage preflight failed"
+      cmd_telemetry_overhead "$@"
+      ;;
+    gate)
+      require_build_free_space runtime-tests || die "macOS gate storage preflight failed"
+      cmd_gate "$@"
+      ;;
+    release-readiness)
+      require_build_free_space runtime-tests || die "release-readiness storage preflight failed"
+      cmd_release_readiness "$@"
+      ;;
     models)    cmd_models "$@" ;;
     help|-h|--help)
       sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' >&2

@@ -14,6 +14,25 @@ driver and is reserved for explicit frontend acceptance.
 No UI lane, model download, paired phone, or UI result is mandatory for ordinary development
 publishing.
 
+The no-phone iOS compile still requires matching iOS Platform Support/runtime availability in the
+selected Xcode installation. `scripts/lib/ios_platform_preflight.py check` validates that external
+toolchain prerequisite before package resolution and never runs or authorizes a Simulator. Repair
+and interpretation are documented in [iOS physical-device testing](ios-device-testing.md#host-toolchain-prerequisite).
+
+## Storage preflight and retention
+
+Heavy commands read their host free-space floor from `config/build-output-policy.json` and stop
+before starting another build, target, or evidence bundle when the floor is not met. The message
+points to `python3 scripts/build_output_policy.py status` and one bounded cleanup command. This is a
+capacity check for an explicitly selected lane, not a new development or publishing gate.
+
+`scripts/clean_build_caches.sh --routine --dry-run` previews scratch and lifecycle-safe evidence
+cleanup. `--prune-ui-results` keeps the latest pass and unresolved failure per platform/lane,
+preserves exact publication-repair evidence, and compacts resolved failures. Use a selective
+`--cache macos|ios|packages|runtime` only when that specific persistent cache must be rebuilt.
+Cleanup never runs globally after an ordinary successful build, because another process may still
+own a managed scratch/cache root.
+
 ## macOS
 
 ```sh
@@ -127,4 +146,7 @@ never block signing, notarization, a macOS package, or an iOS archive/TestFlight
 ## Artifacts
 
 Raw result bundles, exported screenshots, telemetry, databases, WAVs, and traces remain ignored
-build artifacts. Compact benchmark summaries must contain no user data.
+build artifacts. Compact benchmark summaries must contain no user data. A failed Instruments run
+keeps the newest raw trace per platform/profile kind unless it is explicitly pinned; superseded
+failures are reduced to the required retention metadata plus at most 8 MiB of allowlisted auxiliary
+diagnostics, with individual logs capped at 1 MiB.

@@ -153,6 +153,9 @@ if [ -n "$CODESIGN_KEYCHAIN" ] && [ ! -f "$CODESIGN_KEYCHAIN" ]; then
     release_fail "--codesign-keychain path does not exist: $CODESIGN_KEYCHAIN"
 fi
 
+require_build_free_space release \
+    || release_fail "release storage preflight failed before readiness or signing work"
+
 # This gate is unconditional: signing, notarization, and artifact creation never begin without
 # deterministic build/test/crash checks. Model-dependent telemetry and XCUITest remain explicit
 # QA lanes and are never packaging prerequisites.
@@ -249,6 +252,8 @@ if $SKIP_BUILD; then
     echo "[3/7] Build Release — skipped"
 else
     echo "[3/7] Building macOS Release app..."
+    require_build_free_space release \
+        || release_fail "release storage preflight failed immediately before isolated build"
     rm -f "$RELEASE_ARTIFACT_DIR/xcodebuild-release.log"
     rm -rf "$DERIVED_DATA_PATH"
     rm -rf "$BUILD_RESULT_BUNDLE_PATH"

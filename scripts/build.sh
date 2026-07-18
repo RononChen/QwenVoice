@@ -382,18 +382,23 @@ main() {
 
     case "$command" in
         build|debug)
+            require_build_free_space development-build
             build_app
             ;;
         codeql-prepare)
+            require_build_free_space development-build
             cmd_codeql_prepare
             ;;
         codeql)
+            require_build_free_space development-build
             cmd_codeql
             ;;
         run)
+            require_build_free_space development-build
             cmd_run "$@"
             ;;
         cli)
+            require_build_free_space development-build
             cmd_cli "$@"
             ;;
         release)
