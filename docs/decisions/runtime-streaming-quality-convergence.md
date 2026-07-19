@@ -1,7 +1,7 @@
 # Runtime, streaming, and quality convergence
 
-- **Status:** Accepted; Phase 4 source cutover implemented, platform promotion pending
-- **Date:** 2026-07-17
+- **Status:** Accepted; Phase 4 source cutover and focused platform acceptance passed, overall promotion pending
+- **Date:** 2026-07-19
 - **Owners:** Backend/MLX, macOS, iOS, and Release/QA
 - **Machine contract:** [`config/runtime-refactor-contract.json`](../../config/runtime-refactor-contract.json)
 
@@ -128,9 +128,13 @@ must not yet be treated as product authority. At this checkpoint:
   Epoch-bound Clone handles retain one prompt by default, use bounded LRU eviction when
   configured larger, support explicit fail-closed release, survive noncritical cache trim, and are
   invalidated by model reload, critical trim, or full unload. The source wiring, deterministic
-  verification, and focused macOS Custom/Design/Clone acceptance have passed. Focused
-  physical-iPhone acceptance remains `pending-device` until the phone is available, so platform
-  promotion remains open.
+  verification, and focused macOS Custom/Design/Clone acceptance have passed. Physical-iPhone runs
+  `ios-xcui-benchmark-20260719-133203-d413fac1` (Custom 2/2),
+  `ios-xcui-benchmark-20260719-134041-9653f7cf` (Design 2/2), and
+  `ios-xcui-benchmark-20260719-134646-d90db984` (Clone 1/1) also passed with complete telemetry,
+  Fast QC, readable output, and no crash delta. They are exploratory `passedWithWarnings` evidence
+  because the worktree was dirty and soft trims were observed; focused platform acceptance is
+  complete, while clean repeated controls and applicable full matrices keep overall promotion open.
 - Production catalog schema v2 and the shared-component store are integrated into macOS, CLI, and
   iOS delivery. Exact verified content is published atomically, surfaced through ordinary hard
   links, and read alongside legacy schema-v1 installations. Delivery-plan resolution now
@@ -147,6 +151,7 @@ must not yet be treated as product authority. At this checkpoint:
   but complete v9 actor/session/output-adapter capture, merging, validation, and publication remain
   pending until those product paths stabilize.
 
-This explicit split prevents source cutover from being mistaken for platform promotion or complete
-convergence. The full program remains open until pending platform evidence passes and later phases
-retire the remaining compatibility, telemetry, long-form, and quality foundations.
+This explicit split prevents focused source/platform acceptance from being mistaken for complete
+promotion or convergence. The full program remains open until clean repeated controls, applicable
+full matrices, exact legacy characterization, and later phases retire the remaining compatibility,
+telemetry, long-form, and quality foundations.

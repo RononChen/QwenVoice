@@ -117,11 +117,23 @@ from schema-v2 memory trends.
 |---|---|---|---|---|---|---:|---|---|---|---|
 | 2026-07-13 | [`ios-xcui-benchmark-20260713-042913-57f9e32e`](runs/ui-generation/ios-xcui-benchmark-20260713-042913-57f9e32e.json) | focused | exploratory | passed | memory-contract-incomplete | 2 | `04083b15a4e2` dirty | `excluded` | baseline | focused-short-playback-repair-20260713 |
 
+## ui-generation / ios / iphone-17-pro / config `4d75b5478cdc`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-19 | [`ios-xcui-benchmark-20260719-133203-d413fac1`](runs/ui-generation/ios-xcui-benchmark-20260719-133203-d413fac1.json) | focused | exploratory | passedWithWarnings | qualified-with-warnings | 2 | `75fdc4847a92` dirty | `excluded` | baseline | phase4-ios-custom |
+
 ## ui-generation / ios / iphone-17-pro / config `505604f090fd`
 
 | completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
 |---|---|---|---|---|---|---:|---|---|---|---|
 | 2026-07-16 | [`ios-xcui-benchmark-20260716-184106-48e3a3a6`](runs/ui-generation/ios-xcui-benchmark-20260716-184106-48e3a3a6.json) | canonical | canonical | passedWithWarnings | qualified-with-warnings | 29 | `bcb5265a8c57` | `505604f090fd` | baseline | owned-core-final-bcb5265-ios |
+
+## ui-generation / ios / iphone-17-pro / config `79dc6d4371e7`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-19 | [`ios-xcui-benchmark-20260719-134041-9653f7cf`](runs/ui-generation/ios-xcui-benchmark-20260719-134041-9653f7cf.json) | focused | exploratory | passedWithWarnings | qualified-with-warnings | 2 | `75fdc4847a92` dirty | `excluded` | baseline | phase4-ios-design |
 
 ## ui-generation / ios / iphone-17-pro / config `82d0f31be140`
 
@@ -152,6 +164,12 @@ from schema-v2 memory trends.
 | completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
 |---|---|---|---|---|---|---:|---|---|---|---|
 | 2026-07-12 | [`ios-xcui-benchmark-20260712-201858-e9e16ecf`](runs/ui-generation/ios-xcui-benchmark-20260712-201858-e9e16ecf.json) | focused | exploratory | passed | memory-contract-incomplete | 4 | `1ef1669326b5` dirty | `excluded` | baseline | telemetry-v7-design-long-diagnostic |
+
+## ui-generation / ios / iphone-17-pro / config `dcb9159b66db`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-19 | [`ios-xcui-benchmark-20260719-134646-d90db984`](runs/ui-generation/ios-xcui-benchmark-20260719-134646-d90db984.json) | focused | exploratory | passedWithWarnings | qualified-with-warnings | 1 | `75fdc4847a92` dirty | `excluded` | baseline | phase4-ios-clone |
 
 ## ui-generation / ios / iphone-17-pro / config `e0278c4862ee`
 

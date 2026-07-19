@@ -115,9 +115,10 @@ warning.
   process-global sampling override.
 - **Convergence authority is explicit.** `config/runtime-refactor-contract.json` records
   `VocelloQwen3Engine`, its classified session, and QwenVoiceCore's `GenerationOutputAdapter` as
-  the shipping generation path for Custom, Design, and Clone. The source cutover is not platform
-  promotion: physical-iPhone focused acceptance remains `pending-device`. A schema-v8 row may carry
-  the partial v9 transition projection, but that nested evidence does not make the complete v9
+  the shipping generation path for Custom, Design, and Clone. Focused macOS and physical-iPhone
+  acceptance has passed, but exploratory focused runs are not clean repeated controls or full
+  canonical matrices and overall promotion remains pending. A schema-v8 row may carry the partial
+  v9 transition projection, but that nested evidence does not make the complete v9
   writer/merger/publication path authoritative. The remaining prepared-model load/prewarm and
   schema-3 conditioning bridge is available only through
   `@_spi(VocelloQwen3LegacyCompatibility)`; do not describe the actor as the sole MLX mutator or add

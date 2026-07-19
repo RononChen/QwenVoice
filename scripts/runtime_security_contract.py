@@ -698,7 +698,8 @@ def runtime_refactor_contract_errors(
         if compatibility_modes != {PHASE4_MODE_AUTHORITY}:
             errors.append("runtime-refactor-contract cannot claim Phase 4 with mixed mode authority")
         if phases.get("modeCutover") != (
-            "implementation-complete-promotion-pending-physical-iphone"
+            "implementation-complete-focused-platform-acceptance-passed-"
+            "overall-promotion-pending"
         ):
             errors.append("runtime-refactor-contract Phase 4 mode-cutover status drifted")
         if isinstance(versions, dict) and versions.get("telemetry") == 8:

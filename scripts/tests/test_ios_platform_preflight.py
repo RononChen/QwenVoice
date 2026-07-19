@@ -100,19 +100,54 @@ class IOSPlatformPreflightTests(unittest.TestCase):
         self.assertIn("installs nothing", result.stderr)
         self.assertIn("does not authorize Simulator", result.stderr)
 
-    def test_wrong_build_runtime_fails_even_when_version_matches(self) -> None:
-        result = self.run_fixture(sdk(), runtime(build="23F99"))
+    def test_xcode_supported_patch_build_pair_passes_when_version_matches(self) -> None:
+        result = self.run_fixture(sdk(build="23F81a"), runtime(build="23F77", version="26.5"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_wrong_runtime_version_fails_even_when_build_differs(self) -> None:
+        result = self.run_fixture(sdk(), runtime(build="23E99", version="26.4"))
         self.assertEqual(result.returncode, 1)
-        self.assertIn("blocked", json.loads(self.run_fixture(sdk(), runtime(build="23F99"), json_output=True).stdout)["status"])
+        self.assertIn(
+            "blocked",
+            json.loads(
+                self.run_fixture(
+                    sdk(),
+                    runtime(build="23E99", version="26.4"),
+                    json_output=True,
+                ).stdout
+            )["status"],
+        )
+
+    def test_runtime_version_is_authoritative_when_build_matches(self) -> None:
+        result = self.run_fixture(sdk(build="23F81a"), runtime(build="23F81a", version="26.4"))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no matching available runtime is installed", result.stderr)
 
     def test_matching_unavailable_runtime_fails(self) -> None:
         result = self.run_fixture(sdk(), runtime(available=False))
         self.assertEqual(result.returncode, 1)
         self.assertIn("matching runtime is installed but unavailable", result.stderr)
 
+    def test_unavailable_patch_build_pair_is_classified_as_matching(self) -> None:
+        result = self.run_fixture(
+            sdk(build="23F81a"),
+            runtime(build="23F77", version="26.5", available=False),
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("matching runtime is installed but unavailable", result.stderr)
+
     def test_patch_versions_match_when_build_identity_is_absent(self) -> None:
         result = self.run_fixture(sdk(build=None, version="26.5"), runtime(build=None, version="26.5.1"))
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_missing_runtime_version_uses_exact_build_fallback(self) -> None:
+        result = self.run_fixture(sdk(build="23F81a"), runtime(build="23F81a", version=""))
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_missing_runtime_version_rejects_different_build(self) -> None:
+        result = self.run_fixture(sdk(build="23F81a"), runtime(build="23F77", version=""))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no matching available runtime is installed", result.stderr)
 
     def test_one_valid_runtime_among_multiple_passes(self) -> None:
         payload = {

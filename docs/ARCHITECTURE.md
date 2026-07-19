@@ -364,9 +364,9 @@ while it is suspended by channel backpressure removes that pending send and wake
 Design, and Clone.
 `config/runtime-refactor-contract.json` is the machine-readable status
 record, and [`decisions/runtime-streaming-quality-convergence.md`](decisions/runtime-streaming-quality-convergence.md)
-defines the promotion boundaries. The source cutover is implemented, but platform promotion remains
-open: focused macOS Custom/Design/Clone proof has passed, while the deferred physical-iPhone proof
-remains `pending-device`.
+defines the promotion boundaries. The source cutover and focused macOS plus physical-iPhone
+Custom/Design/Clone proof have passed. Overall promotion remains open for clean repeated controls,
+the applicable full matrices, exact legacy characterization, and later convergence retirement.
 
 ### 4.5 Memory policy
 

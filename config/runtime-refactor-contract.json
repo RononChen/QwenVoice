@@ -90,7 +90,7 @@
     "mixedShippingAuthorityAllowed": false,
     "deterministicVerification": "passed",
     "macosFocusedAcceptance": "passed",
-    "physicalIPhoneFocusedAcceptance": "pending-device",
+    "physicalIPhoneFocusedAcceptance": "passed",
     "overallPromotion": "pending"
   },
   "phaseStatus": {
@@ -102,7 +102,7 @@
     "engineActor": "shipping-through-phase4-implementation-complete-promotion-pending",
     "classifiedSessionChannels": "shipping-through-phase4-implementation-complete-promotion-pending",
     "productOutputAdapter": "shipping-implementation-complete-promotion-pending",
-    "modeCutover": "implementation-complete-promotion-pending-physical-iphone",
+    "modeCutover": "implementation-complete-focused-platform-acceptance-passed-overall-promotion-pending",
     "requestLocalSamplingV2": "shipping-live-quality-promotion-and-derived-subseed-integration-pending",
     "telemetryV9": "partial-transition-projection-embedded-in-v8-complete-writer-merger-publication-pending",
     "chunkAndPreviewExperiments": "not-started-shipping-v9-and-clean-ab-evidence-required",

@@ -91,6 +91,7 @@ class RuntimeSecurityContractTests(unittest.TestCase):
         contract["currentShippingAuthorities"]["clone"] = "compatibility-path"
         contract["phase4ProductCutover"]["mixedShippingAuthorityAllowed"] = True
         contract["phase4ProductCutover"]["audioBearingBufferedEventsAllowed"] = True
+        contract["phase4ProductCutover"]["physicalIPhoneFocusedAcceptance"] = "pending-device"
         contract["phase4ProductCutover"]["overallPromotion"] = "passed"
         errors = MODULE.runtime_refactor_contract_errors(contract)
         self.assertTrue(any("mixed shipping authority" in error for error in errors))
@@ -159,7 +160,7 @@ class RuntimeSecurityContractTests(unittest.TestCase):
         errors = MODULE.runtime_refactor_contract_errors(contract)
         self.assertTrue(any("invokes direct mode streams" in error for error in errors))
 
-    def test_runtime_refactor_contract_allows_pending_device_without_promotion(self) -> None:
+    def test_runtime_refactor_contract_allows_passed_focused_acceptance_without_overall_promotion(self) -> None:
         contract = MODULE.load_json(ROOT / "config/runtime-refactor-contract.json")
         self.assertEqual(
             contract["phase4ProductCutover"]["deterministicVerification"],
@@ -171,9 +172,14 @@ class RuntimeSecurityContractTests(unittest.TestCase):
         )
         self.assertEqual(
             contract["phase4ProductCutover"]["physicalIPhoneFocusedAcceptance"],
-            "pending-device",
+            "passed",
         )
         self.assertEqual(contract["phase4ProductCutover"]["overallPromotion"], "pending")
+        self.assertEqual(
+            contract["phaseStatus"]["modeCutover"],
+            "implementation-complete-focused-platform-acceptance-passed-"
+            "overall-promotion-pending",
+        )
         self.assertEqual(MODULE.runtime_refactor_contract_errors(contract), [])
 
     def test_security_adrs_exist(self) -> None:

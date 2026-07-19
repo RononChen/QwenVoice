@@ -183,9 +183,23 @@ def _runtime_component(item: dict[str, Any]) -> RuntimeComponent | None:
     )
 
 
+def _runtime_matches_sdk(sdk: IOSSDK, runtime: RuntimeComponent) -> bool:
+    """Return whether Xcode can pair the runtime component with the SDK.
+
+    Runtime version is the authoritative compatibility field when present.
+    Xcode's downloader can install a compatible patch build whose product
+    build differs from the SDK build. Build identity is therefore only a
+    fail-closed fallback for older inventory shapes that omit a usable runtime
+    version.
+    """
+    runtime_pair = _version_pair(runtime.version)
+    if runtime_pair is not None:
+        return runtime_pair == _version_pair(sdk.version)
+    return bool(sdk.build and runtime.build and sdk.build == runtime.build)
+
+
 def evaluate(sdk_payload: Any, runtime_payload: Any) -> PreflightResult:
     sdk = _ios_sdk(sdk_payload)
-    sdk_pair = _version_pair(sdk.version)
     runtimes = [
         runtime
         for item in _runtime_entries(runtime_payload)
@@ -194,19 +208,18 @@ def evaluate(sdk_payload: Any, runtime_payload: Any) -> PreflightResult:
     for runtime in runtimes:
         if not runtime.available:
             continue
-        if sdk.build and runtime.build:
-            if sdk.build == runtime.build:
-                return PreflightResult(sdk, runtime)
-            continue
-        if sdk_pair == _version_pair(runtime.version):
+        # Xcode's platform downloader can legitimately install a compatible
+        # runtime patch build whose product build differs from the SDK build.
+        # Xcode 26.6, for example, ships iphoneos26.5 build 23F81a while its
+        # own `-downloadPlatform iOS` command installs iOS 26.5 build 23F77;
+        # `xcodebuild -showdestinations` accepts both the generic iOS
+        # destination and a paired physical phone with that combination.
+        if _runtime_matches_sdk(sdk, runtime):
             return PreflightResult(sdk, runtime)
 
     unavailable_match = any(
         not runtime.available
-        and (
-            (sdk.build and runtime.build and sdk.build == runtime.build)
-            or (not (sdk.build and runtime.build) and sdk_pair == _version_pair(runtime.version))
-        )
+        and _runtime_matches_sdk(sdk, runtime)
         for runtime in runtimes
     )
     detail = "a matching runtime is installed but unavailable" if unavailable_match else "no matching available runtime is installed"
