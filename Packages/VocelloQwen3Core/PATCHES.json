@@ -126,8 +126,17 @@
         "Tests/Qwen3RuntimeTests/VocelloQwen3FacadeTests.swift"
       ],
       "documentation": ["PERFORMANCE.md"],
-      "evidenceClass": "unmeasured",
-      "benchmarkRecordIDs": [],
+      "evidenceClass": "benchmark",
+      "benchmarkRecordIDs": [
+        "macos-xcui-benchmark-20260717-192747-0ae9d73c",
+        "macos-xcui-benchmark-20260717-193323-f8506265",
+        "macos-xcui-benchmark-20260717-193608-51fef175",
+        "ios-xcui-benchmark-20260719-133203-d413fac1",
+        "ios-xcui-benchmark-20260719-134041-9653f7cf",
+        "ios-xcui-benchmark-20260719-134646-d90db984"
+      ],
+      "benchmarkEvidenceStatus": "diagnostic",
+      "benchmarkEvidenceReason": "Focused macOS and physical-iPhone Custom, Design, and Clone runs exercised request-local sampling v2 on the exact dirty worktree fingerprints; clean fixed-seed repeat controls and full-matrix promotion remain pending.",
       "upstreamDisposition": "upstreamable",
       "upstreamEquivalentCommit": null,
       "removalCriteria": "Remove only after an upstream API carries versioned talker/subtalker policy and request-local reproducible random state without process-global mutation."
@@ -150,10 +159,13 @@
       "benchmarkRecordIDs": [
         "macos-xcui-benchmark-20260717-192747-0ae9d73c",
         "macos-xcui-benchmark-20260717-193323-f8506265",
-        "macos-xcui-benchmark-20260717-193608-51fef175"
+        "macos-xcui-benchmark-20260717-193608-51fef175",
+        "ios-xcui-benchmark-20260719-133203-d413fac1",
+        "ios-xcui-benchmark-20260719-134041-9653f7cf",
+        "ios-xcui-benchmark-20260719-134646-d90db984"
       ],
       "benchmarkEvidenceStatus": "diagnostic",
-      "benchmarkEvidenceReason": "Focused macOS Custom, Design, and Clone classified-session runs passed on the current dirty worktree; clean canonical controls and focused physical-iPhone promotion evidence remain pending.",
+      "benchmarkEvidenceReason": "Focused macOS and physical-iPhone Custom, Design, and Clone classified-session runs passed on the exact dirty worktree fingerprints; clean repeated controls and full-matrix promotion remain pending.",
       "upstreamDisposition": "upstreamable",
       "upstreamEquivalentCommit": null,
       "removalCriteria": "Remove only after upstream proves bounded retention, cancellation, ordering, and final barrier parity."

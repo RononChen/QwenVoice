@@ -6,18 +6,18 @@
   "shippingPolicy": "shadow-contracts-must-not-run-a-second-model-generation",
   "rollbackPolicy": "revert-the-owning-small-pull-request",
   "reviewCheckpoint": {
-    "date": "2026-07-17",
-    "baseRevision": "a9ebafff246b0d36b0b205fc895f15ec67b04fbd",
-    "sourceState": "phase2-checkpoint-before-phase4-cutover",
+    "date": "2026-07-19",
+    "baseRevision": "00c9eea637259cfce858d1fc7d43a1a2c52ff86d",
+    "sourceState": "phase4-focused-platform-acceptance-passed",
     "deterministicVerification": {
       "status": "passed",
       "coreTests": 243,
       "xpcIntegrationTests": 15,
-      "ownedRuntimeTests": 98,
-      "macosBuildFinishedAt": "2026-07-17T18:27:29Z",
-      "iosDeviceSDKCompileFinishedAt": "2026-07-17T18:30:01Z"
+      "ownedRuntimeTests": 103,
+      "macosBuildFinishedAt": "2026-07-19T16:19:06Z",
+      "iosDeviceSDKCompileFinishedAt": "2026-07-19T16:21:37Z"
     },
-    "promotionEvidence": "not-run-for-convergence-worktree"
+    "promotionEvidence": "focused-platform-acceptance-passed-overall-promotion-pending"
   },
   "contractVersions": {
     "productPlan": 1,

@@ -5,10 +5,12 @@
 
 ## Runtime convergence status — reviewed 2026-07-19
 
-This checkpoint covers the Phase 4 source cutover worktree built on the recorded Phase 2/3 branch
-checkpoint `a9ebafff246b0d36b0b205fc895f15ec67b04fbd`. “Implementation complete” below means source
-authority has changed; it does not mean platform promotion evidence has passed.
-`config/runtime-refactor-contract.json` is the machine-readable status record.
+This checkpoint covers runtime source commit
+`00c9eea637259cfce858d1fc7d43a1a2c52ff86d`, which closes focused Phase 4 acceptance on macOS and
+the physical iPhone. “Implementation complete” below means source authority has changed and the
+named focused proof has passed; it does not mean the full convergence program or overall runtime
+promotion has passed. `config/runtime-refactor-contract.json` is the machine-readable status
+record.
 
 | Plan phase | Current state |
 | --- | --- |
@@ -46,6 +48,29 @@ evidence, readable output, Fast QC, and no crash delta. They are exploratory
 `passedWithWarnings` records because each observed an allowed soft trim. These five focused takes
 close the focused physical-iPhone Phase 4 acceptance requirement, but they are not clean repeated
 controls or a full canonical matrix.
+
+### Next convergence checkpoint
+
+Proceed in this order so later performance evidence is not recorded against transitional
+telemetry or an incompletely qualified sampling contract:
+
+1. Merge the Phase 1–4 checkpoint into protected `main` after deterministic CI passes.
+2. Close Phase 5 evidence: require sampling algorithm v2 and planned/observed seed agreement,
+   publish the privacy-safe take seed and WAV digest, add fail-closed missing/mismatch fixtures,
+   and define versioned domain-separated sub-seed derivation for later long-form and candidate
+   work.
+3. Run fixed-seed repeat pairs for Custom, Design, and Clone on the macOS CLI and physical-iPhone
+   headless lane. Equal seeds must preserve token/chunk/PCM identity; changed seeds must diverge
+   while retaining QC, memory, and crash safety.
+4. Complete Phase 6 telemetry v9 writer, merger, validators, and PASS-only publication, then run
+   focused v9 UI pilots on both platforms.
+5. Finish Phase 0 characterization with at least three clean control sessions and, for each
+   applicable promoted cell, at least ten warm and three cold observations.
+6. Only then run fresh full 29-take macOS and physical-iPhone matrices. Running them before the
+   Phase 5/6 closures would create transitional schema-v8 evidence that must be repeated.
+
+Shipping long-form sub-seed execution remains Phase 11, candidate retry remains Phase 12, and
+neither is a prerequisite for the Phase 5 sampling proof.
 
 ### Local storage-policy verification — 2026-07-18
 

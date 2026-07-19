@@ -433,8 +433,14 @@ def runtime_refactor_contract_errors(
             for key in ("coreTests", "xpcIntegrationTests", "ownedRuntimeTests")
         ):
             errors.append("runtime-refactor-contract deterministic test counts must be positive")
-        if checkpoint.get("promotionEvidence") != "not-run-for-convergence-worktree":
-            errors.append("runtime-refactor-contract cannot claim unperformed promotion evidence")
+        if (
+            checkpoint.get("promotionEvidence")
+            != "focused-platform-acceptance-passed-overall-promotion-pending"
+        ):
+            errors.append(
+                "runtime-refactor-contract review checkpoint must record focused platform "
+                "acceptance without claiming overall promotion"
+            )
 
     versions = contract.get("contractVersions")
     required_versions = {
