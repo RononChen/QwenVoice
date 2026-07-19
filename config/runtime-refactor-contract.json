@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "status": "active-staged-convergence",
+  "owner": "backend-runtime",
+  "decision": "docs/decisions/runtime-streaming-quality-convergence.md",
+  "shippingPolicy": "shadow-contracts-must-not-run-a-second-model-generation",
+  "rollbackPolicy": "revert-the-owning-small-pull-request",
+  "reviewCheckpoint": {
+    "date": "2026-07-19",
+    "baseRevision": "00c9eea637259cfce858d1fc7d43a1a2c52ff86d",
+    "sourceState": "phase4-focused-platform-acceptance-passed",
+    "deterministicVerification": {
+      "status": "passed",
+      "coreTests": 243,
+      "xpcIntegrationTests": 15,
+      "ownedRuntimeTests": 103,
+      "macosBuildFinishedAt": "2026-07-19T16:19:06Z",
+      "iosDeviceSDKCompileFinishedAt": "2026-07-19T16:21:37Z"
+    },
+    "promotionEvidence": "focused-platform-acceptance-passed-overall-promotion-pending"
+  },
+  "contractVersions": {
+    "productPlan": 1,
+    "corePlan": 1,
+    "evidenceIdentity": 1,
+    "sampling": 2,
+    "chunking": 1,
+    "memory": 1,
+    "telemetry": 8,
+    "telemetryTransition": 9,
+    "benchmarkEvidence": 2
+  },
+  "currentShippingAuthorities": {
+    "runtime": "VocelloQwen3Engine",
+    "productSession": "GenerationOutputAdapter",
+    "ownedRuntimeFacade": "VocelloQwen3Core",
+    "sampling": "request-local-mlx-random-state-v2",
+    "memory": "request-local-qwen-memory-policy-v1",
+    "planShadow": "GenerationPlanShadowMapper",
+    "telemetry": "generation-telemetry-v8-with-partial-v9-transition-projection",
+    "benchmarkHistory": "schema-v2",
+    "modelStorage": "catalog-v2-shared-component-store-with-authenticated-auto-reconciliation-and-legacy-reads",
+    "longForm": "manifest-v3-nonstreaming",
+    "quality": "persisted-fast-qc-plus-specialized-gates",
+    "custom": "classified-session-generation-output-adapter",
+    "design": "classified-session-generation-output-adapter",
+    "clone": "classified-session-generation-output-adapter"
+  },
+  "phase2PublicMutationBoundary": {
+    "status": "complete-foundation-shipping-through-phase4",
+    "normalPublicMutationAuthority": "VocelloQwen3Engine",
+    "legacyShippingSPI": "VocelloQwen3LegacyCompatibility",
+    "legacyShippingSPIConsumers": [
+      "Sources/QwenVoiceCore/MLXModelLoadCoordinator.swift",
+      "Sources/QwenVoiceCore/NativeCloneSupport.swift",
+      "Sources/QwenVoiceCore/NativeEngineRuntime.swift",
+      "Sources/QwenVoiceCore/UnsafeSpeechGenerationModel.swift"
+    ],
+    "consumerAllowlistEnforcement": "scripts/vendor_runtime_contract.py::LEGACY_COMPATIBILITY_SPI_CONSUMERS",
+    "combinedCompatibilitySession": "internal-package-characterization-only",
+    "actorCorrectnessClosure": {
+      "abortLifecycle": "reserved-generating-aborting-single-owner-with-duplicate-abort-join",
+      "criticalMemoryRelief": "typed-cache-trim-or-full-unload-generation-lease-transfer",
+      "admissionReopen": "after-revalidated-relief-completion-only"
+    },
+    "cloneHandleLifecycle": {
+      "defaultCapacity": 1,
+      "configuredCapacityMinimum": 1,
+      "eviction": "least-recently-used",
+      "explicitRelease": "first-release-true-repeat-release-false",
+      "activeReservationAfterRelease": "retains-captured-prompt",
+      "noncriticalCacheTrim": "preserves-handles",
+      "criticalCacheTrim": "invalidates-handles",
+      "fullUnload": "invalidates-handles-and-increments-model-epoch",
+      "modelReload": "invalidates-handles-and-increments-model-epoch"
+    },
+    "shippingAuthorityChanged": true
+  },
+  "phase4ProductCutover": {
+    "implementationStatus": "complete",
+    "shippingRuntime": "VocelloQwen3Engine",
+    "shippingProductSession": "GenerationOutputAdapter",
+    "modeAuthority": "classified-session-generation-output-adapter",
+    "modes": ["custom", "design", "clone"],
+    "shippingImplementationSources": [
+      "Sources/QwenVoiceCore/NativeStreamingSynthesisSession.swift"
+    ],
+    "directModeStreamCallsAllowed": false,
+    "audioBearingBufferedEventsAllowed": false,
+    "mixedShippingAuthorityAllowed": false,
+    "deterministicVerification": "passed",
+    "macosFocusedAcceptance": "passed",
+    "physicalIPhoneFocusedAcceptance": "passed",
+    "overallPromotion": "pending"
+  },
+  "phaseStatus": {
+    "characterizationContract": "partial-model-free-characterization-exact-mode-token-pcm-and-shipping-longform-fixtures-pending",
+    "xpcReserveBeforeSideEffects": "implemented",
+    "synchronizedPressureSnapshot": "implemented",
+    "continuousCriticalReliefAdmission": "implemented-current-product-gate",
+    "immutablePlans": "implemented-independent-shadow-comparison-only",
+    "engineActor": "shipping-through-phase4-implementation-complete-promotion-pending",
+    "classifiedSessionChannels": "shipping-through-phase4-implementation-complete-promotion-pending",
+    "productOutputAdapter": "shipping-implementation-complete-promotion-pending",
+    "modeCutover": "implementation-complete-focused-platform-acceptance-passed-overall-promotion-pending",
+    "requestLocalSamplingV2": "shipping-live-quality-promotion-and-derived-subseed-integration-pending",
+    "telemetryV9": "partial-transition-projection-embedded-in-v8-complete-writer-merger-publication-pending",
+    "chunkAndPreviewExperiments": "not-started-shipping-v9-and-clean-ab-evidence-required",
+    "sharedComponentStorage": "integrated-production-path-authenticated-auto-reconciliation-live-artifact-validation-pending",
+    "runtimeComponentReuse": "not-started-isolated-ab-after-live-disk-component-proof",
+    "spokenTextPlanning": "implemented-model-free-foundation-not-shadowed-or-shipping",
+    "longFormV4": "planning-and-bounded-assembler-foundations-only-v3-nonstreaming-ships",
+    "boundedAnalyzers": "prosody-v2-shipping-persisted-wav-consolidation-pending",
+    "unifiedQuality": "typed-registry-foundation-specialized-gates-ship",
+    "historyV3": "pending-stable-plan-session-quality-identities",
+    "mechanicalRetirement": "deferred-until-shipping-cutovers-spi-and-internal-compatibility-surfaces-remain"
+  },
+  "constrainedTierChunkFrames": {
+    "custom": { "first": 7, "later": 7 },
+    "design": { "first": 7, "later": 14 },
+    "clone": { "first": 7, "later": 14 }
+  },
+  "characterization": {
+    "minimumCleanControlRuns": 3,
+    "minimumWarmTakesPerPromotedCell": 10,
+    "minimumColdTakesPerPromotedCell": 3,
+    "candidateBudgetsAreHypotheses": true,
+    "candidateMedianTimingRegressionPercent": 3,
+    "candidateTailTimingRegressionPercent": 5,
+    "candidatePeakMemoryRegressionBytes": 157286400,
+    "candidateFirstRenderRegressionMilliseconds": 100,
+    "maximumAcceptedTimingNoisePercent": 8
+  },
+  "temporaryCompatibilitySurfaces": [
+    "NativeEngineRuntime",
+    "GenerationOutputAdapter",
+    "UnsafeSpeechGenerationModel",
+    "VocelloQwen3LoadedModel",
+    "VocelloQwen3ModelGenerationSession",
+    "Qwen3TTSGenerationGate",
+    "Qwen3TalkerSamplingOverride"
+  ],
+  "invariants": [
+    "macos-xpc-and-ios-in-process-topology-remain-authoritative",
+    "one-active-product-generation",
+    "fixed-mlx-dependency-pins-during-convergence",
+    "no-mlx-array-crosses-public-runtime-isolation",
+    "no-permanent-dual-session-authority",
+    "three-pass-language-consensus-is-not-weakened",
+    "physical-iphone-evidence-is-promotion-only"
+  ]
+}

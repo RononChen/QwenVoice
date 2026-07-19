@@ -821,6 +821,10 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
     public let outputMetrics: GenerationOutputMetrics?
     public let modelRuntimeIdentity: ModelRuntimeIdentity?
     public let memoryMetrics: GenerationMemoryMetrics?
+    /// Schema-v9 streaming transition evidence nested inside the shipping
+    /// schema-v8 row. This keeps benchmark-history schema v2 compatible while
+    /// making unavailable actor/session observations explicit instead of zero.
+    public let streamingTelemetryV9: GenerationStreamingTelemetryTransitionV9?
 
     public init(
         generationID: String,
@@ -847,6 +851,7 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
         outputMetrics: GenerationOutputMetrics? = nil,
         modelRuntimeIdentity: ModelRuntimeIdentity? = nil,
         memoryMetrics: GenerationMemoryMetrics? = nil,
+        streamingTelemetryV9: GenerationStreamingTelemetryTransitionV9? = nil,
         clockSource: String? = "mach_absolute_time",
         schemaVersion: Int = GenerationTelemetryRecord.currentSchemaVersion,
         processName: String = ProcessInfo.processInfo.processName,
@@ -929,6 +934,14 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
                 )
                 : nil
         )
+        self.streamingTelemetryV9 = streamingTelemetryV9
+            ?? GenerationStreamingTelemetryV9Bridge.make(
+                generationID: generationID,
+                layer: layer,
+                notes: notes,
+                frontend: self.frontendMetrics,
+                transport: self.transportMetrics
+            )
     }
 }
 
@@ -939,7 +952,7 @@ public struct GenerationTelemetryRecord: Hashable, Codable, Sendable {
 /// output). It deliberately does NOT claim subjective naturalness. Autonomous
 /// promotion combines it with the applicable ASR, prosody, and delivery gates;
 /// optional listening remains annotation only. Thresholds are conservative +
-/// tunable (see the builder in `NativeStreamingSynthesisSession`).
+/// tunable (see the builder in `GenerationOutputAdapter`).
 public struct AudioQCReport: Hashable, Codable, Sendable {
     /// v2 fixed cross-chunk interior-silence localization. v3 derives the
     /// written-output verdict from the atomically published WAV frames rather

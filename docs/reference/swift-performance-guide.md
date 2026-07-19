@@ -311,14 +311,16 @@ WWDC 2025 demonstrated profiling a test from Xcode's test navigator (secondary-c
 
 `NativeMemoryPolicyResolver` picks a policy per `NativeDeviceMemoryClass`. The Swift code sets MLX `GPU.cacheLimit`, clears caches, and triggers idle-unloads. The iOS `iPhonePro` tier is the most aggressive because the engine runs in-process and shares the app's Jetsam budget. Any Swift change that increases long-lived heap usage directly threatens the iOS streaming guarantee. See [`ios-engine-optimization.md`](ios-engine-optimization.md).
 
-### 9.3 Streaming chunk dispatch must not block
+### 9.3 Core audio and frontend events both backpressure safely
 
-- macOS: `MLXTTSEngine.events` is `.bufferingNewest(256)`.
-- iOS: `MLXTTSEngine.events` is `.bufferingNewest(96)` to cap memory under the in-process budget.
+- Final PCM uses the classified session's frame-bounded suspending channel. Producer suspension is
+  intentional backpressure and must wake correctly on cancellation.
+- Frontend preview/status events use a separate suspending router with capacity 256 on macOS and 96
+  on iOS.
 
-`GenerationEventDeliveryProbe` measures accepted and dropped yield outcomes. The Swift code that
-forwards chunks (XPC on macOS, in-process observation on iOS) must drain continuously and return
-quickly. Heavy work per chunk belongs on a background task, not in the publisher's sink.
+`GenerationEventDeliveryProbe` measures accepted, terminated, and unobserved sends. The consumer
+must drain continuously; a full router suspends rather than evicting an audio-bearing preview event.
+Heavy output work belongs in `GenerationOutputAdapter` after the mandatory audio drain.
 
 ### 9.4 Prewarm serialization
 

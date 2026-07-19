@@ -47,6 +47,109 @@ class VendorRuntimeContractTests(unittest.TestCase):
             ],
             [],
         )
+        self.assertEqual(
+            MODULE.legacy_compatibility_declaration_errors(
+                baseline["publicDeclarations"]
+            ),
+            [],
+        )
+        self.assertTrue(
+            any(
+                MODULE.LEGACY_COMPATIBILITY_SPI_ATTRIBUTE in declaration
+                and "VocelloQwen3LoadedModel" in declaration
+                for declaration in baseline["publicDeclarations"]
+            )
+        )
+
+    def test_facade_canonicalizer_preserves_only_legacy_spi_attribute_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "Facade.swift"
+            source.write_text(
+                """
+@_spi(VocelloQwen3LegacyCompatibility)
+@available(macOS 26.0, *)
+public final class VocelloQwen3LoadedModel {}
+
+@discardableResult
+public func stableFacadeEntryPoint() -> Bool { true }
+""",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                MODULE.canonical_public_declarations(source),
+                [
+                    "@_spi(VocelloQwen3LegacyCompatibility) "
+                    "@available(macOS 26.0, *) "
+                    "public final class VocelloQwen3LoadedModel",
+                    "public func stableFacadeEntryPoint() -> Bool",
+                ],
+            )
+
+    def test_legacy_loaded_model_and_combined_session_require_compatibility_spi(self) -> None:
+        ordinary_declarations = (
+            "public class VocelloQwen3LoadedModel: Sendable",
+            "public static func clearRuntimeCaches() async",
+            "public enum VocelloQwen3GenerationEvent: Sendable",
+            "public protocol VocelloQwen3GenerationSession: Sendable",
+            "public final class VocelloQwen3ModelGenerationSession: Sendable",
+            "public extension VocelloQwen3LoadedModel",
+        )
+        for declaration in ordinary_declarations:
+            with self.subTest(declaration=declaration):
+                errors = MODULE.legacy_compatibility_declaration_errors([declaration])
+                self.assertEqual(len(errors), 1)
+                self.assertIn("ordinary public", errors[0])
+                self.assertEqual(
+                    MODULE.legacy_compatibility_declaration_errors(
+                        [f"{MODULE.LEGACY_COMPATIBILITY_SPI_ATTRIBUTE} {declaration}"]
+                    ),
+                    [],
+                )
+
+        self.assertEqual(
+            MODULE.legacy_compatibility_declaration_errors(
+                ["final class VocelloQwen3ModelGenerationSession: Sendable"]
+            ),
+            [],
+        )
+
+    def test_legacy_compatibility_spi_consumers_match_the_precise_allowlist(self) -> None:
+        observed = MODULE.legacy_compatibility_spi_consumers(ROOT)
+        self.assertEqual(observed, set(MODULE.LEGACY_COMPATIBILITY_SPI_CONSUMERS))
+        self.assertEqual(MODULE.legacy_compatibility_consumer_errors(observed), [])
+
+        extra = set(observed)
+        extra.add("Sources/QwenVoiceCore/UnapprovedConsumer.swift")
+        self.assertTrue(
+            any(
+                "unapproved" in error
+                for error in MODULE.legacy_compatibility_consumer_errors(extra)
+            )
+        )
+
+        missing = set(observed)
+        missing.remove(sorted(observed)[0])
+        self.assertTrue(
+            any(
+                "stale" in error
+                for error in MODULE.legacy_compatibility_consumer_errors(missing)
+            )
+        )
+
+    def test_legacy_compatibility_metadata_matches_enforced_boundary(self) -> None:
+        compatibility = MODULE.load_json(
+            ROOT / MODULE.RUNTIME_RELATIVE / MODULE.COMPATIBILITY_NAME
+        )
+        self.assertEqual(MODULE.legacy_compatibility_metadata_errors(compatibility), [])
+
+        drifted = json.loads(json.dumps(compatibility))
+        drifted["sourceCompatibility"]["temporaryLegacySPI"]["consumerAllowlist"].append(
+            "Sources/QwenVoiceCore/UnapprovedConsumer.swift"
+        )
+        self.assertIn(
+            "COMPATIBILITY legacy SPI consumer allowlist is missing or stale",
+            MODULE.legacy_compatibility_metadata_errors(drifted),
+        )
 
     def test_facade_type_filter_rejects_third_party_cache_types(self) -> None:
         self.assertIsNotNone(
@@ -74,6 +177,21 @@ class VendorRuntimeContractTests(unittest.TestCase):
             if not MODULE.matches(entry["path"], patterns):
                 uncovered.append(entry["path"])
         self.assertEqual(uncovered, [])
+        self.assertEqual(MODULE.facade_capability_boundary_errors(contract), [])
+
+        drifted = copy.deepcopy(contract)
+        actor_generation = next(
+            item
+            for item in drifted["capabilities"]
+            if item["id"] == MODULE.SHIPPING_ACTOR_CAPABILITY_ID
+        )
+        actor_generation["state"] = "internal"
+        self.assertTrue(
+            any(
+                "shipping actor/session capability" in error
+                for error in MODULE.facade_capability_boundary_errors(drifted)
+            )
+        )
 
     def test_immutable_baseline_and_current_inventory_are_separate(self) -> None:
         runtime = ROOT / MODULE.RUNTIME_RELATIVE
@@ -221,25 +339,33 @@ class VendorRuntimeContractTests(unittest.TestCase):
         )
         self.assertEqual([entry["path"] for entry in rebuilt["entries"]], paths)
 
-    def test_current_benchmark_records_verify_runtime_capabilities(self) -> None:
+    def test_current_benchmark_records_have_truthful_runtime_capability_status(self) -> None:
         runtime = ROOT / MODULE.RUNTIME_RELATIVE
         contract = MODULE.load_json(runtime / MODULE.CAPABILITIES_NAME)
         records = MODULE.benchmark_records(ROOT)
-        benchmark_capabilities = [
-            item for item in contract["capabilities"] if item["evidenceClass"] == "benchmark"
+        measured_capabilities = [
+            item for item in contract["capabilities"] if item.get("benchmarkRecordIDs")
         ]
-        self.assertTrue(benchmark_capabilities)
-        for item in benchmark_capabilities:
-            self.assertEqual(item["benchmarkEvidenceStatus"], "verified")
-            self.assertTrue(MODULE.capability_benchmark_is_fresh(ROOT, runtime, item, records))
+        self.assertTrue(measured_capabilities)
+        for item in measured_capabilities:
+            fresh = MODULE.capability_benchmark_is_fresh(ROOT, runtime, item, records)
+            if item["evidenceClass"] == "benchmark":
+                self.assertEqual(item["benchmarkEvidenceStatus"], "verified")
+                self.assertTrue(fresh)
+            else:
+                self.assertEqual(item["evidenceClass"], "diagnostic")
+                self.assertEqual(item["benchmarkEvidenceStatus"], "diagnostic")
+                self.assertTrue(item["benchmarkEvidenceReason"])
+                self.assertFalse(fresh)
 
     def test_stale_benchmark_cannot_be_reclassified_as_verified(self) -> None:
         runtime = ROOT / MODULE.RUNTIME_RELATIVE
         contract = MODULE.load_json(runtime / MODULE.CAPABILITIES_NAME)
         records = MODULE.benchmark_records(ROOT)
         capability = copy.deepcopy(
-            next(item for item in contract["capabilities"] if item["evidenceClass"] == "benchmark")
+            next(item for item in contract["capabilities"] if item.get("benchmarkRecordIDs"))
         )
+        capability["evidenceClass"] = "benchmark"
         capability["benchmarkRecordIDs"] = [
             "macos-xcui-benchmark-20260713-185716-7f12cd35"
         ]

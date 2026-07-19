@@ -21,6 +21,29 @@ SPEC.loader.exec_module(CATALOG)
 
 
 class ModelCatalogContractTests(unittest.TestCase):
+    component_files = [
+        {
+            "relativePath": "speech_tokenizer/config.json",
+            "sizeBytes": 1,
+            "sha256": "1" * 64,
+        },
+        {
+            "relativePath": "speech_tokenizer/configuration.json",
+            "sizeBytes": 1,
+            "sha256": "2" * 64,
+        },
+        {
+            "relativePath": "speech_tokenizer/model.safetensors",
+            "sizeBytes": 2,
+            "sha256": "3" * 64,
+        },
+        {
+            "relativePath": "speech_tokenizer/preprocessor_config.json",
+            "sizeBytes": 1,
+            "sha256": "4" * 64,
+        },
+    ]
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
@@ -42,8 +65,11 @@ class ModelCatalogContractTests(unittest.TestCase):
                         "huggingFaceRevision": "a" * 40,
                         "artifactVersion": "v1",
                         "iosDownloadEligible": True,
-                        "estimatedDownloadBytes": 3,
-                        "requiredRelativePaths": ["config.json"],
+                        "estimatedDownloadBytes": 8,
+                        "requiredRelativePaths": [
+                            "config.json",
+                            *[item["relativePath"] for item in self.component_files],
+                        ],
                     },
                     {
                         "id": "quality",
@@ -53,8 +79,11 @@ class ModelCatalogContractTests(unittest.TestCase):
                         "huggingFaceRevision": "b" * 40,
                         "artifactVersion": "v1",
                         "iosDownloadEligible": False,
-                        "estimatedDownloadBytes": 5,
-                        "requiredRelativePaths": ["config.json"],
+                        "estimatedDownloadBytes": 10,
+                        "requiredRelativePaths": [
+                            "config.json",
+                            *[item["relativePath"] for item in self.component_files],
+                        ],
                     },
                 ],
             }]
@@ -63,13 +92,13 @@ class ModelCatalogContractTests(unittest.TestCase):
             "models": [{
                 "modelID": "model",
                 "artifactVersion": "v1",
-                "totalBytes": 3,
+                "totalBytes": 8,
                 "baseURL": f"https://huggingface.co/org/model-4bit/resolve/{'a' * 40}",
                 "files": [{
                     "relativePath": "config.json",
                     "sizeBytes": 3,
                     "sha256": "c" * 64,
-                }],
+                }, *self.component_files],
             }]
         }
         self.write_sources()
@@ -102,6 +131,29 @@ class ModelCatalogContractTests(unittest.TestCase):
         self.assertEqual(totals["pro_custom:quality"], 3_080_140_019)
         self.assertEqual(totals["pro_design:quality"], 3_080_139_348)
         self.assertEqual(totals["pro_clone:quality"], 3_104_157_269)
+        self.assertEqual(document["schemaVersion"], 2)
+        self.assertEqual(len(document["sharedComponents"]), 1)
+        component = document["sharedComponents"][0]
+        self.assertEqual(
+            [item["relativePath"] for item in component["contentIdentity"]["files"]],
+            list(CATALOG.SHARED_COMPONENT_PATHS),
+        )
+        self.assertEqual(
+            component["sourceArtifactIdentities"],
+            list(CATALOG.SHARED_COMPONENT_SOURCE_ORDER),
+        )
+        self.assertEqual(
+            sorted(
+                f"{artifact['modelID']}:{artifact['variantID']}"
+                for artifact in document["artifacts"]
+                if "iOS" in artifact["platforms"]
+            ),
+            ["pro_clone:speed", "pro_custom:speed", "pro_design:speed"],
+        )
+        self.assertTrue(all(
+            artifact["sharedComponentIDs"] == [CATALOG.SHARED_COMPONENT_ID]
+            for artifact in document["artifacts"]
+        ))
 
     def test_staged_catalog_validates_but_complete_gate_fails_closed(self) -> None:
         self.write_generated()
@@ -114,13 +166,13 @@ class ModelCatalogContractTests(unittest.TestCase):
         receipt = {
             "modelID": "model",
             "artifactVersion": "v1",
-            "totalBytes": 5,
+            "totalBytes": 10,
             "baseURL": f"https://huggingface.co/org/model-8bit/resolve/{'b' * 40}",
             "files": [{
                 "relativePath": "config.json",
                 "sizeBytes": 5,
                 "sha256": "d" * 64,
-            }],
+            }, *self.component_files],
         }
         (self.root / CATALOG.RECEIPTS_PATH).write_text(
             json.dumps({"schemaVersion": 1, "artifacts": [receipt]}), encoding="utf-8"

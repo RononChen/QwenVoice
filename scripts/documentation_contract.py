@@ -36,6 +36,10 @@ CURRENT_RUNTIME_STALE_GUIDANCE = {
         "current generation event streams are bounded on both platforms",
     re.compile(r"bufferingNewest\(64\)", re.I):
         "the current iOS generation event capacity is 96",
+    re.compile(r"bufferingNewest\((?:96|256)\)", re.I):
+        "product events now use the custom bounded suspending router without eviction",
+    re.compile(r"streaming\s+chunk(?:'s)?\s+`?previewAudio`?\s+PCM\s+is\s+emitted", re.I):
+        "preview PCM cannot be described as using the coalescing GenerationEvent route",
     re.compile(
         r"(?:cooperative(?:[- ]only)?\s+(?:iOS\s+)?cancel|iOS\s+cancel[^\n]{0,40}cooperative(?:[- ]only)?)",
         re.I,
@@ -273,7 +277,10 @@ def validate_current_runtime_guidance(root: Path, paths: list[Path]) -> list[str
     architecture_path = root / "docs/ARCHITECTURE.md"
     if architecture_path.is_file():
         architecture = architecture_path.read_text(encoding="utf-8")
-        for required in ("bufferingNewest(256)", "bufferingNewest(96)"):
+        for required in (
+            "frame-bounded suspending audio channel",
+            "audio-bearing events are not evicted",
+        ):
             if required not in architecture:
                 errors.append(f"docs/ARCHITECTURE.md: missing current event-delivery contract {required}")
         if "config/runtime-debug-knobs.json" not in architecture:

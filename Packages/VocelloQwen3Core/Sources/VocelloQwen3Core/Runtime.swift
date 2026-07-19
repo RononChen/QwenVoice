@@ -44,11 +44,13 @@ public enum VocelloQwen3Runtime {
         )
     }
 
+    @_spi(VocelloQwen3LegacyCompatibility)
     public static func loadPreparedModel(
         _ bundle: VocelloQwen3PreparedModelBundle,
         loadBehavior: VocelloQwen3LoadBehavior? = nil,
         cachePolicy: VocelloQwen3CachePolicy = .systemDefault,
-        diagnosticSink: VocelloQwen3DiagnosticSink? = nil
+        diagnosticSink: VocelloQwen3DiagnosticSink? = nil,
+        isolation: isolated (any Actor)? = #isolation
     ) async throws -> VocelloQwen3LoadedModel {
         let compatibilitySink: (@Sendable (String, [String: String]) async -> Void)?
         if let diagnosticSink {
@@ -66,7 +68,8 @@ public enum VocelloQwen3Runtime {
             trustPreparedCheckpoint: bundle.trustedPreparedCheckpoint,
             qwenPreparedLoadBehavior: loadBehavior?.compatibilityValue,
             diagnosticEventSink: compatibilitySink,
-            cache: cachePolicy.compatibilityValue
+            cache: cachePolicy.compatibilityValue,
+            isolation: isolation
         )
         return try VocelloQwen3LoadedModel(
             compatibilityModel: compatibilityModel,
@@ -78,11 +81,13 @@ public enum VocelloQwen3Runtime {
     /// Transitional adapter for existing detailed telemetry. New facade clients
     /// should use the typed overload above; arbitrary details never become part
     /// of the stable facade contract.
+    @_spi(VocelloQwen3LegacyCompatibility)
     public static func loadPreparedModel(
         _ bundle: VocelloQwen3PreparedModelBundle,
         loadBehavior: VocelloQwen3LoadBehavior? = nil,
         cachePolicy: VocelloQwen3CachePolicy = .systemDefault,
-        compatibilityDiagnosticSink: (@Sendable (String, [String: String]) async -> Void)?
+        compatibilityDiagnosticSink: (@Sendable (String, [String: String]) async -> Void)?,
+        isolation: isolated (any Actor)? = #isolation
     ) async throws -> VocelloQwen3LoadedModel {
         let compatibilityModel = try await TTS.loadModel(
             fromPreparedDirectory: bundle.preparedDirectory,
@@ -91,7 +96,8 @@ public enum VocelloQwen3Runtime {
             trustPreparedCheckpoint: bundle.trustedPreparedCheckpoint,
             qwenPreparedLoadBehavior: loadBehavior?.compatibilityValue,
             diagnosticEventSink: compatibilityDiagnosticSink,
-            cache: cachePolicy.compatibilityValue
+            cache: cachePolicy.compatibilityValue,
+            isolation: isolation
         )
         return try VocelloQwen3LoadedModel(
             compatibilityModel: compatibilityModel,
@@ -100,20 +106,14 @@ public enum VocelloQwen3Runtime {
         )
     }
 
-    public static func apply(memoryConfiguration: VocelloQwen3MemoryConfiguration) throws {
-        let configuration = try memoryConfiguration.validated()
-        Qwen3StreamingMemoryTuning.apply(
-            clearOnStreamChunk: configuration.clearCacheOnStreamChunk,
-            tokenCadence: configuration.tokenMemoryClearCadence
-        )
-        Qwen3StreamingMemoryTuning.applyTalkerKVWindow(configuration.talkerKVGeneratedWindow)
-    }
-
     /// Clears Qwen3-owned prepared, conditioning, and decoder caches after the
     /// host has proven that active generation terminated. The product controls
     /// when this lifecycle boundary is safe; cache implementation stays here.
-    public static func clearRuntimeCaches() async {
-        await Qwen3TTSMemoryCaches.clearAll()
+    @_spi(VocelloQwen3LegacyCompatibility)
+    public static func clearRuntimeCaches(
+        isolation: isolated (any Actor)? = #isolation
+    ) async {
+        await Qwen3TTSMemoryCaches.clearAll(isolation: isolation)
     }
 
     static func typedDiagnosticEvent(

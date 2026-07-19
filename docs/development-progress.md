@@ -3,6 +3,88 @@
 > Current maintainer checkpoint. Confirm this summary against the checkout before acting; source,
 > `project.yml`, and repository scripts remain authoritative.
 
+## Runtime convergence status — reviewed 2026-07-19
+
+This checkpoint covers runtime source commit
+`00c9eea637259cfce858d1fc7d43a1a2c52ff86d`, which closes focused Phase 4 acceptance on macOS and
+the physical iPhone. “Implementation complete” below means source authority has changed and the
+named focused proof has passed; it does not mean the full convergence program or overall runtime
+promotion has passed. `config/runtime-refactor-contract.json` is the machine-readable status
+record.
+
+| Plan phase | Current state |
+| --- | --- |
+| 0 — Characterization | Partial. The ADR, contract, and model-free fixtures exist; exact shipping-path mode/token/PCM and manifest-v3 long-form fixtures plus the required clean 3-control, 10-warm, and 3-cold measurements are pending. |
+| 1 — Correctness prerequisites | Shipping. XPC reserves before side effects, pressure snapshots are synchronized, and critical relief holds admission continuously through cancellation, terminal cleanup, and relief. |
+| 2 — Plans and actor | The actor foundation is now the shipping generation-mutation authority through Phase 4. Immutable plans remain in shadow comparison. A narrow named SPI still bridges prepared-model loading/prewarm and validated schema-3 Clone prompt adoption; do not describe the actor as the sole MLX mutator until that bridge retires. Reserved/generating/aborting ownership, critical-relief lease transfer, and epoch-bound Clone handles remain unchanged. |
+| 3 — Classified sessions | Shipping through Phase 4. Custom, Design, and Clone materialize `[Float]` before an awaited, frame-bounded, single-consumer channel send. Producer/receiver cancellation, delayed drains, maximum-length ordering, consumer failure, typed terminal outcomes, and stale-safe product finalization remain deterministic contracts. |
+| 4 — Product adapter and mode cutover | Source implementation, deterministic verification, and focused macOS plus physical-iPhone Custom, Design, and Clone acceptance passed. QwenVoiceCore's `GenerationOutputAdapter` owns output/QC/finalization over the classified session, while the retained filename awaits Phase 14 mechanical organization. Overall promotion remains pending on the required clean repeated controls, applicable full matrices, exact legacy characterization, and later retirement work. |
+| 5 — Request-local sampling | Shipping. Algorithm v2 is request-local; it still requires fixed-seed live promotion evidence and shipping long-form/candidate sub-seed integration. |
+| 6 — Telemetry v9 | Transitional. Schema/types/tests and a partial v9 projection inside v8 exist; the complete writer, merger, validator, publisher, and shipping actor/session observations do not. |
+| 7 — Chunk and preview experiments | Not started beyond prerequisites. Shipping v9 evidence, controlled A/B runs, audio-graph preparation experiments, and identity-bound calibration are pending. |
+| 8 — Shared component storage | Production-integrated with deterministic coverage. Live validation across all six macOS artifacts and all three iPhone Speed artifacts is pending. |
+| 9 — Runtime component reuse | Not started. Decoder/immutable-weight reuse remains an optional isolated A/B after disk-component proof. |
+| 10 — Spoken-text planning | Model-free foundation only; it is not shadowed against or used by shipping generation. |
+| 11 — Long-form v4 | Planner and bounded assembler foundations only. Sequential streaming, resume/replacement, segment QA, History integration, and product cutover are pending; manifest-v3 non-streaming remains shipping. |
+| 12 — Bounded analysis and unified quality | Partial. Bounded prosody algorithm v2 is shipping; persisted-WAV consolidation and the typed registry/scheduler are not integrated. |
+| 13 — Benchmark/history v3 | Not started; schema v2 remains authoritative until shipping plan/session/quality identities stabilize. |
+| 14 — Organization and retirement | Deferred final phase. Shipping compatibility authorities, the named legacy SPI and its direct loaded-model APIs, the internal combined event session, the old segmenter/writer, and large source files remain until the cutovers pass. |
+
+The post-cutover deterministic proof passed `scripts/macos_test.sh test`, including Core, XPC
+transport, and 103 owned-runtime tests. The arm64 macOS build and generic iPhoneOS SDK app plus
+policy-test compilation also passed without contacting a device. Runtime, documentation, vendor,
+build-output, project-input, and benchmark-history contracts passed. Focused macOS runs
+`macos-xcui-benchmark-20260717-192747-0ae9d73c` (Custom 2/2),
+`macos-xcui-benchmark-20260717-193323-f8506265` (Design 2/2), and
+`macos-xcui-benchmark-20260717-193608-51fef175` (Clone 1/1) each passed with complete ordered
+engine/service/app evidence, readable output, Fast QC, and no crash delta. They are exploratory
+`passedWithWarnings` records because the worktree is dirty and each observed an allowed soft trim;
+they are focused parity evidence, not clean canonical controls. Physical-iPhone Phase 4 evidence is
+also complete on the exact dirty worktree fingerprints: runs
+`ios-xcui-benchmark-20260719-133203-d413fac1` (Custom 2/2),
+`ios-xcui-benchmark-20260719-134041-9653f7cf` (Design 2/2), and
+`ios-xcui-benchmark-20260719-134646-d90db984` (Clone 1/1) passed with complete ordered engine/app
+evidence, readable output, Fast QC, and no crash delta. They are exploratory
+`passedWithWarnings` records because each observed an allowed soft trim. These five focused takes
+close the focused physical-iPhone Phase 4 acceptance requirement, but they are not clean repeated
+controls or a full canonical matrix.
+
+### Next convergence checkpoint
+
+Proceed in this order so later performance evidence is not recorded against transitional
+telemetry or an incompletely qualified sampling contract:
+
+1. Merge the Phase 1–4 checkpoint into protected `main` after deterministic CI passes.
+2. Close Phase 5 evidence: require sampling algorithm v2 and planned/observed seed agreement,
+   publish the privacy-safe take seed and WAV digest, add fail-closed missing/mismatch fixtures,
+   and define versioned domain-separated sub-seed derivation for later long-form and candidate
+   work.
+3. Run fixed-seed repeat pairs for Custom, Design, and Clone on the macOS CLI and physical-iPhone
+   headless lane. Equal seeds must preserve token/chunk/PCM identity; changed seeds must diverge
+   while retaining QC, memory, and crash safety.
+4. Complete Phase 6 telemetry v9 writer, merger, validators, and PASS-only publication, then run
+   focused v9 UI pilots on both platforms.
+5. Finish Phase 0 characterization with at least three clean control sessions and, for each
+   applicable promoted cell, at least ten warm and three cold observations.
+6. Only then run fresh full 29-take macOS and physical-iPhone matrices. Running them before the
+   Phase 5/6 closures would create transitional schema-v8 evidence that must be repeated.
+
+Shipping long-form sub-seed execution remains Phase 11, candidate retry remains Phase 12, and
+neither is a prerequisite for the Phase 5 sampling proof.
+
+### Local storage-policy verification — 2026-07-18
+
+The storage-containment/build-policy worktree passed its macOS deterministic tests and arm64 app
+build after bounded cleanup. The host toolchain block recorded on 2026-07-18 is resolved: Xcode
+26.6 now exposes its iOS 26.5 SDK and compatible iOS 26.5 runtime component, and both the generic
+physical-device SDK destination and paired physical iPhone are eligible. The platform preflight,
+device preflight, and focused Phase 4 XCUITest runs passed on 2026-07-19.
+
+All repository iOS build routes run `scripts/lib/ios_platform_preflight.py check` before cache
+creation or package resolution. The preflight remains read-only and accepts an available runtime
+with the selected SDK's major/minor platform version even when Apple's SDK and runtime patch-build
+identifiers differ. Restoring that component does not authorize Simulator execution.
+
 ## Current implementation
 
 - Native app UI acceptance uses one shared XCUITest stack: `macos smoke|benchmark` on the native
@@ -24,11 +106,55 @@
   cancellation and typed critical-memory cancellation both terminated without entering History,
   `fullUnload` followed the pressure cancellation, and the same engine completed and persisted the
   recovery generation.
-- Generation ownership is now explicit across all hosts. Both platform streams are bounded
-  (`bufferingNewest(256)` on macOS, `bufferingNewest(96)` on iOS) and every yield outcome is
-  measured. `ActiveGenerationCoordinator` admits one active task, carries typed user,
-  memory-pressure, superseded, or shutdown cancellation, and awaits the cancelled terminal barrier
-  before trim, unload, ownership release, or persistence.
+- Generation ownership is explicit across all hosts. Final core audio uses the actor-owned,
+  frame-bounded suspending channel. Frontend preview/status events use a separate per-generation,
+  bounded suspending router, so audio-bearing preview events are never evicted by a
+  `bufferingNewest` policy. `ActiveGenerationCoordinator` admits one active product
+  task, carries typed user, memory-pressure, superseded, or shutdown cancellation, and awaits both
+  model terminal and product cleanup/finalization before trim, unload, or ownership release.
+- The runtime/streaming convergence program is active under
+  `config/runtime-refactor-contract.json` and
+  `docs/decisions/runtime-streaming-quality-convergence.md`. Its correctness prerequisites are in
+  the current product path: macOS XPC reserves before creating generation side effects, pressure
+  snapshots are synchronized, and critical relief closes admission continuously from cancellation
+  through terminal cleanup and trim. Immutable product/core/evidence plans also run in independent
+  shadow comparison, but shadow mode never starts a second model generation.
+- Sampling algorithm v2 and Qwen generation-memory policy are shipping request-owned contracts.
+  Every request records an effective seed and uses a fresh `MLXRandom.RandomState`; independently
+  configurable talker/subtalker sampling and per-request cache cadence/window policy no longer rely
+  on mutable generation globals. Existing canonical schema-v2 benchmarks predate this runtime
+  change and remain valid historical evidence only. The focused macOS Custom/Design/Clone parity
+  runs now pass on the current worktree on both macOS and the physical iPhone; clean repeated
+  controls, the applicable full canonical matrices, and exact legacy characterization remain
+  required for full promotion.
+- `VocelloQwen3Engine`, the classified session, and QwenVoiceCore's
+  `GenerationOutputAdapter` are now the source-level shipping generation path for Custom, Design,
+  and Clone. The retained `NativeStreamingSynthesisSession.swift` filename is temporary mechanical
+  debt, not a second session authority. Lazy MLX audio is evaluated and copied to `[Float]` before
+  the producer awaits the size-aware channel, so a delayed mandatory drain backpressures the actual
+  token/decode loop without moving an `MLXArray` across a task or actor boundary. The adapter drains
+  every frame, preserves the existing limiter/WAV/Fast-QC/telemetry behavior, publishes one product
+  terminal, and returns the generation/lease/finalization token before ownership can release.
+  Prepared-model loading/prewarm and validated schema-3 Clone prompt adoption still use a narrow
+  `VocelloQwen3LegacyCompatibility` bridge; therefore the actor is the shipping generation mutation
+  authority, not yet the sole MLX mutator across every lifecycle operation.
+  The actor's remaining correctness gaps are also closed: `reserved`, `generating`, and `aborting`
+  lifecycle ownership prevents an abort-owned reservation from reopening generation and makes
+  duplicate aborts join the same finalization. Typed cache-trim or full-unload relief carries the
+  generation lease directly through critical relief and reopens admission only after the
+  revalidated relief operation completes. A rejected atomic relief claim clears only its matching
+  ownership before crossing the session barrier again; ordinary finalization therefore releases
+  the generation lease in both possible acknowledgment orderings instead of stranding it.
+  Clone conditioning remains tensor-opaque behind epoch-bound handles. The actor retains one handle
+  by default, supports an explicit bounded capacity with LRU eviction, and makes repeated release
+  fail closed. A reservation keeps the prompt it already captured; noncritical cache trim preserves
+  otherwise valid handles, while model reload, critical trim, and full unload invalidate them.
+  Shipping schema-v8 rows remain authoritative and embed only a partial v9 transition projection;
+  Phase 4 does not complete the v9 writer/merger/publication path. Telemetry v8/evidence v2,
+  manifest v3, persisted Fast QC, and the existing specialized gates remain operational truth.
+  Focused physical-iPhone Phase 4 acceptance now passes; sequential streaming long-form, complete
+  v9 publication, history v3, clean full-matrix promotion evidence, and Phase 14 retirement remain
+  pending.
 - Clone conditioning is typed as transcript-backed or genuine audio-only x-vector. Both apps own
   the visible `voiceCloning_consentAcknowledgment` in Settings, persist the choice locally, and
   keep Clone Generate disabled until consent is acknowledged. Smoke and benchmark enable it through
@@ -70,11 +196,16 @@
   durably records cancel intent and the deleted tombstone before task/staging destruction or a
   deleted UI state; a storage failure preserves recoverable state and cannot become a queued request
   after relaunch.
-- The generated cross-platform production model catalog is complete for all six Speed/Quality
-  artifacts, with exact pinned revisions, sizes, and per-file SHA-256 identities. macOS and CLI now
-  use the bundled fail-closed `downloadFiles` route instead of live repository enumeration; iOS
-  retains its one-session background lifecycle over the same exact artifact contract. Static
-  validation and fresh isolated iPhone and macOS/CLI post-cutover evidence pass. The isolated
+- The generated cross-platform production model catalog schema v2 is complete for all six
+  Speed/Quality artifacts, with exact pinned revisions, sizes, per-file SHA-256 identities, and the
+  shared `speech_tokenizer` content/compatibility identity. macOS, CLI, and iOS now resolve the
+  same delivery plan; verified component blobs can omit exact bytes from a later download and new
+  installs publish ordinary hard-linked model files atomically. Schema-v1 documents remain
+  read-compatible. Resolving a schema-v2 delivery plan now authenticates all catalog files in an
+  existing installation and automatically migrates or repairs its shared-component presentation;
+  failed authentication contributes no reusable bytes and falls back to ordinary network repair.
+  Live validation across all supported artifacts is still pending; earlier isolated delivery
+  evidence predates shared-component activation. The isolated
   macOS/CLI Custom Speed proof at source `9a8da874…` transferred exactly 2,312,057,897 expected and
   wire bytes with zero control or duplicate bytes, zero retries, nominal thermal state, and final
   integrity. Its bounded foreground delegate ingress preserved terminal staging and metrics before
@@ -110,15 +241,26 @@
   Xcode caches, one shared package checkout, ephemeral scratch builds, bounded evidence/current
   symbols, and release-only `build/dist/` outputs. Public `build/Vocello.app` and `build/vocello`
   paths are symlinks to canonical macOS products; local macOS products are arm64-only.
+- Repository storage inventory now distinguishes automatically eligible, blocked, and explicitly
+  acknowledged evidence. UI lifecycle retention covers smoke, benchmark, and model-download lanes;
+  failed raw profile traces require an exact run ID for manual compaction, while superseded or
+  resolved failures compact automatically; platform/package/runtime caches can
+  be removed independently. Manifest-owned free-space preflights stop heavy lanes before they create
+  partial output, while ordinary successful builds remain non-destructive.
 - The Qwen3/Mimi implementation is now an explicitly owned monorepo core package at
   `Packages/VocelloQwen3Core`. Product targets depend on the `VocelloQwen3Core` facade, whose typed
   model-bundle, capability, sampling, memory, request, terminal, cancellation, and diagnostic
-  contracts isolate application code from implementation modules. The legacy `MLXAudio` package,
-  products, targets, modules, and public APIs remain available behind the facade for compatibility;
-  synthesis behavior and persistent identities did not change. Immutable lineage, compatibility,
-  ownership, and runtime-capability contracts replace patch-stack governance. Large-file
-  decomposition remains separate follow-up work.
-- The facade session's bounded event channel never suspends a producer on an absent consumer.
+  contracts isolate application code from implementation modules. Product generation now uses
+  `VocelloQwen3Engine`, its classified session, and QwenVoiceCore's
+  `GenerationOutputAdapter`. The narrow `VocelloQwen3LegacyCompatibility` import remains for
+  temporary loaded-model load/prewarm and schema-3 conditioning adoption. The legacy `MLXAudio`
+  package, products, targets, modules, and public APIs remain available behind the facade for
+  implementation compatibility; synthesis behavior and persistent identities did not change.
+  Immutable lineage, compatibility, ownership, and runtime-capability contracts replace
+  patch-stack governance. The named SPI, physical filename split, large-file decomposition, and
+  compatibility-surface retirement are deferred Phase 14 work after platform promotion.
+- The package-internal combined session's bounded event channel never suspends a producer on an
+  absent consumer.
   Overflow fails explicitly with a reserved terminal slot, cancellation replaces obsolete queued
   events with its terminal, and `waitForTermination()` is independent of event-stream drainage.
 - Runtime trust boundaries are machine-readable. `config/runtime-debug-knobs.json` makes every
@@ -143,14 +285,15 @@
   `build/artifacts/macos/` and does
   not publish schema-v2 history. Its `off` lane deliberately constructs no sampler, so requiring
   in-process memory evidence there would change the experiment rather than qualify it.
-- A clean canonical macOS schema-v2 baseline exists for the owned Qwen3 core, and a clean canonical
-  iPhone schema-v2 baseline exists for the same implementation. Mac mini M2 8 GB run
+- A clean canonical macOS schema-v2 baseline exists, and a clean canonical iPhone schema-v2
+  baseline exists, for the pre-convergence owned Qwen3 implementation. Mac mini M2 8 GB run
   `macos-xcui-benchmark-20260716-181853-b4c2e299` at source `9a8da874…` and iPhone 17 Pro run
   `ios-xcui-benchmark-20260716-184106-48e3a3a6` at source `bcb5265a…` each completed the exact
   29-take matrix with telemetry schema v8, complete layer correlation, qualified memory evidence,
   clean crash deltas, and the allowed `memory.pressure.soft_trim` warning. Earlier canonical
-  records remain valid for their recorded source identities; dirty records remain exploratory and
-  are excluded from canonical trends.
+  records remain valid for their recorded source identities but do not promote the request-local
+  sampling/memory or shared-component changes in this worktree; dirty records remain exploratory
+  and are excluded from canonical trends.
 - The physical-iPhone language lane predeclares a one-based, fixed-seed run plan; retains only the
   exact selected WAV and telemetry evidence; requires three-pass locale-locked on-device Speech
   consensus; and offers a retry-free 15-take diagnostic cohort that never publishes history. Its
@@ -227,21 +370,26 @@ explicit macOS fixture repair/bootstrap step.
   written-output/dropout warning and soft memory trims. It is tracked as `exploratory` because the
   owned-runtime worktree was dirty; it proves the exact recorded fingerprint but is excluded from
   clean comparison trends.
-- Clean canonical macOS and iPhone schema-v2 UI baselines are complete. Rerun either canonical
-  matrix after a relevant engine, model, compiler, toolchain, or performance change rather than for
-  documentation-only revisions. Explicit quality runs remain independent from ordinary publishing
-  and release packaging.
+- Clean canonical macOS and iPhone schema-v2 UI baselines exist for their recorded pre-convergence
+  source identities. The request-local sampling/memory and component-delivery changes make those
+  records historical controls rather than current promotion evidence. Focused post-cutover macOS
+  parity now passes for Custom, Design, and Clone on exact dirty worktree fingerprints on both
+  platforms. Clean repeated controls, the applicable full canonical matrices, and exact legacy
+  characterization remain pending. Explicit quality runs remain independent from ordinary
+  publishing and release packaging.
 - Physical-iPhone telemetry-v8/evidence-v2 acceptance is complete for the canonical UI matrix,
   retained-memory qualification, and an exact-PID memory profile. The tracked records remain bound
   to their exact source, toolchain, model, and hardware identities; new product changes require
   proportionate fresh evidence rather than reuse of local raw artifacts.
-- Current owned-core evidence now passes on both platforms: the two canonical 29-take UI matrices,
+- Pre-convergence owned-core evidence passes on both platforms: the two canonical 29-take UI matrices,
   typed user and memory-pressure cancellation, the two-take physical-iPhone Clone proof,
   redirect-enforced isolated iPhone delivery, the isolated post-catalog macOS/CLI delivery proof,
   Speech prerequisites, and the full 19-cell language run. Each result remains bound to its exact
   source or worktree fingerprint; the language run remains exploratory rather than a clean trend
-  baseline. These explicit quality tasks remain nonblocking for deterministic source publication,
-  packaging, and release artifact preservation.
+  baseline. It must not be presented as validation of the staged convergence runtime. Focused
+  post-cutover macOS and physical-iPhone focused parity are now separate passing evidence; clean
+  canonical controls and full-matrix promotion QA remain pending and nonblocking for deterministic
+  source publication, packaging, and release artifact preservation.
 
 ## Resume rule
 

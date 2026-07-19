@@ -2,25 +2,32 @@ import XCTest
 @testable import QwenVoiceCore
 
 final class GenerationEventDeliveryProbeTests: XCTestCase {
-    func testBoundedGenerationStreamAccountsForEvictedKindsAndPreservesTerminal() async {
+    func testBoundedGenerationStreamBackpressuresWithoutEvictingAudioOrTerminal() async {
         let router = GenerationScopedEventRouter()
         let generationID = UUID()
         let stream = router.stream(for: generationID, capacity: 1)
         router.beginGeneration(generationID)
 
-        router.yield(.progress(GenerationProgress(percent: 10, message: "one")), for: generationID)
-        router.yield(.progress(GenerationProgress(percent: 20, message: "two")), for: generationID)
-        router.yield(.failed("fixture"), for: generationID)
+        let producer = Task.detached {
+            await router.yield(.progress(GenerationProgress(percent: 10, message: "one")), for: generationID)
+            await router.yield(.progress(GenerationProgress(percent: 20, message: "two")), for: generationID)
+            await router.yield(.failed("fixture"), for: generationID)
+        }
 
         var received: [GenerationEvent] = []
         for await event in stream {
             received.append(event)
         }
+        await producer.value
         let snapshot = router.snapshot(for: generationID)
-        XCTAssertEqual(received, [.failed("fixture")])
+        XCTAssertEqual(received, [
+            .progress(GenerationProgress(percent: 10, message: "one")),
+            .progress(GenerationProgress(percent: 20, message: "two")),
+            .failed("fixture"),
+        ])
         XCTAssertEqual(snapshot.yielded, 3)
         XCTAssertEqual(snapshot.accepted, 3)
-        XCTAssertEqual(snapshot.droppedProgress, 2)
+        XCTAssertEqual(snapshot.droppedProgress, 0)
         XCTAssertEqual(snapshot.droppedTerminals, 0)
         XCTAssertEqual(snapshot.terminalYielded, 1)
         XCTAssertEqual(snapshot.terminalEnqueued, 1)
@@ -37,8 +44,8 @@ final class GenerationEventDeliveryProbeTests: XCTestCase {
         router.beginGeneration(oldID)
         router.beginGeneration(newID)
 
-        router.yield(.progress(GenerationProgress(percent: 1, message: "old")), for: oldID)
-        router.yield(.failed("new-terminal"), for: newID)
+        await router.yield(.progress(GenerationProgress(percent: 1, message: "old")), for: oldID)
+        await router.yield(.failed("new-terminal"), for: newID)
 
         var newEvents: [GenerationEvent] = []
         for await event in newStream { newEvents.append(event) }
@@ -60,7 +67,7 @@ final class GenerationEventDeliveryProbeTests: XCTestCase {
         consumer.cancel()
         await consumer.value
 
-        router.yield(.failed("terminal-after-consumer"), for: generationID)
+        await router.yield(.failed("terminal-after-consumer"), for: generationID)
 
         let snapshot = router.snapshot(for: generationID)
         XCTAssertTrue(snapshot.consumerTerminatedBeforeTerminal)
@@ -72,26 +79,26 @@ final class GenerationEventDeliveryProbeTests: XCTestCase {
         XCTAssertTrue(snapshot.accountingIsExact)
     }
 
-    func testStressRetainsTerminalAndAccountsForEveryEvictedChunk() async {
+    func testStressRetainsEveryChunkAndTerminalUnderBackpressure() async {
         let router = GenerationScopedEventRouter()
         let generationID = UUID()
-        let capacity = 8
+        let capacity = 1_001
         let stream = router.stream(for: generationID, capacity: capacity)
         router.beginGeneration(generationID)
 
         for index in 0..<1_000 {
-            router.yield(Self.chunk(index: index, generationID: generationID), for: generationID)
+            await router.yield(Self.chunk(index: index, generationID: generationID), for: generationID)
         }
-        router.yield(.completed(Self.result), for: generationID)
+        await router.yield(.completed(Self.result), for: generationID)
 
         var received: [GenerationEvent] = []
         for await event in stream { received.append(event) }
         let snapshot = router.snapshot(for: generationID)
-        XCTAssertEqual(received.count, capacity)
+        XCTAssertEqual(received.count, 1_001)
         XCTAssertEqual(received.last, .completed(Self.result))
         XCTAssertEqual(snapshot.yielded, 1_001)
         XCTAssertEqual(snapshot.accepted, 1_001)
-        XCTAssertEqual(snapshot.droppedChunks, 993)
+        XCTAssertEqual(snapshot.droppedChunks, 0)
         XCTAssertEqual(snapshot.droppedTerminals, 0)
         XCTAssertEqual(snapshot.terminalEnqueued, 1)
         XCTAssertTrue(snapshot.accountingIsExact)

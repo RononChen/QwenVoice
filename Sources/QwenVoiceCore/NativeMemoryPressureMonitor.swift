@@ -1,4 +1,33 @@
 import Foundation
+import os
+
+/// Synchronous, thread-safe snapshot storage for the latest kernel-pressure
+/// translation.
+///
+/// `DispatchSourceMemoryPressure` owns event delivery on a private dispatch
+/// queue, while engines and warm-up policies read the current value from their
+/// own isolation domains. Keeping the tiny value behind an allocated unfair
+/// lock makes those reads race-free without introducing an async hop or ever
+/// holding a lock across suspension.
+final class NativeMemoryPressureSnapshotState: Sendable {
+    private let storage = OSAllocatedUnfairLock<NativeMemoryTrimLevel?>(
+        initialState: nil
+    )
+
+    var currentLevel: NativeMemoryTrimLevel? {
+        storage.withLock { $0 }
+    }
+
+    /// Replaces the current value and returns the previous snapshot.
+    @discardableResult
+    func transition(to level: NativeMemoryTrimLevel?) -> NativeMemoryTrimLevel? {
+        storage.withLock { current in
+            let previous = current
+            current = level
+            return previous
+        }
+    }
+}
 
 /// Defines the ordering required when the kernel asks the native runtime to
 /// shed memory.
@@ -23,6 +52,15 @@ struct NativeMemoryPressureResponsePolicy: Sendable {
             return .cancelActiveGeneration(.memoryPressure)
         }
     }
+
+    func requiresExclusiveRelief(for level: NativeMemoryTrimLevel) -> Bool {
+        switch preparation(before: level) {
+        case .none:
+            return false
+        case .cancelActiveGeneration:
+            return true
+        }
+    }
 }
 
 /// Serializes kernel-pressure responses and makes their side effects
@@ -36,11 +74,15 @@ actor NativeMemoryPressureResponseExecutor {
     typealias ObservationHandler = @Sendable (NativeMemoryTrimLevel) async -> Void
     typealias CancellationHandler = @Sendable (GenerationCancellationReason) async -> Void
     typealias TrimHandler = @Sendable (NativeMemoryTrimLevel, String) async -> Void
+    typealias ReliefBarrierHandler = @Sendable () async -> Void
 
     private let policy: NativeMemoryPressureResponsePolicy
     private let recordObservation: ObservationHandler
     private let cancelActiveGeneration: CancellationHandler
     private let trim: TrimHandler
+    private let closeAdmissionForCriticalRelief: ReliefBarrierHandler
+    private let awaitModelOperationsQuiesced: ReliefBarrierHandler
+    private let publishCriticalReliefCompletion: ReliefBarrierHandler
     private var responseInFlight = false
     private var responseWaiters: [CheckedContinuation<Void, Never>] = []
 
@@ -48,17 +90,31 @@ actor NativeMemoryPressureResponseExecutor {
         policy: NativeMemoryPressureResponsePolicy = NativeMemoryPressureResponsePolicy(),
         recordObservation: @escaping ObservationHandler,
         cancelActiveGeneration: @escaping CancellationHandler,
-        trim: @escaping TrimHandler
+        trim: @escaping TrimHandler,
+        closeAdmissionForCriticalRelief: @escaping ReliefBarrierHandler = {},
+        awaitModelOperationsQuiesced: @escaping ReliefBarrierHandler = {},
+        publishCriticalReliefCompletion: @escaping ReliefBarrierHandler = {}
     ) {
         self.policy = policy
         self.recordObservation = recordObservation
         self.cancelActiveGeneration = cancelActiveGeneration
         self.trim = trim
+        self.closeAdmissionForCriticalRelief = closeAdmissionForCriticalRelief
+        self.awaitModelOperationsQuiesced = awaitModelOperationsQuiesced
+        self.publishCriticalReliefCompletion = publishCriticalReliefCompletion
     }
 
     func execute(level: NativeMemoryTrimLevel, reason: String) async {
         await acquireResponseSlot()
         defer { releaseResponseSlot() }
+
+        let requiresExclusiveRelief = policy.requiresExclusiveRelief(for: level)
+        if requiresExclusiveRelief {
+            // Close admission before any suspension or cancellation. The
+            // engine keeps this barrier closed through compute termination,
+            // trim/unload, and final state publication.
+            await closeAdmissionForCriticalRelief()
+        }
 
         // Preserve the raw signal even if cancellation takes long enough that
         // the later trim mark misses the active generation's telemetry window.
@@ -71,7 +127,19 @@ actor NativeMemoryPressureResponseExecutor {
             await cancelActiveGeneration(cancellationReason)
         }
 
+        if requiresExclusiveRelief {
+            // Generation cancellation covers model compute. This second
+            // barrier also waits out an already-running load or prewarm.
+            await awaitModelOperationsQuiesced()
+        }
+
         await trim(level, reason)
+
+        if requiresExclusiveRelief {
+            // This is deliberately last. A stalled trim fails closed instead
+            // of admitting new model work against partially released state.
+            await publishCriticalReliefCompletion()
+        }
     }
 
     private func acquireResponseSlot() async {
@@ -107,17 +175,18 @@ actor NativeMemoryPressureResponseExecutor {
 /// - `.normal` → no trim, just transition back to a "healthy" state
 ///
 /// Why this is a class, not an actor: `DispatchSource` callbacks fire on
-/// the dispatch queue, which is fine since this class only mutates a single
-/// `currentLevel` field and forwards events to an `AsyncStream`. The class
-/// is `@unchecked Sendable` because all mutation goes through the dispatch
-/// queue.
+/// the dispatch queue. Source lifecycle stays confined to that queue, while
+/// the cross-domain pressure snapshot is protected by
+/// `OSAllocatedUnfairLock` and events are forwarded through `AsyncStream`.
+/// Its unchecked concurrency conformance remains limited to the
+/// dispatch-source bridge.
 ///
 public final class NativeMemoryPressureMonitor: @unchecked Sendable {
     /// The most recent trim level dispatched by this monitor, or `nil` if
     /// the system has been in the "normal" band since the monitor started.
-    /// Reads of this property are eventually-consistent: the writer is the
-    /// dispatch queue, readers are typically the engine on its own queue.
-    public private(set) var currentLevel: NativeMemoryTrimLevel?
+    public var currentLevel: NativeMemoryTrimLevel? {
+        snapshotState.currentLevel
+    }
 
     /// Push-notification stream. Each event corresponds to a trim level the
     /// engine should act on. A `.normal` system transition does NOT emit an
@@ -126,6 +195,7 @@ public final class NativeMemoryPressureMonitor: @unchecked Sendable {
 
     private let continuation: AsyncStream<NativeMemoryTrimLevel>.Continuation
     private let queue: DispatchQueue
+    private let snapshotState = NativeMemoryPressureSnapshotState()
 
     #if os(macOS) || os(iOS)
     private var source: (any DispatchSourceMemoryPressure)?
@@ -191,8 +261,7 @@ public final class NativeMemoryPressureMonitor: @unchecked Sendable {
     }
 
     private func transition(to level: NativeMemoryTrimLevel?, emit: Bool) {
-        let previous = currentLevel
-        currentLevel = level
+        let previous = snapshotState.transition(to: level)
         guard emit, let level, previous != level else { return }
         continuation.yield(level)
     }

@@ -43,11 +43,12 @@ jobs:
 
       - name: Install deterministic tooling
         run: |
-          brew install xcodegen xcbeautify ripgrep shellcheck
+          brew install xcodegen xcbeautify ripgrep shellcheck numpy
           xcodegen --version
           xcbeautify --version
           rg --version
           shellcheck --version
+          python3 -c 'import numpy; print(numpy.__version__)'
           python3 scripts/supply_chain_contract.py --installed native
 
       - name: Cache SwiftPM dependencies
@@ -64,6 +65,7 @@ jobs:
       - name: Resolve SwiftPM dependencies
         run: |
           set -euo pipefail
+          python3 scripts/lib/ios_platform_preflight.py check
           mkdir -p build/cache/xcode/source-packages build/scratch/derived-data/ci/ios-compile
           xcodebuild -resolvePackageDependencies \
             -project QwenVoice.xcodeproj \
@@ -125,11 +127,12 @@ jobs:
 
       - name: Install deterministic tooling
         run: |
-          brew install xcodegen xcbeautify ripgrep shellcheck
+          brew install xcodegen xcbeautify ripgrep shellcheck numpy
           xcodegen --version
           xcbeautify --version
           rg --version
           shellcheck --version
+          python3 -c 'import numpy; print(numpy.__version__)'
           python3 scripts/supply_chain_contract.py --installed native
 
       - name: Regenerate Xcode project

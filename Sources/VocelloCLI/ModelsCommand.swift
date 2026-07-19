@@ -110,7 +110,14 @@ enum ModelsCommand {
             estimatedDownloadBytes: descriptor.estimatedDownloadBytes,
             requiredRelativePaths: descriptor.requiredRelativePaths
         )
+        let modelsDirectory = ctx.modelsDirectory
+        let delivery = try await Task.detached(priority: .utility) {
+            try catalog.deliveryPlan(for: artifact, modelsRoot: modelsDirectory)
+        }.value
         note("Installing \(modelID) from \(artifact.repo) (revision \(artifact.revision.prefix(7))\u{2026})")
+        if delivery.reusedVerifiedComponent {
+            noteVerbose("  reusing verified shared speech tokenizer (\(humanBytes(delivery.reusedComponentBytes)))")
+        }
 
         let diagnostics = ModelDownloadDiagnosticsStore(
             directory: ctx.modelsDirectory
@@ -133,7 +140,7 @@ enum ModelsCommand {
 
         do {
             try await downloader.downloadFiles(
-                artifact.downloadFiles,
+                delivery.filesToDownload,
                 repo: artifact.repo,
                 revision: artifact.revision,
                 to: targetDir,
@@ -141,7 +148,9 @@ enum ModelsCommand {
                     logicalRequestID: UUID().uuidString,
                     modelID: modelID,
                     artifactVersion: artifact.artifactVersion
-                )
+                ),
+                installedFiles: delivery.installedFiles,
+                sharedComponentPlan: delivery.sharedComponentPlan
             )
             diagnostics.recordSuccess(
                 expectedBytes: descriptor.estimatedDownloadBytes ?? directorySize(targetDir)

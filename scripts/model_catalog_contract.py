@@ -14,6 +14,7 @@ import argparse
 import hashlib
 import json
 import re
+import struct
 import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -24,13 +25,29 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = Path("Sources/Resources/qwenvoice_contract.json")
 IOS_CATALOG_PATH = Path("Sources/Resources/qwenvoice_ios_model_catalog.json")
 PRODUCTION_CATALOG_PATH = Path("Sources/Resources/qwenvoice_production_model_catalog.json")
-SCHEMA_PATH = Path("config/model-catalog-schema-v1.json")
+SCHEMA_PATH = Path("config/model-catalog-schema-v2.json")
 RECEIPTS_PATH = Path("config/model-artifact-receipts.json")
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 ALLOWED_HOSTS = ("huggingface.co",)
 ALLOWED_REDIRECT_HOST_SUFFIXES = ("huggingface.co", "hf.co")
 HEX_40 = re.compile(r"^[0-9a-f]{40}$")
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
+SHARED_COMPONENT_ID = "qwen3-speech-tokenizer-v1"
+SHARED_COMPONENT_ROOT = "speech_tokenizer"
+SHARED_COMPONENT_PATHS = (
+    "speech_tokenizer/config.json",
+    "speech_tokenizer/configuration.json",
+    "speech_tokenizer/model.safetensors",
+    "speech_tokenizer/preprocessor_config.json",
+)
+SHARED_COMPONENT_SOURCE_ORDER = (
+    "pro_custom:speed",
+    "pro_design:speed",
+    "pro_clone:speed",
+    "pro_custom:quality",
+    "pro_design:quality",
+    "pro_clone:quality",
+)
 
 
 class CatalogContractError(RuntimeError):
@@ -47,6 +64,15 @@ def pretty_bytes(value: Any) -> bytes:
 
 def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+def canonical_identity_digest(domain: str, fields: list[str]) -> str:
+    hasher = hashlib.sha256()
+    for field in [domain, *fields]:
+        encoded = field.encode("utf-8")
+        hasher.update(struct.pack(">Q", len(encoded)))
+        hasher.update(encoded)
+    return hasher.hexdigest()
 
 
 def load_json(path: Path) -> Any:
@@ -233,8 +259,82 @@ def receipt_artifacts(document: dict[str, Any], descriptors: list[dict[str, Any]
             "baseURL": entry["baseURL"],
             "totalBytes": total,
             "files": sorted(normalized_files, key=lambda item: item["relativePath"]),
+            "sharedComponentIDs": [SHARED_COMPONENT_ID],
         }
     return results
+
+
+def shared_component(artifacts_by_identity: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    source_order = (
+        SHARED_COMPONENT_SOURCE_ORDER
+        if set(SHARED_COMPONENT_SOURCE_ORDER) == set(artifacts_by_identity)
+        else tuple(sorted(artifacts_by_identity))
+    )
+    baseline = artifacts_by_identity[source_order[0]]
+    baseline_files = {item["relativePath"]: item for item in baseline["files"]}
+    if set(SHARED_COMPONENT_PATHS) - set(baseline_files):
+        raise CatalogContractError("baseline artifact lacks the speech_tokenizer component")
+
+    files: list[dict[str, Any]] = []
+    for path in SHARED_COMPONENT_PATHS:
+        expected = baseline_files[path]
+        for identity in source_order[1:]:
+            candidate = {
+                item["relativePath"]: item
+                for item in artifacts_by_identity[identity]["files"]
+            }.get(path)
+            if candidate != expected:
+                raise CatalogContractError(
+                    f"shared component {path} differs in artifact {identity}"
+                )
+        files.append({
+            "relativePath": path,
+            "byteCount": expected["sizeBytes"],
+            "sha256": expected["sha256"],
+        })
+
+    fields = [
+        field
+        for file in files
+        for field in (file["relativePath"], str(file["byteCount"]), file["sha256"])
+    ]
+    content_digest = canonical_identity_digest(
+        "vocello.shared-component.content.v1",
+        fields,
+    )
+    component_schema_version = 1
+    loader_abi = "vocello-qwen3-speech-tokenizer-v1"
+    runtime_profile = "qwen3-tts-12hz-1.7b"
+    encoder_capability = "encoderAndDecoder"
+    compatibility_digest = canonical_identity_digest(
+        "vocello.shared-component.compatibility.v1",
+        [
+            content_digest,
+            str(component_schema_version),
+            loader_abi,
+            runtime_profile,
+            encoder_capability,
+        ],
+    )
+    return {
+        "id": SHARED_COMPONENT_ID,
+        "relativeRoot": SHARED_COMPONENT_ROOT,
+        "contentIdentity": {
+            "schemaVersion": 1,
+            "digest": content_digest,
+            "files": files,
+        },
+        "compatibilityIdentity": {
+            "schemaVersion": 1,
+            "digest": compatibility_digest,
+            "contentDigest": content_digest,
+            "componentSchemaVersion": component_schema_version,
+            "loaderABI": loader_abi,
+            "runtimeProfileSignature": runtime_profile,
+            "encoderCapability": encoder_capability,
+        },
+        "sourceArtifactIdentities": list(source_order),
+    }
 
 
 def build_catalog(root: Path = REPO_ROOT) -> dict[str, Any]:
@@ -246,7 +346,7 @@ def build_catalog(root: Path = REPO_ROOT) -> dict[str, Any]:
     ios_catalog = load_json(ios_catalog_path)
     schema = load_json(schema_path)
     receipts = load_json(receipts_path)
-    if schema.get("$id") != "https://vocello.app/schemas/model-catalog-v1.json":
+    if schema.get("$id") != "https://vocello.app/schemas/model-catalog-v2.json":
         raise CatalogContractError("model catalog schema has an unexpected identity")
     if receipts.get("schemaVersion") != 1 or not isinstance(receipts.get("artifacts"), list):
         raise CatalogContractError("model artifact receipts have an unsupported schema")
@@ -269,6 +369,7 @@ def build_catalog(root: Path = REPO_ROOT) -> dict[str, Any]:
             str(RECEIPTS_PATH): sha256_bytes(receipts_path.read_bytes()),
         },
         "artifacts": [artifacts_by_identity[key] for key in sorted(artifacts_by_identity)],
+        "sharedComponents": [shared_component(artifacts_by_identity)] if not missing else [],
         "missingArtifactIdentities": missing,
     }
 
@@ -307,6 +408,11 @@ def validate_catalog(root: Path = REPO_ROOT, require_complete: bool = False) -> 
             for file in files
         ):
             errors.append(f"production catalog artifact {artifact_identity(artifact)} lacks exact file evidence")
+    components = actual.get("sharedComponents")
+    if actual.get("activationState") == "complete" and (
+        not isinstance(components, list) or len(components) != 1
+    ):
+        errors.append("production catalog must contain one shared speech_tokenizer component")
     missing = actual.get("missingArtifactIdentities")
     if not isinstance(missing, list) or any(not isinstance(item, str) for item in missing):
         errors.append("production catalog missingArtifactIdentities must be an array of strings")

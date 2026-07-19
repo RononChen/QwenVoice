@@ -4,8 +4,8 @@
 > execute models, devices, UI tests, signing, or network checks.
 
 - Current source identity and dirty state: local JSON report only (kept out of the tracked snapshot to avoid self-referential drift)
-- Swift tests: 232 cases in 39 files
-- Python tests: 539 cases in 40 files
+- Swift tests: 383 cases in 52 files
+- Python tests: 595 cases in 43 files
 - Required-step assurance: 55 steps across 12 workflows, all covered by forced-failure fixtures
 - Unsafe-concurrency annotations: 50 (50 registered with owner and invariant; contract complete)
 
@@ -20,17 +20,17 @@
 
 | Domain | Owner | Production files | Direct test files / cases | Hardware evidence |
 | --- | --- | ---: | ---: | --- |
-| generation-terminal | backend | 4 | 2 / 11 | macos: fresh, ios: fresh |
-| clone-conditioning | backend | 27 | 2 / 31 | macos: fresh, ios: fresh |
-| event-delivery | backend | 3 | 2 / 8 | macos: fresh, ios: fresh |
-| memory-policy | backend-platform | 6 | 2 / 25 | macos: fresh, ios: fresh |
-| model-delivery | backend-platform | 14 | 3 / 36 | macos: fresh, ios: fresh |
-| xpc-transport | macos | 3 | 2 / 12 | macos: fresh |
-| benchmark-validation | release-qa | 6 | 4 / 111 | macos: fresh, ios: fresh |
+| generation-terminal | backend | 4 | 2 / 16 | macos: stale, ios: stale |
+| clone-conditioning | backend | 30 | 2 / 31 | macos: stale, ios: stale |
+| event-delivery | backend | 3 | 2 / 10 | macos: stale, ios: stale |
+| memory-policy | backend-platform | 6 | 2 / 25 | macos: stale, ios: stale |
+| model-delivery | backend-platform | 17 | 3 / 36 | macos: stale, ios: stale |
+| xpc-transport | macos | 3 | 3 / 15 | macos: stale |
+| benchmark-validation | release-qa | 6 | 4 / 111 | macos: stale, ios: stale |
 | orchestration-assurance | release-qa | 3 | 1 / 12 | not hardware-gated |
 | release-supply-chain | release-qa | 6 | 3 / 51 | macos: stale |
 | persistence-privacy | platform-release-qa | 4 | 2 / 7 | not hardware-gated |
-| runtime-hardening | backend-release-qa | 5 | 2 / 10 | not hardware-gated |
+| runtime-hardening | backend-release-qa | 5 | 2 / 17 | not hardware-gated |
 
 ## Interpretation
 

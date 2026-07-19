@@ -1374,10 +1374,12 @@ public struct GenerationRequest: Hashable, Codable, Sendable {
     /// (`NativeEngineRuntime`) and app/middle/engine telemetry rows join.
     /// Optional + synthesized `Codable` keeps the IPC wire back-compatible.
     public let generationID: UUID?
-    /// Deterministic-sampling seed. When set, the engine seeds the MLX RNG
-    /// before decoding, so the same request + seed reproduces the same take
-    /// ("regenerate exactly"; stabilizes batches). Optional + synthesized
-    /// `Codable` keeps the IPC wire back-compatible. (GitHub #47/#30)
+    /// Deterministic-sampling seed. When set, the engine creates a request-local
+    /// MLX random state before decoding, so the same request + sampling-policy
+    /// version + seed reproduces the same take ("regenerate exactly";
+    /// stabilizes batches). Unseeded requests receive a recorded effective seed.
+    /// Optional + synthesized `Codable` keeps the IPC wire back-compatible.
+    /// (GitHub #47/#30)
     public let seed: UInt64?
     /// Sampling variation (talker temperature/top-p shaping). nil/expressive
     /// = official defaults. Wire-back-compatible like `seed`.

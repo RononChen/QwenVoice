@@ -28,13 +28,129 @@ struct GenerationEventDeliverySnapshot: Equatable, Sendable {
     }
 }
 
-/// One bounded stream per generation. A previous generation can therefore
-/// never occupy the next generation's buffer or have its terminal evicted by
-/// later work. Every producer yield has exactly one accounted outcome:
-/// accepted (possibly evicting an older event), terminated, or unobserved.
+private actor BoundedGenerationEventChannel {
+    private struct PendingSend {
+        let id: UUID
+        let event: GenerationEvent
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
+    private let capacity: Int
+    private var queue: [GenerationEvent] = []
+    private var pendingSends: [PendingSend] = []
+    private var waitingConsumer: CheckedContinuation<GenerationEvent?, Never>?
+    private var terminalAccepted = false
+    private var terminated = false
+
+    init(capacity: Int) {
+        self.capacity = max(1, capacity)
+    }
+
+    func send(_ event: GenerationEvent) async -> Bool {
+        guard !terminated, !terminalAccepted else { return false }
+        if let waitingConsumer {
+            self.waitingConsumer = nil
+            if event.isTerminal { terminalAccepted = true }
+            waitingConsumer.resume(returning: event)
+            if event.isTerminal { terminated = true }
+            return true
+        }
+        if pendingSends.isEmpty, queue.count < capacity {
+            queue.append(event)
+            if event.isTerminal { terminalAccepted = true }
+            return true
+        }
+
+        let pendingID = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled || terminated || terminalAccepted {
+                    continuation.resume(returning: false)
+                } else {
+                    pendingSends.append(PendingSend(
+                        id: pendingID,
+                        event: event,
+                        continuation: continuation
+                    ))
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelPendingSend(pendingID) }
+        }
+    }
+
+    func next() async -> GenerationEvent? {
+        if Task.isCancelled {
+            terminate()
+            return nil
+        }
+        if !queue.isEmpty {
+            let event = queue.removeFirst()
+            promotePendingSends()
+            if event.isTerminal {
+                terminate(keepingWaitingConsumer: true)
+            }
+            return event
+        }
+        if terminated { return nil }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled || terminated {
+                    continuation.resume(returning: nil)
+                } else {
+                    waitingConsumer = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelConsumer() }
+        }
+    }
+
+    func cancelConsumer() {
+        terminate()
+    }
+
+    private func cancelPendingSend(_ id: UUID) {
+        guard let index = pendingSends.firstIndex(where: { $0.id == id }) else { return }
+        pendingSends.remove(at: index).continuation.resume(returning: false)
+    }
+
+    private func promotePendingSends() {
+        while queue.count < capacity, !pendingSends.isEmpty, !terminalAccepted, !terminated {
+            let pending = pendingSends.removeFirst()
+            queue.append(pending.event)
+            if pending.event.isTerminal { terminalAccepted = true }
+            pending.continuation.resume(returning: true)
+        }
+    }
+
+    private func terminate(keepingWaitingConsumer: Bool = false) {
+        guard !terminated else { return }
+        terminated = true
+        if !keepingWaitingConsumer {
+            waitingConsumer?.resume(returning: nil)
+            waitingConsumer = nil
+        }
+        let blocked = pendingSends
+        pendingSends.removeAll(keepingCapacity: false)
+        blocked.forEach { $0.continuation.resume(returning: false) }
+    }
+}
+
+private extension GenerationEvent {
+    var isTerminal: Bool {
+        kind == .completed || kind == .cancelled || kind == .failed
+    }
+}
+
+/// One bounded, suspending stream per generation. A previous generation can
+/// never occupy the next generation's buffer, audio-bearing events are never
+/// evicted, and the product producer backpressures until its sole consumer
+/// advances. Every producer send is accounted as accepted, terminated, or
+/// unobserved; there is no dropping policy.
 final class GenerationScopedEventRouter: @unchecked Sendable {
     private struct ActiveSubscription {
-        var continuation: AsyncStream<GenerationEvent>.Continuation?
+        var channel: BoundedGenerationEventChannel?
         var snapshot: GenerationEventDeliverySnapshot
         var producerStarted = false
         var terminalYielded = false
@@ -50,34 +166,32 @@ final class GenerationScopedEventRouter: @unchecked Sendable {
 
     func stream(for generationID: UUID, capacity: Int) -> AsyncStream<GenerationEvent> {
         precondition(capacity > 0)
-        let pair = AsyncStream<GenerationEvent>.makeStream(
-            bufferingPolicy: .bufferingNewest(capacity)
-        )
-        let stream = pair.stream
-        let capturedContinuation = pair.continuation
+        let channel = BoundedGenerationEventChannel(capacity: capacity)
         let accepted = lock.withLock { state -> Bool in
-            if let current = state.active[generationID], current.continuation != nil {
+            if let current = state.active[generationID], current.channel != nil {
                 return false
             }
             var subscription = state.active[generationID] ?? ActiveSubscription(
-                continuation: nil,
+                channel: nil,
                 snapshot: GenerationEventDeliverySnapshot(),
                 producerStarted: false,
                 terminalYielded: false
             )
-            subscription.continuation = capturedContinuation
+            subscription.channel = channel
             subscription.snapshot.subscriberPresent = true
             state.active[generationID] = subscription
             return true
         }
-        if accepted {
-            capturedContinuation.onTermination = { [weak self] _ in
-                self?.consumerTerminated(generationID: generationID)
-            }
-        } else {
-            capturedContinuation.finish()
+        guard accepted else {
+            return AsyncStream(unfolding: { nil })
         }
-        return stream
+        return AsyncStream(
+            unfolding: { await channel.next() },
+            onCancel: { [weak self] in
+                self?.consumerTerminated(generationID: generationID)
+                Task { await channel.cancelConsumer() }
+            }
+        )
     }
 
     func beginGeneration(_ generationID: UUID) {
@@ -86,14 +200,14 @@ final class GenerationScopedEventRouter: @unchecked Sendable {
             state.completedOrder.removeAll { $0 == generationID }
             if var subscription = state.active[generationID] {
                 subscription.snapshot = GenerationEventDeliverySnapshot(
-                    subscriberPresent: subscription.continuation != nil
+                    subscriberPresent: subscription.channel != nil
                 )
                 subscription.producerStarted = true
                 subscription.terminalYielded = false
                 state.active[generationID] = subscription
             } else {
                 state.active[generationID] = ActiveSubscription(
-                    continuation: nil,
+                    channel: nil,
                     snapshot: GenerationEventDeliverySnapshot(),
                     producerStarted: true,
                     terminalYielded: false
@@ -102,54 +216,44 @@ final class GenerationScopedEventRouter: @unchecked Sendable {
         }
     }
 
-    func yield(_ event: GenerationEvent, for generationID: UUID) {
-        let continuation = lock.withLock { state -> AsyncStream<GenerationEvent>.Continuation? in
+    func yield(_ event: GenerationEvent, for generationID: UUID) async {
+        let channel = lock.withLock { state -> BoundedGenerationEventChannel? in
             if state.active[generationID] == nil {
                 state.active[generationID] = ActiveSubscription(
-                    continuation: nil,
+                    channel: nil,
                     snapshot: GenerationEventDeliverySnapshot(),
                     producerStarted: true,
                     terminalYielded: false
                 )
             }
             state.active[generationID]?.snapshot.yielded += 1
-            return state.active[generationID]?.continuation
+            return state.active[generationID]?.channel
         }
 
-        let result = continuation?.yield(event)
-        let continuationToFinish = lock.withLock { state -> AsyncStream<GenerationEvent>.Continuation? in
-            guard var subscription = state.active[generationID] else { return nil }
-            if let result {
-                Self.record(result, into: &subscription.snapshot)
-                if event.kind == .completed || event.kind == .cancelled || event.kind == .failed,
-                   case .enqueued = result {
-                    subscription.snapshot.terminalEnqueued += 1
-                } else if event.kind == .completed || event.kind == .cancelled || event.kind == .failed,
-                          case .dropped = result {
-                    // bufferingNewest accepted this terminal and evicted the
-                    // returned older event.
+        let accepted = await channel?.send(event)
+        lock.withLock { state in
+            guard var subscription = state.active[generationID] else { return }
+            if channel == nil {
+                subscription.snapshot.unobserved += 1
+            } else if accepted == true {
+                subscription.snapshot.accepted += 1
+                subscription.snapshot.minimumRemainingCapacity = 0
+                if event.isTerminal {
                     subscription.snapshot.terminalEnqueued += 1
                 }
             } else {
-                subscription.snapshot.unobserved += 1
+                subscription.snapshot.terminatedYields += 1
             }
 
-            let isTerminal = event.kind == .completed
-                || event.kind == .cancelled
-                || event.kind == .failed
-            if isTerminal {
+            if event.isTerminal {
                 subscription.snapshot.terminalYielded += 1
                 subscription.terminalYielded = true
-                let continuationToFinish = subscription.continuation
                 Self.archive(subscription.snapshot, generationID: generationID, state: &state)
                 state.active.removeValue(forKey: generationID)
-                return continuationToFinish
             } else {
                 state.active[generationID] = subscription
-                return nil
             }
         }
-        continuationToFinish?.finish()
     }
 
     func snapshot(for generationID: UUID, consuming: Bool = false) -> GenerationEventDeliverySnapshot {
@@ -168,40 +272,11 @@ final class GenerationScopedEventRouter: @unchecked Sendable {
     private func consumerTerminated(generationID: UUID) {
         lock.withLock { state in
             guard var subscription = state.active[generationID] else { return }
-            subscription.continuation = nil
+            subscription.channel = nil
             if subscription.producerStarted && !subscription.terminalYielded {
                 subscription.snapshot.consumerTerminatedBeforeTerminal = true
             }
             state.active[generationID] = subscription
-        }
-    }
-
-    private static func record(
-        _ result: AsyncStream<GenerationEvent>.Continuation.YieldResult,
-        into snapshot: inout GenerationEventDeliverySnapshot
-    ) {
-        switch result {
-        case .enqueued(let remainingCapacity):
-            snapshot.accepted += 1
-            snapshot.minimumRemainingCapacity = min(
-                snapshot.minimumRemainingCapacity ?? remainingCapacity,
-                remainingCapacity
-            )
-        case .dropped(let event):
-            snapshot.accepted += 1
-            snapshot.minimumRemainingCapacity = 0
-            switch event.kind {
-            case .streamChunk:
-                snapshot.droppedChunks += 1
-            case .progress:
-                snapshot.droppedProgress += 1
-            case .completed, .cancelled, .failed:
-                snapshot.droppedTerminals += 1
-            }
-        case .terminated:
-            snapshot.terminatedYields += 1
-        @unknown default:
-            snapshot.terminatedYields += 1
         }
     }
 

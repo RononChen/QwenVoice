@@ -195,6 +195,55 @@ class BuildRoutingContractTests(unittest.TestCase):
         }
         self.assertEqual(calls, expected)
 
+    def test_ios_platform_preflight_precedes_every_local_build_side_effect(self) -> None:
+        cache = self.text("scripts/lib/build_cache.sh")
+        resolver_start = cache.index("ensure_spm_resolved() {")
+        resolver_end = cache.index("\n    acquire_package_store_lock", resolver_start)
+        resolver = cache[resolver_start:resolver_end]
+        self.assertLess(
+            resolver.index("require_ios_xcode_platform"),
+            resolver.index('mkdir -p "$BUILD_CACHE_DIR"'),
+        )
+
+        foundation = self.text("scripts/build_foundation_targets.sh")
+        main = foundation[foundation.index('case "$MODE" in', foundation.index("build_ios()")) :]
+        self.assertLess(main.index("require_ios_xcode_platform"), main.index("prepare_paths"))
+        self.assertLess(main.index("require_ios_xcode_platform"), main.index("build_macos"))
+
+        ui = self.text("scripts/ui_test.sh")
+        self.assertLess(ui.index("require_ios_xcode_platform"), ui.index('require_build_free_space "ui-$lane"'))
+        self.assertLess(ui.index("require_ios_xcode_platform"), ui.index("ensure_spm_resolved"))
+
+        device = self.text("scripts/ios_device.sh")
+        build_start = device.index("cmd_build() {")
+        build_end = device.index("\ncmd_install() {", build_start)
+        build = device[build_start:build_end]
+        self.assertLess(build.index("require_ios_xcode_platform"), build.index("require_build_free_space"))
+        self.assertLess(build.index("require_ios_xcode_platform"), build.index("ensure_project_regenerated"))
+        self.assertLess(build.index("require_ios_xcode_platform"), build.index("ensure_spm_resolved"))
+        doctor = device[device.index("cmd_doctor() {") : build_start]
+        self.assertIn("require_ios_xcode_platform", doctor)
+
+    def test_ci_ios_resolution_checks_platform_before_creating_caches(self) -> None:
+        for relative in (".github/workflows/ci.yml", ".github/workflows/release.yml"):
+            text = self.text(relative)
+            for match in re.finditer(r"xcodebuild\s+-resolvePackageDependencies\b", text):
+                start = text.rfind("run: |", 0, match.start())
+                window = text[start : match.start()]
+                self.assertIn("python3 scripts/lib/ios_platform_preflight.py check", window)
+                self.assertLess(
+                    window.index("ios_platform_preflight.py check"),
+                    window.index("mkdir -p"),
+                )
+
+    def test_ios_platform_preflight_has_no_mutating_toolchain_command(self) -> None:
+        helper = self.text("scripts/lib/ios_platform_preflight.py")
+        self.assertIn('SDK_COMMAND = ("xcodebuild", "-showsdks", "-json")', helper)
+        self.assertIn('RUNTIME_COMMAND = ("xcrun", "simctl", "list", "runtimes", "-j")', helper)
+        inspected_commands = helper[helper.index("SDK_COMMAND") : helper.index("REPAIR_COMMAND")]
+        for forbidden in ("downloadPlatform", "importPlatform", "runFirstLaunch", '"boot"', '"create"'):
+            self.assertNotIn(forbidden, inspected_commands)
+
     def test_ci_package_resolvers_are_destination_explicit_and_pinned(self) -> None:
         required = (
             "-project QwenVoice.xcodeproj",
@@ -282,6 +331,42 @@ class BuildRoutingContractTests(unittest.TestCase):
             "os.replace(temporary, path)",
         ):
             self.assertIn(token, text)
+
+    def test_heavy_lanes_fail_fast_through_the_storage_contract(self) -> None:
+        cache = self.text("scripts/lib/build_cache.sh")
+        self.assertIn("require_build_free_space()", cache)
+        self.assertIn("scripts/lib/storage_preflight.py", cache)
+        required_routes = {
+            "scripts/build.sh": ("require_build_free_space development-build",),
+            "scripts/build_foundation_targets.sh": (
+                "require_build_free_space foundation-compile",
+            ),
+            "scripts/ui_test.sh": ('require_build_free_space "ui-$lane"',),
+            "scripts/macos_test.sh": (
+                "require_build_free_space language-benchmark",
+                "require_build_free_space memory-qualification",
+                "require_build_free_space telemetry-overhead",
+            ),
+            "scripts/ios_device.sh": (
+                "require_build_free_space device-build",
+                "require_build_free_space language-benchmark",
+                "require_build_free_space memory-qualification",
+            ),
+            "scripts/release.sh": ("require_build_free_space release",),
+        }
+        for relative, tokens in required_routes.items():
+            with self.subTest(relative=relative):
+                self.assert_tokens(relative, *tokens)
+
+        ios = self.text("scripts/ios_device.sh")
+        build_start = ios.index("cmd_build() {")
+        build_end = ios.index("\ncmd_install() {", build_start)
+        self.assertIn("require_build_free_space device-build", ios[build_start:build_end])
+        main = ios[ios.index("main() {") :]
+        for command in ("install", "launch"):
+            branch = main[main.index(f"    {command})") :]
+            branch = branch[: branch.index(";;")]
+            self.assertNotIn("require_build_free_space", branch)
 
     def test_owned_runtime_never_owns_a_generated_dot_build(self) -> None:
         self.assertFalse(

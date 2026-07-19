@@ -3,6 +3,81 @@
   "buildRoot": "build",
   "buildRootEnv": "QVOICE_BUILD_ROOT",
   "producerMetadataFilename": "last-build.json",
+  "childRetention": {
+    "schemaVersion": 1,
+    "uiResults": {
+      "entry": "artifacts-ui-tests",
+      "metadataFilename": "run.json",
+      "pinFilename": "retention-pin.json",
+      "lanes": [
+        "smoke",
+        "benchmark",
+        "model-download"
+      ],
+      "keepPassingPerPlatformLane": 1,
+      "keepUnresolvedFailuresPerPlatformLane": 1
+    },
+    "profiles": {
+      "entries": [
+        "artifacts-macos",
+        "artifacts-ios"
+      ],
+      "markerFilename": "profile-retention.json",
+      "pinFilename": "retention-pin.json",
+      "keepFailedPerPlatformKind": 1,
+      "maximumCompactedDiagnosticBytes": 8388608,
+      "maximumDiagnosticLogBytes": 1048576
+    }
+  },
+  "heavyLanePreflight": {
+    "schemaVersion": 1,
+    "lanes": {
+      "development-build": {
+        "requiredFreeBytes": 8589934592,
+        "cleanupHint": "scripts/clean_build_caches.sh --cache macos"
+      },
+      "foundation-compile": {
+        "requiredFreeBytes": 10737418240,
+        "cleanupHint": "scripts/clean_build_caches.sh --routine"
+      },
+      "device-build": {
+        "requiredFreeBytes": 10737418240,
+        "cleanupHint": "scripts/clean_build_caches.sh --cache ios"
+      },
+      "runtime-tests": {
+        "requiredFreeBytes": 8589934592,
+        "cleanupHint": "scripts/clean_build_caches.sh --routine"
+      },
+      "language-benchmark": {
+        "requiredFreeBytes": 16106127360,
+        "cleanupHint": "scripts/clean_build_caches.sh --routine"
+      },
+      "telemetry-overhead": {
+        "requiredFreeBytes": 12884901888,
+        "cleanupHint": "scripts/clean_build_caches.sh --routine"
+      },
+      "memory-qualification": {
+        "requiredFreeBytes": 16106127360,
+        "cleanupHint": "scripts/clean_build_caches.sh --routine"
+      },
+      "ui-smoke": {
+        "requiredFreeBytes": 12884901888,
+        "cleanupHint": "scripts/clean_build_caches.sh --prune-ui-results"
+      },
+      "ui-benchmark": {
+        "requiredFreeBytes": 16106127360,
+        "cleanupHint": "scripts/clean_build_caches.sh --prune-ui-results"
+      },
+      "ui-model-download": {
+        "requiredFreeBytes": 19327352832,
+        "cleanupHint": "scripts/clean_build_caches.sh --prune-ui-results"
+      },
+      "release": {
+        "requiredFreeBytes": 21474836480,
+        "cleanupHint": "scripts/clean_build_caches.sh --routine"
+      }
+    }
+  },
   "entries": [
     {
       "id": "xcode-macos-derived-data",
@@ -181,7 +256,7 @@
       "class": "artifact",
       "owner": "Foundation compile-safety result bundles and logs",
       "cleanup": "routine",
-      "retention": "Retain the latest useful compile-safety result; older output is disposable",
+      "retention": "Compile-safety result bundles and logs are disposable after the command verdict",
       "env": "QVOICE_ARTIFACTS_FOUNDATION"
     },
     {

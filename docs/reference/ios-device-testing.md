@@ -15,6 +15,25 @@ The generic physical-device SDK compile builds both the app and the standalone
 sufficient for routine commits, pushes, pull requests, ordinary merges, and ordinary CI. Missing
 models, a phone, or UI results must not block preserving and sharing development work.
 
+### Host toolchain prerequisite
+
+`generic/platform=iOS` does not launch or execute a Simulator. Current Xcode 26 toolchains still
+require the selected Xcode installation to expose usable iOS Platform Support and a compatible iOS
+runtime component before that physical-device SDK destination becomes eligible. An `iphoneos`
+entry in `xcodebuild -showsdks` is not sufficient proof. Repository build routes run this read-only
+check before package resolution or compilation:
+
+```sh
+python3 scripts/lib/ios_platform_preflight.py check
+```
+
+If it reports `blocked-toolchain-component`, install or enable the matching iOS component in
+Xcode → Settings → Components. Apple also exposes the attended command
+`xcodebuild -downloadPlatform iOS -architectureVariant arm64`. This can be a multi-gigabyte
+operation, so repository scripts never invoke it automatically. Installing the component is a host
+toolchain repair; it does not authorize Simulator builds, launches, tests, or UI automation. See
+[Apple's additional Xcode components guide](https://developer.apple.com/documentation/xcode/downloading-and-installing-additional-xcode-components).
+
 That app-host-free bundle covers catalog and delivery-ledger validation, memory policy,
 cancellation semantics, app-support path gating, and privacy-safe diagnostics at compile time. Xcode
 26 reports tool-hosted testing as unavailable for physical-device destinations, so the repository
@@ -29,7 +48,8 @@ scripts/ios_device.sh device-state
 ```
 
 `preflight` and `device-state` verify the paired CoreDevice identity and reachability; preflight
-also checks signing plus the existing app-build and dSYM readiness. `device-state` treats
+also checks the selected Xcode's iOS Platform Support, signing, and the existing app-build and dSYM
+readiness. `device-state` treats
 reachability as its only blocker. The XCUITest runner independently rejects a phone that
 CoreDevice reports as locked before invoking `xcodebuild`. Install or repair iOS models through the
 visible Settings → Model Downloads UI; neither device scripts nor normal UI tests install them.
@@ -157,6 +177,14 @@ headroom <768 MB warns. The lane requires 15 GiB free before device launch. Afte
 history publication, the raw trace is discarded by default while its digest/settings/extracted
 summary and retention status remain in compact evidence; `--keep-trace` opts into local retention.
 Raw traces and sample rows remain untracked.
+
+Device builds require 10 GiB of host free space before compilation. Language, generation benchmark,
+memory, clone-conditioning, and gate lanes require 15 GiB; UI smoke, benchmark, and isolated model
+download require 12, 15, and 18 GiB respectively. These host-side checks run before adding another
+cache/result tree and do not contact, pair, or alter the phone. The exact-PID profile lane retains
+its separate tracer-stage 5/15 GiB CPU/memory check. Because every profile rebuilds the exact app,
+the full CPU-profile command is also subject to the 10 GiB device-build floor; memory remains
+15 GiB.
 
 Retained-memory qualification is separate from Instruments:
 

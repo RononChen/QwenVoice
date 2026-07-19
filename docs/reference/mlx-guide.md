@@ -182,7 +182,12 @@ The decoder uses input-side overlap-and-discard (`inputContext`) to avoid chunk-
 
 ### 4.4 Sampling
 
-Sampling uses temperature scaling, top-k, top-p, repetition penalty, and min-p overrides. The order matters: the vocello backend applies temperature scaling before top-p/min-p truncation. Defaults are:
+Sampling algorithm v2 resolves one immutable `VocelloQwen3SamplingConfiguration` per request.
+Every request has a recorded effective seed and owns a fresh `MLXRandom.RandomState`; all talker and
+Code Predictor categorical draws run under that state and do not advance MLX's process-global RNG.
+Talker and subtalker stages have independent temperature, top-k, top-p, and min-p values. The
+subtalker never inherits repetition penalty. The order matters: Vocello applies temperature scaling
+before top-p/min-p truncation. Talker defaults are:
 
 - temperature `0.9`
 - topK `50`
@@ -190,7 +195,11 @@ Sampling uses temperature scaling, top-k, top-p, repetition penalty, and min-p o
 - repetitionPenalty `1.05`
 - minP `0.0`
 
-These can be overridden with environment variables for A/B experiments (`QWENVOICE_TALKER_TEMP`, `QWENVOICE_TALKER_TOPP`, etc.).
+Debug-gated environment values may be used for A/B experiments
+(`QWENVOICE_TALKER_TEMP`, `QWENVOICE_TALKER_TOPP`, etc.), but they are resolved into the request
+before model invocation and are never mutable runtime authority. Sampling v2 can differ from
+historical v1 byte output; promotion requires reproducibility within v2 plus the normal fixed-seed
+QC and applicable ASR/prosody evidence.
 
 ### 4.5 The single per-frame `eval()`
 
@@ -238,13 +247,20 @@ Instead, the engine gates behavior on:
 
 These numbers are the result of on-device and constrained-tier benchmarking. They are not derived from a formula; changing them requires re-measuring RTF and peak memory on real hardware.
 
+MLX allocator limits remain process-wide API state and are applied at the host boundary. The
+request-varying Qwen behavior is different: `NativeMemoryPolicyResolver` creates an immutable
+`VocelloQwen3MemoryConfiguration`, which the facade converts into a `Qwen3RequestMemoryPolicy`
+carried by Custom, Design, and Clone calls. A generation cannot change another request's cache-clear
+cadence or talker KV window.
+
 ### 5.4 Cache clearing cadence
 
 The engine clears MLX's internal caches at three points:
 
 1. **Per-generation** on constrained tiers (`floor8GBMac` single-shot, `iPhonePro` always).
 2. **Per-streaming-chunk** when `clearMLXCacheOnStreamChunkEmit` is true. This is the main reason the iOS streaming peak stays flat.
-3. **Per-N tokens** via `mlxTokenMemoryClearCadence`. The token loop calls `clearCache()` every N generated tokens to release transient allocator buffers.
+3. **Per-N tokens** via the request's `tokenMemoryClearCadence`. The token loop calls
+   `clearCache()` every N generated tokens to release transient allocator buffers.
 
 Over-clearing can hurt RTF by forcing the allocator to re-create buffers; under-clearing can push peak memory up. The 50-token cadence was chosen empirically.
 
@@ -269,17 +285,22 @@ Measured on the same ~70 s custom/Speed input (`benchmarks/OPTIMIZATION.md` §F.
 
 The streaming peak is **flat with length** — short, medium, and long inputs all peak around 3 GB. This is why iPhone generation is viable despite the lower device RAM.
 
-### 6.1 Both event streams are bounded and measured
+### 6.1 Core audio and frontend events use different suspending contracts
 
-`MLXTTSEngine.events` is the `AsyncStream` that delivers chunks to the UI:
+`MLXTTSEngine.events` is an `AsyncStream` view over a custom per-generation suspending router:
 
-- **macOS**: `.bufferingNewest(256)`.
-- **iOS**: `.bufferingNewest(96)` to keep memory bounded under the shared-process budget.
+- **macOS**: capacity 256.
+- **iOS**: capacity 96 to stay bounded under the shared-process budget.
 
-`GenerationEventDeliveryProbe` records accepted and dropped chunk, progress, terminal, and
-termination yields. Consumers must drain continuously, and validators must treat a dropped yield as
-evidence rather than assuming bounded delivery was lossless. Do not change either capacity or the
-probe contract without a memory-and-playback review.
+`GenerationEventDeliveryProbe` records accepted, terminated, and unobserved sends. A full router
+suspends the producer until the sole consumer advances; preview/status events are never evicted.
+
+Final PCM uses `ClassifiedGenerationSession`'s separate single-consumer, frame-bounded suspending
+audio channel for Custom, Design, and Clone. Cancelling a producer task while it is suspended on
+backpressure removes the pending send and wakes the producer with `CancellationError`.
+`GenerationOutputAdapter` writes every drained frame before frontend publication and completes the
+product-finalization acknowledgment. Do not reintroduce `bufferingNewest` or another eviction
+policy for audio-bearing product events.
 
 ---
 
@@ -445,8 +466,8 @@ Do not regress these without a maintainer decision:
 - **No output-side silence gating.** Suppressing natural pauses masks real defects.
 - **Do not revert the input-side decoder-drift fix (`4fab110`).**
 - **Do not pipeline the 15-pass Code Predictor loop.** It is autoregressive; pipelining would change sampling semantics.
-- **macOS `MLXTTSEngine.events` stays `.bufferingNewest(256)`; iOS stays
-  `.bufferingNewest(96)`.** Keep the delivery probe and continuous drains with them.
+- **Do not reintroduce `bufferingNewest` for product events.** Keep the 256-event macOS and 96-event
+  iOS suspending router plus delivery accounting; audio-bearing preview sends backpressure.
 - **Streaming-first on iOS, the macOS app, and the macOS CLI** (`vocello generate` /
   `vocello bench`). The three macOS app coordinators set `shouldStream: true`; `--no-stream` is an
   explicit CLI diagnostic, not the app quality path.

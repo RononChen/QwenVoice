@@ -22,6 +22,17 @@ holds with no clipping at the largest accessibility Dynamic Type size. **Still m
 **Distribution** cert + **App Store** provisioning profile (regenerated to carry `increased-memory-limit`) +
 the ASC record/metadata/upload.
 
+Before any local generic-device compile or archive, verify the selected Xcode installation:
+
+```sh
+python3 scripts/lib/ios_platform_preflight.py check
+```
+
+The generic physical-device destination needs matching iOS Platform Support/runtime availability
+even though it does not run a Simulator. If the check is blocked, restore the component through
+Xcode → Settings → Components before signing or archiving; repository release scripts never
+download it automatically.
+
 ## 0. One-time account prerequisites
 
 - [ ] Apple Developer Program membership active; latest Program License Agreement accepted.

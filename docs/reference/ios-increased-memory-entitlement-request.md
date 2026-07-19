@@ -161,7 +161,7 @@ Vocello samples app process memory with os_proc_available_memory(), task_vm_info
 How system impact is limited:
 
 ```text
-iOS generation is streaming-first; inline PCM preview payloads remain in-process, are emitted in bounded chunks for live playback, and can be explicitly disabled for controlled memory diagnostics; event streams are bounded; model admission blocks critical pressure; Qwen3 tokenizer, speech-tokenizer, prefix, and decoder caches are explicitly cleared on iPhone hard-trim/full-unload paths; active generation is canceled under critical memory pressure.
+iOS generation is streaming-first; inline PCM preview payloads remain in-process, are emitted in bounded chunks for live playback, and can be explicitly disabled for controlled memory diagnostics; event streams are bounded; model admission blocks critical pressure; the immutable Qwen3 text-tokenizer cache plus model-local prefix and decoder warm-state caches are explicitly cleared on iPhone hard-trim/full-unload paths; each loaded model owns its mutable speech tokenizer and decoder; active generation is canceled under critical memory pressure.
 ```
 
 ## Repo evidence map
@@ -183,8 +183,8 @@ Process measurement and guardrails:
 Memory-reduction behavior already implemented:
 
 - `Sources/iOS/IOSGenerationModeViews.swift` builds Custom, Design, and Clone generation requests with `shouldStream: true`.
-- `Sources/QwenVoiceCore/SemanticTypes.swift` defaults inline streaming preview PCM to `.emit` on every platform; `QWENVOICE_STREAMING_PREVIEW_DATA=off` is the explicit controlled-diagnostic opt-out.
-- `Sources/QwenVoiceCore/NativeStreamingSynthesisSession.swift` emits inline `previewAudio` under the default policy and emits `previewAudio: nil` only when the explicit opt-out is active.
+- `Sources/QwenVoiceCore/SemanticTypes.swift` retains the explicit preview policy; `QWENVOICE_STREAMING_PREVIEW_DATA=off` is the controlled-diagnostic opt-out.
+- QwenVoiceCore's `GenerationOutputAdapter` (temporarily stored in `NativeStreamingSynthesisSession.swift`) drains final PCM through the frame-bounded classified session and writes it before preview publication. Preview/status events use a separate bounded suspending router, not an eviction policy.
 - `Sources/QwenVoiceCore/NativeEngineRuntime.swift` clears Qwen3 caches on iPhone unload/hard-trim/full-unload paths.
 - `Packages/VocelloQwen3Core/Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift` exposes `Qwen3TTSMemoryCaches.clearAll()`.
 

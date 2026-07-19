@@ -101,12 +101,19 @@ Both commands build the exact CLI, suspend one owned process, attach Instruments
 resume it only after xctrace reports recording, and validate the exported trace table of contents.
 The memory lane enables verbose per-sample telemetry and remains PASS-only. Headless CLI profiles
 report the owning engine process; XPC UI benchmarks use the uptime-aligned app+engine aggregate.
-The runner requires at least 5 GiB free for CPU profiles and 15 GiB for memory profiles before it
-launches the target. After successful trace validation and history publication, the raw trace is
+The tracer stage requires at least 5 GiB free for CPU profiles and 15 GiB for memory profiles before
+it launches the target. The prerequisite CLI build uses the shared 8 GiB development-build floor,
+so a complete CPU-profile command effectively requires 8 GiB; memory remains 15 GiB. After
+successful trace validation and history publication, the raw trace is
 deleted by default; the record retains its digest, capture settings, extracted summary, original
 ephemeral path, and retention status. `--keep-trace` is the explicit diagnostic exception. A
 failure retains only the newest raw failure for that platform/profile kind. Sidecars and retained
 diagnostics remain under `build/` and untracked.
+
+Other heavy macOS lanes also use the manifest-owned build-storage preflight before creating output:
+8 GiB for deterministic/runtime builds, 12 GiB for telemetry-overhead and UI smoke, and 15 GiB for
+language, memory, and UI benchmark work. These are working-space floors, not cache quotas. Inspect
+`python3 scripts/build_output_policy.py status` before applying its suggested bounded cleanup.
 
 Retained-memory qualification is a distinct non-Instruments lane:
 

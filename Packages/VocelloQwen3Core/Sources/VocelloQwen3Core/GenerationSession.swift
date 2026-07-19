@@ -1,6 +1,8 @@
 import Foundation
 
-/// Emitted once the runtime has accepted and prepared a generation request.
+/// Emitted when the Qwen producer has completed request/input preparation and
+/// is ready to enter token generation. Reservation acceptance or task startup
+/// alone must not publish this event.
 public struct VocelloQwen3PreparedEvent: Codable, Hashable, Sendable {
     public let generationID: UUID
     public let model: VocelloQwen3ModelIdentity
@@ -27,19 +29,25 @@ public struct VocelloQwen3AudioChunkEvent: Codable, Hashable, Sendable {
     public let samples: [Float]
     public let sampleRate: Int
     public let channelCount: Int
+    /// Timing evidence emitted immediately before this exact audio payload.
+    /// Quality-first requests and compatibility producers without timing
+    /// support leave this nil rather than attaching stale evidence.
+    public let timings: VocelloQwen3ChunkTimings?
 
     public init(
         generationID: UUID,
         sequence: Int,
         samples: [Float],
         sampleRate: Int,
-        channelCount: Int = 1
+        channelCount: Int = 1,
+        timings: VocelloQwen3ChunkTimings? = nil
     ) {
         self.generationID = generationID
         self.sequence = sequence
         self.samples = samples
         self.sampleRate = sampleRate
         self.channelCount = channelCount
+        self.timings = timings
     }
 
     public var frameCount: Int {
@@ -76,24 +84,35 @@ public struct VocelloQwen3TerminalEvent: Codable, Hashable, Sendable {
     public let generatedTokenCount: Int
     public let emittedAudioFrameCount: Int
     public let elapsedMilliseconds: Int
+    /// Final generation statistics captured before the actor releases model
+    /// ownership. This remains nil when a producer fails before reporting it.
+    public let generationInfo: VocelloQwen3GenerationInfo?
+    /// Privacy-safe scalar diagnostics copied while the actor still owns the
+    /// loaded model. No text, path, tensor, or raw error crosses this boundary.
+    public let diagnostics: VocelloQwen3GenerationDiagnostics?
 
     public init(
         generationID: UUID,
         outcome: VocelloQwen3TerminalOutcome,
         generatedTokenCount: Int,
         emittedAudioFrameCount: Int,
-        elapsedMilliseconds: Int
+        elapsedMilliseconds: Int,
+        generationInfo: VocelloQwen3GenerationInfo? = nil,
+        diagnostics: VocelloQwen3GenerationDiagnostics? = nil
     ) {
         self.generationID = generationID
         self.outcome = outcome
         self.generatedTokenCount = generatedTokenCount
         self.emittedAudioFrameCount = emittedAudioFrameCount
         self.elapsedMilliseconds = elapsedMilliseconds
+        self.generationInfo = generationInfo
+        self.diagnostics = diagnostics
     }
 }
 
-/// Ordered public event vocabulary for a generation session.
-public enum VocelloQwen3GenerationEvent: Codable, Hashable, Sendable {
+/// Ordered internal event vocabulary retained only for package characterization
+/// while the product completes the classified-session cutover.
+enum VocelloQwen3GenerationEvent: Codable, Hashable, Sendable {
     case prepared(VocelloQwen3PreparedEvent)
     case audioChunk(VocelloQwen3AudioChunkEvent)
     case progress(VocelloQwen3ProgressEvent)
@@ -106,7 +125,7 @@ public enum VocelloQwen3GenerationEvent: Codable, Hashable, Sendable {
 ///
 /// Implementations yield ordered events, yield exactly one terminal event,
 /// finish `events`, and return that same event from `waitForTermination()`.
-public protocol VocelloQwen3GenerationSession: Sendable {
+protocol VocelloQwen3GenerationSession: Sendable {
     var id: UUID { get }
     var events: AsyncStream<VocelloQwen3GenerationEvent> { get }
 
@@ -227,9 +246,9 @@ actor VocelloQwen3TerminalState {
 /// channel is bounded and non-suspending: an undrained full buffer fails the
 /// session explicitly instead of deadlocking generation. A reserved terminal
 /// slot guarantees that completion never depends on consumer progress.
-public final class VocelloQwen3ModelGenerationSession: VocelloQwen3GenerationSession, @unchecked Sendable {
-    public let id: UUID
-    public let events: AsyncStream<VocelloQwen3GenerationEvent>
+final class VocelloQwen3ModelGenerationSession: VocelloQwen3GenerationSession, @unchecked Sendable {
+    let id: UUID
+    let events: AsyncStream<VocelloQwen3GenerationEvent>
 
     private let channel: VocelloQwen3EventChannel
     private let terminalState = VocelloQwen3TerminalState()
@@ -257,14 +276,6 @@ public final class VocelloQwen3ModelGenerationSession: VocelloQwen3GenerationSes
             var tokenCount = 0
             var frameCount = 0
             do {
-                try VocelloQwen3Runtime.apply(memoryConfiguration: request.memory)
-                try await Self.offer(.prepared(VocelloQwen3PreparedEvent(
-                    generationID: request.generationID,
-                    model: model.identity,
-                    mode: request.mode,
-                    elapsedMilliseconds: startedAt.elapsedMilliseconds
-                )), to: channel)
-
                 let stream = try Self.stream(
                     model: model,
                     request: request,
@@ -273,9 +284,25 @@ public final class VocelloQwen3ModelGenerationSession: VocelloQwen3GenerationSes
                     enableChunkTimings: enableChunkTimings
                 )
                 var sequence = 0
+                var publishedPrepared = false
                 for try await signal in stream {
                     try Task.checkCancellation()
+                    if !publishedPrepared {
+                        // The compatibility stream has no explicit prepared
+                        // event. Its first model-produced signal is the
+                        // earliest truthful evidence that input preparation
+                        // completed, so do not publish readiness at task start.
+                        try await Self.offer(.prepared(VocelloQwen3PreparedEvent(
+                            generationID: request.generationID,
+                            model: model.identity,
+                            mode: request.mode,
+                            elapsedMilliseconds: startedAt.elapsedMilliseconds
+                        )), to: channel)
+                        publishedPrepared = true
+                    }
                     switch signal {
+                    case .prepared:
+                        continue
                     case .token:
                         tokenCount += 1
                     case .info(let info):
@@ -348,13 +375,13 @@ public final class VocelloQwen3ModelGenerationSession: VocelloQwen3GenerationSes
         }
     }
 
-    public func cancel(reason: VocelloQwen3CancellationReason) async {
+    func cancel(reason: VocelloQwen3CancellationReason) async {
         await terminalState.requestCancellation(reason)
         task.cancel()
         _ = await terminalState.wait()
     }
 
-    public func waitForTermination() async -> VocelloQwen3TerminalEvent {
+    func waitForTermination() async -> VocelloQwen3TerminalEvent {
         await terminalState.wait()
     }
 
@@ -387,6 +414,7 @@ public final class VocelloQwen3ModelGenerationSession: VocelloQwen3GenerationSes
                 speaker: speakerID,
                 instruction: instruction,
                 sampling: request.sampling,
+                memory: request.memory,
                 streamingInterval: streamingInterval,
                 enableChunkTimings: enableChunkTimings
             )
@@ -396,6 +424,7 @@ public final class VocelloQwen3ModelGenerationSession: VocelloQwen3GenerationSes
                 language: request.language,
                 description: description,
                 sampling: request.sampling,
+                memory: request.memory,
                 streamingInterval: streamingInterval,
                 enableChunkTimings: enableChunkTimings
             )
@@ -406,6 +435,7 @@ public final class VocelloQwen3ModelGenerationSession: VocelloQwen3GenerationSes
                 language: request.language,
                 prompt: clonePrompt,
                 sampling: request.sampling,
+                memory: request.memory,
                 streamingInterval: streamingInterval,
                 enableChunkTimings: enableChunkTimings
             )
@@ -413,7 +443,7 @@ public final class VocelloQwen3ModelGenerationSession: VocelloQwen3GenerationSes
     }
 }
 
-public extension VocelloQwen3LoadedModel {
+extension VocelloQwen3LoadedModel {
     func startGenerationSession(
         request: VocelloQwen3SynthesisRequest,
         clonePrompt: VocelloQwen3ClonePrompt? = nil,

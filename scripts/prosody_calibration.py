@@ -38,6 +38,13 @@ def analyze(path):
     return analyze_wav(path)
 
 
+def analyzer_algorithm_version():
+    """Resolve the optional analyzer only for an actual calibration run."""
+    from analyze_prosody import ANALYZER_ALGORITHM_VERSION
+
+    return ANALYZER_ALGORITHM_VERSION
+
+
 # Map threshold key -> (metric key, direction) where direction "low" means the
 # flag fires when metric < threshold, "high" means metric > threshold.
 THRESHOLD_MAP = {
@@ -256,6 +263,11 @@ def main():
     profile["name"] = args.name
     profile["description"] = args.description or f"Calibrated from {n_good} good / {n_bad} bad clips at target_fpr={args.target_fpr}"
     profile["thresholds"] = thresholds
+    # Profile schema v1 remains readable.  This optional field binds newly
+    # calibrated values to the bounded analyzer methodology whose fixed-bin
+    # percentiles can drift slightly from the legacy full-array implementation.
+    current_analyzer_version = analyzer_algorithm_version()
+    profile["analyzer_algorithm_version"] = current_analyzer_version
 
     # Convert good/bad metric dicts to lists of dicts for evaluation.
     good_records = [dict(zip(good.keys(), vals)) for vals in zip(*good.values())]
@@ -266,6 +278,7 @@ def main():
     labels_digest = corpus_digest(entries)
     result = {
         "schemaVersion": 1,
+        "analyzerAlgorithmVersion": current_analyzer_version,
         "runID": run_id,
         # Profile names remain human-facing metadata. The tracked benchmark label
         # is the opaque run ID and never copies this free-form description.

@@ -157,6 +157,9 @@ python3 scripts/build_output_policy.py status [--json]
 python3 scripts/build_output_policy.py validate
 scripts/clean_build_caches.sh --routine --dry-run
 scripts/clean_build_caches.sh --routine
+scripts/clean_build_caches.sh --prune-ui-results --dry-run
+scripts/clean_build_caches.sh --cache macos --dry-run
+scripts/clean_build_caches.sh --compact-profile-failure <run-id> --dry-run
 ```
 
 ## Invariants (do not regress)
@@ -174,16 +177,22 @@ scripts/clean_build_caches.sh --routine
   `VocelloiOSLogicTests` bundle with `generic/platform=iOS`, runs macOS deterministic verification,
   and never executes XCUITest. Xcode 26 cannot execute the app-host-free tool-hosted policy bundle
   on a physical-device destination, so it remains compile-only; device runtime proof uses the
-  existing diagnostics and XCUITest lanes.
+  existing diagnostics and XCUITest lanes. Missing matching iOS Platform Support/runtime
+  availability is classified as a host-toolchain readiness failure before package resolution, not
+  as a source, phone, model, or UI failure. Repository automation never downloads that component.
 - **Committed benchmark records ≤256 KB.** Records use a strict privacy allowlist; raw JSONL,
   WAVs, screenshots, result bundles, and traces are gitignored. `HISTORY.md` is generated, never
   manually appended.
 - **Profile storage is bounded.** A successful profile is retained as compact history plus local
   summary metadata; its raw trace is deleted only after publication succeeds unless `--keep-trace`
-  was explicit. A failed lane retains at most the newest raw trace per platform/profile kind.
+  was explicit. A failed lane retains at most the newest raw trace per platform/profile kind and
+  requires an exact run ID before manual compaction. Inventory distinguishes automatic, blocked,
+  and explicit reclamation; never reinterpret all of `build/artifacts/` as disposable.
 - **Build outputs have one owner.** macOS and physical-device iOS keep exactly two persistent Xcode
   caches, package resolution uses the shared locked checkout, and release/MCP/compile-safety work is
   scratch. Release files live only under `build/dist/` and routine cleanup never removes them.
+  Heavy lanes use the manifest-owned free-space preflight before work starts. Prefer one selective
+  `--cache` target over `--aggressive`; successful ordinary builds remain non-destructive.
 - **Memory-qualified publication is strict.** New generation/profile records require telemetry v8
   and evidence manifest v2, exact sidecar digests, ≥95% sampler coverage, zero capture failures,
   and no critical pressure, memory warning/exit, `hardTrim`, or `fullUnload`. A 95–<100% coverage
@@ -214,7 +223,10 @@ scripts/clean_build_caches.sh --routine
   `release.published` trigger.
 - **Action and toolchain identities are immutable inputs.** Every external Action uses the full SHA
   recorded in `config/toolchain.json`; native, release-publication, and website runners validate
-  exact tool versions. Keep publication-only tools out of compile/test jobs.
+  exact tool versions. The native deterministic-tool group includes NumPy because the bounded
+  prosody analyzer and its mutation fixtures are part of project-input validation; this remains a
+  development/QA dependency and is never shipped in Vocello. Keep publication-only tools out of
+  compile/test jobs.
   Dependabot may propose updates, but the manifest and adjacent version comment change together.
 - **Catalog activation is fail closed.** All six Speed/Quality identities are exact and the generated
   production catalog is complete. macOS/CLI use the bundled `downloadFiles` route; never restore

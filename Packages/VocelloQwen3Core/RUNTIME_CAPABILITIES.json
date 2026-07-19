@@ -7,10 +7,33 @@
   "capabilities": [
     {
       "id": "owned-facade",
-      "title": "Vocello-owned typed runtime facade, generation session, event, and compatibility boundary",
+      "title": "Vocello-owned typed shipping facade and compatibility boundary",
       "state": "production",
-      "sourcePatterns": ["Sources/VocelloQwen3Core/**"],
+      "sourcePatterns": [
+        "Sources/VocelloQwen3Core/CompatibilityExports.swift",
+        "Sources/VocelloQwen3Core/Contracts.swift",
+        "Sources/VocelloQwen3Core/LoadedModel.swift",
+        "Sources/VocelloQwen3Core/Runtime.swift"
+      ],
       "testPatterns": ["Tests/Qwen3RuntimeTests/VocelloQwen3FacadeTests.swift"],
+      "documentation": ["README.md", "COMPATIBILITY.json", "OWNERSHIP.json"],
+      "evidenceClass": "static",
+      "upstreamDeltaIDs": ["FACADE-001"]
+    },
+    {
+      "id": "actor-classified-generation",
+      "title": "Shipping actor, classified-session, and product-finalization authority",
+      "state": "production",
+      "sourcePatterns": [
+        "Sources/VocelloQwen3Core/ClassifiedGenerationSession.swift",
+        "Sources/VocelloQwen3Core/Engine.swift",
+        "Sources/VocelloQwen3Core/GenerationSession.swift",
+        "Sources/VocelloQwen3Core/ProductOutputAdapter.swift"
+      ],
+      "testPatterns": [
+        "Tests/Qwen3RuntimeTests/ClassifiedGenerationSessionTests.swift",
+        "Tests/Qwen3RuntimeTests/VocelloQwen3FacadeTests.swift"
+      ],
       "documentation": ["README.md", "COMPATIBILITY.json", "OWNERSHIP.json"],
       "evidenceClass": "static",
       "upstreamDeltaIDs": ["FACADE-001"]
@@ -52,10 +75,18 @@
       "sourcePatterns": ["Sources/MLXAudioCore/ModelUtils.swift", "Sources/MLXAudioTTS/ModelDiagnostics.swift", "Sources/MLXAudioTTS/TextProcessor.swift", "Sources/MLXAudioTTS/Models/Qwen3TTS/**"],
       "testPatterns": ["Tests/Qwen3RuntimeTests/**"],
       "documentation": ["PERFORMANCE.md", "UPSTREAM.md"],
-      "evidenceClass": "benchmark",
-      "benchmarkRecordIDs": ["macos-xcui-benchmark-20260716-181853-b4c2e299"],
-      "benchmarkEvidenceStatus": "verified",
-      "upstreamDeltaIDs": ["LOAD-001", "SAMPLER-001", "COMPAT-001", "TEL-001"]
+      "evidenceClass": "diagnostic",
+      "benchmarkRecordIDs": [
+        "macos-xcui-benchmark-20260717-192747-0ae9d73c",
+        "macos-xcui-benchmark-20260717-193323-f8506265",
+        "macos-xcui-benchmark-20260717-193608-51fef175",
+        "ios-xcui-benchmark-20260719-133203-d413fac1",
+        "ios-xcui-benchmark-20260719-134041-9653f7cf",
+        "ios-xcui-benchmark-20260719-134646-d90db984"
+      ],
+      "benchmarkEvidenceStatus": "diagnostic",
+      "benchmarkEvidenceReason": "Focused macOS and physical-iPhone Custom, Design, and Clone runs exercised request-local sampling v2 on the exact dirty worktree fingerprints; clean fixed-seed repeat controls and full-matrix promotion remain pending.",
+      "upstreamDeltaIDs": ["LOAD-001", "SAMPLER-001", "SAMPLER-002", "COMPAT-001", "TEL-001"]
     },
     {
       "id": "bounded-streaming",
@@ -64,9 +95,17 @@
       "sourcePatterns": ["Sources/MLXAudioTTS/RuntimeDebugGate.swift", "Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3StreamingMemoryTuning.swift", "Sources/MLXAudioTTS/Models/Qwen3TTS/Qwen3TTS.swift"],
       "testPatterns": ["Tests/Qwen3RuntimeTests/Qwen3GenerationGateTests.swift", "Tests/Qwen3RuntimeTests/Qwen3StreamingContractTests.swift"],
       "documentation": ["PERFORMANCE.md"],
-      "evidenceClass": "benchmark",
-      "benchmarkRecordIDs": ["macos-xcui-benchmark-20260716-181853-b4c2e299"],
-      "benchmarkEvidenceStatus": "verified",
+      "evidenceClass": "diagnostic",
+      "benchmarkRecordIDs": [
+        "macos-xcui-benchmark-20260717-192747-0ae9d73c",
+        "macos-xcui-benchmark-20260717-193323-f8506265",
+        "macos-xcui-benchmark-20260717-193608-51fef175",
+        "ios-xcui-benchmark-20260719-133203-d413fac1",
+        "ios-xcui-benchmark-20260719-134041-9653f7cf",
+        "ios-xcui-benchmark-20260719-134646-d90db984"
+      ],
+      "benchmarkEvidenceStatus": "diagnostic",
+      "benchmarkEvidenceReason": "Focused macOS and physical-iPhone Custom, Design, and Clone classified-session runs passed on the exact dirty worktree fingerprints; clean repeated controls and full-matrix promotion remain pending.",
       "upstreamDeltaIDs": ["CONC-001", "STREAM-001"]
     },
     {

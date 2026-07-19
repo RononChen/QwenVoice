@@ -25,6 +25,18 @@ from typing import Any
 GIB = 1024 ** 3
 REQUIRED_FREE_BYTES = {"cpu": 5 * GIB, "memory": 15 * GIB}
 SCHEMA_VERSION = 1
+DEFAULT_MAX_COMPACTED_DIAGNOSTIC_BYTES = 8 * 1024**2
+DEFAULT_MAX_DIAGNOSTIC_LOG_BYTES = 1024**2
+COMPACTED_CRITICAL_FILES = {
+    "profile-retention.json",
+    "profile-failure-summary.json",
+    "retention-pin.json",
+}
+COMPACTED_METADATA_FILES = {
+    "benchmark-source.json",
+    "profile-summary.json",
+    "trace-toc.xml",
+}
 RUN_ID_RE = re.compile(
     r"^(?P<platform>mac|ios)-(?:(?P<kind>cpu|memory)-)?profile-"
     r"(?P<timestamp>[0-9]{8}-[0-9]{6})-(?P<nonce>[0-9a-f]{8})$"
@@ -181,6 +193,20 @@ def directory_bytes(path: Path) -> int:
     return total
 
 
+def payload_bytes(path: Path) -> int:
+    """Measure one removable payload without following links outside the run."""
+
+    if not path.exists() and not path.is_symlink():
+        return 0
+    if path.is_symlink():
+        return path.lstat().st_size
+    if path.is_file():
+        return path.stat().st_size
+    if path.is_dir():
+        return directory_bytes(path)
+    return 0
+
+
 def validate_profile_paths(
     *, root: Path, artifact_dir: Path, trace: Path, platform: str, kind: str
 ) -> tuple[Path, Path, Path]:
@@ -216,6 +242,125 @@ def diagnostic_logs(artifact_dir: Path) -> list[dict[str, Any]]:
             continue
         result.append({"name": path.name, "sizeBytes": path.stat().st_size})
     return result
+
+
+def profile_retention_settings(root: Path) -> tuple[int, int, int]:
+    manifest = root / "config" / "build-output-policy.json"
+    if not manifest.exists():
+        raise RetentionError(f"profile retention contract is missing: {manifest}")
+    try:
+        document = json.loads(manifest.read_text(encoding="utf-8"))
+        child_retention = document["childRetention"]
+        profiles = child_retention["profiles"]
+        keep = profiles["keepFailedPerPlatformKind"]
+        total = profiles["maximumCompactedDiagnosticBytes"]
+        log = profiles["maximumDiagnosticLogBytes"]
+        if (
+            document.get("schemaVersion") == 1
+            and child_retention.get("schemaVersion") == 1
+            and profiles.get("entries") == ["artifacts-macos", "artifacts-ios"]
+            and profiles.get("markerFilename") == "profile-retention.json"
+            and profiles.get("pinFilename") == "retention-pin.json"
+            and isinstance(keep, int)
+            and not isinstance(keep, bool)
+            and isinstance(total, int)
+            and not isinstance(total, bool)
+            and isinstance(log, int)
+            and not isinstance(log, bool)
+            and keep >= 1
+            and total >= log >= 1
+        ):
+            return keep, total, log
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise RetentionError(f"invalid profile retention contract: {error}") from error
+    raise RetentionError("invalid profile retention contract values")
+
+
+def valid_failed_profile_for_compaction(
+    *, root: Path, marker_path: Path, value: dict[str, Any]
+) -> bool:
+    artifact_dir = marker_path.parent
+    platform = value.get("platform")
+    kind = value.get("profileKind")
+    if platform not in {"macos", "ios"} or kind not in REQUIRED_FREE_BYTES:
+        return False
+    trace = artifact_dir / f"{artifact_dir.name}.trace"
+    try:
+        capture = profile_capture_time(artifact_dir.name, platform, kind)
+        original = safe_relative(trace, root)
+        summary = load_json(artifact_dir / "profile-failure-summary.json")
+    except RetentionError:
+        return False
+    policy = value.get("retentionPolicy")
+    pending = policy == "failedCompactionPending"
+    summary_state_valid = (
+        summary.get("rawTraceRetained") is True
+        and summary.get("retentionPolicy") in {None, "failedLatest", "failedCompactionPending"}
+    )
+    if pending:
+        summary_state_valid = summary_state_valid or (
+            summary.get("rawTraceRetained") is False
+            and summary.get("retentionPolicy") == "failedCompacted"
+        )
+    return bool(
+        value.get("schemaVersion") == SCHEMA_VERSION
+        and value.get("runID") == artifact_dir.name
+        and value.get("captureTime") == capture
+        and value.get("status") == "failed"
+        and policy in {"failedLatest", "failedCompactionPending"}
+        and value.get("rawTraceRetained") is True
+        and value.get("originalEphemeralPath") == original
+        and (pending or (trace.is_dir() and not trace.is_symlink()))
+        and summary.get("schemaVersion") == SCHEMA_VERSION
+        and summary.get("runID") == artifact_dir.name
+        and summary.get("captureTime") == capture
+        and summary.get("platform") == platform
+        and summary.get("profileKind") == kind
+        and summary.get("status") == "failed"
+        and summary_state_valid
+        and summary.get("originalEphemeralPath") == original
+    )
+
+
+def failed_profile_payload_candidates(
+    *, root: Path, artifact_dir: Path
+) -> tuple[list[Path], list[str]]:
+    """Return payload to discard while retaining one bounded diagnostic capsule."""
+
+    _, maximum_total, maximum_log = profile_retention_settings(root)
+    discard: list[Path] = []
+    retained: list[str] = []
+    retained_bytes = 0
+    for child in sorted(artifact_dir.iterdir(), key=lambda item: item.name):
+        name = child.name
+        if name in COMPACTED_CRITICAL_FILES and child.is_file() and not child.is_symlink():
+            retained.append(name)
+            retained_bytes += child.stat().st_size
+            continue
+        allowed_metadata = name in COMPACTED_METADATA_FILES
+        allowed_log = name.endswith(".log")
+        if (allowed_metadata or allowed_log) and child.is_file() and not child.is_symlink():
+            size = child.stat().st_size
+            item_limit = maximum_log if allowed_log else maximum_total
+            if size <= item_limit and retained_bytes + size <= maximum_total:
+                retained.append(name)
+                retained_bytes += size
+                continue
+        discard.append(child)
+    return discard, retained
+
+
+def remove_failed_profile_payload(*, root: Path, artifact_dir: Path) -> tuple[int, list[str]]:
+    candidates, retained = failed_profile_payload_candidates(
+        root=root, artifact_dir=artifact_dir
+    )
+    removed = sum(payload_bytes(candidate) for candidate in candidates)
+    for candidate in candidates:
+        if candidate.is_symlink() or candidate.is_file():
+            candidate.unlink(missing_ok=True)
+        elif candidate.is_dir():
+            shutil.rmtree(candidate)
+    return removed, retained
 
 
 def failure_summary(
@@ -385,6 +530,10 @@ def cmd_finalize_success(args: argparse.Namespace) -> int:
 def compact_failed_trace(root: Path, manifest_path: Path, value: dict[str, Any]) -> None:
     if manifest_path.is_symlink() or manifest_path.parent.is_symlink():
         raise RetentionError(f"failed profile marker must not be reached through a symlink: {manifest_path}")
+    if not valid_failed_profile_for_compaction(
+        root=root, marker_path=manifest_path, value=value
+    ):
+        raise RetentionError(f"failed profile metadata is not safe to compact: {manifest_path}")
     trace_relative = value.get("originalEphemeralPath")
     if not isinstance(trace_relative, str) or not trace_relative.startswith("build/"):
         raise RetentionError(f"invalid failed trace path in {manifest_path}")
@@ -393,22 +542,51 @@ def compact_failed_trace(root: Path, manifest_path: Path, value: dict[str, Any])
     expected = artifact_dir / f"{artifact_dir.name}.trace"
     if trace.resolve() != expected.resolve():
         raise RetentionError(f"failed trace marker escapes its run directory: {manifest_path}")
-    if trace.exists():
-        if trace.is_symlink() or not trace.is_dir():
-            raise RetentionError(f"refusing to remove non-directory trace: {trace}")
-        shutil.rmtree(trace)
+    if trace.exists() and (trace.is_symlink() or not trace.is_dir()):
+        raise RetentionError(f"refusing to remove non-directory trace: {trace}")
+    summary_path = artifact_dir / "profile-failure-summary.json"
+    summary = load_json(summary_path)
+    if value.get("retentionPolicy") != "failedCompactionPending":
+        started_at = utc_now()
+        value.update(
+            {
+                "retentionPolicy": "failedCompactionPending",
+                "rawTraceRetained": True,
+                "compactionStartedAt": started_at,
+            }
+        )
+        summary.update(
+            {
+                "rawTraceRetained": True,
+                "retentionPolicy": "failedCompactionPending",
+                "compactionStartedAt": started_at,
+            }
+        )
+        atomic_json_write(manifest_path, value)
+        atomic_json_write(summary_path, summary)
+    removed_bytes, retained_files = remove_failed_profile_payload(
+        root=root, artifact_dir=artifact_dir
+    )
+    completed_at = utc_now()
+    summary = load_json(summary_path) if summary_path.exists() else {}
+    summary.update(
+        {
+            "rawTraceRetained": False,
+            "retentionPolicy": "failedCompacted",
+            "compactedAt": completed_at,
+            "discardedPayloadBytes": removed_bytes,
+            "retainedDiagnosticFiles": retained_files,
+        }
+    )
+    atomic_json_write(summary_path, summary)
     value.update(
         {
             "retentionPolicy": "failedCompacted",
             "rawTraceRetained": False,
-            "completedAt": utc_now(),
+            "completedAt": completed_at,
         }
     )
     atomic_json_write(manifest_path, value)
-    summary_path = artifact_dir / "profile-failure-summary.json"
-    summary = load_json(summary_path) if summary_path.exists() else {}
-    summary.update({"rawTraceRetained": False, "compactedAt": utc_now()})
-    atomic_json_write(summary_path, summary)
 
 
 def cmd_mark_failure(args: argparse.Namespace) -> int:
@@ -434,7 +612,8 @@ def cmd_mark_failure(args: argparse.Namespace) -> int:
     )
     atomic_json_write(artifact_dir / "profile-retention.json", manifest)
 
-    candidates: list[tuple[str, str, Path, dict[str, Any]]] = []
+    candidates: list[tuple[str, str, Path, dict[str, Any], bool]] = []
+    pending: list[tuple[Path, dict[str, Any]]] = []
     for marker in profiles_root.glob("*/profile-retention.json"):
         if marker.is_symlink() or marker.parent.is_symlink():
             continue
@@ -442,21 +621,35 @@ def cmd_mark_failure(args: argparse.Namespace) -> int:
             value = load_json(marker)
         except RetentionError:
             continue
-        if not (
-            value.get("status") == "failed"
-            and value.get("platform") == args.platform
-            and value.get("profileKind") == args.kind
-            and value.get("rawTraceRetained") is True
-            and value.get("runID") == marker.parent.name
+        if not valid_failed_profile_for_compaction(
+            root=root, marker_path=marker, value=value
         ):
+            continue
+        pin_path = marker.parent / "retention-pin.json"
+        pin = load_json(pin_path) if pin_path.is_file() else None
+        pinned = bool(
+            pin and pin.get("schemaVersion") == 1 and pin.get("pinned") is True
+        )
+        if value.get("retentionPolicy") == "failedCompactionPending":
+            if not pinned:
+                pending.append((marker, value))
             continue
         try:
             capture_time = profile_capture_time(marker.parent.name, args.platform, args.kind)
         except RetentionError:
             continue
-        candidates.append((capture_time, marker.parent.name, marker, value))
+        candidates.append((capture_time, marker.parent.name, marker, value, pinned))
+    for marker, value in pending:
+        compact_failed_trace(root, marker, value)
     candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    for _, _, marker, value in candidates[1:]:
+    keep_failures, _, _ = profile_retention_settings(root)
+    retained_unpinned = 0
+    for _, _, marker, value, pinned in candidates:
+        if pinned:
+            continue
+        if retained_unpinned < keep_failures:
+            retained_unpinned += 1
+            continue
         compact_failed_trace(root, marker, value)
     return 0
 

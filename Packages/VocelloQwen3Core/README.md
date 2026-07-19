@@ -8,8 +8,9 @@ upstream model families remain recoverable from Git history or the recorded upst
 ## Checked-in products
 
 - **`VocelloQwen3Core`** — the stable first-party product boundary used by Vocello. It owns typed
-  model-bundle, capability, sampling, memory, request, ordered generation session/event, terminal,
-  cancellation, and diagnostic contracts, plus narrowly scoped runtime adapters.
+  model-bundle, capability, sampling, memory, request, engine-lease, classified generation-session,
+  terminal, cancellation, finalization, and diagnostic contracts, plus narrowly scoped runtime
+  adapters.
 - **`MLXAudioCore`** — generation protocols and shared audio utilities.
 - **`MLXAudioCodecs`** — the Mimi codec subset used by the Qwen3 speech tokenizer.
 - **`MLXAudioTTS`** — Qwen3-TTS only.
@@ -41,6 +42,30 @@ Xcode project. Product sources import that facade rather than the compatibility 
 `QwenVoiceCore` coordinates the product engine while this package owns Qwen3 model loading,
 sampling, streaming, Mimi decoding, and clone artifacts. `QwenVoiceBackendCore` contains shared
 provenance/policy vocabulary; it does not re-export this package.
+
+The shipping generation boundary is `VocelloQwen3Engine`. It keeps loaded-model identity separate
+from operation phase and retains one lease from reservation through explicit product finalization.
+A reserved generation remains inert until its one mandatory audio consumer is claimed. Core audio
+then uses a direct caller-isolated Qwen producer and frame-bounded suspending channel. Lazy audio is
+materialized to `[Float]` before the awaited send, so no `MLXArray` crosses a task or actor boundary;
+prepared state, coalesced progress, model terminal, bounded PCM-free diagnostics, cancellation, and
+product finalization remain independent. Custom, Design, and Clone now use that classified session
+through QwenVoiceCore's `GenerationOutputAdapter`; direct compatibility streams are not product
+generation authority. The old combined facade event session remains a package-internal
+characterization surface only. The named `VocelloQwen3LegacyCompatibility` SPI is now limited to
+the transitional prepared-model load/prewarm bridge and validated schema-3 clone-prompt adoption.
+
+The actor closes its inert-reservation and critical-relief lifecycle explicitly.
+Reserved, generating, and aborting states prevent open-after-abort and make duplicate aborts join
+one finalization. Typed cache-trim or full-unload relief carries the generation lease through the
+release operation and reopens critical admission only after relief completes. A rejected atomic
+relief claim clears ownership before session reconciliation so a concurrent ordinary finalizer
+cannot strand the lease.
+
+Clone prompts remain actor-owned behind epoch-bound `VocelloQwen3CloneHandle` values. The default
+retained-handle capacity is one; an explicit larger capacity uses least-recently-used eviction.
+Release is explicit and repeat-safe, a reservation keeps an already captured prompt, noncritical
+cache trim preserves valid handles, and model reload, critical trim, or full unload invalidates them.
 
 The `MLXAudioCore`, `MLXAudioCodecs`, and `MLXAudioTTS` products remain checked in for implementation
 compatibility. They may be used inside this package, but are not the application-layer dependency

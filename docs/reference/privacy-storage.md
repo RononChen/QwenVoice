@@ -25,7 +25,10 @@ QWENVOICE_APP_SUPPORT_DIR=/path/to/custom/app-support
 
 Maintained macOS subtrees and preferences:
 
-- `models/` stores installed Hugging Face model files. Speed and Quality folders for the same generation mode can coexist on macOS.
+- `models/` stores installed Hugging Face model files. Speed and Quality folders for the same
+  generation mode can coexist on macOS. Catalog-v2 installs may also use the hidden
+  `.qwenvoice-components-v1/` content-addressed store; ordinary model paths remain regular hard
+  links, and component liveness is derived from strict installed manifests.
 - `.qwenvoice-downloads/` stores staged model downloads, partial files, resume data, and download-state metadata while a download is in progress.
 - `diagnostics/model-downloads/` stores allowlisted transfer/failure summaries, capped at 20 records and 5 MB; raw URLs and absolute paths are excluded.
 - `outputs/CustomVoice/`, `outputs/VoiceDesign/`, and `outputs/Clones/` store generated audio unless the user chooses a different output directory. If a user-chosen directory becomes missing or unwritable, new audio falls back to these default folders and Settings shows a warning — a generation is never lost to a vanished folder.
@@ -37,7 +40,11 @@ Maintained macOS subtrees and preferences:
   on reload or re-entry; it does not currently expose a dedicated Retry button.
 - Active macOS model-quality choices are stored in app preferences, keyed per generation mode. `DebugMode` isolates preferences to `com.qwenvoice.app.debug`; Release builds use `UserDefaults.standard`.
 
-Delete local macOS app data by quitting the app and removing the app support root or the specific subtree above. Deleting `models/` removes installed model files and requires downloading them again; it does not by itself clear normal app preferences such as the active model-quality choice.
+Delete local macOS app data by quitting the app and removing the app support root or the specific
+subtree above. Use the model manager for an individual model so shared components still referenced
+by another installed manifest remain valid. Deleting the whole `models/` root removes both model
+folders and the component store and requires downloading them again; it does not by itself clear
+normal app preferences such as the active model-quality choice.
 
 ## iPhone Storage
 
@@ -67,7 +74,9 @@ its historical bundle-scoped background-session identifier when the debug master
 
 Maintained iPhone subtrees:
 
-- `models/` stores verified installed model files.
+- `models/` stores verified installed model files plus the hidden catalog-v2
+  `.qwenvoice-components-v1/` content-addressed store. Model-visible component paths are regular
+  hard links; deletion preserves blobs still live in another strict installed manifest.
 - `downloads/ios_model_delivery_state.json` is the atomic schema-v2 delivery ledger. It stores only privacy-safe identifiers, relative paths, receipts, retry counts, byte progress, and terminal state.
 - `downloads/staging/` is the only iPhone delivery staging tree; it holds durable delegate files plus per-model verified files, partials, and resume data.
 - `diagnostics/model-downloads/` stores allowlisted local transfer/failure summaries, capped at 20 records and 5 MB. It excludes raw URLs, absolute paths, device identity, and user data.
@@ -142,10 +151,20 @@ block byte-for-byte, so a manifest change cannot silently leave documentation st
 | `build/artifacts/project-health/` | Generated project-health inventory and release-readiness diagnostics | `artifact` | `routine` | Local detailed reports are disposable; the compact reproducible snapshot is tracked under docs |
 | `build/artifacts/symbols/macos/` | macOS build and release identity checks | `artifact` | `preserve` | Keep only symbols whose UUIDs match the current macOS app and XPC products |
 | `build/artifacts/symbols/ios/` | Physical-device iOS build and archive identity checks | `artifact` | `preserve` | Keep only symbols whose UUIDs match the current iOS app product |
-| `build/artifacts/foundation/` | Foundation compile-safety result bundles and logs | `artifact` | `routine` | Retain the latest useful compile-safety result; older output is disposable |
+| `build/artifacts/foundation/` | Foundation compile-safety result bundles and logs | `artifact` | `routine` | Compile-safety result bundles and logs are disposable after the command verdict |
 | `build/dist/macos/` | macOS signing, notarization, and packaging lane | `distribution` | `dist` | Never remove during routine or aggressive cleanup; explicit distribution cleanup only |
 | `build/dist/ios/` | iOS archive and TestFlight export lane | `distribution` | `dist` | Never remove during routine or aggressive cleanup; explicit distribution cleanup only |
 <!-- END GENERATED BUILD OUTPUT POLICY TABLE -->
+
+### External Xcode components are not repository cache
+
+Repository inventory and cleanup own only the paths declared by
+`config/build-output-policy.json`. They never delete, download, install, or manage Xcode Platform
+Support, CoreSimulator runtime components, or global Xcode DerivedData. Removing all compatible iOS
+runtime components can make `generic/platform=iOS` unavailable on current Xcode 26 toolchains even
+while `xcodebuild -showsdks` still lists `iphoneos`. That state is an external toolchain issue, not
+reclaimable repository output. Use `scripts/lib/ios_platform_preflight.py check`, then make any
+multi-gigabyte component installation explicitly through Xcode Settings.
 
 The public `build/Vocello.app` and `build/vocello` paths are manifest-owned symlinks to the current
 canonical macOS products; they are not independent application or CLI copies.
@@ -166,12 +185,37 @@ than leaking state through scheme-less `-target` invocations.
 Exact-PID Allocations traces can grow by multiple gigabytes during one cold model run, so successful
 profiles publish compact evidence and discard the raw trace unless `--keep-trace` is explicit. Use
 `scripts/clean_build_caches.sh` for a read-only inventory and `--routine --dry-run` for the bounded
-cleanup preview. `--routine` removes eligible scratch and superseded evidence while preserving
+cleanup preview. Inventory reports filesystem free space, automatically eligible bytes, blocked
+evidence, and failed-profile bytes that require explicit acknowledgement. `--routine` removes
+eligible scratch while preserving
 source, tracked benchmark history, persistent caches, current UUID-matched dSYMs, distribution
 outputs, publication-repair evidence, and model stores. `--aggressive` additionally removes
 persistent compilation/package caches and the public aliases. `--prune-ui-results` and `--dist`
 target only their named class; `--clobber --yes` removes ignored repository-local generated state.
 `./scripts/build.sh clean` delegates to bounded aggressive cleanup rather than deleting the whole
-tree. Model deletion remains a separate explicit `--models` action. A passed benchmark result is pruned
-only when its compact registry record validates, and evidence needed to repair a failed publication
-is preserved.
+tree. Model deletion remains a separate explicit `--models` action. UI pruning includes smoke,
+benchmark, and model-download lanes: it keeps the latest pass, preserves matching benchmark
+publication-repair evidence, and reduces resolved failures or unrepairable unpublished results to
+small lifecycle summaries. Legacy/malformed or explicitly pinned results stay blocked. A failed
+profile trace is compacted only after a newer same-kind capture resolves it or through the exact,
+reviewable command `--compact-profile-failure RUN_ID`. An explicit retention pin always wins.
+Compaction keeps the required marker and summary plus at most 8 MiB of allowlisted auxiliary
+diagnostics; each retained log is capped at 1 MiB. Copied or misrouted public app/CLI products make
+selective or aggressive cache cleanup fail closed instead of deleting the unexpected product.
+
+Persistent caches are independently selectable:
+
+```sh
+scripts/clean_build_caches.sh --cache macos --dry-run
+scripts/clean_build_caches.sh --cache ios --dry-run
+scripts/clean_build_caches.sh --cache packages --dry-run
+scripts/clean_build_caches.sh --cache runtime --dry-run
+```
+
+Heavy local lanes read their minimum free-space requirement and cleanup hint from the same manifest.
+They fail before regeneration, compilation, target launch, or evidence creation when the floor is
+not met. Profile tracer stages retain their 5 GiB CPU and 15 GiB memory checks; their prerequisite
+macOS/iOS builds still require 8 GiB and 10 GiB respectively, making those the effective full CPU
+command floors. No runner
+automatically applies a global routine or cache cleanup after success; UI/profile runners only apply
+their own validator-safe retention transaction.

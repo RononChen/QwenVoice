@@ -81,7 +81,9 @@ scripts/ios_device.sh gate            # deterministic physical-device/runtime pr
 - **All iOS runtime work is on-device only.** The MLX engine runs in-process on Metal. XCUITest
   drives the paired physical iPhone; scripts handle the device and telemetry. The generic
   physical-device SDK compile (app plus standalone policy-test bundle) is the sole no-phone iOS
-  development lane. Xcode 26 cannot execute its app-host-free, tool-hosted XCTest bundle on a
+  development lane. It still requires the selected Xcode's matching iOS Platform Support/runtime
+  component; `scripts/lib/ios_platform_preflight.py check` verifies that external toolchain state
+  without running a Simulator. Xcode 26 cannot execute its app-host-free, tool-hosted XCTest bundle on a
   physical-device destination, so the policy target is compile-only; runtime proof uses the
   existing headless diagnostics and XCUITest lanes.
 - **Typed cancellation barrier.** The in-process `MLXTTSEngine` conforms to
@@ -114,6 +116,10 @@ scripts/ios_device.sh gate            # deterministic physical-device/runtime pr
 - Running **runtime iOS work** on the Simulator. Real iOS tests and generation/download must run on
   a paired device; the generic physical-device SDK compile lane is the deterministic development
   check and does not require a connected phone.
+- Treating `xcodebuild -showsdks` as proof that `generic/platform=iOS` is usable. On current Xcode
+  26 toolchains, removing every compatible iOS runtime component can make the generic destination
+  ineligible while `iphoneos` still appears. Restore the matching component explicitly; never
+  weaken the destination or add a Simulator lane.
 - Bypassing `cancelActiveGeneration(reason:)`, treating `.cancelled` as failure, or releasing
   generation ownership before the active task reaches its terminal barrier.
 - Using raw `ScrollView` instead of `IOSScrollView`.

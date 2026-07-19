@@ -94,6 +94,9 @@ scripts/macos_test.sh gate            # deterministic macOS platform gate
   after the active session clears.
 - **Single envelope method.** The XPC wire protocol is one `perform(_:withReply:)` carrying an
   `EngineCommand`. Do not add ad-hoc XPC methods.
+- **Reserve before generation side effects.** `EngineServiceHost` must reserve, bind accepted
+  state, and only then open generation. A rejected concurrent request must not create timing,
+  forwarding, task, or stream state or perturb the accepted request.
 - **Liquid Glass is gated.** `QW_UI_LIQUID` compilation condition controls Liquid Glass surfaces.
 - **Reduce Motion / Reduce Transparency.** All animation routes through `appAnimation` /
   `AppLaunchConfiguration.performAnimated`; reduced-transparency fallback uses solid fills.

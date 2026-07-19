@@ -86,6 +86,10 @@ upload depend on deterministic release-readiness and artifact checks.
    ./scripts/release.sh --preflight full --signing-mode developer-id --signing-identity "<Developer ID Application: …>"
    scripts/verify_release_bundle.sh   # invoked by release.sh; rerun standalone if needed
    ```
+   The release runner requires 20 GiB of host free space before readiness work and checks again
+   before its isolated build. If it stops, inspect `python3 scripts/build_output_policy.py status`
+   and apply only the bounded cleanup it reports; never delete `build/dist/` or the canonical
+   development caches merely to satisfy the release lane.
    Release builds use isolated `build/scratch/derived-data/release-macos/` state and place the
    signed app, metadata, and DMG under `build/dist/macos/`; they never invalidate the persistent
    development cache. Routine cleanup does not remove these distribution outputs.

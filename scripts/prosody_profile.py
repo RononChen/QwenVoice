@@ -74,6 +74,11 @@ def validate_profile(profile):
     # handled by callers via .get(..., default).
     if not isinstance(profile.get("delivery_weights"), dict):
         raise ValueError("delivery_weights must be an object")
+    analyzer_version = profile.get("analyzer_algorithm_version")
+    if analyzer_version is not None and (
+        not isinstance(analyzer_version, int) or analyzer_version < 1
+    ):
+        raise ValueError("analyzer_algorithm_version must be a positive integer")
     return profile
 
 

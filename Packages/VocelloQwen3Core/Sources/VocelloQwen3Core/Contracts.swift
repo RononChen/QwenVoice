@@ -83,14 +83,49 @@ public struct VocelloQwen3PreparedModelBundle: Hashable, Sendable {
     }
 }
 
-/// Typed sampling policy. These values describe request policy; the compatibility
-/// adapter remains responsible for constructing MLXLM's `GenerateParameters`.
+/// Independently configurable categorical-sampling stage.
+public struct VocelloQwen3SamplingStage: Codable, Hashable, Sendable {
+    public let temperature: Float
+    public let topP: Float
+    public let topK: Int
+    public let minP: Float
+
+    public init(temperature: Float, topP: Float, topK: Int, minP: Float = 0) {
+        self.temperature = temperature
+        self.topP = topP
+        self.topK = topK
+        self.minP = minP
+    }
+
+    func validated(named name: String) throws -> Self {
+        guard temperature.isFinite, temperature >= 0 else {
+            throw VocelloQwen3ContractError.invalidTemperature
+        }
+        guard topP.isFinite, topP > 0, topP <= 1 else {
+            throw VocelloQwen3ContractError.invalidTopP
+        }
+        guard topK > 0 else { throw VocelloQwen3ContractError.invalidTopK }
+        guard minP.isFinite, minP >= 0, minP < 1 else {
+            throw VocelloQwen3ContractError.invalidMinimumProbability(name)
+        }
+        return self
+    }
+}
+
+/// Typed, request-local Qwen3 sampling policy.
+///
+/// The legacy scalar fields remain source-compatible aliases for the talker
+/// stage. Version 2 adds an always-present effective seed and an independently
+/// configurable subtalker stage. The compatibility adapter now carries every
+/// field to the owned Qwen runtime instead of rejecting top-K or seed values.
 public struct VocelloQwen3SamplingConfiguration: Codable, Hashable, Sendable {
-    /// The effective Qwen3 talker top-K used by the current compatibility
-    /// adapter. `GenerateParameters` has no top-K carrier, so a different
-    /// request-local value fails closed instead of being silently ignored.
+    public static let currentAlgorithmVersion = 2
     public static let compatibilityDefaultTopK = 50
 
+    public let algorithmVersion: Int
+    public let effectiveSeed: UInt64
+    public let talker: VocelloQwen3SamplingStage
+    public let subtalker: VocelloQwen3SamplingStage
     public let maxNewTokens: Int
     public let temperature: Float
     public let topP: Float
@@ -106,6 +141,15 @@ public struct VocelloQwen3SamplingConfiguration: Codable, Hashable, Sendable {
         repetitionPenalty: Float,
         seed: UInt64? = nil
     ) {
+        let talker = VocelloQwen3SamplingStage(
+            temperature: temperature,
+            topP: topP,
+            topK: topK
+        )
+        self.algorithmVersion = Self.currentAlgorithmVersion
+        self.effectiveSeed = seed ?? UInt64.random(in: UInt64.min ... UInt64.max)
+        self.talker = talker
+        self.subtalker = talker
         self.maxNewTokens = maxNewTokens
         self.temperature = temperature
         self.topP = topP
@@ -114,29 +158,58 @@ public struct VocelloQwen3SamplingConfiguration: Codable, Hashable, Sendable {
         self.seed = seed
     }
 
+    public init(
+        algorithmVersion: Int = Self.currentAlgorithmVersion,
+        effectiveSeed: UInt64,
+        talker: VocelloQwen3SamplingStage,
+        subtalker: VocelloQwen3SamplingStage,
+        repetitionPenalty: Float,
+        maxNewTokens: Int,
+        requestedSeed: UInt64? = nil
+    ) {
+        self.algorithmVersion = algorithmVersion
+        self.effectiveSeed = effectiveSeed
+        self.talker = talker
+        self.subtalker = subtalker
+        self.maxNewTokens = maxNewTokens
+        self.temperature = talker.temperature
+        self.topP = talker.topP
+        self.topK = talker.topK
+        self.repetitionPenalty = repetitionPenalty
+        self.seed = requestedSeed
+    }
+
     public func validated() throws -> Self {
+        guard algorithmVersion == Self.currentAlgorithmVersion else {
+            throw VocelloQwen3ContractError.invalidSamplingAlgorithmVersion
+        }
         guard maxNewTokens > 0 else { throw VocelloQwen3ContractError.invalidMaxNewTokens }
-        guard temperature >= 0 else { throw VocelloQwen3ContractError.invalidTemperature }
-        guard topP > 0, topP <= 1 else { throw VocelloQwen3ContractError.invalidTopP }
-        guard topK > 0 else { throw VocelloQwen3ContractError.invalidTopK }
+        _ = try talker.validated(named: "talker")
+        _ = try subtalker.validated(named: "subtalker")
+        guard temperature == talker.temperature,
+              topP == talker.topP,
+              topK == talker.topK else {
+            throw VocelloQwen3ContractError.inconsistentTalkerAliases
+        }
         guard repetitionPenalty > 0 else { throw VocelloQwen3ContractError.invalidRepetitionPenalty }
         return self
     }
 
     func validatedForCompatibilityAdapter() throws -> Self {
-        let validated = try validated()
-        guard topK == Self.compatibilityDefaultTopK else {
-            throw VocelloQwen3ContractError.unsupportedRequestTopK(topK)
-        }
-        guard seed == nil else {
-            throw VocelloQwen3ContractError.unsupportedRequestSeed
-        }
-        return validated
+        try validated()
     }
 }
 
 /// Per-request memory policy resolved by the host before it crosses the facade.
 public struct VocelloQwen3MemoryConfiguration: Codable, Hashable, Sendable {
+    /// Compatibility behavior used only by legacy callers that have not yet
+    /// supplied an explicit host-resolved tier policy.
+    public static let compatibilityDefault = Self(
+        clearCacheOnStreamChunk: true,
+        tokenMemoryClearCadence: 50,
+        talkerKVGeneratedWindow: nil
+    )
+
     public let clearCacheOnStreamChunk: Bool
     public let tokenMemoryClearCadence: Int
     public let talkerKVGeneratedWindow: Int?
@@ -162,6 +235,74 @@ public struct VocelloQwen3MemoryConfiguration: Codable, Hashable, Sendable {
     }
 }
 
+public enum VocelloQwen3StreamEvaluationPolicy: String, Codable, Hashable, Sendable {
+    case full
+    case eosOnly = "eos_only"
+    case deferred
+}
+
+/// Explicit codec-frame schedule carried by every actor-owned request.
+///
+/// The compatibility Qwen loop currently derives its first chunk from a
+/// 12.5-Hz interval and preserves the established mode-specific later-chunk
+/// multiplier. Keeping the exact frame counts in the request prevents an
+/// actor cutover from silently substituting a generic interval.
+public struct VocelloQwen3StreamChunkConfiguration: Codable, Hashable, Sendable {
+    public let firstCodecFrames: Int
+    public let laterCodecFrames: Int
+    public let pendingFrameLimit: Int
+    public let materializationLeadSteps: Int
+    public let evaluationPolicy: VocelloQwen3StreamEvaluationPolicy
+
+    public init(
+        firstCodecFrames: Int,
+        laterCodecFrames: Int,
+        pendingFrameLimit: Int,
+        materializationLeadSteps: Int = 0,
+        evaluationPolicy: VocelloQwen3StreamEvaluationPolicy = .full
+    ) {
+        self.firstCodecFrames = firstCodecFrames
+        self.laterCodecFrames = laterCodecFrames
+        self.pendingFrameLimit = pendingFrameLimit
+        self.materializationLeadSteps = materializationLeadSteps
+        self.evaluationPolicy = evaluationPolicy
+    }
+
+    public static func currentConstrainedDefault(
+        for mode: VocelloQwen3SynthesisMode
+    ) -> Self {
+        let first = 7
+        return Self(
+            firstCodecFrames: first,
+            laterCodecFrames: mode == .customVoice ? first : first * 2,
+            pendingFrameLimit: mode == .customVoice ? first : first * 2
+        )
+    }
+
+    public func validated(for mode: VocelloQwen3SynthesisMode) throws -> Self {
+        let expectedLater = mode == .customVoice
+            ? firstCodecFrames
+            : firstCodecFrames * 2
+        // The Phase 3 direct producer currently forwards the first-frame
+        // interval and preserves the established later-frame multiplier. The
+        // remaining controls are carried for the converged contract but are
+        // not yet wired to Qwen. Reject non-control values instead of silently
+        // accepting policy that the runtime would ignore.
+        guard firstCodecFrames > 0,
+              laterCodecFrames == expectedLater,
+              pendingFrameLimit == max(firstCodecFrames, laterCodecFrames),
+              materializationLeadSteps == 0,
+              evaluationPolicy == .full else {
+            throw VocelloQwen3ContractError.invalidChunkConfiguration
+        }
+        return self
+    }
+
+    var compatibilityStreamingInterval: Double {
+        Double(firstCodecFrames) / 12.5
+    }
+}
+
 public enum VocelloQwen3SynthesisInput: Codable, Hashable, Sendable {
     case customVoice(speakerID: String, deliveryInstruction: String?)
     case voiceDesign(description: String)
@@ -176,6 +317,15 @@ public enum VocelloQwen3SynthesisInput: Codable, Hashable, Sendable {
     }
 }
 
+/// Selects the owned model execution path without changing product output
+/// policy. Quality-first requests still drain through the mandatory product
+/// adapter, but the model emits one complete materialized payload and the
+/// product suppresses preview publication.
+public enum VocelloQwen3ExecutionStyle: String, Codable, Hashable, Sendable {
+    case streaming
+    case qualityFirst = "quality_first"
+}
+
 /// Product request boundary. Reference audio/tensors are resolved separately by
 /// the host so this value remains portable and deterministic.
 public struct VocelloQwen3SynthesisRequest: Codable, Hashable, Sendable {
@@ -185,6 +335,8 @@ public struct VocelloQwen3SynthesisRequest: Codable, Hashable, Sendable {
     public let input: VocelloQwen3SynthesisInput
     public let sampling: VocelloQwen3SamplingConfiguration
     public let memory: VocelloQwen3MemoryConfiguration
+    public let chunking: VocelloQwen3StreamChunkConfiguration
+    public let executionStyle: VocelloQwen3ExecutionStyle
 
     public init(
         generationID: UUID,
@@ -192,7 +344,9 @@ public struct VocelloQwen3SynthesisRequest: Codable, Hashable, Sendable {
         language: String,
         input: VocelloQwen3SynthesisInput,
         sampling: VocelloQwen3SamplingConfiguration,
-        memory: VocelloQwen3MemoryConfiguration
+        memory: VocelloQwen3MemoryConfiguration,
+        chunking: VocelloQwen3StreamChunkConfiguration? = nil,
+        executionStyle: VocelloQwen3ExecutionStyle = .streaming
     ) {
         self.generationID = generationID
         self.text = text
@@ -200,6 +354,8 @@ public struct VocelloQwen3SynthesisRequest: Codable, Hashable, Sendable {
         self.input = input
         self.sampling = sampling
         self.memory = memory
+        self.chunking = chunking ?? .currentConstrainedDefault(for: input.mode)
+        self.executionStyle = executionStyle
     }
 
     public var mode: VocelloQwen3SynthesisMode { input.mode }
@@ -216,7 +372,49 @@ public struct VocelloQwen3SynthesisRequest: Codable, Hashable, Sendable {
         }
         _ = try sampling.validatedForCompatibilityAdapter()
         _ = try memory.validated()
+        _ = try chunking.validated(for: mode)
         return self
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case generationID, text, language, input, sampling, memory, chunking, executionStyle
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let input = try container.decode(VocelloQwen3SynthesisInput.self, forKey: .input)
+        self.generationID = try container.decode(UUID.self, forKey: .generationID)
+        self.text = try container.decode(String.self, forKey: .text)
+        self.language = try container.decode(String.self, forKey: .language)
+        self.input = input
+        self.sampling = try container.decode(
+            VocelloQwen3SamplingConfiguration.self,
+            forKey: .sampling
+        )
+        self.memory = try container.decode(
+            VocelloQwen3MemoryConfiguration.self,
+            forKey: .memory
+        )
+        self.chunking = try container.decodeIfPresent(
+            VocelloQwen3StreamChunkConfiguration.self,
+            forKey: .chunking
+        ) ?? .currentConstrainedDefault(for: input.mode)
+        self.executionStyle = try container.decodeIfPresent(
+            VocelloQwen3ExecutionStyle.self,
+            forKey: .executionStyle
+        ) ?? .streaming
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(generationID, forKey: .generationID)
+        try container.encode(text, forKey: .text)
+        try container.encode(language, forKey: .language)
+        try container.encode(input, forKey: .input)
+        try container.encode(sampling, forKey: .sampling)
+        try container.encode(memory, forKey: .memory)
+        try container.encode(chunking, forKey: .chunking)
+        try container.encode(executionStyle, forKey: .executionStyle)
     }
 }
 
@@ -308,9 +506,15 @@ public enum VocelloQwen3ContractError: Error, Equatable, Sendable {
     case invalidTemperature
     case invalidTopP
     case invalidTopK
+    case invalidMinimumProbability(String)
+    case invalidSamplingAlgorithmVersion
+    case inconsistentTalkerAliases
     case invalidRepetitionPenalty
+    // Retained for source/decoding compatibility with pre-v2 callers. The v2
+    // adapter no longer emits these failures because both values are carried.
     case unsupportedRequestTopK(Int)
     case unsupportedRequestSeed
     case invalidMemoryClearCadence
     case invalidTalkerKVWindow
+    case invalidChunkConfiguration
 }

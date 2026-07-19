@@ -147,24 +147,30 @@ build_ios() {
     "$derived_data_path" "$SOURCE_PACKAGES_DIR"
 }
 
+case "$MODE" in
+  macos|ios|all) ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
+
+if [[ "$MODE" == "ios" || "$MODE" == "all" ]]; then
+  require_ios_xcode_platform \
+    || { echo "error: iOS foundation compile blocked by the selected Xcode toolchain" >&2; exit 1; }
+fi
+require_build_free_space foundation-compile \
+  || { echo "error: foundation compile storage preflight failed" >&2; exit 1; }
 prepare_paths
 trap cleanup_foundation_derived_data EXIT
 ensure_project_regenerated
 
 case "$MODE" in
-  macos)
-    build_macos
-    ;;
-  ios)
-    build_ios
-    ;;
+  macos) build_macos ;;
+  ios) build_ios ;;
   all)
     build_macos
     build_ios
-    ;;
-  *)
-    usage
-    exit 2
     ;;
 esac
 

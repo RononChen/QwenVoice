@@ -85,6 +85,9 @@
       ],
       "repo": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
       "revision": "e7dd0585652209fa0d7783659aad4e8a324de11c",
+      "sharedComponentIDs": [
+        "qwen3-speech-tokenizer-v1"
+      ],
       "totalBytes": 3104157269,
       "variantID": "quality"
     },
@@ -166,6 +169,9 @@
       ],
       "repo": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-4bit",
       "revision": "37e955a1deb861c088ae5f3a67043185f3d1a60c",
+      "sharedComponentIDs": [
+        "qwen3-speech-tokenizer-v1"
+      ],
       "totalBytes": 2336075167,
       "variantID": "speed"
     },
@@ -246,6 +252,9 @@
       ],
       "repo": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit",
       "revision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+      "sharedComponentIDs": [
+        "qwen3-speech-tokenizer-v1"
+      ],
       "totalBytes": 3080140019,
       "variantID": "quality"
     },
@@ -327,6 +336,9 @@
       ],
       "repo": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit",
       "revision": "f35faf19b0cc2160865af64ecf0f22f83d335135",
+      "sharedComponentIDs": [
+        "qwen3-speech-tokenizer-v1"
+      ],
       "totalBytes": 2312057897,
       "variantID": "speed"
     },
@@ -407,6 +419,9 @@
       ],
       "repo": "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit",
       "revision": "f90d617701d9f7f4ca499291e0b57f2b3c2fd2ee",
+      "sharedComponentIDs": [
+        "qwen3-speech-tokenizer-v1"
+      ],
       "totalBytes": 3080139348,
       "variantID": "quality"
     },
@@ -488,17 +503,69 @@
       ],
       "repo": "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-4bit",
       "revision": "5c390979e4b93af5f2932f90742ca99c7dd04687",
+      "sharedComponentIDs": [
+        "qwen3-speech-tokenizer-v1"
+      ],
       "totalBytes": 2312057276,
       "variantID": "speed"
     }
   ],
-  "catalogSchema": "config/model-catalog-schema-v1.json",
+  "catalogSchema": "config/model-catalog-schema-v2.json",
   "missingArtifactIdentities": [],
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "sharedComponents": [
+    {
+      "compatibilityIdentity": {
+        "componentSchemaVersion": 1,
+        "contentDigest": "6d5496d8cdd869756f344574ac244e2b613ed30a034cdd30c8633c3d1af04cc2",
+        "digest": "2134d2f4f3a9ca2dd3b3d607cab6f99a0bc3ea865ca5dba4b4e59ac3498df34e",
+        "encoderCapability": "encoderAndDecoder",
+        "loaderABI": "vocello-qwen3-speech-tokenizer-v1",
+        "runtimeProfileSignature": "qwen3-tts-12hz-1.7b",
+        "schemaVersion": 1
+      },
+      "contentIdentity": {
+        "digest": "6d5496d8cdd869756f344574ac244e2b613ed30a034cdd30c8633c3d1af04cc2",
+        "files": [
+          {
+            "byteCount": 2336,
+            "relativePath": "speech_tokenizer/config.json",
+            "sha256": "ee65bb901c876664ab8707c487157aa1a6ee57c65969b28fb5ec9dc211e68167"
+          },
+          {
+            "byteCount": 76,
+            "relativePath": "speech_tokenizer/configuration.json",
+            "sha256": "6bc26d64eb5024b4d1dab5a52371958b429256d6c9d59787f1f5294a54e0cebd"
+          },
+          {
+            "byteCount": 682293092,
+            "relativePath": "speech_tokenizer/model.safetensors",
+            "sha256": "836b7b357f5ea43e889936a3709af68dfe3751881acefe4ecf0dbd30ba571258"
+          },
+          {
+            "byteCount": 234,
+            "relativePath": "speech_tokenizer/preprocessor_config.json",
+            "sha256": "fcb3805e597e786d4067706e602f6688524640f8d3396790e2e09b5942fcbdfb"
+          }
+        ],
+        "schemaVersion": 1
+      },
+      "id": "qwen3-speech-tokenizer-v1",
+      "relativeRoot": "speech_tokenizer",
+      "sourceArtifactIdentities": [
+        "pro_custom:speed",
+        "pro_design:speed",
+        "pro_clone:speed",
+        "pro_custom:quality",
+        "pro_design:quality",
+        "pro_clone:quality"
+      ]
+    }
+  ],
   "sourceDigests": {
     "Sources/Resources/qwenvoice_contract.json": "4130f159e946c51e0891653ba210bb7d089d294fbcc9134e668e84bfdb0ed971",
     "Sources/Resources/qwenvoice_ios_model_catalog.json": "665f9914cb17ba8eef0c311b107262f362091194392c5c6c5369754cb56475f9",
     "config/model-artifact-receipts.json": "145e33bac2d5555bbb39536dce2c287d73bb9929990c721c4ad88953617e4edf",
-    "config/model-catalog-schema-v1.json": "21ab32bcd687c4806ad8deec7fdb626be44210219aa7fc5f3e1ecd9203f2e2e9"
+    "config/model-catalog-schema-v2.json": "17b1a7518060be8ded86473a9be8cc9f734a77e02c29446004947a014b83f693"
   }
 }

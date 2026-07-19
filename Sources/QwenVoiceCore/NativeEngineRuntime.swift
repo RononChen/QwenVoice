@@ -1,8 +1,7 @@
 import CryptoKit
 import Foundation
 import MLX
-import MLXRandom
-@preconcurrency import VocelloQwen3Core
+@_spi(VocelloQwen3LegacyCompatibility) @preconcurrency import VocelloQwen3Core
 import OSLog
 
 enum NativeRuntimeStage: String, Codable, Sendable {
@@ -149,6 +148,8 @@ struct NativePreparedGeneration: Sendable {
     let generationID: UUID
     let requestID: Int
     let model: UnsafeSpeechGenerationModel
+    let actorRequest: VocelloQwen3SynthesisRequest
+    let cloneHandle: VocelloQwen3CloneHandle?
     let warmState: EngineWarmState
     let timingOverridesMS: [String: Int]
     let booleanFlags: [String: Bool]
@@ -404,6 +405,7 @@ actor NativeEngineRuntime {
             isBatch: false
         )
         NativeMemoryPolicyResolver.apply(memoryPolicy)
+        let requestMemory = NativeMemoryPolicyResolver.memoryConfiguration(for: memoryPolicy)
         let prefetchStartedAt = ContinuousClock.now
         let identity = runtimePrewarmIdentity(for: request)
         let loadResult = try await loadModel(
@@ -411,7 +413,14 @@ actor NativeEngineRuntime {
             capabilityProfile: NativeLoadCapabilityProfile(for: request),
             preserveActiveClonePrimeToken: false
         )
-        loadResult.model.resetPreparationDiagnostics()
+        let model = loadResult.model.bound(
+            to: Qwen3TalkerSamplingOverride.samplingConfiguration(
+                requestedSeed: request.seed,
+                variation: request.variation
+            ),
+            memory: requestMemory
+        )
+        model.resetPreparationDiagnostics()
         var booleanFlags = loadResult.booleanFlags
         var timingsMS: [String: Int] = [
             "interactive_prefetch_load_model_ms": loadResult.didLoad ? prefetchStartedAt.elapsedMilliseconds : 0
@@ -421,7 +430,7 @@ actor NativeEngineRuntime {
 
         switch request.payload {
         case .custom:
-            if shouldSkipDedicatedCustomPrewarm(for: request, model: loadResult.model) {
+            if shouldSkipDedicatedCustomPrewarm(for: request, model: model) {
                 booleanFlags["custom_dedicated_prewarm_skipped"] = true
             } else {
                 let genericWarmReady: Bool
@@ -433,24 +442,24 @@ actor NativeEngineRuntime {
                 if !genericWarmReady {
                     _ = try await ensureWarmStateIfNeeded(
                         for: request,
-                        model: loadResult.model,
+                        model: model,
                         customPrewarmDepth: customPrewarmDepth
                     )
-                    booleanFlags.merge(loadResult.model.latestPreparationBooleanFlags) { _, rhs in rhs }
+                    booleanFlags.merge(model.latestPreparationBooleanFlags) { _, rhs in rhs }
                 }
                 requestKey = identity?.cacheKey
-                timingsMS.merge(loadResult.model.latestPreparationTimingsMS) { _, rhs in rhs }
+                timingsMS.merge(model.latestPreparationTimingsMS) { _, rhs in rhs }
             }
         case .design:
             let conditioningStartedAt = ContinuousClock.now
             let warmState = try await ensureDesignConditioningWarmStateIfNeeded(
                 for: request,
-                model: loadResult.model,
+                model: model,
                 source: .prefetch
             )
             conditioningPrepareMS = warmState.prewarmed ? conditioningStartedAt.elapsedMilliseconds : 0
             requestKey = warmState.requestKey.isEmpty ? nil : warmState.requestKey
-            booleanFlags.merge(loadResult.model.latestPreparationBooleanFlags) { _, rhs in rhs }
+            booleanFlags.merge(model.latestPreparationBooleanFlags) { _, rhs in rhs }
             booleanFlags["design_conditioning_reused"] = warmState.reused
             booleanFlags["design_conditioning_prefetch_hit"] = warmState.prefetchHit
             booleanFlags["interactive_design_prefetch_hit"] = warmState.prefetchHit
@@ -458,7 +467,7 @@ actor NativeEngineRuntime {
             booleanFlags["design_stream_step_prewarmed"] = warmState.streamStepPrewarmed
             booleanFlags["design_stream_step_prefetch_hit"] = warmState.streamStepPrefetchHit
             timingsMS["prewarm_slot_wait_ms"] = warmState.prewarmSlotWaitMS
-            if let streamStepWarmMS = loadResult.model.latestPreparationTimingsMS["design_stream_step_warm_ms"] {
+            if let streamStepWarmMS = model.latestPreparationTimingsMS["design_stream_step_warm_ms"] {
                 timingsMS["design_stream_step_warm_ms"] = streamStepWarmMS
             }
         case .clone:
@@ -480,16 +489,14 @@ actor NativeEngineRuntime {
     ) async throws -> NativePreparedGeneration {
         try GenerationSemantics.validateQwenPromptContract(for: request)
         let generationID = request.generationID ?? UUID()
-        // Per-request sampling controls (GitHub #47/#30). Safe here because
-        // the model-operation gate admits one generation at a time:
-        // - Seed: makes the decode's RNG stream deterministic, so the same
-        //   request + seed reproduces the same take.
-        // - Variation: stamped for the generation-parameter policies to map
-        //   into talker temperature/top-p (nil/expressive = official).
-        if let seed = request.seed {
-            MLXRandom.seed(seed)
-        }
-        Qwen3TalkerSamplingOverride.requestVariation = request.variation
+        // Resolve a complete immutable policy once at the host boundary. The
+        // effective seed is always present and the package owns a fresh MLX
+        // random state for the request; no process-global RNG or variation
+        // override is mutated here.
+        let samplingConfiguration = Qwen3TalkerSamplingOverride.samplingConfiguration(
+            requestedSeed: request.seed,
+            variation: request.variation
+        )
         // Fresh per-generation stage recorder, started at prepare entry (before model
         // load / prewarm) so the full backend timeline is measured from one origin.
         // Propagate to the load coordinator so its cache/tokenizer/model-load marks
@@ -505,6 +512,7 @@ actor NativeEngineRuntime {
             isBatch: request.batchTotal != nil
         )
         NativeMemoryPolicyResolver.apply(memoryPolicy)
+        let requestMemory = NativeMemoryPolicyResolver.memoryConfiguration(for: memoryPolicy)
         NativeMemoryPolicyResolver.resetPeakMemory()
         let telemetrySampler: NativeTelemetrySampler? = {
             guard let telemetryRecorder,
@@ -575,7 +583,10 @@ actor NativeEngineRuntime {
                 "memoryPolicy": memoryPolicy.name,
             ]
         )
-        let model = loadResult.model
+        let model = loadResult.model.bound(
+            to: samplingConfiguration,
+            memory: requestMemory
+        )
         model.resetPreparationDiagnostics()
         await recordDiagnosticEvent(
             "runtime-prepare-after-reset-preparation-diagnostics",
@@ -585,6 +596,10 @@ actor NativeEngineRuntime {
         var timingOverridesMS = loadResult.timingsMS
         var booleanFlags = loadResult.booleanFlags
         var stringFlags = loadResult.stringFlags
+        stringFlags["sampling_algorithm_version"] = String(samplingConfiguration.algorithmVersion)
+        stringFlags["sampling_effective_seed"] = String(samplingConfiguration.effectiveSeed)
+        stringFlags["sampling_talker_top_k"] = String(samplingConfiguration.talker.topK)
+        stringFlags["sampling_subtalker_top_k"] = String(samplingConfiguration.subtalker.topK)
 
         if loadResult.didLoad {
             timingOverridesMS["load_model"] = loadStartedAt.elapsedMilliseconds
@@ -747,6 +762,44 @@ actor NativeEngineRuntime {
         )
 
         timingOverridesMS["native_prepare_generation_ms"] = prepareStartedAt.elapsedMilliseconds
+        Self.recordGenerationPlanShadow(
+            request: request,
+            generationID: generationID,
+            modelRuntimeIdentity: loadResult.modelRuntimeIdentity,
+            qwen3Capabilities: loadResult.qwen3Capabilities,
+            memoryPolicy: memoryPolicy,
+            samplingConfiguration: samplingConfiguration,
+            cloneConditioning: cloneConditioning,
+            booleanFlags: &booleanFlags,
+            stringFlags: &stringFlags
+        )
+        let actorRequest = try Self.makeActorRequest(
+            request: request,
+            generationID: generationID,
+            capabilities: loadResult.qwen3Capabilities,
+            memoryPolicy: memoryPolicy,
+            samplingConfiguration: samplingConfiguration,
+            requestMemory: requestMemory,
+            cloneConditioning: cloneConditioning
+        )
+        let cloneHandle: VocelloQwen3CloneHandle?
+        if case .voiceClone = actorRequest.input {
+            guard let cloneConditioning,
+                  let prompt = cloneConditioning.voiceClonePrompt else {
+                throw MLXTTSEngineError.unsupportedRequest(
+                    "Voice Cloning requires validated schema-3 conditioning before generation."
+                )
+            }
+            cloneHandle = try await model.engine.adoptValidatedClonePrompt(
+                prompt,
+                capability: cloneConditioning.conditioningMode.isXVectorOnly
+                    ? .decoderOnly
+                    : .encoderAndDecoder,
+                conditioningDigest: cloneConditioning.internalIdentity.digest
+            )
+        } else {
+            cloneHandle = nil
+        }
         await telemetrySampler?.captureBoundary("after_preparation")
         return NativePreparedGeneration(
             // Reuse the app-minted ID so app/middle/engine telemetry rows correlate;
@@ -754,6 +807,8 @@ actor NativeEngineRuntime {
             generationID: generationID,
             requestID: takeNextRequestID(),
             model: model,
+            actorRequest: actorRequest,
+            cloneHandle: cloneHandle,
             warmState: loadResult.didLoad ? .cold : .warm,
             timingOverridesMS: timingOverridesMS,
             booleanFlags: booleanFlags,
@@ -781,6 +836,15 @@ actor NativeEngineRuntime {
                 policy: telemetryTerminalPolicy
             ), TelemetryGate.resolvedEnabled,
                let appSupportDirectory = diagnosticAppSupportBox?.url {
+                var failureNotes = GenerationTelemetryPrivacy.failureNotes(
+                    message: error.localizedDescription
+                ).merging(BenchRunContext.telemetryNotes()) { current, _ in current }
+                failureNotes["samplingVariation"] = (request.variation ?? .expressive).rawValue
+                failureNotes["samplingAlgorithmVersion"] = String(
+                    samplingConfiguration.algorithmVersion
+                )
+                failureNotes["samplingSeed"] = String(samplingConfiguration.effectiveSeed)
+                failureNotes["samplingSeedSource"] = request.seed == nil ? "generated" : "requested"
                 let record = GenerationTelemetryRecord(
                     generationID: generationID.uuidString,
                     layer: .engine,
@@ -791,8 +855,7 @@ actor NativeEngineRuntime {
                     stageMarks: stageMarks,
                     summary: summary,
                     thermalState: summary.thermalState,
-                    notes: GenerationTelemetryPrivacy.failureNotes(message: error.localizedDescription)
-                        .merging(BenchRunContext.telemetryNotes()) { current, _ in current }
+                    notes: failureNotes
                 )
                 await GenerationTelemetryJSONLSink.shared.write(
                     record: record,
@@ -812,6 +875,63 @@ actor NativeEngineRuntime {
             }
             throw error
         }
+    }
+
+    private static func makeActorRequest(
+        request: GenerationRequest,
+        generationID: UUID,
+        capabilities: Qwen3TTSModelCapabilities,
+        memoryPolicy: NativeMemoryPolicy,
+        samplingConfiguration: VocelloQwen3SamplingConfiguration,
+        requestMemory: VocelloQwen3MemoryConfiguration,
+        cloneConditioning: ResolvedCloneConditioning?
+    ) throws -> VocelloQwen3SynthesisRequest {
+        let effectiveInterval = NativeMemoryPolicyResolver.effectiveStreamingInterval(
+            requested: request.streamingInterval,
+            request: request,
+            policy: memoryPolicy
+        )
+        let chunkPolicy = StreamChunkPolicy.currentShippingDefault(
+            for: request.mode,
+            effectiveStreamingInterval: effectiveInterval
+        )
+        let prompt = GenerationSemantics.qwen3PromptAssembly(
+            for: request,
+            capabilities: capabilities,
+            resolvedCloneTranscript: cloneConditioning?.resolvedTranscript
+        )
+        let input: VocelloQwen3SynthesisInput
+        switch request.payload {
+        case .custom:
+            input = .customVoice(
+                speakerID: prompt.speakerID ?? GenerationSemantics.canonicalCustomWarmSpeaker,
+                deliveryInstruction: prompt.instruct
+            )
+        case .design:
+            input = .voiceDesign(description: prompt.instruct ?? "")
+        case .clone:
+            guard let conditioningDigest = cloneConditioning?.internalIdentity.digest else {
+                throw MLXTTSEngineError.unsupportedRequest(
+                    "Voice Cloning needs a validated conditioning identity."
+                )
+            }
+            input = .voiceClone(referenceID: conditioningDigest)
+        }
+        return VocelloQwen3SynthesisRequest(
+            generationID: generationID,
+            text: request.text,
+            language: prompt.language,
+            input: input,
+            sampling: samplingConfiguration,
+            memory: requestMemory,
+            chunking: VocelloQwen3StreamChunkConfiguration(
+                firstCodecFrames: chunkPolicy.firstCodecFrames,
+                laterCodecFrames: chunkPolicy.laterCodecFrames,
+                pendingFrameLimit: chunkPolicy.pendingFrameLimit,
+                materializationLeadSteps: chunkPolicy.materializationLeadSteps
+            ),
+            executionStyle: request.shouldStream ? .streaming : .qualityFirst
+        )
     }
 
     func primeCloneReference(
@@ -1460,12 +1580,12 @@ actor NativeEngineRuntime {
                 if firstChunkMS == nil {
                     firstChunkMS = startedAt.elapsedMilliseconds
                 }
-            case .token, .info, .chunkTimings:
+            case .prepared, .token, .info, .chunkTimings:
                 // .chunkTimings is the engine probe Phase 1 sub-stage
                 // breakdown (Qwen3TTS yields it before each .audio
                 // event). Clone priming only cares about first-chunk
                 // arrival, so the timings are ignored here — bench
-                // tracing via NativeStreamingSynthesisSession is the
+                // tracing via GenerationOutputAdapter is the
                 // canonical consumer.
                 continue
             }
@@ -1733,6 +1853,186 @@ actor NativeEngineRuntime {
     private func takeNextRequestID() -> Int {
         defer { nextRequestID += 1 }
         return nextRequestID
+    }
+
+    /// Build the immutable generation plan in shadow mode from values already
+    /// resolved by the shipping path. Failure is diagnostic-only: it never
+    /// starts model work and cannot reject an otherwise valid generation.
+    private static func recordGenerationPlanShadow(
+        request: GenerationRequest,
+        generationID: UUID,
+        modelRuntimeIdentity: ModelRuntimeIdentity,
+        qwen3Capabilities: Qwen3TTSModelCapabilities,
+        memoryPolicy: NativeMemoryPolicy,
+        samplingConfiguration: VocelloQwen3SamplingConfiguration,
+        cloneConditioning: ResolvedCloneConditioning?,
+        booleanFlags: inout [String: Bool],
+        stringFlags: inout [String: String]
+    ) {
+        guard let repository = modelRuntimeIdentity.modelRepository,
+              let revision = modelRuntimeIdentity.huggingFaceRevision,
+              let artifactVersion = modelRuntimeIdentity.artifactVersion,
+              let integrityDigest = modelRuntimeIdentity.integrityManifestDigest,
+              let runtimeProfile = modelRuntimeIdentity.runtimeProfileSignature else {
+            booleanFlags["generation_plan_shadow_match"] = false
+            stringFlags["generation_plan_shadow_status"] = "unavailable_model_identity"
+            return
+        }
+
+        let effectiveInterval = NativeMemoryPolicyResolver.effectiveStreamingInterval(
+            requested: request.streamingInterval,
+            request: request,
+            policy: memoryPolicy
+        )
+        let talker = SamplingStage(
+            temperature: Double(samplingConfiguration.talker.temperature),
+            topP: Double(samplingConfiguration.talker.topP),
+            topK: samplingConfiguration.talker.topK,
+            minP: Double(samplingConfiguration.talker.minP)
+        )
+        let subtalker = SamplingStage(
+            temperature: Double(samplingConfiguration.subtalker.temperature),
+            topP: Double(samplingConfiguration.subtalker.topP),
+            topK: samplingConfiguration.subtalker.topK,
+            minP: Double(samplingConfiguration.subtalker.minP)
+        )
+
+        do {
+            let talkerKVWindow = NativeMemoryPolicyResolver
+                .resolvedTalkerKVGeneratedWindow()
+            let chunkPolicy = StreamChunkPolicy.currentShippingDefault(
+                for: request.mode,
+                effectiveStreamingInterval: effectiveInterval
+            )
+            let samplingPolicy = Qwen3SamplingPolicy(
+                algorithmVersion: samplingConfiguration.algorithmVersion,
+                effectiveSeed: samplingConfiguration.effectiveSeed,
+                talker: talker,
+                subtalker: subtalker,
+                repetitionPenalty: Double(samplingConfiguration.repetitionPenalty),
+                maximumCodecTokens: samplingConfiguration.maxNewTokens
+            )
+            let outputPolicy = ProductOutputPlan(
+                destinationPath: request.outputPath,
+                shouldStream: request.shouldStream,
+                batchIndex: request.batchIndex,
+                batchTotal: request.batchTotal,
+                publicationPolicyVersion: 1
+            )
+            let qualityPolicy = ProductQualityPolicy(
+                reviewPolicyID: "fast",
+                algorithmVersion: AudioQCReport.currentAlgorithmVersion
+            )
+            let shadowMemoryPolicy = RuntimeMemoryPolicy(
+                tier: memoryPolicy.deviceClass,
+                clearCacheOnStreamChunk: memoryPolicy.clearMLXCacheOnStreamChunkEmit,
+                clearCacheAfterGeneration: memoryPolicy.clearCacheAfterGeneration,
+                tokenMemoryClearCadence: memoryPolicy.mlxTokenMemoryClearCadence,
+                talkerKVGeneratedWindow: talkerKVWindow,
+                retentionPolicy: memoryPolicy.unloadAfterIdleSeconds == nil
+                    ? .retainUntilPressure
+                    : .retainUntilIdle
+            )
+            // Resolve the values used by the shipping runtime independently
+            // from the shadow mapper. The mapper may evolve, but it cannot
+            // validate itself by producing both sides of this comparison.
+            let shippingPrompt = GenerationSemantics.qwen3PromptAssembly(
+                for: request,
+                capabilities: qwen3Capabilities,
+                resolvedCloneTranscript: cloneConditioning?.resolvedTranscript
+            )
+            let shippingConditioning: CoreConditioningPlan
+            switch request.payload {
+            case .custom:
+                guard let speakerID = shippingPrompt.speakerID else {
+                    throw GenerationPlanShadowMappingError.missingResolvedConditioning(.custom)
+                }
+                shippingConditioning = .custom(
+                    speakerID: speakerID,
+                    deliveryInstruction: shippingPrompt.instruct
+                )
+            case .design:
+                guard let instruction = shippingPrompt.instruct else {
+                    throw GenerationPlanShadowMappingError.missingResolvedConditioning(.design)
+                }
+                shippingConditioning = .design(voiceDescription: instruction)
+            case .clone:
+                guard let digest = cloneConditioning?.internalIdentity.digest else {
+                    throw GenerationPlanShadowMappingError.missingCloneConditioningDigest
+                }
+                shippingConditioning = .clone(conditioningDigest: digest)
+            }
+            let modelIdentity = CoreModelIdentity(
+                modelID: modelRuntimeIdentity.resolvedModelID,
+                repository: repository,
+                revision: revision,
+                artifactVersion: artifactVersion,
+                integrityManifestDigest: integrityDigest,
+                runtimeProfileSignature: runtimeProfile
+            )
+            let projection = try GenerationPlanShadowMapper.project(
+                GenerationPlanShadowInputs(
+                    request: request,
+                    resolvedGenerationID: generationID,
+                    modelIdentity: modelIdentity,
+                    modelCapabilities: qwen3Capabilities,
+                    nativeMemoryPolicy: memoryPolicy,
+                    talkerKVGeneratedWindow: talkerKVWindow,
+                    chunkPolicy: chunkPolicy,
+                    samplingPolicy: samplingPolicy,
+                    outputPolicy: outputPolicy,
+                    qualityPolicy: qualityPolicy,
+                    cloneConditioningDigest: cloneConditioning?.internalIdentity.digest,
+                    resolvedCloneTranscript: cloneConditioning?.resolvedTranscript
+                ),
+                shipping: GenerationShippingResolutionSnapshot(
+                    originalText: request.text,
+                    spokenText: request.text,
+                    generationID: generationID,
+                    mode: request.mode,
+                    modelFacingText: shippingPrompt.text,
+                    language: shippingPrompt.language,
+                    model: modelIdentity,
+                    conditioning: shippingConditioning,
+                    sampling: samplingPolicy,
+                    chunking: chunkPolicy,
+                    memory: shadowMemoryPolicy,
+                    output: outputPolicy,
+                    quality: qualityPolicy
+                )
+            )
+            let identities = projection.plan.dependencyIdentities
+            booleanFlags["generation_plan_shadow_match"] = projection.comparison.matches
+            stringFlags["generation_plan_shadow_status"] = projection.comparison.matches
+                ? "match"
+                : "drift"
+            stringFlags["generation_plan_shadow_drift_codes"] = projection.comparison
+                .diagnosticCodes.joined(separator: ",")
+            stringFlags["generation_plan_shadow_complete_digest"] = identities.complete
+            stringFlags["generation_plan_shadow_sampling_digest"] = identities.sampling
+            stringFlags["generation_plan_shadow_chunking_digest"] = identities.chunking
+            stringFlags["generation_plan_shadow_memory_digest"] = identities.memory
+            stringFlags["generation_plan_shadow_output_digest"] = identities.output
+            stringFlags["generation_plan_shadow_quality_digest"] = identities.quality
+            stringFlags["generation_plan_shadow_evidence_digest"] = try projection.plan
+                .evidenceIdentity.canonicalDigest()
+        } catch let error as GenerationPlanShadowMappingError {
+            booleanFlags["generation_plan_shadow_match"] = false
+            stringFlags["generation_plan_shadow_status"] = "mapping_error"
+            switch error {
+            case .missingCloneConditioningDigest:
+                stringFlags["generation_plan_shadow_error_code"] = "missing_clone_digest"
+            case .unexpectedCloneConditioningDigest:
+                stringFlags["generation_plan_shadow_error_code"] = "unexpected_clone_digest"
+            case .missingResolvedConditioning(let mode):
+                stringFlags["generation_plan_shadow_error_code"] =
+                    "missing_\(mode.rawValue)_conditioning"
+            }
+        } catch {
+            booleanFlags["generation_plan_shadow_match"] = false
+            stringFlags["generation_plan_shadow_status"] = "unavailable"
+            stringFlags["generation_plan_shadow_error_code"] = "contract_validation"
+        }
     }
 
 }

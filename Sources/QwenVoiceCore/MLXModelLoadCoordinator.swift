@@ -1,6 +1,6 @@
 import Foundation
 @preconcurrency import MLX
-@preconcurrency import VocelloQwen3Core
+@_spi(VocelloQwen3LegacyCompatibility) @preconcurrency import VocelloQwen3Core
 import CoreFoundation
 import CryptoKit
 
@@ -730,6 +730,23 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
                     trustPreparedCheckpoint: preparedMetadata.trustedPreparedCheckpoint,
                     preparedDirectoryAlreadyValidated: true
                 )
+            )
+        )
+    }
+
+    /// Keeps the temporary package compatibility SPI confined to the model-load
+    /// boundary. Product coordinators construct the immutable bundle and load
+    /// policy, but they never import or call the legacy runtime surface.
+    static func loadPreparedCompatibilityModel(
+        _ bundle: VocelloQwen3PreparedModelBundle,
+        loadBehavior: VocelloQwen3LoadBehavior,
+        compatibilityDiagnosticSink: (@Sendable (String, [String: String]) async -> Void)?
+    ) async throws -> UnsafeSpeechGenerationModel {
+        UnsafeSpeechGenerationModel.qwen3Optimized(
+            model: try await VocelloQwen3Runtime.loadPreparedModel(
+                bundle,
+                loadBehavior: loadBehavior,
+                compatibilityDiagnosticSink: compatibilityDiagnosticSink
             )
         )
     }

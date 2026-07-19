@@ -129,15 +129,25 @@ class DocumentationContractTests(unittest.TestCase):
         source = self.write(
             "docs/reference/runtime.md",
             "macOS uses `.unbounded`; iOS uses `.bufferingNewest(64)`. "
-            "iOS cancel is cooperative only and does not conform to `ActiveGenerationCancellable`.\n",
+            "iOS cancel is cooperative only and does not conform to `ActiveGenerationCancellable`. "
+            "The streaming chunk's `previewAudio` PCM is emitted.\n",
         )
         errors = DOCUMENTATION.validate_current_runtime_guidance(self.root, [source])
-        self.assertEqual(len(errors), 4)
+        self.assertEqual(len(errors), 5)
         source.write_text(
             "Both streams are bounded and measured. Cancellation awaits the owned task before unload.\n",
             encoding="utf-8",
         )
         self.assertEqual(DOCUMENTATION.validate_current_runtime_guidance(self.root, [source]), [])
+
+    def test_retired_dropping_event_capacity_is_rejected(self) -> None:
+        source = self.write(
+            "docs/reference/runtime.md",
+            "macOS uses bufferingNewest(256) and iOS uses bufferingNewest(96).\n",
+        )
+        errors = DOCUMENTATION.validate_current_runtime_guidance(self.root, [source])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("bounded suspending router", errors[0])
 
     def test_complete_catalog_rejects_staged_prose_and_live_enumeration(self) -> None:
         self.write(
