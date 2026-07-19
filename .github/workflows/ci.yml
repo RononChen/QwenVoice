@@ -43,11 +43,12 @@ jobs:
 
       - name: Install deterministic tooling
         run: |
-          brew install xcodegen xcbeautify ripgrep shellcheck
+          brew install xcodegen xcbeautify ripgrep shellcheck numpy
           xcodegen --version
           xcbeautify --version
           rg --version
           shellcheck --version
+          python3 -c 'import numpy; print(numpy.__version__)'
           python3 scripts/supply_chain_contract.py --installed native
 
       - name: Cache SwiftPM dependencies
@@ -126,11 +127,12 @@ jobs:
 
       - name: Install deterministic tooling
         run: |
-          brew install xcodegen xcbeautify ripgrep shellcheck
+          brew install xcodegen xcbeautify ripgrep shellcheck numpy
           xcodegen --version
           xcbeautify --version
           rg --version
           shellcheck --version
+          python3 -c 'import numpy; print(numpy.__version__)'
           python3 scripts/supply_chain_contract.py --installed native
 
       - name: Regenerate Xcode project

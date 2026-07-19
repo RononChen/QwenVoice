@@ -223,7 +223,10 @@ scripts/clean_build_caches.sh --compact-profile-failure <run-id> --dry-run
   `release.published` trigger.
 - **Action and toolchain identities are immutable inputs.** Every external Action uses the full SHA
   recorded in `config/toolchain.json`; native, release-publication, and website runners validate
-  exact tool versions. Keep publication-only tools out of compile/test jobs.
+  exact tool versions. The native deterministic-tool group includes NumPy because the bounded
+  prosody analyzer and its mutation fixtures are part of project-input validation; this remains a
+  development/QA dependency and is never shipped in Vocello. Keep publication-only tools out of
+  compile/test jobs.
   Dependabot may propose updates, but the manifest and adjacent version comment change together.
 - **Catalog activation is fail closed.** All six Speed/Quality identities are exact and the generated
   production catalog is complete. macOS/CLI use the bundled `downloadFiles` route; never restore

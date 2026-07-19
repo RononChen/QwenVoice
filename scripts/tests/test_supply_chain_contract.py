@@ -59,7 +59,7 @@ jobs:
     steps:
       - name: Select and validate native toolchain
         run: |
-          arch -arm64 /opt/homebrew/bin/brew install xcodegen xcbeautify ripgrep shellcheck
+          arch -arm64 /opt/homebrew/bin/brew install xcodegen xcbeautify ripgrep shellcheck numpy
           if ! xcrun metal --version >/dev/null 2>&1; then
             xcodebuild -downloadComponent metalToolchain
           fi
@@ -284,8 +284,8 @@ jobs:
         text = path.read_text(encoding="utf-8")
         path.write_text(
             text.replace(
-                "arch -arm64 /opt/homebrew/bin/brew install xcodegen xcbeautify ripgrep shellcheck",
-                "brew install xcodegen xcbeautify ripgrep shellcheck",
+                "arch -arm64 /opt/homebrew/bin/brew install xcodegen xcbeautify ripgrep shellcheck numpy",
+                "brew install xcodegen xcbeautify ripgrep shellcheck numpy",
             ),
             encoding="utf-8",
         )

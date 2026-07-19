@@ -143,11 +143,12 @@ jobs:
 
       - name: Install and validate pinned release tooling
         run: |
-          brew install xcodegen xcbeautify ripgrep shellcheck
+          brew install xcodegen xcbeautify ripgrep shellcheck numpy
           xcodegen --version
           xcbeautify --version
           rg --version
           shellcheck --version
+          python3 -c 'import numpy; print(numpy.__version__)'
           gh --version
           python3 scripts/supply_chain_contract.py --installed native
           python3 scripts/supply_chain_contract.py --installed release
@@ -480,11 +481,12 @@ jobs:
 
       - name: Install and validate pinned tooling
         run: |
-          brew install xcodegen xcbeautify ripgrep shellcheck
+          brew install xcodegen xcbeautify ripgrep shellcheck numpy
           xcodegen --version
           xcbeautify --version
           rg --version
           shellcheck --version
+          python3 -c 'import numpy; print(numpy.__version__)'
           python3 scripts/supply_chain_contract.py --installed native
 
       - name: Cache SwiftPM dependencies
@@ -561,7 +563,8 @@ jobs:
 
       - name: Install and validate pinned tooling
         run: |
-          brew install xcodegen xcbeautify ripgrep shellcheck
+          brew install xcodegen xcbeautify ripgrep shellcheck numpy
+          python3 -c 'import numpy; print(numpy.__version__)'
           python3 scripts/supply_chain_contract.py --installed native
 
       - name: Bind iOS release source and initialize required steps
