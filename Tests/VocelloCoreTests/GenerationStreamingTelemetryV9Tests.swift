@@ -231,12 +231,135 @@ final class GenerationStreamingTelemetryV9Tests: XCTestCase {
         XCTAssertEqual(transition.schemaVersion, 9)
         XCTAssertEqual(transition.identities.sampling?.version, 2)
         XCTAssertTrue(transition.unavailable.contains {
-            $0.field == .audioChannel && $0.reason == .actorSessionNotShipping
+            $0.field == .audioChannel && $0.reason == .producerDidNotObserve
         })
         XCTAssertTrue(transition.unavailable.contains {
             $0.field == .productTerminal && $0.reason == .producerDidNotObserve
         })
         XCTAssertNil(transition.frameFlow.audioFramesWritten)
+    }
+
+    func testShippingIdentityNotesPopulateSessionAndAdapterDigests() throws {
+        var notes = GenerationStreamingTelemetryV9Publication.shippingIdentityNotes
+        notes["streamingV9SamplingDigest"] = String(repeating: "b", count: 64)
+        notes["streamingV9SamplingVersion"] = "2"
+        let transition = try XCTUnwrap(GenerationStreamingTelemetryV9Bridge.make(
+            generationID: "A57D9599-E428-4D74-A7DE-69A6BD801F54",
+            layer: .engine,
+            notes: notes,
+            frontend: nil,
+            transport: nil
+        ))
+        XCTAssertNotNil(transition.identities.session)
+        XCTAssertNotNil(transition.identities.outputAdapter)
+        XCTAssertFalse(transition.unavailable.contains { $0.field == .sessionIdentity })
+        XCTAssertFalse(transition.unavailable.contains { $0.field == .outputAdapterIdentity })
+        XCTAssertFalse(GenerationStreamingTelemetryV9Publication.isPublicationReady(transition))
+        XCTAssertThrowsError(
+            try GenerationStreamingTelemetryV9Publication.requirePublicationReady(transition)
+        )
+    }
+
+    func testEngineProducerObservationsMakeNestedTransitionPublicationReady() throws {
+        let digest = String(repeating: "ab", count: 32)
+        var notes = GenerationStreamingTelemetryV9Publication.shippingIdentityNotes
+        for key in [
+            "streamingV9PlanDigest",
+            "streamingV9SamplingDigest",
+            "streamingV9ChunkDigest",
+            "streamingV9MemoryDigest",
+            "streamingV9OutputPolicyDigest",
+            "streamingV9QualityPolicyDigest",
+        ] {
+            notes[key] = digest
+        }
+        notes["streamingV9PlanVersion"] = "1"
+        notes["streamingV9SamplingVersion"] = "2"
+        notes["streamingV9ChunkVersion"] = "1"
+        notes["streamingV9MemoryVersion"] = "1"
+        notes["streamingV9OutputPolicyVersion"] = "1"
+        notes["streamingV9QualityPolicyVersion"] = "1"
+
+        let observations = [
+            ShippingChunkObservationV9(
+                index: 0,
+                transportSequence: 0,
+                codecStartFrame: 0,
+                codecEndFrameExclusive: 7,
+                audioStartFrame: 0,
+                audioEndFrameExclusive: 13_440,
+                materializedAtNS: 10,
+                writtenAtNS: 20,
+                previewPublishedAtNS: 25,
+                previewDisposition: .publishedToProductSink
+            ),
+            ShippingChunkObservationV9(
+                index: 1,
+                transportSequence: 1,
+                codecStartFrame: 7,
+                codecEndFrameExclusive: 14,
+                audioStartFrame: 13_440,
+                audioEndFrameExclusive: 26_880,
+                materializedAtNS: 50,
+                writtenAtNS: 60,
+                previewPublishedAtNS: 65,
+                previewDisposition: .publishedToProductSink
+            ),
+        ]
+        let transition = try XCTUnwrap(GenerationStreamingTelemetryV9Bridge.make(
+            generationID: "A57D9599-E428-4D74-A7DE-69A6BD801F54",
+            layer: .engine,
+            notes: notes,
+            frontend: nil,
+            transport: nil,
+            terminals: GenerationTerminalTimelineV9(
+                modelTerminalAtNS: 70,
+                productTerminalAtNS: 80,
+                modelOutcome: .eos,
+                productOutcome: .completed
+            ),
+            chunkObservations: observations,
+            audioChannel: AudioChannelSummaryV9(
+                capacityFrames: 26_880,
+                highWaterFrames: 13_440,
+                producerSuspensionNS: 2,
+                producerSuspensionCount: 1,
+                cancellationWakeups: 0
+            )
+        ))
+
+        XCTAssertEqual(transition.frameFlow.codecFramesGenerated, 14)
+        XCTAssertEqual(transition.frameFlow.codecFramesMaterialized, 14)
+        XCTAssertEqual(transition.frameFlow.audioFramesWritten, 26_880)
+        XCTAssertFalse(transition.unavailable.contains { $0.field == .codecFrameFlow })
+        XCTAssertFalse(transition.unavailable.contains { $0.field == .audioChannel })
+        XCTAssertTrue(transition.unavailable.contains {
+            $0.field == .transportSequenceList && $0.reason == .notApplicable
+        })
+        XCTAssertTrue(transition.unavailable.contains {
+            $0.field == .firstRenderObservation && $0.reason == .notApplicable
+        })
+        XCTAssertTrue(GenerationStreamingTelemetryV9Publication.isPublicationReady(transition))
+        XCTAssertNoThrow(
+            try GenerationStreamingTelemetryV9Publication.requirePublicationReady(transition)
+        )
+    }
+
+    func testCompleteV9SidecarPublicationRoundTrip() throws {
+        let document = try makeRecord()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = try GenerationStreamingTelemetryV9Publication.publishSidecar(
+            document: document,
+            directory: directory
+        )
+        let decoded = try JSONDecoder().decode(
+            GenerationStreamingTelemetryV9.self,
+            from: try Data(contentsOf: url)
+        )
+        XCTAssertEqual(decoded.generationID, document.generationID)
+        XCTAssertEqual(decoded.schemaVersion, 9)
     }
 
     func testShippingTransitionRecordsExactAudioRangesWithoutInventingCodecRanges() throws {

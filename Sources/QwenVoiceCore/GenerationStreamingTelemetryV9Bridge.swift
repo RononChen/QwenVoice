@@ -4,8 +4,10 @@ import Foundation
 ///
 /// The shipping JSONL envelope remains schema v8 while benchmark-history schema
 /// v2 is authoritative. New rows carry this nested v9 transition projection so
-/// evidence can be added incrementally without representing unavailable actor or
-/// product-adapter observations as zeroes.
+/// evidence can be added incrementally without representing unavailable
+/// observations as zeroes. Session and output-adapter identities are stamped by
+/// the shipping product path when available; remaining codec-exact domains stay
+/// explicitly unavailable until their producers observe them.
 public enum GenerationStreamingFieldV9: String, CaseIterable, Codable, Hashable, Sendable {
     case planIdentity
     case samplingIdentity
@@ -350,11 +352,17 @@ public enum GenerationStreamingTelemetryV9Bridge {
                 versionKey: "streamingV9QualityPolicyVersion",
                 field: .qualityPolicyIdentity
             ),
-            session: nil,
-            outputAdapter: nil
+            session: identity(
+                digestKey: "streamingV9SessionDigest",
+                versionKey: "streamingV9SessionVersion",
+                field: .sessionIdentity
+            ),
+            outputAdapter: identity(
+                digestKey: "streamingV9OutputAdapterDigest",
+                versionKey: "streamingV9OutputAdapterVersion",
+                field: .outputAdapterIdentity
+            )
         )
-        unavailable.append(.init(field: .sessionIdentity, reason: .actorSessionNotShipping))
-        unavailable.append(.init(field: .outputAdapterIdentity, reason: .outputAdapterNotShipping))
 
         let terminalTimeline = terminals ?? GenerationTerminalTimelineV9()
         if terminalTimeline.modelTerminalAtNS == nil {
@@ -372,22 +380,46 @@ public enum GenerationStreamingTelemetryV9Bridge {
                 ? total + chunk.audioEndFrameExclusive - chunk.audioStartFrame
                 : total
         }
+        let hasExactCodecRanges = !chunkObservations.isEmpty
+            && chunkObservations.allSatisfy {
+                $0.codecStartFrame != nil && $0.codecEndFrameExclusive != nil
+            }
+        let codecFrames: UInt64? = {
+            guard hasExactCodecRanges else { return nil }
+            // Contiguous codec ranges start at 0 and end at the last exclusive bound.
+            guard chunkObservations.first?.codecStartFrame == 0 else { return nil }
+            var expectedStart: UInt64 = 0
+            for chunk in chunkObservations {
+                guard let start = chunk.codecStartFrame,
+                      let end = chunk.codecEndFrameExclusive,
+                      start == expectedStart,
+                      end > start else {
+                    return nil
+                }
+                expectedStart = end
+            }
+            return expectedStart
+        }()
         let frameFlow = PartialCodecFrameFlowV9(
-            codecFramesGenerated: nil,
-            codecFramesMaterialized: nil,
+            codecFramesGenerated: codecFrames,
+            codecFramesMaterialized: codecFrames,
             audioFramesMaterialized: audioFrames,
             audioFramesWritten: allAudioWritten ? audioFrames : nil,
             audioFramesPreviewPublished: previewFrames
         )
-        unavailable.append(.init(field: .codecFrameFlow, reason: .actorSessionNotShipping))
+        if codecFrames == nil {
+            unavailable.append(.init(field: .codecFrameFlow, reason: .producerDidNotObserve))
+        }
         if chunkObservations.isEmpty {
             unavailable.append(.init(field: .audioFrameFlow, reason: .producerDidNotObserve))
             unavailable.append(.init(field: .exactChunkAudioRanges, reason: .producerDidNotObserve))
             unavailable.append(.init(field: .chunkInterarrival, reason: .producerDidNotObserve))
         }
-        unavailable.append(.init(field: .exactChunkCodecRanges, reason: .actorSessionNotShipping))
+        if !hasExactCodecRanges || codecFrames == nil {
+            unavailable.append(.init(field: .exactChunkCodecRanges, reason: .producerDidNotObserve))
+        }
         if audioChannel == nil {
-            unavailable.append(.init(field: .audioChannel, reason: .actorSessionNotShipping))
+            unavailable.append(.init(field: .audioChannel, reason: .producerDidNotObserve))
         }
 
         let transportProjection: PartialXPCTransportSummaryV9? = transport.map {

@@ -31,7 +31,7 @@ Before changing iOS UI or behavior, read:
    (batch was removed from iOS 2026-07-02).
 4. `docs/reference/ios-engine-optimization.md` if the change affects generation performance or memory.
 
-## Tools and skills (Codex)
+## Tools and skills
 
 - **Shell scripts** are the only way to build/test/run real-engine iOS work on device:
   - `scripts/ios_device.sh preflight`
@@ -44,16 +44,17 @@ Before changing iOS UI or behavior, read:
   - `scripts/ios_device.sh memory-field-report [pulled-diagnostics]` (local-only; never contacts the phone)
   - `scripts/ios_device.sh crashes`
   - `scripts/ios_device.sh gate`
-- When currently installed and callable, use OpenAI Build iOS Apps skills for code structure and
-  physical-device build/run/debug support. If its shared XcodeBuildMCP route is available, call
+- When an XcodeBuildMCP server is installed and callable, use the one shared route: call
   `session_show_defaults`, select `ios-device`, and set the paired device ID at runtime. Never
-  select Simulator support or configure a replacement server when the optional route is absent.
-  Repository scripts remain authoritative for build, launch, telemetry, profiling, and crash proof.
+  select Simulator support or configure a second XcodeBuildMCP server when the optional route is
+  absent. Repository scripts remain authoritative for build, launch, telemetry, profiling, and
+  crash proof.
 - Generated output must use `config/build-output-policy.json`. Do not add an iOS DerivedData,
   package, evidence, symbol, or archive root outside the manifest; route policy changes through
   `.agents/release-qa-engineer.md`.
-- Use authoritative Apple documentation for current framework APIs. Use a GitHub integration when
-  callable, otherwise `gh`, for repository context; scripts remain the test interface.
+- Use authoritative Apple documentation (docs MCP when callable) for current framework APIs. Use a
+  GitHub integration when callable, otherwise `gh`, for repository context; scripts remain the test
+  interface.
 - **XCUITest owns iOS UI.** It runs only on the paired physical iPhone. Run smoke and
   benchmark lanes only for explicitly requested frontend acceptance.
   Missing device, UI, or model evidence never blocks a commit, push, pull request, ordinary merge,

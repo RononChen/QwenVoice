@@ -72,6 +72,25 @@ class EvidenceImpactTests(unittest.TestCase):
         self.assertIn("release-and-ci", result["classes"])
         self.assertNotIn("repository-other", result["classes"])
 
+    def test_codex_session_storage_surfaces_require_hermetic_policy_fixtures(self) -> None:
+        paths = (
+            "config/codex-session-storage-policy.json",
+            "docs/reference/codex-session-storage.md",
+            "scripts/codex_session_storage.py",
+            "scripts/tests/test_codex_session_storage.py",
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                result = IMPACT.classify(self.contract, [path])
+                self.assertIn("codex-session-storage-governance", result["classes"])
+                self.assertIn("project-inputs", result["mergeRequiredEvidence"])
+                self.assertIn("documentation-contract", result["mergeRequiredEvidence"])
+                self.assertIn("project-inputs", result["releaseRequiredEvidence"])
+                self.assertIn("documentation-contract", result["releaseRequiredEvidence"])
+                self.assertEqual(result["qualityEvidence"], [])
+                if path.startswith("docs/"):
+                    self.assertIn("documentation-and-governance", result["classes"])
+
     def test_device_or_model_evidence_cannot_become_publication_blocking(self) -> None:
         broken = copy.deepcopy(self.contract)
         broken["pathClasses"][0]["mergeRequiredEvidence"].append("ios-model-download-lifecycle")

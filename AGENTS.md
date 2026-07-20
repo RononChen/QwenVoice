@@ -1,8 +1,10 @@
 # AGENTS.md — Vocello (QwenVoice)
 
-> Durable onboarding for Codex. **Code wins over docs.** When scope, platform, or gate expectations are unclear, **ask before editing**.
+> Durable onboarding for **Cursor** and other MCP-capable agents. **Code wins over docs.**
+> Scripts and machine-readable contracts are the gates; optional MCP tools and skills never are.
+> When scope, platform, or gate expectations are unclear, **ask before editing**.
 >
-> **Active progress:** [`docs/development-progress.md`](docs/development-progress.md) · **Project map:** [`docs/project-map.html`](docs/project-map.html) · **Architecture:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · **Role playbooks:** [`.agents/`](.agents/)
+> **Active progress:** [`docs/development-progress.md`](docs/development-progress.md) · **Project map:** [`docs/project-map.html`](docs/project-map.html) · **Architecture:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · **Role playbooks:** [`.agents/`](.agents/) · **Cursor MCP:** [`.cursor/mcp.json`](.cursor/mcp.json)
 
 ## What this is
 
@@ -28,23 +30,38 @@ source. Static completeness does not substitute for explicit post-change live de
 
 1. **Resume active work** — read [`docs/development-progress.md`](docs/development-progress.md) when it exists, then confirm its checkpoint against the current checkout.
 2. **Pick a role** — read [`.agents/<role>.md`](.agents/) (backend, iOS, macOS, release-qa, website).
-3. **Inspect capabilities** — for relevant tasks, inspect the currently callable OpenAI plugin and
-   skill inventory before choosing optional tooling. Installation is user-scoped and transient;
-   read every selected skill before use and never infer availability from a cache directory.
+3. **Inspect capabilities** — for relevant tasks, inspect currently callable Cursor MCP servers
+   and skills (XcodeBuildMCP, Axiom, sosumi/docs, browser) before using them. Project defaults live
+   in [`.cursor/mcp.json`](.cursor/mcp.json); additional user-scoped MCP entries are fine. Read every
+   selected skill before use and never infer availability from a cache directory alone.
 4. **Minimal diff** — no drive-by refactors; preserve module boundaries and stable `accessibilityIdentifier` values.
 5. **Ask** when the target platform or test scope is ambiguous. Commit/push policy is not
    ambiguous: deterministic verification is sufficient to preserve and share development work.
 
-### After a Codex reinstall
+### Cursor operating charter
+
+```text
+Resume: docs/development-progress.md → .agents/<role>.md
+Edit:   minimal diff; ask if platform/UI scope unclear
+Prove:  macos_test.sh test + build.sh build
+        (+ build_foundation_targets.sh ios for iOS touch)
+Optional assist: XcodeBuildMCP (macos|ios-device) / Axiom / sosumi / browser / gh
+UI QA:  ui_test.sh only when explicitly requested
+Never:  Simulator app UI; second XcodeBuildMCP server; Mirroir / Peekaboo /
+        mobile-mcp / computer-use / coordinate-bridge UI drivers
+Publish: deterministic scripts only
+MCP:    .cursor/mcp.json (project) plus optional ~/.cursor/mcp.json (user)
+```
+
+### After a Cursor or toolchain reinstall
 
 1. Restore a clean `main` from `origin/main`; never discard a dirty tree without reviewing it.
 2. Confirm Xcode, its matching iOS Platform Support/runtime component, the paired physical iPhone,
    signing identities, and the repository scripts before explicit frontend acceptance. Ordinary
    deterministic development does not require a phone; the component check does not run a
    Simulator.
-3. Inspect the currently callable OpenAI plugin and skill inventory for optional build/debug
-   assistance. A cached plugin is not proof that its server or skill is enabled for the task.
-   Repository scripts and XCUITest remain authoritative; `~/.codex` remains user-scoped state.
+3. Reload Cursor MCP from [`.cursor/mcp.json`](.cursor/mcp.json). Confirm XcodeBuildMCP,
+   Axiom, and docs MCP are callable. Repository scripts and XCUITest remain authoritative.
 4. Run the deterministic development checks below. Run XCUITest only when frontend acceptance is
    explicitly requested or when preparing the corresponding platform release.
 
@@ -60,10 +77,10 @@ source. Static completeness does not substitute for explicit post-change live de
 | **MLX pins in lockstep** | `mlx-swift` + `mlx-swift-lm` together; no Core ML. → [`.agents/backend-mlx.md`](.agents/backend-mlx.md) |
 | **Engine invariants** | Prewarm slots, event streams, cancellation, request-local sampling/memory policy, and actor/classified-session/product-finalization authority → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`config/runtime-refactor-contract.json`](config/runtime-refactor-contract.json). Phase 4 source cutover and focused macOS/physical-iPhone acceptance have passed, but exploratory focused evidence is not clean repeated characterization or full-matrix promotion. A nested partial v9 projection in a shipping v8 row does not make the complete v9 path authoritative. |
 | **Privacy** | No PII, device identity, usernames, absolute paths, prompts, transcripts, secrets, or private metadata in any tracked content. |
-| **All app UI = XCUITest** | XCUITest is the sole autonomous app UI driver for the native macOS test host and the paired physical iPhone. No Simulator, alternate desktop-control MCP, or coordinate bridge is active. |
+| **All app UI = XCUITest** | XCUITest is the sole autonomous app UI driver for the native macOS test host and the paired physical iPhone. Do not drive native app UI with Simulator destinations, Mirroir, Peekaboo, mobile-mcp, computer-use, or coordinate/vision bridges. |
 | **No hidden test UI** | XCUITest observes genuine visible controls. Test-only code belongs in test targets; shippable app targets must not contain preview routes, invisible state markers, seeded UI state, or onboarding bypasses. |
-| **One shared XcodeBuildMCP** | When the OpenAI Apple build plugins and their server are installed and callable, Build iOS Apps owns the single shared XcodeBuildMCP route and Build macOS Apps may consume it. Call `session_show_defaults`, select `macos` or `ios-device`, and set a physical-device ID only at runtime. Never configure a second server. Repository scripts remain the final gate. |
-| **Codex/ChatGPT Desktop only** | This repository has no compatibility layer for another agent IDE. Codex/ChatGPT Desktop, currently available OpenAI plugins and skills, repository guidance, and repository scripts are the supported development environment. Optional user-scoped capabilities are never repository prerequisites. |
+| **One shared XcodeBuildMCP** | When an XcodeBuildMCP server is installed and callable, use one shared route. Call `session_show_defaults`, select `macos` or `ios-device`, and set a physical-device ID only at runtime. Never enable Simulator or UI-automation workflows for Vocello, and never configure a second server. Repository scripts remain the final gate. |
+| **Cursor + scripts-first** | Cursor is the supported agent IDE. Repository guidance, scripts, XCUITest, and machine-readable contracts remain the gates. Optional MCP servers from [`.cursor/mcp.json`](.cursor/mcp.json) (and user-scoped additions) assist only; they are never CI or packaging prerequisites. Gates enforce wiring (no retired harness artifacts, no Simulator UI workflows, no retired UI command aliases), not a prose keyword denylist. |
 | **Publishing is deterministic-only** | Commits, pushes, pull requests, ordinary merges, ordinary CI, and release packaging require deterministic verification only. Missing models, a physical device, or XCUITest evidence must never block preserving, sharing, signing, notarizing, or uploading work. UI lanes run only for explicit frontend QA. |
 | **Release evidence is process- and command-bound** | Release candidates use schema-v2 `release-evidence.json` plus a hashed `release-verification.json` bundle. A clean full-tree source identity and every platform-required step must be produced by the managed release subprocess, with the contract-defined command identity, in the same invocation and within the six-hour freshness window. Self-authored, substituted-command, partial, stale, or cross-source PASS files cannot authorize publication. iOS candidates first run the deterministic macOS gate plus device-SDK compile in that ledger, then require the non-device archive/IPA identity, entitlement, provisioning, signature, and UUID-continuity verifier. |
 | **Benchmark history is PASS-only** | Successful memory-qualified benchmark runners publish one privacy-safe record under `benchmarks/runs/` and regenerate `benchmarks/HISTORY.md`. Raw telemetry, WAVs, screenshots, traces, and `.xcresult` bundles remain untracked. Publication never stages, commits, pushes, or turns model/device availability into a development gate. The telemetry-overhead observer-effect experiment is local-only because instrumenting its `off` lane would invalidate the comparison. |
@@ -245,23 +262,36 @@ scripts/clean_build_caches.sh --cache macos --dry-run
 
 Full lanes: [`docs/reference/macos-testing.md`](docs/reference/macos-testing.md), [`docs/reference/ios-device-testing.md`](docs/reference/ios-device-testing.md).
 
-## Codex tool routing
+## Cursor tool routing
 
 **Scripts first** for build/test and deterministic proof. XCUITest is the sole autonomous app UI
-driver on macOS and the paired physical iPhone. Before using an optional skill/plugin, read its
-instructions and keep actions inside the selected role's ownership boundary. User-scoped Codex
-configuration and plugin state are never repository sources of truth.
+driver on macOS and the paired physical iPhone. Project MCP defaults are in
+[`.cursor/mcp.json`](.cursor/mcp.json). Before using an optional MCP server or skill, read its
+instructions and keep actions inside the selected role's ownership boundary. MCP assists are never
+CI or packaging prerequisites.
 
 | Work | Start here / use |
 | --- | --- |
-| MLX / engine | `.agents/backend-mlx.md`, `docs/reference/mlx-guide.md`, shell scripts |
-| iOS | `.agents/ios-engineer.md`, `docs/reference/ios-app-guide.md`, `scripts/ios_device.sh` on a physical device only |
-| macOS / XPC | `.agents/macos-engineer.md`, `docs/reference/macos-app-guide.md`, macOS Codex skills where relevant |
+| MLX / engine | `.agents/backend-mlx.md`, `docs/reference/mlx-guide.md`, shell scripts; optional Axiom Swift/concurrency/performance skills |
+| iOS | `.agents/ios-engineer.md`, `docs/reference/ios-app-guide.md`, `scripts/ios_device.sh` on a physical device only; optional XcodeBuildMCP `ios-device` |
+| macOS / XPC | `.agents/macos-engineer.md`, `docs/reference/macos-app-guide.md`, shell scripts; optional XcodeBuildMCP `macos` |
 | Scripts / CI / GitHub | `.agents/release-qa-engineer.md`, shell scripts, GitHub integration when callable, otherwise `gh` |
-| Website | `.agents/website-engineer.md`, Browser for localhost verification |
+| Website | `.agents/website-engineer.md`, Cursor browser MCP or attended browser for localhost verification |
 | macOS frontend QA | `scripts/ui_test.sh macos smoke|benchmark`; native macOS target only |
 | iOS frontend QA | `scripts/ui_test.sh ios smoke|benchmark`; paired physical iPhone only |
-| External systems and current APIs | Relevant installed Codex skill/plugin or connector; use authoritative documentation |
+| External systems and current APIs | sosumi / docs MCP when callable; otherwise primary vendor docs |
+
+## If you use Codex
+
+Optional operator-local Codex task/session hygiene is governed by
+[`docs/reference/codex-session-storage.md`](docs/reference/codex-session-storage.md) and
+`config/codex-session-storage-policy.json`. CI runs `python3 scripts/codex_session_storage.py validate`
+and synthetic fixtures only; it never inventories or mutates a real Codex home. Live deletion
+requires an exact temporary manifest, SHA-256, old-root approval, deepest-first supported
+`codex delete --force` calls, and post-verification. Never edit Codex SQLite or manually remove
+rollout files. Prefer a new top-level Codex task only at coherent major checkpoints and only when
+the operator explicitly requests it; use `codex exec --ephemeral` for disposable investigations.
+This workflow is never a repository or ordinary agent-development prerequisite.
 
 ## Active / deep reading
 

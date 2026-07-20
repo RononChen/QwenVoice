@@ -711,7 +711,7 @@ def runtime_refactor_contract_errors(
         if isinstance(versions, dict) and versions.get("telemetry") == 8:
             expected_transition = (
                 "partial-transition-projection-embedded-in-v8-"
-                "complete-writer-merger-publication-pending"
+                "live-producers-landed-history-authority-pending"
             )
             if phases.get("telemetryV9") != expected_transition or authorities.get("telemetry") != (
                 "generation-telemetry-v8-with-partial-v9-transition-projection"

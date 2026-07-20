@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Vocello — Project Map</title>
-<meta name="description" content="Canonical engineering atlas for Vocello: product features, components, dependencies, runtime flows, operations, and Codex development routes." />
+<meta name="description" content="Canonical engineering atlas for Vocello: product features, components, dependencies, runtime flows, operations, and Cursor agent development routes." />
 <!-- Canonical project map. Update this file when project.yml, Package.resolved, model contracts, platform surfaces, or gate commands change. -->
 <style>
 /* =========================================================================
@@ -1507,11 +1507,11 @@ table.matrix .note {
     <p class="section-label">08 · Tooling</p>
     <h2 class="section-title">Scripts, tests &amp; CI</h2>
     <p class="section-lede">
-      Development is Codex-first and scripts remain the executable source of truth.
+      Development is Cursor + scripts-first; optional MCP tools assist only when callable.
       Native builds are the typecheck. Commits, pushes, pull requests, ordinary merges, CI, and release packaging use deterministic checks only. XCUITest smoke and benchmark lanes are explicit frontend acceptance work.
     </p>
 
-    <div class="tool-tabs" id="toolTabs" role="tablist" aria-label="Build, test, release, and Codex workflow categories"></div>
+    <div class="tool-tabs" id="toolTabs" role="tablist" aria-label="Build, test, release, and Cursor workflow categories"></div>
     <div id="toolPanels"></div>
 
     <div class="gate-box">
@@ -1601,7 +1601,7 @@ scripts/macos_test.sh test
           <h4>Where to go deeper</h4>
           <p class="reading-links">
             <a href="ARCHITECTURE.md">Architecture</a>
-            <a href="../AGENTS.md">Codex onboarding</a>
+            <a href="../AGENTS.md">Cursor onboarding</a>
             <a href="reference/macos-app-guide.md">macOS app</a>
             <a href="reference/ios-app-guide.md">iOS app</a>
             <a href="reference/cli.md">CLI</a>
@@ -2086,15 +2086,16 @@ scripts/macos_test.sh test
       {"cmd":".github/workflows/release.yml · package","desc":"Signed/notarized candidate, SBOM/checksum/provenance evidence, draft asset verification, then final publication"},
       {"cmd":".github/workflows/release.yml · compile-ios|archive-ios","desc":"iOS compile safety and optional manual signed archive"}
     ],
-    "Codex workflow":[
+    "Cursor workflow":[
       {"cmd":"AGENTS.md → .agents/<role>.md","desc":"Durable repo rules first, then the subsystem playbook"},
-      {"cmd":"Use matching installed skills/plugins","desc":"Read the selected SKILL.md completely before acting"},
-      {"cmd":"Optional Apple build plugins → shared XcodeBuildMCP","desc":"When installed and callable, Build iOS Apps owns one server for macOS and physical-device iOS; repository scripts remain authoritative"},
+      {"cmd":".cursor/mcp.json","desc":"Project MCP defaults: XcodeBuildMCP, Axiom, sosumi; user ~/.cursor/mcp.json may add more"},
+      {"cmd":"Optional Axiom / docs MCP","desc":"Read selected skill instructions completely before acting; never a packaging prerequisite"},
+      {"cmd":"Optional shared XcodeBuildMCP","desc":"When installed and callable, one server for macOS and physical-device iOS profiles; repository scripts remain authoritative"},
       {"cmd":"scripts/ui_test.sh macos|ios smoke|benchmark","desc":"Sole autonomous app UI stack; iOS requires the paired physical phone"},
       {"cmd":"scripts/macos_test.sh release-readiness","desc":"Project-input check, exact app build, deterministic tests, and crash delta before packaging"},
       {"cmd":"Git publishing","desc":"Commit, push, pull request, and ordinary merge never require models, devices, or XCUITest results"},
-      {"cmd":"GitHub plugin / gh fallback","desc":"Use connector-backed repository context; use gh for Actions logs or local branch gaps"},
-      {"cmd":"Physical-device invariant","desc":"Do not use simulator-oriented Codex skills or simulator MCP tools for Vocello iOS"}
+      {"cmd":"GitHub integration / gh fallback","desc":"Use connector-backed repository context when callable; use gh for Actions logs or local branch gaps"},
+      {"cmd":"Physical-device invariant","desc":"Do not use simulator-oriented skills or simulator MCP tools for Vocello iOS"}
     ]
   },
   "contracts": [

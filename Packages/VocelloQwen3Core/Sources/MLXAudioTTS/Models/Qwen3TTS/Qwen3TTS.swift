@@ -3005,6 +3005,8 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
             firstChunkSize: streamingChunkSize,
             laterChunkSize: postFirstStreamingChunkSize
         )
+        /// Cumulative codec frames already emitted as streaming PCM chunks.
+        var emittedCodecFrameCount: UInt64 = 0
         if isStreaming {
             pendingStreamCodes.reserveCapacity(max(streamingChunkSize, postFirstStreamingChunkSize))
         }
@@ -3419,8 +3421,11 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                         cloneAudioChunkEvalTotalMS += audioChunkEvalElapsed
                     }
 
+                    let chunkCodecStart = emittedCodecFrameCount
+                    let chunkCodecEnd = chunkCodecStart + UInt64(pendingStreamCodes.count)
                     pendingStreamCodes.removeAll(keepingCapacity: true)
                     streamChunkSchedule.didEmit()
+                    emittedCodecFrameCount = chunkCodecEnd
                     let materializedSamples: [Float]?
                     if materializedEventSink != nil {
                         eval(audioChunk)
@@ -3442,7 +3447,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                             streamStepEOSReadMS: Double(streamStepEOSReadTotalMS - lastChunkStreamStepEOSReadMS),
                             audioChunkEvalMS: Double(audioChunkEvalTotalMS - lastChunkAudioChunkEvalMS),
                             kvCacheDiagnostics: kvDiagnostics,
-                            mimiDecoderBreakdownMS: chunkMimiBreakdown
+                            mimiDecoderBreakdownMS: chunkMimiBreakdown,
+                            codecStartFrame: chunkCodecStart,
+                            codecEndFrameExclusive: chunkCodecEnd
                         )
                         lastChunkTalkerForwardMS = talkerForwardTotalMS
                         lastChunkCodePredictorMS = codePredictorTotalMS
@@ -3586,6 +3593,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                 } else {
                     materializedSamples = nil
                 }
+                let chunkCodecStart = emittedCodecFrameCount
+                let chunkCodecEnd = chunkCodecStart + UInt64(pendingStreamCodes.count)
+                emittedCodecFrameCount = chunkCodecEnd
                 if onAudioChunkTimings != nil || emitMaterializedChunkTimings {
                     let kvDiagnostics = makeChunkKVCacheDiagnostics()
                     let chunkMimiBreakdown = mimiDecoderBreakdownTotal.subtracting(lastChunkMimiDecoderBreakdown)
@@ -3599,7 +3609,9 @@ public final class Qwen3TTSModel: Module, SpeechGenerationModel, Qwen3OptimizedS
                         streamStepEOSReadMS: Double(streamStepEOSReadTotalMS - lastChunkStreamStepEOSReadMS),
                         audioChunkEvalMS: Double(audioChunkEvalTotalMS - lastChunkAudioChunkEvalMS),
                         kvCacheDiagnostics: kvDiagnostics,
-                        mimiDecoderBreakdownMS: chunkMimiBreakdown
+                        mimiDecoderBreakdownMS: chunkMimiBreakdown,
+                        codecStartFrame: chunkCodecStart,
+                        codecEndFrameExclusive: chunkCodecEnd
                     )
                     lastChunkTalkerForwardMS = talkerForwardTotalMS
                     lastChunkCodePredictorMS = codePredictorTotalMS

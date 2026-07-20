@@ -25,13 +25,13 @@ npm --prefix website run check    # lint + test + production build
 npm --prefix website run preview  # serve the production build
 ```
 
-## Tools (Codex)
+## Tools
 
-- Use the Browser skill to inspect localhost, verify responsive behavior, take screenshots, and
-  check console output against the running dev or preview server.
+- Use a browser MCP (or attended browser) to inspect localhost, verify responsive behavior, take
+  screenshots, and check console output against the running dev or preview server.
 - Use shell commands for `npm`/`node` workflows.
-- For React, Vite, or library API questions, use authoritative current documentation and a
-  relevant installed Codex skill/plugin when available.
+- For React, Vite, or library API questions, use authoritative current documentation and a docs or
+  library MCP when callable.
 - When browser inspection cannot reach a required state, record the limitation and use an attended
   manual check. Deterministic lint, Node tests, and the production build remain the CI baseline.
 

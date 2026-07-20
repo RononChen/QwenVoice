@@ -33,7 +33,7 @@ Before changing macOS app or XPC code, read:
 3. `docs/ARCHITECTURE.md` §5 — macOS request lifecycle and XPC wire protocol.
 4. `docs/reference/privacy-storage.md` if the change touches on-disk data locations.
 
-## Tools and skills (Codex)
+## Tools and skills
 
 - **Shell tool / scripts** (the source of truth for the local loop):
   - `./scripts/build.sh build|run|cli`
@@ -43,18 +43,17 @@ Before changing macOS app or XPC code, read:
   - `scripts/macos_test.sh models check|ensure|install`
   - `scripts/ui_test.sh macos smoke|benchmark`
   - `./scripts/regenerate_project.sh` after `project.yml` changes
-- When currently installed and callable, use OpenAI Build macOS Apps skills for SwiftUI/AppKit
-  structure, build/run/debug, test triage, telemetry, signing, and packaging after reading the
-  selected skill. Shell scripts remain the source of truth for gates.
-- When the shared XcodeBuildMCP route is available, Build iOS Apps owns it and Build macOS Apps may
-  consume it for optional macOS project discovery, build, run, and debug operations: call
-  `session_show_defaults`, select the `macos` profile, and return to repository scripts for final
-  verification. Unavailability is not permission to configure a second XcodeBuildMCP server.
+- When an XcodeBuildMCP server is installed and callable, use the one shared route for optional
+  macOS project discovery, build, run, and debug: call `session_show_defaults`, select the `macos`
+  profile, and return to repository scripts for final verification. Unavailability is not permission
+  to configure a second XcodeBuildMCP server.
+- Optional SwiftUI/AppKit or performance skills MCP may assist after their instructions are read;
+  shell scripts remain the source of truth for gates.
 - Generated output must use `config/build-output-policy.json`. Do not add a macOS DerivedData,
   package, evidence, symbol, or distribution root outside the manifest; route policy changes
   through `.agents/release-qa-engineer.md`.
-- Use authoritative Apple documentation where current framework behavior matters and the GitHub
-  integration for repository/CI context.
+- Use authoritative Apple documentation (docs MCP when callable) where current framework behavior
+  matters, and a GitHub integration or `gh` for repository/CI context.
 - XCUITest is the sole autonomous macOS app UI driver. Run the smoke and benchmark lanes
   only for explicitly requested frontend acceptance. Missing UI evidence never blocks committing,
   pushing, opening a pull request, merging, ordinary CI, or release packaging.

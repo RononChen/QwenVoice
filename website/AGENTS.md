@@ -28,10 +28,10 @@ behavior; Vercel owns deployment for this directory.
 ## Tooling for this directory
 
 - This is a **non-app, non-native zone** — do not run Swift/iOS/macOS skills or audits here.
-- For React, Vite, or library API questions, use authoritative current documentation and a
-  relevant installed Codex skill/plugin when available.
-- For UI/UX/visual passes, read `PRODUCT.md` and `DESIGN.md` first, then use the Browser skill when
-  it is currently available against the running dev/preview server. Otherwise use the same local
+- For React, Vite, or library API questions, use authoritative current documentation and a docs or
+  library MCP when callable.
+- For UI/UX/visual passes, read `PRODUCT.md` and `DESIGN.md` first, then use a browser MCP when it
+  is currently available against the running dev/preview server. Otherwise use the same local
   server for attended browser verification and record unreachable states.
 - Run `npm`/`node` commands through the shell.
 

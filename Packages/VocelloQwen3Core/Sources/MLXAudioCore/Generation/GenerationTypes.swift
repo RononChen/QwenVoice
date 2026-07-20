@@ -225,6 +225,10 @@ public struct ChunkSubstageTimings: Sendable, Hashable {
     /// nil when the decoder does not support step-level timings or when
     /// telemetry is gated off.
     public let mimiDecoderBreakdownMS: MimiDecoderStepTimings?
+    /// Exact codec-frame range decoded into this chunk's PCM. Optional so
+    /// legacy timing emitters remain valid; both bounds are present or both nil.
+    public let codecStartFrame: UInt64?
+    public let codecEndFrameExclusive: UInt64?
 
     public init(
         talkerForwardMS: Double,
@@ -236,7 +240,9 @@ public struct ChunkSubstageTimings: Sendable, Hashable {
         streamStepEOSReadMS: Double = 0,
         audioChunkEvalMS: Double = 0,
         kvCacheDiagnostics: KVCacheDiagnostics? = nil,
-        mimiDecoderBreakdownMS: MimiDecoderStepTimings? = nil
+        mimiDecoderBreakdownMS: MimiDecoderStepTimings? = nil,
+        codecStartFrame: UInt64? = nil,
+        codecEndFrameExclusive: UInt64? = nil
     ) {
         self.talkerForwardMS = talkerForwardMS
         self.codePredictorMS = codePredictorMS
@@ -248,6 +254,8 @@ public struct ChunkSubstageTimings: Sendable, Hashable {
         self.audioChunkEvalMS = audioChunkEvalMS
         self.kvCacheDiagnostics = kvCacheDiagnostics
         self.mimiDecoderBreakdownMS = mimiDecoderBreakdownMS
+        self.codecStartFrame = codecStartFrame
+        self.codecEndFrameExclusive = codecEndFrameExclusive
     }
 }
 

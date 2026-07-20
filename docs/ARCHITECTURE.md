@@ -1016,7 +1016,7 @@ Most-frequent imports across `Sources/**/*.swift`:
 
 ## 17. Related documents
 
-- [`development-progress.md`](development-progress.md) — active checkpoint: deterministic development status, the completed XCUITest stack, and the Codex resume route.
+- [`development-progress.md`](development-progress.md) — active checkpoint: deterministic development status, the completed XCUITest stack, and the agent resume route.
 - [`project-map.html`](project-map.html) — canonical interactive project map: product features, build graph, runtime flows, source ownership, dependencies, contracts, and Codex routes.
 - [`AGENTS.md`](../AGENTS.md) — repo operating manual: build, conventions, engine invariants, dependency pinning, release/QA.
 - [`README.md`](../README.md) — product overview + install.

@@ -10,6 +10,7 @@
 - `.github/workflows/ci.yml`, `.github/workflows/release.yml`, and
   `.github/workflows/security.yml`
 - `config/build-output-policy.json`, `config/documentation-contract.json`,
+  `config/codex-session-storage-policy.json`,
   `config/public-product-facts.json`, `config/toolchain.json`,
   `config/orchestration-contract.json`, `config/evidence-impact.json`,
   `config/project-health-contract.json`, and `config/release-evidence-contract.json`
@@ -19,6 +20,9 @@
 - Release verification, evidence-impact, required-step, project-health, supply-chain, and packaging
   scripts (`scripts/verify_*.sh`, `scripts/release_evidence.py`, `scripts/required_step_ledger.py`,
   `scripts/project_health.py`, `scripts/supply_chain_contract.py`, `scripts/create_dmg.sh`, etc.)
+- Codex task/session storage governance: `scripts/codex_session_storage.py`, its synthetic test,
+  and `docs/reference/codex-session-storage.md`. Live user state remains operator-owned and outside
+  repository evidence.
 - Release-candidate evidence, SBOM/checksum generation, immutable Actions pins, and repository
   security/governance files
 - Production-model-catalog reproducibility and activation gating. Backend owns artifact meaning and
@@ -43,13 +47,13 @@ Before changing scripts or CI, read:
 4. `docs/reference/benchmarking-procedure.md` for the operator runbook (when to bench, platform lanes, preflight).
 5. `docs/reference/telemetry-and-benchmarking.md` for benchmark/telemetry schema and knobs.
 
-## Tools and skills (Codex)
+## Tools and skills
 
 - **Shell scripts are the source of truth**; run them directly and preserve their artifacts.
 - Use a GitHub integration when it is currently callable for PR, release, and Actions context;
   otherwise use `gh`. User-scoped installation state is not a repository prerequisite.
-- Use relevant installed Codex skills for test triage, performance, signing, packaging, or
-  telemetry after reading their instructions. Start from script output and generated artifacts.
+- Optional skills MCP entries may assist with test triage, performance, signing, packaging, or
+  telemetry after their instructions are read. Start from script output and generated artifacts.
 - XCUITest is the sole autonomous app UI driver. It runs against the native macOS app or a paired
   physical iPhone and provides smoke and benchmark lanes; iOS adds pulled on-device
   telemetry proof.
@@ -64,7 +68,15 @@ Before changing scripts or CI, read:
   explicit frontend QA and never a signing, notarization, packaging, or upload prerequisite.
 - **Generated-output contract:** `config/build-output-policy.json` owns the persistent caches,
   scratch DerivedData, untracked evidence, current symbols, and distribution outputs. Do not add an
-  ad hoc build root or allow an Xcode/SwiftPM invocation to choose its own cache.
+  ad hoc build root or allow an Xcode/SwiftPM invocation to choose its own cache. XcodeBuildMCP
+  scratch trees (`build/scratch/derived-data/xcodebuildmcp/{macos,ios-device}`) stay scratch-class
+  under that policy; they never become a third persistent cache or a release gate.
+- **Codex task/session storage:** the separate `config/codex-session-storage-policy.json` governs
+  an optional operator-local workflow. CI validates the contract and temporary fixtures only; it
+  never reads or changes a real Codex home. Use the plain/compressed metadata-only inventory,
+  temporary checksummed plan, exact approval, evolving non-target preservation baseline, supported
+  CLI deletion, and verification sequence in
+  `docs/reference/codex-session-storage.md`. This state is not repository build output.
 - **Evidence artifacts:** `build/artifacts/ui-tests/` owns `.xcresult` bundles and exported
   screenshots; `build/artifacts/diagnostics/` owns pulled/headless generation telemetry and crashes;
   platform gate/profile outputs remain below `build/artifacts/{macos,ios}/`; current dSYMs live
@@ -155,6 +167,8 @@ scripts/ios_device.sh memory --voice-id SAVED_VOICE_ID [--label ID]
 scripts/ios_device.sh memory-field-report [pulled-diagnostics]
 python3 scripts/build_output_policy.py status [--json]
 python3 scripts/build_output_policy.py validate
+python3 scripts/codex_session_storage.py validate
+python3 scripts/codex_session_storage.py status   # optional local aggregate; never CI/release input
 scripts/clean_build_caches.sh --routine --dry-run
 scripts/clean_build_caches.sh --routine
 scripts/clean_build_caches.sh --prune-ui-results --dry-run
@@ -193,6 +207,11 @@ scripts/clean_build_caches.sh --compact-profile-failure <run-id> --dry-run
   scratch. Release files live only under `build/dist/` and routine cleanup never removes them.
   Heavy lanes use the manifest-owned free-space preflight before work starts. Prefer one selective
   `--cache` target over `--aggressive`; successful ordinary builds remain non-destructive.
+- **Codex user state remains external.** The repository tracks only the policy, helper, runbook,
+  and synthetic tests. A live manifest/journal stays mode 0600 in a system temporary directory and
+  never enters Git, CI, release evidence, or benchmark history. Unknown and unrelated tasks are
+  protected; no subagent may select or approve deletion; no workflow edits Codex SQLite or removes
+  rollout JSONL directly.
 - **Memory-qualified publication is strict.** New generation/profile records require telemetry v8
   and evidence manifest v2, exact sidecar digests, ≥95% sampler coverage, zero capture failures,
   and no critical pressure, memory warning/exit, `hardTrim`, or `fullUnload`. A 95–<100% coverage

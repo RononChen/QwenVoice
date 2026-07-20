@@ -1196,6 +1196,11 @@ struct StreamingExecutionContext: Sendable {
 
         var chunkIndex = 0
         var totalFramesWritten: Int64 = 0
+        var nextAudioFrame: UInt64 = 0
+        var chunkObservations: [ShippingChunkObservationV9] = []
+        var modelTerminalAtNS: UInt64?
+        var modelOutcomeV9: ModelTerminalOutcomeV9?
+        var audioChannelSummary: AudioChannelSummaryV9?
         var mlxMemorySnapshots = initialMLXMemorySnapshots
         mlxMemorySnapshots["before_stream"] = NativeMemoryPolicyResolver.snapshot()
         let streamingOutputPolicy = NativeStreamingOutputPolicy.current()
@@ -1259,6 +1264,8 @@ struct StreamingExecutionContext: Sendable {
 
                     scratchBuffer.convertLimited(chunkSamples, into: &pcmSamples)
                     let frameOffset = totalFramesWritten
+                    let observationIndex = chunkIndex
+                    let materializedAtNS = DispatchTime.now().uptimeNanoseconds
                     let previewAudio: StreamingAudioChunk?
                     if !request.shouldStream || previewDataPolicy == .skip {
                         previewAudio = nil
@@ -1292,15 +1299,19 @@ struct StreamingExecutionContext: Sendable {
                     try autoreleasepool {
                         try finalWriter.append(pcmSamples: pcmSamples)
                     }
+                    let writtenAtNS = DispatchTime.now().uptimeNanoseconds
 
                     chunkIndex += 1
                     totalFramesWritten += Int64(pcmSamples.count)
+                    let audioStartFrame = nextAudioFrame
+                    let audioEndFrame = audioStartFrame + UInt64(pcmSamples.count)
+                    nextAudioFrame = audioEndFrame
 
                     // Bind the stashed decode-substage breakdown to this chunk.
                     if telemetryActive, let timings = chunk.timings {
                         chunkTimeline.append(
                             makeChunkTelemetry(
-                                chunkIndex: chunkIndex - 1,
+                                chunkIndex: observationIndex,
                                 timings: timings,
                                 clock: telemetryClock
                             )
@@ -1325,29 +1336,69 @@ struct StreamingExecutionContext: Sendable {
                             // Transport sequencing is zero-based: the first
                             // emitted chunk is index 0, matching the XPC gap
                             // detector and accumulator contract.
-                            chunkSequence: UInt64(chunkIndex - 1)
+                            chunkSequence: UInt64(observationIndex)
                         )
                     )
 
+                    var previewPublishedAtNS: UInt64?
+                    let previewDisposition: PreviewPublicationDispositionV9
                     if request.shouldStream {
                         await chunkSink(chunkEvent)
+                        if previewAudio == nil {
+                            previewDisposition = .notRequested
+                        } else {
+                            previewPublishedAtNS = DispatchTime.now().uptimeNanoseconds
+                            previewDisposition = .publishedToProductSink
+                        }
+                    } else {
+                        previewDisposition = .notRequested
+                    }
+                    if TelemetryGate.resolvedEnabled {
+                        chunkObservations.append(
+                            ShippingChunkObservationV9(
+                                index: observationIndex,
+                                transportSequence: UInt64(observationIndex),
+                                codecStartFrame: chunk.codecStartFrame,
+                                codecEndFrameExclusive: chunk.codecEndFrameExclusive,
+                                audioStartFrame: audioStartFrame,
+                                audioEndFrameExclusive: audioEndFrame,
+                                materializedAtNS: materializedAtNS,
+                                writtenAtNS: writtenAtNS,
+                                previewPublishedAtNS: previewPublishedAtNS,
+                                previewDisposition: previewDisposition
+                            )
+                        )
                     }
             }
             let terminal = await session.waitForModelTermination()
+            modelTerminalAtNS = DispatchTime.now().uptimeNanoseconds
             latestInfo = terminal.generationInfo
             finalizedDiagnostics = terminal.diagnostics ?? finalizedDiagnostics
             switch terminal.outcome {
             case .completed(.endOfSequence):
-                break
+                modelOutcomeV9 = .eos
             case .completed(.maximumTokens):
+                modelOutcomeV9 = .tokenLimit
                 throw MLXTTSEngineError.generationFailed(
                     "Qwen3-TTS reached maxNewTokens before EOS. The output was discarded."
                 )
             case .cancelled:
+                modelOutcomeV9 = .cancelled
                 throw CancellationError()
             case .failed:
+                modelOutcomeV9 = .failed
                 throw MLXTTSEngineError.generationFailed(
                     "Qwen3-TTS failed before producing a complete final audio result."
+                )
+            }
+            if TelemetryGate.resolvedEnabled {
+                let channelStats = await audio.statistics()
+                audioChannelSummary = AudioChannelSummaryV9(
+                    capacityFrames: UInt64(max(0, channelStats.capacityFrames)),
+                    highWaterFrames: UInt64(max(0, channelStats.highWaterFrames)),
+                    producerSuspensionNS: channelStats.producerSuspensionNanoseconds,
+                    producerSuspensionCount: channelStats.producerSuspensionCount,
+                    cancellationWakeups: channelStats.cancellationWakeupCount
                 )
             }
         } catch {
@@ -1507,23 +1558,52 @@ struct StreamingExecutionContext: Sendable {
             )
             : nil
 
+        var successNotes: [String: String] = [
+            "finalChunkBarrierObserved": "true",
+            "outputReadableWAV": "true",
+            "outputAtomicallyPublished": "true",
+        ]
+        if TelemetryGate.resolvedEnabled,
+           let wavDigest = try? SamplingTakeEvidence.sha256FileDigest(at: outputURL) {
+            let plannedSeed = request.seed
+                ?? stringFlags["sampling_effective_seed"].flatMap(UInt64.init)
+            let observedSeed = stringFlags["sampling_effective_seed"].flatMap(UInt64.init)
+            let evidence = SamplingTakeEvidence(
+                algorithmVersion: stringFlags["sampling_algorithm_version"].flatMap(Int.init)
+                    ?? SamplingTakeEvidence.currentAlgorithmVersion,
+                plannedSeed: plannedSeed,
+                observedSeed: observedSeed,
+                seedSource: request.seed == nil ? .generated : .requested,
+                wavDigest: wavDigest
+            )
+            successNotes.merge(evidence.telemetryNotes) { _, evidence in evidence }
+        }
+        successNotes.merge(GenerationStreamingTelemetryV9Publication.shippingIdentityNotes) {
+            current, _ in current
+        }
+
+        let productTerminalAtNS = DispatchTime.now().uptimeNanoseconds
         await writeEngineTelemetryRecord(
             summary: summary,
             stageMarks: stageMarks,
             usedStreaming: request.shouldStream,
             finishReason: resolvedFinishReason.rawValue,
             counters: ["chunkCount": chunkIndex],
-            notes: [
-                "finalChunkBarrierObserved": "true",
-                "outputReadableWAV": "true",
-                "outputAtomicallyPublished": "true",
-            ],
+            notes: successNotes,
             timingsMS: finalTimingsMS,
             derivedMetrics: derivedMetrics,
             mlxMemoryByStage: telemetryActive ? mlxMemorySnapshots : nil,
             chunkTimeline: chunkTimeline.isEmpty ? nil : chunkTimeline,
             audioQC: finalAudioQC,
-            rawSamples: telemetryMode.persistsRawSamples ? rawSamples : nil
+            rawSamples: telemetryMode.persistsRawSamples ? rawSamples : nil,
+            streamingChunkObservations: chunkObservations,
+            streamingAudioChannel: audioChannelSummary,
+            streamingTerminals: GenerationTerminalTimelineV9(
+                modelTerminalAtNS: modelTerminalAtNS,
+                productTerminalAtNS: productTerminalAtNS,
+                modelOutcome: modelOutcomeV9,
+                productOutcome: .completed
+            )
         )
 
         shouldRetainSession = request.shouldStream
@@ -1637,7 +1717,10 @@ struct StreamingExecutionContext: Sendable {
         mlxMemoryByStage: [String: NativeMLXMemorySnapshot]? = nil,
         chunkTimeline: [GenerationChunkTelemetry]? = nil,
         audioQC: AudioQCReport? = nil,
-        rawSamples: [TelemetrySample]? = nil
+        rawSamples: [TelemetrySample]? = nil,
+        streamingChunkObservations: [ShippingChunkObservationV9] = [],
+        streamingAudioChannel: AudioChannelSummaryV9? = nil,
+        streamingTerminals: GenerationTerminalTimelineV9? = nil
     ) async {
         guard TelemetryGate.resolvedEnabled else { return }
         guard let appSupportDirectory = diagnosticAppSupportBox?.url else { return }
@@ -1776,6 +1859,16 @@ struct StreamingExecutionContext: Sendable {
                 return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
             }
         }()
+        let nestedStreamingV9 = GenerationStreamingTelemetryV9Bridge.make(
+            generationID: generationID.uuidString,
+            layer: .engine,
+            notes: notesWithTier,
+            frontend: nil,
+            transport: nil,
+            terminals: streamingTerminals,
+            chunkObservations: streamingChunkObservations,
+            audioChannel: streamingAudioChannel
+        )
         let record = GenerationTelemetryRecord(
             generationID: generationID.uuidString,
             layer: .engine,
@@ -1806,7 +1899,8 @@ struct StreamingExecutionContext: Sendable {
                 runtimeProfileSignature: stringFlags["qwen3_runtime_profile_signature"],
                 nativeLoadCapabilityProfile: loadCapabilityProfile.rawValue,
                 fixtureDigest: fixtureDigest
-            )
+            ),
+            streamingTelemetryV9: nestedStreamingV9
         )
         await GenerationTelemetryJSONLSink.shared.write(
             record: record,
@@ -1827,12 +1921,14 @@ struct StreamingExecutionContext: Sendable {
 
     /// Privacy-safe request-origin sampling notes. The writer later replaces
     /// `samplingSeed` with the resolved effective seed from the immutable
-    /// runtime policy, including for originally unseeded requests.
+    /// runtime policy, including for originally unseeded requests, and may add
+    /// the persisted WAV digest plus planned/observed seed agreement fields.
     static func samplingTelemetryNotes(for request: GenerationRequest) -> [String: String] {
         var notes = [
             "samplingVariation": (request.variation ?? .expressive).rawValue,
         ]
         if let seed = request.seed {
+            notes["samplingPlannedSeed"] = String(seed)
             notes["samplingSeed"] = String(seed)
         }
         return notes

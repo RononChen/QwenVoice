@@ -5,6 +5,23 @@
 - **Owners:** Backend/MLX, macOS, iOS, and Release/QA
 - **Machine contract:** [`config/runtime-refactor-contract.json`](../../config/runtime-refactor-contract.json)
 
+## Glossary
+
+| Term | Meaning |
+| --- | --- |
+| Qwen dual-track streaming | Official Qwen3-TTS hybrid path for low first-packet latency (CUDA-class demos; not Vocello’s API) |
+| Vocello product streaming / preview | Early codec-frame chunks plus the frontend preview router that makes generation feel immediate |
+| Lossless final channel | Actor-owned classified session drain through `GenerationOutputAdapter` to atomic WAV + Fast QC |
+
+### Secret-sauce invariants
+
+Keep early first/later codec frames, the preview-vs-lossless split, request-local sampling v2, tiered
+`Memory.cacheLimit` with soft relief (no hard production `memoryLimit`), XPC engine isolation on
+macOS, and the 1.7B Speed/Quality matrix. Do not chase A100 first-packet figures, reopen 0.6B, or
+add Core ML / custom Metal during convergence. Latency/memory cells are named in
+`config/characterization-fixtures.json` (`secretSauceCells`); roadmap cross-check:
+[`docs/reference/qwen3-apple-silicon-roadmap-review.md`](../reference/qwen3-apple-silicon-roadmap-review.md).
+
 ## Context
 
 The owned Qwen3 runtime is production-capable, memory-qualified, and covered by clean canonical
@@ -147,9 +164,10 @@ must not yet be treated as product authority. At this checkpoint:
   quality registry remains a foundation. Existing persisted-WAV Fast QC and specialized language,
   delivery, and prosody gates still own shipping decisions.
 - Telemetry v8 and benchmark history v2 remain authoritative. New v8 rows embed a partial v9
-  transition projection with safe shadow-plan/policy digests and explicit unavailability reasons,
-  but complete v9 actor/session/output-adapter capture, merging, validation, and publication remain
-  pending until those product paths stabilize.
+  transition projection with safe shadow-plan/policy digests. Live engine producers now observe
+  codec-frame ranges, audio-channel statistics, chunk audio ranges, and model/product terminals;
+  non-blocking layer gaps (`notApplicable`, aggregate-only transport list, missing player render
+  callback) may remain listed. History-level complete-v9 merger/authority remains pending.
 
 This explicit split prevents focused source/platform acceptance from being mistaken for complete
 promotion or convergence. The full program remains open until clean repeated controls, applicable

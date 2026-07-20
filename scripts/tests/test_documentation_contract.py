@@ -266,20 +266,18 @@ class DocumentationContractTests(unittest.TestCase):
         )
         self.assertEqual(DOCUMENTATION.validate_readme_public_contract(self.root), [])
 
-    def test_historical_snapshot_may_retain_retired_terminology(self) -> None:
-        active = self.write("README.md", "Computer Use is an old harness.\n")
-        self.assertTrue(DOCUMENTATION.validate_retired_harness_terms(self.root, [active]))
+    def test_historical_snapshot_paths_are_excluded_from_active_inventory(self) -> None:
+        active = self.write(
+            "README.md",
+            "Do not resurrect Mirroir, Peekaboo, mobile-mcp, or computer-use drivers.\n",
+        )
         report = self.write(
             "docs/reference/backend-optimization-research-report.md",
             "# Report\n\n> **Historical snapshot.**\n\nComputer Use and an old harness.\n",
         )
-        self.assertNotIn(report, DOCUMENTATION.active_markdown_paths(self.root))
-        self.assertEqual(
-            DOCUMENTATION.validate_retired_harness_terms(
-                self.root, DOCUMENTATION.active_markdown_paths(self.root)
-            ),
-            DOCUMENTATION.validate_retired_harness_terms(self.root, [active]),
-        )
+        paths = DOCUMENTATION.active_markdown_paths(self.root)
+        self.assertIn(active, paths)
+        self.assertNotIn(report, paths)
         self.assertEqual(DOCUMENTATION.validate_historical_banners(self.root), [])
 
 

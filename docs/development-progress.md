@@ -17,13 +17,13 @@ change runtime or promotion evidence.
 
 | Plan phase | Current state |
 | --- | --- |
-| 0 — Characterization | Partial. The ADR, contract, and model-free fixtures exist; exact shipping-path mode/token/PCM and manifest-v3 long-form fixtures plus the required clean 3-control, 10-warm, and 3-cold measurements are pending. |
+| 0 — Characterization | Active. Fixtures at `live-characterization-active` with `scripts/check_characterization_controls.py` for the 3-session / 10-warm / 3-cold minima. Secret-sauce short UI cells already passed on prior exploratory records. Exact mode/token/PCM binding and three clean-tree control sessions per platform remain the next Phase 0 work. |
 | 1 — Correctness prerequisites | Shipping. XPC reserves before side effects, pressure snapshots are synchronized, and critical relief holds admission continuously through cancellation, terminal cleanup, and relief. |
 | 2 — Plans and actor | The actor foundation is now the shipping generation-mutation authority through Phase 4. Immutable plans remain in shadow comparison. A narrow named SPI still bridges prepared-model loading/prewarm and validated schema-3 Clone prompt adoption; do not describe the actor as the sole MLX mutator until that bridge retires. Reserved/generating/aborting ownership, critical-relief lease transfer, and epoch-bound Clone handles remain unchanged. |
 | 3 — Classified sessions | Shipping through Phase 4. Custom, Design, and Clone materialize `[Float]` before an awaited, frame-bounded, single-consumer channel send. Producer/receiver cancellation, delayed drains, maximum-length ordering, consumer failure, typed terminal outcomes, and stale-safe product finalization remain deterministic contracts. |
 | 4 — Product adapter and mode cutover | Source implementation, deterministic verification, and focused macOS plus physical-iPhone Custom, Design, and Clone acceptance passed. QwenVoiceCore's `GenerationOutputAdapter` owns output/QC/finalization over the classified session, while the retained filename awaits Phase 14 mechanical organization. Overall promotion remains pending on the required clean repeated controls, applicable full matrices, exact legacy characterization, and later retirement work. |
-| 5 — Request-local sampling | Shipping. Algorithm v2 is request-local; it still requires fixed-seed live promotion evidence and shipping long-form/candidate sub-seed integration. |
-| 6 — Telemetry v9 | Transitional. Schema/types/tests and a partial v9 projection inside v8 exist; the complete writer, merger, validator, publisher, and shipping actor/session observations do not. |
+| 5 — Request-local sampling | Shipping evidence path. Algorithm v2 remains request-local; planned/observed seed agreement, privacy-safe WAV digests, fail-closed fixtures, and versioned domain-separated sub-seed derivation are in Core. macOS CLI and physical-iPhone headless fixed-seed equal/diverge pairs for Custom/Design/Clone Speed short passed on 2026-07-19 (WAV content digests). Promotion-packaged telemetry evidence (`SamplingTakeEvidence.validatedForPromotion()`) remains pending. Shipping long-form/candidate sub-seed execution remains Phase 11/12. |
+| 6 — Telemetry v9 | Transitional. Nested v9 projection remains inside shipping schema-v8 rows. Live engine producers stamp exact codec-frame ranges, audio-channel statistics, chunk audio ranges, and model/product terminals. macOS CLI (2026-07-19) and physical-iPhone headless Custom/Design/Clone (2026-07-20) nested transitions are engine-domain publication-ready. Complete sidecar writer/validator/publisher exist; history-level schema-v9 authority remains pending. |
 | 7 — Chunk and preview experiments | Not started beyond prerequisites. Shipping v9 evidence, controlled A/B runs, audio-graph preparation experiments, and identity-bound calibration are pending. |
 | 8 — Shared component storage | Production-integrated with deterministic coverage. Live validation across all six macOS artifacts and all three iPhone Speed artifacts is pending. |
 | 9 — Runtime component reuse | Not started. Decoder/immutable-weight reuse remains an optional isolated A/B after disk-component proof. |
@@ -31,7 +31,7 @@ change runtime or promotion evidence.
 | 11 — Long-form v4 | Planner and bounded assembler foundations only. Sequential streaming, resume/replacement, segment QA, History integration, and product cutover are pending; manifest-v3 non-streaming remains shipping. |
 | 12 — Bounded analysis and unified quality | Partial. Bounded prosody algorithm v2 is shipping; persisted-WAV consolidation and the typed registry/scheduler are not integrated. |
 | 13 — Benchmark/history v3 | Not started; schema v2 remains authoritative until shipping plan/session/quality identities stabilize. |
-| 14 — Organization and retirement | Deferred final phase. Shipping compatibility authorities, the named legacy SPI and its direct loaded-model APIs, the internal combined event session, the old segmenter/writer, and large source files remain until the cutovers pass. |
+| 14 — Organization and retirement | Explicitly deferred until overall Phase 4 promotion and Phase 5/6/0 close. Named deferred surfaces: `NativeStreamingSynthesisSession.swift` filename, `VocelloQwen3LegacyCompatibility` SPI, combined characterization session, and Clone priming stream APIs. |
 
 The post-cutover deterministic proof passed `scripts/macos_test.sh test`, including Core, XPC
 transport, and 103 owned-runtime tests. The arm64 macOS build and generic iPhoneOS SDK app plus
@@ -52,28 +52,58 @@ evidence, readable output, Fast QC, and no crash delta. They are exploratory
 close the focused physical-iPhone Phase 4 acceptance requirement, but they are not clean repeated
 controls or a full canonical matrix.
 
+### Pre-research UI baselines — 2026-07-19
+
+Exploratory dirty-worktree 29-take UI matrices (soft trim → `passedWithWarnings`), not clean
+promotion controls. Roadmap cross-check:
+[`docs/reference/qwen3-apple-silicon-roadmap-review.md`](reference/qwen3-apple-silicon-roadmap-review.md).
+
+| Platform | Label / record |
+| --- | --- |
+| macOS | `pre-research-baseline-20260719` → `macos-xcui-benchmark-20260719-215547-11f8f4cf` (smoke + gate PASS after dSYM refresh) |
+| iPhone | `pre-research-baseline-ios-20260719` → `ios-xcui-benchmark-20260719-224743-1e69da39` (smoke PASS; `ios_device.sh gate` PASS as `ios-gate-20260719-191932` after phone returned) |
+
 ### Next convergence checkpoint
 
-The Phase 1–4 checkpoint is now on protected `main`. Proceed in this order so later performance
-evidence is not recorded against transitional telemetry or an incompletely qualified sampling
-contract:
+The Phase 1–4 checkpoint is on protected `main`. The sampling evidence path, v9 sidecar
+publication helpers, model-free characterization fixture identities, and
+`scripts/check_convergence_promotion_gate.py` are now in-tree. The soft gate no longer freezes
+fixture `status` at `model-free-foundation`; allowed statuses include live capture progress.
+Proceed in this order so later performance evidence is not recorded against transitional telemetry
+or incomplete live sampling proof:
 
-1. Close Phase 5 evidence: require sampling algorithm v2 and planned/observed seed agreement,
-   publish the privacy-safe take seed and WAV digest, add fail-closed missing/mismatch fixtures,
-   and define versioned domain-separated sub-seed derivation for later long-form and candidate
-   work.
-2. Run fixed-seed repeat pairs for Custom, Design, and Clone on the macOS CLI and physical-iPhone
-   headless lane. Equal seeds must preserve token/chunk/PCM identity; changed seeds must diverge
-   while retaining QC, memory, and crash safety.
-3. Complete Phase 6 telemetry v9 writer, merger, validators, and PASS-only publication, then run
-   focused v9 UI pilots on both platforms.
-4. Finish Phase 0 characterization with at least three clean control sessions and, for each
-   applicable promoted cell, at least ten warm and three cold observations.
-5. Only then run fresh full 29-take macOS and physical-iPhone matrices. Running them before the
-   Phase 5/6 closures would create transitional schema-v8 evidence that must be repeated.
+1. ~~Fixed-seed pairs (2026-07-19):~~ macOS CLI and physical-iPhone headless Custom/Design/Clone
+   Speed short with seeds `19790615` (equal pair) and `42424242` (diverge) all PASS via matching/
+   diverging SHA-256 WAV digests (local under `build/scratch/transient/phase5-seed-pairs/` and
+   `phase5-seed-pairs-ios/`). Prefer telemetry `samplingSeed`/`samplingWAVDigest` +
+   `SamplingTakeEvidence.validatedForPromotion()` for promotion packaging; these digests are live
+   identity proof only.
+2. ~~Secret-sauce latency/memory cells (2026-07-19):~~ focused UI short captures
+   `secret-sauce-20260719` → `macos-xcui-benchmark-20260719-233834-98038639` and
+   `secret-sauce-ios-20260719` → `ios-xcui-benchmark-20260719-234454-7df6a1e0` PASS
+   `scripts/check_secret_sauce_cells.py` (required metrics present; soft_trim only; no hardTrim /
+   fullUnload). Exploratory dirty-worktree records, not clean promotion controls.
+3. ~~Nested-v9 producers + platform pilots (2026-07-19/20):~~ exact codec-frame ranges, lossless
+   audio-channel statistics, chunk audio ranges, and model/product terminals land in the nested
+   transition via `GenerationOutputAdapter` + owned Qwen stream schedule. Engine-domain nested
+   transitions are publication-ready while listing non-blocking `notApplicable` transport/player
+   gaps. macOS: `scripts/macos_test.sh test` + CLI verbose generate + UI smoke. iPhone: rebuilt
+   install + headless Custom/Design/Clone Speed short (seed `19790615`) all engine-ready under
+   `build/scratch/transient/v9-ios-pilot/` (blocking unavailable empty) + UI smoke PASS.
+   Schema-v8 JSONL remains authoritative until history consumes complete v9 sidecars.
+4. Finish Phase 0 live characterization with at least three clean control sessions and, for each
+   applicable promoted cell, at least ten warm and three cold observations bound to
+   `config/characterization-fixtures.json` identities.
+5. Only then run fresh full 29-take macOS and physical-iPhone matrices.
+   `scripts/check_convergence_promotion_gate.py` refuses `overallPromotion: passed` while Phase
+   5/6/0 remain pending. Running matrices earlier would create transitional schema-v8 evidence that
+   must be repeated.
 
 Shipping long-form sub-seed execution remains Phase 11, candidate retry remains Phase 12, and
-neither is a prerequisite for the Phase 5 sampling proof.
+neither is a prerequisite for the Phase 5 live sampling proof. Phase 14 mechanical retirement
+stays deferred until overall promotion.
+
+Status report: [`docs/reference/runtime-refactor-status-report.md`](reference/runtime-refactor-status-report.md).
 
 ### Local storage-policy verification — 2026-07-18
 
@@ -250,6 +280,13 @@ identifiers differ. Restoring that component does not authorize Simulator execut
   resolved failures compact automatically; platform/package/runtime caches can
   be removed independently. Manifest-owned free-space preflights stop heavy lanes before they create
   partial output, while ordinary successful builds remain non-destructive.
+- Codex task/session storage is now a separate optional operator workflow rather than repository
+  build-output policy. Its tracked schema and helper enforce aggregate metadata-only inventory for
+  plain and cold-compressed rollouts, explicit current-root protection, a temporary checksummed
+  descendant plan, deepest-first supported CLI deletion only after exact approval, an evolving
+  non-target preservation baseline after every command, and post-verification. CI validates only
+  the policy and synthetic temporary-home fixtures; live Codex state, manifests, journals, and
+  identifiers remain local and never become publishing or release-evidence inputs.
 - The Qwen3/Mimi implementation is now an explicitly owned monorepo core package at
   `Packages/VocelloQwen3Core`. Product targets depend on the `VocelloQwen3Core` facade, whose typed
   model-bundle, capability, sampling, memory, request, terminal, cancellation, and diagnostic

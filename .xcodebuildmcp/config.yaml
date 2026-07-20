@@ -1,12 +1,13 @@
 # XcodeBuildMCP configuration for the Vocello (QwenVoice) monorepo.
+# Upstream: https://github.com/getsentry/XcodeBuildMCP
 # Docs: https://xcodebuildmcp.com/docs/configuration
 #
-# When the OpenAI Apple build plugins and their XcodeBuildMCP server are installed
-# and callable, Build iOS Apps owns this repository's one shared route and Build
-# macOS Apps may consume it. After editing, start a fresh Codex/ChatGPT Desktop
-# task or reload the owning plugin. Never configure a second instance merely
-# because a user-scoped plugin is unavailable in the current task.
+# When an XcodeBuildMCP server is installed and callable, this repository uses
+# one shared route for macOS and physical-device iOS. After editing, start a
+# fresh agent task or reload the MCP client. Never configure a second instance
+# merely because a user-scoped MCP client is unavailable in the current task.
 schemaVersion: 1
+sentryDisabled: true
 enabledWorkflows:
   - macos              # Vocello.app: build_macos, build_run_macos, test_macos, …
   - device             # iOS on paired iPhone: test_device, build_run_device, …

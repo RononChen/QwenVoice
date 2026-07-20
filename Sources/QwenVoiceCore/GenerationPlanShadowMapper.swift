@@ -5,7 +5,8 @@ import Foundation
 /// The mapper is deliberately pure: it does not load a model, mutate MLX,
 /// create a generation task, or start a second generation. The host supplies
 /// the values that the shipping path already resolved and compares the
-/// resulting plan before the future actor cutover.
+/// resulting plan with shipping authority. Plans remain shadow-only by design
+/// after the Phase 4 actor/adapter cutover.
 public struct GenerationPlanShadowInputs: Sendable {
     public let request: GenerationRequest
     public let resolvedGenerationID: UUID

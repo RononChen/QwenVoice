@@ -33,6 +33,10 @@ public struct VocelloQwen3AudioChunkEvent: Codable, Hashable, Sendable {
     /// Quality-first requests and compatibility producers without timing
     /// support leave this nil rather than attaching stale evidence.
     public let timings: VocelloQwen3ChunkTimings?
+    /// Exact codec-frame range that produced this PCM payload. Both bounds are
+    /// present together when the streaming producer observed them.
+    public let codecStartFrame: UInt64?
+    public let codecEndFrameExclusive: UInt64?
 
     public init(
         generationID: UUID,
@@ -40,7 +44,9 @@ public struct VocelloQwen3AudioChunkEvent: Codable, Hashable, Sendable {
         samples: [Float],
         sampleRate: Int,
         channelCount: Int = 1,
-        timings: VocelloQwen3ChunkTimings? = nil
+        timings: VocelloQwen3ChunkTimings? = nil,
+        codecStartFrame: UInt64? = nil,
+        codecEndFrameExclusive: UInt64? = nil
     ) {
         self.generationID = generationID
         self.sequence = sequence
@@ -48,6 +54,8 @@ public struct VocelloQwen3AudioChunkEvent: Codable, Hashable, Sendable {
         self.sampleRate = sampleRate
         self.channelCount = channelCount
         self.timings = timings
+        self.codecStartFrame = codecStartFrame ?? timings?.codecStartFrame
+        self.codecEndFrameExclusive = codecEndFrameExclusive ?? timings?.codecEndFrameExclusive
     }
 
     public var frameCount: Int {
@@ -110,8 +118,9 @@ public struct VocelloQwen3TerminalEvent: Codable, Hashable, Sendable {
     }
 }
 
-/// Ordered internal event vocabulary retained only for package characterization
-/// while the product completes the classified-session cutover.
+/// Ordered internal event vocabulary retained only for package characterization.
+/// Product generation uses the classified session; this combined event stream is
+/// not a shipping authority after the Phase 4 cutover.
 enum VocelloQwen3GenerationEvent: Codable, Hashable, Sendable {
     case prepared(VocelloQwen3PreparedEvent)
     case audioChunk(VocelloQwen3AudioChunkEvent)

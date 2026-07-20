@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "status": "live-characterization-active",
+  "owner": "backend-runtime",
+  "contract": "config/runtime-refactor-contract.json",
+  "purpose": "Exact shipping-path characterization fixture identities for Phase 0. These are model-free digests and counts only; live PCM/token captures remain operator evidence.",
+  "minimumCleanControlRuns": 3,
+  "minimumWarmTakesPerPromotedCell": 10,
+  "minimumColdTakesPerPromotedCell": 3,
+  "modes": ["custom", "design", "clone"],
+  "fixtures": [
+    {
+      "id": "custom-speed-short-control",
+      "mode": "custom",
+      "variant": "speed",
+      "length": "short",
+      "samplingAlgorithmVersion": 2,
+      "chunkFrames": { "first": 7, "later": 7 },
+      "promptCharCount": 48,
+      "promptDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expectedTokenBudgetClass": "short",
+      "longFormManifestSchema": null,
+      "notes": "Exact prompt text and PCM stay out of tracked fixtures; live controls bind promptDigest and WAV digest."
+    },
+    {
+      "id": "design-speed-short-control",
+      "mode": "design",
+      "variant": "speed",
+      "length": "short",
+      "samplingAlgorithmVersion": 2,
+      "chunkFrames": { "first": 7, "later": 14 },
+      "promptCharCount": 48,
+      "promptDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "expectedTokenBudgetClass": "short",
+      "longFormManifestSchema": null,
+      "notes": "Design uses the same short-control corpus shape with Design chunk frames."
+    },
+    {
+      "id": "clone-speed-short-control",
+      "mode": "clone",
+      "variant": "speed",
+      "length": "short",
+      "samplingAlgorithmVersion": 2,
+      "chunkFrames": { "first": 7, "later": 14 },
+      "promptCharCount": 48,
+      "promptDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "expectedTokenBudgetClass": "short",
+      "longFormManifestSchema": null,
+      "notes": "Clone short-control identity; conditioning digests come from live prepared voices."
+    },
+    {
+      "id": "custom-speed-longform-manifest-v3",
+      "mode": "custom",
+      "variant": "speed",
+      "length": "long",
+      "samplingAlgorithmVersion": 2,
+      "chunkFrames": { "first": 7, "later": 7 },
+      "promptCharCount": 1200,
+      "promptDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "expectedTokenBudgetClass": "long",
+      "longFormManifestSchema": 3,
+      "notes": "Shipping long-form remains manifest-v3 non-streaming until Phase 11."
+    }
+  ],
+  "secretSauceCells": [
+    {
+      "id": "secret-sauce-custom-speed-short",
+      "mode": "custom",
+      "variant": "speed",
+      "length": "short",
+      "fixtureId": "custom-speed-short-control",
+      "requiredMetrics": [
+        "submitToFirstChunkMS",
+        "playbackScheduledMS",
+        "peakPhysicalFootprintMB",
+        "mlxPeakMB",
+        "maximumTrimLevel",
+        "memoryTrimCount"
+      ],
+      "failClosed": ["hardTrim", "fullUnload", "criticalPressure", "appMemoryWarning"],
+      "warnAllowed": ["softTrim"],
+      "purpose": "Protect perceived speed + 8 GB headroom before full 29-take matrices."
+    },
+    {
+      "id": "secret-sauce-design-speed-short",
+      "mode": "design",
+      "variant": "speed",
+      "length": "short",
+      "fixtureId": "design-speed-short-control",
+      "requiredMetrics": [
+        "submitToFirstChunkMS",
+        "playbackScheduledMS",
+        "peakPhysicalFootprintMB",
+        "mlxPeakMB",
+        "maximumTrimLevel",
+        "memoryTrimCount"
+      ],
+      "failClosed": ["hardTrim", "fullUnload", "criticalPressure", "appMemoryWarning"],
+      "warnAllowed": ["softTrim"],
+      "purpose": "Design-path latency/memory cell with later codec frames (7/14)."
+    },
+    {
+      "id": "secret-sauce-clone-speed-short",
+      "mode": "clone",
+      "variant": "speed",
+      "length": "short",
+      "fixtureId": "clone-speed-short-control",
+      "requiredMetrics": [
+        "submitToFirstChunkMS",
+        "playbackScheduledMS",
+        "peakPhysicalFootprintMB",
+        "mlxPeakMB",
+        "maximumTrimLevel",
+        "memoryTrimCount"
+      ],
+      "failClosed": ["hardTrim", "fullUnload", "criticalPressure", "appMemoryWarning"],
+      "warnAllowed": ["softTrim"],
+      "purpose": "Clone conditioning latency/memory cell before matrix promotion."
+    }
+  ],
+  "secretSauceCaptures": [
+    {
+      "platform": "macos",
+      "label": "secret-sauce-20260719",
+      "record": "benchmarks/runs/ui-generation/macos-xcui-benchmark-20260719-233834-98038639.json",
+      "takes": 5,
+      "evaluator": "scripts/check_secret_sauce_cells.py",
+      "result": "pass",
+      "notes": "Focused UI short cells (warm 1). Exploratory dirty worktree; soft_trim warning only."
+    },
+    {
+      "platform": "ios",
+      "label": "secret-sauce-ios-20260719",
+      "record": "benchmarks/runs/ui-generation/ios-xcui-benchmark-20260719-234454-7df6a1e0.json",
+      "takes": 5,
+      "evaluator": "scripts/check_secret_sauce_cells.py",
+      "result": "pass",
+      "notes": "Focused UI short cells (warm 1) on physical iPhone. Exploratory dirty worktree; soft_trim warning only."
+    }
+  ],
+  "liveEvidencePending": [
+    "exact-mode-token-pcm-captures",
+    "three-clean-control-sessions",
+    "ten-warm-and-three-cold-observations-per-promoted-cell"
+  ]
+}

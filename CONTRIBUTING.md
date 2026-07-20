@@ -1,6 +1,7 @@
 # Contributing to Vocello
 
-Thank you for helping improve Vocello. This guide is the human contribution path. Repository automation and Codex tasks use the additional durable instructions in [`AGENTS.md`](AGENTS.md).
+Thank you for helping improve Vocello. This guide is the human contribution path. Repository
+automation and Cursor agents use the additional durable instructions in [`AGENTS.md`](AGENTS.md).
 
 ## Before starting
 

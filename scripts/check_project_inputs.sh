@@ -21,6 +21,7 @@ REQUIRED_SURFACES=(
     "scripts/generate_ios_logic_scheme.py"
     "scripts/build_foundation_targets.sh"
     "scripts/build_output_policy.py"
+    "scripts/codex_session_storage.py"
     "scripts/documentation_contract.py"
     "scripts/model_catalog_contract.py"
     "scripts/evidence_impact.py"
@@ -58,6 +59,7 @@ REQUIRED_SURFACES=(
     "scripts/test_check_ios_ui_benchmark.py"
     "scripts/test_check_language_output.py"
     "scripts/tests/test_build_output_policy.py"
+    "scripts/tests/test_codex_session_storage.py"
     "scripts/tests/test_documentation_contract.py"
     "scripts/tests/test_model_catalog_contract.py"
     "scripts/tests/test_evidence_impact.py"
@@ -87,6 +89,7 @@ REQUIRED_SURFACES=(
     "config/language-bench-diagnostic-cohort.json"
     "config/memory-qualification-policy.json"
     "config/build-output-policy.json"
+    "config/codex-session-storage-policy.json"
     "config/documentation-contract.json"
     "config/evidence-impact.json"
     "config/model-catalog-schema-v1.json"
@@ -121,6 +124,7 @@ REQUIRED_SURFACES=(
     "Tests/VocelloiOSUITests"
     "Tests/VocelloiOSLogicTests"
     ".xcodebuildmcp/config.yaml"
+    ".cursor/mcp.json"
     "project.yml"
 )
 
@@ -134,6 +138,7 @@ done
 # Validate the machine-readable generated-output contract before any producer,
 # cleanup, or higher-level workflow check can rely on its paths.
 python3 "$SCRIPT_DIR/build_output_policy.py" validate
+python3 "$SCRIPT_DIR/codex_session_storage.py" validate
 python3 "$SCRIPT_DIR/generate_cli_scheme.py" --check
 python3 "$SCRIPT_DIR/generate_ios_logic_scheme.py" --check
 python3 "$SCRIPT_DIR/model_catalog_contract.py" rebuild --check
@@ -221,6 +226,43 @@ for profile in macos ios-device; do
     grep -qE "^[[:space:]]{2}${profile}:$" "$XCODE_MCP_CONFIG" \
         || { echo "error: missing XcodeBuildMCP profile: $profile" >&2; exit 1; }
 done
+
+for derived_data_path in \
+    "build/scratch/derived-data/xcodebuildmcp/macos" \
+    "build/scratch/derived-data/xcodebuildmcp/ios-device"
+do
+    grep -qF "$derived_data_path" "$XCODE_MCP_CONFIG" \
+        || { echo "error: missing managed XcodeBuildMCP derivedDataPath: $derived_data_path" >&2; exit 1; }
+done
+
+CURSOR_MCP_CONFIG="$PROJECT_DIR/.cursor/mcp.json"
+if ! python3 - "$CURSOR_MCP_CONFIG" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+data = json.loads(path.read_text())
+servers = data.get("mcpServers") or {}
+xb = servers.get("XcodeBuildMCP")
+if not isinstance(xb, dict):
+    raise SystemExit("error: .cursor/mcp.json must define mcpServers.XcodeBuildMCP")
+env = xb.get("env") or {}
+workflows = str(env.get("XCODEBUILDMCP_ENABLED_WORKFLOWS", ""))
+expected = {"macos", "device", "debugging", "project-discovery"}
+actual = {part.strip() for part in workflows.split(",") if part.strip()}
+if actual != expected:
+    raise SystemExit(
+        "error: .cursor/mcp.json XcodeBuildMCP workflows must be exactly "
+        "macos,device,debugging,project-discovery"
+    )
+if any(token in workflows.lower() for token in ("simulator", "ui-automation")):
+    raise SystemExit("error: .cursor/mcp.json must not enable simulator or ui-automation workflows")
+print("Cursor MCP XcodeBuildMCP workflow gate: PASS")
+PY
+then
+    exit 1
+fi
 
 GENERATION_PREWARM_PATH="$PROJECT_DIR/Sources/Views/Generate"
 if [ -d "$GENERATION_PREWARM_PATH" ]; then
@@ -337,6 +379,7 @@ python3 "$SCRIPT_DIR/required_step_ledger.py" validate-contract
 python3 "$SCRIPT_DIR/project_health.py" validate
 python3 "$SCRIPT_DIR/project_health.py" rebuild-summary --check
 python3 "$SCRIPT_DIR/runtime_security_contract.py"
+python3 "$SCRIPT_DIR/check_convergence_promotion_gate.py"
 
 "$SCRIPT_DIR/check_backend_resource_contract.sh" --project
 "$SCRIPT_DIR/check_qwen3_backend_only.sh"

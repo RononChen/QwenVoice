@@ -94,7 +94,7 @@
     "overallPromotion": "pending"
   },
   "phaseStatus": {
-    "characterizationContract": "partial-model-free-characterization-exact-mode-token-pcm-and-shipping-longform-fixtures-pending",
+    "characterizationContract": "partial-model-free-fixtures-present-exact-mode-token-pcm-and-clean-controls-pending",
     "xpcReserveBeforeSideEffects": "implemented",
     "synchronizedPressureSnapshot": "implemented",
     "continuousCriticalReliefAdmission": "implemented-current-product-gate",
@@ -103,8 +103,8 @@
     "classifiedSessionChannels": "shipping-through-phase4-implementation-complete-promotion-pending",
     "productOutputAdapter": "shipping-implementation-complete-promotion-pending",
     "modeCutover": "implementation-complete-focused-platform-acceptance-passed-overall-promotion-pending",
-    "requestLocalSamplingV2": "shipping-live-quality-promotion-and-derived-subseed-integration-pending",
-    "telemetryV9": "partial-transition-projection-embedded-in-v8-complete-writer-merger-publication-pending",
+    "requestLocalSamplingV2": "shipping-evidence-path-and-subseed-derivation-live-promotion-pending",
+    "telemetryV9": "partial-transition-projection-embedded-in-v8-live-producers-landed-history-authority-pending",
     "chunkAndPreviewExperiments": "not-started-shipping-v9-and-clean-ab-evidence-required",
     "sharedComponentStorage": "integrated-production-path-authenticated-auto-reconciliation-live-artifact-validation-pending",
     "runtimeComponentReuse": "not-started-isolated-ab-after-live-disk-component-proof",
@@ -113,8 +113,14 @@
     "boundedAnalyzers": "prosody-v2-shipping-persisted-wav-consolidation-pending",
     "unifiedQuality": "typed-registry-foundation-specialized-gates-ship",
     "historyV3": "pending-stable-plan-session-quality-identities",
-    "mechanicalRetirement": "deferred-until-shipping-cutovers-spi-and-internal-compatibility-surfaces-remain"
+    "mechanicalRetirement": "deferred-until-overall-promotion-and-phase5-6-0-close-spi-filename-and-combined-session-remain"
   },
+  "phase14DeferredSurfaces": [
+    "NativeStreamingSynthesisSession.swift-filename",
+    "VocelloQwen3LegacyCompatibility-SPI",
+    "VocelloQwen3ModelGenerationSession-combined-event-session",
+    "NativeEngineRuntime-primeCloneConditioning-stream-APIs"
+  ],
   "constrainedTierChunkFrames": {
     "custom": { "first": 7, "later": 7 },
     "design": { "first": 7, "later": 14 },

@@ -22,12 +22,14 @@ rg -q -- '-enableThreadSanitizer "\$sanitizer_setting"' scripts/macos_test.sh \
 
 for required_policy_surface in \
   config/build-output-policy.json \
+  config/codex-session-storage-policy.json \
   config/documentation-contract.json \
   config/public-product-facts.json \
   config/orchestration-contract.json \
   config/project-health-contract.json \
   docs/project-health.md \
   scripts/build_output_policy.py \
+  scripts/codex_session_storage.py \
   scripts/documentation_contract.py \
   scripts/model_catalog_contract.py \
   scripts/evidence_impact.py \
@@ -48,6 +50,7 @@ for required_policy_surface in \
   scripts/lib/storage_preflight.py \
   scripts/lib/ios_platform_preflight.py \
   scripts/tests/test_build_output_policy.py \
+  scripts/tests/test_codex_session_storage.py \
   scripts/tests/test_documentation_contract.py \
   scripts/tests/test_model_catalog_contract.py \
   scripts/tests/test_evidence_impact.py \
@@ -82,7 +85,6 @@ for required in \
 done
 
 for retired in \
-  .cursor \
   .mirroir-mcp \
   .agents/skills/vocello-macos-ui-qa \
   .agents/skills/vocello-ios-ui-qa \
@@ -129,7 +131,7 @@ for retired in \
   [[ ! -e "$retired" ]] || fail "retired UI harness artifact still exists: $retired"
 done
 
-active=(AGENTS.md README.md .gitignore .agents benchmarks docs scripts config .github project.yml QwenVoice.xcodeproj/project.pbxproj Sources Tests website Packages/VocelloQwen3Core)
+active=(AGENTS.md README.md .gitignore .agents .cursor benchmarks docs scripts config .github project.yml QwenVoice.xcodeproj/project.pbxproj Sources Tests website Packages/VocelloQwen3Core)
 excludes=(
   --glob '!scripts/check_test_workflows.sh'
   --glob '!scripts/clean_build_caches.sh'
@@ -138,11 +140,9 @@ excludes=(
   --glob '!docs/audits/archive/**'
 )
 
-# Match the retired IDE by its development-context terms, not the generic UI/CSS
-# concept of a cursor or insertion caret.
-retired_pattern='(?i:cursor[- ]era|cursor IDE|cursor agent|cursor/claude|\.cursor(?:/|\b)|~/\.cursor|computer[-‑ ]use|mirroir|peekaboo|mobile-mcp|macos_agent_ui|ios_agent_ui|computer_use_routing|vocello-(?:macos|ios)-ui-qa|computer-use-failure-analysis|ui-attestation|ui-test-surface|generate_ui_test_surface|ios_agent_bench_drive|ios_vision_bridge|ios_measure|ios_uitest_doctor|enable_unattended_uitest|xcresult_shots|ios_vision_bench_matrix|ios_test_models|IOSModelsInventoryWriter|IOSAutorunHarness|IOSPreviewSupport|frontend_status_capture|perf_investigation|build_and_run)'
-out="$(rg -n "$retired_pattern" "${active[@]}" "${excludes[@]}" 2>/dev/null || true)"
-[[ -z "$out" ]] || fail "retired development or UI harness content returned:\n$out"
+# Policy prose may name retired harnesses (Mirroir, Peekaboo, computer-use, etc.).
+# Fail closed on wiring: missing retired artifacts above, and the retired command
+# forms below. Do not reintroduce a prose keyword denylist.
 
 # Reject only retired command/dispatch forms. Generic UI-test prose, code review, and Xcode's
 # bundle.ui-testing target type are valid and intentionally do not match these expressions.
@@ -596,6 +596,7 @@ python3 scripts/validate_backend_risk_spine.py
 
 python3 -m unittest \
   scripts.tests.test_build_output_policy \
+  scripts.tests.test_codex_session_storage \
   scripts.tests.test_documentation_contract \
   scripts.tests.test_model_catalog_contract \
   scripts.tests.test_evidence_impact \

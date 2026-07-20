@@ -1165,7 +1165,9 @@ public actor VocelloQwen3Engine {
                     sequence: pending.nextAudioSequence,
                     samples: boundedSamples,
                     sampleRate: sampleRate,
-                    timings: pending.pendingChunkTimings
+                    timings: pending.pendingChunkTimings,
+                    codecStartFrame: pending.pendingChunkTimings?.codecStartFrame,
+                    codecEndFrameExclusive: pending.pendingChunkTimings?.codecEndFrameExclusive
                 )
                 try await pending.session.publishAudio(chunk)
                 guard var current = pendingGeneration,

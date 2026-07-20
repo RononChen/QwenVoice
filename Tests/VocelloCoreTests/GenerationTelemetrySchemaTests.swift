@@ -135,6 +135,7 @@ final class GenerationTelemetrySchemaTests: XCTestCase {
         XCTAssertEqual(
             StreamingExecutionContext.samplingTelemetryNotes(for: request),
             [
+                "samplingPlannedSeed": String(UInt64.max),
                 "samplingSeed": String(UInt64.max),
                 "samplingVariation": "consistent",
             ]

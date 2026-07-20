@@ -139,6 +139,8 @@ public struct VocelloQwen3ChunkTimings: Codable, Hashable, Sendable {
     public let audioChunkEvalMS: Double
     public let kvCacheDiagnostics: VocelloQwen3KVCacheDiagnostics?
     public let mimiDecoderBreakdownMS: VocelloQwen3MimiDecoderTimings?
+    public let codecStartFrame: UInt64?
+    public let codecEndFrameExclusive: UInt64?
 
     init(_ value: ChunkSubstageTimings) {
         talkerForwardMS = value.talkerForwardMS
@@ -151,6 +153,8 @@ public struct VocelloQwen3ChunkTimings: Codable, Hashable, Sendable {
         audioChunkEvalMS = value.audioChunkEvalMS
         kvCacheDiagnostics = value.kvCacheDiagnostics.map(VocelloQwen3KVCacheDiagnostics.init)
         mimiDecoderBreakdownMS = value.mimiDecoderBreakdownMS.map(VocelloQwen3MimiDecoderTimings.init)
+        codecStartFrame = value.codecStartFrame
+        codecEndFrameExclusive = value.codecEndFrameExclusive
     }
 }
 

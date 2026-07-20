@@ -38,15 +38,15 @@ Before changing anything in this layer, read:
 2. The relevant subsystem guide under `docs/reference/` (e.g. `mlx-guide.md` for `MLXArray`/`Memory`/`GPU`, `qwen3-tts-guide.md` for prompt construction, `mimi-codec-guide.md` for codec work).
 3. `Sources/Resources/qwenvoice_contract.json` if you are touching model IDs, speakers, variants, or HF revisions.
 
-## Tools and skills (Codex)
+## Tools and skills
 
 - **Shell scripts are authoritative** for build/test:
   - `scripts/build_foundation_targets.sh macos|ios` for compile-safety.
   - `scripts/build.sh cli` to build `vocello`.
   - `QWENVOICE_DEBUG=1 ./build/vocello bench …` for perf/quality gates.
-- Use `$swift-mlx` and `$swift-mlx-lm` for MLX/MLX LM implementation guidance. Use the relevant
-  Axiom Swift, concurrency, and performance skills for language, isolation, and profiling
-  decisions. Read each selected skill before use.
+- When callable, use Swift/concurrency/performance skills (for example via an Axiom skills MCP) and
+  authoritative MLX / Hugging Face documentation for language, isolation, and profiling decisions.
+  Read each selected skill before use.
 - Skills guide implementation and diagnosis; shell builds, tests, benchmarks, and their artifacts
   remain authoritative. Where no skill applies, inspect the owned runtime source and authoritative Apple,
   package, or Hugging Face documentation.

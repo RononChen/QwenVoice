@@ -17,13 +17,12 @@ CONTRACT_PATH = Path("config/documentation-contract.json")
 PUBLIC_FACTS_PATH = Path("config/public-product-facts.json")
 OPTIONAL_CAPABILITY_CLAIMS = {
     "installed GitHub integration": "describe GitHub integration as conditional and keep gh as fallback",
-    "Build iOS Apps supplies": "describe the shared XcodeBuildMCP route as conditional",
-    "The plugin supplies the one shared XcodeBuildMCP": "describe the shared XcodeBuildMCP route as conditional",
+    "Build iOS Apps supplies": "describe the shared XcodeBuildMCP route as conditional when callable",
+    "The plugin supplies the one shared XcodeBuildMCP": "describe the shared XcodeBuildMCP route as conditional when callable",
+    "Codex/ChatGPT Desktop only": "describe scripts-first agents; optional MCP tooling is never a prerequisite",
+    "Development is Codex-first": "describe scripts-first development with optional MCP assists",
     "impeccable:impeccable": "use the current impeccable skill name",
 }
-RETIRED_HARNESS = re.compile(
-    r"(?i:cursor IDE|\.cursor(?:/|\b)|computer[- ]use|mirroir|peekaboo|mobile-mcp)"
-)
 SCRIPT_HELP_SURFACES = {
     "scripts/ui_test.sh",
     "scripts/macos_test.sh",
@@ -201,16 +200,6 @@ def validate_repository_paths(root: Path, paths: list[Path]) -> list[str]:
                     matches = [str(runtime)]
             if not matches:
                 errors.append(f"{source.relative_to(root)}: stale inline repository path {candidate}")
-    return errors
-
-
-def validate_retired_harness_terms(root: Path, paths: list[Path]) -> list[str]:
-    errors: list[str] = []
-    for source in paths:
-        text = source.read_text(encoding="utf-8")
-        for match in RETIRED_HARNESS.finditer(text):
-            line = text.count("\n", 0, match.start()) + 1
-            errors.append(f"{source.relative_to(root)}:{line}: retired harness term {match.group(0)!r}")
     return errors
 
 
@@ -590,7 +579,6 @@ def validate(root: Path) -> list[str]:
     errors.extend(validate_build_references(root, paths))
     errors.extend(validate_optional_capabilities(root, paths))
     errors.extend(validate_current_runtime_guidance(root, paths))
-    errors.extend(validate_retired_harness_terms(root, paths))
     errors.extend(validate_documented_subcommands(root, paths))
     errors.extend(validate_facts(root))
     errors.extend(validate_readme_public_contract(root))

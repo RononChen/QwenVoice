@@ -10,10 +10,10 @@ public enum RuntimeRefactorPlanError: Error, Equatable, Sendable {
 
 /// Immutable request-local sampling values for the converged Qwen3 runtime.
 ///
-/// Product/core plan construction remains shadow-only until the mode-by-mode
-/// runtime cutover. The shipping sampling adapter already maps the equivalent
-/// policy to a request-local MLX random state and does not mutate global RNG
-/// state.
+/// Product/core plan construction remains shadow-only by design after the
+/// Phase 4 mode cutover. The shipping sampling adapter already maps the
+/// equivalent policy to a request-local MLX random state and does not mutate
+/// global RNG state.
 public struct SamplingStage: Codable, Hashable, Sendable {
     public let temperature: Double
     public let topP: Double

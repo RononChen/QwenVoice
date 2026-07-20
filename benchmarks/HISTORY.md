@@ -13,6 +13,12 @@ from schema-v2 memory trends.
 |---|---|---|---|---|---|---:|---|---|---|---|
 | 2026-07-12 | [`ios-engine-20260712-204019-1f40cea8`](runs/engine-generation/ios-engine-20260712-204019-1f40cea8.json) | focused | exploratory | passed | memory-contract-incomplete | 1 | `1ef1669326b5` dirty | `excluded` | baseline | telemetry-v7-headless-final |
 
+## engine-generation / ios / iphone-17-pro / config `f1c8dc2684fb`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-19 | [`ios-gate-bench-20260719-232101-283a4b1c`](runs/engine-generation/ios-gate-bench-20260719-232101-283a4b1c.json) | focused | exploratory | passedWithWarnings | qualified-with-warnings | 1 | `d07384473fe9` dirty | `excluded` | baseline | ios-gate-bench |
+
 ## engine-generation / ios / iphone-17-pro / config `fd4b7152c9e4`
 
 | completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
@@ -177,6 +183,18 @@ from schema-v2 memory trends.
 |---|---|---|---|---|---|---:|---|---|---|---|
 | 2026-07-13 | [`ios-xcui-benchmark-20260713-051357-cc104bf3`](runs/ui-generation/ios-xcui-benchmark-20260713-051357-cc104bf3.json) | focused | exploratory | passed | memory-contract-incomplete | 2 | `04083b15a4e2` dirty | `excluded` | baseline | focused-playback-source-repair-20260713 |
 
+## ui-generation / ios / iphone-17-pro / config `e7fbd1871720`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-19 | [`ios-xcui-benchmark-20260719-234454-7df6a1e0`](runs/ui-generation/ios-xcui-benchmark-20260719-234454-7df6a1e0.json) | focused | exploratory | passedWithWarnings | qualified-with-warnings | 5 | `d07384473fe9` dirty | `excluded` | baseline | secret-sauce-ios-20260719 |
+
+## ui-generation / ios / iphone-17-pro / config `f50250bbe161`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-19 | [`ios-xcui-benchmark-20260719-224743-1e69da39`](runs/ui-generation/ios-xcui-benchmark-20260719-224743-1e69da39.json) | canonical | exploratory | passedWithWarnings | qualified-with-warnings | 29 | `d07384473fe9` dirty | `excluded` | baseline | pre-research-baseline-ios-20260719 |
+
 ## ui-generation / ios / iphone-17-pro / config `f5d334319bef`
 
 | completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
@@ -236,6 +254,18 @@ from schema-v2 memory trends.
 | completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
 |---|---|---|---|---|---|---:|---|---|---|---|
 | 2026-07-13 | [`macos-xcui-benchmark-20260713-093711-0fdf033f`](runs/ui-generation/macos-xcui-benchmark-20260713-093711-0fdf033f.json) | focused | exploratory | passedWithWarnings | qualified-with-warnings | 2 | `04083b15a4e2` dirty | `excluded` | baseline | memory-v8-final-focused |
+
+## ui-generation / macos / mac-mini-m2-8gb / config `7c600199ae07`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-19 | [`macos-xcui-benchmark-20260719-215547-11f8f4cf`](runs/ui-generation/macos-xcui-benchmark-20260719-215547-11f8f4cf.json) | canonical | exploratory | passedWithWarnings | qualified-with-warnings | 29 | `d07384473fe9` dirty | `excluded` | baseline | pre-research-baseline-20260719 |
+
+## ui-generation / macos / mac-mini-m2-8gb / config `8153dd385f0f`
+
+| completed (UTC) | run | scope | classification | status | memory | takes | source | comparison | trend | label |
+|---|---|---|---|---|---|---:|---|---|---|---|
+| 2026-07-19 | [`macos-xcui-benchmark-20260719-233834-98038639`](runs/ui-generation/macos-xcui-benchmark-20260719-233834-98038639.json) | focused | exploratory | passedWithWarnings | qualified-with-warnings | 5 | `d07384473fe9` dirty | `excluded` | baseline | secret-sauce-20260719 |
 
 ## ui-generation / macos / mac-mini-m2-8gb / config `ad660b134305`
 
