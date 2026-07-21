@@ -59,7 +59,7 @@
       "promptDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
       "expectedTokenBudgetClass": "long",
       "longFormManifestSchema": 3,
-      "notes": "Shipping long-form remains manifest-v3 non-streaming until Phase 11."
+      "notes": "macOS long-form uses v4 planning with sequential non-streaming segments and bounded joined-WAV publication; streaming and promotion characterization remain Phase 11."
     }
   ],
   "secretSauceCells": [

@@ -474,15 +474,17 @@ bounded passes rather than a duration-sized PCM/frame matrix.
 ### 4.11 Spoken-text and long-form planning status
 
 `SpokenTextPlanning.swift` and `LongFormPlanning.swift` implement deterministic, privacy-separated
-planning foundations, including typed transformation risk, UTF-8 ranges, stable segment/sub-seed
-identity, token-limit enforcement, CJK-aware boundary precedence, a schema-v4 planning document,
-and read-only schema-v3 summaries. `BoundedLongFormAssembler` is the matching joined-WAV foundation:
-it analyzes and writes each PCM16 segment in two fixed-block passes, bounds edge trim/fade and gain,
-inserts declared pauses, publishes one atomic readable WAV, and returns a privacy-safe segment frame
-map, digest, boundary-jump, and working-set summary. These foundations do not replace the current
-product path. macOS long-form still uses `LongFormBatchSegmenter`, the non-streaming batch
-coordinator, and manifest schema v3; no sequential streaming segment coordinator invokes the new
-planner or assembler. iOS long-form remains out of scope. See
+planning, including typed transformation risk, UTF-8 ranges, stable segment/sub-seed identity,
+token-limit enforcement, CJK-aware boundary precedence, a schema-v4 planning document, and read-only
+schema-v3 summaries. `BoundedLongFormAssembler` analyzes and writes each PCM16 segment in two
+fixed-block passes, bounds edge trim/fade and gain, inserts declared pauses, publishes one atomic
+readable WAV, and returns a privacy-safe segment frame map, digest, boundary-jump, and working-set
+summary. The macOS long-form product path now invokes both components: one submitted document is
+planned, generated as sequential non-streaming segments in a disposable private workspace, assembled
+into one WAV, and accepted as one History row. Success, failure, and cancellation clean the task
+workspace; app startup sweeps UUID-owned orphan workspaces. Streaming segment sessions,
+resume/replacement, ASR, and promotion evidence remain pending. Ordinary line-by-line batch
+generation is unchanged. iOS long-form remains out of scope. See
 [`reference/long-form-generation.md`](reference/long-form-generation.md).
 
 ---

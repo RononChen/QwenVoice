@@ -97,6 +97,7 @@
 		35F4D45D8E3E5025EF67588D /* IOSPlayerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 788647A5FD9814867C953FA4 /* IOSPlayerSheet.swift */; };
 		3674ADB8A0B27B6109572959 /* CharacterizationFixtureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F694F09B7CE5D9ACA60CDA3E /* CharacterizationFixtureTests.swift */; };
 		369B39A3B4D6D2C2FE6B956F /* CustomVoiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B84E7EAC8760A09DC87915DD /* CustomVoiceView.swift */; };
+		36A52B7B69A873C5857E7D36 /* LongFormWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A6629EC4C0369B4FC0F52C0 /* LongFormWorkspace.swift */; };
 		37ABA7C8125DA9617A7A0E7D /* IOSSavedOutputsDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F2675499CA07A2901B0A6EA /* IOSSavedOutputsDestination.swift */; };
 		38A34F6DB741EEB45DFC0699 /* QwenVoiceCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C1CD42CBFA3E0E68EDA48DEA /* QwenVoiceCore.framework */; };
 		390B34DC676C741E3D34AC12 /* VocelloUIAutomationSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D38AA69E346AFCA89F8D0331 /* VocelloUIAutomationSupport.swift */; };
@@ -226,6 +227,7 @@
 		9C596C12FF2FAF4901655F51 /* GenerationDrafts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7220613AFFBB1E9C0C9AB52F /* GenerationDrafts.swift */; };
 		9C7F54D72E62B1918F56298B /* TTSContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = E56DB3F2A6729473A3816C4C /* TTSContract.swift */; };
 		9C8C3FC65444A9A2A7ED9E79 /* RuntimeDebugGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10028722B3EF49EE7370838D /* RuntimeDebugGateTests.swift */; };
+		9CD3B4AAE0A4D70C1BB9A9B7 /* LongFormWorkspaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE838577CE4160E7F9A501C6 /* LongFormWorkspaceTests.swift */; };
 		9D252B7945375066E6E70CAC /* BatchGenerationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C37F7C548405565C230BF8 /* BatchGenerationSheet.swift */; };
 		9D3421699759E1D7B88C354A /* MemoryTelemetryV8Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92897B88826720DA43A40B19 /* MemoryTelemetryV8Tests.swift */; };
 		9D5A56B668872C98C75B1C4D /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = F3C3BE74B8A198E25C3557BF /* GRDB */; };
@@ -616,6 +618,7 @@
 		3912F66CF11ACFE5DD83B2BE /* NativeRuntimeFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeRuntimeFactory.swift; sourceTree = "<group>"; };
 		3984BABC68A82A0E52544FFE /* LocalBenchmarkDataPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalBenchmarkDataPolicyTests.swift; sourceTree = "<group>"; };
 		3A460ED1FFAC6253A10DB399 /* VocelloiOSModelDownloadUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VocelloiOSModelDownloadUITests.swift; sourceTree = "<group>"; };
+		3A6629EC4C0369B4FC0F52C0 /* LongFormWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LongFormWorkspace.swift; sourceTree = "<group>"; };
 		3A704D0B6ADBAF007042048C /* LongFormAssemblyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LongFormAssemblyTests.swift; sourceTree = "<group>"; };
 		3AC640F31070C11F3F6C432D /* GenerationVariationPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationVariationPreference.swift; sourceTree = "<group>"; };
 		3ADE213695C11F46205AE6DC /* QwenVoice.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = QwenVoice.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -769,6 +772,7 @@
 		BB46CEB7DE369F4E1B24668E /* GenerationTelemetryMerger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationTelemetryMerger.swift; sourceTree = "<group>"; };
 		BBCE5DF7AD407A17AF522154 /* VocelloiOSBenchmarkUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VocelloiOSBenchmarkUITests.swift; sourceTree = "<group>"; };
 		BC2B47BB4F36569E72D128B1 /* ono_anna.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = ono_anna.wav; sourceTree = "<group>"; };
+		BE838577CE4160E7F9A501C6 /* LongFormWorkspaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LongFormWorkspaceTests.swift; sourceTree = "<group>"; };
 		BF25FA1D00089D6805D7A988 /* SpokenTextPlanning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenTextPlanning.swift; sourceTree = "<group>"; };
 		C062CEB03FEA07D5230B0173 /* VocelloiOSLogicTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = VocelloiOSLogicTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C1208FA55F0C73C515E9B9CF /* SettingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScreen.swift; sourceTree = "<group>"; };
@@ -1050,6 +1054,7 @@
 				D560B7412122727891D309CE /* LocalBenchmarkDataPolicy.swift */,
 				A3061038468019DAA046A8B6 /* LongFormAssembly.swift */,
 				7E6DC218BF438DBC1DEF6744 /* LongFormPlanning.swift */,
+				3A6629EC4C0369B4FC0F52C0 /* LongFormWorkspace.swift */,
 				E7D8418594EA6787C67A3BFD /* MetricKitMemoryExitSummary.swift */,
 				C9DFF46140E21950EEDD4721 /* MLXModelLoadCoordinator.swift */,
 				5480928772E9EF2D5AE57945 /* MLXTTSEngine.swift */,
@@ -1539,6 +1544,7 @@
 				3984BABC68A82A0E52544FFE /* LocalBenchmarkDataPolicyTests.swift */,
 				3A704D0B6ADBAF007042048C /* LongFormAssemblyTests.swift */,
 				5A8C767365384FC934F4D47C /* LongFormPlanningTests.swift */,
+				BE838577CE4160E7F9A501C6 /* LongFormWorkspaceTests.swift */,
 				5932A386FF76F76B0E476E8D /* MainThreadStallWatchdogTests.swift */,
 				92897B88826720DA43A40B19 /* MemoryTelemetryV8Tests.swift */,
 				3906B4F64C4DEF21F1AFEF77 /* ModelDownloadLifecycleTests.swift */,
@@ -2119,6 +2125,7 @@
 				20C92175E64CFFD9DA3192E2 /* LocalBenchmarkDataPolicy.swift in Sources */,
 				F7BDD73ECDF1CB63344050C8 /* LongFormAssembly.swift in Sources */,
 				8D54994EF8B61CE248C6B4AD /* LongFormPlanning.swift in Sources */,
+				36A52B7B69A873C5857E7D36 /* LongFormWorkspace.swift in Sources */,
 				A1A06C031B9A40EA24BB7C8A /* MLXModelLoadCoordinator.swift in Sources */,
 				3D8813651CD03DBB73CF1029 /* MLXTTSEngine.swift in Sources */,
 				A6C3CAD0B42E40029BF8662A /* MetricKitMemoryExitSummary.swift in Sources */,
@@ -2272,6 +2279,7 @@
 				063A9177E601DC8737C074D7 /* LocalBenchmarkDataPolicyTests.swift in Sources */,
 				4D9146CA233F1E1EBF657D97 /* LongFormAssemblyTests.swift in Sources */,
 				239B41803755A4BB2741E159 /* LongFormPlanningTests.swift in Sources */,
+				9CD3B4AAE0A4D70C1BB9A9B7 /* LongFormWorkspaceTests.swift in Sources */,
 				64531299DDEF9DB9352ED082 /* MainThreadStallWatchdog.swift in Sources */,
 				B2F24D789A1F4DE0B7A5E124 /* MainThreadStallWatchdogTests.swift in Sources */,
 				9D3421699759E1D7B88C354A /* MemoryTelemetryV8Tests.swift in Sources */,

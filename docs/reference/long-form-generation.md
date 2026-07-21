@@ -1,73 +1,91 @@
-# Long-form generation
+# 长文本生成
 
-This reference distinguishes the current macOS product path from the staged schema-v4 planning and
-bounded-assembly foundations. Source and `config/runtime-refactor-contract.json` remain higher
-authority. iOS long-form UI and execution are out of scope.
+本文说明当前 macOS 长文本产品路径，以及仍处于分阶段建设中的恢复、流式会话与质量晋升工作。
+源代码和 `config/runtime-refactor-contract.json` 的权威级别更高。iOS 长文本界面与执行不在本轮范围内。
 
-## Shipping path
+关于 13,000–18,000 字叙事文本、保持音调的语速控制及尚未确定的产品方案，见
+[macOS 长篇叙事与语速控制评估](long-form-narration-tempo-assessment.md)。该文档中的语速部分仍是研究记录；
+本轮只实现长文本一次提交和完整 WAV 输出，不实现语速调整。
 
-macOS currently routes long text through `LongTextGenerationRouter`, `LongFormBatchSegmenter`, and
-`BatchGenerationRunner`. It produces independent non-streaming segment results and a manifest-v3
-document. That path remains the only shipping long-form authority.
+## 当前出货路径
 
-Do not claim sequential streaming, schema-v4 resume identity, bounded joined-WAV publication, or
-one-item History semantics from the presence of the new foundation types. Existing schema-v3
-documents remain readable historical/product evidence and must not be upgraded by fabricating
-missing plan identity.
+macOS 通过 `LongTextGenerationRouter`、`LongFormBatchSegmenter` 和 `BatchGenerationRunner`
+处理长文本。当前行为是：
 
-## Schema-v4 planning foundation
+1. 用户一次提交完整文稿。
+2. `SpokenTextPlanner` 与 `LongFormPlanner` 按段落、中文和其他语言句末标点及保守 token 上限规划分段。
+3. 分段按顺序、非流式生成到任务私有工作区，并逐段执行 Fast QC；引擎检查与 App 落盘复检使用同一份分段文本计算标点停顿预算，避免把正常叙事停顿误判为音频中断。
+4. `BoundedLongFormAssembler` 用固定大小 PCM 块合并并原子发布一个 24 kHz、单声道 PCM16 WAV。
+5. 完整 WAV 接受后只写入一条 History 成品记录，然后清理全部分段过程文件。
 
-`SpokenTextPlanning.swift` and `LongFormPlanning.swift` provide model-free contracts for the future
-cutover:
+普通“逐行”批量生成仍然每行产生一份音频和一条 History，不受此切换影响。旧 schema-v3 文档仍可读取，
+但新 macOS 长文本任务不再写入包含原文和分段路径的 manifest-v3；不得为旧任务虚构缺失的 v4 身份。
 
-- Original text remains private; evidence contains only safe digests, versions, ranges, counts, and
-  typed transformation risks.
-- Original/spoken ranges use UTF-8 byte offsets bound to the original-text digest.
-- Boundary precedence is paragraph, sentence (including CJK punctuation), semicolon/colon, safe
-  clause, whitespace, then grapheme fallback.
-- Decimal, version, URL, abbreviation, and other protected ranges cannot be split silently.
-- Every segment records a stable ID, revision lineage, boundary type, conservative token estimate,
-  runtime token limit, intended pause, and deterministic sub-seed.
-- `LongFormManifestV4` validates that plan evidence. `LongFormManifestDocument` reads schema v3 only
-  as a limited legacy summary.
+## Schema-v4 规划基础
 
-The planner is not called by the shipping batch coordinator yet.
+`SpokenTextPlanning.swift` 和 `LongFormPlanning.swift` 为当前 macOS 长文本路径提供不依赖模型的规划合同：
 
-## Bounded assembler foundation
+- 原始文本保持私密；证据只包含安全摘要、版本、范围、数量和带类型的转换风险。
+- 原始文本与朗读文本范围使用 UTF-8 字节偏移，并绑定原文摘要。
+- 分段边界优先级依次为：段落、句子（包含中日韩标点）、分号/冒号、安全从句、空白，最后才按字素回退。
+- 小数、版本号、URL、缩写及其他受保护范围不得被静默拆开。
+- 每个分段记录稳定 ID、修订谱系、边界类型、保守 token 估算、运行时 token 上限、预期停顿和确定性子种子。
+- `LongFormManifestV4` 验证规划证据。`LongFormManifestDocument` 对 schema v3 只提供有限的旧版摘要读取能力。
 
-`BoundedLongFormAssembler` accepts already persisted PCM16 segment WAVs and produces one atomic
-24 kHz mono PCM16 WAV. It is bounded by `LongFormAssemblyConfiguration.blockFrames` rather than
-audio duration:
+规划原文和模型朗读文本只在进程内使用，不写入规划证据。
 
-1. Analyze each segment in a fixed-block pass for format, non-silent extent, RMS, and verified
-   non-speech edges.
-2. Read it again in fixed blocks, apply bounded gain, edge trim, and fades only over verified
-   non-speech, then write incrementally.
-3. Insert the boundary's declared pause without allocating the whole silence span.
-4. Finish atomically, reopen the result, and verify its sample rate and exact frame count.
+## 有界合并器基础
 
-`LongFormAssemblyEvidence` contains the output digest/readability, output frame count, bounded
-working-set high-water mark, maximum segment-boundary jump, and a segment-to-output frame map with
-trim, gain, fade, pause, and revision lineage. It deliberately contains no local path, source text,
-spoken text, transcript, or audio bytes.
+`BoundedLongFormAssembler` 接收已经持久化的 PCM16 分段 WAV，并原子生成一份 24 kHz、单声道、
+PCM16 WAV。其资源上限由 `LongFormAssemblyConfiguration.blockFrames` 控制，而不是由音频总时长决定：
 
-The assembler is deterministic foundation code with synthetic tests for block bounds, mapping,
-silence rejection, gain/trim/fade behavior, atomic readability, and cancellation. No shipping
-coordinator invokes it yet.
+1. 第一遍以固定大小音频块分析每个分段的格式、非静音范围、RMS 和经过验证的非语音边缘。
+2. 第二遍再次按固定块读取，只在经过验证的非语音区域应用受限增益、边缘裁剪和淡入淡出，然后增量写入。
+3. 插入分段边界声明的停顿，不为整段静音一次性分配内存。
+4. 原子完成写入，重新打开结果，并验证采样率和准确帧数。
 
-## Remaining cutover work
+`LongFormAssemblyEvidence` 包含输出摘要与可读性、输出帧数、有界工作集峰值、最大分段边界跳变，
+以及从分段到输出帧的映射；映射记录裁剪、增益、淡入淡出、停顿和修订谱系。它刻意不包含本地路径、
+原始文本、朗读文本、转写内容或音频数据。
 
-Promotion requires all of the following in one product-owned path:
+该合并器已有合成测试覆盖块大小上限、映射、静音拒绝、增益/裁剪/淡入淡出行为、原子可读性和取消操作，
+并已由 macOS 长文本协调器调用。它不会把整部长音频一次性载入内存。
 
-- One sequential streaming product session per planned segment.
-- Model and product terminal/finalization barriers for every segment.
-- Identity-matching resume and replacement lineage without automatic retry after cancellation.
-- Incremental Fast QC per segment before assembly.
-- Atomic joined output, joined signal/readability/continuity validation, and one accepted History
-  item while failed/replaced attempts remain local project evidence.
-- Three-pass ASR per applicable accepted segment rather than one audiobook-length Speech request.
-- Clean 1-, 10-, and 100-segment macOS evidence proving steady-state memory does not scale with
-  total audio duration.
+## 临时文件与清理合同
 
-Until those gates pass, the runtime contract must continue to report
-`manifest-v3-nonstreaming` as the shipping long-form authority.
+长文本任务可以在生成和合并期间使用分段 WAV，但这些文件只是任务工作区，不是用户资产，也不能永久积累。
+当前不做语速后处理，因此同一规划分段最多只保留一份已接受 WAV，不创建“原始版”和“处理版”重复副本。
+
+清理顺序必须保证最终成果安全：
+
+1. 分段生成、快速质量检查和有界合并在任务私有工作区内完成。
+2. 合并器通过原子临时目标写入，并验证格式、帧数、摘要和可读性。
+3. 验证通过后原子发布最终 WAV，并提交唯一的 History 成品记录。
+4. 只有最终 WAV 和 History 都已接受，才立即删除分段 WAV、失败片段、被替换片段、临时合并文件和其他中间副本。
+5. 成功任务最终只保留一个完整 WAV 和必要的小型摘要元数据，不保留可播放的分段冗余文件。
+
+失败和取消也必须有界：
+
+- 未完成、校验失败和已被替换的分段应立即删除。
+- 本轮没有启用断点恢复，因此失败或取消会删除该任务全部过程文件；重新尝试时从完整文稿重新开始。
+- 应用下次启动时扫描任务工作区，清理已经完成、已经放弃或无法与有效任务身份匹配的孤儿文件。
+- 如果最终成果已接受但清理暂时失败，保留最终 WAV；下次启动再次清扫 UUID 任务目录，不复制最终文件，
+  也不再写一条 History。
+
+分段会保留到最终 WAV 验证和 History 提交完成；任务结束后统一删除。当前失败策略本来就是整篇重试，
+不会把过程分段伪装成可恢复资产。
+
+## 尚未完成的质量晋升工作
+
+当前 macOS 路径已经完成 v4 规划、有界合并、单条 History 和过程文件清理。要进一步晋升为完整的长文本质量路径，
+仍需完成：
+
+- 将每个规划分段从顺序非流式请求升级为顺序流式产品会话。
+- 每个分段都具备模型层和产品层的终止及最终完成屏障。
+- 增加断点恢复和替换谱系，同时保持用户取消后不自动重试。
+- 增加最终整体信号与连续性产品门禁；失败或被替换的尝试只保留小型摘要证据。
+- 对每个适用且已接受的分段执行三遍 ASR，而不是对一本有声书长度的音频发起一次 Speech 请求。
+- 取得干净的 macOS 1 段、10 段和 100 段证据，证明稳态内存不会随音频总时长增长。
+
+运行时合同将当前 macOS 权威路径标记为
+`macos-v4-planned-sequential-nonstreaming-bounded-joined-wav`，明确表示它尚未具备流式分段会话和断点恢复。

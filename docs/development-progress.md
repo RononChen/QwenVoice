@@ -27,8 +27,8 @@ change runtime or promotion evidence.
 | 7 — Chunk and preview experiments | Not started beyond prerequisites. Shipping v9 evidence, controlled A/B runs, audio-graph preparation experiments, and identity-bound calibration are pending. |
 | 8 — Shared component storage | Production-integrated with deterministic coverage. Live validation across all six macOS artifacts and all three iPhone Speed artifacts is pending. |
 | 9 — Runtime component reuse | Not started. Decoder/immutable-weight reuse remains an optional isolated A/B after disk-component proof. |
-| 10 — Spoken-text planning | Model-free foundation only; it is not shadowed against or used by shipping generation. |
-| 11 — Long-form v4 | Planner and bounded assembler foundations only. Sequential streaming, resume/replacement, segment QA, History integration, and product cutover are pending; manifest-v3 non-streaming remains shipping. |
+| 10 — Spoken-text planning | Used by the macOS long-form product path for deterministic, CJK-aware planning. Wider shadow comparison and other product paths remain pending. |
+| 11 — Long-form v4 | macOS product cutover now uses v4 planning, sequential non-streaming segment generation, per-segment Fast QC, bounded joined-WAV publication, one History row, task cleanup, and startup orphan sweeping. Streaming segment sessions, resume/replacement identity, ASR and clean 1/10/100-segment promotion evidence remain pending. iOS remains out of scope. |
 | 12 — Bounded analysis and unified quality | Partial. Bounded prosody algorithm v2 is shipping; persisted-WAV consolidation and the typed registry/scheduler are not integrated. |
 | 13 — Benchmark/history v3 | Not started; schema v2 remains authoritative until shipping plan/session/quality identities stabilize. |
 | 14 — Organization and retirement | Explicitly deferred until overall Phase 4 promotion and Phase 5/6/0 close. Named deferred surfaces: `NativeStreamingSynthesisSession.swift` filename, `VocelloQwen3LegacyCompatibility` SPI, combined characterization session, and Clone priming stream APIs. |

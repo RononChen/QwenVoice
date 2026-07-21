@@ -1066,6 +1066,11 @@ final class IncrementalPCM16WAVFileWriter {
 }
 
 struct StreamingExecutionContext: Sendable {
+    struct ArtifactRetention: Equatable, Sendable {
+        let output: Bool
+        let sessionDirectory: Bool
+    }
+
     let requestID: Int
     let generationID: UUID
     let request: GenerationRequest
@@ -1182,14 +1187,16 @@ struct StreamingExecutionContext: Sendable {
             throw error
         }
 
-        // Retention flag flipped to true only on the successful-return path.
-        // Any error or cancellation between directory creation and successful
-        // return cleans up the session directory and the partially-written
-        // output file so they cannot leak (Tier 1.5).
-        var shouldRetainSession = false
+        // Until product success, both the session directory and output are
+        // disposable. A successful non-streaming request must retain its WAV
+        // while still removing the session directory; using one Boolean for
+        // both artifacts previously deleted completed batch/long-form WAVs.
+        var artifactRetention = ArtifactRetention(output: false, sessionDirectory: false)
         defer {
-            if !shouldRetainSession {
+            if !artifactRetention.sessionDirectory {
                 try? FileManager.default.removeItem(at: sessionDirectory)
+            }
+            if !artifactRetention.output {
                 try? FileManager.default.removeItem(at: outputURL)
             }
         }
@@ -1606,10 +1613,9 @@ struct StreamingExecutionContext: Sendable {
             )
         )
 
-        shouldRetainSession = request.shouldStream
-        if !request.shouldStream {
-            try? FileManager.default.removeItem(at: sessionDirectory)
-        }
+        artifactRetention = Self.successfulArtifactRetention(
+            shouldStream: request.shouldStream
+        )
         return GenerationResult(
             audioPath: outputURL.path,
             durationSeconds: durationSeconds,
@@ -1621,6 +1627,10 @@ struct StreamingExecutionContext: Sendable {
             diagnosticStringFlags: finalStringFlags,
             telemetrySummary: summary
         )
+    }
+
+    static func successfulArtifactRetention(shouldStream: Bool) -> ArtifactRetention {
+        ArtifactRetention(output: true, sessionDirectory: shouldStream)
     }
 
     /// Async streams may finish normally after their producer task is
@@ -2298,6 +2308,16 @@ struct StreamingExecutionContext: Sendable {
 /// deterministic tests. Generation passes its pre-limiter metrics internally so
 /// the same report also retains upstream instability evidence.
 public enum PersistedWAVAudioQCAnalyzer {
+    public static func evaluate(
+        url: URL,
+        spokenText: String
+    ) throws -> AudioQCReport {
+        try evaluate(
+            url: url,
+            expectedPauseCount: StreamingExecutionContext.expectedPauseCount(in: spokenText)
+        )
+    }
+
     public static func evaluate(
         url: URL,
         expectedPauseCount: Int = 0

@@ -16,7 +16,13 @@ enum AudioQualityGate {
             if requiredFailures.isEmpty {
                 return "Audio quality check passed."
             }
-            return "Audio quality check failed: \(requiredFailures.joined(separator: ", "))"
+            let details = checks
+                .filter { !$0.passed && $0.severity == .error }
+                .compactMap(\.message)
+            let summary = details.isEmpty
+                ? requiredFailures.joined(separator: ", ")
+                : details.joined(separator: ", ")
+            return AppLocalization.format("Audio quality check failed: %@", summary)
         }
     }
 
@@ -33,9 +39,14 @@ enum AudioQualityGate {
         case warning
     }
 
-    static func evaluate(url: URL) -> Report {
+    static func evaluate(url: URL, spokenText: String) -> Report {
         do {
-            return report(from: try PersistedWAVAudioQCAnalyzer.evaluate(url: url))
+            return report(
+                from: try PersistedWAVAudioQCAnalyzer.evaluate(
+                    url: url,
+                    spokenText: spokenText
+                )
+            )
         } catch {
             let check = Check(
                 name: "persisted_wav_readable",

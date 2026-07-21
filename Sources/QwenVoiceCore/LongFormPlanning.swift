@@ -127,6 +127,11 @@ public struct LongFormSegmentPlan: Sendable {
 
     public let evidence: LongFormSegmentEvidence
 
+    /// Model-facing text for in-process product execution. Long-form evidence
+    /// and manifests deliberately omit this value so prompts never leak into
+    /// diagnostics or tracked benchmark artifacts.
+    public var modelFacingText: String { spokenText }
+
     public var index: Int { evidence.index }
     public var segmentID: String { evidence.segmentID }
     public var conservativeTokenEstimate: Int { evidence.conservativeTokenEstimate }

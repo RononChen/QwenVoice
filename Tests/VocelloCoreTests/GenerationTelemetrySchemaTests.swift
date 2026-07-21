@@ -3,6 +3,26 @@ import Foundation
 import XCTest
 
 final class GenerationTelemetrySchemaTests: XCTestCase {
+    func testSuccessfulNonStreamingGenerationRetainsWAVButRemovesSessionDirectory() {
+        XCTAssertEqual(
+            StreamingExecutionContext.successfulArtifactRetention(shouldStream: false),
+            StreamingExecutionContext.ArtifactRetention(
+                output: true,
+                sessionDirectory: false
+            )
+        )
+    }
+
+    func testSuccessfulStreamingGenerationRetainsWAVAndSessionDirectory() {
+        XCTAssertEqual(
+            StreamingExecutionContext.successfulArtifactRetention(shouldStream: true),
+            StreamingExecutionContext.ArtifactRetention(
+                output: true,
+                sessionDirectory: true
+            )
+        )
+    }
+
     func testSubmillisecondStageMarksSortByNanosecondsBeforeStageName() {
         let ended = NativeTelemetryStageMark(
             tMS: 2_915,

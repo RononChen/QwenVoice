@@ -99,7 +99,11 @@ struct BatchGenerationSheet: View {
         Text("Batch Generation")
             .font(.title.weight(.bold))
 
-        Text("Enter one line per generation, or drag a `.txt` file onto this sheet.")
+        Text(
+            segmentationMode == .longForm
+                ? "Paste a complete long script, or drag a `.txt` file onto this sheet. Vocello will split it internally and produce one WAV."
+                : "Enter one line per generation, or drag a `.txt` file onto this sheet."
+        )
             .font(.callout)
             .foregroundStyle(.secondary)
 
@@ -126,7 +130,9 @@ struct BatchGenerationSheet: View {
 
         ScriptTextEditor(
             text: $batchText,
-            placeholder: "Enter one line per generation...",
+            placeholder: segmentationMode == .longForm
+                ? "Paste the complete long script..."
+                : "Enter one line per generation...",
             font: .systemFont(ofSize: NSFont.systemFontSize),
             isFocused: .constant(false)
         )
@@ -201,7 +207,15 @@ struct BatchGenerationSheet: View {
 
             Spacer()
 
-            Button((coordinator.isCancelling ? "Cancelling..." : (coordinator.isProcessing ? "Processing..." : "Generate All")).localizedForDisplay) {
+            Button(
+                (
+                    coordinator.isCancelling
+                        ? "Cancelling..."
+                        : (coordinator.isProcessing
+                            ? "Processing..."
+                            : (segmentationMode == .longForm ? "Generate Complete WAV" : "Generate All"))
+                ).localizedForDisplay
+            ) {
                 startBatch()
             }
             .buttonStyle(.borderedProminent)
@@ -247,14 +261,20 @@ struct BatchGenerationSheet: View {
 
             if shouldShowRetryRemaining(for: outcome) {
                 Button("Retry Remaining") {
-                    retryBatch(with: outcome.retryRemainingLines)
+                    retryBatch(
+                        with: outcome.retryRemainingLines,
+                        segmentationMode: retrySegmentationMode(for: outcome)
+                    )
                 }
                 .buttonStyle(.bordered)
             }
 
             if shouldShowRetryFailed(for: outcome) {
                 Button("Retry Failed") {
-                    retryBatch(with: outcome.retryFailedLines)
+                    retryBatch(
+                        with: outcome.retryFailedLines,
+                        segmentationMode: retrySegmentationMode(for: outcome)
+                    )
                 }
                 .buttonStyle(.bordered)
             }
@@ -323,7 +343,10 @@ struct BatchGenerationSheet: View {
         case .failed(let items, let message):
             let completedCount = items.filter(\.isSaved).count
             if completedCount == 0 {
-                return "Batch generation stopped before any clips were saved. \(message)"
+                return AppLocalization.format(
+                    "Batch generation stopped before any clips were saved. %@",
+                    message
+                )
             }
             return AppLocalization.format(
                 "%lld of %lld clips were saved before the batch stopped. %@",
@@ -386,11 +409,18 @@ struct BatchGenerationSheet: View {
         }
     }
 
-    private func retryBatch(with lines: [String]) {
+    private func retryBatch(
+        with lines: [String],
+        segmentationMode retryMode: BatchSegmentationMode
+    ) {
         guard !lines.isEmpty else { return }
-        batchText = lines.joined(separator: "\n")
-        segmentationMode = .lineSeparated
+        batchText = retryMode == .longForm ? lines[0] : lines.joined(separator: "\n")
+        segmentationMode = retryMode
         startBatch()
+    }
+
+    private func retrySegmentationMode(for outcome: BatchGenerationOutcome) -> BatchSegmentationMode {
+        outcome.items.first?.segmentationMode ?? .lineSeparated
     }
 
     private func shouldShowRetryRemaining(for outcome: BatchGenerationOutcome) -> Bool {
@@ -476,7 +506,11 @@ private struct BatchGenerationItemRow: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(statusColor)
 
-                Text(AppLocalization.format("Line %lld", Int64(item.index + 1)))
+                Text(
+                    item.segmentationMode == .longForm
+                        ? "Long script".localizedForDisplay
+                        : AppLocalization.format("Line %lld", Int64(item.index + 1))
+                )
                     .font(.caption)
                     .foregroundStyle(.secondary)
 

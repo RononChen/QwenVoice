@@ -7,6 +7,8 @@
 "%lld of %lld clips generated before cancellation." = "取消前已生成 %lld/%lld 个音频。";
 "%lld of %lld clips were saved before the batch stopped. %@" = "批量任务停止前已保存 %lld/%lld 个音频。%@";
 "%lld of %lld complete" = "已完成 %lld/%lld";
+"%lld of %lld clips completed" = "已完成 %lld/%lld 个音频";
+"%lld of %lld segments completed" = "已完成 %lld/%lld 个分段";
 "%lld of %lld recommended models installed" = "已安装 %lld/%lld 个推荐模型";
 "\"%@\" is ready in Saved Voices." = "“%@”已可在“已保存的声音”中使用。";
 "Couldn't load the saved transcript for \"%@\". You can still clone from the audio file alone." = "无法加载“%@”的转写文本，但仍可仅使用音频进行克隆。";
@@ -51,6 +53,8 @@
 "Application data" = "应用数据";
 "Audio" = "音频";
 "Audio unavailable" = "音频不可用";
+"Audio quality check failed: %@" = "音频质量检查失败：%@";
+"Assembling the complete audio..." = "正在合并完整音频…";
 "Audio-only fallback" = "仅音频备用模式";
 "Audio-only saved voice" = "仅音频保存声音";
 "Auto · detected from your script." = "自动 · 根据文本检测。";
@@ -64,6 +68,7 @@
 "Batch Generation" = "批量生成";
 "Batch results" = "批量结果";
 "Batch Stopped" = "批量任务已停止";
+"Batch generation stopped before any clips were saved. %@" = "批量生成已停止，尚未保存任何音频。%@";
 "Best quality uses reference audio plus an accurate transcript. Audio-only cloning remains available as a lower-guidance fallback." = "参考音频配合准确转写文本可获得最佳质量；也可以使用指导较少的仅音频克隆。";
 "Browse..." = "浏览…";
 "Browse…" = "浏览…";
@@ -146,11 +151,14 @@
 "French" = "法语";
 "Generate" = "生成";
 "Generate All" = "全部生成";
+"Generate Complete WAV" = "生成完整 WAV";
 "Generate some audio to see it here." = "生成音频后会显示在这里。";
 "Generating" = "正在生成";
 "Generating audio…" = "正在生成音频…";
 "Generating %@…" = "正在生成%@…";
 "Generating final audio" = "正在生成最终音频";
+"Generating segment %lld/%lld..." = "正在生成第 %lld/%lld 段…";
+"Generated %lld/%lld segments" = "已生成 %lld/%lld 段";
 "Generation" = "生成";
 "Heavy" = "高负载";
 "Heavy on this Mac" = "此 Mac 负载较高";
@@ -177,6 +185,7 @@
 "Loading the saved transcript and voice context." = "正在加载已保存的转写文本和声音上下文。";
 "Loading saved voices..." = "正在加载已保存的声音…";
 "Long form" = "长文本";
+"Long script" = "长篇文稿";
 "Longest" = "最长";
 "Looking for local model files." = "正在查找本地模型文件。";
 "Manage" = "管理";
@@ -218,6 +227,8 @@
 "Over 20 seconds. Stop now." = "已超过 20 秒，请停止录制。";
 "Pause review" = "暂停试听";
 "Pending" = "等待中";
+"Paste a complete long script, or drag a `.txt` file onto this sheet. Vocello will split it internally and produce one WAV." = "粘贴完整长篇文稿，或将 `.txt` 文件拖到此窗口。Vocello 会在内部自动分段，并最终生成一个 WAV。";
+"Paste the complete long script..." = "粘贴完整长篇文稿…";
 "Performance" = "性能";
 "Pins every generation mode to the Speed package. " = "将所有生成模式固定使用速度模型。";
 "Play" = "播放";
@@ -293,12 +304,16 @@
 "Saved voice name" = "声音名称";
 "Saved Voices" = "已保存的声音";
 "Saved voices will appear once the speech engine is ready." = "语音引擎就绪后会显示已保存的声音。";
+"Saving the complete audio..." = "正在保存完整音频…";
 "Saved voices or imported clips both work. Pick one before writing the line." = "可以使用已保存的声音或导入的音频，请先选择一项再输入文本。";
 "Script" = "文本";
 "Search history" = "搜索历史记录";
 "Segmentation" = "分段方式";
 "Select a reference audio file before generating." = "生成前请选择参考音频文件。";
 "Select a reference audio file before starting batch generation." = "开始批量生成前请选择参考音频文件。";
+"Segment %lld did not finish (%@). The task stopped and its temporary files were cleaned up." = "第 %lld 段没有完整生成（%@）。任务已停止，过程文件已清理。";
+"Segment %lld failed the audio check: %@" = "第 %lld 段未通过音频检查：%@";
+"Segment %lld was written outside its temporary workspace. The task stopped safely." = "第 %lld 段被写到了临时工作区之外，任务已安全停止。";
 "Settings" = "设置";
 "Shortest" = "最短";
 "Show Models" = "显示模型";
@@ -323,6 +338,8 @@
 "The generated voice uses this brief and delivery once a line is written." = "输入文本后，将按此声音描述和表达方式生成。";
 "A different model is loaded. The engine switches to Custom Voice on generate." = "当前加载的是其他模型；生成时引擎会切换到自定义声音。";
 "The local model folder is incomplete." = "本地模型文件夹不完整。";
+"The long-form plan is unavailable. Submit the script again." = "长文本规划不存在，请重新提交文稿。";
+"The long-form plan no longer matches the script. Submit it again." = "长文本规划与待生成分段不一致，请重新提交文稿。";
 "There are no history entries to clear." = "没有可清除的历史记录。";
 "This will permanently delete the generation and its audio file." = "这将永久删除该生成记录及其音频文件。";
 "Tone" = "语气";
@@ -337,6 +354,7 @@
 "Type or paste your script" = "输入或粘贴文本";
 "Type the line for the cloned voice" = "输入要由克隆声音朗读的文本";
 "Underlying error" = "底层错误";
+"Unable to plan the long script: %@" = "无法规划长文本：%@";
 "Unknown" = "未知";
 "Use a reference clip" = "使用参考音频";
 "Use permitted clips only." = "请仅使用已获授权的音频。";

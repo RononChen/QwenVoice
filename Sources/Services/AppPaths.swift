@@ -34,6 +34,10 @@ enum AppPaths {
         appSupportDir.appendingPathComponent("voices", isDirectory: true)
     }
 
+    static var longFormWorkDir: URL {
+        appSupportDir.appendingPathComponent("cache/long-form", isDirectory: true)
+    }
+
     static func excludeFromBackup(_ url: URL) {
         var values = URLResourceValues()
         values.isExcludedFromBackup = true

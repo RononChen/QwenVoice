@@ -136,6 +136,32 @@ final class AtomicWAVPublicationTests: XCTestCase {
         XCTAssertEqual(report.writtenOutputVerdict, .warn)
     }
 
+    func testPersistedWAVQCUsesSpokenTextPauseBudget() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocello-persisted-pause-budget-\(UUID().uuidString)", isDirectory: true)
+        let output = directory.appendingPathComponent("take.wav")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let audible = Array(repeating: Int16(4_000), count: 4_800)
+        let naturalPause = Array(repeating: Int16(0), count: 12_000)
+        try AtomicPCM16WAVWriter.write(
+            pcmSamples: audible + naturalPause + audible + naturalPause + audible,
+            sampleRate: 24_000,
+            outputURL: output
+        )
+
+        let missingContext = try PersistedWAVAudioQCAnalyzer.evaluate(url: output)
+        XCTAssertEqual(missingContext.writtenOutputVerdict, .fail)
+
+        let contextual = try PersistedWAVAudioQCAnalyzer.evaluate(
+            url: output,
+            spokenText: "第一句，第二句，第三句。"
+        )
+        XCTAssertEqual(contextual.writtenOutputVerdict, .pass)
+        XCTAssertEqual(contextual.verdict, .pass)
+    }
+
     private func assertRIFFWAVE(_ url: URL) throws {
         let data = try Data(contentsOf: url, options: .mappedIfSafe)
         XCTAssertGreaterThanOrEqual(data.count, 12)

@@ -3,6 +3,17 @@ import Foundation
 import XCTest
 
 final class LongFormPlanningTests: XCTestCase {
+    func testEighteenThousandCharacterChineseScriptPlansWithinProductLimit() throws {
+        let sentence = "夜色渐渐落在城墙上，更夫提着灯笼，沿着安静的长街慢慢向前走。"
+        let text = String(String(repeating: sentence, count: 600).prefix(18_000))
+        let plan = try makePlan(text, tokenLimit: 450)
+
+        XCTAssertFalse(plan.segments.isEmpty)
+        XCTAssertLessThanOrEqual(plan.segments.count, 100)
+        XCTAssertTrue(plan.segments.allSatisfy { $0.conservativeTokenEstimate <= 450 })
+        XCTAssertEqual(plan.segments.map(\.modelFacingText).joined(), text)
+    }
+
     func testBoundaryPrecedenceUsesParagraphBeforeLowerPriorityBoundaries() throws {
         let plan = try makePlan(
             "First paragraph.\n\nSecond sentence; clause, tail words.",
