@@ -126,8 +126,8 @@ struct VoiceDesignView: View {
         }
         .alert(item: $coordinator.actionAlert) { alert in
             Alert(
-                title: Text(alert.title),
-                message: Text(alert.message),
+                title: Text(alert.title.localizedForDisplay),
+                message: Text(alert.message.localizedForDisplay),
                 dismissButton: .default(Text("OK"))
             )
         }
@@ -320,7 +320,7 @@ private extension VoiceDesignView {
             saveVoiceAction
 
             if let errorMessage = coordinator.errorMessage {
-                Label(errorMessage, systemImage: "exclamationmark.triangle")
+                Label(errorMessage.localizedForDisplay, systemImage: "exclamationmark.triangle")
                     .foregroundColor(.red)
                     .font(.callout)
             }

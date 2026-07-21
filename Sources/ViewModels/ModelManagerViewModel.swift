@@ -73,7 +73,11 @@ final class ModelManagerViewModel {
             if installedRecommendedCount == totalRecommendedCount {
                 return "Recommended models ready"
             }
-            return "\(installedRecommendedCount) of \(totalRecommendedCount) recommended models installed"
+            return AppLocalization.format(
+                "%lld of %lld recommended models installed",
+                Int64(installedRecommendedCount),
+                Int64(totalRecommendedCount)
+            )
         }
     }
 
@@ -344,12 +348,12 @@ final class ModelManagerViewModel {
     func activeVariantLabel(for model: TTSModel) -> String {
         let kind = model.variantKind?.displayName ?? model.name
         let bits = model.variantKind?.bitDepthLabel
-        guard let bits, !bits.isEmpty else { return kind }
-        return "\(kind) (\(bits))"
+        guard let bits, !bits.isEmpty else { return kind.localizedForDisplay }
+        return "\(kind.localizedForDisplay) (\(bits))"
     }
 
     func generationVariantDisplayName(for model: TTSModel) -> String {
-        "\(model.name) \(activeVariantLabel(for: model))"
+        "\(model.name.localizedForDisplay) \(activeVariantLabel(for: model))"
     }
 
     func generationVariantStatusLabel(for model: TTSModel) -> String {

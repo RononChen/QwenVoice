@@ -394,11 +394,29 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
         documentIO: any DocumentIO,
         hubCacheDirectory: URL,
         streamSessionsDirectory: URL,
+        productionModelCatalog: ProductionModelCatalog? = nil,
         telemetryRecorder: NativeTelemetryRecorder? = nil,
         customPrewarmPolicy: NativeCustomPrewarmPolicy = .eager,
         qwenPreparedLoadProfile: NativeQwenPreparedLoadProfile = .fullCapabilities
     ) {
         let diagnosticAppSupportBox = DiagnosticAppSupportBox()
+        let reconcileInstalledModelIntegrity = productionModelCatalog.map { catalog in
+            { @Sendable (descriptor: ModelAssetDescriptor) throws in
+                let model = descriptor.model
+                let artifact = try catalog.artifactMatchingMacOSDescriptor(
+                    folder: model.folder,
+                    repo: model.huggingFaceRepo,
+                    revision: model.huggingFaceRevision,
+                    artifactVersion: model.artifactVersion,
+                    estimatedDownloadBytes: model.estimatedDownloadBytes,
+                    requiredRelativePaths: model.requiredRelativePaths
+                )
+                try catalog.adoptInstalledArtifactForRuntime(
+                    artifact,
+                    modelsRoot: modelAssetStore.rootDirectory
+                )
+            }
+        }
         let loadCoordinator = MLXModelLoadCoordinator(
             modelAssetStore: modelAssetStore,
             hubCacheDirectory: hubCacheDirectory,
@@ -455,6 +473,7 @@ public final class MLXTTSEngine: TTSEngineRuntimeControlling, NativeMemoryReport
                 )
                 return base
             },
+            reconcileInstalledModelIntegrity: reconcileInstalledModelIntegrity,
             telemetryRecorder: telemetryRecorder,
             diagnosticEventSink: { action, details in
                 await Self.recordDiagnosticEvent(

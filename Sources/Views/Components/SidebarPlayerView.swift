@@ -99,7 +99,7 @@ struct SidebarPlayerView: View {
                 }
 
                 if let playbackError = audioPlayer.playbackError {
-                    Text(playbackError)
+                    Text(playbackError.localizedForDisplay)
                         .font(.caption2)
                         .foregroundStyle(.orange)
                         .lineLimit(2)
@@ -139,7 +139,7 @@ private struct InlineLivePreviewStatusView: View {
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(AppTheme.accent)
 
-                Text(activity.label)
+                Text(activity.label.localizedActivityForDisplay)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -164,7 +164,7 @@ private struct InlineLivePreviewStatusView: View {
         .padding(.top, 2)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("sidebarPlayer_liveStatus")
-        .accessibilityLabel(activity.label)
+        .accessibilityLabel(activity.label.localizedActivityForDisplay)
         .accessibilityValue(percentLabel ?? "in progress")
     }
 }

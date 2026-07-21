@@ -6,13 +6,13 @@ private struct NavigationSectionHeader: View {
     let accessibilityID: String
 
     var body: some View {
-        Text(title)
+        Text(title.localizedForDisplay)
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
             .textCase(nil)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(title)
+            .accessibilityLabel(title.localizedForDisplay)
             .accessibilityIdentifier(accessibilityID)
     }
 }
@@ -227,7 +227,7 @@ private struct SidebarRow: View {
                     .foregroundStyle(iconColor)
                     .frame(width: 22, alignment: .center)
 
-                Text(item.rawValue)
+                Text(item.rawValue.localizedForDisplay)
                     .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
                     .foregroundStyle(textColor)
                     .lineLimit(1)
@@ -253,7 +253,7 @@ private struct SidebarRow: View {
             .appAnimation(.easeOut(duration: 0.14), value: isHovered)
             .appAnimation(.easeOut(duration: 0.14), value: isSelected)
             .disabled(isDisabled)
-            .accessibilityLabel(item.rawValue)
+            .accessibilityLabel(item.rawValue.localizedForDisplay)
             .accessibilityValue(accessibilityStateValue)
             .accessibilityIdentifier(item.accessibilityID)
     }

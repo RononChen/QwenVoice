@@ -128,9 +128,9 @@ struct WorkflowReadinessNote: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(title)
+                Text(title.localizedForDisplay)
                     .font(.subheadline.weight(.semibold))
-                Text(detail)
+                Text(detail.localizedForDisplay)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -139,7 +139,7 @@ struct WorkflowReadinessNote: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(title)
+        .accessibilityLabel(title.localizedForDisplay)
         .accessibilityValue(isReady ? "ready=true" : "ready=false")
         .optionalAccessibilityIdentifier(accessibilityIdentifier)
     }
@@ -163,16 +163,16 @@ struct ModelRecoveryCard: View {
                         .foregroundStyle(accentColor)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(title)
+                        Text(title.localizedForDisplay)
                             .font(.subheadline.weight(.semibold))
-                        Text(detail)
+                        Text(detail.localizedForDisplay)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
                 }
 
                 HStack(spacing: 10) {
-                    Button(primaryActionTitle, action: onPrimaryAction)
+                    Button(primaryActionTitle.localizedForDisplay, action: onPrimaryAction)
                         .buttonStyle(.borderedProminent)
                         .tint(accentColor)
 
@@ -222,13 +222,13 @@ struct StudioSectionCard<Content: View>: View {
                         .foregroundStyle(accentColor)
                 }
 
-                Text(title)
+                Text(title.localizedForDisplay)
                     .font(.subheadline.weight(.semibold))
 
                 Spacer(minLength: 8)
 
                 if let trailingText {
-                    Text(trailingText)
+                    Text(trailingText.localizedForDisplay)
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
@@ -236,7 +236,7 @@ struct StudioSectionCard<Content: View>: View {
 
             VStack(alignment: contentAlignment, spacing: style == .inline ? 8 : 10) {
                 if let detail {
-                    Text(detail)
+                    Text(detail.localizedForDisplay)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -330,7 +330,7 @@ struct CompactConfigurationSection<Content: View>: View {
             header
 
             if let detail {
-                Text(detail)
+                Text(detail.localizedForDisplay)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -403,7 +403,7 @@ struct CompactConfigurationSection<Content: View>: View {
                 Spacer(minLength: 10)
 
                 if let trailingText {
-                    Text(trailingText)
+                    Text(trailingText.localizedForDisplay)
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
@@ -419,7 +419,7 @@ struct CompactConfigurationSection<Content: View>: View {
                     .foregroundStyle(accentColor)
             }
 
-            Text(title)
+            Text(title.localizedForDisplay)
                 .font(.headline.weight(.semibold))
         }
     }
@@ -511,7 +511,7 @@ struct GenerationSetupRow<Content: View, Supporting: View>: View {
     }
 
     private var labelView: some View {
-        Text(label)
+        Text(label.localizedForDisplay)
             .font(.callout.weight(.semibold))
             .foregroundStyle(.primary)
     }
@@ -546,7 +546,7 @@ struct GenerationSetupHint: View {
     var accessibilityIdentifier: String? = nil
 
     var body: some View {
-        Text(message)
+        Text(message.localizedForDisplay)
             .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -566,7 +566,7 @@ struct GenerationSetupNotice: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(accentColor)
 
-            Text(message)
+            Text(message.localizedForDisplay)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -657,7 +657,7 @@ struct GenerationVariantSelector: View {
             }
             modelManager.use(model)
         } label: {
-            Text(kind.displayName)
+            Text(kind.displayName.localizedForDisplay)
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
                 .frame(width: 62, height: 24)
@@ -791,7 +791,7 @@ struct ConfigurationFieldRow<Content: View, Supporting: View>: View {
     }
 
     private var labelView: some View {
-        Text(label)
+        Text(label.localizedForDisplay)
             .font(.callout.weight(.semibold))
             .foregroundStyle(.primary)
     }
@@ -836,11 +836,11 @@ struct ConfigurationColumn<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 4) {
-                Text(label)
+                Text(label.localizedForDisplay)
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(isEnabled ? .secondary : .tertiary)
                 if let detail {
-                    Text(detail)
+                    Text(detail.localizedForDisplay)
                         .font(.footnote.weight(.medium))
                         .foregroundStyle(.tertiary)
                 }
@@ -924,7 +924,7 @@ struct QwenLanguagePicker: View {
     /// dismiss on tap, so "unchecking" just re-selects the same language).
     private func languageRow(_ language: Qwen3SupportedLanguage, title: String? = nil) -> some View {
         Toggle(
-            title ?? language.displayName,
+            (title ?? language.displayName).localizedForDisplay,
             isOn: Binding(
                 get: { selectedLanguage == language },
                 set: { _ in selectedLanguage = language }
@@ -936,7 +936,10 @@ struct QwenLanguagePicker: View {
         Menu {
             if let recommendedOption {
                 Section("Recommended for your script") {
-                    languageRow(recommendedOption, title: "\(recommendedOption.displayName) — Detected")
+                    languageRow(
+                        recommendedOption,
+                        title: "\(recommendedOption.displayName.localizedForDisplay) \("— Detected".localizedForDisplay)"
+                    )
                 }
                 Section("All languages") {
                     ForEach(options.filter { $0 != recommendedOption }, id: \.self) { language in
@@ -953,7 +956,7 @@ struct QwenLanguagePicker: View {
             // decompose the label and move the chevron to the leading edge
             // (it reorders HStack{Text, Image} labels); per-segment color
             // keeps the chevron quiet like the native picker's.
-            (Text(effectiveLabel)
+            (Text(effectiveLabel.localizedForDisplay)
                 + Text("  ")
                 + Text(Image(systemName: "chevron.up.chevron.down"))
                     .font(.caption2.weight(.semibold))
@@ -968,7 +971,11 @@ struct QwenLanguagePicker: View {
         .focusEffectDisabled()
         .frame(minWidth: minWidth, maxWidth: maxWidth, alignment: .leading)
         .tint(accentColor)
-        .accessibilityValue(isFollowingDetection ? "\(effectiveLabel), auto" : effectiveLabel)
+        .accessibilityValue(
+            isFollowingDetection
+                ? "\(effectiveLabel.localizedForDisplay), \("Auto".localizedForDisplay)"
+                : effectiveLabel.localizedForDisplay
+        )
         .accessibilityIdentifier("\(accessibilityPrefix)_languagePicker")
     }
 }

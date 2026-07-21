@@ -83,8 +83,8 @@ struct VoicesView: View {
             }
             .alert(item: $actionAlert) { alert in
                 Alert(
-                    title: Text(alert.title),
-                    message: Text(alert.message),
+                    title: Text(alert.title.localizedForDisplay),
+                    message: Text(alert.message.localizedForDisplay),
                     dismissButton: .default(Text("OK"))
                 )
             }
@@ -108,7 +108,7 @@ struct VoicesView: View {
                     ContentUnavailableView(
                         "Couldn't load saved voices",
                         systemImage: "exclamationmark.triangle",
-                        description: Text(loadError)
+                        description: Text(loadError.localizedForDisplay)
                     )
 
                     Button("Try Again") {
@@ -428,7 +428,7 @@ private struct VoiceRowMetadata: View {
                     .lineLimit(1)
                     .accessibilityIdentifier("voicesRow_\(voiceID)")
 
-                Text(transcriptStatus)
+                Text(transcriptStatus.localizedForDisplay)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
@@ -450,7 +450,7 @@ private struct VoiceRowMetadata: View {
             if qualityHeadline != nil {
                 warningChip
             } else {
-                Text(detailCopy)
+                Text(detailCopy.localizedForDisplay)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -473,7 +473,7 @@ private struct VoiceRowMetadata: View {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.caption)
-                Text(label)
+                Text(label.localizedForDisplay)
                     .font(.caption.weight(.medium))
                 Image(systemName: "chevron.right")
                     .font(.caption2.weight(.semibold))

@@ -15,6 +15,13 @@ new receipt is trusted. Installed models retain the existing integrity-manifest 
 artifacts additionally carry a shared-component installation plan: the installer publishes verified
 component blobs before atomically presenting complete ordinary model folders.
 
+At macOS/CLI runtime load, a pre-catalog legacy installation that lacks the integrity manifest is
+adopted locally only after every catalog file passes its exact size and SHA-256. Adoption writes the
+manifest atomically without rewriting the model directory or inspecting the generated
+`.qvoice_prepared_model` overlay, which older releases may have populated with local symlinks. A
+missing or changed catalog file still fails closed and does not produce a manifest or trigger an
+implicit download.
+
 macOS and CLI staging remains next to the model store under `.qwenvoice-downloads/`. iPhone has one
 layout under the app-support root:
 

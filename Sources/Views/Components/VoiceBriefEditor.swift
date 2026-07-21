@@ -44,7 +44,7 @@ struct VoiceBriefEditor: View {
                     .padding(.vertical, 2)
 
                 if trimmedIsEmpty {
-                    Text(VoiceDesignBriefCatalog.placeholder)
+                    Text(VoiceDesignBriefCatalog.placeholder.localizedForDisplay)
                         .font(.body)
                         .foregroundStyle(.tertiary)
                         .padding(.horizontal, 9)
@@ -88,7 +88,7 @@ struct VoiceBriefEditor: View {
         Menu {
             ForEach(Array(VoiceDesignBriefCatalog.startingPoints.enumerated()), id: \.offset) { index, starter in
                 Button(starterItemLabel(for: starter)) {
-                    text = starter
+                    text = starter.localizedForDisplay
                 }
                 .accessibilityLabel("Starting point: \(starter)")
                 .accessibilityIdentifier("voiceDesign_briefStarter_\(index)")
@@ -114,7 +114,7 @@ struct VoiceBriefEditor: View {
     /// Menu items show the first words of each starter; the full sentence
     /// would run the menu several hundred points wide.
     private func starterItemLabel(for starter: String) -> String {
-        let words = starter.split(separator: " ").prefix(8)
+        let words = starter.localizedForDisplay.split(separator: " ").prefix(8)
         return words.joined(separator: " ") + "…"
     }
 }

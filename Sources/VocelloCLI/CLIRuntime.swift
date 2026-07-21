@@ -25,6 +25,9 @@ struct CLIRuntime {
         let deviceClass = NativeMemoryPolicyResolver.deviceClass()
         let registry = try ContractBackedModelRegistry(manifestURL: manifestURL)
             .expandedForPlatform(.macOS, deviceClass: deviceClass, includeBaseAliases: true)
+        let productionModelCatalog = try ProductionModelCatalog(
+            contentsOf: locateProductionCatalogURL()
+        )
         // Same tiered prewarm policy as the XPC host: defer the dedicated custom
         // prewarm on the 8 GB floor tier (the work folds into the first generation).
         let customPrewarmPolicy: NativeCustomPrewarmPolicy =
@@ -33,6 +36,7 @@ struct CLIRuntime {
             registry: registry,
             paths: .rooted(at: dataDirectory),
             storeVersionSeed: storeVersionSeed(),
+            productionModelCatalog: productionModelCatalog,
             customPrewarmPolicy: customPrewarmPolicy
         )
         try await runtime.engine.initialize(appSupportDirectory: dataDirectory)

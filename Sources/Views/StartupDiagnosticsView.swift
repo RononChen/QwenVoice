@@ -11,7 +11,7 @@ struct StartupDiagnosticsView: View {
                 Label("Vocello", systemImage: "waveform")
                     .font(.title.weight(.semibold))
 
-                Text(snapshot.issue.summary)
+                Text(snapshot.issue.summary.localizedForDisplay)
                     .font(.title3.weight(.semibold))
 
                 Text("The app can't continue until its native resources are valid. You can retry the startup checks or copy the diagnostics for troubleshooting.")
@@ -63,9 +63,9 @@ struct StartupDiagnosticsView: View {
 
     private func diagnosticsRow(_ label: String, _ value: String?) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(label)
+            Text(label.localizedForDisplay)
                 .font(.subheadline.weight(.semibold))
-            Text(value ?? "Not found")
+            Text(value ?? "Not found".localizedForDisplay)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)

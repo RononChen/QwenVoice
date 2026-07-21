@@ -164,11 +164,11 @@ struct BatchGenerationSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 ProgressView(value: coordinator.progressSnapshot.displayFraction, total: 1.0)
                     .tint(AppTheme.statusProgressTint)
-                Text(progressStatusMessage)
+                Text(progressStatusMessage.localizedForDisplay)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 if !coordinator.progressSnapshot.itemStatusText.isEmpty {
-                    Text(coordinator.progressSnapshot.itemStatusText)
+                    Text(coordinator.progressSnapshot.itemStatusText.localizedForDisplay)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -183,7 +183,7 @@ struct BatchGenerationSheet: View {
         }
 
         if let errorMessage = coordinator.errorMessage {
-            Text(errorMessage)
+            Text(errorMessage.localizedForDisplay)
                 .foregroundStyle(.red)
                 .font(.callout)
         }
@@ -201,7 +201,7 @@ struct BatchGenerationSheet: View {
 
             Spacer()
 
-            Button(coordinator.isCancelling ? "Cancelling..." : (coordinator.isProcessing ? "Processing..." : "Generate All")) {
+            Button((coordinator.isCancelling ? "Cancelling..." : (coordinator.isProcessing ? "Processing..." : "Generate All")).localizedForDisplay) {
                 startBatch()
             }
             .buttonStyle(.borderedProminent)
@@ -223,10 +223,10 @@ struct BatchGenerationSheet: View {
                 .font(.system(size: 48))
                 .foregroundStyle(completionIconColor(for: outcome))
 
-            Text(completionTitle(for: outcome))
+            Text(completionTitle(for: outcome).localizedForDisplay)
                 .font(.title2.weight(.bold))
 
-            Text(completionMessage(for: outcome))
+            Text(completionMessage(for: outcome).localizedForDisplay)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -268,7 +268,7 @@ struct BatchGenerationSheet: View {
                 .buttonStyle(.bordered)
             }
 
-            Button(outcome.savedAudioPaths.isEmpty ? "Close" : "View History") {
+            Button((outcome.savedAudioPaths.isEmpty ? "Close" : "View History").localizedForDisplay) {
                 if outcome.savedAudioPaths.isEmpty {
                     dismiss()
                     return
@@ -301,7 +301,7 @@ struct BatchGenerationSheet: View {
             let count = items.filter(\.isSaved).count
             return count == 1
                 ? "1 clip generated successfully."
-                : "\(count) clips generated successfully."
+                : AppLocalization.format("%lld clips generated successfully.", Int64(count))
         case .cancelled(let items, let restartFailedMessage):
             let count = items.filter(\.isSaved).count
             let total = items.count
@@ -311,7 +311,11 @@ struct BatchGenerationSheet: View {
                 }
                 return "Generation was cancelled before any clips were created."
             }
-            let base = "\(count) of \(total) clips generated before cancellation."
+            let base = AppLocalization.format(
+                "%lld of %lld clips generated before cancellation.",
+                Int64(count),
+                Int64(total)
+            )
             if let restartFailedMessage, !restartFailedMessage.isEmpty {
                 return "\(base) \(restartFailedMessage)"
             }
@@ -321,7 +325,12 @@ struct BatchGenerationSheet: View {
             if completedCount == 0 {
                 return "Batch generation stopped before any clips were saved. \(message)"
             }
-            return "\(completedCount) of \(items.count) clips were saved before the batch stopped. \(message)"
+            return AppLocalization.format(
+                "%lld of %lld clips were saved before the batch stopped. %@",
+                Int64(completedCount),
+                Int64(items.count),
+                message
+            )
         }
     }
 
@@ -361,7 +370,7 @@ struct BatchGenerationSheet: View {
     @ViewBuilder
     private func batchItemStatusList(_ items: [BatchGenerationItemState], title: String) -> some View {
         if !items.isEmpty {
-            GroupBox(title) {
+            GroupBox(title.localizedForDisplay) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
                         ForEach(items) { item in
@@ -463,11 +472,11 @@ private struct BatchGenerationItemRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Label(item.statusLabel, systemImage: statusIcon)
+                Label(item.statusLabel.localizedForDisplay, systemImage: statusIcon)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(statusColor)
 
-                Text("Line \(item.index + 1)")
+                Text(AppLocalization.format("Line %lld", Int64(item.index + 1)))
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -479,7 +488,7 @@ private struct BatchGenerationItemRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if let statusMessage = item.statusMessage {
-                Text(statusMessage)
+                Text(statusMessage.localizedForDisplay)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)

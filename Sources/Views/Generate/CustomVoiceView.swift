@@ -454,7 +454,7 @@ private extension CustomVoiceView {
             generationReadiness
 
             if let errorMessage = coordinator.errorMessage {
-                Label(errorMessage, systemImage: "exclamationmark.triangle")
+                Label(errorMessage.localizedForDisplay, systemImage: "exclamationmark.triangle")
                     .foregroundColor(.red)
                     .font(.callout)
             }

@@ -480,6 +480,9 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
         }
 
         let manifestURL = try Self.locateManifestURL()
+        let productionModelCatalog = try ProductionModelCatalog(
+            contentsOf: Self.locateProductionCatalogURL()
+        )
         let registry = try ContractBackedModelRegistry(manifestURL: manifestURL)
             .expandedForPlatform(
                 .macOS,
@@ -504,6 +507,7 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
             registry: registry,
             paths: .rooted(at: appSupportDirectory),
             storeVersionSeed: Self.storeVersionSeed(),
+            productionModelCatalog: productionModelCatalog,
             customPrewarmPolicy: customPrewarmPolicy
         )
         let runtimeContext = RuntimeContext(
@@ -791,6 +795,19 @@ final class EngineServiceHost: NSObject, NSXPCListenerDelegate, QwenVoiceEngineS
             }
         }
         throw DocumentIOError.missingSource("qwenvoice_contract.json")
+    }
+
+    private static func locateProductionCatalogURL() throws -> URL {
+        let bundles = [Bundle.main] + Bundle.allBundles + Bundle.allFrameworks
+        for bundle in bundles {
+            if let url = bundle.url(
+                forResource: "qwenvoice_production_model_catalog",
+                withExtension: "json"
+            ) {
+                return url
+            }
+        }
+        throw DocumentIOError.missingSource("qwenvoice_production_model_catalog.json")
     }
 
     private static func storeVersionSeed(bundle: Bundle = .main) -> String {

@@ -212,10 +212,10 @@ struct SavedVoiceSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(configuration.title)
+            Text(configuration.title.localizedForDisplay)
                 .font(.title2.weight(.bold))
 
-            Text(configuration.subtitle)
+            Text(configuration.subtitle.localizedForDisplay)
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
@@ -284,12 +284,12 @@ struct SavedVoiceSheet: View {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .font(.caption)
                                 .foregroundStyle(.orange)
-                            Text(issue)
+                            Text(issue.localizedForDisplay)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .accessibilityIdentifier("voicesEnroll_speechUnavailable")
-                            Button(speechIssueButtonLabel) {
+                            Button(speechIssueButtonLabel.localizedForDisplay) {
                                 openSpeechSettings()
                             }
                             .controlSize(.small)
@@ -337,7 +337,7 @@ struct SavedVoiceSheet: View {
             }
 
             if let activeMessage = validationMessage ?? errorMessage {
-                Text(activeMessage)
+                Text(activeMessage.localizedForDisplay)
                     .foregroundStyle(.red)
                     .font(.callout)
                     .accessibilityIdentifier("voicesEnroll_errorMessage")
@@ -352,7 +352,7 @@ struct SavedVoiceSheet: View {
 
                 Spacer()
 
-                Button(configuration.confirmLabel) {
+                Button(configuration.confirmLabel.localizedForDisplay) {
                     saveVoice()
                 }
                 .buttonStyle(.borderedProminent)

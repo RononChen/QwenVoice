@@ -121,7 +121,7 @@ struct SidebarStatusView: View {
                     ProgressView()
                         .controlSize(.mini)
                 }
-                Text(activity.label)
+                Text(activity.label.localizedActivityForDisplay)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -166,7 +166,7 @@ struct SidebarStatusView: View {
                 }
                 .buttonStyle(.plain)
             }
-            Text(message)
+            Text(message.localizedForDisplay)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
@@ -191,11 +191,11 @@ struct SidebarStatusView: View {
                 Image(systemName: "bolt.fill")
                     .font(.caption)
                     .foregroundStyle(.red)
-                Text(title)
+                Text(title.localizedForDisplay)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.primary)
             }
-            Text(detail)
+            Text(detail.localizedForDisplay)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)

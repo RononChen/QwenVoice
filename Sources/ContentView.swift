@@ -201,7 +201,10 @@ struct ContentView: View {
                 savedVoiceID: voice.id,
                 wavPath: voice.wavPath,
                 transcript: "",
-                transcriptLoadError: "Couldn't load the saved transcript for \"\(voice.name)\". You can still clone from the audio file alone."
+                transcriptLoadError: AppLocalization.format(
+                    "Couldn't load the saved transcript for \"%@\". You can still clone from the audio file alone.",
+                    voice.name
+                )
             )
         }
 
@@ -575,7 +578,7 @@ private struct MainWindowToolbar: ToolbarContent {
                     Menu {
                         Picker("Sort", selection: $historySortOrder) {
                             ForEach(HistorySortOrder.allCases) { order in
-                                Text(order.label).tag(order)
+                                Text(order.label.localizedForDisplay).tag(order)
                             }
                         }
                     } label: {
@@ -652,10 +655,10 @@ private struct ToolbarSearchField: NSViewRepresentable {
     }
 
     private func configure(_ field: NSSearchField) {
-        field.placeholderString = placeholder
+        field.placeholderString = placeholder.localizedForDisplay
         field.identifier = NSUserInterfaceItemIdentifier(accessibilityIdentifier)
         field.setAccessibilityIdentifier(accessibilityIdentifier)
-        field.setAccessibilityLabel(placeholder)
+        field.setAccessibilityLabel(placeholder.localizedForDisplay)
     }
 
     @MainActor final class Coordinator: NSObject, NSSearchFieldDelegate {

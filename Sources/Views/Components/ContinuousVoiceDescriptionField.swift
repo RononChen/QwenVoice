@@ -39,7 +39,7 @@ struct ContinuousVoiceDescriptionField: NSViewRepresentable {
     }
 
     private func configure(_ field: NSTextField) {
-        field.placeholderString = placeholder
+        field.placeholderString = placeholder.localizedForDisplay
         field.identifier = NSUserInterfaceItemIdentifier(accessibilityIdentifier)
         field.setAccessibilityIdentifier(accessibilityIdentifier)
         field.setAccessibilityLabel("Voice brief")

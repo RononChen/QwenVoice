@@ -65,7 +65,7 @@ struct EmotionPickerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if showsLabel {
-                LabeledContent(title) {
+                LabeledContent(title.localizedForDisplay) {
                     toneControlRow
                 }
             } else {
@@ -80,9 +80,9 @@ struct EmotionPickerView: View {
     }
 
     private var tonePicker: some View {
-        Picker(title, selection: selectedOptionID) {
+        Picker(title.localizedForDisplay, selection: selectedOptionID) {
             ForEach(EmotionPreset.all) { preset in
-                Text(preset.label)
+                Text(preset.label.localizedForDisplay)
                     .tag(preset.id)
             }
 
@@ -187,7 +187,7 @@ struct EmotionPickerView: View {
     private var intensityPicker: some View {
         Picker("Intensity", selection: $intensity) {
             ForEach(EmotionIntensity.allCases) { level in
-                Text(level.label).tag(level)
+                Text(level.label.localizedForDisplay).tag(level)
             }
         }
         .labelsHidden()

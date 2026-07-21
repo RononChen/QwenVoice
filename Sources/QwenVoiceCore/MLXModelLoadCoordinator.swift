@@ -193,6 +193,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
     private let fileManager: FileManager
     private let modelLoader: NativeModelLoader
     private let beforeModelLoad: (@Sendable (String?) -> Void)?
+    private let reconcileInstalledModelIntegrity: (@Sendable (ModelAssetDescriptor) throws -> Void)?
     private var telemetryRecorder: NativeTelemetryRecorder?
     private let diagnosticEventSink: (@Sendable (String, [String: String]) async -> Void)?
     private var preparedMetadataByDescriptorID: [String: PreparedModelMetadata] = [:]
@@ -209,6 +210,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
         fileManager: FileManager = .default,
         modelLoader: @escaping NativeModelLoader = MLXModelLoadCoordinator.defaultModelLoader,
         beforeModelLoad: (@Sendable (String?) -> Void)? = nil,
+        reconcileInstalledModelIntegrity: (@Sendable (ModelAssetDescriptor) throws -> Void)? = nil,
         telemetryRecorder: NativeTelemetryRecorder? = nil,
         diagnosticEventSink: (@Sendable (String, [String: String]) async -> Void)? = nil
     ) {
@@ -217,6 +219,7 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
         self.fileManager = fileManager
         self.modelLoader = modelLoader
         self.beforeModelLoad = beforeModelLoad
+        self.reconcileInstalledModelIntegrity = reconcileInstalledModelIntegrity
         self.telemetryRecorder = telemetryRecorder
         self.diagnosticEventSink = diagnosticEventSink
     }
@@ -250,6 +253,12 @@ actor MLXModelLoadCoordinator: MLXModelCoordinating {
             throw MLXTTSEngineError.modelUnavailable(
                 "Model '\(descriptor.name)' is unavailable or incomplete."
             )
+        }
+
+        let integrityManifestURL = modelAssetStore.localRoot(for: descriptor)
+            .appendingPathComponent(ModelAssetIntegrityManifest.filename, isDirectory: false)
+        if !fileManager.fileExists(atPath: integrityManifestURL.path) {
+            try reconcileInstalledModelIntegrity?(descriptor)
         }
 
         let modelRuntimeIdentity = try makeModelRuntimeIdentity(

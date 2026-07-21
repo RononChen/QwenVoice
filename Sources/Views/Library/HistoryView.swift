@@ -222,15 +222,15 @@ struct HistoryView: View {
             .alert(item: $actionAlert) { alert in
                 if let confirmTitle = alert.confirmTitle, let onConfirm = alert.onConfirm {
                     Alert(
-                        title: Text(alert.title),
-                        message: Text(alert.message),
-                        primaryButton: .destructive(Text(confirmTitle), action: onConfirm),
+                        title: Text(alert.title.localizedForDisplay),
+                        message: Text(alert.message.localizedForDisplay),
+                        primaryButton: .destructive(Text(confirmTitle.localizedForDisplay), action: onConfirm),
                         secondaryButton: .cancel()
                     )
                 } else {
                     Alert(
-                        title: Text(alert.title),
-                        message: Text(alert.message),
+                        title: Text(alert.title.localizedForDisplay),
+                        message: Text(alert.message.localizedForDisplay),
                         dismissButton: .default(Text("OK"))
                     )
                 }
@@ -251,7 +251,7 @@ struct HistoryView: View {
                     ContentUnavailableView(
                         "Couldn't load history",
                         systemImage: "exclamationmark.triangle",
-                        description: Text(loadError)
+                        description: Text(loadError.localizedForDisplay)
                     )
                     Button("Retry") {
                         reloadHistory(reopenFailedStore: true)
@@ -617,7 +617,7 @@ private struct HistoryRowMetadata: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(mode.capitalized)
+            Text(mode.capitalized.localizedForDisplay)
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)

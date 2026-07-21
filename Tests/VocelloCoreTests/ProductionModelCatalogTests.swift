@@ -227,6 +227,47 @@ final class ProductionModelCatalogTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: blob.path))
         XCTAssertEqual(try store.audit(modelFolder: artifact.folder).state, .healthy)
         XCTAssertTrue(try sameFile(blob, installed.appendingPathComponent(component.relativePath)))
+        let integrityManifest = try JSONDecoder().decode(
+            ModelAssetIntegrityManifest.self,
+            from: Data(
+                contentsOf: installed.appendingPathComponent(
+                    ModelAssetIntegrityManifest.filename
+                )
+            )
+        )
+        XCTAssertEqual(integrityManifest.repo, artifact.repo)
+        XCTAssertEqual(integrityManifest.revision, artifact.revision)
+        XCTAssertEqual(integrityManifest.targetFolder, artifact.folder)
+        XCTAssertEqual(integrityManifest.files.map(\.path), artifact.files.map(\.relativePath))
+        XCTAssertEqual(integrityManifest.sharedComponentContentIdentity, content)
+        XCTAssertEqual(integrityManifest.sharedComponentCompatibilityIdentity, compatibility)
+
+        // Runtime adoption authenticates only catalog files and does not rewrite or inspect the
+        // generated prepared overlay, whose legacy implementation intentionally used symlinks.
+        let integrityURL = installed.appendingPathComponent(ModelAssetIntegrityManifest.filename)
+        try FileManager.default.removeItem(at: integrityURL)
+        let preparedOverlay = installed.appendingPathComponent(
+            ".qvoice_prepared_model",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: preparedOverlay, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: preparedOverlay.appendingPathComponent("config.json"),
+            withDestinationURL: installed.appendingPathComponent("config.json")
+        )
+
+        try catalog.adoptInstalledArtifactForRuntime(artifact, modelsRoot: models)
+
+        let adoptedManifest = try JSONDecoder().decode(
+            ModelAssetIntegrityManifest.self,
+            from: Data(contentsOf: integrityURL)
+        )
+        XCTAssertNil(adoptedManifest.sharedComponentContentIdentity)
+        XCTAssertNil(adoptedManifest.sharedComponentCompatibilityIdentity)
+        XCTAssertTrue(
+            try preparedOverlay.appendingPathComponent("config.json")
+                .resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink ?? false
+        )
     }
 
     func testDeliveryPlanRejectsTamperedLegacyInstallBeforePublishingAnyComponent() throws {
@@ -282,6 +323,15 @@ final class ProductionModelCatalogTests: XCTestCase {
         ))
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: installed.appendingPathComponent(SharedComponentInstalledModelManifest.filename).path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: installed.appendingPathComponent(ModelAssetIntegrityManifest.filename).path
+        ))
+        XCTAssertThrowsError(
+            try catalog.adoptInstalledArtifactForRuntime(artifact, modelsRoot: models)
+        )
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: installed.appendingPathComponent(ModelAssetIntegrityManifest.filename).path
         ))
     }
 

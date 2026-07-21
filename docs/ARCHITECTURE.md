@@ -789,7 +789,10 @@ as hard links. Legacy schema-v1 catalog documents remain read-compatible. Determ
 while resolving a schema-v2 delivery plan now authenticates every catalog file in an existing
 installation and automatically migrates or repairs its shared-component presentation. A failed
 local authentication contributes no reusable bytes and leaves the downloader to repair from the
-network. Live validation across all six macOS artifacts and the three iOS Speed artifacts remains
+network. Separately, macOS/CLI runtime load can adopt a legacy manifest-free installation after the
+same full catalog authentication; it writes only the runtime integrity manifest and leaves the
+generated prepared overlay and model directory presentation unchanged. Live validation across all
+six macOS artifacts and the three iOS Speed artifacts remains
 explicit pending quality work rather than a claim made by static validation or local reconciliation.
 
 The shipped model ids:

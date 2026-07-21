@@ -258,6 +258,31 @@ public struct ProductionModelCatalog: Decodable, Sendable {
         )
     }
 
+    /// Adopts a legacy installation for runtime use without rewriting its model directory.
+    /// Every catalog file must first pass the same exact size/SHA-256 authentication used by
+    /// delivery reconciliation. Runtime-generated prepared overlays are intentionally left alone;
+    /// they are not catalog artifacts and may contain safe local symlinks created by older builds.
+    public func adoptInstalledArtifactForRuntime(
+        _ artifact: Artifact,
+        modelsRoot: URL
+    ) throws {
+        let store = SharedModelComponentStore(modelsRoot: modelsRoot)
+        let modelURL = store.modelsRoot.appendingPathComponent(artifact.folder, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: modelURL.path) else {
+            throw SharedModelComponentStoreError.modelNotFound
+        }
+        let expectedFiles = try expectedFileIdentities(for: artifact)
+        try store.validateInstalledModelFiles(
+            modelFolder: artifact.folder,
+            expectedFiles: expectedFiles
+        )
+        try persistInstalledIntegrityManifest(
+            for: artifact,
+            componentManifest: nil,
+            modelURL: modelURL
+        )
+    }
+
     private func reconcileInstalledArtifact(
         _ artifact: Artifact,
         componentPlan: SharedComponentMigrationPlan,
@@ -267,21 +292,67 @@ public struct ProductionModelCatalog: Decodable, Sendable {
         guard FileManager.default.fileExists(atPath: modelURL.path) else {
             return nil
         }
-        let expectedFiles = try artifact.files.map {
-            try SharedComponentFileIdentity(
-                relativePath: $0.relativePath,
-                byteCount: $0.sizeBytes,
-                sha256: $0.sha256
-            )
-        }
+        let expectedFiles = try expectedFileIdentities(for: artifact)
         try store.validateInstalledModelFiles(
             modelFolder: artifact.folder,
             expectedFiles: expectedFiles
         )
-        return try store.reconcileInstalledModel(componentPlan) { candidate in
+        let result = try store.reconcileInstalledModel(componentPlan) { candidate in
             try store.validateModelFiles(
                 at: candidate,
                 expectedFiles: expectedFiles
+            )
+        }
+        try persistInstalledIntegrityManifest(
+            for: artifact,
+            componentManifest: componentPlan.manifest,
+            modelURL: modelURL
+        )
+        return result
+    }
+
+    /// Publishes the runtime identity only after the complete legacy install has passed the
+    /// catalog's exact size/SHA-256 authentication above. This lets a current runtime adopt a
+    /// model installed by Vocello 2.1.0 without weakening the fail-closed load contract or
+    /// downloading the same multi-gigabyte checkpoint again.
+    private func persistInstalledIntegrityManifest(
+        for artifact: Artifact,
+        componentManifest: SharedComponentInstalledModelManifest?,
+        modelURL: URL
+    ) throws {
+        let manifest = ModelAssetIntegrityManifest(
+            repo: artifact.repo,
+            revision: artifact.revision,
+            targetFolder: artifact.folder,
+            createdAtUTC: ISO8601DateFormatter().string(from: Date()),
+            files: artifact.files.map {
+                ModelAssetIntegrityManifest.FileEntry(
+                    path: $0.relativePath,
+                    size: $0.sizeBytes,
+                    sha256: $0.sha256
+                )
+            },
+            sharedComponentContentIdentity: componentManifest?.contentIdentity,
+            sharedComponentCompatibilityIdentity: componentManifest?.compatibilityIdentity
+        )
+        let data = try JSONEncoder().encode(manifest)
+        try data.write(
+            to: modelURL.appendingPathComponent(
+                ModelAssetIntegrityManifest.filename,
+                isDirectory: false
+            ),
+            options: .atomic
+        )
+    }
+
+    private func expectedFileIdentities(
+        for artifact: Artifact
+    ) throws -> [SharedComponentFileIdentity] {
+        try artifact.files.map {
+            try SharedComponentFileIdentity(
+                relativePath: $0.relativePath,
+                byteCount: $0.sizeBytes,
+                sha256: $0.sha256
             )
         }
     }

@@ -100,7 +100,7 @@ struct TextInputView: View {
     /// information.
     private var characterCount: some View {
         let isLong = text.count > 500
-        let baseLabel = "\(text.count) characters"
+        let baseLabel = AppLocalization.format("%lld characters", Int64(text.count))
         return HStack(spacing: 6) {
             if isLong {
                 Image(systemName: "exclamationmark.circle.fill")
@@ -108,12 +108,16 @@ struct TextInputView: View {
                     .foregroundStyle(.orange)
                     .accessibilityHidden(true)
             }
-            Text(baseLabel)
+            Text(baseLabel.localizedForDisplay)
                 .font(.footnote.monospacedDigit())
                 .foregroundStyle(isLong ? .orange : .secondary)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(isLong ? "\(baseLabel), long script" : baseLabel)
+        .accessibilityLabel(
+            isLong
+                ? AppLocalization.format("%@, long script", baseLabel)
+                : baseLabel
+        )
         .accessibilityIdentifier("textInput_charCount")
     }
 
@@ -156,7 +160,7 @@ struct ScriptTextEditor: NSViewRepresentable {
         textView.textContainer?.lineFragmentPadding = 4
         textView.delegate = context.coordinator
         textView.string = text
-        textView.placeholderString = placeholder
+        textView.placeholderString = placeholder.localizedForDisplay
         textView.identifier = NSUserInterfaceItemIdentifier(accessibilityIdentifier)
         textView.setAccessibilityIdentifier(accessibilityIdentifier)
         textView.setAccessibilityEnabled(true)

@@ -115,7 +115,7 @@ struct RecordReferenceClipSheet: View {
                 .frame(height: 64)
                 .opacity(recorder.isRecording ? 1 : (recorder.elapsed > 0 ? 0.8 : 0.4))
 
-                Text(statusLabel)
+                Text(statusLabel.localizedForDisplay)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -232,7 +232,7 @@ struct RecordReferenceClipSheet: View {
             }
             .buttonStyle(.bordered)
             .clipShape(Circle())
-            .accessibilityLabel(reviewPlayer.isPlaying ? "Pause review" : "Play review")
+            .accessibilityLabel((reviewPlayer.isPlaying ? "Pause review" : "Play review").localizedForDisplay)
             .accessibilityIdentifier("recordClip_reviewToggle")
 
             GeometryReader { geo in

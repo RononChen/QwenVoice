@@ -93,7 +93,7 @@ final class VoiceDesignCoordinator {
         }
         actionAlert = VoiceDesignActionAlert(
             title: "Saved Voice Added",
-            message: "\"\(voice.name)\" is ready in Saved Voices."
+            message: AppLocalization.format("\"%@\" is ready in Saved Voices.", voice.name)
         )
     }
 

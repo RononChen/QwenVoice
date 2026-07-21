@@ -576,7 +576,7 @@ private struct VoiceCloningComposerFooter: View {
             )
 
             if let errorMessage {
-                Label(errorMessage, systemImage: "exclamationmark.triangle")
+                Label(errorMessage.localizedForDisplay, systemImage: "exclamationmark.triangle")
                     .foregroundColor(.red)
                     .font(.callout)
             }
@@ -615,7 +615,7 @@ private struct CloneReferenceStatus: View {
                        let shortLabel = PreparedVoiceQualityWarning.shortLabel(for: token) {
                         warningChip(token: token, shortLabel: shortLabel)
                     } else {
-                        Text(referenceDetail)
+                        Text(referenceDetail.localizedForDisplay)
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.secondary)
                     }
@@ -672,7 +672,7 @@ private struct CloneReferenceStatus: View {
             HStack(spacing: 4) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 9))
-                Text(shortLabel)
+                Text(shortLabel.localizedForDisplay)
                     .font(.system(size: 10, weight: .medium))
                 Image(systemName: "chevron.right")
                     .font(.system(size: 7, weight: .semibold))
@@ -803,13 +803,13 @@ private struct CloneWarningCard: View {
                 .font(.subheadline.weight(.semibold))
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(message)
+                Text(message.localizedForDisplay)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 if let actionLabel, let action {
-                    Button(actionLabel) {
+                    Button(actionLabel.localizedForDisplay) {
                         action()
                     }
                     .buttonStyle(.bordered)

@@ -74,6 +74,7 @@ public enum NativeRuntimeFactory {
         manifestURL: URL,
         paths: NativeRuntimePaths,
         storeVersionSeed: String,
+        productionModelCatalog: ProductionModelCatalog? = nil,
         telemetryRecorder: NativeTelemetryRecorder? = nil,
         customPrewarmPolicy: NativeCustomPrewarmPolicy = .eager,
         qwenPreparedLoadProfile: NativeQwenPreparedLoadProfile = .fullCapabilities
@@ -83,6 +84,7 @@ public enum NativeRuntimeFactory {
             registry: registry,
             paths: paths,
             storeVersionSeed: storeVersionSeed,
+            productionModelCatalog: productionModelCatalog,
             telemetryRecorder: telemetryRecorder,
             customPrewarmPolicy: customPrewarmPolicy,
             qwenPreparedLoadProfile: qwenPreparedLoadProfile
@@ -93,6 +95,7 @@ public enum NativeRuntimeFactory {
         registry: ContractBackedModelRegistry,
         paths: NativeRuntimePaths,
         storeVersionSeed: String,
+        productionModelCatalog: ProductionModelCatalog? = nil,
         telemetryRecorder: NativeTelemetryRecorder? = nil,
         customPrewarmPolicy: NativeCustomPrewarmPolicy = .eager,
         qwenPreparedLoadProfile: NativeQwenPreparedLoadProfile = .fullCapabilities
@@ -115,6 +118,7 @@ public enum NativeRuntimeFactory {
             documentIO: documentIO,
             hubCacheDirectory: paths.hubCacheDirectory,
             streamSessionsDirectory: paths.streamSessionsDirectory,
+            productionModelCatalog: productionModelCatalog,
             telemetryRecorder: telemetryRecorder,
             customPrewarmPolicy: customPrewarmPolicy,
             qwenPreparedLoadProfile: qwenPreparedLoadProfile

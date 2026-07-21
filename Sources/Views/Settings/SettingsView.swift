@@ -93,7 +93,7 @@ struct SettingsView: View {
                 Section {
                     Picker("Variation", selection: $generationVariation) {
                         ForEach(Qwen3SamplingVariation.allCases, id: \.rawValue) { variation in
-                            Text(variation.displayName).tag(variation.rawValue)
+                            Text(variation.displayName.localizedForDisplay).tag(variation.rawValue)
                         }
                     }
                     .pickerStyle(.segmented)
@@ -141,7 +141,7 @@ struct SettingsView: View {
                                     .help(outputDirectoryIssue ?? "")
                                     .accessibilityIdentifier("preferences_outputDirectoryWarning")
                             }
-                            Text(outputDirectorySummary)
+                            Text(outputDirectorySummary.localizedForDisplay)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
@@ -160,7 +160,7 @@ struct SettingsView: View {
                     }
 
                     if let outputDirectoryIssue {
-                        Text(outputDirectoryIssue)
+                        Text(outputDirectoryIssue.localizedForDisplay)
                             .font(.caption)
                             .foregroundStyle(.orange)
                             .fixedSize(horizontal: false, vertical: true)
@@ -243,7 +243,12 @@ struct SettingsView: View {
             }
             return ""
         }()
-        return "This will delete \(model.mode.displayName) \(variant)\(sizeText) from disk. You can download it again later."
+        return AppLocalization.format(
+            "This will delete %@ %@%@ from disk. You can download it again later.",
+            model.mode.displayName.localizedForDisplay,
+            variant,
+            sizeText
+        )
     }
 
     private var outputDirectorySummary: String {
@@ -311,7 +316,7 @@ private struct ModelSetupSummaryRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Label(summary.text, systemImage: summaryIconName)
+                Label(summary.text.localizedForDisplay, systemImage: summaryIconName)
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(.primary)
                     .labelStyle(.titleAndIcon)
@@ -358,9 +363,19 @@ private struct ModelSetupSummaryRow: View {
     private func setupProgressText(_ progress: ModelManagerViewModel.RecommendedSetupProgress) -> String {
         if let modelID = progress.currentModelID,
            let model = TTSModel.model(id: modelID) {
-            return "Downloading \(model.mode.displayName) \(viewModel.activeVariantLabel(for: model)) · \(progress.completedCount) of \(progress.totalCount) complete"
+            return AppLocalization.format(
+                "Downloading %@ %@ · %lld of %lld complete",
+                model.mode.displayName.localizedForDisplay,
+                viewModel.activeVariantLabel(for: model),
+                Int64(progress.completedCount),
+                Int64(progress.totalCount)
+            )
         }
-        return "\(progress.completedCount) of \(progress.totalCount) complete"
+        return AppLocalization.format(
+            "%lld of %lld complete",
+            Int64(progress.completedCount),
+            Int64(progress.totalCount)
+        )
     }
 }
 
@@ -384,7 +399,7 @@ private struct ModelDownloadRow: View {
                     .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(mode.displayName)
+                    Text(mode.displayName.localizedForDisplay)
                         .font(.callout.weight(.semibold))
                         .lineLimit(1)
                     Text(viewModel.modePurpose(for: mode))
@@ -432,7 +447,7 @@ private struct ModelPackageLine: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .center, spacing: 8) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(viewModel.activeVariantLabel(for: model))
+                    Text(viewModel.activeVariantLabel(for: model).localizedForDisplay)
                         .font(.caption.weight(.semibold))
                         .lineLimit(1)
                     packageBadge
@@ -443,7 +458,7 @@ private struct ModelPackageLine: View {
 
                 HStack(spacing: 5) {
                     statusGlyph
-                    Text(presentation.label)
+                    Text(presentation.label.localizedForDisplay)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(statusColor)
                         .lineLimit(1)
@@ -460,7 +475,7 @@ private struct ModelPackageLine: View {
             }
 
             if let detail = presentation.detail ?? capabilityDetail {
-                Text(detail)
+                Text(detail.localizedForDisplay)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -497,12 +512,12 @@ private struct ModelPackageLine: View {
             parts.append(size)
         }
         if model.mode == .custom, !model.supportsInstructionControl {
-            parts.append("speaker only")
+            parts.append("speaker only".localizedForDisplay)
         } else if model.mode == .custom {
-            parts.append("delivery control")
+            parts.append("delivery control".localizedForDisplay)
         }
         if model.mode == .clone, model.supportsVoiceClone {
-            parts.append("clone capable")
+            parts.append("clone capable".localizedForDisplay)
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
@@ -702,8 +717,9 @@ private final class ClosureMenuItem: NSMenuItem {
         handler: @escaping () -> Void
     ) {
         self.handler = handler
+        let localizedTitle = title.localizedForDisplay
         super.init(
-            title: title,
+            title: localizedTitle,
             action: #selector(invoke),
             keyEquivalent: ""
         )
@@ -713,7 +729,7 @@ private final class ClosureMenuItem: NSMenuItem {
         }
         if isDestructive {
             attributedTitle = NSAttributedString(
-                string: title,
+                string: localizedTitle,
                 attributes: [.foregroundColor: NSColor.systemRed]
             )
         }
@@ -749,7 +765,7 @@ private struct HoverableActionButton: View {
         Button {
             action()
         } label: {
-            Text(title)
+            Text(title.localizedForDisplay)
                 .frame(maxWidth: .infinity)
         }
         .controlSize(.small)
