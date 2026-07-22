@@ -6,12 +6,19 @@ final class LongFormPlanningTests: XCTestCase {
     func testEighteenThousandCharacterChineseScriptPlansWithinProductLimit() throws {
         let sentence = "夜色渐渐落在城墙上，更夫提着灯笼，沿着安静的长街慢慢向前走。"
         let text = String(String(repeating: sentence, count: 600).prefix(18_000))
-        let plan = try makePlan(text, tokenLimit: 450)
+        let plan = try makePlan(text, tokenLimit: 200)
 
         XCTAssertFalse(plan.segments.isEmpty)
         XCTAssertLessThanOrEqual(plan.segments.count, 100)
-        XCTAssertTrue(plan.segments.allSatisfy { $0.conservativeTokenEstimate <= 450 })
+        XCTAssertTrue(plan.segments.allSatisfy { $0.conservativeTokenEstimate <= 200 })
         XCTAssertEqual(plan.segments.map(\.modelFacingText).joined(), text)
+    }
+
+    func testEveryNonTerminalBoundaryUsesThreeHundredMillisecondPause() {
+        for boundary in LongFormBoundaryKind.allCases where boundary != .endOfText {
+            XCTAssertEqual(boundary.intendedPauseMilliseconds, 300)
+        }
+        XCTAssertEqual(LongFormBoundaryKind.endOfText.intendedPauseMilliseconds, 0)
     }
 
     func testBoundaryPrecedenceUsesParagraphBeforeLowerPriorityBoundaries() throws {
@@ -23,6 +30,14 @@ final class LongFormPlanningTests: XCTestCase {
         XCTAssertGreaterThan(plan.segments.count, 1)
         XCTAssertEqual(plan.segments[0].spokenText, "First paragraph.")
         XCTAssertEqual(plan.segments[0].evidence.boundary, .paragraph)
+    }
+
+    func testPlannerGreedilyFillsWindowPastAnEarlyParagraphBoundary() throws {
+        let plan = try makePlan("甲乙。\n\n丙丁，戊己庚辛。", tokenLimit: 8)
+
+        XCTAssertGreaterThan(plan.segments.count, 1)
+        XCTAssertEqual(plan.segments[0].spokenText, "甲乙。\n\n丙丁，")
+        XCTAssertEqual(plan.segments[0].evidence.boundary, .safeClause)
     }
 
     func testSentenceBoundariesIncludeCJKPunctuation() throws {

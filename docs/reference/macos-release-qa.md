@@ -93,12 +93,16 @@ upload depend on deterministic release-readiness and artifact checks.
    Release builds use isolated `build/scratch/derived-data/release-macos/` state and place the
    signed app, metadata, and DMG under `build/dist/macos/`; they never invalidate the persistent
    development cache. Routine cleanup does not remove these distribution outputs.
+   发布脚本还会构建固定版本的 LGPL-only `ffmpeg-vocello`，安装到 `Contents/Helpers`，并在
+   XPC 与外层 App 之前单独签名；随后验证精确能力面、许可证、动态依赖、随包声明和 Team ID。
+   对应源码归档、上游分离签名与构建清单和 DMG 一起保存在 `build/dist/macos/`。
    An attended launch or generation pass can be performed when models are available, but it is not
    part of the packaging gate.
    (No `--notarize` locally unless the API key env vars are present.)
 7. **Atomic Release candidate**: push the protected version tag or dispatch `release.yml` with the
    exact existing tag. CI verifies tag/source/version identity, builds, signs, notarizes, staples,
-   verifies (`verify_packaged_dmg.sh`), emits SPDX and CycloneDX inventories, writes
+   verifies (`verify_packaged_dmg.sh`), emits SPDX and CycloneDX inventories, publishes the exact
+   FFmpeg source/signature/build-manifest assets, writes
    `SHA256SUMS` plus `release-evidence.json`, and attests the DMG. Only then does it create or reuse
    a draft GitHub Release, upload the candidate, download every asset, and verify the digests.
    Reusing a draft first removes every prior asset; the workflow then requires the remote asset-name

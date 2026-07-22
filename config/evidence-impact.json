@@ -138,7 +138,11 @@
       "include": [
         ".github/**",
         "SECURITY.md",
+        "config/ffmpeg-lgpl-component.json",
         "config/toolchain.json",
+        "ThirdPartyNotices/FFmpeg/**",
+        "scripts/build_ffmpeg_lgpl_component.sh",
+        "scripts/verify_ffmpeg_lgpl_component.py",
         "scripts/release.sh",
         "scripts/release_evidence.py",
         "scripts/release_sbom.py",

@@ -9,6 +9,7 @@ struct BatchGenerationSheetConfiguration: Identifiable, Equatable {
     let voiceDescription: String?
     let refAudio: String?
     let refText: String?
+    let speed: Double
     let initialText: String
     let initialSegmentationMode: BatchSegmentationMode
 
@@ -24,6 +25,7 @@ struct BatchGenerationSheetConfiguration: Identifiable, Equatable {
             voiceDescription: nil,
             refAudio: nil,
             refText: nil,
+            speed: draft.speed,
             initialText: initialText,
             initialSegmentationMode: initialSegmentationMode
         )
@@ -41,6 +43,7 @@ struct BatchGenerationSheetConfiguration: Identifiable, Equatable {
             voiceDescription: draft.voiceDescription,
             refAudio: nil,
             refText: nil,
+            speed: draft.speed,
             initialText: initialText,
             initialSegmentationMode: initialSegmentationMode
         )
@@ -58,6 +61,7 @@ struct BatchGenerationSheetConfiguration: Identifiable, Equatable {
             voiceDescription: nil,
             refAudio: draft.referenceAudioPath,
             refText: draft.referenceTranscript.isEmpty ? nil : draft.referenceTranscript,
+            speed: draft.speed,
             initialText: initialText,
             initialSegmentationMode: initialSegmentationMode
         )

@@ -419,6 +419,8 @@ targets:
       - path: Sources/SharedSupport/Services/VoiceClipTranscriber.swift
       - path: Sources/SharedSupport/Telemetry/MainThreadStallWatchdog.swift
       - path: Sources/SharedSupport/Database/HistoryPersistenceError.swift
+      - path: Sources/Services/PitchPreservingSpeechRateProcessor.swift
+      - path: Sources/Services/AppDisplayLanguage.swift
     dependencies:
       - target: QwenVoiceCore
     settings:

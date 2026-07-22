@@ -19,6 +19,7 @@ struct BatchGenerationSheet: View {
     var refText: String?
 
     @State private var batchText = ""
+    @State private var speechRate = SpeechRateControl.normal
     @State private var segmentationMode: BatchSegmentationMode = .lineSeparated
     @StateObject private var coordinator = BatchGenerationCoordinator()
 
@@ -31,6 +32,7 @@ struct BatchGenerationSheet: View {
         voiceDescription: String? = nil,
         refAudio: String? = nil,
         refText: String? = nil,
+        speed: Double = SpeechRateControl.normal,
         initialText: String = "",
         initialSegmentationMode: BatchSegmentationMode = .lineSeparated
     ) {
@@ -42,6 +44,7 @@ struct BatchGenerationSheet: View {
         self.voiceDescription = voiceDescription
         self.refAudio = refAudio
         self.refText = refText
+        _speechRate = State(initialValue: SpeechRateControl.normalized(speed))
         _batchText = State(initialValue: initialText)
         _segmentationMode = State(initialValue: initialSegmentationMode)
     }
@@ -127,6 +130,15 @@ struct BatchGenerationSheet: View {
             }
             .accessibilityIdentifier("batch_deliverySummary")
         }
+
+        HStack {
+            SpeechRateField(rate: $speechRate, isDisabled: coordinator.isProcessing)
+            Spacer()
+            Text("0.01–2.50 · 1.00 is original speed".localizedForDisplay)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityIdentifier("batch_speechRate")
 
         ScriptTextEditor(
             text: $batchText,
@@ -452,7 +464,8 @@ struct BatchGenerationSheet: View {
                     languageHint: languageHint,
                     voiceDescription: voiceDescription,
                     refAudio: refAudio,
-                    refText: refText
+                    refText: refText,
+                    speed: speechRate
                 )
             },
             isModelAvailable: { model in

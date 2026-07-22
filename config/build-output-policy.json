@@ -116,6 +116,15 @@
       "env": "QVOICE_SWIFTPM_RUNTIME_CACHE"
     },
     {
+      "id": "ffmpeg-lgpl-source-cache",
+      "path": "build/cache/third-party/ffmpeg-lgpl",
+      "class": "cache",
+      "owner": "Pinned FFmpeg LGPL-only source and detached-signature cache",
+      "cleanup": "aggressive",
+      "retention": "Retain only digest-verified upstream inputs; build intermediates remain scratch",
+      "env": "QVOICE_FFMPEG_LGPL_CACHE"
+    },
+    {
       "id": "scratch-foundation",
       "path": "build/scratch/derived-data/foundation",
       "class": "scratch",

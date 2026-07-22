@@ -10,6 +10,7 @@ struct CustomVoiceDraft: Equatable {
     // old .english default's behavior is preserved for English scripts.
     var selectedLanguage = Qwen3SupportedLanguage.auto
     var emotion = DeliveryProfile.neutralInstruction
+    var speed = SpeechRateControl.normal
     var text = ""
 
     var hasText: Bool {
@@ -35,6 +36,7 @@ struct VoiceDesignDraft: Equatable {
     var voiceDescription = ""
     var selectedLanguage = Qwen3SupportedLanguage.auto
     var emotion = DeliveryProfile.neutralInstruction
+    var speed = SpeechRateControl.normal
     var text = ""
 
     var hasVoiceDescription: Bool {
@@ -65,6 +67,7 @@ struct VoiceCloningDraft: Equatable {
     var referenceAudioPath: String?
     var selectedLanguage = Qwen3SupportedLanguage.auto
     var referenceTranscript = ""
+    var speed = SpeechRateControl.normal
     var text = ""
 
     var hasText: Bool {

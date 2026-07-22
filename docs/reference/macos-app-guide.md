@@ -100,6 +100,7 @@ Retry button.
 
 | Element | Identifier |
 |---|---|
+| Interface language | `settings_interfaceLanguage` (System + 10 explicit languages; restart to apply) |
 | Model summary | `settings_modelDownloadsSummary` |
 | Mode row | `settings_mode_<mode>` |
 | Package row | `settings_package_<modelID>` / `settings_packageStatus_<modelID>` |

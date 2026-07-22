@@ -38,6 +38,8 @@ for required_policy_surface in \
   scripts/swift_dependency_snapshot.py \
   scripts/release_evidence.py \
   scripts/release_sbom.py \
+  scripts/build_ffmpeg_lgpl_component.sh \
+  scripts/verify_ffmpeg_lgpl_component.py \
   scripts/required_step_ledger.py \
   scripts/project_health.py \
   scripts/build_cleanup.py \
@@ -58,6 +60,7 @@ for required_policy_surface in \
   scripts/tests/test_supply_chain_contract.py \
   scripts/tests/test_swift_dependency_snapshot.py \
   scripts/tests/test_release_evidence.py \
+  scripts/tests/test_ffmpeg_lgpl_component.py \
   scripts/tests/test_required_step_ledger.py \
   scripts/tests/test_project_health.py \
   scripts/tests/test_build_routing_contract.py \
@@ -600,6 +603,7 @@ python3 -m unittest \
   scripts.tests.test_documentation_contract \
   scripts.tests.test_model_catalog_contract \
   scripts.tests.test_evidence_impact \
+  scripts.tests.test_ffmpeg_lgpl_component \
   scripts.tests.test_required_step_ledger \
   scripts.tests.test_project_health \
   scripts.tests.test_vendor_runtime_contract \

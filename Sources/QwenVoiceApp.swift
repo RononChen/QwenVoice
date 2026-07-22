@@ -41,52 +41,53 @@ struct QwenVoiceApp: App {
             // window).
             SettingsView(highlightedMode: .constant(nil))
                 .environment(modelManager)
+                .environment(\.locale, AppLocalization.locale)
         }
         .commands {
             CommandGroup(replacing: .newItem) { }
 
             // Playback commands
-            CommandMenu("Playback") {
-                Button("Play / Pause") {
+            CommandMenu(AppLocalization.string("Playback")) {
+                Button(AppLocalization.string("Play / Pause")) {
                     audioPlayer.togglePlayPause()
                 }
                 .keyboardShortcut(.space, modifiers: [])
                 .disabled(!audioPlayer.hasAudio)
 
-                Button("Stop") {
+                Button(AppLocalization.string("Stop")) {
                     audioPlayer.dismiss()
                 }
                 .keyboardShortcut(".", modifiers: .command)
                 .disabled(!audioPlayer.hasAudio)
             }
 
-            CommandMenu("Navigate") {
-                Button("Custom Voice") {
+            CommandMenu(AppLocalization.string("Navigate")) {
+                Button(AppLocalization.string("Custom Voice")) {
                     appCommandRouter.navigate(to: .customVoice)
                 }
                 .keyboardShortcut("1", modifiers: .command)
 
-                Button("Voice Design") {
+                Button(AppLocalization.string("Voice Design")) {
                     appCommandRouter.navigate(to: .voiceDesign)
                 }
                 .keyboardShortcut("2", modifiers: .command)
 
-                Button("Voice Cloning") {
+                Button(AppLocalization.string("Voice Cloning")) {
                     appCommandRouter.navigate(to: .voiceCloning)
                 }
                 .keyboardShortcut("3", modifiers: .command)
 
-                Button("History") {
+                Button(AppLocalization.string("History")) {
                     appCommandRouter.navigate(to: .history)
                 }
                 .keyboardShortcut("4", modifiers: .command)
 
-                Button("Saved Voices") {
+                Button(AppLocalization.string("Saved Voices")) {
                     appCommandRouter.navigate(to: .voices)
                 }
                 .keyboardShortcut("5", modifiers: .command)
 
-                Button("Models") {
+                Button(AppLocalization.string("Models")) {
                     appCommandRouter.navigate(to: .settings)
                 }
                 .keyboardShortcut("6", modifiers: .command)
@@ -95,12 +96,12 @@ struct QwenVoiceApp: App {
             // File menu additions
             CommandGroup(after: .saveItem) {
                 Divider()
-                Button("Open Output Folder") {
+                Button(AppLocalization.string("Open Output Folder")) {
                     NSWorkspace.shared.open(Self.outputsDir)
                 }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
 
-                Button("Reveal in Finder") {
+                Button(AppLocalization.string("Reveal in Finder")) {
                     if let path = audioPlayer.currentFilePath {
                         NSWorkspace.shared.selectFile(path, inFileViewerRootedAtPath: "")
                     }
@@ -132,6 +133,7 @@ struct QwenVoiceApp: App {
                     .frame(minWidth: 720, minHeight: 560)
             }
         }
+        .environment(\.locale, AppLocalization.locale)
         .onAppear {
             appStartupCoordinator.setupAppSupport()
             startSelectedTTSEngineIfNeeded()

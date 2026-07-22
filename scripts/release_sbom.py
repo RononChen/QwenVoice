@@ -18,6 +18,7 @@ from urllib.parse import quote
 
 SWIFT_LOCK = Path("QwenVoice.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved")
 NPM_LOCK = Path("website/package-lock.json")
+FFMPEG_COMPONENT = Path("config/ffmpeg-lgpl-component.json")
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -43,8 +44,13 @@ def _npm_name(path: str, payload: dict[str, Any]) -> str:
 def dependencies(root: Path) -> list[dict[str, Any]]:
     swift_path = root / SWIFT_LOCK
     npm_path = root / NPM_LOCK
-    if not swift_path.is_file() or not npm_path.is_file():
-        missing = [str(path.relative_to(root)) for path in (swift_path, npm_path) if not path.is_file()]
+    ffmpeg_path = root / FFMPEG_COMPONENT
+    if not swift_path.is_file() or not npm_path.is_file() or not ffmpeg_path.is_file():
+        missing = [
+            str(path.relative_to(root))
+            for path in (swift_path, npm_path, ffmpeg_path)
+            if not path.is_file()
+        ]
         raise ValueError(f"missing dependency lock file(s): {', '.join(missing)}")
 
     result: list[dict[str, Any]] = []
@@ -85,6 +91,33 @@ def dependencies(root: Path) -> list[dict[str, Any]]:
             "purl": f"pkg:npm/{quote(name, safe='@/')}@{quote(version)}",
         })
 
+    ffmpeg = json.loads(ffmpeg_path.read_text(encoding="utf-8"))
+    source = ffmpeg.get("source", {})
+    name = str(ffmpeg.get("upstream", "")).strip()
+    version = str(ffmpeg.get("version", "")).strip()
+    source_url = str(source.get("url", "")).strip()
+    source_sha256 = str(source.get("sha256", "")).strip()
+    license_expression = str(ffmpeg.get("license", "")).strip()
+    if (
+        ffmpeg.get("schemaVersion") != 1
+        or not name
+        or not version
+        or not source_url.startswith("https://ffmpeg.org/releases/")
+        or not re.fullmatch(r"[0-9a-f]{64}", source_sha256)
+        or license_expression != "LGPL-2.1-or-later"
+    ):
+        raise ValueError("config/ffmpeg-lgpl-component.json contains an incomplete SBOM identity")
+    result.append({
+        "ecosystem": "source",
+        "name": name,
+        "version": version,
+        "revision": "",
+        "source": source_url,
+        "source_sha256": source_sha256,
+        "license": license_expression,
+        "purl": f"pkg:generic/{quote(name)}@{quote(version)}",
+    })
+
     unique: dict[tuple[str, str, str], dict[str, Any]] = {}
     for item in result:
         unique[(item["ecosystem"], item["name"], item["version"])] = item
@@ -92,6 +125,9 @@ def dependencies(root: Path) -> list[dict[str, Any]]:
 
 
 def _hashes(item: dict[str, Any]) -> list[dict[str, str]]:
+    source_sha256 = item.get("source_sha256", "")
+    if re.fullmatch(r"[0-9a-f]{64}", source_sha256):
+        return [{"alg": "SHA-256", "content": source_sha256}]
     if item["ecosystem"] == "swift" and re.fullmatch(r"[0-9a-fA-F]{40}", item.get("revision", "")):
         return [{"alg": "SHA-1", "content": item["revision"].lower()}]
     integrity = item.get("integrity", "")

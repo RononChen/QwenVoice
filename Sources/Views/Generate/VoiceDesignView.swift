@@ -107,6 +107,7 @@ struct VoiceDesignView: View {
                     voiceDescription: configuration.voiceDescription,
                     refAudio: configuration.refAudio,
                     refText: configuration.refText,
+                    speed: configuration.speed,
                     initialText: configuration.initialText,
                     initialSegmentationMode: configuration.initialSegmentationMode
                 )
@@ -181,6 +182,7 @@ private extension VoiceDesignView {
             VStack(alignment: .leading, spacing: LayoutConstants.generationConfigurationRowSpacing) {
                 TextInputView(
                     text: $draft.text,
+                    speechRate: $draft.speed,
                     isGenerating: isGenerationActive,
                     placeholder: "Type or paste your script",
                     buttonColor: AppTheme.voiceDesign,

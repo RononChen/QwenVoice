@@ -62,7 +62,7 @@ final class LongFormAssemblyTests: XCTestCase {
         XCTAssertLessThan(evidence.maximumSegmentBoundaryJump, 4_000)
     }
 
-    func testDefaultPauseComesFromPlannerBoundarySemantics() async throws {
+    func testDefaultPauseUsesFixedNarrationInterSegmentContract() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
         let firstURL = try fixture.makeAudioFile(
@@ -99,7 +99,7 @@ final class LongFormAssemblyTests: XCTestCase {
 
         XCTAssertEqual(
             evidence.segments[0].insertedPauseOutputRange.count,
-            12_000
+            7_200
         )
         XCTAssertEqual(evidence.segments[0].lineage.revision, 2)
         XCTAssertEqual(evidence.segments[0].lineage.replacesSegmentID, "paragraph-v1")

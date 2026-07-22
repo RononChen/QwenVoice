@@ -24,6 +24,7 @@ REQUIRED_SURFACES=(
     "scripts/codex_session_storage.py"
     "scripts/documentation_contract.py"
     "scripts/model_catalog_contract.py"
+    "scripts/check_localizations.py"
     "scripts/evidence_impact.py"
     "scripts/required_step_ledger.py"
     "scripts/project_health.py"
@@ -33,6 +34,8 @@ REQUIRED_SURFACES=(
     "scripts/swift_dependency_snapshot.py"
     "scripts/release_evidence.py"
     "scripts/release_sbom.py"
+    "scripts/build_ffmpeg_lgpl_component.sh"
+    "scripts/verify_ffmpeg_lgpl_component.py"
     "scripts/build_cleanup.py"
     "scripts/clean_build_caches.sh"
     "scripts/lib/build_paths.sh"
@@ -62,6 +65,7 @@ REQUIRED_SURFACES=(
     "scripts/tests/test_codex_session_storage.py"
     "scripts/tests/test_documentation_contract.py"
     "scripts/tests/test_model_catalog_contract.py"
+    "scripts/tests/test_check_localizations.py"
     "scripts/tests/test_evidence_impact.py"
     "scripts/tests/test_required_step_ledger.py"
     "scripts/tests/test_project_health.py"
@@ -70,6 +74,7 @@ REQUIRED_SURFACES=(
     "scripts/tests/test_supply_chain_contract.py"
     "scripts/tests/test_swift_dependency_snapshot.py"
     "scripts/tests/test_release_evidence.py"
+    "scripts/tests/test_ffmpeg_lgpl_component.py"
     "scripts/tests/test_build_routing_contract.py"
     "scripts/tests/test_generate_cli_scheme.py"
     "scripts/tests/test_generate_ios_logic_scheme.py"
@@ -92,6 +97,7 @@ REQUIRED_SURFACES=(
     "config/codex-session-storage-policy.json"
     "config/documentation-contract.json"
     "config/evidence-impact.json"
+    "config/ffmpeg-lgpl-component.json"
     "config/model-catalog-schema-v1.json"
     "config/model-catalog-schema-v2.json"
     "config/model-artifact-receipts.json"
@@ -143,7 +149,10 @@ python3 "$SCRIPT_DIR/generate_cli_scheme.py" --check
 python3 "$SCRIPT_DIR/generate_ios_logic_scheme.py" --check
 python3 "$SCRIPT_DIR/model_catalog_contract.py" rebuild --check
 python3 "$SCRIPT_DIR/model_catalog_contract.py" validate
+python3 "$SCRIPT_DIR/check_localizations.py"
+python3 "$SCRIPT_DIR/tests/test_check_localizations.py"
 python3 "$SCRIPT_DIR/evidence_impact.py" validate
+python3 "$SCRIPT_DIR/verify_ffmpeg_lgpl_component.py" check-config
 
 # iOS device tooling and explicit XCUITest are first-class. `scripts/ios_device.sh` owns
 # physical-device operations; `scripts/ui_test.sh` is the sole app-UI entry point.

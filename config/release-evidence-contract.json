@@ -24,6 +24,7 @@
       "website/package-lock.json",
       "Sources/Resources/qwenvoice_contract.json",
       "Sources/Resources/qwenvoice_production_model_catalog.json",
+      "config/ffmpeg-lgpl-component.json",
       "config/toolchain.json",
       "config/evidence-impact.json",
       "config/orchestration-contract.json"
@@ -33,7 +34,8 @@
       "project.yml",
       "QwenVoice.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
       "Packages/VocelloQwen3Core/Package.resolved",
-      "website/package-lock.json"
+      "website/package-lock.json",
+      "config/ffmpeg-lgpl-component.json"
     ],
     "projectDigest": ["project.yml"],
     "runtimeCapabilitiesDigest": ["Packages/VocelloQwen3Core/RUNTIME_CAPABILITIES.json"],

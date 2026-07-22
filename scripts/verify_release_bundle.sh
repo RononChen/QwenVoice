@@ -48,6 +48,10 @@ REQUIRED_ABSENT_RESOURCE_PATHS=()
 while IFS= read -r required_absent_path; do
     REQUIRED_ABSENT_RESOURCE_PATHS+=("$required_absent_path")
 done < <(matrix_read "macOS/app/requiredAbsentResourcePaths")
+REQUIRED_EXECUTABLE_PATHS=()
+while IFS= read -r required_executable_path; do
+    REQUIRED_EXECUTABLE_PATHS+=("$required_executable_path")
+done < <(matrix_read "macOS/app/requiredExecutablePaths")
 
 APP_EXECUTABLE_NAME="$(plist_read "$APP_INFO_PLIST" CFBundleExecutable)"
 [ -n "$APP_EXECUTABLE_NAME" ] || fail "Could not resolve app executable name from $APP_INFO_PLIST"
@@ -103,6 +107,13 @@ for required_absent_path in "${REQUIRED_ABSENT_RESOURCE_PATHS[@]}"; do
         fail "Forbidden packaged path is present: $required_absent_path"
     fi
 done
+for required_executable_path in "${REQUIRED_EXECUTABLE_PATHS[@]}"; do
+    [ -x "$APP_PATH/$required_executable_path" ] \
+        || fail "Required packaged executable is missing: $required_executable_path"
+done
+FFMPEG_HELPER="$APP_PATH/Contents/Helpers/ffmpeg-vocello"
+python3 "$SCRIPT_DIR/verify_ffmpeg_lgpl_component.py" verify-app \
+    --app-bundle "$APP_PATH" >/dev/null
 if find "$RESOURCES_DIR" -name "*.whl" -print -quit | grep -q .; then
     fail "Vendored wheel files must not be packaged into the native app bundle"
 fi
@@ -118,6 +129,8 @@ if [ "$EXPECT_SIGNED_RELEASE" = "1" ]; then
     codesign_has_runtime_metadata "$APP_PATH" || fail "Signed release is missing hardened runtime metadata"
     codesign --verify --strict "$XPC_SERVICE_PATH" >/dev/null 2>&1 || fail "Bundled XPC service code signature verification failed"
     codesign_has_runtime_metadata "$XPC_SERVICE_PATH" || fail "Bundled XPC service is missing hardened runtime metadata"
+    codesign --verify --strict "$FFMPEG_HELPER" >/dev/null 2>&1 || fail "Bundled ffmpeg-vocello signature verification failed"
+    codesign_has_runtime_metadata "$FFMPEG_HELPER" || fail "Bundled ffmpeg-vocello is missing hardened runtime metadata"
     EXPECTED_TEAM_ID="${QWENVOICE_EXPECT_TEAM_ID:-${APPLE_TEAM_ID:-}}"
     [ -n "$APP_TEAM_ID" ] || fail "Signed release app Info.plist is missing $TEAM_ID_INFO_KEY"
     [ -n "$XPC_TEAM_ID" ] || fail "Signed release XPC Info.plist is missing $TEAM_ID_INFO_KEY"
@@ -127,8 +140,10 @@ if [ "$EXPECT_SIGNED_RELEASE" = "1" ]; then
     fi
     APP_SIGNATURE_TEAM_ID="$(codesign_team_identifier "$APP_PATH")"
     XPC_SIGNATURE_TEAM_ID="$(codesign_team_identifier "$XPC_SERVICE_PATH")"
+    FFMPEG_SIGNATURE_TEAM_ID="$(codesign_team_identifier "$FFMPEG_HELPER")"
     [ "$APP_SIGNATURE_TEAM_ID" = "$APP_TEAM_ID" ] || fail "App signature Team ID mismatch: Info.plist=$APP_TEAM_ID signature=${APP_SIGNATURE_TEAM_ID:-missing}"
     [ "$XPC_SIGNATURE_TEAM_ID" = "$XPC_TEAM_ID" ] || fail "XPC signature Team ID mismatch: Info.plist=$XPC_TEAM_ID signature=${XPC_SIGNATURE_TEAM_ID:-missing}"
+    [ "$FFMPEG_SIGNATURE_TEAM_ID" = "$APP_TEAM_ID" ] || fail "ffmpeg-vocello signature Team ID mismatch: app=$APP_TEAM_ID helper=${FFMPEG_SIGNATURE_TEAM_ID:-missing}"
     echo "[2/4] Signed release checks OK"
 else
     echo "[2/4] Signature checks skipped (set QWENVOICE_EXPECT_SIGNED_RELEASE=1 for release verification)"

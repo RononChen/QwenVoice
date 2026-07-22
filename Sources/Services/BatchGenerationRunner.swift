@@ -8,8 +8,11 @@ enum BatchSegmentationMode: String, Codable, Equatable {
 }
 
 struct LongFormBatchSegmenter {
-    static let defaultMaxCharacters = 900
-    static let runtimeTokenLimit = 450
+    /// Reproduces the independently observed Windows narration contract:
+    /// texts longer than 200 characters are planned into punctuation-aware
+    /// segments with the same conservative 200-token ceiling.
+    static let defaultMaxCharacters = 200
+    static let runtimeTokenLimit = 200
 
     static func plan(from text: String, baseSeed: UInt64) throws -> LongFormPlan {
         try LongFormPlanner.plan(
@@ -185,6 +188,7 @@ struct BatchGenerationRequest {
     let voiceDescription: String?
     let refAudio: String?
     let refText: String?
+    let speed: Double
     let originalLongFormText: String?
     let longFormPlan: LongFormPlan?
     /// One sampling seed shared by every item in the batch (GitHub #30):
@@ -206,6 +210,7 @@ struct BatchGenerationRequest {
         voiceDescription: String?,
         refAudio: String?,
         refText: String?,
+        speed: Double = SpeechRateControl.normal,
         originalLongFormText: String? = nil,
         longFormPlan: LongFormPlan? = nil,
         batchSeed: UInt64 = UInt64.random(in: UInt64.min...UInt64.max)
@@ -220,6 +225,7 @@ struct BatchGenerationRequest {
         self.voiceDescription = voiceDescription
         self.refAudio = refAudio
         self.refText = refText
+        self.speed = SpeechRateControl.normalized(speed)
         self.originalLongFormText = originalLongFormText
         self.longFormPlan = longFormPlan
         self.batchSeed = batchSeed
@@ -237,6 +243,7 @@ struct BatchGenerationRequest {
             voiceDescription: voiceDescription,
             refAudio: refAudio,
             refText: refText,
+            speed: speed,
             originalLongFormText: originalText,
             longFormPlan: plan,
             batchSeed: batchSeed
@@ -259,7 +266,11 @@ struct BatchGenerationRequest {
         return nil
     }
 
-    func makeHistoryRecord(for line: String, result: QwenVoiceNative.GenerationResult) -> Generation {
+    func makeHistoryRecord(
+        for line: String,
+        audioPath: String,
+        durationSeconds: Double
+    ) -> Generation {
         let voiceName: String?
         switch mode {
         case .custom:
@@ -282,9 +293,9 @@ struct BatchGenerationRequest {
             modelTier: model.tier,
             voice: voiceName,
             emotion: emotion,
-            speed: nil,
-            audioPath: result.audioPath,
-            duration: result.durationSeconds,
+            speed: speed,
+            audioPath: audioPath,
+            duration: durationSeconds,
             createdAt: Date()
         )
     }
@@ -790,7 +801,26 @@ final class BatchGenerationRunner {
                     publishProgress(activeItemIndex: index, message: "Saving item \(index + 1)/\(total)...")
 
                     let (line, result) = pair
-                    let generation = request.makeHistoryRecord(for: line, result: result)
+                    if !SpeechRateControl.isNormal(request.speed) {
+                        publishProgress(
+                            activeItemIndex: index,
+                            message: AppLocalization.format(
+                                "Adjusting speech rate for item %lld/%lld...",
+                                Int64(index + 1),
+                                Int64(total)
+                            )
+                        )
+                    }
+                    let finalizedAudio = try await PitchPreservingSpeechRateProcessor.finalize(
+                        audioPath: result.audioPath,
+                        originalDurationSeconds: result.durationSeconds,
+                        rate: request.speed
+                    )
+                    let generation = request.makeHistoryRecord(
+                        for: line,
+                        audioPath: finalizedAudio.audioPath,
+                        durationSeconds: finalizedAudio.durationSeconds
+                    )
 
                     do {
                         let savedGeneration = try await store.saveGeneration(generation)
@@ -801,7 +831,7 @@ final class BatchGenerationRunner {
                         // for any subscriber that hasn't migrated.
                         generationEvents.announceGenerationAppended(savedGeneration)
                         completedCount += 1
-                        items[index].status = .saved(audioPath: result.audioPath)
+                        items[index].status = .saved(audioPath: finalizedAudio.audioPath)
                         if index + 1 < items.count {
                             items[index + 1].status = .pending
                         }
@@ -856,15 +886,35 @@ final class BatchGenerationRunner {
                     batchTotal: total
                 )
 
+                if !SpeechRateControl.isNormal(request.speed) {
+                    publishProgress(
+                        activeItemIndex: index,
+                        message: AppLocalization.format(
+                            "Adjusting speech rate for item %lld/%lld...",
+                            Int64(index + 1),
+                            Int64(total)
+                        )
+                    )
+                }
+                let finalizedAudio = try await PitchPreservingSpeechRateProcessor.finalize(
+                    audioPath: result.audioPath,
+                    originalDurationSeconds: result.durationSeconds,
+                    rate: request.speed
+                )
+
                 publishProgress(activeItemIndex: index, message: "Saving item \(index + 1)/\(total)...")
 
-                let generation = request.makeHistoryRecord(for: line, result: result)
+                let generation = request.makeHistoryRecord(
+                    for: line,
+                    audioPath: finalizedAudio.audioPath,
+                    durationSeconds: finalizedAudio.durationSeconds
+                )
                 let savedGeneration = try await store.saveGeneration(generation)
                 // See above: payload-carrying announce so HistoryView
                 // appends the new row live.
                 generationEvents.announceGenerationAppended(savedGeneration)
                 completedCount += 1
-                items[index].status = .saved(audioPath: result.audioPath)
+                items[index].status = .saved(audioPath: finalizedAudio.audioPath)
                 publishItems()
             } catch {
                 let cancellationRequested = await cancellationState.wasRequested()
@@ -1053,16 +1103,27 @@ final class BatchGenerationRunner {
                 throw CancellationError()
             }
 
-            publishProgress(activeIndex: nil, message: "Saving the complete audio...")
-            let duration = Double(assembly.outputFrameCount) / Double(assembly.sampleRate)
-            let result = QwenVoiceNative.GenerationResult(
+            let assembledDuration = Double(assembly.outputFrameCount) / Double(assembly.sampleRate)
+            if !SpeechRateControl.isNormal(request.speed) {
+                publishProgress(activeIndex: nil, message: "Adjusting speech rate...")
+            }
+            let finalizedAudio = try await PitchPreservingSpeechRateProcessor.finalize(
                 audioPath: outputURL.path,
-                durationSeconds: duration,
-                streamSessionDirectory: nil,
-                usedStreaming: false,
-                finishReason: .eos
+                originalDurationSeconds: assembledDuration,
+                rate: request.speed
             )
-            let generation = request.makeHistoryRecord(for: originalText, result: result)
+
+            try Task.checkCancellation()
+            if await cancellationState.wasRequested() {
+                throw CancellationError()
+            }
+
+            publishProgress(activeIndex: nil, message: "Saving the complete audio...")
+            let generation = request.makeHistoryRecord(
+                for: originalText,
+                audioPath: finalizedAudio.audioPath,
+                durationSeconds: finalizedAudio.durationSeconds
+            )
             let savedGeneration = try await store.saveGeneration(generation)
             generationEvents.announceGenerationAppended(savedGeneration)
             historyAccepted = true

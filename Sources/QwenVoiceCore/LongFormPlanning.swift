@@ -36,12 +36,10 @@ public enum LongFormBoundaryKind: String, Codable, CaseIterable, Hashable, Senda
 
     public var intendedPauseMilliseconds: Int {
         switch self {
-        case .paragraph: 500
-        case .sentence: 300
-        case .semicolonOrColon: 180
-        case .safeClause: 120
-        case .whitespace: 80
-        case .grapheme, .endOfText: 0
+        case .paragraph, .sentence, .semicolonOrColon, .safeClause, .whitespace, .grapheme:
+            300
+        case .endOfText:
+            0
         }
     }
 }
@@ -63,7 +61,7 @@ public struct LongFormRevisionLineage: Codable, Equatable, Hashable, Sendable {
 }
 
 public struct LongFormPlanningConfiguration: Codable, Equatable, Hashable, Sendable {
-    public static let currentPlannerAlgorithmVersion = 1
+    public static let currentPlannerAlgorithmVersion = 2
     public static let currentTokenEstimatorVersion = 1
 
     public let plannerAlgorithmVersion: Int
@@ -396,14 +394,32 @@ public enum LongFormPlanner {
     private static func preferredBoundary(
         from candidates: [BoundaryCandidate]
     ) -> BoundaryCandidate? {
-        for kind in LongFormBoundaryKind.allCases
-            .filter({ $0 != .endOfText })
-            .sorted(by: { $0.precedence < $1.precedence }) {
-            if let candidate = candidates.last(where: { $0.kind == kind }) {
-                return candidate
-            }
+        let punctuationKinds: Set<LongFormBoundaryKind> = [
+            .paragraph,
+            .sentence,
+            .semicolonOrColon,
+            .safeClause,
+        ]
+        let punctuationCandidates = candidates.filter { punctuationKinds.contains($0.kind) }
+        if let farthest = farthestPreferredCandidate(in: punctuationCandidates) {
+            return farthest
         }
-        return nil
+        if let whitespace = candidates.last(where: { $0.kind == .whitespace }) {
+            return whitespace
+        }
+        return candidates.last(where: { $0.kind == .grapheme })
+    }
+
+    /// The observed long-narration behavior greedily fills each window and
+    /// then backs up to the latest usable punctuation. Boundary precedence is
+    /// only a tie-breaker when two kinds describe the same text position.
+    private static func farthestPreferredCandidate(
+        in candidates: [BoundaryCandidate]
+    ) -> BoundaryCandidate? {
+        guard let farthestIndex = candidates.map(\.index).max() else { return nil }
+        return candidates
+            .filter { $0.index == farthestIndex }
+            .min { $0.kind.precedence < $1.kind.precedence }
     }
 
     private static func segmentIdentity(

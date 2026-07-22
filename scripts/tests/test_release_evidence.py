@@ -48,6 +48,16 @@ class ReleaseEvidenceTests(unittest.TestCase):
                 "integrity": "sha512-YWJj", "license": "MIT"
             }}
         }), encoding="utf-8")
+        (self.root / release_evidence.release_sbom.FFMPEG_COMPONENT).write_text(json.dumps({
+            "schemaVersion": 1,
+            "upstream": "FFmpeg",
+            "version": "8.0.3",
+            "license": "LGPL-2.1-or-later",
+            "source": {
+                "url": "https://ffmpeg.org/releases/ffmpeg-8.0.3.tar.xz",
+                "sha256": "b" * 64,
+            },
+        }), encoding="utf-8")
         self.release_contract = self.root / "config/release-evidence-contract.json"
         source_inputs = {field: ["project.yml"] for field in IDENTITY_DIGESTS}
         source_inputs["orchestrationContractDigest"] = ["config/orchestration-contract.json"]

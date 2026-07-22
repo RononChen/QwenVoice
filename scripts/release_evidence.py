@@ -587,7 +587,12 @@ def create(
         if managed["bytes"] != artifact["bytes"] or managed["sha256"] != artifact["sha256"]:
             raise ValueError(f"managed release output changed before evidence creation: {name}")
     source_materials = []
-    for relative in (release_sbom.SWIFT_LOCK, release_sbom.NPM_LOCK, Path("project.yml")):
+    for relative in (
+        release_sbom.SWIFT_LOCK,
+        release_sbom.NPM_LOCK,
+        release_sbom.FFMPEG_COMPONENT,
+        Path("project.yml"),
+    ):
         path = root / relative
         source_materials.append({"name": relative.as_posix(), "sha256": digest_file(path)})
 

@@ -291,6 +291,7 @@ struct VoiceCloningView: View {
                     voiceDescription: configuration.voiceDescription,
                     refAudio: configuration.refAudio,
                     refText: configuration.refText,
+                    speed: configuration.speed,
                     initialText: configuration.initialText,
                     initialSegmentationMode: configuration.initialSegmentationMode
                 )
@@ -385,6 +386,7 @@ private extension VoiceCloningView {
             VStack(alignment: .leading, spacing: LayoutConstants.generationConfigurationRowSpacing) {
                 TextInputView(
                     text: $draft.text,
+                    speechRate: $draft.speed,
                     isGenerating: isGenerationActive,
                     placeholder: "Type the line for the cloned voice",
                     buttonColor: AppTheme.voiceCloning,

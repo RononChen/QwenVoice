@@ -33,6 +33,27 @@ change runtime or promotion evidence.
 | 13 — Benchmark/history v3 | Not started; schema v2 remains authoritative until shipping plan/session/quality identities stabilize. |
 | 14 — Organization and retirement | Explicitly deferred until overall Phase 4 promotion and Phase 5/6/0 close. Named deferred surfaces: `NativeStreamingSynthesisSession.swift` filename, `VocelloQwen3LegacyCompatibility` SPI, combined characterization session, and Clone priming stream APIs. |
 
+### macOS 长篇叙事扩展 — 2026-07-22
+
+当前本地工作区正在复刻已由静态分析和同稿波形交叉证明的 Windows 对照行为，但不导入其代码或二进制：超过
+200 个字符进入长文本路径，规划器使用 200 token 上限，每个非末段边界插入固定 300 毫秒静音，最终对已经
+合并的完整 WAV 执行一次 FFmpeg `atempo`。语速 `1.00` 完全旁路；非 `1.00` 使用隐藏暂存 WAV，验证后
+原子替换，并沿用单一 History 成品和任务过程文件清理合同。Apple `AVAudioUnitTimePitch` 因同源 A/B 音质明显
+较差而不再作为当前实现。
+
+普通开发构建仍可解析开发机上已有的 FFmpeg，但正式 macOS 发布路径已经从固定 FFmpeg 8.0.3 官方源码构建
+arm64 最小 LGPL-only `ffmpeg-vocello` helper：只开放本地 WAV/PCM16/`atempo` 能力，明确禁用 GPL、nonfree 和
+网络，注入完整许可证与构建身份，单独签名并进入包验证。精确对应源码、上游分离签名和构建身份会与 DMG 一起
+进入 Release、SBOM、发布证据和校验和。两次独立本机构建的 helper SHA-256 相同，0.85 倍速功能验证通过；实际
+Developer ID、公证、DMG 回读和远端资产闭环留给下一次正式候选发布。iOS 不在本轮范围内。
+
+### macOS 界面多语言 — 2026-07-22
+
+macOS 设置页新增独立的界面语言偏好：默认跟随系统，并支持简体中文、繁体中文、英文、日文、德文、
+法文、俄文、通用葡萄牙文 `pt`、西班牙文和意大利文。显式选择只影响 Vocello 自有界面，重启应用后
+统一作用于主窗口、设置窗口和应用自有菜单；TTS 的语言检测、模型和生成参数不受影响。十套
+`Localizable.strings` 由键集合、重复键、空值和格式占位符合同保护。iOS 暂不接入该界面语言设置。
+
 The post-cutover deterministic proof passed `scripts/macos_test.sh test`, including Core, XPC
 transport, and 103 owned-runtime tests. The arm64 macOS build and generic iPhoneOS SDK app plus
 policy-test compilation also passed without contacting a device. Runtime, documentation, vendor,

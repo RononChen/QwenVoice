@@ -74,19 +74,26 @@ final class CustomVoiceCoordinator {
                     mode: generationRequest.modeIdentifier
                 )
                 submittedGenerationID = generationRequest.generationID
-                audioPlayer.setLivePreviewEstimate(
-                    LivePreviewEstimate(text: draft.text)
-                )
+                if generationRequest.shouldStream {
+                    audioPlayer.setLivePreviewEstimate(
+                        LivePreviewEstimate(text: draft.text)
+                    )
+                }
                 let result = try await ttsEngineStore.generate(generationRequest)
-                var generation = Generation(
+                let finalizedAudio = try await PitchPreservingSpeechRateProcessor.finalize(
+                    audioPath: result.audioPath,
+                    originalDurationSeconds: result.durationSeconds,
+                    rate: draft.speed
+                )
+                let generation = Generation(
                     text: draft.text,
                     mode: model.mode.rawValue,
                     modelTier: model.tier,
                     voice: draft.selectedSpeaker,
                     emotion: draft.emotion,
-                    speed: nil,
-                    audioPath: result.audioPath,
-                    duration: result.durationSeconds,
+                    speed: SpeechRateControl.normalized(draft.speed),
+                    audioPath: finalizedAudio.audioPath,
+                    duration: finalizedAudio.durationSeconds,
                     createdAt: Date()
                 )
 
@@ -154,7 +161,7 @@ final class CustomVoiceCoordinator {
             modelID: model.id,
             text: draft.text,
             outputPath: outputPath,
-            shouldStream: true,
+            shouldStream: SpeechRateControl.isNormal(draft.speed),
             streamingInterval: QwenVoiceCore.GenerationSemantics.appStreamingInterval,
             streamingTitle: Swift.String(draft.text.prefix(40)),
             languageHint: draft.selectedLanguage.rawValue,

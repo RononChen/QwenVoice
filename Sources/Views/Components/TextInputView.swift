@@ -3,6 +3,7 @@ import AppKit
 
 struct TextInputView: View {
     @Binding var text: String
+    @Binding var speechRate: Double
 
     var isGenerating: Bool
     var placeholder: String = "Type or paste your script"
@@ -87,6 +88,8 @@ struct TextInputView: View {
                 }
             }
 
+            SpeechRateField(rate: $speechRate, isDisabled: isGenerating)
+
             Spacer(minLength: 0)
 
             characterCount
@@ -127,6 +130,91 @@ struct TextInputView: View {
             .opacity(0.001)
             .disabled(isTextEmptyForGeneration || isGenerating || generateDisabled)
             .accessibilityHidden(true)
+    }
+}
+
+struct SpeechRateField: View {
+    @Binding var rate: Double
+    var isDisabled = false
+
+    @State private var input: String
+    @FocusState private var isFocused: Bool
+
+    init(rate: Binding<Double>, isDisabled: Bool = false) {
+        _rate = rate
+        self.isDisabled = isDisabled
+        _input = State(initialValue: SpeechRateControl.formatted(rate.wrappedValue))
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("Speech rate".localizedForDisplay)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            TextField("1.00", text: $input)
+                .textFieldStyle(.roundedBorder)
+                .font(.body.monospacedDigit())
+                .multilineTextAlignment(.trailing)
+                .frame(width: 64)
+                .focused($isFocused)
+                .onSubmit(commit)
+                .onChange(of: isFocused) { _, focused in
+                    if !focused { commit() }
+                }
+                .onChange(of: input) { _, newValue in
+                    let sanitized = sanitize(newValue)
+                    if sanitized != newValue {
+                        input = sanitized
+                        return
+                    }
+                    guard let value = Double(sanitized),
+                          value >= SpeechRateControl.minimum,
+                          value <= SpeechRateControl.maximum else { return }
+                    rate = SpeechRateControl.normalized(value)
+                }
+                .onChange(of: rate) { _, newValue in
+                    guard !isFocused else { return }
+                    input = SpeechRateControl.formatted(newValue)
+                }
+                .disabled(isDisabled)
+                .accessibilityIdentifier("textInput_speechRateField")
+                .accessibilityLabel("Speech rate".localizedForDisplay)
+                .accessibilityValue(SpeechRateControl.formatted(rate))
+
+            Text("×")
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+        }
+        .help("Enter a value from 0.01 to 2.50. 1.00 is the original speed.".localizedForDisplay)
+    }
+
+    private func commit() {
+        let parsed = Double(input) ?? rate
+        let normalized = SpeechRateControl.normalized(parsed)
+        rate = normalized
+        input = SpeechRateControl.formatted(normalized)
+    }
+
+    private func sanitize(_ value: String) -> String {
+        let normalizedSeparator = value.replacingOccurrences(of: ",", with: ".")
+        var output = ""
+        var sawDecimalPoint = false
+        var fractionDigits = 0
+        for character in normalizedSeparator {
+            if character.isNumber {
+                if sawDecimalPoint {
+                    guard fractionDigits < 2 else { continue }
+                    fractionDigits += 1
+                }
+                output.append(character)
+            } else if character == ".", !sawDecimalPoint {
+                sawDecimalPoint = true
+                output.append(character)
+            }
+        }
+        return output
     }
 }
 

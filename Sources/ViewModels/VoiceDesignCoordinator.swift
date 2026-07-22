@@ -15,6 +15,7 @@ struct VoiceDesignSavedVoiceCandidate: Equatable {
     let suggestedName: String
     let voiceDescription: String
     let emotion: String
+    let speed: Double
     let text: String
     private(set) var savedVoiceName: String?
 
@@ -25,6 +26,7 @@ struct VoiceDesignSavedVoiceCandidate: Equatable {
     func matches(draft: VoiceDesignDraft) -> Bool {
         voiceDescription == draft.voiceDescription
             && emotion == draft.emotion
+            && speed == SpeechRateControl.normalized(draft.speed)
             && text == draft.text
     }
 
@@ -125,6 +127,7 @@ final class VoiceDesignCoordinator {
         let text = draft.text
         let voiceDescription = draft.voiceDescription
         let emotion = draft.emotion
+        let speed = SpeechRateControl.normalized(draft.speed)
 
         generationTask = Task { @MainActor in
             var submittedGenerationID: UUID?
@@ -144,6 +147,7 @@ final class VoiceDesignCoordinator {
                     draft: VoiceDesignDraft(
                         voiceDescription: voiceDescription,
                         emotion: emotion,
+                        speed: speed,
                         text: text
                     ),
                     model: model,
@@ -154,19 +158,26 @@ final class VoiceDesignCoordinator {
                     mode: generationRequest.modeIdentifier
                 )
                 submittedGenerationID = generationRequest.generationID
-                audioPlayer.setLivePreviewEstimate(
-                    LivePreviewEstimate(text: text)
-                )
+                if generationRequest.shouldStream {
+                    audioPlayer.setLivePreviewEstimate(
+                        LivePreviewEstimate(text: text)
+                    )
+                }
                 let result = try await ttsEngineStore.generate(generationRequest)
-                var generation = Generation(
+                let finalizedAudio = try await PitchPreservingSpeechRateProcessor.finalize(
+                    audioPath: result.audioPath,
+                    originalDurationSeconds: result.durationSeconds,
+                    rate: speed
+                )
+                let generation = Generation(
                     text: text,
                     mode: model.mode.rawValue,
                     modelTier: model.tier,
                     voice: voiceDescription,
                     emotion: emotion,
-                    speed: nil,
-                    audioPath: result.audioPath,
-                    duration: result.durationSeconds,
+                    speed: speed,
+                    audioPath: finalizedAudio.audioPath,
+                    duration: finalizedAudio.durationSeconds,
                     createdAt: Date()
                 )
 
@@ -193,6 +204,7 @@ final class VoiceDesignCoordinator {
                     suggestedName: SavedVoiceNameSuggestion.designResultName(from: voiceDescription),
                     voiceDescription: voiceDescription,
                     emotion: emotion,
+                    speed: speed,
                     text: text
                 )
             } catch is CancellationError {
@@ -240,7 +252,7 @@ final class VoiceDesignCoordinator {
             modelID: model.id,
             text: draft.text,
             outputPath: outputPath,
-            shouldStream: true,
+            shouldStream: SpeechRateControl.isNormal(draft.speed),
             streamingTitle: String(draft.text.prefix(40)),
             languageHint: draft.selectedLanguage.rawValue,
             payload: .design(

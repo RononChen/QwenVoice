@@ -51,6 +51,7 @@
 "All languages" = "所有语言";
 "All speakers" = "所有说话人";
 "Application data" = "应用数据";
+"Open-source licenses" = "开源许可";
 "Audio" = "音频";
 "Audio unavailable" = "音频不可用";
 "Audio quality check failed: %@" = "音频质量检查失败：%@";
@@ -148,6 +149,7 @@
 "Expressive is the model's official sampling (liveliest); " = "“生动”采用模型官方采样方式，表现力最强；";
 "Failed" = "失败";
 "Finishing another engine task before Custom Voice can be ready." = "正在完成另一项引擎任务，随后即可使用自定义声音。";
+"Follow System" = "跟随系统";
 "French" = "法语";
 "Generate" = "生成";
 "Generate All" = "全部生成";
@@ -166,6 +168,8 @@
 "History Is Empty" = "历史记录为空";
 "History Reload" = "重新加载历史记录";
 "History Unavailable" = "历史记录不可用";
+"Interface" = "界面";
+"Interface language" = "界面语言";
 "How much takes vary when regenerating the same text. " = "控制同一文本重复生成时的变化程度。";
 "I own or have permission to clone the voices I use" = "我拥有或已获准克隆所使用的声音";
 "Import" = "导入";
@@ -176,6 +180,7 @@
 "Keep recording. 10 second minimum." = "请继续录制，至少需要 10 秒。";
 "Keep voice" = "保留声音";
 "Language" = "语言";
+"Language changes take effect after you restart Vocello." = "语言更改将在重新启动 Vocello 后生效。";
 "Library" = "资料库";
 "Line-by-line" = "逐行";
 "Lite" = "轻量";
@@ -305,6 +310,8 @@
 "Saved Voices" = "已保存的声音";
 "Saved voices will appear once the speech engine is ready." = "语音引擎就绪后会显示已保存的声音。";
 "Saving the complete audio..." = "正在保存完整音频…";
+"Adjusting speech rate..." = "正在调整语速…";
+"Adjusting speech rate for item %lld/%lld..." = "正在调整第 %lld/%lld 项的语速…";
 "Saved voices or imported clips both work. Pick one before writing the line." = "可以使用已保存的声音或导入的音频，请先选择一项再输入文本。";
 "Script" = "文本";
 "Search history" = "搜索历史记录";
@@ -325,6 +332,16 @@
 "Speaker and delivery are set. Add a line to generate." = "说话人和表达方式已设置，请输入要生成的文本。";
 "Speech recognition is off for Vocello — the transcript won't auto-fill." = "Vocello 的语音识别已关闭，转写文本不会自动填入。";
 "Speech recognition is off for Vocello — type the transcript or enable it in System Settings → Privacy & Security." = "Vocello 的语音识别已关闭。请手动输入转写文本，或前往“系统设置 → 隐私与安全性”启用。";
+"Speech rate" = "语速";
+"Speech rate must be between 0.01 and 2.50." = "语速必须在 0.01 到 2.50 之间。";
+"FFmpeg is required for high-quality speech-rate adjustment but was not found." = "未找到高质量语速调整所需的 FFmpeg。";
+"FFmpeg could not finish adjusting the speech rate." = "FFmpeg 未能完成语速调整。";
+"Speech-rate adjustment produced an empty audio file." = "语速调整生成了空音频文件。";
+"The adjusted audio file could not be verified." = "调整语速后的音频文件未能通过校验。";
+"The generated audio could not be opened for speech-rate adjustment." = "无法打开生成的音频进行语速调整。";
+"The generated audio format is not supported for speech-rate adjustment." = "生成的音频格式不支持语速调整。";
+"Enter a value from 0.01 to 2.50. 1.00 is the original speed." = "请输入 0.01 到 2.50 之间的数值；1.00 为原速。";
+"0.01–2.50 · 1.00 is original speed" = "0.01–2.50 · 1.00 为原速";
 "Speed" = "速度";
 "Speed uses less memory and is safer on lower-RAM Macs, with lower fidelity than Quality. " = "速度模型占用内存更少，更适合内存较小的 Mac，但保真度低于质量模型。";
 "Standby" = "待机";

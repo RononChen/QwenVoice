@@ -4,14 +4,26 @@ import Foundation
 /// reusable-view `String` properties instead of SwiftUI's `LocalizedStringKey`
 /// overloads. Source strings remain the English fallback.
 enum AppLocalization {
+    /// Captured once for the life of the process. Settings writes the next
+    /// launch preference, which avoids partially changing an open window tree.
+    static let requestedLanguage = AppDisplayLanguage.selection(
+        from: AppDefaults.store.string(forKey: AppDisplayLanguage.preferenceKey)
+    )
+
+    static let localizationIdentifier = requestedLanguage.resolvedLocalizationIdentifier()
+
+    static var locale: Locale {
+        Locale(identifier: localizationIdentifier)
+    }
+
     static func string(_ key: String) -> String {
-        Bundle.main.localizedString(forKey: key, value: key, table: nil)
+        localizationBundle.localizedString(forKey: key, value: key, table: nil)
     }
 
     static func format(_ key: String, _ arguments: CVarArg...) -> String {
         String(
             format: string(key),
-            locale: Locale.current,
+            locale: locale,
             arguments: arguments
         )
     }
@@ -28,6 +40,19 @@ enum AppLocalization {
         let modeEnd = label.index(before: label.endIndex)
         let mode = String(label[modeStart..<modeEnd]).localizedForDisplay
         return format("Generating %@…", mode)
+    }
+
+    private static var localizationBundle: Bundle {
+        let candidates = localizationIdentifier == AppDisplayLanguage.english.rawValue
+            ? [localizationIdentifier]
+            : [localizationIdentifier, AppDisplayLanguage.english.rawValue]
+        for identifier in candidates {
+            if let path = Bundle.main.path(forResource: identifier, ofType: "lproj"),
+               let bundle = Bundle(path: path) {
+                return bundle
+            }
+        }
+        return .main
     }
 }
 

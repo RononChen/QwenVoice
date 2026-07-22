@@ -186,21 +186,28 @@ final class VoiceCloningCoordinator {
                     mode: generationRequest.modeIdentifier
                 )
                 submittedGenerationID = generationRequest.generationID
-                audioPlayer.setLivePreviewEstimate(
-                    LivePreviewEstimate(text: currentDraft.text)
-                )
+                if generationRequest.shouldStream {
+                    audioPlayer.setLivePreviewEstimate(
+                        LivePreviewEstimate(text: currentDraft.text)
+                    )
+                }
                 let result = try await ttsEngineStore.generate(generationRequest)
+                let finalizedAudio = try await PitchPreservingSpeechRateProcessor.finalize(
+                    audioPath: result.audioPath,
+                    originalDurationSeconds: result.durationSeconds,
+                    rate: currentDraft.speed
+                )
                 let voiceName = selectedVoice?.name
                     ?? URL(fileURLWithPath: refPath).deletingPathExtension().lastPathComponent
-                var generation = Generation(
+                let generation = Generation(
                     text: currentDraft.text,
                     mode: model.mode.rawValue,
                     modelTier: model.tier,
                     voice: voiceName,
                     emotion: nil,
-                    speed: nil,
-                    audioPath: result.audioPath,
-                    duration: result.durationSeconds,
+                    speed: SpeechRateControl.normalized(currentDraft.speed),
+                    audioPath: finalizedAudio.audioPath,
+                    duration: finalizedAudio.durationSeconds,
                     createdAt: Date()
                 )
                 GenerationPersistence.persistAndAutoplay(
@@ -274,7 +281,7 @@ final class VoiceCloningCoordinator {
             modelID: model.id,
             text: draft.text,
             outputPath: outputPath,
-            shouldStream: true,
+            shouldStream: SpeechRateControl.isNormal(draft.speed),
             streamingTitle: String(draft.text.prefix(40)),
             languageHint: draft.selectedLanguage.rawValue,
             payload: .clone(

@@ -7,13 +7,12 @@ import AppKit
 /// Single in-app surface that hosts model downloads + playback +
 /// storage. Settings remain grouped by user-facing responsibility:
 ///
-/// 1. Model downloads. Compact status/action rows for the
-///    locally managed Speed and Quality packages.
+/// 1. Interface. App-owned UI language selection.
 ///
-/// 2. Playback. Auto-play controls the final-file handoff after generation.
+/// 2. Voice cloning permission and model downloads. Compact status/action
+///    rows cover the locally managed Speed and Quality packages.
 ///
-/// 3. Storage. Output directory + Application data, two compact
-///    rows.
+/// 3. Playback, generation, performance, and storage preferences.
 ///
 /// Mode color identity attaches to each row's leading 8 pt dot
 /// rather than the section header.
@@ -30,6 +29,8 @@ struct SettingsView: View {
     private let showsNavigationTitle: Bool
 
     @AppStorage("autoPlay", store: AppDefaults.store) private var autoPlay = true
+    @AppStorage(AppDisplayLanguage.preferenceKey, store: AppDefaults.store)
+    private var interfaceLanguage = AppDisplayLanguage.system.rawValue
     @AppStorage("vocello.voiceCloningConsent.v1", store: AppDefaults.store)
     private var cloneConsentAcknowledged = false
     @AppStorage("outputDirectory", store: AppDefaults.store) private var outputDirectory = ""
@@ -57,6 +58,22 @@ struct SettingsView: View {
     var body: some View {
         ScrollViewReader { proxy in
             Form {
+                Section {
+                    Picker("Interface language", selection: $interfaceLanguage) {
+                        ForEach(AppDisplayLanguage.allCases) { language in
+                            Text(verbatim: displayName(for: language))
+                                .tag(language.rawValue)
+                        }
+                    }
+                    .accessibilityIdentifier("settings_interfaceLanguage")
+
+                    Text("Language changes take effect after you restart Vocello.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("Interface")
+                }
+
                 Section("Voice cloning") {
                     Toggle(isOn: $cloneConsentAcknowledged) {
                         VStack(alignment: .leading, spacing: 2) {
@@ -167,12 +184,8 @@ struct SettingsView: View {
                             .accessibilityIdentifier("preferences_outputDirectoryIssue")
                     }
 
-                    // Application data row carries the version
-                    // text inline so the dedicated About section is
-                    // unnecessary. Settings stays at three sections;
-                    // the About box (menu Vocello -> About Vocello)
-                    // already covers full version detail in the
-                    // standard macOS spot.
+                    // Application data carries the version inline; the
+                    // standard About box already covers full version detail.
                     LabeledContent("Application data") {
                         HStack(spacing: 8) {
                             Text(appVersion)
@@ -183,6 +196,13 @@ struct SettingsView: View {
                             }
                             .controlSize(.small)
                             .accessibilityIdentifier("preferences_openFinderButton")
+                            if let ffmpegNoticeURL {
+                                Button("Open-source licenses") {
+                                    NSWorkspace.shared.open(ffmpegNoticeURL)
+                                }
+                                .controlSize(.small)
+                                .accessibilityIdentifier("preferences_openSourceLicensesButton")
+                            }
                         }
                     }
                 }
@@ -233,6 +253,12 @@ struct SettingsView: View {
         showDeleteConfirmation = true
     }
 
+    private func displayName(for language: AppDisplayLanguage) -> String {
+        language == .system
+            ? AppLocalization.string("Follow System")
+            : language.nativeDisplayName
+    }
+
     private func deleteMessage(for model: TTSModel) -> String {
         let variant = viewModel.activeVariantLabel(for: model)
         let status = viewModel.statuses[model.id]
@@ -270,6 +296,15 @@ struct SettingsView: View {
         let version = dict["CFBundleShortVersionString"] as? String ?? "?"
         let build = dict["CFBundleVersion"] as? String ?? "?"
         return "\(version) (\(build))"
+    }
+
+    private var ffmpegNoticeURL: URL? {
+        guard let resources = Bundle.main.resourceURL else { return nil }
+        let notice = resources
+            .appendingPathComponent("ThirdPartyNotices", isDirectory: true)
+            .appendingPathComponent("FFmpeg", isDirectory: true)
+            .appendingPathComponent("NOTICE.txt", isDirectory: false)
+        return FileManager.default.isReadableFile(atPath: notice.path) ? notice : nil
     }
 
     private func focusHighlighted(using proxy: ScrollViewProxy) {
@@ -619,7 +654,10 @@ private struct ActionButton: View {
                 .frame(maxWidth: .infinity)
             }
             .background(NSViewHostAccessor(holder: manageHostHolder))
-            .help("Manage \(model.variantKind?.displayName ?? model.name) variant")
+            .help(
+                "\("Manage".localizedForDisplay) " +
+                (model.variantKind?.displayName.localizedForDisplay ?? model.name)
+            )
             .controlSize(.small)
             .accessibilityIdentifier("settings_manage_\(model.id)")
         }
@@ -631,9 +669,9 @@ private struct ActionButton: View {
 
     private var downloadHelp: String {
         if let size = viewModel.sizeText(for: model) {
-            return "Download \(size)"
+            return "\("Download".localizedForDisplay) \(size)"
         }
-        return "Download"
+        return "Download".localizedForDisplay
     }
 
     /// Build a real AppKit NSMenu and pop it up from the Manage
@@ -645,7 +683,7 @@ private struct ActionButton: View {
 
         let menu = NSMenu()
         menu.addItem(ClosureMenuItem(
-            title: "Reveal in Finder",
+            title: AppLocalization.string("Reveal in Finder"),
             systemImage: "folder",
             handler: {
                 let url = model.installDirectory(in: QwenVoiceApp.modelsDir)
@@ -658,7 +696,7 @@ private struct ActionButton: View {
         ))
         menu.addItem(.separator())
         menu.addItem(ClosureMenuItem(
-            title: "Delete Model",
+            title: AppLocalization.string("Delete Model"),
             systemImage: "trash",
             isDestructive: true,
             handler: onDelete

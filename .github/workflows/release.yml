@@ -280,6 +280,9 @@ jobs:
           echo "evidence=build/dist/macos/release-evidence.json" >> "$GITHUB_OUTPUT"
           echo "checksums=build/dist/macos/SHA256SUMS" >> "$GITHUB_OUTPUT"
           echo "verification=build/dist/macos/release-verification.json" >> "$GITHUB_OUTPUT"
+          echo "ffmpeg_source=build/dist/macos/ffmpeg-vocello-8.0.3-source.tar.xz" >> "$GITHUB_OUTPUT"
+          echo "ffmpeg_signature=build/dist/macos/ffmpeg-vocello-8.0.3-source.tar.xz.asc" >> "$GITHUB_OUTPUT"
+          echo "ffmpeg_build_info=build/dist/macos/ffmpeg-vocello-8.0.3-build-info.json" >> "$GITHUB_OUTPUT"
 
       - name: Verify packaged DMG (signed + notarized)
         # With QWENVOICE_EXPECT_SIGNED_RELEASE=1 + EXPECT_NOTARIZED_DMG=1
@@ -310,6 +313,9 @@ jobs:
             --source-date-epoch "$SOURCE_DATE_EPOCH" \
             --output-dir build/dist/macos \
             --artifact "${{ steps.artifacts.outputs.dmg }}" \
+            --artifact "${{ steps.artifacts.outputs.ffmpeg_source }}" \
+            --artifact "${{ steps.artifacts.outputs.ffmpeg_signature }}" \
+            --artifact "${{ steps.artifacts.outputs.ffmpeg_build_info }}" \
             --metadata "${{ steps.artifacts.outputs.metadata }}" \
             --source-identity "$RELEASE_SOURCE_IDENTITY" \
             --step-ledger "$RELEASE_STEP_LEDGER"
@@ -332,6 +338,9 @@ jobs:
             ${{ steps.artifacts.outputs.evidence }}
             ${{ steps.artifacts.outputs.checksums }}
             ${{ steps.artifacts.outputs.verification }}
+            ${{ steps.artifacts.outputs.ffmpeg_source }}
+            ${{ steps.artifacts.outputs.ffmpeg_signature }}
+            ${{ steps.artifacts.outputs.ffmpeg_build_info }}
           if-no-files-found: error
           retention-days: 30
 
@@ -381,7 +390,10 @@ jobs:
             "${{ steps.artifacts.outputs.cyclonedx }}" \
             "${{ steps.artifacts.outputs.evidence }}" \
             "${{ steps.artifacts.outputs.checksums }}" \
-            "${{ steps.artifacts.outputs.verification }}"
+            "${{ steps.artifacts.outputs.verification }}" \
+            "${{ steps.artifacts.outputs.ffmpeg_source }}" \
+            "${{ steps.artifacts.outputs.ffmpeg_signature }}" \
+            "${{ steps.artifacts.outputs.ffmpeg_build_info }}"
 
       - name: Verify downloaded Release assets
         env:
@@ -400,7 +412,10 @@ jobs:
             "${{ steps.artifacts.outputs.cyclonedx }}" \
             "${{ steps.artifacts.outputs.evidence }}" \
             "${{ steps.artifacts.outputs.checksums }}" \
-            "${{ steps.artifacts.outputs.verification }}" <<'PY'
+            "${{ steps.artifacts.outputs.verification }}" \
+            "${{ steps.artifacts.outputs.ffmpeg_source }}" \
+            "${{ steps.artifacts.outputs.ffmpeg_signature }}" \
+            "${{ steps.artifacts.outputs.ffmpeg_build_info }}" <<'PY'
           import json
           from pathlib import Path
           import sys

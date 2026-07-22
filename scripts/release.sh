@@ -326,6 +326,9 @@ rm -f "$APP_RESOURCES/ffmpeg" 2>/dev/null || true
 find "$APP_RESOURCES" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 find "$APP_RESOURCES" -name "*.pyc" -delete 2>/dev/null || true
 find "$APP_RESOURCES" -name "*.whl" -delete 2>/dev/null || true
+"$SCRIPT_DIR/build_ffmpeg_lgpl_component.sh" \
+    --app-bundle "$APP_PATH" \
+    --release-assets "$BUILD_DIR"
 "$SCRIPT_DIR/check_backend_resource_contract.sh" --app-bundle "$APP_PATH" >/dev/null
 echo "[4/7] App copied to $APP_PATH ($(step_time "$STEP_START"))"
 echo ""
@@ -338,6 +341,9 @@ echo "[5/7] Signing and verifying the final app bundle..."
 # flag, and `verify_release_bundle.sh` rejects that for signed
 # releases. Sign nested code before the outer wrapper so the wrapper's
 # signature seal is valid.
+FFMPEG_HELPER="$APP_PATH/Contents/Helpers/ffmpeg-vocello"
+[ -x "$FFMPEG_HELPER" ] || release_fail "Bundled LGPL-only FFmpeg helper is missing: $FFMPEG_HELPER"
+run_codesign "$FFMPEG_HELPER" --options runtime
 while IFS= read -r -d '' xpc_path; do
     run_codesign "$xpc_path" \
         --options runtime \
@@ -421,6 +427,8 @@ METADATA_PATH="$BUILD_DIR/release-metadata.txt"
     echo "app_minos=$APP_MINOS"
     echo "marketing_version=$MARKETING_VERSION"
     echo "build_number=$CURRENT_PROJECT_VERSION"
+    echo "ffmpeg_component=ffmpeg-vocello"
+    echo "ffmpeg_component_version=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$PROJECT_DIR/config/ffmpeg-lgpl-component.json")"
     echo "dmg_name=$OUTPUT_NAME.dmg"
     echo "app_wrapper_name=$WRAPPER_NAME"
     echo "app_executable_name=$EXECUTABLE_NAME"

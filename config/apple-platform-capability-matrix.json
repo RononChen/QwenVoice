@@ -9,6 +9,9 @@
         "Contents/Resources/python",
         "Contents/Resources/ffmpeg"
       ],
+      "requiredExecutablePaths": [
+        "Contents/Helpers/ffmpeg-vocello"
+      ],
       "engineCapabilities": {
         "supportsBatchGeneration": false,
         "supportsAudioPreparation": false,

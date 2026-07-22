@@ -1,0 +1,20 @@
+Vocello 的 FFmpeg 组件声明
+==========================
+
+Vocello macOS 版包含一个专门构建的 `ffmpeg-vocello` 可执行文件。它由未经
+修改的 FFmpeg 8.0.3 源码构建，只用于读写单声道 PCM WAV，以及调用 FFmpeg
+的 `atempo` 音频过滤器。
+
+FFmpeg 是自由软件，采用 GNU Lesser General Public License 2.1 版或（由您
+选择）任何更高版本。`ffmpeg-vocello` 以独立进程运行，不链接进 Vocello
+的专有 Swift 主程序。
+
+每个 Vocello macOS Release 都会在 DMG 旁发布精确对应的 FFmpeg 源码归档、
+上游分离签名、完整构建配置和 SHA-256 身份。本目录同时包含完整 LGPL 2.1
+英文原文，以及同一份源码中的 FFmpeg 上游 LICENSE.md。
+
+上游项目：https://ffmpeg.org/
+源码发布：https://ffmpeg.org/releases/
+Vocello 源码与构建脚本：https://github.com/PowerBeef/QwenVoice
+
+FFmpeg 及其贡献者与 Vocello 不存在从属或背书关系，也不对 Vocello 负责。
