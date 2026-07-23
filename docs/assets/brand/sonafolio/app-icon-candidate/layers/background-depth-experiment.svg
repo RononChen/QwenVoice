@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title" >
+  <title id="title">Sonafolio app icon optional subtle depth background layer</title>
+  <defs>
+    <radialGradient id="depth" cx="38%" cy="27%" r="88%">
+      <stop offset="0" stop-color="#2A2947"/>
+      <stop offset="0.52" stop-color="#1C1B32"/>
+      <stop offset="1" stop-color="#12121F"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#depth)"/>
+</svg>

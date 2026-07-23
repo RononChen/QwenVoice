@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "candidateVersion": "0.1",
+  "date": "2026-07-23",
+  "status": "candidate-not-integrated",
+  "canvas": {
+    "width": 1024,
+    "height": 1024,
+    "sourceLayersPremasked": false
+  },
+  "brandMaster": {
+    "source": "../final-refinement-2/sonafolio-symbol-master.svg",
+    "lockedPathSHA256": "5183b7c7424a75d24246fbb533721e8b684b936b1e7cbdbdd60cece3ec9b3617"
+  },
+  "selection": {
+    "contentScale": 0.84,
+    "background": "#17172A",
+    "foreground": "#F2E7D5",
+    "smallestStandardSize": 32,
+    "optical16": "remove-smallest-inner-voice-arc"
+  },
+  "selectedFiles": {
+    "background": {
+      "path": "layers/background-default.svg",
+      "sha256": "607be764ce038c8d0af2fafc347b0da7643f0eac8159c8687e4750c82ec09177"
+    },
+    "foreground": {
+      "path": "layers/foreground-symbol.svg",
+      "sha256": "2606d8cff653382552dd787cfde3eb533c3efcbcae5c07f74d9d8cdf5d49c276"
+    },
+    "flattenedCandidate": {
+      "path": "sonafolio-app-icon-candidate.svg",
+      "sha256": "301782cb57c3a87f4dd9fff689e5fec1dd6f61fc9ec662b537bb8b7a7a1fd1d7"
+    },
+    "optical16": {
+      "path": "sonafolio-app-icon-16-optical.svg",
+      "sha256": "55bd9cdfb641f81df2a3fab9d6801ec8897add414b153cd6cd9d7353d3349d8a"
+    }
+  }
+}
