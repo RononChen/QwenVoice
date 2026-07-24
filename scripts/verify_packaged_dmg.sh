@@ -11,7 +11,7 @@ fail() {
 }
 
 if [ $# -ne 2 ]; then
-    fail "Usage: $0 /path/to/Vocello-macos26.dmg /path/to/release-metadata.txt"
+    fail "Usage: $0 /path/to/Sonafolio-macos26.dmg /path/to/release-metadata.txt"
 fi
 
 DMG_PATH="$1"
@@ -54,7 +54,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "=== Vocello: Verify Packaged DMG ==="
+echo "=== Sonafolio: Verify Packaged DMG ==="
 echo ""
 echo "[1/5] Verifying DMG trust state..."
 if [ "$EXPECT_SIGNED_RELEASE" = "1" ]; then

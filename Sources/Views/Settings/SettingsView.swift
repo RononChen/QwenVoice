@@ -1,6 +1,7 @@
 import SwiftUI
 import QwenVoiceCore
 import AppKit
+import UniformTypeIdentifiers
 
 /// Unified Settings surface, modeled on macOS System Settings.
 ///
@@ -67,7 +68,7 @@ struct SettingsView: View {
                     }
                     .accessibilityIdentifier("settings_interfaceLanguage")
 
-                    Text("Language changes take effect after you restart Vocello.")
+                    Text("Language changes take effect after you restart Sonafolio.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } header: {
@@ -99,6 +100,8 @@ struct SettingsView: View {
                         )
                         .id(mode.rawValue)
                     }
+
+                    WhisperModelDownloadRow()
                 }
 
                 Section("Playback") {
@@ -196,9 +199,9 @@ struct SettingsView: View {
                             }
                             .controlSize(.small)
                             .accessibilityIdentifier("preferences_openFinderButton")
-                            if let ffmpegNoticeURL {
+                            if let openSourceNoticeURL {
                                 Button("Open-source licenses") {
-                                    NSWorkspace.shared.open(ffmpegNoticeURL)
+                                    NSWorkspace.shared.open(openSourceNoticeURL)
                                 }
                                 .controlSize(.small)
                                 .accessibilityIdentifier("preferences_openSourceLicensesButton")
@@ -298,13 +301,20 @@ struct SettingsView: View {
         return "\(version) (\(build))"
     }
 
-    private var ffmpegNoticeURL: URL? {
+    private var openSourceNoticeURL: URL? {
         guard let resources = Bundle.main.resourceURL else { return nil }
-        let notice = resources
+        let nestedNotice = resources
             .appendingPathComponent("ThirdPartyNotices", isDirectory: true)
-            .appendingPathComponent("FFmpeg", isDirectory: true)
             .appendingPathComponent("NOTICE.txt", isDirectory: false)
-        return FileManager.default.isReadableFile(atPath: notice.path) ? notice : nil
+        if FileManager.default.isReadableFile(atPath: nestedNotice.path) {
+            return nestedNotice
+        }
+        // Xcode's resource build phase flattens this source folder in local
+        // builds, while the release packager may preserve the notice tree.
+        let flattenedNotice = resources.appendingPathComponent("NOTICE.txt", isDirectory: false)
+        return FileManager.default.isReadableFile(atPath: flattenedNotice.path)
+            ? flattenedNotice
+            : nil
     }
 
     private func focusHighlighted(using proxy: ScrollViewProxy) {
@@ -465,10 +475,215 @@ private struct ModelDownloadRow: View {
     }
 }
 
+private struct WhisperModelDownloadRow: View {
+    @State private var modelManager = SubtitleModelManager.shared
+
+    private var modelURL: URL {
+        SubtitleModelDescriptor.installedURL
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: "captions.bubble.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AppTheme.preferences)
+                    .frame(width: 16)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Whisper subtitle model".localizedForDisplay)
+                        .font(.callout.weight(.semibold))
+                    Text("Local SRT timing model · 574 MB".localizedForDisplay)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 8)
+
+                statusLabel
+                    .frame(width: 94, alignment: .leading)
+
+                primaryAction
+                    .frame(width: 78, alignment: .trailing)
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Place the downloaded file here:".localizedForDisplay)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                Text(modelURL.path)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("settings_whisperModelPath")
+
+                Text(
+                    AppLocalization.format(
+                        "Required file name: %@",
+                        SubtitleModelDescriptor.fileName
+                    )
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+                Text("Hugging Face model page:".localizedForDisplay)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                Text(SubtitleModelDescriptor.manualDownloadPageURL.absoluteString)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 8) {
+                    Button("Open Hugging Face") {
+                        NSWorkspace.shared.open(SubtitleModelDescriptor.manualDownloadPageURL)
+                    }
+                    .controlSize(.small)
+                    .accessibilityIdentifier("settings_openWhisperHuggingFace")
+
+                    Button("Import File…") {
+                        importDownloadedModel()
+                    }
+                    .controlSize(.small)
+                    .disabled(modelManager.isBusy)
+                    .accessibilityIdentifier("settings_importWhisperModel")
+
+                    Button("Show Folder") {
+                        revealModelLocation()
+                    }
+                    .controlSize(.small)
+                    .accessibilityIdentifier("settings_revealWhisperModel")
+
+                    Button("Copy Path") {
+                        let pasteboard = NSPasteboard.general
+                        pasteboard.clearContents()
+                        pasteboard.setString(modelURL.path, forType: .string)
+                    }
+                    .controlSize(.small)
+                    .accessibilityIdentifier("settings_copyWhisperModelPath")
+
+                    Button("Recheck") {
+                        modelManager.refresh()
+                    }
+                    .controlSize(.small)
+                    .disabled(modelManager.isBusy)
+                    .accessibilityIdentifier("settings_recheckWhisperModel")
+                }
+            }
+            .padding(.leading, 26)
+
+            if case .failed(let message) = modelManager.state {
+                Text(message)
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 26)
+                    .accessibilityIdentifier("settings_whisperModelError")
+            }
+        }
+        .padding(.vertical, 5)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("settings_whisperModel")
+    }
+
+    @ViewBuilder
+    private var statusLabel: some View {
+        HStack(spacing: 5) {
+            switch modelManager.state {
+            case .checking:
+                ProgressView()
+                    .controlSize(.mini)
+                Text("Checking".localizedForDisplay)
+            case .notInstalled:
+                Image(systemName: "arrow.down.circle")
+                    .foregroundStyle(.secondary)
+                Text("Not installed".localizedForDisplay)
+            case .downloading:
+                ProgressView()
+                    .controlSize(.mini)
+                Text("Downloading".localizedForDisplay)
+            case .ready:
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text("Ready".localizedForDisplay)
+                    .foregroundStyle(.green)
+            case .failed:
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text("Failed".localizedForDisplay)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+    }
+
+    @ViewBuilder
+    private var primaryAction: some View {
+        switch modelManager.state {
+        case .checking:
+            ProgressView()
+                .controlSize(.small)
+        case .notInstalled:
+            Button("Download") {
+                modelManager.install()
+            }
+            .controlSize(.small)
+            .accessibilityIdentifier("settings_downloadWhisperModel")
+        case .downloading:
+            Text("Downloading".localizedForDisplay)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        case .ready:
+            Button("Show Folder") {
+                revealModelLocation()
+            }
+            .controlSize(.small)
+        case .failed:
+            Button("Retry") {
+                modelManager.install()
+            }
+            .controlSize(.small)
+            .accessibilityIdentifier("settings_retryWhisperModel")
+        }
+    }
+
+    private func importDownloadedModel() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.data]
+        panel.nameFieldStringValue = SubtitleModelDescriptor.fileName
+        guard panel.runModal() == .OK, let sourceURL = panel.url else { return }
+        modelManager.importModel(from: sourceURL)
+    }
+
+    private func revealModelLocation() {
+        let fileManager = FileManager.default
+        try? fileManager.createDirectory(
+            at: AppPaths.subtitleModelsDir,
+            withIntermediateDirectories: true
+        )
+        if fileManager.fileExists(atPath: modelURL.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([modelURL])
+        } else {
+            NSWorkspace.shared.open(AppPaths.subtitleModelsDir)
+        }
+    }
+}
+
 private struct ModelPackageLine: View {
     let model: TTSModel
     var viewModel: ModelManagerViewModel
     let onDelete: () -> Void
+    @State private var showsManualDownload = false
 
     private var presentation: ModelManagerViewModel.ModelPackagePresentation {
         viewModel.packagePresentation(for: model)
@@ -476,6 +691,34 @@ private struct ModelPackageLine: View {
 
     private var status: ModelManagerViewModel.ModelStatus {
         viewModel.statuses[model.id] ?? .checking
+    }
+
+    private var repositoryPageURL: URL? {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "huggingface.co"
+        components.path = "/\(model.huggingFaceRepo)/tree/\(model.huggingFaceRevision ?? "main")"
+        return components.url
+    }
+
+    private var localModelDirectory: URL {
+        model.installDirectory(in: QwenVoiceApp.modelsDir)
+    }
+
+    private var fullRepositoryDownloadCommand: String? {
+        guard let revision = model.huggingFaceRevision?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !revision.isEmpty else {
+            return nil
+        }
+        return [
+            "hf download",
+            shellQuoted(model.huggingFaceRepo),
+            "--revision",
+            shellQuoted(revision),
+            "--local-dir",
+            shellQuoted(localModelDirectory.path),
+        ].joined(separator: " ")
     }
 
     var body: some View {
@@ -518,6 +761,30 @@ private struct ModelPackageLine: View {
             }
 
             downloadProgress
+
+            Button {
+                showsManualDownload.toggle()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: showsManualDownload ? "chevron.down" : "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .frame(width: 9)
+                        .accessibilityHidden(true)
+                    Text("Manual download".localizedForDisplay)
+                        .font(.caption2.weight(.semibold))
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("settings_manualDownload_\(model.id)")
+
+            if showsManualDownload {
+                manualDownloadDetails
+                    .padding(.top, 5)
+            }
         }
         .padding(.vertical, 5)
         .padding(.horizontal, 8)
@@ -599,6 +866,108 @@ private struct ModelPackageLine: View {
                 .tint(AppTheme.statusProgressTint)
                 .accessibilityIdentifier("settings_downloadProgress_\(model.id)")
         }
+    }
+
+    private var manualDownloadDetails: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("Hugging Face repository:".localizedForDisplay)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            if let repositoryPageURL {
+                Text(repositoryPageURL.absoluteString)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text("Local model folder:".localizedForDisplay)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.top, 2)
+
+            Text(localModelDirectory.path)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("settings_modelPath_\(model.id)")
+
+            Text("Download the complete repository and preserve its directory structure.".localizedForDisplay)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("Requires the official Hugging Face hf command-line tool.".localizedForDisplay)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Button("Open Hugging Face") {
+                    if let repositoryPageURL {
+                        NSWorkspace.shared.open(repositoryPageURL)
+                    }
+                }
+                .controlSize(.small)
+                .disabled(repositoryPageURL == nil)
+                .accessibilityIdentifier("settings_openHuggingFace_\(model.id)")
+
+                Button("Copy Full Download Command") {
+                    if let fullRepositoryDownloadCommand {
+                        copyToPasteboard(fullRepositoryDownloadCommand)
+                    }
+                }
+                .controlSize(.small)
+                .disabled(fullRepositoryDownloadCommand == nil)
+                .accessibilityIdentifier("settings_copyDownloadCommand_\(model.id)")
+            }
+
+            HStack(spacing: 8) {
+                Button("Show Folder") {
+                    revealModelLocation()
+                }
+                .controlSize(.small)
+                .accessibilityIdentifier("settings_revealModelPath_\(model.id)")
+
+                Button("Copy Path") {
+                    copyToPasteboard(localModelDirectory.path)
+                }
+                .controlSize(.small)
+                .accessibilityIdentifier("settings_copyModelPath_\(model.id)")
+
+                Button("Recheck") {
+                    Task { await viewModel.refresh() }
+                }
+                .controlSize(.small)
+                .accessibilityIdentifier("settings_recheckModel_\(model.id)")
+            }
+        }
+        .padding(.leading, 14)
+    }
+
+    private func shellQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private func copyToPasteboard(_ value: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(value, forType: .string)
+    }
+
+    private func revealModelLocation() {
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: localModelDirectory.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([localModelDirectory])
+            return
+        }
+        try? fileManager.createDirectory(
+            at: QwenVoiceApp.modelsDir,
+            withIntermediateDirectories: true
+        )
+        NSWorkspace.shared.open(QwenVoiceApp.modelsDir)
     }
 }
 

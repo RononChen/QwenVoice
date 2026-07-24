@@ -1,4 +1,4 @@
-# Local dev code-signing helpers for QwenVoice / Vocello.
+# Local dev code-signing helpers for QwenVoice / Sonafolio.
 #
 # WHY: macOS TCC keys permission grants (microphone, speech recognition,
 # files-and-folders) to the app's bundle ID + code-signing identity. Ad-hoc
@@ -100,4 +100,35 @@ assert_signing_identity() {
             return 1
         fi
     fi
+}
+
+# Xcode can copy shared SwiftPM resource bundles into the XPC service, sign the
+# service, and then rewrite those nested bundle signatures while assembling the
+# host app. Repair that ordering from the innermost resource bundles outward so
+# the development app passes a strict deep verification before it is exposed at
+# build/Sonafolio.app.
+resign_dev_embedded_xpc_resources() {
+    local app_bundle="$1" identity="$2"
+    local xpc_bundle="$app_bundle/Contents/XPCServices/QwenVoiceEngineService.xpc"
+    local resources="$xpc_bundle/Contents/Resources"
+    local resource_bundle
+
+    [[ -d "$xpc_bundle" ]] || {
+        echo "error: embedded engine service is missing: $xpc_bundle" >&2
+        return 1
+    }
+
+    while IFS= read -r -d '' resource_bundle; do
+        /usr/bin/codesign --force --sign "$identity" --timestamp=none \
+            --preserve-metadata=identifier,entitlements,flags "$resource_bundle" \
+            || return 1
+    done < <(/usr/bin/find "$resources" -type d -name '*.bundle' -prune -print0)
+
+    /usr/bin/codesign --force --sign "$identity" --timestamp=none \
+        --preserve-metadata=identifier,entitlements,flags "$xpc_bundle" \
+        || return 1
+    /usr/bin/codesign --force --sign "$identity" --timestamp=none \
+        --preserve-metadata=identifier,entitlements,flags "$app_bundle" \
+        || return 1
+    /usr/bin/codesign --verify --deep --strict "$app_bundle"
 }

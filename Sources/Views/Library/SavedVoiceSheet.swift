@@ -443,7 +443,7 @@ struct SavedVoiceSheet: View {
         case .available, .notDetermined:
             return nil
         case .denied:
-            return "Speech recognition is off for Vocello — the transcript won't auto-fill."
+            return "Speech recognition is off for Sonafolio — the transcript won't auto-fill."
         case .siriDisabled:
             return "Auto-transcription needs Siri enabled (macOS requirement) — the transcript won't auto-fill."
         }

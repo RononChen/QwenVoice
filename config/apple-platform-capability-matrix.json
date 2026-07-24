@@ -3,7 +3,7 @@
     "app": {
       "bundleIdentifier": "com.qwenvoice.app",
       "displayName": "Vocello",
-      "artifactName": "Vocello-macos26.dmg",
+      "artifactName": "Sonafolio-macos26.dmg",
       "requiredAbsentResourcePaths": [
         "Contents/Resources/backend",
         "Contents/Resources/python",

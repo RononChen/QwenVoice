@@ -30,9 +30,9 @@ struct HistoryPersistenceError: LocalizedError, Equatable, Sendable {
         case .corrupt:
             return "Generation History couldn't be read because its database appears damaged. Your existing files were not deleted. Retry, then use recovery or export tools before making changes."
         case .locked:
-            return "Generation History is temporarily busy. Your existing history was not changed. Wait for other Vocello operations to finish, then retry."
+            return "Generation History is temporarily busy. Your existing history was not changed. Wait for other \(Self.productName) operations to finish, then retry."
         case .permissionDenied:
-            return "Generation History is unavailable because Vocello can't access its database. Your existing history was not changed. Check storage permissions, then retry."
+            return "Generation History is unavailable because \(Self.productName) can't access its database. Your existing history was not changed. Check storage permissions, then retry."
         case .storageFull:
             return "Generation History couldn't be updated because storage is full. Free some space, then retry. Your existing history was not changed."
         case .migrationFailed:
@@ -106,5 +106,13 @@ struct HistoryPersistenceError: LocalizedError, Equatable, Sendable {
             return HistoryPersistenceError(operation: operation, failure: .permissionDenied)
         }
         return HistoryPersistenceError(operation: operation, failure: .unavailable)
+    }
+
+    private static var productName: String {
+#if os(macOS)
+        "Sonafolio"
+#else
+        "Vocello"
+#endif
     }
 }

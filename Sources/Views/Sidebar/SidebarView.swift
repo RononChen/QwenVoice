@@ -45,7 +45,7 @@ private struct SidebarBrandHeader: View {
                     dimension[.bottom] - 2
                 }
 
-            Text("Vocello")
+            Text("Sonafolio")
                 .font(.system(size: 18, weight: .semibold, design: .rounded))
                 .foregroundStyle(.primary)
 
@@ -61,7 +61,7 @@ private struct SidebarBrandHeader: View {
         .padding(.top, 14)
         .padding(.bottom, 14)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Vocello, AI text to speech")
+        .accessibilityLabel("Sonafolio, AI text to speech")
     }
 }
 

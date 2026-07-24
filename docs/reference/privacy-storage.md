@@ -172,7 +172,7 @@ while `xcodebuild -showsdks` still lists `iphoneos`. That state is an external t
 reclaimable repository output. Use `scripts/lib/ios_platform_preflight.py check`, then make any
 multi-gigabyte component installation explicitly through Xcode Settings.
 
-The public `build/Vocello.app` and `build/vocello` paths are manifest-owned symlinks to the current
+The public `build/Sonafolio.app` and `build/vocello` paths are manifest-owned symlinks to the current
 canonical macOS products; they are not independent application or CLI copies.
 
 Every Xcode invocation supplies an explicit DerivedData and cloned-package path. Local macOS outputs

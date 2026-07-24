@@ -108,6 +108,7 @@ struct VoiceDesignView: View {
                     refAudio: configuration.refAudio,
                     refText: configuration.refText,
                     speed: configuration.speed,
+                    generateSubtitles: configuration.generateSubtitles,
                     initialText: configuration.initialText,
                     initialSegmentationMode: configuration.initialSegmentationMode
                 )
@@ -183,6 +184,7 @@ private extension VoiceDesignView {
                 TextInputView(
                     text: $draft.text,
                     speechRate: $draft.speed,
+                    generateSubtitles: $draft.generateSubtitles,
                     isGenerating: isGenerationActive,
                     placeholder: "Type or paste your script",
                     buttonColor: AppTheme.voiceDesign,

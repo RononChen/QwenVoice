@@ -927,7 +927,7 @@ def app_identity(platform: str, outer: dict[str, Any], artifact_dir: Path) -> di
             raise HistoryError("appBundleRelativePath must remain inside the repository")
     elif not has_explicit_executables:
         bundle = (
-            MACOS_DERIVED_DATA / "Build/Products/Release/Vocello.app" if platform == "macos"
+            MACOS_DERIVED_DATA / "Build/Products/Release/Sonafolio.app" if platform == "macos"
             else IOS_DERIVED_DATA / "Build/Products/Release-iphoneos/Vocello.app"
         )
     else:

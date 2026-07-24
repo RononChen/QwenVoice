@@ -64,7 +64,7 @@ on:
         required: true
         type: string
       output_name:
-        description: 'Override DMG basename (default: Vocello-macos26)'
+        description: 'Override DMG basename (default: Sonafolio-macos26)'
         required: false
         type: string
       archive_ios:
@@ -267,7 +267,7 @@ jobs:
         run: |
           # release.sh owns distribution outputs under build/dist/macos.
           output_name="${{ inputs.output_name }}"
-          [ -z "$output_name" ] && output_name="Vocello-macos26"
+          [ -z "$output_name" ] && output_name="Sonafolio-macos26"
           dmg="build/dist/macos/${output_name}.dmg"
           metadata="build/dist/macos/release-metadata.txt"
           [ -f "$dmg" ] || { echo "missing: $dmg" >&2; ls -la build/dist/macos/ >&2; exit 1; }

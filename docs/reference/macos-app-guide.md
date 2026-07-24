@@ -1,6 +1,6 @@
-# Vocello for Mac — app guide + test-driving reference
+# Sonafolio for Mac — app guide + test-driving reference
 
-A consolidated map of the Vocello macOS app: what every screen/element/option does and how
+A consolidated map of the Sonafolio macOS app: what every screen/element/option does and how
 XCUITest addresses it (identifier → action → expected). Use this to maintain the smoke and
 benchmark tests and stable accessibility surface.
 
@@ -105,6 +105,7 @@ Retry button.
 | Mode row | `settings_mode_<mode>` |
 | Package row | `settings_package_<modelID>` / `settings_packageStatus_<modelID>` |
 | Download / cancel / repair | `settings_download_<id>` / `settings_cancel_<id>` / `settings_repair_<id>` / `settings_manage_<id>` |
+| Manual download | `settings_manualDownload_<id>` (the full label row expands/collapses) / `settings_copyDownloadCommand_<id>` |
 | Auto-play | `preferences_autoPlayToggle` |
 | Variation | `settings_generationVariation` (segmented: Expressive/Balanced/Consistent) |
 | Clone consent | `voiceCloning_consentAcknowledgment`; persistent and required before Clone Generate |
@@ -134,6 +135,9 @@ Retry button.
 macOS has **both Speed (4-bit) and Quality (8-bit)** variants (unlike iOS Speed-only).
 Settings → Voice Models shows per-mode packages. Download via `settings_download_<id>`;
 cancel via `settings_cancel_<id>`; repair via `settings_repair_<id>`.
+Each package also exposes a full-width Manual download control. Its expanded details can copy an
+`hf download` command assembled from the package's pinned repository revision and exact local
+installation directory.
 
 The shared foreground downloader distinguishes queued, waiting for connectivity, downloading,
 retrying, verifying, installing, and cancelling. Active transfer shows bytes, smoothed speed, ETA,
@@ -161,7 +165,7 @@ higher-fidelity output.
 ### Test infrastructure (XCUITest)
 
 `VocelloMacUITests` is the sole autonomous macOS frontend driver. It launches its configured
-Vocello test host, uses the shared UI automation support, and re-queries stable accessibility state
+Sonafolio test host, uses the shared UI automation support, and re-queries stable accessibility state
 before and after each logical action. There is no hidden test-marker surface.
 
 The shell harness owns deterministic proof and evidence:

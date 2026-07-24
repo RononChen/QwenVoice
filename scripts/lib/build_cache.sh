@@ -1,4 +1,4 @@
-# Shared build-cache helpers for QwenVoice / Vocello.
+# Shared build-cache helpers for QwenVoice / Sonafolio.
 #
 # Sourced by scripts/build.sh (debug/run path) and scripts/release.sh
 # (release path) so that XcodeGen regeneration and SwiftPM resolution
@@ -397,7 +397,7 @@ assert_macho_arm64_only() {
 
 assert_macos_bundle_arm64_only() {
     local app_bundle="$1" candidate
-    assert_macho_arm64_only "$app_bundle/Contents/MacOS/Vocello" "Vocello executable" || return 1
+    assert_macho_arm64_only "$app_bundle/Contents/MacOS/Sonafolio" "Sonafolio executable" || return 1
     assert_macho_arm64_only \
         "$app_bundle/Contents/XPCServices/QwenVoiceEngineService.xpc/Contents/MacOS/QwenVoiceEngineService" \
         "QwenVoiceEngineService executable" || return 1
@@ -438,19 +438,19 @@ ensure_swiftpm_scratch_location() {
 preserve_macos_dsyms() {
     local products="$1" app_bundle="$2" destination="$3"
     local temporary="$destination.tmp.$$"
-    local app_dsym="$products/Vocello.app.dSYM"
+    local app_dsym="$products/Sonafolio.app.dSYM"
     local xpc_dsym="$products/QwenVoiceEngineService.xpc.dSYM"
-    local app_binary="$app_bundle/Contents/MacOS/Vocello"
+    local app_binary="$app_bundle/Contents/MacOS/Sonafolio"
     local xpc_binary="$app_bundle/Contents/XPCServices/QwenVoiceEngineService.xpc/Contents/MacOS/QwenVoiceEngineService"
-    validate_dsym_uuid "$app_binary" "$app_dsym" "Vocello" || return 1
+    validate_dsym_uuid "$app_binary" "$app_dsym" "Sonafolio" || return 1
     validate_dsym_uuid "$xpc_binary" "$xpc_dsym" "QwenVoiceEngineService" || return 1
     rm -rf "$temporary"
     mkdir -p "$temporary"
-    copy_tree_clone_first "$app_dsym" "$temporary/Vocello.app.dSYM" \
+    copy_tree_clone_first "$app_dsym" "$temporary/Sonafolio.app.dSYM" \
         || { rm -rf "$temporary"; return 1; }
     copy_tree_clone_first "$xpc_dsym" "$temporary/QwenVoiceEngineService.xpc.dSYM" \
         || { rm -rf "$temporary"; return 1; }
-    validate_dsym_uuid "$app_binary" "$temporary/Vocello.app.dSYM" "preserved Vocello" \
+    validate_dsym_uuid "$app_binary" "$temporary/Sonafolio.app.dSYM" "preserved Sonafolio" \
         || { rm -rf "$temporary"; return 1; }
     validate_dsym_uuid "$xpc_binary" "$temporary/QwenVoiceEngineService.xpc.dSYM" "preserved QwenVoiceEngineService" \
         || { rm -rf "$temporary"; return 1; }
@@ -478,22 +478,22 @@ preserve_ios_dsym() {
     echo "==> Preserved current iOS dSYM → $destination"
 }
 
-# Gracefully terminate Vocello if it's running. SIGTERM, poll ~10s, then
+# Gracefully terminate Sonafolio if it's running. SIGTERM, poll ~10s, then
 # SIGKILL fallback. This helper is used only by build-cache maintenance;
 # explicit UI acceptance owns its exact test-host process separately.
 quit_app_if_running() {
-    if ! pgrep -x Vocello >/dev/null 2>&1; then
+    if ! pgrep -x Sonafolio >/dev/null 2>&1; then
         return 0
     fi
-    echo "==> Quitting running Vocello before cleanup"
-    pkill -x Vocello >/dev/null 2>&1 || true
+    echo "==> Quitting running Sonafolio before cleanup"
+    pkill -x Sonafolio >/dev/null 2>&1 || true
     for _ in {1..40}; do
-        if ! pgrep -x Vocello >/dev/null 2>&1; then
+        if ! pgrep -x Sonafolio >/dev/null 2>&1; then
             return 0
         fi
         sleep 0.25
     done
-    pkill -9 -x Vocello >/dev/null 2>&1 || true
+    pkill -9 -x Sonafolio >/dev/null 2>&1 || true
     sleep 0.5
 }
 

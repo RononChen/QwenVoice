@@ -37,7 +37,7 @@ SCRIPT_DIR="$ROOT_DIR/scripts"
 . "$SCRIPT_DIR/lib/required_steps.sh"
 . "$SCRIPT_DIR/lib/test_models.sh"
 test_models_init "$ROOT_DIR"
-APP_NAME="Vocello"
+APP_NAME="Sonafolio"
 BUNDLE_ID="com.qwenvoice.app"
 APP_BUNDLE="$QVOICE_BUILD_ROOT/$APP_NAME.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
@@ -163,8 +163,8 @@ build_mac_test_bundles() {
     ENABLE_TESTABILITY=YES > "$log_path" 2>&1 || xcode_status=$?
   (( xcode_status == 0 )) || return "$xcode_status"
   local products="$QVOICE_XCODE_MACOS_DERIVED/Build/Products/Release"
-  assert_macos_bundle_arm64_only "$products/Vocello.app" || return 1
-  preserve_macos_dsyms "$products" "$products/Vocello.app" "$QVOICE_SYMBOLS_MACOS" || return 1
+  assert_macos_bundle_arm64_only "$products/Sonafolio.app" || return 1
+  preserve_macos_dsyms "$products" "$products/Sonafolio.app" "$QVOICE_SYMBOLS_MACOS" || return 1
   write_build_provenance "$QVOICE_XCODE_MACOS_DERIVED/last-build.json" \
     "scripts/macos_test.sh test" QwenVoice Release \
     "platform=macOS,arch=arm64" arm64 Onone ad-hoc \
@@ -206,10 +206,10 @@ cmd_crashes() {
 
   local dest="$QVOICE_ARTIFACTS_MACOS/crashes/crashes-$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$dest"
-  note "collecting .ips from $dr (app: Vocello*, service: QwenVoiceEngineService* / *engine-service*)"
+  note "collecting .ips from $dr (app: Sonafolio*, service: QwenVoiceEngineService* / *engine-service*)"
   local n=0 f
   shopt -s nullglob
-  for f in "$dr"/Vocello-*.ips "$dr"/QwenVoiceEngineService-*.ips "$dr"/*engine-service*.ips; do
+  for f in "$dr"/Sonafolio-*.ips "$dr"/QwenVoiceEngineService-*.ips "$dr"/*engine-service*.ips; do
     cp "$f" "$dest/" 2>/dev/null || true
     n=$((n+1))
   done
@@ -601,7 +601,7 @@ cmd_preflight() {
   if [[ -d "$APP_BUNDLE" ]]; then note "  app: OK $APP_BUNDLE"; else warn "  app: ✗ not built (run: scripts/build.sh build)"; rc=1; fi
   [[ -d "$XPC_BUNDLE" ]] && note "  xpc service: OK" || warn "  xpc service: ✗ not in bundle (rebuild)"
   if [[ -d "$DSYM_DIR" && -d "$APP_BUNDLE" ]] \
-      && validate_dsym_uuid "$APP_BINARY" "$DSYM_DIR/Vocello.app.dSYM" "Vocello" \
+      && validate_dsym_uuid "$APP_BINARY" "$DSYM_DIR/Sonafolio.app.dSYM" "Sonafolio" \
       && validate_dsym_uuid \
         "$XPC_BUNDLE/Contents/MacOS/QwenVoiceEngineService" \
         "$DSYM_DIR/QwenVoiceEngineService.xpc.dSYM" "QwenVoiceEngineService"; then
@@ -625,7 +625,7 @@ cmd_models() {
     check)
       check_mac_test_models || {
         note "Install once: $0 models ensure  (or $0 models install for canonical only)"
-        note "Last resort: Vocello.app → Settings → Model Downloads"
+        note "Last resort: Sonafolio.app → Settings → Model Downloads"
         return 1
       }
       ;;
@@ -992,7 +992,7 @@ gate_crash_delta() {
   local gate_dir="$1" crash_marker="$2"
   cmd_crashes >>"$gate_dir/crashes.log" 2>&1 || return 1
   local diagnostic_root="$HOME/Library/Logs/DiagnosticReports" new_ips
-  new_ips="$(find "$diagnostic_root" \( -name 'Vocello-*.ips' -o -name 'QwenVoiceEngineService-*.ips' -o -name '*engine-service*.ips' \) -newer "$crash_marker" 2>/dev/null || true)"
+  new_ips="$(find "$diagnostic_root" \( -name 'Sonafolio-*.ips' -o -name 'QwenVoiceEngineService-*.ips' -o -name '*engine-service*.ips' \) -newer "$crash_marker" 2>/dev/null || true)"
   if [[ -n "$new_ips" ]]; then
     printf '%s\n' "$new_ips" >"$gate_dir/new-crashes.txt"
     return 1
@@ -1013,7 +1013,7 @@ cmd_gate() {
   local workflow="macos-gate"
   (( gate_bench )) && workflow="macos-gate-with-benchmark"
   required_steps_init "$step_ledger" "$workflow" "$run_id"
-  { echo "Vocello macOS gate — $run_id"; echo; } | tee "$verdict"
+  { echo "Sonafolio macOS gate — $run_id"; echo; } | tee "$verdict"
 
   # Marker for the gate-fatal crash-delta check: only .ips files newer than this
   # (i.e. crashes that happen DURING the gate run) fail the gate.

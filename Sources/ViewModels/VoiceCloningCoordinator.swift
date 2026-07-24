@@ -227,6 +227,13 @@ final class VoiceCloningCoordinator {
                     summary: result.telemetrySummary
                 )
                 GenerationTelemetryMerger.scheduleMerge(generationID: generationRequest.generationID)
+                errorMessage = await SubtitlePostProcessor.generateIfRequested(
+                    currentDraft.generateSubtitles,
+                    script: currentDraft.text,
+                    audioPath: finalizedAudio.audioPath,
+                    language: currentDraft.selectedLanguage,
+                    engineStore: ttsEngineStore
+                )
             } catch is CancellationError {
                 await AppGenerationTimeline.shared.recordFailed(
                     id: submittedGenerationID,
@@ -493,7 +500,7 @@ final class VoiceCloningCoordinator {
         switch VoiceClipTranscriber.availability() {
         case .denied:
             transcriptionUnavailableMessage =
-                "Speech recognition is off for Vocello — type the transcript or enable it in System Settings → Privacy & Security."
+                "Speech recognition is off for Sonafolio — type the transcript or enable it in System Settings → Privacy & Security."
             return
         case .siriDisabled:
             transcriptionUnavailableMessage =

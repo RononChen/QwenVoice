@@ -112,10 +112,10 @@ voiceover,narration,audiobook,reader,offline,story,wav,creator,dubbing,podcast,s
 | --- | --- |
 | Mac App Store 主要类别 | **效率（Productivity）** |
 | 次要类别 | **音乐（Music）** |
-| Xcode 类别 | 第 2 阶段将 `LSApplicationCategoryType` 改为 `public.app-category.productivity` |
+| Xcode 类别 | 正式商店身份迁移时将 `LSApplicationCategoryType` 改为 `public.app-category.productivity` |
 
-Apple 要求 macOS 工程中的类别与 App Store Connect 主要类别一致。类别修改属于第 2 阶段，当前只记录决策，
-不提前修改仍以 `Vocello` 身份运行的工程。
+Apple 要求 macOS 工程中的类别与 App Store Connect 主要类别一致。macOS 开发构建已经使用
+`Sonafolio.app` 外部显示名；类别仍等正式商店身份迁移时与 App Store Connect 一并冻结。
 
 ## 7. 搜索结果与商店截图叙事
 
@@ -125,7 +125,8 @@ Apple 要求 macOS 工程中的类别与 App Store Connect 主要类别一致。
 2. **`语速可控，音调自然`** — `0.01–2.50 自由输入，适合旁白、故事和有声内容。`
 3. **`三种声音创作方式`** — `自定义声音・声音设计・授权声音克隆。`
 4. **`模型下载后，本地生成`** — `文稿和参考声音不依赖 Sonafolio 云端服务。`
-5. **`先免费生成，再决定是否升级`** — `免费自动拆分多段；¥68 解锁完整 WAV 与保持音调变速。`
+5. **`最终 WAV 同步生成 SRT`** — `按成品音频识别时间轴，并对齐回原文。`
+6. **`先免费生成，再决定是否升级`** — `免费自动拆分多段；¥68 解锁完整 WAV 与保持音调变速。`
 
 描述开头建议固定为：
 
@@ -134,6 +135,10 @@ Apple 要求 macOS 工程中的类别与 App Store Connect 主要类别一致。
 
 不能写“完全不需要网络”：首次模型下载、App Store 购买与恢复购买仍可能需要网络。也不写“无限长度”“绝不失败”
 或“任何声音均可克隆”等无法无条件证明的承诺。
+
+商业版硬件要求冻结为 **Apple Silicon Mac + 至少 16 GB 统一内存**。App Store 描述、支持页、审核备注和购买前
+说明必须明确写出该下限，并说明首次使用 TTS 与 SRT 需要额外下载本地模型；不再把上游版本的 8 GB 兼容能力
+作为 Sonafolio 商业版的支持承诺。
 
 ## 8. Logo 与视觉方向
 

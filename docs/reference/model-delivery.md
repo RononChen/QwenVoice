@@ -36,6 +36,52 @@ models/
   .qwenvoice-components-v1/  # content-addressed shared-component blobs and publication state
 ```
 
+## macOS 手动下载入口与放置位置
+
+macOS 设置页的“模型下载”区域在每个 Qwen 模型下提供“手动下载”折叠项，显示固定到生产目录版本的
+Hugging Face 页面、当前运行环境的绝对安装路径，以及“打开 Hugging Face”“复制整包下载命令”
+“显示文件夹”“复制路径”“重新检测”按钮。“手动下载”整行（箭头与文字）均可点击展开，不要求用户
+精确点中左侧小箭头。
+Qwen 模型不是单个文件：手动下载时必须取得对应提交的完整仓库，并保持仓库内部目录结构不变。应用重新检查时会
+核对所需文件、精确大小和 SHA-256；验证通过后才会将目录视为已安装，并自动写入本地安装元数据。
+
+“复制整包下载命令”从当前模型合同实时组成官方 `hf download` 命令，包含仓库名、固定的 40 位提交 SHA 和
+当前运行环境的绝对目标目录。例如“声音克隆 / 速度”正式版会复制：
+
+```sh
+hf download 'mlx-community/Qwen3-TTS-12Hz-1.7B-Base-4bit' --revision '37e955a1deb861c088ae5f3a67043185f3d1a60c' --local-dir "$HOME/Library/Application Support/QwenVoice/models/Qwen3-TTS-12Hz-1.7B-Base-4bit"
+```
+
+该命令要求用户已经安装 Hugging Face 官方 `hf` 命令行工具。同一命令可在中断后再次执行；其本地目录元数据会
+避免重复下载未变化的完整文件。设置页实际复制的目录会经过 shell 安全引用，并以应用当前显示路径为准。
+
+正式版的模型根目录为：
+
+```text
+~/Library/Application Support/QwenVoice/models/
+```
+
+六个生产模型的固定来源与目标文件夹如下：
+
+| 功能 / 版本 | Hugging Face 固定版本页面 | 本地目标文件夹 |
+| --- | --- | --- |
+| 声音克隆 / 质量 | `https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit/tree/e7dd0585652209fa0d7783659aad4e8a324de11c` | `Qwen3-TTS-12Hz-1.7B-Base-8bit/` |
+| 声音克隆 / 速度 | `https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-Base-4bit/tree/37e955a1deb861c088ae5f3a67043185f3d1a60c` | `Qwen3-TTS-12Hz-1.7B-Base-4bit/` |
+| 自定义声音 / 质量 | `https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit/tree/41d3337e8b7f2843a75841595fc14e4b9a7a4b96` | `Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit/` |
+| 自定义声音 / 速度 | `https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit/tree/f35faf19b0cc2160865af64ecf0f22f83d335135` | `Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit/` |
+| 声音设计 / 质量 | `https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit/tree/f90d617701d9f7f4ca499291e0b57f2b3c2fd2ee` | `Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit/` |
+| 声音设计 / 速度 | `https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-4bit/tree/5c390979e4b93af5f2932f90742ca99c7dd04687` | `Qwen3-TTS-12Hz-1.7B-VoiceDesign-4bit/` |
+
+例如“声音克隆 / 速度”的完整目标路径是：
+
+```text
+~/Library/Application Support/QwenVoice/models/Qwen3-TTS-12Hz-1.7B-Base-4bit/
+```
+
+调试模式改用 `QwenVoice-Debug` 隔离目录，因此实际操作时应以设置页展示并可复制的绝对路径为准。Whisper
+字幕模型是单文件，具有独立的导入和校验流程，详见
+[`macos-srt-subtitle-generation.md`](macos-srt-subtitle-generation.md)。
+
 ### Cross-platform production catalog
 
 `Sources/Resources/qwenvoice_production_model_catalog.json` is the reproducible, bundled catalog

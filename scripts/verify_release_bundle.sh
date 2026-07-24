@@ -33,7 +33,7 @@ codesign_team_identifier() {
 }
 
 if [ $# -ne 1 ]; then
-    fail "Usage: $0 /path/to/QwenVoice.app|/path/to/Vocello.app"
+    fail "Usage: $0 /path/to/Sonafolio.app"
 fi
 
 APP_PATH="$1"
@@ -94,7 +94,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "=== Vocello: Verify Release Bundle ==="
+echo "=== Sonafolio: Verify Release Bundle ==="
 echo ""
 
 echo "[1/4] Checking native bundle contents..."

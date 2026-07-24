@@ -14,6 +14,8 @@
     <string>6.0</string>
     <key>CFBundleName</key>
     <string>$(PRODUCT_NAME)</string>
+    <key>CFBundleDisplayName</key>
+    <string>Sonafolio</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -33,8 +35,8 @@
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Vocello records reference clips for voice cloning. Audio never leaves your Mac.</string>
+    <string>Sonafolio records reference clips for voice cloning. Audio never leaves your Mac.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
-    <string>Vocello transcribes reference clips on-device to pre-fill transcripts. Nothing is sent to Apple or anyone else.</string>
+    <string>Sonafolio transcribes reference clips on-device to pre-fill transcripts. Nothing is sent to Apple or anyone else.</string>
 </dict>
 </plist>

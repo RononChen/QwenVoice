@@ -1,6 +1,6 @@
 # macOS testing
 
-Vocello separates routine deterministic development verification from explicit native-app UI
+Sonafolio separates routine deterministic development verification from explicit native-app UI
 acceptance. XCUITest is the sole autonomous macOS app UI driver.
 
 ## Ordinary development
@@ -31,8 +31,8 @@ scripts/ui_test.sh macos benchmark --modes custom --lengths short --warm 1 --lab
 | Smoke | Exact app launch, sidebar navigation, visible model and clone-reference readiness, one real Custom generation, completed player, and History |
 | Benchmark | Ordered, configurable Custom/Design/Clone matrix with cold/warm classification and per-take deterministic proof; the default is exactly 29 takes |
 
-The runner targets the configured native Vocello test host. Before launch it resolves every matching
-Vocello and engine-service PID to its executable, fails fast if any process belongs to another app
+The runner targets the configured native Sonafolio test host. Before launch it resolves every matching
+Sonafolio and engine-service PID to its executable, fails fast if any process belongs to another app
 path, and signals only the exact app/service products under the runner's Release build directory.
 It uses stable accessibility identifiers and condition waits, preserves saved voices, visibly
 enables the persistent Clone consent preference for acceptance, restores temporary Auto-play
@@ -135,7 +135,7 @@ artifacts.
 macOS development and UI lanes reuse only `build/cache/xcode/macos/`; shared package checkouts live
 under `build/cache/xcode/source-packages/`. Result bundles, diagnostics, profiles, and current dSYMs
 are untracked artifacts under `build/artifacts/`, while release packaging is isolated under
-`build/scratch/derived-data/release-macos/` and `build/dist/macos/`. `build/Vocello.app` and
+`build/scratch/derived-data/release-macos/` and `build/dist/macos/`. `build/Sonafolio.app` and
 `build/vocello` are public symlinks to current canonical products, not copied applications. See the
 authoritative owner/lifetime table in [`privacy-storage.md`](privacy-storage.md).
 

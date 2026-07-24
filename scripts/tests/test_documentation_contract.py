@@ -32,7 +32,7 @@ class DocumentationContractTests(unittest.TestCase):
                         {"path": "build/dist/macos"},
                     ],
                     "publicLinks": [
-                        {"path": "build/Vocello.app"},
+                        {"path": "build/Sonafolio.app"},
                         {"path": "build/vocello"},
                     ],
                 }
@@ -105,7 +105,7 @@ class DocumentationContractTests(unittest.TestCase):
     def test_only_manifest_owned_build_paths_are_documented(self) -> None:
         source = self.write(
             "README.md",
-            "Valid `build/artifacts/macos/run` and `build/Vocello.app`; "
+            "Valid `build/artifacts/macos/run` and `build/Sonafolio.app`; "
             "invalid `build/random-derived-data/run`.\n",
         )
         errors = DOCUMENTATION.validate_build_references(self.root, [source])

@@ -13,9 +13,9 @@ MAC_DERIVED="$QVOICE_XCODE_MACOS_DERIVED"
 IOS_DERIVED="$QVOICE_XCODE_IOS_DERIVED"
 BUNDLE_ID_IOS="com.patricedery.vocello"
 MAC_TAKE_MANIFEST="/tmp/vocello-bench-current-take.json"
-MAC_APP_EXECUTABLE="$MAC_DERIVED/Build/Products/Release/Vocello.app/Contents/MacOS/Vocello"
+MAC_APP_EXECUTABLE="$MAC_DERIVED/Build/Products/Release/Sonafolio.app/Contents/MacOS/Sonafolio"
 MAC_ENGINE_EXECUTABLES=(
-  "$MAC_DERIVED/Build/Products/Release/Vocello.app/Contents/XPCServices/QwenVoiceEngineService.xpc/Contents/MacOS/QwenVoiceEngineService"
+  "$MAC_DERIVED/Build/Products/Release/Sonafolio.app/Contents/XPCServices/QwenVoiceEngineService.xpc/Contents/MacOS/QwenVoiceEngineService"
   "$MAC_DERIVED/Build/Products/Release/QwenVoiceEngineService.xpc/Contents/MacOS/QwenVoiceEngineService"
 )
 . "$ROOT_DIR/scripts/lib/test_models.sh"

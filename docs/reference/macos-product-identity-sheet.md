@@ -1,7 +1,7 @@
 # macOS 产品身份表
 
 > 版本：v0.3，2026-07-23。
-> 状态：第 1 阶段进行中；品牌工作名和 ASO 方向已经选定，不代表商标、Logo 或 Bundle ID 已注册。
+> 状态：第 1 阶段进行中；macOS 外部显示名已切换为 Sonafolio，不代表商标、Logo 或 Bundle ID 已注册。
 > 范围：macOS 商业发行；iOS 暂缓。
 
 本文是[macOS 商业化实施路线图](macos-commercialization-roadmap.md)第 1 阶段的一页式决策记录；前两张表为
@@ -91,6 +91,10 @@ macOS XPC 服务：  com.yiwenmeida.sonafolio.engine-service
 
 正式值必须由公司组织账号在 Apple Developer 后台确认唯一并注册；在首次 App Store Connect 构建上传前冻结。
 CLI、测试目标和纯内部 Swift 模块是否同步更名属于第 2 阶段的技术评估，不应为了外部品牌做无收益的全仓库机械重命名。
+
+2026-07-24 已先完成低风险的 macOS 外部品牌迁移：安装产物和可执行文件为 `Sonafolio.app` /
+`Sonafolio`，用户可见品牌文案同步更新；现有 Bundle ID、XPC ID、内部模块、`vocello` CLI、偏好键与
+`QwenVoice` 数据目录保持不变。正式公司标识注册后再执行独立的身份与数据迁移。
 
 ## 附录 D：Logo 设计简报
 

@@ -128,6 +128,8 @@ final class VoiceDesignCoordinator {
         let voiceDescription = draft.voiceDescription
         let emotion = draft.emotion
         let speed = SpeechRateControl.normalized(draft.speed)
+        let generateSubtitles = draft.generateSubtitles
+        let subtitleLanguage = draft.selectedLanguage
 
         generationTask = Task { @MainActor in
             var submittedGenerationID: UUID?
@@ -206,6 +208,13 @@ final class VoiceDesignCoordinator {
                     emotion: emotion,
                     speed: speed,
                     text: text
+                )
+                self.errorMessage = await SubtitlePostProcessor.generateIfRequested(
+                    generateSubtitles,
+                    script: text,
+                    audioPath: finalizedAudio.audioPath,
+                    language: subtitleLanguage,
+                    engineStore: ttsEngineStore
                 )
             } catch is CancellationError {
                 await AppGenerationTimeline.shared.recordFailed(

@@ -1302,7 +1302,7 @@ table.matrix .note {
 
     <div class="host-grid">
       <article class="host-card">
-        <h3>macOS · Vocello.app</h3>
+        <h3>macOS · Sonafolio.app</h3>
         <div class="meta">out-of-process XPC</div>
         <p>SwiftUI app links the full XPC stack. Engine runs in <code>QwenVoiceEngineService</code> for crash isolation and memory containment.</p>
         <ul>
@@ -1564,7 +1564,7 @@ scripts/macos_test.sh test
     <div class="dist-grid">
       <article class="dist-card">
         <h4>macOS release</h4>
-        <p>Signed Developer ID + notarized + stapled DMG (<code>Vocello-macos26.dmg</code>) via <code>scripts/release.sh</code> and <code>.github/workflows/release.yml</code>, gated by deterministic release-readiness and artifact checks.</p>
+        <p>Signed Developer ID + notarized + stapled DMG (<code>Sonafolio-macos26.dmg</code>) via <code>scripts/release.sh</code> and <code>.github/workflows/release.yml</code>, gated by deterministic release-readiness and artifact checks.</p>
         <span class="status">Shipped · 2.1.0</span>
       </article>
       <article class="dist-card">
@@ -1709,7 +1709,7 @@ scripts/macos_test.sh test
   "modules": [
     {
       "id":"QwenVoice","label":"QwenVoice","sub":"macOS app","kind":"app","type":"application","platform":"macOS","bundle":"com.qwenvoice.app",
-      "desc":"Vocello.app: SwiftUI sidebar shell, generation coordinators, library, settings, playback, persistence, and XPC wiring.",
+      "desc":"Sonafolio.app: SwiftUI sidebar shell, generation coordinators, library, settings, playback, persistence, and XPC wiring.",
       "depends":["GRDB","QwenVoiceCore","QwenVoiceEngineService","QwenVoiceEngineSupport","QwenVoiceNative","VocelloQwen3Core","MLX","HuggingFace"],
       "sourceRoots":["Sources"],
       "files":["Sources/QwenVoiceApp.swift","Sources/ContentView.swift","Sources/Views/","Sources/ViewModels/","Sources/Services/"]

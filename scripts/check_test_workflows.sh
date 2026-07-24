@@ -372,10 +372,10 @@ rg -q -- '--prune-ui-results' scripts/ui_test.sh \
 # DerivedData product. A name-wide kill could terminate a user's other Vocello.
 rg -q 'process_executable_path' scripts/ui_test.sh \
   || fail "macOS UI runner lost exact executable identity validation"
-rg -q 'Build/Products/Release/Vocello\.app/Contents/MacOS/Vocello' scripts/ui_test.sh \
+rg -q 'Build/Products/Release/Sonafolio\.app/Contents/MacOS/Sonafolio' scripts/ui_test.sh \
   || fail "macOS UI runner lost its exact test-host executable path"
-out="$(rg -n 'pkill[^\n]*(?:Vocello|QwenVoiceEngineService)' scripts/ui_test.sh 2>/dev/null || true)"
-[[ -z "$out" ]] || fail "macOS UI runner must never name-kill Vocello processes:\n$out"
+out="$(rg -n 'pkill[^\n]*(?:Sonafolio|Vocello|QwenVoiceEngineService)' scripts/ui_test.sh 2>/dev/null || true)"
+[[ -z "$out" ]] || fail "macOS UI runner must never name-kill Sonafolio processes:\n$out"
 
 # The only app-UI topology is two isolated schemes and two UI-test bundles.
 python3 - <<'PY'

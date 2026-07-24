@@ -116,6 +116,13 @@ final class CustomVoiceCoordinator {
                     summary: result.telemetrySummary
                 )
                 GenerationTelemetryMerger.scheduleMerge(generationID: generationRequest.generationID)
+                self.errorMessage = await SubtitlePostProcessor.generateIfRequested(
+                    draft.generateSubtitles,
+                    script: draft.text,
+                    audioPath: finalizedAudio.audioPath,
+                    language: draft.selectedLanguage,
+                    engineStore: ttsEngineStore
+                )
             } catch is CancellationError {
                 await AppGenerationTimeline.shared.recordFailed(
                     id: submittedGenerationID,

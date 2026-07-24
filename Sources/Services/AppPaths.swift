@@ -26,6 +26,10 @@ enum AppPaths {
         appSupportDir.appendingPathComponent("models", isDirectory: true)
     }
 
+    static var subtitleModelsDir: URL {
+        modelsDir.appendingPathComponent("whisper", isDirectory: true)
+    }
+
     static var outputsDir: URL {
         appSupportDir.appendingPathComponent("outputs", isDirectory: true)
     }

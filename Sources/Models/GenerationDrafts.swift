@@ -11,6 +11,7 @@ struct CustomVoiceDraft: Equatable {
     var selectedLanguage = Qwen3SupportedLanguage.auto
     var emotion = DeliveryProfile.neutralInstruction
     var speed = SpeechRateControl.normal
+    var generateSubtitles = false
     var text = ""
 
     var hasText: Bool {
@@ -37,6 +38,7 @@ struct VoiceDesignDraft: Equatable {
     var selectedLanguage = Qwen3SupportedLanguage.auto
     var emotion = DeliveryProfile.neutralInstruction
     var speed = SpeechRateControl.normal
+    var generateSubtitles = false
     var text = ""
 
     var hasVoiceDescription: Bool {
@@ -68,6 +70,7 @@ struct VoiceCloningDraft: Equatable {
     var selectedLanguage = Qwen3SupportedLanguage.auto
     var referenceTranscript = ""
     var speed = SpeechRateControl.normal
+    var generateSubtitles = false
     var text = ""
 
     var hasText: Bool {

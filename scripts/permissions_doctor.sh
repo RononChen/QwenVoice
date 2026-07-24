@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# macOS permission (TCC) diagnostics for Vocello development.
+# macOS permission (TCC) diagnostics for Sonafolio development.
 #
 # Read-only by default: prints the local build's code-signing identity and
 # designated requirement (the thing TCC keys grants to), the app's TCC rows,
@@ -13,12 +13,12 @@
 #
 # usage:
 #   scripts/permissions_doctor.sh             # diagnose
-#   scripts/permissions_doctor.sh --reset-tcc # reset Vocello's mic + speech TCC rows
+#   scripts/permissions_doctor.sh --reset-tcc # reset Sonafolio's mic + speech TCC rows
 
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_BUNDLE="$ROOT_DIR/build/Vocello.app"
+APP_BUNDLE="$ROOT_DIR/build/Sonafolio.app"
 XPC_BUNDLE="$APP_BUNDLE/Contents/XPCServices/QwenVoiceEngineService.xpc"
 BUNDLE_ID="com.qwenvoice.app"
 TCC_DB="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
@@ -38,7 +38,7 @@ decode_auth() {
 }
 
 section_signing() {
-    echo "==> Code identity of build/Vocello.app"
+    echo "==> Code identity of build/Sonafolio.app"
     if [ ! -d "$APP_BUNDLE" ]; then
         echo "    (no local build at $APP_BUNDLE — run ./scripts/build.sh build)"
         return 0

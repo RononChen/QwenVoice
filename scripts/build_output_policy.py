@@ -1209,14 +1209,14 @@ def _symbol_identity_violations(policy: LoadedPolicy) -> list[str]:
     ios_symbols = policy.repo_root / policy.entries_by_id["symbols-ios"]["path"]
     checks = (
         (
-            "macOS Vocello",
-            macos_cache / "Build/Products/Release/Vocello.app/Contents/MacOS/Vocello",
-            macos_symbols / "Vocello.app.dSYM",
+            "macOS Sonafolio",
+            macos_cache / "Build/Products/Release/Sonafolio.app/Contents/MacOS/Sonafolio",
+            macos_symbols / "Sonafolio.app.dSYM",
         ),
         (
             "macOS QwenVoiceEngineService",
             macos_cache
-            / "Build/Products/Release/Vocello.app/Contents/XPCServices/"
+            / "Build/Products/Release/Sonafolio.app/Contents/XPCServices/"
             "QwenVoiceEngineService.xpc/Contents/MacOS/QwenVoiceEngineService",
             macos_symbols / "QwenVoiceEngineService.xpc.dSYM",
         ),

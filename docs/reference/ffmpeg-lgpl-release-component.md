@@ -10,7 +10,7 @@ Vocello 不随包携带 Homebrew 或 Windows 的完整 FFmpeg。正式 macOS 包
 官方源码构建一个独立可执行文件：
 
 ```text
-Vocello.app/
+Sonafolio.app/
   Contents/
     MacOS/Vocello
     Helpers/ffmpeg-vocello

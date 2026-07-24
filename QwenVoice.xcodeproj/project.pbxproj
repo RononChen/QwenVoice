@@ -55,6 +55,7 @@
 		1E717451FC0F883570018189 /* IOSDeviceDiagnosticsRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23ECC0A581C6D3682E9A846A /* IOSDeviceDiagnosticsRecorder.swift */; };
 		1ED0434D51388D0666F8FF1F /* ThemeModifiers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F68911A1D10F5E325090F912 /* ThemeModifiers.swift */; };
 		1F0331F59477C4B2ED745030 /* IOSGenerationInputControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8265666E168A61818AB382C1 /* IOSGenerationInputControls.swift */; };
+		1F36AEB15D5E59DE2BE99B63 /* VocelloWhisperRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 6FFEE9B34B30CEFC9C58D455 /* VocelloWhisperRuntime */; };
 		1F607713C38054A7FA7F1D6E /* Generation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1BA97E899E616829A78233A /* Generation.swift */; };
 		1FE636CA103785636B5D4985 /* VocelloMacSmokeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E74540DA8C426D633D6114C /* VocelloMacSmokeUITests.swift */; };
 		202A2DA2AC1981459AD1F2AD /* LanguageFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE2E24D9F93A4651439BE63 /* LanguageFixtures.swift */; };
@@ -86,6 +87,7 @@
 		2E6A0B30C35D6D082403D964 /* LayoutConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = E876590A12FADBE38100CD17 /* LayoutConstants.swift */; };
 		2EA6BDC67DBC9CF242C64949 /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = C93B0B5AAEA9C601A09A3F90 /* HuggingFace */; };
 		2ECF75C20FA9F3180738A9CA /* TabDock.swift in Sources */ = {isa = PBXBuildFile; fileRef = F468E1E281F51995B6F9CB74 /* TabDock.swift */; };
+		2F53D1C91A7566FAA7F3898B /* NOTICE.txt in Resources */ = {isa = PBXBuildFile; fileRef = F1AAEA7EF8B84410E08FD481 /* NOTICE.txt */; };
 		2F54EA1E11E2647893BB02D8 /* sohee.wav in Resources */ = {isa = PBXBuildFile; fileRef = B03BDEE35746990C5202A7A9 /* sohee.wav */; };
 		30609C65E67479598357E64F /* WaveformService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9C7D6BE8A8364773C069202 /* WaveformService.swift */; };
 		30A2AB9307AF6CB9257B937A /* qwenvoice_ios_model_catalog.json in Resources */ = {isa = PBXBuildFile; fileRef = 32A87AE8A3A91622FD9D8D5B /* qwenvoice_ios_model_catalog.json */; };
@@ -156,6 +158,7 @@
 		56DCC7FA33F0A181591B1C28 /* QwenVoiceNative.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 405DF32499EDF28E20D73FEA /* QwenVoiceNative.framework */; };
 		58393FAD6A4BB754BA439C61 /* PromptLanguageDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07AE10233002DBEBDDAF6007 /* PromptLanguageDetector.swift */; };
 		59EF7FDB9556E1860DC2FF67 /* ContinuousVoiceDescriptionField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70E509E03D5758CB0D6C0388 /* ContinuousVoiceDescriptionField.swift */; };
+		5C816F48A4DDBC9A6F7E36F0 /* SubtitleGenerationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 959EE75522BBB369CC151C62 /* SubtitleGenerationService.swift */; };
 		5CEA95BA39656930F468D27B /* VocelloiOSBenchmarkUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBCE5DF7AD407A17AF522154 /* VocelloiOSBenchmarkUITests.swift */; };
 		5D23FDB4CC008D1E909414A8 /* SidebarStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16357673B0524D933999409E /* SidebarStatusView.swift */; };
 		5FE8611FB168684BB5A832C1 /* VoiceCloningCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8BD934015DBE86EA1193A6B /* VoiceCloningCoordinator.swift */; };
@@ -183,6 +186,7 @@
 		6F2BABA0C7850D795608204A /* ModelAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F056FE32E688786725FCC8D /* ModelAssets.swift */; };
 		6F6FC142F3627E7B64EA863C /* IOSOnboardingCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAC079A66AD5DB1CFDD33485 /* IOSOnboardingCard.swift */; };
 		6FE8129518C5F51DF294199F /* qwenvoice_contract.json in Resources */ = {isa = PBXBuildFile; fileRef = 617BE72142511CD5043C341E /* qwenvoice_contract.json */; };
+		707EA596AEAAB87EF2FEE6DD /* WhisperCPP-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = E34EB540515E8B0E9AEFB66F /* WhisperCPP-LICENSE.txt */; };
 		7197E0B1B11DA77FF707BB2B /* GenerationScreenPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A7E4D67B06F288693FEAC2 /* GenerationScreenPresentation.swift */; };
 		734C58F78D1DD830791C7364 /* IOSModelDeliveryBackgroundEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B7F58AC8D59F087073797F7 /* IOSModelDeliveryBackgroundEvents.swift */; };
 		75FE70A9B451FDA8338941B8 /* IOSGenerationModeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5015EC4FD8CE25703210 /* IOSGenerationModeViews.swift */; };
@@ -719,6 +723,7 @@
 		7D9DDDEEAEED933D8DB35472 /* VoicesCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicesCommand.swift; sourceTree = "<group>"; };
 		7DE42BFBCAD789F940DC13D4 /* ryan.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = ryan.wav; sourceTree = "<group>"; };
 		7DF0CD00D988A7520B168252 /* EngineServiceTransportAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineServiceTransportAccumulator.swift; sourceTree = "<group>"; };
+		7E41924C31700F13BD738AF2 /* VocelloWhisperRuntime */ = {isa = PBXFileReference; lastKnownFileType = folder; name = VocelloWhisperRuntime; path = Dependencies/VocelloWhisperRuntime; sourceTree = SOURCE_ROOT; };
 		7E6DC218BF438DBC1DEF6744 /* LongFormPlanning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LongFormPlanning.swift; sourceTree = "<group>"; };
 		802B55E1EAC5684CDE4BBE03 /* TTSModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSModel.swift; sourceTree = "<group>"; };
 		8265666E168A61818AB382C1 /* IOSGenerationInputControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSGenerationInputControls.swift; sourceTree = "<group>"; };
@@ -743,6 +748,7 @@
 		954096CC19F2467A5543DC03 /* GenerationStreamingTelemetryV9Bridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationStreamingTelemetryV9Bridge.swift; sourceTree = "<group>"; };
 		955EAA47F1E723B2D9DED7AD /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		958B08B9790BD411BEE24FA0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		959EE75522BBB369CC151C62 /* SubtitleGenerationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleGenerationService.swift; sourceTree = "<group>"; };
 		96F5016EE4D0700F679AAE5D /* VocelloiOSLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VocelloiOSLogicTests.swift; sourceTree = "<group>"; };
 		97496AD520CE5477FB6DCD51 /* SamplingEvidenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SamplingEvidenceTests.swift; sourceTree = "<group>"; };
 		99ADD3256887325626693B3B /* PromptLanguageDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptLanguageDetectorTests.swift; sourceTree = "<group>"; };
@@ -831,6 +837,7 @@
 		E1D20952B75F2BB2D5A83D59 /* AppDisplayLanguageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDisplayLanguageTests.swift; sourceTree = "<group>"; };
 		E1F796BD7F461844DF75A7EE /* QwenVoiceEngineSupport.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = QwenVoiceEngineSupport.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		E2C37F7C548405565C230BF8 /* BatchGenerationSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchGenerationSheet.swift; sourceTree = "<group>"; };
+		E34EB540515E8B0E9AEFB66F /* WhisperCPP-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "WhisperCPP-LICENSE.txt"; sourceTree = "<group>"; };
 		E4C9A2BB14FBE32D8BA298A6 /* BenchRunContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchRunContext.swift; sourceTree = "<group>"; };
 		E4D22F70AB025CF59B428113 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 		E56DB3F2A6729473A3816C4C /* TTSContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSContract.swift; sourceTree = "<group>"; };
@@ -855,6 +862,7 @@
 		F0699EDC590E2AF981A1D618 /* VocelloMacBenchmarkUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VocelloMacBenchmarkUITests.swift; sourceTree = "<group>"; };
 		F07D38F2C8B7C0297728A084 /* AtomicWAVGenerationOutputSinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AtomicWAVGenerationOutputSinkTests.swift; sourceTree = "<group>"; };
 		F1850ED756D6B6D3638F9AAA /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/Localizable.strings; sourceTree = "<group>"; };
+		F1AAEA7EF8B84410E08FD481 /* NOTICE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = NOTICE.txt; sourceTree = "<group>"; };
 		F1FFAA967392EE269CF32328 /* VoiceDesignView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceDesignView.swift; sourceTree = "<group>"; };
 		F2290D85D02EF277B2AC164A /* IOSRecordVoiceSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSRecordVoiceSheet.swift; sourceTree = "<group>"; };
 		F29BC695DE3C4ADC40FEF396 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
@@ -889,6 +897,7 @@
 				E4CEA3E7589F1B62509C9AC0 /* VocelloQwen3Core in Frameworks */,
 				0CF0F58510A8660B4271B74E /* MLX in Frameworks */,
 				4EC0A4406C6A83061B2D8C91 /* HuggingFace in Frameworks */,
+				1F36AEB15D5E59DE2BE99B63 /* VocelloWhisperRuntime in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1116,6 +1125,7 @@
 			isa = PBXGroup;
 			children = (
 				5D3141FCF83BC4C62BD05CA7 /* VocelloQwen3Core */,
+				7E41924C31700F13BD738AF2 /* VocelloWhisperRuntime */,
 			);
 			path = Packages;
 			sourceTree = "<group>";
@@ -1189,7 +1199,9 @@
 				617BE72142511CD5043C341E /* qwenvoice_contract.json */,
 				32A87AE8A3A91622FD9D8D5B /* qwenvoice_ios_model_catalog.json */,
 				B5AA98B0445794A0B2E8CDE9 /* qwenvoice_production_model_catalog.json */,
+				5B1A7F46588599A8DDBFD733 /* licenses */,
 				06E01BE09003D90FBD47915A /* Localizable.strings */,
+				4BD8CDFE637A80309484E965 /* ThirdPartyNotices */,
 				873AA7D1391E7197284827C9 /* voice-previews */,
 			);
 			path = Resources;
@@ -1215,6 +1227,14 @@
 			);
 			name = QwenVoiceEngineSupport;
 			path = Sources/QwenVoiceEngineSupport;
+			sourceTree = "<group>";
+		};
+		4BD8CDFE637A80309484E965 /* ThirdPartyNotices */ = {
+			isa = PBXGroup;
+			children = (
+				F1AAEA7EF8B84410E08FD481 /* NOTICE.txt */,
+			);
+			path = ThirdPartyNotices;
 			sourceTree = "<group>";
 		};
 		4F37CA228E18DE12CE0F1A43 /* Sources */ = {
@@ -1255,6 +1275,14 @@
 				F1FFAA967392EE269CF32328 /* VoiceDesignView.swift */,
 			);
 			path = Generate;
+			sourceTree = "<group>";
+		};
+		5B1A7F46588599A8DDBFD733 /* licenses */ = {
+			isa = PBXGroup;
+			children = (
+				E34EB540515E8B0E9AEFB66F /* WhisperCPP-LICENSE.txt */,
+			);
+			path = licenses;
 			sourceTree = "<group>";
 		};
 		5D7BBCF884C7E74F80E46D67 /* ViewModels */ = {
@@ -1418,6 +1446,7 @@
 				A55F5C185C7CAC960AAC9C80 /* MacGenerationWarmupCoordinator.swift */,
 				CC5190BFE7853E14F8FFC844 /* MacWarmupAdmissionPolicy.swift */,
 				5621F151E1304ECC98F4A173 /* PitchPreservingSpeechRateProcessor.swift */,
+				959EE75522BBB369CC151C62 /* SubtitleGenerationService.swift */,
 				D2A539A647083CC4810F72FE /* WaveformService.swift */,
 			);
 			path = Services;
@@ -1880,6 +1909,7 @@
 				A9593C511890B0520BB8105E /* Resources */,
 				5D7A8B5228021BF1D558700B /* CopyFiles */,
 				27632C381181CA8727A15BF1 /* Frameworks */,
+				AA73172D69D955E8E9ECFB3F /* Thin embedded Whisper framework to arm64 */,
 			);
 			buildRules = (
 			);
@@ -1895,6 +1925,7 @@
 				E5CE7911DE113C3DED3EB345 /* VocelloQwen3Core */,
 				DA662A93B5FC56B54CAA0A2E /* MLX */,
 				CA92F4A03738BC1991C7A752 /* HuggingFace */,
+				6FFEE9B34B30CEFC9C58D455 /* VocelloWhisperRuntime */,
 			);
 			productName = QwenVoice;
 			productReference = 3ADE213695C11F46205AE6DC /* QwenVoice.app */;
@@ -2031,6 +2062,7 @@
 				32E79430CFED0938C03DCC61 /* XCRemoteSwiftPackageReference "mlx-swift" */,
 				50F552015729986D9C4DD1EE /* XCRemoteSwiftPackageReference "swift-huggingface" */,
 				60817145678405F65A14F982 /* XCLocalSwiftPackageReference "Packages/VocelloQwen3Core" */,
+				DC065DF56ECC1D01AC2FF21E /* XCLocalSwiftPackageReference "Dependencies/VocelloWhisperRuntime" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 75A09AA27103DA1825A1703A /* Products */;
@@ -2093,8 +2125,10 @@
 			files = (
 				782CC4A0B12968AC18654792 /* Assets.xcassets in Resources */,
 				089A3BBAD5CF57F6E76549C3 /* Localizable.strings in Resources */,
+				2F53D1C91A7566FAA7F3898B /* NOTICE.txt in Resources */,
 				25FD6846BBC91DACB7E80100 /* PrivacyInfo.xcprivacy in Resources */,
 				CAE5016FA22E3B09634BB66F /* README.md in Resources */,
+				707EA596AEAAB87EF2FEE6DD /* WhisperCPP-LICENSE.txt in Resources */,
 				451768049CF773CE92C4DE8E /* aiden.wav in Resources */,
 				7D03D989EE55E8E630CCB17E /* dylan.wav in Resources */,
 				7EF1FAF304C4761E6BC38F2B /* eric.wav in Resources */,
@@ -2121,6 +2155,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		AA73172D69D955E8E9ECFB3F /* Thin embedded Whisper framework to arm64 */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Thin embedded Whisper framework to arm64";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n\nframework=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/whisper.framework\"\nbinary=\"${framework}/Versions/A/whisper\"\nif [[ ! -f \"${binary}\" ]]; then\n  binary=\"${framework}/whisper\"\nfi\nif [[ ! -f \"${binary}\" ]]; then\n  echo \"error: embedded whisper.framework binary was not found\" >&2\n  exit 1\nfi\n\narchitectures=\"$(/usr/bin/lipo -archs \"${binary}\")\"\ncase \" ${architectures} \" in\n  *\" arm64 \"*) ;;\n  *)\n    echo \"error: embedded whisper.framework does not contain arm64 (${architectures})\" >&2\n    exit 1\n    ;;\nesac\n\nif [[ \" ${architectures} \" == *\" x86_64 \"* ]]; then\n  thinned=\"${DERIVED_FILE_DIR}/whisper-arm64\"\n  /usr/bin/lipo \"${binary}\" -thin arm64 -output \"${thinned}\"\n  /bin/mv -f \"${thinned}\" \"${binary}\"\nfi\n\nfinal_architectures=\"$(/usr/bin/lipo -archs \"${binary}\")\"\nif [[ \"${final_architectures}\" != \"arm64\" ]]; then\n  echo \"error: embedded whisper.framework must be arm64-only (found: ${final_architectures})\" >&2\n  exit 1\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		0B2B00D12A4E864EB5DB153C /* Sources */ = {
@@ -2399,6 +2455,7 @@
 				5D23FDB4CC008D1E909414A8 /* SidebarStatusView.swift in Sources */,
 				7A4C342B51D60AB71AC61E0C /* SidebarView.swift in Sources */,
 				CE9FB73376B49D81E5BEFAF3 /* StartupDiagnosticsView.swift in Sources */,
+				5C816F48A4DDBC9A6F7E36F0 /* SubtitleGenerationService.swift in Sources */,
 				9C7F54D72E62B1918F56298B /* TTSContract.swift in Sources */,
 				019E5164FDE5AFD5FE86CBC9 /* TTSModel.swift in Sources */,
 				1BA11424A101CD274AFE9727 /* TextInputView.swift in Sources */,
@@ -2895,7 +2952,7 @@
 				CURRENT_PROJECT_VERSION = 18;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = Sources/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Vocello;
+				INFOPLIST_KEY_CFBundleDisplayName = Sonafolio;
 				INFOPLIST_KEY_QwenVoiceTeamIdentifier = "$(QWENVOICE_DEVELOPMENT_TEAM)";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -2905,11 +2962,11 @@
 				MARKETING_VERSION = 2.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.qwenvoice.app;
 				PRODUCT_MODULE_NAME = QwenVoice;
-				PRODUCT_NAME = Vocello;
+				PRODUCT_NAME = Sonafolio;
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = QW_UI_LIQUID;
 				SWIFT_VERSION = 6;
-				WRAPPER_NAME = Vocello.app;
+				WRAPPER_NAME = Sonafolio.app;
 			};
 			name = Release;
 		};
@@ -3159,6 +3216,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/VocelloQwen3Core;
 		};
+		DC065DF56ECC1D01AC2FF21E /* XCLocalSwiftPackageReference "Dependencies/VocelloWhisperRuntime" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Dependencies/VocelloWhisperRuntime;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -3221,6 +3282,10 @@
 		621B16C7C11094D441F80CCE /* VocelloQwen3Core */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = VocelloQwen3Core;
+		};
+		6FFEE9B34B30CEFC9C58D455 /* VocelloWhisperRuntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = VocelloWhisperRuntime;
 		};
 		7309F5AAFADB165524F081F3 /* VocelloQwen3Core */ = {
 			isa = XCSwiftPackageProductDependency;

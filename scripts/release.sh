@@ -16,7 +16,7 @@ SOURCE_PACKAGES_DIR="$QVOICE_XCODE_SOURCE_PACKAGES"
 DERIVED_DATA_PATH="$QVOICE_SCRATCH_RELEASE_MACOS"
 RELEASE_ARTIFACT_DIR="$QVOICE_ARTIFACTS_MACOS/release"
 BUILD_RESULT_BUNDLE_PATH="$RELEASE_ARTIFACT_DIR/macos-release-build.xcresult"
-DEFAULT_OUTPUT_NAME="Vocello-macos26"
+DEFAULT_OUTPUT_NAME="Sonafolio-macos26"
 TOTAL_START="$(date +%s)"
 export BUILD_CACHE_DIR="$SOURCE_PACKAGES_DIR/.qwenvoice-cache"
 
@@ -208,7 +208,7 @@ resolve_build_metadata() {
     [ -n "$EXECUTABLE_NAME" ] || release_fail "Could not determine EXECUTABLE_NAME"
 }
 
-echo "=== Vocello: macOS Release Build ==="
+echo "=== Sonafolio: macOS Release Build ==="
 echo ""
 echo "  scheme: $SCHEME"
 echo "  output DMG: $OUTPUT_NAME.dmg"
@@ -421,7 +421,7 @@ METADATA_PATH="$BUILD_DIR/release-metadata.txt"
 {
     echo "commit_sha=$COMMIT_SHA"
     echo "release_mode=macos-github"
-    echo "release_brand=Vocello"
+    echo "release_brand=Sonafolio"
     echo "xcode_version=$XCODE_VERSION"
     echo "sdk_version=$SDK_VERSION"
     echo "app_minos=$APP_MINOS"
@@ -442,7 +442,7 @@ echo "[7/7] Release metadata written to $METADATA_PATH ($(step_time "$STEP_START
 echo ""
 
 TOTAL_ELAPSED="$(( $(date +%s) - TOTAL_START ))"
-echo "Vocello macOS release build complete."
+echo "Sonafolio macOS release build complete."
 echo "  App:      $APP_PATH"
 echo "  DMG:      $DMG_PATH"
 echo "  Metadata: $METADATA_PATH"

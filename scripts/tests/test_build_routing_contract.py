@@ -275,7 +275,7 @@ class BuildRoutingContractTests(unittest.TestCase):
         cache = self.text("scripts/lib/build_cache.sh")
         self.assertIn("validate_dsym_uuid", cache)
         self.assertIn("preserve_ios_dsym", cache)
-        self.assertIn("Vocello.app.dSYM", cache)
+        self.assertIn("Sonafolio.app.dSYM", cache)
         self.assertIn("QwenVoiceEngineService.xpc.dSYM", cache)
         ios = self.text("scripts/ios_device.sh")
         self.assertIn("validate_dsym_identity", ios)
@@ -384,7 +384,7 @@ class BuildRoutingContractTests(unittest.TestCase):
             "scratch",
             "artifacts",
             "dist",
-            "Vocello.app",
+            "Sonafolio.app",
             "vocello",
         }
         unknown = sorted(path.name for path in build.iterdir() if path.name not in allowed)

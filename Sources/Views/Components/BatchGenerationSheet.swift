@@ -20,6 +20,7 @@ struct BatchGenerationSheet: View {
 
     @State private var batchText = ""
     @State private var speechRate = SpeechRateControl.normal
+    @State private var generateSubtitles = false
     @State private var segmentationMode: BatchSegmentationMode = .lineSeparated
     @StateObject private var coordinator = BatchGenerationCoordinator()
 
@@ -33,6 +34,7 @@ struct BatchGenerationSheet: View {
         refAudio: String? = nil,
         refText: String? = nil,
         speed: Double = SpeechRateControl.normal,
+        generateSubtitles: Bool = false,
         initialText: String = "",
         initialSegmentationMode: BatchSegmentationMode = .lineSeparated
     ) {
@@ -45,6 +47,7 @@ struct BatchGenerationSheet: View {
         self.refAudio = refAudio
         self.refText = refText
         _speechRate = State(initialValue: SpeechRateControl.normalized(speed))
+        _generateSubtitles = State(initialValue: generateSubtitles)
         _batchText = State(initialValue: initialText)
         _segmentationMode = State(initialValue: initialSegmentationMode)
     }
@@ -104,7 +107,7 @@ struct BatchGenerationSheet: View {
 
         Text(
             segmentationMode == .longForm
-                ? "Paste a complete long script, or drag a `.txt` file onto this sheet. Vocello will split it internally and produce one WAV."
+                ? "Paste a complete long script, or drag a `.txt` file onto this sheet. Sonafolio will split it internally and produce one WAV."
                 : "Enter one line per generation, or drag a `.txt` file onto this sheet."
         )
             .font(.callout)
@@ -133,6 +136,10 @@ struct BatchGenerationSheet: View {
 
         HStack {
             SpeechRateField(rate: $speechRate, isDisabled: coordinator.isProcessing)
+            SubtitleGenerationControl(
+                isEnabled: $generateSubtitles,
+                isDisabled: coordinator.isProcessing
+            )
             Spacer()
             Text("0.01–2.50 · 1.00 is original speed".localizedForDisplay)
                 .font(.caption)
@@ -232,7 +239,11 @@ struct BatchGenerationSheet: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(themeColor)
-            .disabled(batchText.isEmpty || coordinator.isProcessing)
+            .disabled(
+                batchText.isEmpty
+                    || coordinator.isProcessing
+                    || (generateSubtitles && !SubtitleModelManager.shared.isReady)
+            )
             .keyboardShortcut(.defaultAction)
             .accessibilityIdentifier("batch_generateAllButton")
         }
@@ -465,7 +476,8 @@ struct BatchGenerationSheet: View {
                     voiceDescription: voiceDescription,
                     refAudio: refAudio,
                     refText: refText,
-                    speed: speechRate
+                    speed: speechRate,
+                    generateSubtitles: generateSubtitles
                 )
             },
             isModelAvailable: { model in
@@ -490,6 +502,8 @@ private struct BatchGenerationItemRow: View {
             return AppTheme.statusProgressTint
         case .saved:
             return .green
+        case .savedWithWarning:
+            return .orange
         case .failed:
             return .red
         case .cancelled:
@@ -505,6 +519,8 @@ private struct BatchGenerationItemRow: View {
             return "waveform.circle.fill"
         case .saved:
             return "checkmark.circle.fill"
+        case .savedWithWarning:
+            return "exclamationmark.circle.fill"
         case .failed:
             return "xmark.circle.fill"
         case .cancelled:

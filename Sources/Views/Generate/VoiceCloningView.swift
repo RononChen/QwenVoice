@@ -292,6 +292,7 @@ struct VoiceCloningView: View {
                     refAudio: configuration.refAudio,
                     refText: configuration.refText,
                     speed: configuration.speed,
+                    generateSubtitles: configuration.generateSubtitles,
                     initialText: configuration.initialText,
                     initialSegmentationMode: configuration.initialSegmentationMode
                 )
@@ -387,6 +388,7 @@ private extension VoiceCloningView {
                 TextInputView(
                     text: $draft.text,
                     speechRate: $draft.speed,
+                    generateSubtitles: $draft.generateSubtitles,
                     isGenerating: isGenerationActive,
                     placeholder: "Type the line for the cloned voice",
                     buttonColor: AppTheme.voiceCloning,

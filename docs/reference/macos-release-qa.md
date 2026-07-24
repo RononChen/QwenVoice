@@ -3,7 +3,7 @@
 > Before starting a release run, confirm the active acceptance state in
 > [`docs/development-progress.md`](../development-progress.md).
 
-The standing pre-release procedure for a macOS (Vocello.app / DMG) release. First executed in full
+The standing pre-release procedure for a macOS (Sonafolio.app / DMG) release. First executed in full
 for v2.1.0 (2026-06-09); rerun the deterministic gates for every release and use the interactive
 UI lanes only when frontend acceptance is explicitly requested. If this doc disagrees with the code,
 the code wins.

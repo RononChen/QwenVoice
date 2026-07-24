@@ -344,9 +344,9 @@ raise SystemExit(0 if payload.get("_fixtureValid") is True else 1)
         ios = self.write(self.root / "build" / "cache" / "xcode" / "ios-device" / "cache")
         packages = self.write(self.root / "build" / "cache" / "xcode" / "source-packages" / "cache")
         runtime = self.write(self.root / "build" / "cache" / "swiftpm" / "mlx-audio-runtime" / "cache")
-        public_app = self.root / "build" / "Vocello.app"
+        public_app = self.root / "build" / "Sonafolio.app"
         public_app.parent.mkdir(parents=True, exist_ok=True)
-        public_app.symlink_to("cache/xcode/macos/Build/Products/Release/Vocello.app")
+        public_app.symlink_to("cache/xcode/macos/Build/Products/Release/Sonafolio.app")
 
         self.run_clean("--cache", "macos")
 
@@ -359,7 +359,7 @@ raise SystemExit(0 if payload.get("_fixtureValid") is True else 1)
         cache = self.write(
             self.root / "build" / "cache" / "xcode" / "macos" / "cache"
         )
-        copied = self.write(self.root / "build" / "Vocello.app" / "binary")
+        copied = self.write(self.root / "build" / "Sonafolio.app" / "binary")
 
         result = self.run_clean("--cache", "macos", expected=1)
 
@@ -393,9 +393,9 @@ raise SystemExit(0 if payload.get("_fixtureValid") is True else 1)
             self.write(self.root / "build" / "cache" / "xcode" / "source-packages" / "checkout"),
             self.write(self.root / "build" / "cache" / "swiftpm" / "mlx-audio-runtime" / "cache"),
         ]
-        public_app = self.root / "build" / "Vocello.app"
+        public_app = self.root / "build" / "Sonafolio.app"
         public_app.parent.mkdir(parents=True, exist_ok=True)
-        public_app.symlink_to("cache/xcode/macos/Build/Products/Release/Vocello.app")
+        public_app.symlink_to("cache/xcode/macos/Build/Products/Release/Sonafolio.app")
         dist = self.write(self.root / "build" / "dist" / "macos" / "Vocello.dmg")
         symbol = self.write(self.root / "build" / "artifacts" / "symbols" / "macos" / "symbol")
 

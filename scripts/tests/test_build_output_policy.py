@@ -470,8 +470,8 @@ class BuildOutputPolicyTests(unittest.TestCase):
         self.assertEqual((destination / "value").read_text(), "new")
 
     def test_matching_public_copy_becomes_relative_symlink_only_after_product_move(self) -> None:
-        legacy_product = self.root / "build/DerivedData/Build/Products/Release/Vocello.app"
-        public_copy = self.root / "build/Vocello.app"
+        legacy_product = self.root / "build/DerivedData/Build/Products/Release/Sonafolio.app"
+        public_copy = self.root / "build/Sonafolio.app"
         legacy_product.mkdir(parents=True)
         public_copy.mkdir(parents=True)
         (legacy_product / "binary").write_text("same", encoding="utf-8")
@@ -483,15 +483,15 @@ class BuildOutputPolicyTests(unittest.TestCase):
 
         result = self.command("migrate", "--apply", "--json")
         self.assertEqual(result.returncode, 0, result.stderr)
-        canonical = self.root / "build/cache/xcode/macos/Build/Products/Release/Vocello.app"
+        canonical = self.root / "build/cache/xcode/macos/Build/Products/Release/Sonafolio.app"
         self.assertTrue(public_copy.is_symlink())
         self.assertFalse(os.path.isabs(os.readlink(public_copy)))
         self.assertEqual(public_copy.resolve(), canonical.resolve())
         self.assertEqual((public_copy / "binary").read_text(), "same")
 
     def test_nonmatching_public_copy_blocks_entire_migration(self) -> None:
-        legacy_product = self.root / "build/DerivedData/Build/Products/Release/Vocello.app"
-        public_copy = self.root / "build/Vocello.app"
+        legacy_product = self.root / "build/DerivedData/Build/Products/Release/Sonafolio.app"
+        public_copy = self.root / "build/Sonafolio.app"
         legacy_product.mkdir(parents=True)
         public_copy.mkdir(parents=True)
         (legacy_product / "binary").write_text("canonical", encoding="utf-8")

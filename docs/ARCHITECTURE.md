@@ -19,7 +19,7 @@ One engine core (`QwenVoiceCore` / `MLXTTSEngine`) is hosted three ways:
 
 | Host | Process model | Wired by | Used by |
 | --- | --- | --- | --- |
-| **macOS app** | Engine runs **out-of-process** in an XPC service (`QwenVoiceEngineService`) | `QwenVoiceNative` (XPC client + `TTSEngineStore`) | `Vocello.app` |
+| **macOS app** | Engine runs **out-of-process** in an XPC service (`QwenVoiceEngineService`) | `QwenVoiceNative` (XPC client + `TTSEngineStore`) | `Sonafolio.app` |
 | **iOS app** | Engine runs **in-process** (`MLXTTSEngine` via `NativeRuntimeFactory`) | `Sources/iOS/TTSEngineStore.swift` | `VocelloiOS` |
 | **CLI** | Engine runs **in-process** | `VocelloCLI` (`CLIRuntime`) | `vocello` binary |
 
@@ -48,7 +48,7 @@ graph TD
     classDef macfw fill:#fee,stroke:#c33;
     classDef spm fill:#ffd,stroke:#aa0,stroke-dasharray:3 3;
 
-    QwenVoice["QwenVoice<br/>(macOS app · Vocello.app)"]:::app
+    QwenVoice["QwenVoice<br/>(macOS app · Sonafolio.app)"]:::app
     VocelloiOS["VocelloiOS<br/>(iOS app)"]:::app
     VocelloCLI["VocelloCLI<br/>(vocello CLI)"]:::app
 
@@ -96,7 +96,7 @@ graph.)
 
 | Target | Type | Platform | Module name | Bundle ID | Responsibility |
 | --- | --- | --- | --- | --- | --- |
-| `QwenVoice` | application | macOS | `QwenVoice` | `com.qwenvoice.app` | macOS SwiftUI app (`Vocello.app`). Links the full XPC stack. |
+| `QwenVoice` | application | macOS | `QwenVoice` | `com.qwenvoice.app` | macOS SwiftUI app (`Sonafolio.app`). Links the full XPC stack. |
 | `VocelloiOS` | application | iOS | `QVoiceiOS` | `com.patricedery.vocello` | iOS SwiftUI app; engine runs in-process. App Group `group.com.patricedery.vocello.shared`. |
 | `VocelloCLI` | tool | macOS | `VocelloCLI` | `com.qwenvoice.cli` | Headless `vocello` binary; engine in-process. |
 | `QwenVoiceCore` | framework.static | iOS + macOS | `QwenVoiceCore` | `com.qwenvoice.core` | **Engine core**: `TTSEngine` protocol, `MLXTTSEngine`, generation semantics, runtime, memory policy, telemetry. |
@@ -188,7 +188,7 @@ lives** and **how the UI talks to it**.
 
 ```mermaid
 flowchart LR
-    subgraph macOS["macOS app (Vocello.app)"]
+    subgraph macOS["macOS app (Sonafolio.app)"]
         MacUI["SwiftUI views / coordinators"]
         MacStore["TTSEngineStore<br/>(QwenVoiceNative)"]
         MacClient["XPCNativeEngineClient<br/>+ XPCNativeEngineCoordinator"]
@@ -743,7 +743,7 @@ Release, XcodeBuildMCP, package-resolution, CI, and compile-safety DerivedData a
 `build/scratch/`; no third persistent platform cache is permitted. Validator-owned telemetry,
 profiles, UI results, crash data, and UUID-matched current dSYMs live below `build/artifacts/`.
 Signing, archives, exports, and packages live below `build/dist/` and are never removed by routine
-or aggressive cache cleanup. The compatibility paths `build/Vocello.app` and `build/vocello` are
+or aggressive cache cleanup. The compatibility paths `build/Sonafolio.app` and `build/vocello` are
 symlinks to the canonical macOS cache products, not copied binaries.
 
 Every supported build records an atomic `last-build.json` provenance stamp with its producer,

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unified local build entrypoint for QwenVoice / Vocello.
+# Unified local build entrypoint for QwenVoice / Sonafolio.
 #
 # Single shippable config: there is no separate Debug config. This builds the
 # Release config UNOPTIMIZED (-Onone) for a fast local loop; scripts/release.sh
@@ -27,7 +27,7 @@ SCRIPT_DIR="$ROOT_DIR/scripts"
 # shellcheck source=lib/build_paths.sh
 . "$SCRIPT_DIR/lib/build_paths.sh"
 
-APP_NAME="Vocello"
+APP_NAME="Sonafolio"
 SCHEME_NAME="QwenVoice"
 BUNDLE_ID="com.qwenvoice.app"
 DESTINATION="platform=macOS,arch=arm64"
@@ -161,6 +161,7 @@ build_app() {
         echo "==> CodeQL traced Swift build completed (analysis-only product)"
         return 0
     fi
+    resign_dev_embedded_xpc_resources "$XCODEBUILD_APP" "$signing_identity"
     assert_mlx_metallibs "$XCODEBUILD_APP"
     assert_macos_bundle_arm64_only "$XCODEBUILD_APP"
     assert_signing_identity "$XCODEBUILD_APP" "$signing_identity"

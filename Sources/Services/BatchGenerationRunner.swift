@@ -96,6 +96,7 @@ struct BatchGenerationItemState: Identifiable, Equatable {
         case pending
         case running
         case saved(audioPath: String)
+        case savedWithWarning(audioPath: String, message: String)
         case failed(message: String)
         case cancelled
     }
@@ -122,11 +123,17 @@ struct BatchGenerationItemState: Identifiable, Equatable {
         if case .saved(let audioPath) = status {
             return audioPath
         }
+        if case .savedWithWarning(let audioPath, _) = status {
+            return audioPath
+        }
         return nil
     }
 
     var isSaved: Bool {
         if case .saved = status {
+            return true
+        }
+        if case .savedWithWarning = status {
             return true
         }
         return false
@@ -136,7 +143,7 @@ struct BatchGenerationItemState: Identifiable, Equatable {
         switch status {
         case .pending, .running, .failed, .cancelled:
             return true
-        case .saved:
+        case .saved, .savedWithWarning:
             return false
         }
     }
@@ -147,7 +154,7 @@ struct BatchGenerationItemState: Identifiable, Equatable {
             return "Pending"
         case .running:
             return "Running"
-        case .saved:
+        case .saved, .savedWithWarning:
             return "Saved"
         case .failed:
             return "Failed"
@@ -158,6 +165,8 @@ struct BatchGenerationItemState: Identifiable, Equatable {
 
     var statusMessage: String? {
         switch status {
+        case .savedWithWarning(_, let message):
+            return message
         case .failed(let message):
             return message
         default:
@@ -189,6 +198,7 @@ struct BatchGenerationRequest {
     let refAudio: String?
     let refText: String?
     let speed: Double
+    let generateSubtitles: Bool
     let originalLongFormText: String?
     let longFormPlan: LongFormPlan?
     /// One sampling seed shared by every item in the batch (GitHub #30):
@@ -211,6 +221,7 @@ struct BatchGenerationRequest {
         refAudio: String?,
         refText: String?,
         speed: Double = SpeechRateControl.normal,
+        generateSubtitles: Bool = false,
         originalLongFormText: String? = nil,
         longFormPlan: LongFormPlan? = nil,
         batchSeed: UInt64 = UInt64.random(in: UInt64.min...UInt64.max)
@@ -226,6 +237,7 @@ struct BatchGenerationRequest {
         self.refAudio = refAudio
         self.refText = refText
         self.speed = SpeechRateControl.normalized(speed)
+        self.generateSubtitles = generateSubtitles
         self.originalLongFormText = originalLongFormText
         self.longFormPlan = longFormPlan
         self.batchSeed = batchSeed
@@ -244,6 +256,7 @@ struct BatchGenerationRequest {
             refAudio: refAudio,
             refText: refText,
             speed: speed,
+            generateSubtitles: generateSubtitles,
             originalLongFormText: originalText,
             longFormPlan: plan,
             batchSeed: batchSeed
@@ -422,7 +435,7 @@ enum BatchGenerationOutcome: Equatable {
             switch item.status {
             case .pending, .running, .cancelled:
                 return item.line
-            case .failed, .saved:
+            case .failed, .saved, .savedWithWarning:
                 return nil
             }
         }
@@ -723,6 +736,7 @@ final class BatchGenerationRunner {
         }
         var completedCount = 0
         let total = request.lines.count
+        var subtitleJobs: [(index: Int, text: String, audioPath: String)] = []
 
         func publishItems() {
             onItemsUpdated(items)
@@ -745,6 +759,39 @@ final class BatchGenerationRunner {
                     statusMessage: message
                 )
             )
+        }
+
+        func generatePendingSubtitles() async {
+            guard request.generateSubtitles, !subtitleJobs.isEmpty else { return }
+            try? await engineStore.unloadModel()
+            for (jobNumber, job) in subtitleJobs.enumerated() {
+                if Task.isCancelled { return }
+                if await cancellationState.wasRequested() { return }
+                publishProgress(
+                    activeItemIndex: job.index,
+                    message: AppLocalization.format(
+                        "Generating SRT %lld/%lld...",
+                        Int64(jobNumber + 1),
+                        Int64(subtitleJobs.count)
+                    )
+                )
+                do {
+                    _ = try await SubtitleGenerationService.shared.generateSRT(
+                        script: job.text,
+                        audioURL: URL(fileURLWithPath: job.audioPath),
+                        language: Qwen3SupportedLanguage.normalized(request.languageHint)
+                    )
+                } catch {
+                    items[job.index].status = .savedWithWarning(
+                        audioPath: job.audioPath,
+                        message: AppLocalization.format(
+                            "The WAV was saved, but SRT generation failed: %@",
+                            error.localizedDescription
+                        )
+                    )
+                    publishItems()
+                }
+            }
         }
 
         publishItems()
@@ -832,6 +879,9 @@ final class BatchGenerationRunner {
                         generationEvents.announceGenerationAppended(savedGeneration)
                         completedCount += 1
                         items[index].status = .saved(audioPath: finalizedAudio.audioPath)
+                        if request.generateSubtitles {
+                            subtitleJobs.append((index, line, finalizedAudio.audioPath))
+                        }
                         if index + 1 < items.count {
                             items[index + 1].status = .pending
                         }
@@ -843,6 +893,7 @@ final class BatchGenerationRunner {
                     }
                 }
 
+                await generatePendingSubtitles()
                 publishProgress(activeItemIndex: nil, message: "Done")
                 return .completed(items: items)
             } catch {
@@ -915,6 +966,9 @@ final class BatchGenerationRunner {
                 generationEvents.announceGenerationAppended(savedGeneration)
                 completedCount += 1
                 items[index].status = .saved(audioPath: finalizedAudio.audioPath)
+                if request.generateSubtitles {
+                    subtitleJobs.append((index, line, finalizedAudio.audioPath))
+                }
                 publishItems()
             } catch {
                 let cancellationRequested = await cancellationState.wasRequested()
@@ -940,6 +994,7 @@ final class BatchGenerationRunner {
             return .cancelled(items: items, restartFailedMessage: nil)
         }
 
+        await generatePendingSubtitles()
         publishProgress(activeItemIndex: nil, message: "Done")
         return .completed(items: items)
     }
@@ -1130,6 +1185,23 @@ final class BatchGenerationRunner {
 
             items[0].status = .saved(audioPath: outputURL.path)
             onItemsUpdated(items)
+            if request.generateSubtitles {
+                publishProgress(activeIndex: nil, message: "Generating SRT...")
+                let warning = await SubtitlePostProcessor.generateIfRequested(
+                    true,
+                    script: originalText,
+                    audioPath: finalizedAudio.audioPath,
+                    language: Qwen3SupportedLanguage.normalized(request.languageHint),
+                    engineStore: engineStore
+                )
+                if let warning {
+                    items[0].status = .savedWithWarning(
+                        audioPath: finalizedAudio.audioPath,
+                        message: warning
+                    )
+                    onItemsUpdated(items)
+                }
+            }
             publishProgress(activeIndex: nil, message: "Done")
             return .completed(items: items)
         } catch {

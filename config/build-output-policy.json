@@ -289,9 +289,9 @@
   ],
   "publicLinks": [
     {
-      "path": "build/Vocello.app",
+      "path": "build/Sonafolio.app",
       "targetEntry": "xcode-macos-derived-data",
-      "targetSuffix": "Build/Products/Release/Vocello.app"
+      "targetSuffix": "Build/Products/Release/Sonafolio.app"
     },
     {
       "path": "build/vocello",

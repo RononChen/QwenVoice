@@ -19,7 +19,7 @@ fail() {
 
 usage() {
     cat >&2 <<'EOF'
-Usage: ./scripts/build_ffmpeg_lgpl_component.sh [--app-bundle /path/to/Vocello.app] [--release-assets /path/to/directory] [--offline]
+Usage: ./scripts/build_ffmpeg_lgpl_component.sh [--app-bundle /path/to/Sonafolio.app] [--release-assets /path/to/directory] [--offline]
 
 Builds the pinned arm64 LGPL-only ffmpeg-vocello helper from official FFmpeg
 source. Optional destinations install the helper/notices into a macOS app and

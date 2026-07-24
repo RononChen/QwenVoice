@@ -141,7 +141,7 @@ Release 提供精确对应源码、上游分离签名及构建清单，并纳入
 包含 helper 的签名测试包当前实际携带：
 
 ```text
-Vocello.app/Contents/Resources/ThirdPartyNotices/FFmpeg/
+Sonafolio.app/Contents/Resources/ThirdPartyNotices/FFmpeg/
   NOTICE.txt
   COPYING.LGPLv2.1
   LICENSE.md

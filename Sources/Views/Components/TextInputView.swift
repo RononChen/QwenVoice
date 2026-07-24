@@ -4,6 +4,7 @@ import AppKit
 struct TextInputView: View {
     @Binding var text: String
     @Binding var speechRate: Double
+    @Binding var generateSubtitles: Bool
 
     var isGenerating: Bool
     var placeholder: String = "Type or paste your script"
@@ -20,6 +21,10 @@ struct TextInputView: View {
 
     private var isTextEmptyForGeneration: Bool {
         text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var subtitleGenerationIsBlocked: Bool {
+        generateSubtitles && !SubtitleModelManager.shared.isReady
     }
 
     var body: some View {
@@ -83,12 +88,21 @@ struct TextInputView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(buttonColor)
-                    .disabled(isTextEmptyForGeneration || isGenerating || generateDisabled)
+                    .disabled(
+                        isTextEmptyForGeneration
+                            || isGenerating
+                            || generateDisabled
+                            || subtitleGenerationIsBlocked
+                    )
                     .accessibilityIdentifier("textInput_generateButton")
                 }
             }
 
             SpeechRateField(rate: $speechRate, isDisabled: isGenerating)
+            SubtitleGenerationControl(
+                isEnabled: $generateSubtitles,
+                isDisabled: isGenerating
+            )
 
             Spacer(minLength: 0)
 
@@ -128,8 +142,82 @@ struct TextInputView: View {
         Button("", action: onGenerate)
             .keyboardShortcut(.return, modifiers: .command)
             .opacity(0.001)
-            .disabled(isTextEmptyForGeneration || isGenerating || generateDisabled)
+            .disabled(
+                isTextEmptyForGeneration
+                    || isGenerating
+                    || generateDisabled
+                    || subtitleGenerationIsBlocked
+            )
             .accessibilityHidden(true)
+    }
+}
+
+struct SubtitleGenerationControl: View {
+    @Binding var isEnabled: Bool
+    var isDisabled = false
+
+    @State private var modelManager = SubtitleModelManager.shared
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Toggle("Generate SRT".localizedForDisplay, isOn: $isEnabled)
+                .toggleStyle(.checkbox)
+                .disabled(isDisabled)
+                .accessibilityIdentifier("textInput_generateSRTToggle")
+                .onChange(of: isEnabled) { _, enabled in
+                    if enabled, !modelManager.isReady {
+                        modelManager.install()
+                    }
+                }
+
+            switch modelManager.state {
+            case .checking:
+                if isEnabled {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Checking subtitle model".localizedForDisplay)
+                }
+            case .downloading:
+                if isEnabled {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Downloading subtitle model".localizedForDisplay)
+                    Text("574 MB")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            case .failed:
+                if isEnabled {
+                    Button {
+                        modelManager.install()
+                    } label: {
+                        Image(systemName: "arrow.clockwise.circle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Retry subtitle model download".localizedForDisplay)
+                    .accessibilityLabel("Retry subtitle model download".localizedForDisplay)
+                }
+            case .notInstalled, .ready:
+                EmptyView()
+            }
+        }
+        .help(subtitleHelpText.localizedForDisplay)
+    }
+
+    private var subtitleHelpText: String {
+        switch modelManager.state {
+        case .checking:
+            return "Checking the local subtitle model."
+        case .notInstalled:
+            return "Generate an SRT from the final WAV. Enabling this downloads a 574 MB local model once."
+        case .downloading:
+            return "Downloading the 574 MB subtitle model. Generation is available when the download finishes."
+        case .ready:
+            return "Generate an SRT beside the final WAV after speech-rate adjustment."
+        case .failed(let message):
+            return AppLocalization.format("Subtitle model download failed: %@", message)
+        }
     }
 }
 
